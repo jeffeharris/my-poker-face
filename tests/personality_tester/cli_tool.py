@@ -55,7 +55,10 @@ What is your move?"""
             decision += f" ${response.get('raise_to')}"
             
         print(f"  Decision: {decision}")
-        print(f'  Says: "{response.get("persona_response", "...")}"')
+        beats = response.get("dramatic_sequence", [])
+        if beats:
+            print(f'  Dramatic Sequence: {beats}')
+
         
         if response.get('inner_monologue'):
             print(f'  Thinking: "{response.get("inner_monologue")}"')

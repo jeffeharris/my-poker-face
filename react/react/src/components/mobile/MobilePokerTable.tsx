@@ -10,12 +10,13 @@ import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
-import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
+import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
+import '../../styles/action-badges.css';
 import './MobilePokerTable.css';
 import './MobileActionButtons.css';
 
@@ -37,6 +38,11 @@ export function MobilePokerTable({
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
   const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Track last known actions for fade-out animation
+  const lastKnownActions = useRef<Map<string, string>>(new Map());
+  // Incrementing this state forces a re-render after the ref is mutated on fade completion
+  const [, setFadeKey] = useState(0);
 
   // Callbacks for handling AI messages (for floating bubbles)
   const handleNewAiMessage = useCallback((message: ChatMessage) => {
@@ -223,6 +229,7 @@ export function MobilePokerTable({
             phase={gameState.phase}
             smallBlind={gameState.small_blind}
             bigBlind={gameState.big_blind}
+            handNumber={gameState.hand_number}
           />
         }
         showUserInfo
@@ -294,8 +301,11 @@ export function MobilePokerTable({
                   ))}
                 </div>
               )}
-              {opponent.is_folded && <div className="status-badge folded">FOLD</div>}
-              {opponent.is_all_in && <div className="status-badge all-in">ALL-IN</div>}
+              <ActionBadge
+                player={opponent}
+                lastKnownActions={lastKnownActions}
+                onFadeComplete={() => setFadeKey(k => k + 1)}
+              />
             </div>
           );
         })}

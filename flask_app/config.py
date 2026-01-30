@@ -1,7 +1,6 @@
 """Configuration for the Flask application."""
 
 import os
-from functools import lru_cache
 
 from dotenv import load_dotenv
 
@@ -49,64 +48,19 @@ REDIS_URL = os.environ.get('REDIS_URL')
 from core.llm import ASSISTANT_MODEL, ASSISTANT_PROVIDER
 from core.llm.config import DEFAULT_MODEL, DEFAULT_PROVIDER, FAST_MODEL, FAST_PROVIDER, IMAGE_PROVIDER, IMAGE_MODEL
 
-
-@lru_cache(maxsize=1)
-def _get_config_persistence():
-    """Get a cached GamePersistence instance for config lookups.
-
-    Note: This caches a single shared instance across all callers. This is safe
-    because GamePersistence uses context managers for all DB operations and
-    maintains no connection state between calls. Each operation opens and closes
-    its own connection.
-
-    If GamePersistence is ever modified to maintain persistent state (connection
-    pools, cached transactions, etc.), this caching pattern must be revisited.
-    """
-    from poker.persistence import GamePersistence
-    return GamePersistence(DB_PATH)
-
-
-def _get_setting(key: str, default: str) -> str:
-    """Get a setting value from DB, falling back to the provided default.
-
-    Priority: 1. Database (app_settings), 2. default (from core.llm.config / env)
-    """
-    p = _get_config_persistence()
-    db_value = p.get_setting(key, '')
-    return db_value if db_value else default
-
-
-def get_default_provider() -> str:
-    return _get_setting('DEFAULT_PROVIDER', DEFAULT_PROVIDER)
-
-
-def get_default_model() -> str:
-    return _get_setting('DEFAULT_MODEL', DEFAULT_MODEL)
-
-
-def get_fast_provider() -> str:
-    return _get_setting('FAST_PROVIDER', FAST_PROVIDER)
-
-
-def get_fast_model() -> str:
-    return _get_setting('FAST_MODEL', FAST_MODEL)
-
-
-def get_assistant_provider() -> str:
-    return _get_setting('ASSISTANT_PROVIDER', ASSISTANT_PROVIDER)
-
-
-def get_assistant_model() -> str:
-    return _get_setting('ASSISTANT_MODEL', ASSISTANT_MODEL)
-
-
-def get_image_provider() -> str:
-    return _get_setting('IMAGE_PROVIDER', IMAGE_PROVIDER)
-
-
-def get_image_model() -> str:
-    return _get_setting('IMAGE_MODEL', IMAGE_MODEL)
-
+# DB-backed LLM settings — canonical source is core.llm.settings.
+# Re-exported here for backwards compatibility with flask_app.routes etc.
+from core.llm.settings import (           # noqa: F401
+    _get_config_persistence,
+    get_default_provider,
+    get_default_model,
+    get_fast_provider,
+    get_fast_model,
+    get_assistant_provider,
+    get_assistant_model,
+    get_image_provider,
+    get_image_model,
+)
 
 # Database path
 def get_db_path():

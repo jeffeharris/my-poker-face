@@ -21,18 +21,18 @@ class ResponseValidator:
     }
     
     # Fields that can be present but should be validated
-    # Organized by thinking phase: Observe → Analyze → Deliberate → React → Commit
+    # Organized by phase: Think → Decide → React
     OPTIONAL_FIELDS = {
-        # Phase 1: Observation
-        "situation_read", "player_observations",
-        # Phase 2: Analysis
-        "hand_strength", "chasing", "odds_assessment",
-        # Phase 3: Deliberation
-        "bluff_likelihood", "bet_strategy", "decision_reasoning",
-        # Phase 4: Reaction
-        "play_style", "new_confidence", "new_attitude", "stage_direction",
-        # Legacy fields (kept for backwards compatibility)
-        "decision", "persona_response", "physical"
+        # Thinking
+        "player_observations", "hand_strength", "bluff_likelihood",
+        # Reaction
+        "dramatic_sequence",
+        # Legacy fields (accepted but ignored)
+        "decision",
+        # Legacy thinking fields (accepted but no longer prompted)
+        "situation_read", "chasing", "odds_assessment",
+        "bet_strategy", "decision_reasoning",
+        "play_style", "new_confidence", "new_attitude"
     }
     
     def __init__(self):
@@ -95,13 +95,8 @@ class ResponseValidator:
         
         # Context-based validation
         if context.get("should_speak") == False:
-            if "stage_direction" in response:
-                self.warnings.append("stage_direction included but player shouldn't speak (will be removed)")
-            # Legacy field checks
-            if "persona_response" in response:
-                self.warnings.append("persona_response included but player shouldn't speak (will be removed)")
-            if "physical" in response:
-                self.warnings.append("physical actions included but player shouldn't speak (will be removed)")
+            if "dramatic_sequence" in response:
+                self.warnings.append("dramatic_sequence included but player shouldn't speak (will be removed)")
         
         return len(self.errors) == 0
     
@@ -129,10 +124,7 @@ class ResponseValidator:
         
         # Remove speech-related fields if player shouldn't speak
         if context.get("should_speak") == False:
-            cleaned.pop("stage_direction", None)
-            # Legacy fields
-            cleaned.pop("persona_response", None)
-            cleaned.pop("physical", None)
+            cleaned.pop("dramatic_sequence", None)
             logger.debug(f"Removed speech fields for quiet player")
         
         return cleaned

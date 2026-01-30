@@ -28,6 +28,7 @@ from .ai_resilience import (
     FallbackActionSelector,
 )
 from .player_psychology import PlayerPsychology
+from .hand_narrator import narrate_hand_breakdown
 from .memory.commentary_generator import DecisionPlan
 from .minimal_prompt import (
     get_position_abbrev,
@@ -1271,7 +1272,7 @@ class AIPlayerController:
         prompt = self.prompt_manager.render_decision_prompt(
             message=message,
             include_mind_games=self.prompt_config.mind_games,
-            include_persona_response=self.prompt_config.persona_response,
+            include_dramatic_sequence=self.prompt_config.dramatic_sequence,
             pot_committed_info=pot_committed_info,
             short_stack_info=short_stack_info,
             made_hand_info=made_hand_info,
@@ -1306,7 +1307,7 @@ class AIPlayerController:
         if self.prompt_config.use_simple_response_format:
             response_dict.setdefault('inner_monologue', '')
             response_dict.setdefault('hand_strategy', '')
-            response_dict.setdefault('stage_direction', [])
+            response_dict.setdefault('dramatic_sequence', [])
 
         return response_dict
 
@@ -1633,7 +1634,7 @@ class AIPlayerController:
         else:
             guidance += "You don't feel like talking this turn. Stay quiet.\n"
             guidance += "Focus on your action and inner thoughts only.\n"
-            guidance += "DO NOT include 'persona_response' or 'physical' in your response.\n"
+            guidance += "DO NOT include 'dramatic_sequence' in your response.\n"
 
         # Add context about conversation flow
         if speaking_context['turns_since_spoke'] > 3:
@@ -1745,19 +1746,39 @@ def build_base_game_state(
 
     big_blind = game_state.current_ante or 100
 
-    # Hand strength evaluation
-    hand_strength_line = ""
+    # Hand strength evaluation + breakdown
+    hand_info_line = ""
     if include_hand_strength:
         if community_cards:
             hand_strength = evaluate_hand_strength(hole_cards, community_cards)
+            # Extract strength tier (e.g., "Strong" from "Two Pair - Strong")
+            strength_tier = hand_strength.split(' - ')[1] if hand_strength and ' - ' in hand_strength else None
+
+            # Try detailed breakdown (merges strength tier into header)
+            try:
+                hole_card_objects = [_ensure_card(c) for c in player.hand]
+                community_card_objects = [_ensure_card(c) for c in game_state.community_cards]
+                breakdown = narrate_hand_breakdown(
+                    hole_card_objects, community_card_objects,
+                    strength_tier=strength_tier,
+                )
+                if breakdown:
+                    hand_info_line = f"{breakdown}\n"
+            except Exception as e:
+                logger.debug(f"Hand breakdown failed: {e}")
+
+            # Fallback to old-style line if breakdown didn't produce output
+            if not hand_info_line and hand_strength:
+                hand_info_line = f"Your Hand Strength: {hand_strength}\n"
         else:
+            # Pre-flop: no breakdown, just classification
             hand_strength = classify_preflop_hand(hole_cards)
-        hand_strength_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
+            hand_info_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
 
     persona_state = (
         f"Persona: {persona}\n"
         f"Your Cards: {hole_cards}\n"
-        f"{hand_strength_line}"
+        f"{hand_info_line}"
         f"Your Stack: {_format_money(player_money, big_blind, True)}\n"
     )
 

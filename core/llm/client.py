@@ -283,6 +283,7 @@ class LLMClient:
                 response=response,
                 call_type=call_type,
                 game_id=game_id,
+                owner_id=owner_id,
                 player_name=player_name,
                 hand_number=hand_number,
                 debug_mode=False,  # Game-level debug mode handled separately

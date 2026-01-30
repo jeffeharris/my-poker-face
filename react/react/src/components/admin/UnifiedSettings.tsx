@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Sliders, Database, HardDrive, DollarSign } from 'lucide-react';
+import { Sliders, Database, HardDrive, DollarSign, Menu, Check, Palette } from 'lucide-react';
 import { adminFetch } from '../../utils/api';
 import { useAdminResource } from '../../hooks/useAdminResource';
+import { useViewport } from '../../hooks/useViewport';
+import { useDeckPack } from '../../hooks/useDeckPack';
+import { DECK_PACKS } from '../../hooks/deckPacks';
+import { getCardImagePathForPack } from '../../utils/cards';
+import { MobileFilterSheet } from './shared/MobileFilterSheet';
 import { PricingManager } from './PricingManager';
 import './AdminShared.css';
 import './UnifiedSettings.css';
@@ -10,7 +15,7 @@ import './UnifiedSettings.css';
 // Types
 // ============================================
 
-type SettingsCategory = 'models' | 'capture' | 'storage' | 'pricing';
+export type SettingsCategory = 'models' | 'capture' | 'storage' | 'pricing' | 'appearance';
 
 interface CategoryConfig {
   id: SettingsCategory;
@@ -89,6 +94,8 @@ interface AlertState {
 
 interface UnifiedSettingsProps {
   embedded?: boolean;
+  initialCategory?: SettingsCategory;
+  onCategoryChange?: (category: SettingsCategory) => void;
 }
 
 // ============================================
@@ -120,15 +127,37 @@ const CATEGORIES: CategoryConfig[] = [
     description: 'Model pricing config',
     icon: <DollarSign size={20} />,
   },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    description: 'Card deck and display',
+    icon: <Palette size={20} />,
+  },
 ];
 
 // ============================================
 // Main Component
 // ============================================
 
-export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('models');
+export function UnifiedSettings({ embedded = false, initialCategory, onCategoryChange }: UnifiedSettingsProps) {
+  const { isDesktop, isMobile } = useViewport();
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory || 'models');
+  const [masterPanelOpen, setMasterPanelOpen] = useState(false);
+  const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [alert, setAlert] = useState<AlertState | null>(null);
+
+  // Sync activeCategory when initialCategory prop changes (URL navigation)
+  useEffect(() => {
+    if (initialCategory) {
+      setActiveCategory(initialCategory);
+    }
+  }, [initialCategory]);
+
+  // Unified category change handler — updates local state + notifies parent for URL sync
+  const handleCategoryChange = useCallback((category: SettingsCategory) => {
+    setActiveCategory(category);
+    onCategoryChange?.(category);
+  }, [onCategoryChange]);
 
   // Models state - using hook for initial fetch, local state for optimistic updates
   const {
@@ -885,19 +914,19 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
         <div className="us-capture__actions">
           <button
             type="button"
-            className="admin-btn admin-btn--primary"
-            onClick={saveCaptureSettings}
-            disabled={captureSaving || !hasCaptureChanges}
-          >
-            {captureSaving ? 'Saving...' : 'Save Changes'}
-          </button>
-          <button
-            type="button"
             className="admin-btn admin-btn--secondary"
             onClick={resetCaptureSettings}
             disabled={captureSaving}
           >
             Reset to Defaults
+          </button>
+          <button
+            type="button"
+            className="admin-btn admin-btn--primary"
+            onClick={saveCaptureSettings}
+            disabled={captureSaving || !hasCaptureChanges}
+          >
+            {captureSaving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -945,19 +974,16 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
             ))}
         </div>
 
-        <button
-          type="button"
-          className="admin-btn admin-btn--secondary"
-          onClick={fetchStorage}
-        >
-          Refresh
-        </button>
       </div>
     );
   };
 
   const renderPricingSection = () => {
     return <PricingManager embedded />;
+  };
+
+  const renderAppearanceSection = () => {
+    return <DeckPackPicker />;
   };
 
   const renderContent = () => {
@@ -970,6 +996,8 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
         return renderStorageSection();
       case 'pricing':
         return renderPricingSection();
+      case 'appearance':
+        return renderAppearanceSection();
       default:
         return null;
     }
@@ -992,8 +1020,8 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
         </div>
       )}
 
-      {/* Master Panel - Category List */}
-      <aside className="admin-master admin-master--open">
+      {/* Master Panel - Category List (tablet/desktop only) */}
+      <aside className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}>
         <div className="admin-master__header">
           <h3 className="admin-master__title">Settings</h3>
         </div>
@@ -1003,7 +1031,10 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
               key={category.id}
               type="button"
               className={`admin-master__item ${activeCategory === category.id ? 'admin-master__item--selected' : ''}`}
-              onClick={() => setActiveCategory(category.id)}
+              onClick={() => {
+                handleCategoryChange(category.id);
+                if (!isDesktop) setMasterPanelOpen(false);
+              }}
             >
               <span className="admin-master__item-icon">{category.icon}</span>
               <span className="admin-master__item-name">{category.label}</span>
@@ -1014,17 +1045,83 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
 
       {/* Detail Panel */}
       <main className="admin-detail">
-        <div className="admin-detail__header">
-          <div>
-            <h2 className="admin-detail__title">{activeCategoryConfig?.label}</h2>
-            <p className="admin-detail__subtitle">{activeCategoryConfig?.description}</p>
+        {/* Mobile: category selector button + bottom sheet */}
+        {isMobile && (
+          <>
+            <button
+              type="button"
+              className="us-category-trigger"
+              onClick={() => setCategorySheetOpen(true)}
+            >
+              <span className="us-category-trigger__icon">{activeCategoryConfig?.icon}</span>
+              <span className="us-category-trigger__label">{activeCategoryConfig?.label}</span>
+              <Menu size={18} />
+            </button>
+
+            <MobileFilterSheet
+              isOpen={categorySheetOpen}
+              onClose={() => setCategorySheetOpen(false)}
+              title="Settings"
+            >
+              <div className="us-category-sheet__list">
+                {CATEGORIES.map(category => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    className={`us-category-sheet__item ${activeCategory === category.id ? 'us-category-sheet__item--active' : ''}`}
+                    onClick={() => {
+                      handleCategoryChange(category.id);
+                      setCategorySheetOpen(false);
+                    }}
+                  >
+                    <span className="us-category-sheet__item-icon">{category.icon}</span>
+                    <div className="us-category-sheet__item-text">
+                      <span className="us-category-sheet__item-label">{category.label}</span>
+                      <span className="us-category-sheet__item-desc">{category.description}</span>
+                    </div>
+                    {activeCategory === category.id && (
+                      <Check size={18} className="us-category-sheet__item-check" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </MobileFilterSheet>
+          </>
+        )}
+
+        {/* Tablet: slide-out toggle */}
+        {!isMobile && !isDesktop && (
+          <button
+            type="button"
+            className="admin-master-toggle"
+            onClick={() => setMasterPanelOpen(!masterPanelOpen)}
+          >
+            <Menu size={20} />
+            <span>{activeCategoryConfig?.label || 'Settings'}</span>
+          </button>
+        )}
+
+        {!isMobile && (
+          <div className="admin-detail__header">
+            <div>
+              <h2 className="admin-detail__title">{activeCategoryConfig?.label}</h2>
+              <p className="admin-detail__subtitle">{activeCategoryConfig?.description}</p>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="admin-detail__content">
           {renderContent()}
         </div>
       </main>
+
+      {/* Backdrop for tablet sidebar */}
+      {!isMobile && !isDesktop && masterPanelOpen && (
+        <div
+          className="us-backdrop"
+          onClick={() => setMasterPanelOpen(false)}
+        />
+      )}
 
     </div>
   );
@@ -1066,6 +1163,90 @@ function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / Math.pow(k, i)).toFixed(i > 1 ? 2 : 0)} ${sizes[i]}`;
+}
+
+// ============================================
+// Deck Pack Picker Component
+// ============================================
+
+const PREVIEW_ACES = ['spades', 'hearts', 'diamonds', 'clubs'] as const;
+const PREVIEW_FACE_CARDS = [
+  { rank: 'K', suit: 'spades' },
+  { rank: 'Q', suit: 'spades' },
+  { rank: 'J', suit: 'spades' },
+  { rank: '10', suit: 'spades' },
+];
+
+function DeckPackPicker() {
+  const { activePackId, setPackId } = useDeckPack();
+
+  return (
+    <div className="us-appearance">
+      <h3 className="us-appearance__title">Card Deck</h3>
+      <p className="us-appearance__subtitle">Choose the visual style for your playing cards</p>
+
+      <div className="us-appearance__packs">
+        {DECK_PACKS.map(pack => {
+          const isActive = pack.id === activePackId;
+          return (
+            <button
+              key={pack.id}
+              type="button"
+              className={`us-deck-pack ${isActive ? 'us-deck-pack--active' : ''}`}
+              onClick={() => setPackId(pack.id)}
+            >
+              {/* Pack preview: stacked aces + face cards */}
+              <div className="us-deck-pack__preview">
+                {/* Stacked aces - spades on top */}
+                <div className="us-deck-pack__aces">
+                  {[...PREVIEW_ACES].reverse().map((suit, i) => {
+                    const src = getCardImagePathForPack('A', suit, pack.id);
+                    return (
+                      <img
+                        key={suit}
+                        src={src}
+                        alt={`Ace of ${suit}`}
+                        className="us-deck-pack__ace-card"
+                        style={{ zIndex: PREVIEW_ACES.length - i, marginLeft: i === 0 ? 0 : -28 }}
+                      />
+                    );
+                  })}
+                </div>
+                {/* Face cards: K Q J 10 of spades */}
+                {PREVIEW_FACE_CARDS.map(({ rank, suit }) => {
+                  const src = getCardImagePathForPack(rank, suit, pack.id);
+                  return (
+                    <img
+                      key={rank}
+                      src={src}
+                      alt={`${rank} of ${suit}`}
+                      className="us-deck-pack__face-card"
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Pack info */}
+              <div className="us-deck-pack__info">
+                <span className="us-deck-pack__name">{pack.name}</span>
+                <span className="us-deck-pack__desc">{pack.description}</span>
+                {pack.attribution && (
+                  <span className="us-deck-pack__license">{pack.license}</span>
+                )}
+              </div>
+
+              {/* Selected indicator */}
+              {isActive && (
+                <div className="us-deck-pack__check">
+                  <Check size={16} />
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export default UnifiedSettings;

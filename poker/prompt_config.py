@@ -32,7 +32,7 @@ class PromptConfig:
         emotional_state: Emotional state narrative and dimensions
         tilt_effects: Tilt-based prompt modifications (intrusive thoughts, etc.)
         mind_games: MIND GAMES instruction (read opponent table talk)
-        persona_response: PERSONA RESPONSE instruction (trash talk guidance)
+        dramatic_sequence: Dramatic sequence instruction (character expression and table talk)
         situational_guidance: Coaching prompts for specific situations (pot-committed, short-stack, made hand)
         gto_equity: Always show equity vs required equity comparison for all decisions
         gto_verdict: Show explicit +EV/-EV verdict (CALL is +EV, FOLD is correct)
@@ -58,7 +58,7 @@ class PromptConfig:
 
     # Template instruction components
     mind_games: bool = True
-    persona_response: bool = True
+    dramatic_sequence: bool = True
 
     # Situational guidance components (coaching for specific game states)
     situational_guidance: bool = True  # pot_committed, short_stack, made_hand
@@ -205,7 +205,7 @@ class PromptConfig:
             gto_equity=True,
             gto_verdict=True,
             chattiness=False,
-            persona_response=False,
+            dramatic_sequence=False,
             guidance_injection=cls.EXPLOITATIVE_GUIDANCE,
         )
 

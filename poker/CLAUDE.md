@@ -54,10 +54,10 @@ In `prompt_manager.py`, levels map to response style instructions:
 
 ```python
 DRAMA_CONTEXTS = {
-    'routine': "RESPONSE STYLE: Minimal. Skip stage_direction or one brief beat max.",
-    'notable': "RESPONSE STYLE: Brief. One or two beats in stage_direction.",
-    'high_stakes': "RESPONSE STYLE: Expressive. Build your stage_direction with 2-3 beats.",
-    'climactic': "RESPONSE STYLE: Theatrical. Build tension in stage_direction - 3-5 beats, savor the reveal."
+    'routine': "RESPONSE STYLE: Minimal. Skip dramatic_sequence or one brief beat max.",
+    'notable': "RESPONSE STYLE: Brief. One or two beats in dramatic_sequence.",
+    'high_stakes': "RESPONSE STYLE: Expressive. Build your dramatic_sequence with 2-3 beats.",
+    'climactic': "RESPONSE STYLE: Theatrical. Build tension in dramatic_sequence - 3-5 beats, savor the reveal."
 }
 
 TONE_MODIFIERS = {
@@ -86,15 +86,15 @@ LATE_STAGE_AVG_BB = 15           # Average stack < 15 BB for late stage
 
 ---
 
-## Stage Direction Response Format
+## Dramatic Sequence Response Format
 
-AI responses use `stage_direction` field instead of legacy `persona_response` + `physical`.
+AI responses use the `dramatic_sequence` field for visible reactions and table talk.
 
 ### Format
 
 ```json
 {
-  "stage_direction": [
+  "dramatic_sequence": [
     "*narrows eyes*",
     "Your move, buddy.",
     "*pushes chips forward slowly*"
@@ -126,7 +126,7 @@ Uses `MomentAnalyzer.is_big_pot()` for consistent threshold with drama detection
 Drama detection is controlled by `PromptConfig` in `prompt_config.py`:
 
 - `situational_guidance: bool` - Enables drama detection (also controls pot-committed, short-stack guidance)
-- `persona_response: bool` - Enables stage_direction instructions in prompt
+- `dramatic_sequence: bool` - Enables dramatic_sequence instructions in prompt
 
 ---
 
@@ -138,5 +138,5 @@ Drama detection is controlled by `PromptConfig` in `prompt_config.py`:
 | `prompt_manager.py` | DRAMA_CONTEXTS mapping, prompt assembly |
 | `controllers.py` | Calls MomentAnalyzer, passes drama_context to prompt |
 | `pressure_detector.py` | Post-hand pressure events (uses shared thresholds) |
-| `response_validator.py` | Validates stage_direction field |
+| `response_validator.py` | Validates dramatic_sequence field |
 | `prompt_config.py` | Toggle switches for drama features |

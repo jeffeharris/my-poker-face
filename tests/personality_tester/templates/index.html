@@ -199,7 +199,7 @@
             background: white;
             border-left: 4px solid #007bff;
         }
-        .physical {
+        .dramatic-sequence {
             color: #666;
             font-size: 14px;
             margin-top: 5px;
@@ -458,12 +458,9 @@
                 html += `<div class="trait">Aggression: <strong>${result.traits.aggression}</strong></div>`;
                 html += '</div>';
                 
-                // Quote
-                html += `<div class="quote">"${result.says}"</div>`;
-                
-                // Physical actions
-                if (result.physical && result.physical.length > 0) {
-                    html += `<div class="physical"><em>${result.physical.join(', ')}</em></div>`;
+                // Dramatic sequence beats
+                if (result.dramatic_sequence && result.dramatic_sequence.length > 0) {
+                    html += `<div class="dramatic-sequence"><em>${result.dramatic_sequence.join(' ')}</em></div>`;
                 }
                 
                 // Inner thoughts

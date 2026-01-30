@@ -157,24 +157,17 @@ This document describes the different systems that work together to create promp
                     ┌────────────────────────────────┐
                     │      RESPONSE FORMAT           │
                     ├────────────────────────────────┤
-                    │ Observation:                   │
-                    │  • situation_read              │
-                    │  • player_observations         │
-                    │ Analysis:                      │
-                    │  • hand_strategy, hand_strength│
-                    │  • odds_assessment             │
-                    │ Deliberation:                  │
+                    │ Thinking:                      │
                     │  • inner_monologue             │
+                    │  • hand_strategy               │
+                    │  • player_observations         │
+                    │  • hand_strength               │
                     │  • bluff_likelihood            │
-                    │  • decision_reasoning          │
-                    │ Emotional:                     │
-                    │  • new_confidence, new_attitude│
-                    │ Output:                        │
-                    │  • persona_response (speech)   │
-                    │  • physical (gestures)         │
-                    │ Action:                        │
+                    │ Decision:                      │
                     │  • action (fold/check/call/raise)
                     │  • raise_to (total bet amount) │
+                    │ Reaction:                      │
+                    │  • dramatic_sequence (beats)   │
                     └────────────────────────────────┘
 ```
 

@@ -166,7 +166,7 @@ class TestGoldenPath(unittest.TestCase):
         self.assertIn('pessimistic', ai_player.assistant.system_message)
         
         # Verify the prompt contains the JSON format
-        self.assertIn('"play_style"', ai_player.assistant.system_message)
+        self.assertIn('"inner_monologue"', ai_player.assistant.system_message)
         self.assertIn('"action"', ai_player.assistant.system_message)
 
 

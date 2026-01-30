@@ -92,24 +92,19 @@ The AI responds with structured JSON containing both game actions and roleplay e
 
 ```json
 {
-  // Strategic Analysis
-  "play_style": "current approach",
+  // Thinking
+  "inner_monologue": "These idiots don't know what hit them...",
   "hand_strategy": "analysis of cards and situation",
+  "player_observations": {"john": "seems nervous"},
+  "hand_strength": "strong",
   "bluff_likelihood": 75,
-  "bet_strategy": "reasoning for bet size",
-  
-  // Game Action
+
+  // Decision
   "action": "raise",
   "raise_to": 200,
-  
-  // Roleplay Elements
-  "inner_monologue": "These idiots don't know what hit them...",
-  "persona_response": "This pot is MINE! I raise $200!",
-  "physical": ["*slams chips on table*"],
-  
-  // State Updates
-  "new_confidence": "dominant",
-  "new_attitude": "aggressive"
+
+  // Reaction
+  "dramatic_sequence": ["*slams chips on table*", "This pot is MINE! I raise $200!"]
 }
 ```
 

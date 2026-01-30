@@ -183,6 +183,16 @@
     height: 100%;
     object-fit: cover;
     border-radius: 10px;
+    transition: opacity 0.3s ease;
+}
+
+.player-avatar .avatar-image.avatar-thinking {
+    animation: avatar-thinking-pulse 2s ease-in-out infinite;
+}
+
+@keyframes avatar-thinking-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
 }
 
 .player-avatar .avatar-initial {
@@ -384,22 +394,16 @@
     font-weight: bold;
 }
 
-.status {
-    font-size: 10px;
+/* Action Badge - desktop layout (colors/animations in shared action-badges.css) */
+.action-badge {
+    display: inline-block;
+    font-size: 9px;
     font-weight: bold;
-    padding: 2px 6px;
-    border-radius: 4px;
-    margin-top: 4px;
-}
-
-.folded .status {
-    background: #ff4444;
-    color: white;
-}
-
-.all-in .status {
-    background: #ff6600;
-    color: white;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    margin-top: 3px;
+    letter-spacing: 0.5px;
+    animation: badgeIn 0.3s ease-out;
 }
 
 /* Player Bet */
@@ -663,13 +667,6 @@
 .stadium-view .player-seat.all-in {
     border-color: var(--color-amethyst, #a855f7);
     box-shadow: var(--glow-amethyst, 0 0 20px rgba(168, 85, 247, 0.4));
-}
-
-.stadium-view .status {
-    font-size: 9px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    margin-top: 2px;
 }
 
 /* Responsive adjustments */

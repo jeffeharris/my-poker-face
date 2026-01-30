@@ -242,17 +242,15 @@ class TestResponseProcessing(unittest.TestCase):
         response = {
             "action": "fold",
             "inner_monologue": "Bad hand again",
-            "persona_response": "I'm out!",  # Should be removed
-            "physical": ["*folds cards*"]  # Should be removed
+            "dramatic_sequence": ["I'm out!", "*folds cards*"]  # Should be removed
         }
-        
+
         with patch('random.random', return_value=0.5):  # Won't speak at 0.1 chattiness
             processed = self.processor.validate_and_process_response(
                 self.player, response, {}
             )
-        
-        self.assertNotIn("persona_response", processed)
-        self.assertNotIn("physical", processed)
+
+        self.assertNotIn("dramatic_sequence", processed)
         self.assertIn("inner_monologue", processed)  # Always kept
     
     def test_chatty_player_keeps_speech(self):
@@ -264,17 +262,15 @@ class TestResponseProcessing(unittest.TestCase):
             "action": "raise",
             "amount": 200,
             "inner_monologue": "Time to pressure them",
-            "persona_response": "Let's make this interesting!",
-            "physical": ["*pushes chips forward*"]
+            "dramatic_sequence": ["Let's make this interesting!", "*pushes chips forward*"]
         }
-        
+
         with patch('random.random', return_value=0.5):  # Will speak at 0.9 chattiness
             processed = self.processor.validate_and_process_response(
                 self.player, response, {}
             )
-        
-        self.assertIn("persona_response", processed)
-        self.assertIn("physical", processed)
+
+        self.assertIn("dramatic_sequence", processed)
 
 
 class TestIntegrationScenarios(unittest.TestCase):
@@ -310,16 +306,15 @@ class TestIntegrationScenarios(unittest.TestCase):
             "amount": 200,
             "inner_monologue": "Let's dominate these donkeys",
             "hand_strategy": "Aggressive - push hard and intimidate",
-            "persona_response": "Time to turn up the HEAT!",
-            "physical": ["*slams chips*"]
+            "dramatic_sequence": ["Time to turn up the HEAT!", "*slams chips*"]
         }
-        
+
         # Eeyore's first response (quiet, passive)
         eeyore_response1 = {
             "action": "fold",
             "inner_monologue": "Another terrible hand, as expected",
             "hand_strategy": "Tight - only play premium hands"
-            # No persona_response - too quiet
+            # No dramatic_sequence - too quiet
         }
         
         # Process first actions
@@ -410,9 +405,8 @@ class AIResponseProcessor:
         chattiness = player.elastic_personality.get_trait_value('chattiness')
         should_speak = self.chattiness_manager.should_speak(player, context)
         
-        if not should_speak and 'persona_response' in response:
-            response.pop('persona_response', None)
-            response.pop('physical', None)
+        if not should_speak and 'dramatic_sequence' in response:
+            response.pop('dramatic_sequence', None)
         
         return response
 

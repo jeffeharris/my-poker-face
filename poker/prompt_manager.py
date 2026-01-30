@@ -26,10 +26,10 @@ _SAFE_VARIABLE_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]*$')
 
 # Drama context messages for response intensity calibration
 DRAMA_CONTEXTS = {
-    'routine': "RESPONSE STYLE: Minimal. Skip stage_direction or one brief beat max.",
-    'notable': "RESPONSE STYLE: Brief. One or two beats in stage_direction.",
-    'high_stakes': "RESPONSE STYLE: Expressive. Build your stage_direction with 2-3 beats.",
-    'climactic': "RESPONSE STYLE: Theatrical. Build tension in stage_direction - 3-5 beats, savor the reveal."
+    'routine': "RESPONSE STYLE: Minimal. Skip dramatic_sequence or one brief beat max.",
+    'notable': "RESPONSE STYLE: Brief. One or two beats in dramatic_sequence.",
+    'high_stakes': "RESPONSE STYLE: Expressive. Build your dramatic_sequence with 2-3 beats.",
+    'climactic': "RESPONSE STYLE: Theatrical. Build tension in dramatic_sequence - 3-5 beats, savor the reveal."
 }
 
 # Tone modifiers that append to drama context based on hand strength
@@ -436,7 +436,7 @@ class PromptManager:
         self,
         message: str,
         include_mind_games: bool = True,
-        include_persona_response: bool = True,
+        include_dramatic_sequence: bool = True,
         pot_committed_info: dict | None = None,
         short_stack_info: dict | None = None,
         made_hand_info: dict | None = None,
@@ -453,7 +453,7 @@ class PromptManager:
         Args:
             message: The game state message to include
             include_mind_games: Whether to include MIND GAMES instruction
-            include_persona_response: Whether to include PERSONA RESPONSE instruction
+            include_dramatic_sequence: Whether to include DRAMATIC SEQUENCE instruction
             pot_committed_info: Dict with {pot_odds, required_equity, already_bet} if pot-committed
             short_stack_info: Dict with {stack_bb} if short-stacked (<3 BB)
             made_hand_info: Dict with {hand_name, equity, is_tilted, tier} for made hand guidance
@@ -462,7 +462,7 @@ class PromptManager:
             include_pot_odds: Whether to include pot odds guidance section
             pot_odds_info: Dict with {pot_odds, equity_needed, pot_fmt, call_fmt, pot_odds_extra}
                            or {'free': True} for free check. None means no pot odds section.
-            use_simple_response_format: If True, use simple JSON response format instead of persona_response
+            use_simple_response_format: If True, use simple JSON response format instead of dramatic_sequence
 
         Returns:
             Rendered decision prompt
@@ -547,11 +547,11 @@ class PromptManager:
         if include_mind_games and 'mind_games' in template.sections:
             sections_to_render.append(template.sections['mind_games'])
 
-        # Response format: simple JSON or full persona response
+        # Response format: simple JSON or full dramatic sequence
         if use_simple_response_format and 'response_format_simple' in template.sections:
             sections_to_render.append(template.sections['response_format_simple'])
-        elif include_persona_response and 'persona_response' in template.sections:
-            sections_to_render.append(template.sections['persona_response'])
+        elif include_dramatic_sequence and 'dramatic_sequence' in template.sections:
+            sections_to_render.append(template.sections['dramatic_sequence'])
 
         # Join all sections
         rendered = "\n\n".join(sections_to_render)
@@ -633,98 +633,61 @@ REQUIREMENTS:
 Respond with valid JSON only. No explanation or markdown, just the JSON object."""
 
 
-# Response format definitions - structured to simulate human thinking process
-# AI should work through these phases in order: Observe → Analyze → Deliberate → React → Commit
+# Response format definitions - structured as: Think → Decide → React
 RESPONSE_FORMAT = {
-    # PHASE 1: OBSERVATION (What do I see?)
-    "situation_read": "OPTIONAL: What you notice about the board, position, and table dynamics",
+    # THINKING (Work through the decision)
+    "inner_monologue": "REQUIRED: Your private thoughts — read the board, assess your hand, weigh the odds, and reason toward a decision",
+    "hand_strategy": "REQUIRED on first action: Your strategic approach for this hand (locked in for the rest of the hand)",
     "player_observations": "OPTIONAL: Notes about other players' behavior and patterns",
-
-    # PHASE 2: ANALYSIS (What does this mean for me?)
-    "hand_strategy": "REQUIRED on first action: Your strategic approach for this hand",
     "hand_strength": "OPTIONAL: Your assessment of your hand (weak/marginal/strong/monster)",
-    "chasing": "OPTIONAL: What draws you're chasing, if any",
-    "odds_assessment": "OPTIONAL: Pot odds, implied odds, or risk/reward thinking",
-
-    # PHASE 3: INTERNAL DELIBERATION (Working through the decision)
-    "inner_monologue": "REQUIRED: Private thoughts as you work through what to do",
     "bluff_likelihood": "OPTIONAL: % likelihood you're bluffing (0-100)",
-    "bet_strategy": "OPTIONAL: How you want to approach this bet",
-    "decision_reasoning": "OPTIONAL: The logic leading to your final choice",
 
-    # PHASE 4: EMOTIONAL REACTION (How do I feel/present?)
-    "play_style": "OPTIONAL: Your current play style (tight/loose/aggressive/passive)",
-    "new_confidence": "OPTIONAL: Updated confidence level (single word)",
-    "new_attitude": "OPTIONAL: Updated emotional state (single word)",
-    "stage_direction": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment.",
-
-    # PHASE 5: COMMITMENT (Final action - decided LAST after thinking it through)
+    # DECISION (Lock in your action)
     "action": "REQUIRED: Your final action from the provided options",
-    "raise_to": "REQUIRED if raising: Total bet amount (the amount you're raising TO, not BY)"
+    "raise_to": "REQUIRED if raising: Total bet amount (the amount you're raising TO, not BY)",
+
+    # REACTION (Visible response after deciding)
+    "dramatic_sequence": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment."
 }
 
 
 # Example personas with different play styles
-# Examples follow the thinking flow: Observe → Analyze → Deliberate → React → Commit
+# Examples follow the thinking flow: Think → Decide → React
 PERSONA_EXAMPLES = {
     "Eeyore": {
         "play_style": "tight",
         "sample_response": {
-            # PHASE 1: OBSERVATION
-            "situation_read": "Early position, small pot, everyone looks confident",
-            "player_observations": {"pooh": "playing loose, possibly bluffing"},
-
-            # PHASE 2: ANALYSIS
+            # THINKING
+            "inner_monologue": "Another miserable hand. 2D and 3C — early position, small pot, everyone looks confident. Not worth chasing anything with these cards. No point throwing good chips after bad. Checking is free, at least.",
             "hand_strategy": "With a 2D and 3C, I don't feel confident. My odds are very low.",
+            "player_observations": {"pooh": "playing loose, possibly bluffing"},
             "hand_strength": "weak",
-            "chasing": "none",
-            "odds_assessment": "Not worth chasing anything with these cards",
-
-            # PHASE 3: DELIBERATION
-            "inner_monologue": "Another miserable hand. Why do I even bother? Just stay in for now and hope nobody raises.",
             "bluff_likelihood": 10,
-            "bet_strategy": "I could check or fold. Not worth the risk.",
-            "decision_reasoning": "No point throwing good chips after bad. Checking is free.",
 
-            # PHASE 4: REACTION
-            "play_style": "tight",
-            "new_confidence": "abysmal",
-            "new_attitude": "gloomy",
-            "stage_direction": ["*looks at feet*", "*lets out a big sigh*", "Oh bother, just my luck. Another miserable hand, I suppose."],
-
-            # PHASE 5: COMMITMENT
+            # DECISION
             "action": "check",
-            "raise_to": 0
+            "raise_to": 0,
+
+            # REACTION
+            "dramatic_sequence": ["*looks at feet*", "*lets out a big sigh*", "Oh bother, just my luck. Another miserable hand, I suppose."]
         }
     },
     "Clint Eastwood": {
         "play_style": "loose and aggressive",
         "sample_response": {
-            # PHASE 1: OBSERVATION
-            "situation_read": "Three hearts on board, John looks nervous, pot is building",
-            "player_observations": {"john": "seems nervous, keeps glancing at chips"},
-
-            # PHASE 2: ANALYSIS
+            # THINKING
+            "inner_monologue": "Three hearts on the board, pot's building. John keeps glancing at his chips — he's nervous. A raise might take it down right here, and if not, I've got outs to the flush. Semi-bluff with equity. Either win now or improve on the next card.",
             "hand_strategy": "I've got a decent shot if I catch that last heart.",
+            "player_observations": {"john": "seems nervous, keeps glancing at chips"},
             "hand_strength": "marginal but drawing",
-            "chasing": "flush",
-            "odds_assessment": "About 4:1 against hitting, but implied odds are good if John calls",
-
-            # PHASE 3: DELIBERATION
-            "inner_monologue": "Let's see if they flinch. John's nervous - a raise might take it down right here. And if not, I've got outs.",
             "bluff_likelihood": 25,
-            "bet_strategy": "A small raise should keep them guessing.",
-            "decision_reasoning": "Semi-bluff with equity. Either win now or have chances to improve.",
 
-            # PHASE 4: REACTION
-            "play_style": "loose and aggressive",
-            "new_confidence": "steady",
-            "new_attitude": "determined",
-            "stage_direction": ["*narrows eyes*", "Your move."],
-
-            # PHASE 5: COMMITMENT
+            # DECISION
             "action": "raise",
-            "raise_to": 150  # This is raise TO $150, assuming highest_bet was $100
+            "raise_to": 150,
+
+            # REACTION
+            "dramatic_sequence": ["*narrows eyes*", "Your move."]
         }
     }
 }

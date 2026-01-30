@@ -21,7 +21,7 @@ class TestPromptConfig(unittest.TestCase):
         self.assertTrue(config.emotional_state)
         self.assertTrue(config.tilt_effects)
         self.assertTrue(config.mind_games)
-        self.assertTrue(config.persona_response)
+        self.assertTrue(config.dramatic_sequence)
         self.assertTrue(config.situational_guidance)
 
     def test_to_dict(self):
@@ -32,7 +32,7 @@ class TestPromptConfig(unittest.TestCase):
         self.assertEqual(len(d), 18)  # 16 bool + 1 int + 1 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
-        self.assertIn('persona_response', d)
+        self.assertIn('dramatic_sequence', d)
         self.assertIn('strategic_reflection', d)
         self.assertIn('memory_keep_exchanges', d)
         self.assertIn('situational_guidance', d)
@@ -57,7 +57,7 @@ class TestPromptConfig(unittest.TestCase):
 
         self.assertFalse(config.mind_games)
         self.assertTrue(config.pot_odds)  # Default
-        self.assertTrue(config.persona_response)  # Default
+        self.assertTrue(config.dramatic_sequence)  # Default
 
     def test_from_dict_empty(self):
         """from_dict should handle empty dict."""
@@ -98,7 +98,7 @@ class TestPromptConfig(unittest.TestCase):
         self.assertFalse(disabled.emotional_state)
         self.assertFalse(disabled.tilt_effects)
         self.assertFalse(disabled.mind_games)
-        self.assertFalse(disabled.persona_response)
+        self.assertFalse(disabled.dramatic_sequence)
         self.assertFalse(disabled.situational_guidance)
 
         # Int field should be preserved
@@ -205,12 +205,12 @@ class TestPromptConfigIntegration(unittest.TestCase):
         result = pm.render_decision_prompt(
             message="Test message",
             include_mind_games=True,
-            include_persona_response=True
+            include_dramatic_sequence=True
         )
 
         self.assertIn("Test message", result)
         self.assertIn("MIND GAMES", result)
-        self.assertIn("STAGE DIRECTION", result)
+        self.assertIn("DRAMATIC SEQUENCE", result)
 
     def test_render_decision_prompt_mind_games_disabled(self):
         """render_decision_prompt should exclude MIND GAMES when disabled."""
@@ -220,27 +220,27 @@ class TestPromptConfigIntegration(unittest.TestCase):
         result = pm.render_decision_prompt(
             message="Test message",
             include_mind_games=False,
-            include_persona_response=True
+            include_dramatic_sequence=True
         )
 
         self.assertIn("Test message", result)
         self.assertNotIn("MIND GAMES", result)
-        self.assertIn("STAGE DIRECTION", result)
+        self.assertIn("DRAMATIC SEQUENCE", result)
 
-    def test_render_decision_prompt_persona_disabled(self):
-        """render_decision_prompt should exclude STAGE DIRECTION when disabled."""
+    def test_render_decision_prompt_dramatic_sequence_disabled(self):
+        """render_decision_prompt should exclude DRAMATIC SEQUENCE when disabled."""
         from poker.prompt_manager import PromptManager
 
         pm = PromptManager()
         result = pm.render_decision_prompt(
             message="Test message",
             include_mind_games=True,
-            include_persona_response=False
+            include_dramatic_sequence=False
         )
 
         self.assertIn("Test message", result)
         self.assertIn("MIND GAMES", result)
-        self.assertNotIn("STAGE DIRECTION", result)
+        self.assertNotIn("DRAMATIC SEQUENCE", result)
 
     def test_render_decision_prompt_both_disabled(self):
         """render_decision_prompt should exclude both when disabled."""
@@ -250,12 +250,12 @@ class TestPromptConfigIntegration(unittest.TestCase):
         result = pm.render_decision_prompt(
             message="Test message",
             include_mind_games=False,
-            include_persona_response=False
+            include_dramatic_sequence=False
         )
 
         self.assertIn("Test message", result)
         self.assertNotIn("MIND GAMES", result)
-        self.assertNotIn("STAGE DIRECTION", result)
+        self.assertNotIn("DRAMATIC SEQUENCE", result)
         # Should still have the base instruction
         self.assertIn("CRITICAL", result)
 
@@ -269,7 +269,7 @@ class TestGameModes(unittest.TestCase):
         self.assertFalse(config.gto_equity)
         self.assertFalse(config.gto_verdict)
         self.assertTrue(config.chattiness)
-        self.assertTrue(config.persona_response)
+        self.assertTrue(config.dramatic_sequence)
 
     def test_standard_mode(self):
         """Standard mode should show equity but not verdict."""
@@ -277,15 +277,15 @@ class TestGameModes(unittest.TestCase):
         self.assertTrue(config.gto_equity)
         self.assertFalse(config.gto_verdict)
         self.assertTrue(config.chattiness)
-        self.assertTrue(config.persona_response)
+        self.assertTrue(config.dramatic_sequence)
 
     def test_pro_mode(self):
-        """Pro mode should show equity + verdict, disable chattiness and persona."""
+        """Pro mode should show equity + verdict, disable chattiness and dramatic sequence."""
         config = PromptConfig.pro()
         self.assertTrue(config.gto_equity)
         self.assertTrue(config.gto_verdict)
         self.assertFalse(config.chattiness)
-        self.assertFalse(config.persona_response)
+        self.assertFalse(config.dramatic_sequence)
 
     def test_from_mode_name_valid(self):
         """from_mode_name should resolve valid mode names."""

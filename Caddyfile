@@ -4,9 +4,11 @@ mypokerfacegame.com, www.mypokerfacegame.com {
         reverse_proxy backend:5000
     }
 
-    # Socket.IO
+    # Socket.IO (WebSocket + long-polling)
     handle /socket.io/* {
-        reverse_proxy backend:5000
+        reverse_proxy backend:5000 {
+            flush_interval -1
+        }
     }
 
     # Health check

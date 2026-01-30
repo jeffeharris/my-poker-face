@@ -99,6 +99,13 @@
   letter-spacing: 0.5px;
 }
 
+.mobile-game-info__hand {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
 .mobile-game-info__blinds {
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);

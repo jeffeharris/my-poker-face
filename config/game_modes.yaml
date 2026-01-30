@@ -22,7 +22,7 @@ presets:
       show_equity_always: true
       show_equity_verdict: true
       chattiness: false
-      persona_response: false
+      dramatic_sequence: false
       guidance_injection: >-
         EXPLOIT AGGRESSIVE OPPONENTS: When facing players who rarely fold and raise frequently,
         adjust your strategy: (1) Trap with strong hands - check to induce bluffs rather than betting,

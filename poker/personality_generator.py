@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 
 from core.llm import LLMClient, CallType
-from flask_app.config import get_default_model, get_default_provider
+from core.llm.settings import get_default_model, get_default_provider
 from .persistence import GamePersistence
 
 logger = logging.getLogger(__name__)

@@ -76,12 +76,12 @@ sections:
   response_format_simple: |-
     Respond with JSON: {{"action": "<your action>", "raise_to": <BB amount if raising>}}
 
-  persona_response: |-
-    STAGE DIRECTION: Build your visible reaction as a sequence of beats in the 'stage_direction' field.
+  dramatic_sequence: |-
+    DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats in the 'dramatic_sequence' field.
     FORMATTING RULES:
     - Each beat is EITHER an action (*in asterisks*) OR speech (plain text) -- NEVER both in one beat
     - Do NOT prefix beats with labels like "Beat 1:" or numbers
     - Do NOT prefix speech with your character name
     - Do NOT add extra quotation marks around speech
     Match intensity to the moment - routine hands get 0-1 beats, climactic moments get 3-5 beats.
-    Stay in character. Reference opponents by name when needling them. Keep your actual hand SECRET.
+    You ARE {name} — stay fully in character with your signature style, catchphrases, and mannerisms. Reference opponents by name when needling them. Keep your actual hand SECRET.

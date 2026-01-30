@@ -11,10 +11,11 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from core.llm import CallType, LLMClient
-from flask_app.config import get_default_model, get_default_provider
+from core.llm.settings import get_default_model, get_default_provider
 from ..moment_analyzer import MomentAnalyzer
 from ..prompt_manager import PromptManager, DRAMA_CONTEXTS, TONE_MODIFIERS
 from ..config import COMMENTARY_ENABLED, is_development_mode
+from ..hand_narrator import narrate_hand_recap
 from .hand_history import RecordedHand
 from .session_memory import SessionMemory
 
@@ -302,16 +303,16 @@ class CommentaryGenerator:
         return {'level': level, 'tone': tone}
 
     @staticmethod
-    def _format_beats_for_chat(stage_direction) -> Optional[str]:
-        """Convert stage_direction to chat-ready string.
+    def _format_beats_for_chat(dramatic_sequence) -> Optional[str]:
+        """Convert dramatic_sequence to chat-ready string.
 
         Frontend's parseBeats() splits on newlines and detects *action* syntax.
         """
-        if isinstance(stage_direction, list):
-            beats = [b.strip() for b in stage_direction if isinstance(b, str) and b.strip()]
+        if isinstance(dramatic_sequence, list):
+            beats = [b.strip() for b in dramatic_sequence if isinstance(b, str) and b.strip()]
             return "\n".join(beats) if beats else None
-        if isinstance(stage_direction, str):
-            return stage_direction.strip() or None
+        if isinstance(dramatic_sequence, str):
+            return dramatic_sequence.strip() or None
         return None
 
     def generate_commentary(self,
@@ -450,9 +451,9 @@ class CommentaryGenerator:
 
             # Build commentary object
             # Suppress table_comment if hand isn't dramatic enough to speak about
-            # Handle stage_direction as list of beats (new) or plain string (legacy)
-            raw_stage_direction = commentary_data.get('stage_direction') if should_speak else None
-            table_comment = self._format_beats_for_chat(raw_stage_direction)
+            # Handle dramatic_sequence as list of beats or plain string
+            raw_dramatic_sequence = commentary_data.get('dramatic_sequence') if should_speak else None
+            table_comment = self._format_beats_for_chat(raw_dramatic_sequence)
 
             return HandCommentary(
                 player_name=player_name,
@@ -523,7 +524,10 @@ class CommentaryGenerator:
         hand: RecordedHand,
         include_showdown_cards: bool = False
     ) -> str:
-        """Build a summary of the hand for the prompt.
+        """Build a street-by-street summary of the hand for the prompt.
+
+        Uses the hand narrator for a structured play-by-play that helps LLMs
+        understand how the hand progressed.
 
         Args:
             hand: The completed hand record
@@ -532,13 +536,23 @@ class CommentaryGenerator:
         Returns:
             String summary of the hand
         """
+        try:
+            return narrate_hand_recap(hand)
+        except Exception as e:
+            logger.warning(f"Hand recap narration failed, using fallback: {e}")
+            return self._build_hand_summary_fallback(hand, include_showdown_cards)
+
+    def _build_hand_summary_fallback(
+        self,
+        hand: RecordedHand,
+        include_showdown_cards: bool = False
+    ) -> str:
+        """Fallback hand summary if narrator fails."""
         parts = []
 
-        # Community cards
         if hand.community_cards:
             parts.append(f"Board: {', '.join(hand.community_cards)}")
 
-        # Action summary
         action_counts = {}
         for action in hand.actions:
             key = action.player_name
@@ -549,10 +563,8 @@ class CommentaryGenerator:
         for player, actions in action_counts.items():
             parts.append(f"{player}: {', '.join(actions)}")
 
-        # Pot size
         parts.append(f"Final pot: ${hand.pot_size}")
 
-        # Include showdown cards if applicable
         if include_showdown_cards and hand.was_showdown and hand.hole_cards:
             shown_cards = []
             for winner in hand.winners:

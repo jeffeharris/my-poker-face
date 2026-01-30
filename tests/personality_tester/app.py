@@ -122,11 +122,8 @@ What is your move?"""
             },
             'decision': response.get('action', 'unknown').upper(),
             'amount': response.get('raise_to', 0),
-            'says': response.get('persona_response', '...'),
-            'physical': response.get('physical', []),
             'thinking': response.get('inner_monologue', ''),
-            'confidence': response.get('new_confidence', response.get('confidence', 'unknown')),
-            'attitude': response.get('new_attitude', response.get('attitude', 'unknown'))
+            'dramatic_sequence': response.get('dramatic_sequence', [])
         }
         
         return jsonify({'success': True, 'result': result})
@@ -168,8 +165,7 @@ What is your move?"""
                 },
                 'decision': response.get('action', 'unknown').upper(),
                 'amount': response.get('raise_to', 0),
-                'says': response.get('persona_response', '...'),
-                'physical': response.get('physical', []),
+                'dramatic_sequence': response.get('dramatic_sequence', []),
                 'thinking': response.get('inner_monologue', ''),
                 'hand_strategy': response.get('hand_strategy', ''),
                 'bluff_likelihood': response.get('bluff_likelihood', 0)

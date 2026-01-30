@@ -3,6 +3,7 @@ import { MessageSquare, Settings, ArrowLeft, CheckCircle } from 'lucide-react';
 import { ExperimentChat, type InitialMessage } from './ExperimentChat';
 import { ConfigPreview } from './ConfigPreview';
 import type { ExperimentConfig, ConfigVersion, ChatMessage, ExperimentType } from './types';
+import '../AdminShared.css';
 import './MobileExperimentDesign.css';
 
 type DesignTab = 'chat' | 'configure';
@@ -77,7 +78,7 @@ export function MobileExperimentDesign({
       {/* Header with back button and segmented control */}
       <header className="mobile-experiment-design__header">
         <button
-          className="mobile-experiment-design__back-btn"
+          className="mobile-experiment-design__back-btn admin-back-button admin-back-button--icon"
           onClick={onBack}
           type="button"
           aria-label="Back to list"

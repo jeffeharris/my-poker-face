@@ -42,27 +42,7 @@
 }
 
 .admin-main__back {
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  min-height: 40px;
-  padding: 0;
-  background: rgba(255, 193, 7, 0.15) !important;
-  border: 1px solid rgba(255, 193, 7, 0.4) !important;
-  border-radius: 10px;
-  color: #ffc107;
-  cursor: pointer;
-  transition: all 0.2s ease;
   flex-shrink: 0;
-}
-
-.admin-main__back:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.25);
-  color: rgba(255, 255, 255, 1);
 }
 
 .admin-main__header-text {
@@ -433,4 +413,3 @@
     display: none;
   }
 }
-

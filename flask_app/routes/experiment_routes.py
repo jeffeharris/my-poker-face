@@ -867,7 +867,7 @@ Instead of manually specifying prompt_config fields, you can use the `game_mode`
 |------|--------|
 | `casual` | Default PromptConfig (personality-driven fun poker) |
 | `standard` | `gto_equity=true` (balanced personality + GTO awareness) |
-| `pro` | `gto_equity=true, gto_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
+| `pro` | `gto_equity=true, gto_verdict=true, chattiness=false, dramatic_sequence=false` (GTO-focused analytical) |
 | `competitive` | `gto_equity=true, gto_verdict=true` (full GTO guidance with personality and trash talk) |
 
 **Inheritance**: `variant.game_mode` → `control.game_mode` → `None` (defaults)
@@ -897,7 +897,7 @@ All boolean options (default true unless specified):
 - emotional_state: Include emotional state narrative
 - tilt_effects: Include tilt-based modifications
 - mind_games: Include mind games instruction
-- persona_response: Include persona response instruction
+- dramatic_sequence: Include dramatic sequence instruction (character expression and table talk)
 - situational_guidance: Coaching prompts for pot-committed, short-stack, made hand situations
 - memory_keep_exchanges: Number of conversation exchanges to retain (integer, default 0)
 
@@ -2065,7 +2065,7 @@ def get_prompt_options():
                 'emotional_state': 'Include emotional state narrative',
                 'tilt_effects': 'Include tilt-based modifications',
                 'mind_games': 'Include mind games instruction',
-                'persona_response': 'Include persona response instruction',
+                'dramatic_sequence': 'Include dramatic sequence instruction',
                 'memory_keep_exchanges': 'Number of conversation exchanges to retain',
             },
         })
