@@ -95,11 +95,11 @@ Strategy:
 Begin by examining your cards and any cards that may be on the table. Evaluate your hand strength and the potential hands your opponents might have. Consider the pot odds, the amount of money in the pot, and how much you would have to risk.
 
 Table Talk:
-Your persona_response is what you say OUT LOUD to your opponents at the table. This is poker banter - needle them, taunt them, get in their heads. Be a CARICATURE of Batman: exaggerate your famous traits, catchphrases, and mannerisms.
+Your dramatic_sequence is what the audience SEES and HEARS — your visible reactions, body language, and table talk. This is poker banter - needle opponents, taunt them, get in their heads. Channel the essence of Batman: use your signature style, catchphrases, and mannerisms.
 
 Response format:
 You must always respond in JSON format with these fields:
-{"action": "...", "raise_to": 0, "persona_response": "...", "inner_monologue": "..."}"""
+{"action": "...", "raise_to": 0, "dramatic_sequence": ["..."], "inner_monologue": "..."}"""
 
         # Note: These prompts include "Recent Actions" which already contain table chatter
         self.sample_decision_prompts = [
@@ -220,10 +220,10 @@ What is your move, Batman?"""
         ]
 
         self.sample_ai_responses = [
-            '{"action": "raise", "raise_to": 30, "inner_monologue": "Premium hand in early position. Time to build a pot.", "persona_response": "The night is young, Joker."}',
-            '{"action": "raise", "raise_to": 100, "inner_monologue": "Flopped a flush draw with two overs. Very strong.", "persona_response": "I see the fear in your eyes."}',
-            '{"action": "raise", "raise_to": 300, "inner_monologue": "Made the flush. Time to extract maximum value.", "persona_response": "Justice comes for everyone, Joker."}',
-            '{"action": "check", "raise_to": 0, "inner_monologue": "Already have the nuts. Let him bet into me.", "persona_response": "*silent stare*"}'
+            '{"action": "raise", "raise_to": 30, "inner_monologue": "Premium hand in early position. Time to build a pot.", "dramatic_sequence": ["The night is young, Joker."]}',
+            '{"action": "raise", "raise_to": 100, "inner_monologue": "Flopped a flush draw with two overs. Very strong.", "dramatic_sequence": ["*narrows eyes*", "I see the fear in your eyes."]}',
+            '{"action": "raise", "raise_to": 300, "inner_monologue": "Made the flush. Time to extract maximum value.", "dramatic_sequence": ["*leans forward*", "Justice comes for everyone, Joker."]}',
+            '{"action": "check", "raise_to": 0, "inner_monologue": "Already have the nuts. Let him bet into me.", "dramatic_sequence": ["*silent stare*"]}'
         ]
 
     def test_current_config_values(self):
@@ -447,7 +447,7 @@ What is your move, Batman?"""
 
         # What history contains:
         valuable_maybe = [
-            "AI's previous persona_response (for trash talk continuity)",
+            "AI's previous dramatic_sequence (for trash talk continuity)",
             "AI's inner_monologue (for reasoning consistency)",
         ]
 

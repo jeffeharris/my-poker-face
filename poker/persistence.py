@@ -2687,7 +2687,7 @@ class GamePersistence:
                     'gto_equity': True,
                     'gto_verdict': True,
                     'chattiness': False,
-                    'persona_response': False,
+                    'dramatic_sequence': False,
                 },
             },
             {

@@ -26,10 +26,10 @@ _SAFE_VARIABLE_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]*$')
 
 # Drama context messages for response intensity calibration
 DRAMA_CONTEXTS = {
-    'routine': "RESPONSE STYLE: Minimal. Skip stage_direction or one brief beat max.",
-    'notable': "RESPONSE STYLE: Brief. One or two beats in stage_direction.",
-    'high_stakes': "RESPONSE STYLE: Expressive. Build your stage_direction with 2-3 beats.",
-    'climactic': "RESPONSE STYLE: Theatrical. Build tension in stage_direction - 3-5 beats, savor the reveal."
+    'routine': "RESPONSE STYLE: Minimal. Skip dramatic_sequence or one brief beat max.",
+    'notable': "RESPONSE STYLE: Brief. One or two beats in dramatic_sequence.",
+    'high_stakes': "RESPONSE STYLE: Expressive. Build your dramatic_sequence with 2-3 beats.",
+    'climactic': "RESPONSE STYLE: Theatrical. Build tension in dramatic_sequence - 3-5 beats, savor the reveal."
 }
 
 # Tone modifiers that append to drama context based on hand strength
@@ -436,7 +436,7 @@ class PromptManager:
         self,
         message: str,
         include_mind_games: bool = True,
-        include_persona_response: bool = True,
+        include_dramatic_sequence: bool = True,
         pot_committed_info: dict | None = None,
         short_stack_info: dict | None = None,
         made_hand_info: dict | None = None,
@@ -453,7 +453,7 @@ class PromptManager:
         Args:
             message: The game state message to include
             include_mind_games: Whether to include MIND GAMES instruction
-            include_persona_response: Whether to include PERSONA RESPONSE instruction
+            include_dramatic_sequence: Whether to include DRAMATIC SEQUENCE instruction
             pot_committed_info: Dict with {pot_odds, required_equity, already_bet} if pot-committed
             short_stack_info: Dict with {stack_bb} if short-stacked (<3 BB)
             made_hand_info: Dict with {hand_name, equity, is_tilted, tier} for made hand guidance
@@ -462,7 +462,7 @@ class PromptManager:
             include_pot_odds: Whether to include pot odds guidance section
             pot_odds_info: Dict with {pot_odds, equity_needed, pot_fmt, call_fmt, pot_odds_extra}
                            or {'free': True} for free check. None means no pot odds section.
-            use_simple_response_format: If True, use simple JSON response format instead of persona_response
+            use_simple_response_format: If True, use simple JSON response format instead of dramatic_sequence
 
         Returns:
             Rendered decision prompt
@@ -547,11 +547,11 @@ class PromptManager:
         if include_mind_games and 'mind_games' in template.sections:
             sections_to_render.append(template.sections['mind_games'])
 
-        # Response format: simple JSON or full persona response
+        # Response format: simple JSON or full dramatic sequence
         if use_simple_response_format and 'response_format_simple' in template.sections:
             sections_to_render.append(template.sections['response_format_simple'])
-        elif include_persona_response and 'persona_response' in template.sections:
-            sections_to_render.append(template.sections['persona_response'])
+        elif include_dramatic_sequence and 'dramatic_sequence' in template.sections:
+            sections_to_render.append(template.sections['dramatic_sequence'])
 
         # Join all sections
         rendered = "\n\n".join(sections_to_render)
@@ -647,7 +647,7 @@ RESPONSE_FORMAT = {
     "raise_to": "REQUIRED if raising: Total bet amount (the amount you're raising TO, not BY)",
 
     # REACTION (Visible response after deciding)
-    "stage_direction": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment."
+    "dramatic_sequence": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment."
 }
 
 
@@ -669,7 +669,7 @@ PERSONA_EXAMPLES = {
             "raise_to": 0,
 
             # REACTION
-            "stage_direction": ["*looks at feet*", "*lets out a big sigh*", "Oh bother, just my luck. Another miserable hand, I suppose."]
+            "dramatic_sequence": ["*looks at feet*", "*lets out a big sigh*", "Oh bother, just my luck. Another miserable hand, I suppose."]
         }
     },
     "Clint Eastwood": {
@@ -687,7 +687,7 @@ PERSONA_EXAMPLES = {
             "raise_to": 150,
 
             # REACTION
-            "stage_direction": ["*narrows eyes*", "Your move."]
+            "dramatic_sequence": ["*narrows eyes*", "Your move."]
         }
     }
 }

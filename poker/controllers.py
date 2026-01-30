@@ -1272,7 +1272,7 @@ class AIPlayerController:
         prompt = self.prompt_manager.render_decision_prompt(
             message=message,
             include_mind_games=self.prompt_config.mind_games,
-            include_persona_response=self.prompt_config.persona_response,
+            include_dramatic_sequence=self.prompt_config.dramatic_sequence,
             pot_committed_info=pot_committed_info,
             short_stack_info=short_stack_info,
             made_hand_info=made_hand_info,
@@ -1307,7 +1307,7 @@ class AIPlayerController:
         if self.prompt_config.use_simple_response_format:
             response_dict.setdefault('inner_monologue', '')
             response_dict.setdefault('hand_strategy', '')
-            response_dict.setdefault('stage_direction', [])
+            response_dict.setdefault('dramatic_sequence', [])
 
         return response_dict
 
@@ -1634,7 +1634,7 @@ class AIPlayerController:
         else:
             guidance += "You don't feel like talking this turn. Stay quiet.\n"
             guidance += "Focus on your action and inner thoughts only.\n"
-            guidance += "DO NOT include 'persona_response' or 'physical' in your response.\n"
+            guidance += "DO NOT include 'dramatic_sequence' in your response.\n"
 
         # Add context about conversation flow
         if speaking_context['turns_since_spoke'] > 3:

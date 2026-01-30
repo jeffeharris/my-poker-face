@@ -55,7 +55,7 @@ class TestPersonalityResponses(unittest.TestCase):
             "inner_monologue": responses['thought'],
             "bluff_likelihood": int(traits['bluff_tendency'] * 100),
             "hand_strategy": responses['strategy'],
-            "stage_direction": responses['physical'] + [responses['verbal']],
+            "dramatic_sequence": responses['physical'] + [responses['verbal']],
         }
     
     def _get_personality_responses(self, name, action):
@@ -220,7 +220,7 @@ class TestPersonalityResponses(unittest.TestCase):
             print(f"    - Aggression: {ai_player.personality_config['personality_traits']['aggression']:.0%}")
             print(f"  Decision: {response['action'].upper()}" +
                   (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else ""))
-            beats = response.get('stage_direction', [])
+            beats = response.get('dramatic_sequence', [])
             speech = [b for b in beats if not b.startswith('*')]
             actions = [b for b in beats if b.startswith('*')]
             print(f"  Says: \"{'; '.join(speech)}\"")
@@ -255,7 +255,7 @@ class TestPersonalityResponses(unittest.TestCase):
             print(f"\n{player_name}:")
             print(f"  Action: {response['action'].upper()}" + 
                   (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else ""))
-            beats = response.get('stage_direction', [])
+            beats = response.get('dramatic_sequence', [])
             speech = [b for b in beats if not b.startswith('*')]
             print(f"  Says: \"{'; '.join(speech)}\"")
 

@@ -123,7 +123,7 @@ What is your move?"""
             'decision': response.get('action', 'unknown').upper(),
             'amount': response.get('raise_to', 0),
             'thinking': response.get('inner_monologue', ''),
-            'stage_direction': response.get('stage_direction', [])
+            'dramatic_sequence': response.get('dramatic_sequence', [])
         }
         
         return jsonify({'success': True, 'result': result})
@@ -165,8 +165,7 @@ What is your move?"""
                 },
                 'decision': response.get('action', 'unknown').upper(),
                 'amount': response.get('raise_to', 0),
-                'says': response.get('persona_response', '...'),
-                'physical': response.get('physical', []),
+                'dramatic_sequence': response.get('dramatic_sequence', []),
                 'thinking': response.get('inner_monologue', ''),
                 'hand_strategy': response.get('hand_strategy', ''),
                 'bluff_likelihood': response.get('bluff_likelihood', 0)

@@ -108,7 +108,7 @@ def run_minimal_prompt_test(
                     "emotional_state": False,
                     "tilt_effects": False,
                     "mind_games": False,
-                    "persona_response": False,
+                    "dramatic_sequence": False,
                 }
             }]
         )

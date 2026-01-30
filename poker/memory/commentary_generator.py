@@ -303,16 +303,16 @@ class CommentaryGenerator:
         return {'level': level, 'tone': tone}
 
     @staticmethod
-    def _format_beats_for_chat(stage_direction) -> Optional[str]:
-        """Convert stage_direction to chat-ready string.
+    def _format_beats_for_chat(dramatic_sequence) -> Optional[str]:
+        """Convert dramatic_sequence to chat-ready string.
 
         Frontend's parseBeats() splits on newlines and detects *action* syntax.
         """
-        if isinstance(stage_direction, list):
-            beats = [b.strip() for b in stage_direction if isinstance(b, str) and b.strip()]
+        if isinstance(dramatic_sequence, list):
+            beats = [b.strip() for b in dramatic_sequence if isinstance(b, str) and b.strip()]
             return "\n".join(beats) if beats else None
-        if isinstance(stage_direction, str):
-            return stage_direction.strip() or None
+        if isinstance(dramatic_sequence, str):
+            return dramatic_sequence.strip() or None
         return None
 
     def generate_commentary(self,
@@ -451,9 +451,9 @@ class CommentaryGenerator:
 
             # Build commentary object
             # Suppress table_comment if hand isn't dramatic enough to speak about
-            # Handle stage_direction as list of beats (new) or plain string (legacy)
-            raw_stage_direction = commentary_data.get('stage_direction') if should_speak else None
-            table_comment = self._format_beats_for_chat(raw_stage_direction)
+            # Handle dramatic_sequence as list of beats or plain string
+            raw_dramatic_sequence = commentary_data.get('dramatic_sequence') if should_speak else None
+            table_comment = self._format_beats_for_chat(raw_dramatic_sequence)
 
             return HandCommentary(
                 player_name=player_name,

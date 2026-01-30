@@ -47,7 +47,7 @@ const PROMPT_CONFIG_LABELS: Record<keyof PromptConfig, string> = {
   emotional_state: 'Emotional State',
   tilt_effects: 'Tilt Effects',
   mind_games: 'Mind Games Instruction',
-  persona_response: 'Persona Response',
+  dramatic_sequence: 'Dramatic Sequence',
   memory_keep_exchanges: 'Memory Exchanges',
 };
 

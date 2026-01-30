@@ -149,7 +149,7 @@ Control which information is included in AI decision prompts:
 | `emotional_state` | true | Emotional state narrative |
 | `tilt_effects` | true | Tilt-based modifications |
 | `mind_games` | true | Mind games instruction |
-| `persona_response` | true | Persona response instruction |
+| `dramatic_sequence` | true | Dramatic sequence instruction |
 | `situational_guidance` | true | Coaching prompts (pot-committed, short-stack, made hand) |
 | `memory_keep_exchanges` | 0 | Conversation exchanges to retain |
 
@@ -331,7 +331,7 @@ Instead of manually specifying `prompt_config` fields, you can use the `game_mod
 |------|--------|
 | `casual` | Default PromptConfig (personality-driven fun poker) |
 | `standard` | `gto_equity=true` (balanced personality + GTO awareness) |
-| `pro` | `gto_equity=true, gto_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
+| `pro` | `gto_equity=true, gto_verdict=true, chattiness=false, dramatic_sequence=false` (GTO-focused analytical) |
 | `competitive` | `gto_equity=true, gto_verdict=true` (full GTO guidance with personality and trash talk) |
 
 **Inheritance**: `variant.game_mode` → `control.game_mode` → `None` (defaults)

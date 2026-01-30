@@ -104,7 +104,7 @@ The AI responds with structured JSON containing both game actions and roleplay e
   "raise_to": 200,
 
   // Reaction
-  "stage_direction": ["*slams chips on table*", "This pot is MINE! I raise $200!"]
+  "dramatic_sequence": ["*slams chips on table*", "This pot is MINE! I raise $200!"]
 }
 ```
 

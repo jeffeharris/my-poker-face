@@ -32,7 +32,7 @@
         "emotional_state": false,
         "tilt_effects": false,
         "mind_games": false,
-        "persona_response": false
+        "dramatic_sequence": false
       }
     },
     {
@@ -48,7 +48,7 @@
         "emotional_state": true,
         "tilt_effects": true,
         "mind_games": true,
-        "persona_response": false
+        "dramatic_sequence": false
       }
     }
   ]

@@ -128,7 +128,7 @@ class TestPromptManager(unittest.TestCase):
         prompt = self.manager.render_decision_prompt(
             message='Test game state message',
             include_mind_games=True,
-            include_persona_response=True
+            include_dramatic_sequence=True
         )
 
         self.assertIn('Test game state message', prompt)
@@ -187,7 +187,7 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         # Check it includes JSON format
         self.assertIn('"inner_monologue":', prompt)
         self.assertIn('"action":', prompt)
-        self.assertIn('"stage_direction":', prompt)
+        self.assertIn('"dramatic_sequence":', prompt)
     
     @patch.object(AIPokerPlayer, '_load_personality_config')
     def test_personality_modifiers(self, mock_load_config):
@@ -241,7 +241,7 @@ class TestResponseFormat(unittest.TestCase):
         expected_keys = [
             'inner_monologue', 'hand_strategy', 'player_observations',
             'hand_strength', 'bluff_likelihood',
-            'action', 'raise_to', 'stage_direction'
+            'action', 'raise_to', 'dramatic_sequence'
         ]
 
         for key in expected_keys:
@@ -270,7 +270,7 @@ class TestResponseFormat(unittest.TestCase):
         self.assertEqual(sample['action'], 'check')
         self.assertIn('inner_monologue', sample)
         self.assertIn('hand_strategy', sample)
-        self.assertIn('stage_direction', sample)
+        self.assertIn('dramatic_sequence', sample)
 
         # Check Clint Eastwood example
         clint = PERSONA_EXAMPLES['Clint Eastwood']

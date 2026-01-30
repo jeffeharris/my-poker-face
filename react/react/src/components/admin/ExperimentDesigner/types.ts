@@ -29,7 +29,7 @@ export interface PromptConfig {
   emotional_state: boolean;
   tilt_effects: boolean;
   mind_games: boolean;
-  persona_response: boolean;
+  dramatic_sequence: boolean;
   memory_keep_exchanges: number;
 }
 
@@ -415,7 +415,7 @@ export const DEFAULT_PROMPT_CONFIG: PromptConfig = {
   emotional_state: true,
   tilt_effects: true,
   mind_games: true,
-  persona_response: true,
+  dramatic_sequence: true,
   memory_keep_exchanges: 0,
 };
 

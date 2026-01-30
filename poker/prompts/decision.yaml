@@ -76,8 +76,8 @@ sections:
   response_format_simple: |-
     Respond with JSON: {{"action": "<your action>", "raise_to": <BB amount if raising>}}
 
-  persona_response: |-
-    STAGE DIRECTION: Build your visible reaction as a sequence of beats in the 'stage_direction' field.
+  dramatic_sequence: |-
+    DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats in the 'dramatic_sequence' field.
     FORMATTING RULES:
     - Each beat is EITHER an action (*in asterisks*) OR speech (plain text) -- NEVER both in one beat
     - Do NOT prefix beats with labels like "Beat 1:" or numbers

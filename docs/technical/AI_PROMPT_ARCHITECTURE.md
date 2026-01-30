@@ -167,7 +167,7 @@ This document describes the different systems that work together to create promp
                     │  • action (fold/check/call/raise)
                     │  • raise_to (total bet amount) │
                     │ Reaction:                      │
-                    │  • stage_direction (beats)     │
+                    │  • dramatic_sequence (beats)   │
                     └────────────────────────────────┘
 ```
 
