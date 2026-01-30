@@ -262,10 +262,10 @@
 
 .coach-thinking {
   color: var(--color-text-tertiary, #888) !important;
-  animation: coachPulse 1.5s ease-in-out infinite;
+  animation: coachThinkingPulse 1.5s ease-in-out infinite;
 }
 
-@keyframes coachPulse {
+@keyframes coachThinkingPulse {
   0%, 100% { opacity: 0.5; }
   50% { opacity: 1; }
 }

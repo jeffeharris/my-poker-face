@@ -1,3 +1,5 @@
+// TODO: CoachPanel, BottomSheet, and MobileChatSheet share a drag-to-dismiss
+// sheet pattern. Consider extracting a shared Sheet component.
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Send } from 'lucide-react';
 import type { CoachStats, CoachMessage, CoachMode } from '../../types/coach';
@@ -145,7 +147,6 @@ export function CoachPanel({
         className={`coach-sheet ${isClosing ? 'coach-sheet-closing' : ''}`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div
           className="coach-header"
           onTouchStart={handleDragStart}
@@ -170,10 +171,8 @@ export function CoachPanel({
           </div>
         </div>
 
-        {/* Stats Bar */}
         <StatsBar stats={stats} />
 
-        {/* Messages */}
         <div className="coach-messages">
           {messages.length === 0 ? (
             <div className="coach-empty">
@@ -203,7 +202,6 @@ export function CoachPanel({
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
         <form
           className="coach-input-area"
           onSubmit={(e) => {

@@ -39,7 +39,8 @@ logger = logging.getLogger(__name__)
 # v58: Fix v54 squash - apply missing heartbeat, outcome, and system preset columns
 # v59: Add owner_id to prompt_captures for multi-user tracking
 # v60: Add psychology snapshot columns to player_decision_analysis
-SCHEMA_VERSION = 60
+# v61: Add coach_mode column to games table for per-game coaching config
+SCHEMA_VERSION = 61
 
 
 @dataclass
@@ -183,7 +184,8 @@ class GamePersistence:
                     owner_id TEXT,
                     owner_name TEXT,
                     debug_capture_enabled BOOLEAN DEFAULT 0,
-                    llm_configs_json TEXT
+                    llm_configs_json TEXT,
+                    coach_mode TEXT DEFAULT 'off'
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_games_updated ON games(updated_at DESC)")
@@ -994,6 +996,7 @@ class GamePersistence:
             58: (self._migrate_v58_fix_squashed_features, "Fix v54 squash - apply missing heartbeat, outcome, and system preset columns"),
             59: (self._migrate_v59_add_owner_id_to_captures, "Add owner_id to prompt_captures for user tracking"),
             60: (self._migrate_v60_add_psychology_snapshot, "Add psychology snapshot columns to player_decision_analysis"),
+            61: (self._migrate_v61_add_coach_mode, "Add coach_mode column to games table"),
         }
 
         with self._get_connection() as conn:
@@ -2871,6 +2874,33 @@ class GamePersistence:
                 logger.info(f"Added {col_name} column to player_decision_analysis")
 
         logger.info("Migration v60 complete: psychology snapshot columns added to player_decision_analysis")
+
+    def _migrate_v61_add_coach_mode(self, conn: sqlite3.Connection) -> None:
+        """Migration v61: Add coach_mode column to games table."""
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(games)").fetchall()]
+        if 'coach_mode' not in columns:
+            conn.execute("ALTER TABLE games ADD COLUMN coach_mode TEXT DEFAULT 'off'")
+            logger.info("Added coach_mode column to games table")
+        logger.info("Migration v61 complete: coach_mode column added to games")
+
+    def save_coach_mode(self, game_id: str, mode: str) -> None:
+        """Persist coach mode preference for a game."""
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE games SET coach_mode = ? WHERE game_id = ?",
+                (mode, game_id)
+            )
+            conn.commit()
+
+    def load_coach_mode(self, game_id: str) -> str:
+        """Load coach mode preference for a game. Defaults to 'off'."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT coach_mode FROM games WHERE game_id = ?",
+                (game_id,)
+            )
+            row = cursor.fetchone()
+            return row[0] if row and row[0] else 'off'
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,

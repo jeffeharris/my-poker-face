@@ -45,9 +45,12 @@ Be honest — if they played well, say so briefly. If they made an error, explai
 class CoachAssistant:
     """LLM-powered poker coaching assistant."""
 
-    def __init__(self, game_id: str, owner_id: str):
+    def __init__(self, game_id: str, owner_id: str, player_name: str = ''):
+        system_prompt = COACH_SYSTEM_PROMPT
+        if player_name:
+            system_prompt += f"\nThe player's name is {player_name}. Address them by name occasionally."
         self._assistant = Assistant(
-            system_prompt=COACH_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             provider=get_default_provider(),
             model=get_default_model(),
             call_type=CallType.COACHING,
@@ -132,9 +135,10 @@ def _format_stats_for_prompt(data: Dict) -> str:
     return '\n'.join(lines)
 
 
-def get_or_create_coach(game_data: dict, game_id: str) -> CoachAssistant:
+def get_or_create_coach(game_data: dict, game_id: str,
+                        player_name: str = '') -> CoachAssistant:
     """Get or lazily create the CoachAssistant for a game."""
     if 'coach_assistant' not in game_data:
         owner_id = game_data.get('owner_id', '')
-        game_data['coach_assistant'] = CoachAssistant(game_id, owner_id)
+        game_data['coach_assistant'] = CoachAssistant(game_id, owner_id, player_name=player_name)
     return game_data['coach_assistant']

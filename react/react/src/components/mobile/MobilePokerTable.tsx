@@ -211,25 +211,27 @@ export function MobilePokerTable({
       // localStorage unavailable — just toggle mode without persisting
       coach.setMode(coachEnabled ? 'off' : 'reactive');
     }
-  }, [coachEnabled, coach]);
+  }, [coachEnabled, coach.mode, coach.setMode]);
 
-  // When a hand ends, request a post-hand review from the coach
+  // When a hand ends, request a post-hand review from the coach.
+  // coach.mode is omitted: we only want to trigger on winnerInfo change,
+  // not re-fire when mode toggles while a winner banner is showing.
   useEffect(() => {
     if (winnerInfo && coach.mode !== 'off') {
       coach.fetchHandReview();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winnerInfo]);
+  }, [winnerInfo, coach.fetchHandReview]);
 
   // Clear unread review indicator when coach panel is opened.
-  // `hasUnreadReview` is intentionally omitted from deps — we only want this
-  // to fire when the panel opens, not when a new review arrives while open.
+  // coach.hasUnreadReview is omitted: we only want to clear when the panel
+  // opens, not re-fire when a new review arrives while the panel is already open.
   useEffect(() => {
     if (showCoachPanel && coach.hasUnreadReview) {
       coach.clearUnreadReview();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCoachPanel]);
+  }, [showCoachPanel, coach.clearUnreadReview]);
   // Only show full loading screen on initial load (no game state yet)
   // If we have game state but are disconnected, we'll show a reconnecting overlay instead
   if (loading && !gameState) {

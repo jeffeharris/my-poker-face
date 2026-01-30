@@ -3,7 +3,6 @@ import type { CoachStats, CoachMessage, CoachMode } from '../types/coach';
 import { config } from '../config';
 
 const MAX_MESSAGES = 50;
-const PROACTIVE_TIP_MARKER = '__proactive_tip__';
 
 interface UseCoachOptions {
   gameId: string | null;
@@ -27,21 +26,22 @@ interface UseCoachResult {
   clearUnreadReview: () => void;
 }
 
-function loadMode(): CoachMode {
+function loadLocalMode(): CoachMode {
   try {
     const stored = localStorage.getItem('coach_mode');
     if (stored === 'proactive' || stored === 'reactive' || stored === 'off') {
       return stored;
     }
   } catch { /* ignore */ }
-  return 'reactive';
+  return 'off';
 }
 
 export function useCoach({
   gameId,
+  playerName,
   isPlayerTurn,
 }: UseCoachOptions): UseCoachResult {
-  const [mode, setModeState] = useState<CoachMode>(loadMode);
+  const [mode, setModeState] = useState<CoachMode>(loadLocalMode);
   const [stats, setStats] = useState<CoachStats | null>(null);
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [isThinking, setIsThinking] = useState(false);
@@ -53,6 +53,22 @@ export function useCoach({
   const fetchedForTurn = useRef(false);
   const prevIsPlayerTurn = useRef(false);
   const handReviewInFlightRef = useRef(false);
+
+  // Load coach mode from server when gameId is set
+  useEffect(() => {
+    if (!gameId) return;
+    fetch(`${config.API_URL}/api/coach/${gameId}/config`, {
+      credentials: 'include',
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.mode && (data.mode === 'proactive' || data.mode === 'reactive' || data.mode === 'off')) {
+          setModeState(data.mode);
+          try { localStorage.setItem('coach_mode', data.mode); } catch { /* ignore */ }
+        }
+      })
+      .catch(() => { /* non-critical — localStorage fallback already applied */ });
+  }, [gameId]);
 
   const setMode = useCallback((newMode: CoachMode) => {
     setModeState(newMode);
@@ -93,7 +109,7 @@ export function useCoach({
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: PROACTIVE_TIP_MARKER }),
+        body: JSON.stringify({ type: 'proactive_tip', playerName }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -111,7 +127,7 @@ export function useCoach({
     } catch {
       /* non-critical */
     }
-  }, [gameId]);
+  }, [gameId, playerName]);
 
   const sendQuestion = useCallback(async (question: string) => {
     if (!gameId || mode === 'off') return;
@@ -131,7 +147,7 @@ export function useCoach({
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, playerName }),
       });
 
       if (res.ok) {
@@ -156,7 +172,7 @@ export function useCoach({
     } finally {
       setIsThinking(false);
     }
-  }, [gameId, mode]);
+  }, [gameId, mode, playerName]);
 
   const clearProactiveTip = useCallback(() => {
     setProactiveTip(null);
@@ -171,6 +187,7 @@ export function useCoach({
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerName }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -190,7 +207,7 @@ export function useCoach({
       handReviewInFlightRef.current = false;
       setHandReviewPending(false);
     }
-  }, [gameId]);
+  }, [gameId, playerName]);
 
   const clearUnreadReview = useCallback(() => {
     setHasUnreadReview(false);

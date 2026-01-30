@@ -36,8 +36,7 @@ def _compute_equity(player_hand: List[str], community: List[str],
     """Compute player equity against opponent ranges via DecisionAnalyzer.
 
     Uses opponent stats/ranges when available, falls back to vs-random.
-    Returns (equity, used_ranges) tuple-style: equity float, and whether
-    range-based calc succeeded (to avoid redundant vs-random calc).
+    Returns equity as a float in [0, 1], or None on failure.
     """
     if not player_hand:
         return None
@@ -92,8 +91,8 @@ def _compute_outs(player_hand: List[str], community: List[str]) -> Optional[Dict
             for card in deck:
                 test_board = board_cards + [card]
                 if len(test_board) < 5:
-                    # Still need more cards - check if this card improves hand category
-                    test_score = eval7.evaluate(hero_cards + test_board + deck[:5 - len(test_board)])
+                    remaining = [c for c in deck if c != card]
+                    test_score = eval7.evaluate(hero_cards + test_board + remaining[:5 - len(test_board)])
                 else:
                     test_score = eval7.evaluate(hero_cards + test_board[:5])
 
@@ -213,13 +212,15 @@ def _get_opponent_stats(game_data: dict, human_name: str) -> List[Dict]:
     return stats
 
 
-def compute_coaching_data(game_id: str, player_name: str) -> Optional[Dict]:
+def compute_coaching_data(game_id: str, player_name: str,
+                          game_data: Optional[Dict] = None) -> Optional[Dict]:
     """Compute all coaching statistics for the given player.
 
     Returns a dict with equity, pot odds, hand strength, outs,
     recommendation, opponent stats, etc. Returns None if game not found.
     """
-    game_data = game_state_service.get_game(game_id)
+    if game_data is None:
+        game_data = game_state_service.get_game(game_id)
     if not game_data:
         return None
 
