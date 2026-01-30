@@ -1133,11 +1133,13 @@ def progress_game(game_id: str) -> None:
                     # Extra pause (4 seconds) for players to see the cards
                     socketio.sleep(4)
 
-                # Delay to let player see the community cards being dealt
-                # Flop (3 cards): 2.825s animation (2s stagger + 0.825s) + buffer
-                # Turn/River (1 card): 0.825s animation + buffer
-                run_out_sleep = 4 if current_phase == PokerPhase.FLOP else 2
-                socketio.sleep(run_out_sleep)
+                # Wait for card animation to finish, then emit reactions,
+                # then hold so the player can absorb before next street.
+                # Flop (3 cards): ~2.825s animation (2s stagger + 0.825s)
+                # Turn/River (1 card): ~0.825s animation
+                animation_sleep = 3 if current_phase == PokerPhase.FLOP else 1
+                reaction_hold = 1.5
+                socketio.sleep(animation_sleep)
 
                 # Check if game was deleted during sleep
                 current_game_data = game_state_service.get_game(game_id)
@@ -1157,6 +1159,9 @@ def progress_game(game_id: str) -> None:
                         _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
                     current_game_data['runout_emotion_overrides'] = overrides
                     game_state_service.set_game(game_id, current_game_data)
+
+                # Hold so the player can see reactions before next street
+                socketio.sleep(reaction_hold)
                 # Determine next phase (skip betting, go to dealing or showdown)
                 current_phase = state_machine.current_phase
                 if current_phase == PokerPhase.RIVER:
