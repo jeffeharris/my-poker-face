@@ -59,7 +59,12 @@ export function CoachButton({ onClick, hasNewInsight }: CoachButtonProps) {
     }
   }, []);
 
-  const handleTouchEnd = useCallback(() => {
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    // Prevent the browser from firing a synthetic click event after touchEnd.
+    // Without this, the click lands on the overlay that React just rendered
+    // and immediately closes the panel.
+    e.preventDefault();
+
     if (!isDragging.current) {
       onClick();
       return;
