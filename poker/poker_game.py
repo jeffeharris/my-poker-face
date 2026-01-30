@@ -435,7 +435,7 @@ def reset_player_action_flags(game_state: PokerGameState, exclude_current_player
     """
     updated_players = tuple(
         player if (exclude_current_player and idx == game_state.current_player_idx)
-        else player.update(has_acted=False)
+        else player.update(has_acted=False, last_action=None)
         for idx, player in enumerate(game_state.players)
     )
     return game_state.update(players=updated_players)
