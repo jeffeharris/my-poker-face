@@ -18,6 +18,7 @@ interface MobileActionButtonsProps {
   onAction: (action: string, amount?: number) => void;
   onQuickChat?: () => void;
   bettingContext?: BettingContext;  // Optional - use if provided by backend
+  recommendedAction?: string | null;
 }
 
 export function MobileActionButtons({
@@ -31,6 +32,7 @@ export function MobileActionButtons({
   onAction,
   onQuickChat,
   bettingContext: providedContext,
+  recommendedAction,
 }: MobileActionButtonsProps) {
   const [showRaiseSheet, setShowRaiseSheet] = useState(false);
   const [isEditingAmount, setIsEditingAmount] = useState(false);
@@ -232,7 +234,7 @@ export function MobileActionButtons({
     <div className="mobile-action-buttons">
       {playerOptions.includes('fold') && (
         <button
-          className="action-btn fold-btn"
+          className={`action-btn fold-btn ${recommendedAction === 'fold' ? 'coach-recommended' : ''}`}
           onClick={() => onAction('fold')}
         >
           <span className="action-icon">✕</span>
@@ -242,7 +244,7 @@ export function MobileActionButtons({
 
       {playerOptions.includes('check') && (
         <button
-          className="action-btn check-btn"
+          className={`action-btn check-btn ${recommendedAction === 'check' ? 'coach-recommended' : ''}`}
           onClick={() => onAction('check')}
         >
           <span className="action-icon"><Check /></span>
@@ -252,7 +254,7 @@ export function MobileActionButtons({
 
       {playerOptions.includes('call') && (
         <button
-          className="action-btn call-btn"
+          className={`action-btn call-btn ${recommendedAction === 'call' ? 'coach-recommended' : ''}`}
           onClick={() => onAction('call')}
         >
           <span className="action-icon">→</span>
@@ -262,7 +264,7 @@ export function MobileActionButtons({
 
       {(playerOptions.includes('bet') || playerOptions.includes('raise')) && (
         <button
-          className="action-btn raise-btn"
+          className={`action-btn raise-btn ${recommendedAction === 'raise' ? 'coach-recommended' : ''}`}
           onClick={handleRaise}
         >
           <span className="action-icon">↑</span>

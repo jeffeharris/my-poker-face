@@ -233,6 +233,26 @@
   transform: scale(0.98);
 }
 
+/* Toggle item styling */
+.user-dropdown__menu-item--toggle {
+  justify-content: flex-start;
+}
+
+.user-dropdown__toggle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: background 0.2s ease;
+}
+
+.user-dropdown__toggle-dot--on {
+  background: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
+}
+
 /* Logout specific styling */
 .user-dropdown__menu-item--logout:hover {
   background: rgba(239, 68, 68, 0.15);

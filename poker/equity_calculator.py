@@ -211,7 +211,11 @@ class EquityCalculator:
         board: List['eval7.Card'],
         iterations: int
     ) -> EquityResult:
-        """Calculate equity using Monte Carlo simulation."""
+        """Calculate equity using Monte Carlo simulation.
+
+        Supports unknown hands: any player with an empty hand list
+        will be dealt 2 random cards each iteration.
+        """
         # Build deck excluding known cards
         all_known = set()
         for hand in hands:
@@ -224,14 +228,24 @@ class EquityCalculator:
         ties = 0
         cards_needed = 5 - len(board)
 
+        # Identify which players need random hands dealt
+        unknown_indices = [i for i, hand in enumerate(hands) if len(hand) == 0]
+        random_cards_needed = 2 * len(unknown_indices)
+
         import random
         for _ in range(iterations):
-            # Sample remaining board cards
-            sampled = random.sample(deck, cards_needed)
-            full_board = board + sampled
+            # Sample board fills + random hole cards for unknown hands
+            sampled = random.sample(deck, cards_needed + random_cards_needed)
+            full_board = board + sampled[:cards_needed]
+
+            # Assign random hole cards to unknown players
+            iter_hands = list(hands)
+            for j, player_idx in enumerate(unknown_indices):
+                start = cards_needed + j * 2
+                iter_hands[player_idx] = sampled[start:start + 2]
 
             # Evaluate all hands
-            scores = [eval7.evaluate(hand + full_board) for hand in hands]
+            scores = [eval7.evaluate(hand + full_board) for hand in iter_hands]
 
             # Find winner(s) - higher score is better in eval7
             best_score = max(scores)

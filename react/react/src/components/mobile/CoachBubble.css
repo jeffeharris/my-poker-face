@@ -1,0 +1,83 @@
+.coach-bubble {
+  position: fixed;
+  bottom: calc(12dvh + 12px);
+  left: 12px;
+  right: 12px;
+  z-index: 160;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(20, 22, 30, 0.95), rgba(30, 33, 44, 0.95));
+  border: 1px solid rgba(212, 165, 116, 0.25);
+  border-radius: var(--radius-xl, 16px);
+  backdrop-filter: blur(16px);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    0 0 12px rgba(212, 165, 116, 0.1);
+  cursor: pointer;
+}
+
+.coach-bubble-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(212, 165, 116, 0.15);
+  color: var(--color-gold-light, #d4a574);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.coach-bubble-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.coach-bubble-tip {
+  font-family: var(--font-body, sans-serif);
+  font-size: 13px;
+  color: var(--color-text-primary, #eee);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.coach-bubble-stat {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--color-gold, #d4a574);
+  opacity: 0.8;
+}
+
+.coach-bubble-dismiss {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  color: var(--color-text-secondary, #bbb);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.coach-bubble-dismiss svg {
+  stroke-width: 2.5;
+}
+
+.coach-bubble-dismiss:active {
+  background: transparent;
+  color: #fff;
+  transform: scale(0.92);
+}

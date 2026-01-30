@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronDown, LogOut, Settings, Home } from 'lucide-react';
+import { ChevronDown, LogOut, Settings, Home, GraduationCap } from 'lucide-react';
 import './UserDropdown.css';
 
 export interface UserDropdownProps {
@@ -12,6 +12,8 @@ export interface UserDropdownProps {
   onLogout: () => void;
   onMainMenu?: () => void;
   onAdminTools?: () => void;
+  coachEnabled?: boolean;
+  onCoachToggle?: () => void;
   handsPlayed?: number;
   handsLimit?: number;
   onOpen?: () => void;
@@ -27,7 +29,7 @@ export interface UserDropdownProps {
  * - Escape key to close
  * - Smooth open/close animation
  */
-export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, handsPlayed, handsLimit, onOpen }: UserDropdownProps) {
+export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, coachEnabled, onCoachToggle, handsPlayed, handsLimit, onOpen }: UserDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -147,6 +149,19 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, handsPl
             >
               <Settings size={16} />
               <span>Admin Tools</span>
+            </button>
+          )}
+
+          {onCoachToggle && (
+            <button
+              className="user-dropdown__menu-item user-dropdown__menu-item--toggle"
+              onClick={() => { onCoachToggle(); }}
+              role="menuitemcheckbox"
+              aria-checked={coachEnabled}
+            >
+              <GraduationCap size={16} />
+              <span>Poker Coach</span>
+              <span className={`user-dropdown__toggle-dot ${coachEnabled ? 'user-dropdown__toggle-dot--on' : ''}`} />
             </button>
           )}
 

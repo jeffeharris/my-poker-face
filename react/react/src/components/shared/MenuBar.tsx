@@ -20,6 +20,10 @@ export interface MenuBarProps {
   onMainMenu?: () => void;
   /** Handler for navigating to admin tools */
   onAdminTools?: () => void;
+  /** Whether the poker coach is enabled */
+  coachEnabled?: boolean;
+  /** Handler for toggling the poker coach */
+  onCoachToggle?: () => void;
   /** Additional class name */
   className?: string;
 }
@@ -42,6 +46,8 @@ export function MenuBar({
   showUserInfo = true,
   onMainMenu,
   onAdminTools,
+  coachEnabled,
+  onCoachToggle,
   className = '',
 }: MenuBarProps) {
   const { user, logout: authLogout } = useAuth();
@@ -93,6 +99,8 @@ export function MenuBar({
             onLogout={handleLogout}
             onMainMenu={onMainMenu}
             onAdminTools={canAccessAdmin ? onAdminTools : undefined}
+            coachEnabled={coachEnabled}
+            onCoachToggle={onCoachToggle}
             handsPlayed={usageStats?.is_guest ? usageStats.hands_played : undefined}
             handsLimit={usageStats?.is_guest ? usageStats.hands_limit : undefined}
             onOpen={refetchUsageStats}

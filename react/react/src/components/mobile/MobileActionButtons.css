@@ -495,3 +495,15 @@
   font-size: 14px;
   color: var(--color-text-tertiary);
 }
+
+/* Coach recommendation highlight */
+.action-btn.coach-recommended {
+  box-shadow: 0 0 12px rgba(76, 175, 80, 0.5), 0 0 24px rgba(76, 175, 80, 0.2);
+  border: 1px solid rgba(76, 175, 80, 0.6);
+  animation: coachPulse 2s ease-in-out infinite;
+}
+
+@keyframes coachPulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(76, 175, 80, 0.5), 0 0 24px rgba(76, 175, 80, 0.2); }
+  50% { box-shadow: 0 0 18px rgba(76, 175, 80, 0.7), 0 0 36px rgba(76, 175, 80, 0.3); }
+}

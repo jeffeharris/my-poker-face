@@ -81,6 +81,7 @@ class CallType(str, Enum):
     DEBUG_INTERROGATE = "debug_interrogate"
     EXPERIMENT_DESIGN = "experiment_design"
     EXPERIMENT_ANALYSIS = "experiment_analysis"
+    COACHING = "coaching"
 
 
 class UsageTracker:

@@ -13,10 +13,14 @@ import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
+import { CoachButton } from './CoachButton';
+import { CoachPanel } from './CoachPanel';
+import { CoachBubble } from './CoachBubble';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
+import { useCoach } from '../../hooks/useCoach';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
@@ -55,6 +59,9 @@ export function MobilePokerTable({
   const dismissRecentAiMessage = useCallback(() => {
     setRecentAiMessage(null);
   }, []);
+
+  // Coach state
+  const [showCoachPanel, setShowCoachPanel] = useState(false);
 
   // LLM Debug modal state
   const [debugModalPlayer, setDebugModalPlayer] = useState<Player | null>(null);
@@ -192,6 +199,51 @@ export function MobilePokerTable({
   // Two opponents mode: 2 AI opponents (3 players total)
   const isTwoOpponents = opponents.length === 2;
 
+  // Coach hook
+  const coach = useCoach({
+    gameId: providedGameId ?? null,
+    playerName: playerName || '',
+    isPlayerTurn: !!showActionButtons,
+  });
+
+  const coachEnabled = !isGuest && coach.mode !== 'off';
+
+  const handleCoachToggle = useCallback(() => {
+    try {
+      if (coachEnabled) {
+        // Save current mode before turning off
+        localStorage.setItem('coach_mode_before_off', coach.mode);
+        coach.setMode('off');
+      } else {
+        // Restore previous mode
+        const previous = localStorage.getItem('coach_mode_before_off');
+        coach.setMode((previous === 'proactive' || previous === 'reactive') ? previous : 'reactive');
+      }
+    } catch {
+      // localStorage unavailable — just toggle mode without persisting
+      coach.setMode(coachEnabled ? 'off' : 'reactive');
+    }
+  }, [coachEnabled, coach]);
+
+  // When a hand ends, request a post-hand review from the coach.
+  // coach.mode is omitted: we only want to trigger on winnerInfo change,
+  // not re-fire when mode toggles while a winner banner is showing.
+  useEffect(() => {
+    if (winnerInfo && coach.mode !== 'off') {
+      coach.fetchHandReview();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [winnerInfo, coach.fetchHandReview]);
+
+  // Clear unread review indicator when coach panel is opened.
+  // coach.hasUnreadReview is omitted: we only want to clear when the panel
+  // opens, not re-fire when a new review arrives while the panel is already open.
+  useEffect(() => {
+    if (showCoachPanel && coach.hasUnreadReview) {
+      coach.clearUnreadReview();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCoachPanel, coach.clearUnreadReview]);
   // Only show full loading screen on initial load (no game state yet)
   // If we have game state but are disconnected, we'll show a reconnecting overlay instead
   if (loading && !gameState) {
@@ -241,6 +293,8 @@ export function MobilePokerTable({
         }
         showUserInfo
         onAdminTools={() => { window.location.href = '/admin'; }}
+        coachEnabled={coachEnabled}
+        onCoachToggle={isGuest ? undefined : handleCoachToggle}
       />
       {/* Spacer for fixed MenuBar */}
       <div className="menu-bar-spacer" />
@@ -470,6 +524,7 @@ export function MobilePokerTable({
             onAction={handlePlayerAction}
             onQuickChat={() => setShowChatSheet(true)}
             bettingContext={gameState.betting_context}
+            recommendedAction={coach.mode !== 'off' ? coach.stats?.recommendation : null}
           />
         ) : (
           <div className="mobile-action-buttons">
@@ -543,6 +598,35 @@ export function MobilePokerTable({
         playerName={debugModalPlayer?.name || ''}
         debugInfo={debugModalPlayer?.llm_debug}
       />
+
+      {/* Coach Components */}
+      {coachEnabled && (
+        <>
+          <CoachButton
+            onClick={() => setShowCoachPanel(true)}
+            hasNewInsight={(!!coach.proactiveTip || coach.hasUnreadReview) && !showCoachPanel}
+          />
+
+          <CoachBubble
+            isVisible={coach.mode === 'proactive' && !!showActionButtons && !!coach.proactiveTip && !showCoachPanel}
+            tip={coach.proactiveTip}
+            stats={coach.stats}
+            onTap={() => setShowCoachPanel(true)}
+            onDismiss={coach.clearProactiveTip}
+          />
+
+          <CoachPanel
+            isOpen={showCoachPanel}
+            onClose={() => setShowCoachPanel(false)}
+            stats={coach.stats}
+            messages={coach.messages}
+            onSendQuestion={coach.sendQuestion}
+            isThinking={coach.isThinking}
+            mode={coach.mode}
+            onModeChange={coach.setMode}
+          />
+        </>
+      )}
 
       {/* Guest Hand Limit Modal */}
       {guestLimitReached && usageStats && (
