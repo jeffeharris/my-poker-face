@@ -2,16 +2,24 @@
 
 All functions return (allowed: bool, error_msg: str | None).
 Non-guests always get (True, None). Dev mode bypasses hand limits.
+
+Constants are defined here (the poker module is the functional core) and
+re-exported by flask_app.config for convenience. Do NOT import from
+flask_app here — that would create a circular dependency.
 """
+import os
 from typing import Dict, Any, Optional, Tuple
 
-from flask_app.config import (
-    GUEST_MAX_HANDS,
-    GUEST_MAX_ACTIVE_GAMES,
-    GUEST_MAX_OPPONENTS,
-    GUEST_MAX_MESSAGES_PER_ACTION,
-    GUEST_LIMITS_ENABLED,
-)
+# Guest limit constants — overridable via environment variables
+GUEST_MAX_HANDS = int(os.environ.get('GUEST_MAX_HANDS', '50'))
+GUEST_MAX_ACTIVE_GAMES = int(os.environ.get('GUEST_MAX_ACTIVE_GAMES', '1'))
+GUEST_MAX_OPPONENTS = int(os.environ.get('GUEST_MAX_OPPONENTS', '3'))
+GUEST_MAX_MESSAGES_PER_ACTION = int(os.environ.get('GUEST_MAX_MESSAGES_PER_ACTION', '1'))
+
+# Disabled in dev mode by default
+_flask_env = os.environ.get('FLASK_ENV', 'production')
+_flask_debug = os.environ.get('FLASK_DEBUG', '0')
+GUEST_LIMITS_ENABLED = not (_flask_env == 'development' or _flask_debug == '1')
 
 
 def is_guest(user: Optional[Dict[str, Any]]) -> bool:

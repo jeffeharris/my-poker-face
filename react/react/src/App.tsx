@@ -451,6 +451,10 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         <GuestLimitModal
           handsPlayed={usageStats.hands_played}
           handsLimit={usageStats.hands_limit}
+          onReturnToMenu={() => {
+            setShowGuestLimitModal(false);
+            navigate('/menu');
+          }}
         />
       )}
 

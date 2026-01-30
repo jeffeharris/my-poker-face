@@ -5,9 +5,10 @@ import './GuestLimitModal.css';
 export interface GuestLimitModalProps {
   handsPlayed: number;
   handsLimit: number;
+  onReturnToMenu?: () => void;
 }
 
-export function GuestLimitModal({ handsPlayed, handsLimit }: GuestLimitModalProps) {
+export function GuestLimitModal({ handsPlayed, handsLimit, onReturnToMenu }: GuestLimitModalProps) {
   const handleSignIn = () => {
     window.location.href = `${config.API_URL}/api/auth/google/login`;
   };
@@ -50,6 +51,12 @@ export function GuestLimitModal({ handsPlayed, handsLimit }: GuestLimitModalProp
           <Crown size={18} />
           Sign in with Google
         </button>
+
+        {onReturnToMenu && (
+          <button className="guest-limit-modal__secondary" onClick={onReturnToMenu}>
+            Return to Main Menu
+          </button>
+        )}
 
         <p className="guest-limit-modal__note">
           Your game progress and stats will be preserved.

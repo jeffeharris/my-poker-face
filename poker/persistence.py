@@ -3274,6 +3274,9 @@ class GamePersistence:
         Updates owner_id across all relevant tables in a single transaction.
         Used when a guest links their account via Google OAuth.
 
+        If the target user already has career stats (e.g., from a previous
+        guest session), the guest stats are merged into the existing record.
+
         Args:
             from_id: The guest owner ID (e.g., guest_jeff)
             to_id: The new user ID (e.g., google_12345)
@@ -3283,6 +3286,8 @@ class GamePersistence:
             Number of games transferred
         """
         with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+
             # Transfer games
             cursor = conn.execute("""
                 UPDATE games
@@ -3301,10 +3306,35 @@ class GamePersistence:
                 UPDATE prompt_captures SET owner_id = ? WHERE owner_id = ?
             """, (to_id, from_id))
 
-            # Transfer career stats
-            conn.execute("""
-                UPDATE player_career_stats SET owner_id = ? WHERE owner_id = ?
-            """, (to_id, from_id))
+            # Transfer career stats — merge if target already has stats
+            existing_target = conn.execute(
+                "SELECT id FROM player_career_stats WHERE owner_id = ?", (to_id,)
+            ).fetchone()
+            existing_guest = conn.execute(
+                "SELECT id FROM player_career_stats WHERE owner_id = ?", (from_id,)
+            ).fetchone()
+
+            if existing_guest and existing_target:
+                # Both exist — merge guest stats into target, then delete guest row
+                conn.execute("""
+                    UPDATE player_career_stats
+                    SET games_played = games_played + (SELECT games_played FROM player_career_stats WHERE owner_id = ?),
+                        games_won = games_won + (SELECT games_won FROM player_career_stats WHERE owner_id = ?),
+                        total_eliminations = total_eliminations + (SELECT total_eliminations FROM player_career_stats WHERE owner_id = ?),
+                        best_finish = MIN(best_finish, (SELECT best_finish FROM player_career_stats WHERE owner_id = ?)),
+                        worst_finish = MAX(worst_finish, (SELECT worst_finish FROM player_career_stats WHERE owner_id = ?)),
+                        biggest_pot_ever = MAX(biggest_pot_ever, (SELECT biggest_pot_ever FROM player_career_stats WHERE owner_id = ?)),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE owner_id = ?
+                """, (from_id, from_id, from_id, from_id, from_id, from_id, to_id))
+                conn.execute(
+                    "DELETE FROM player_career_stats WHERE owner_id = ?", (from_id,)
+                )
+            elif existing_guest:
+                # Only guest has stats — transfer directly
+                conn.execute("""
+                    UPDATE player_career_stats SET owner_id = ? WHERE owner_id = ?
+                """, (to_id, from_id))
 
             # Transfer tournament standings
             conn.execute("""

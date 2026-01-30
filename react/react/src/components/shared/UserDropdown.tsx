@@ -122,7 +122,7 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, handsPl
               <div className="user-dropdown__hands-bar">
                 <div
                   className="user-dropdown__hands-bar-fill"
-                  style={{ width: `${Math.min((handsPlayed / handsLimit) * 100, 100)}%` }}
+                  style={{ width: `${handsLimit > 0 ? Math.min((handsPlayed / handsLimit) * 100, 100) : 100}%` }}
                 />
               </div>
             </div>

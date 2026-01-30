@@ -44,12 +44,13 @@ def _track_guest_hand(game_id: str, game_data: dict) -> None:
         # be available in background tasks).
         tracking_id = game_data.get('guest_tracking_id')
         if not tracking_id:
-            # Fallback: check if owner is a guest
+            # Games created before the tracking cookie was introduced won't
+            # have a tracking_id in game_data.  These are grandfathered and
+            # exempt from hand tracking — the limit still applies to new games.
             owner_id, _ = game_state_service.get_game_owner_info(game_id)
             if not owner_id or not owner_id.startswith('guest_'):
                 return
-            # No tracking_id available
-            logger.debug(f"Guest game {game_id} has no tracking_id, skipping hand tracking")
+            logger.info(f"Guest game {game_id} has no tracking_id (pre-migration game), skipping hand tracking")
             return
 
         new_count = persistence.increment_hands_played(tracking_id)
@@ -60,7 +61,7 @@ def _track_guest_hand(game_id: str, game_data: dict) -> None:
                 'hands_limit': GUEST_MAX_HANDS,
             }, to=game_id)
     except Exception as e:
-        logger.warning(f"Failed to track guest hand: {e}")
+        logger.error(f"Failed to track guest hand for game {game_id} (tracking_id={game_data.get('guest_tracking_id')}): {e}")
 
 
 def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
