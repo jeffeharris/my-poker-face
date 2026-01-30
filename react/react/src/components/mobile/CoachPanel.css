@@ -234,6 +234,17 @@
   border-bottom-left-radius: 4px;
 }
 
+/* Proactive tip message */
+.coach-msg-tip .coach-msg-sender {
+  color: var(--color-emerald, #4caf50);
+}
+
+.coach-msg-tip .coach-msg-text {
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.18);
+  border-bottom-left-radius: 4px;
+}
+
 .coach-thinking {
   color: var(--color-text-tertiary, #888) !important;
   animation: coachPulse 1.5s ease-in-out infinite;

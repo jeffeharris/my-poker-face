@@ -175,10 +175,10 @@ export function CoachPanel({
             messages.map((msg) => (
               <div
                 key={msg.id}
-                className={`coach-msg coach-msg-${msg.role} ${msg.type === 'review' ? 'coach-msg-review' : ''}`}
+                className={`coach-msg coach-msg-${msg.role} ${msg.type ? `coach-msg-${msg.type}` : ''}`}
               >
                 <span className="coach-msg-sender">
-                  {msg.type === 'review' ? 'Hand Review' : msg.role === 'user' ? 'You' : 'Coach'}
+                  {msg.type === 'review' ? 'Hand Review' : msg.type === 'tip' ? 'Tip' : msg.role === 'user' ? 'You' : 'Coach'}
                 </span>
                 <span className="coach-msg-text">{msg.content}</span>
               </div>

@@ -32,7 +32,7 @@ export interface CoachMessage {
   role: 'user' | 'coach';
   content: string;
   timestamp: number;
-  type?: 'review';
+  type?: 'review' | 'tip';
 }
 
 export type CoachMode = 'proactive' | 'reactive' | 'off';

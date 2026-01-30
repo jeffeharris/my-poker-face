@@ -100,6 +100,14 @@ export function useCoach({
       if (res.ok) {
         const data = await res.json();
         setProactiveTip(data.answer);
+        const tipMsg: CoachMessage = {
+          id: `tip-${Date.now()}`,
+          role: 'coach',
+          content: data.answer,
+          timestamp: Date.now(),
+          type: 'tip',
+        };
+        setMessages(prev => [...prev, tipMsg].slice(-MAX_MESSAGES));
         if (data.stats) setStats(data.stats);
       }
     } catch {
