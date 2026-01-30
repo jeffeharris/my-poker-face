@@ -11,7 +11,7 @@ import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
 import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
-import { HeadsUpOpponentPanel as _HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
+import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
@@ -187,7 +187,7 @@ export function MobilePokerTable({
 
   // Heads-up mode: only 1 AI opponent remains
   const isHeadsUp = opponents.length === 1;
-  const _headsUpOpponent = isHeadsUp ? opponents[0] : null;
+  const headsUpOpponent = isHeadsUp ? opponents[0] : null;
 
   // Two opponents mode: 2 AI opponents (3 players total)
   const isTwoOpponents = opponents.length === 2;
@@ -317,7 +317,14 @@ export function MobilePokerTable({
           );
         })}
 
-        {/* Heads-up psychology panel - hidden when avatar fills space */}
+        {/* Heads-up psychology panel */}
+        {isHeadsUp && headsUpOpponent && providedGameId && (
+          <HeadsUpOpponentPanel
+            opponent={headsUpOpponent}
+            gameId={providedGameId}
+            humanPlayerName={humanPlayer?.name}
+          />
+        )}
       </div>
 
       {/* Floating Pot Display - between opponents and community cards */}
