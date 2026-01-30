@@ -129,21 +129,36 @@
 }
 
 .coach-close-btn {
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: var(--radius-md, 8px);
-  color: var(--color-text-secondary, #bbb);
+  position: relative;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-secondary, #bbb);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+
+.coach-close-btn svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 2.5;
 }
 
 .coach-close-btn:active {
-  background: rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: #fff;
+  transform: scale(0.92);
 }
 
 /* Messages area */
@@ -153,6 +168,7 @@
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: 8px;
   -webkit-overflow-scrolling: touch;
 }
