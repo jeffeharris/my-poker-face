@@ -2,7 +2,7 @@
 Response validation for AI poker players.
 Ensures responses meet required format and context-appropriate fields.
 """
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 import logging
 import re
 
@@ -10,12 +10,18 @@ logger = logging.getLogger(__name__)
 
 
 _ACTION_PATTERN = re.compile(r'\*[^*]+\*')
-_ARTIFACT_CHARS = ',;:\n\r\t'
+_ARTIFACT_CHARS = ',;\n\r\t'
+_SPEECH_ARTIFACT_CHARS = _ARTIFACT_CHARS + '*'
 
 
 def _clean_beat(text: str) -> str:
     """Strip whitespace and punctuation artifacts from a beat."""
     return text.strip().strip(_ARTIFACT_CHARS).strip()
+
+
+def _clean_speech(text: str) -> str:
+    """Strip whitespace, punctuation artifacts, and orphaned asterisks from speech."""
+    return text.strip().strip(_SPEECH_ARTIFACT_CHARS).strip()
 
 
 def normalize_dramatic_sequence(beats: List[str]) -> List[str]:
@@ -36,8 +42,10 @@ def normalize_dramatic_sequence(beats: List[str]) -> List[str]:
 
         actions = _ACTION_PATTERN.findall(beat)
         if not actions:
-            # Pure speech beat
-            normalized.append(beat)
+            # Pure speech beat — strip orphaned asterisks
+            speech = _clean_speech(beat)
+            if speech:
+                normalized.append(speech)
             continue
 
         # Check if the entire beat is a single action (already correct)
@@ -49,15 +57,15 @@ def normalize_dramatic_sequence(beats: List[str]) -> List[str]:
         remaining = beat
         for action in actions:
             idx = remaining.find(action)
-            # Any text before this action is speech
-            before = _clean_beat(remaining[:idx])
+            # Any text before this action is speech (strip orphaned asterisks)
+            before = _clean_speech(remaining[:idx])
             if before:
                 normalized.append(before)
             normalized.append(action)
             remaining = remaining[idx + len(action):]
 
         # Any trailing text after the last action is speech
-        trailing = _clean_beat(remaining)
+        trailing = _clean_speech(remaining)
         if trailing:
             normalized.append(trailing)
 
