@@ -36,9 +36,7 @@ from core.llm_categorizer import (
 logger = logging.getLogger(__name__)
 
 
-# ============================================================
 # Layer 1: Baseline mood from elastic traits (deterministic)
-# ============================================================
 
 def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
     """
@@ -68,11 +66,9 @@ def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
         return t.anchor if hasattr(t, 'anchor') else t.get('anchor', default)
 
     def _trait_drift(name: str) -> float:
-        """How far the trait has drifted from anchor. Positive = above anchor."""
         return _trait_val(name) - _trait_anchor(name)
 
     aggression = _trait_val('aggression')
-    bluff = _trait_val('bluff_tendency')
     chattiness = _trait_val('chattiness')
     emoji = _trait_val('emoji_usage')
 
@@ -106,9 +102,7 @@ def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
-# ============================================================
 # Layer 2: Reactive spike from hand outcome (deterministic)
-# ============================================================
 
 def compute_reactive_spike(
     outcome: str,
@@ -165,9 +159,7 @@ def compute_reactive_spike(
     }
 
 
-# ============================================================
 # Blending baseline + spike
-# ============================================================
 
 def blend_emotional_state(
     baseline: Dict[str, float],
@@ -194,16 +186,10 @@ def blend_emotional_state(
 
 
 def _clamp(value: float, min_val: float, max_val: float) -> float:
-    """Clamp a value to a range."""
     return max(min_val, min(max_val, value))
 
 
-# ============================================================
-# LLM narration schema (narrative + inner_voice only)
-# ============================================================
-
-# Schema for emotional state narration — LLM produces text only,
-# dimensions are computed deterministically above
+# LLM narration schema — LLM produces text only, dimensions are computed above
 EMOTIONAL_NARRATION_SCHEMA = CategorizationSchema(
     fields={
         'narrative': {
@@ -218,59 +204,6 @@ EMOTIONAL_NARRATION_SCHEMA = CategorizationSchema(
         }
     },
     example_output={
-        'narrative': 'Gordon is seething after Phil\'s lucky river card. His jaw is tight and his patience is wearing thin.',
-        'inner_voice': 'That idiot called with nothing and got rewarded. Unbelievable.'
-    }
-)
-
-# Legacy schema kept for backward compatibility reference
-# Schema for emotional state categorization
-EMOTIONAL_STATE_SCHEMA = CategorizationSchema(
-    fields={
-        'valence': {
-            'type': 'float',
-            'min': -1.0,
-            'max': 1.0,
-            'default': 0.0,
-            'description': 'Mood from miserable (-1) to elated (1)'
-        },
-        'arousal': {
-            'type': 'float',
-            'min': 0.0,
-            'max': 1.0,
-            'default': 0.5,
-            'description': 'Energy level from calm (0) to highly agitated (1)'
-        },
-        'control': {
-            'type': 'float',
-            'min': 0.0,
-            'max': 1.0,
-            'default': 0.5,
-            'description': 'Sense of control from losing grip (0) to fully in command (1)'
-        },
-        'focus': {
-            'type': 'float',
-            'min': 0.0,
-            'max': 1.0,
-            'default': 0.5,
-            'description': 'Mental clarity from tunnel vision/fixated (0) to clear-headed (1)'
-        },
-        'narrative': {
-            'type': 'string',
-            'default': '',
-            'description': '1-2 sentences describing how the character is feeling, in third person'
-        },
-        'inner_voice': {
-            'type': 'string',
-            'default': '',
-            'description': 'A short thought echoing in their head, in first person, in their voice'
-        }
-    },
-    example_output={
-        'valence': -0.4,
-        'arousal': 0.7,
-        'control': 0.3,
-        'focus': 0.4,
         'narrative': 'Gordon is seething after Phil\'s lucky river card. His jaw is tight and his patience is wearing thin.',
         'inner_voice': 'That idiot called with nothing and got rewarded. Unbelievable.'
     }
@@ -349,7 +282,7 @@ class EmotionalState:
         Map dimensional emotional state to discrete display emotion for avatar.
 
         Returns one of: angry, elated, shocked, smug, frustrated, nervous,
-                        happy, thinking, confident, poker_face
+                        confident, happy, thinking, poker_face
         Priority order: most extreme/specific emotions checked first.
         """
         # Angry: red-hot fury, very negative with high agitation
@@ -376,17 +309,18 @@ class EmotionalState:
         if self.valence < 0 and self.control < 0.5:
             return "nervous"
 
-        # Happy: warm positive feeling, moderate energy
-        if self.valence > 0.4 and self.arousal < 0.6:
+        # Confident: positive mood with steady control (before happy so
+        # controlled-positive states read as confidence, not just happiness)
+        if self.valence > 0.2 and self.control > 0.5:
+            return "confident"
+
+        # Happy: warm positive feeling without strong control
+        if self.valence > 0.3:
             return "happy"
 
         # Thinking: contemplative, clear-headed focus
         if self.focus > 0.6 and self.arousal < 0.5:
             return "thinking"
-
-        # Confident: positive mood with steady control
-        if self.valence > 0.2 and self.control > 0.5:
-            return "confident"
 
         # Default: neutral poker face mask
         return "poker_face"
@@ -493,18 +427,6 @@ class EmotionalState:
             used_fallback=self.used_fallback
         )
 
-    def decay_toward_neutral(self, rate: float = 0.1) -> 'EmotionalState':
-        """
-        Return a new state decayed toward neutral values.
-
-        Legacy method — prefer decay_toward_baseline() which targets the
-        personality-specific baseline instead of hardcoded neutral.
-        """
-        return self.decay_toward_baseline(
-            baseline={'valence': 0.0, 'arousal': 0.4, 'control': 0.6, 'focus': 0.6},
-            rate=rate,
-        )
-
 
 class EmotionalStateGenerator:
     """
@@ -552,8 +474,6 @@ dimensions tell you the intensity — your job is to give it personality."""
         # Tracking context for cost analysis
         game_id: Optional[str] = None,
         owner_id: Optional[str] = None,
-        # Optional: pre-computed dimensions (if caller already computed them)
-        computed_dimensions: Optional[Dict[str, float]] = None,
         big_blind: int = 100,
     ) -> EmotionalState:
         """
@@ -572,29 +492,24 @@ dimensions tell you the intensity — your job is to give it personality."""
             hand_number: Current hand number
             game_id: Game ID for usage tracking
             owner_id: User ID for usage tracking
-            computed_dimensions: Pre-computed dimensions dict (optional).
-                If provided, skips baseline + spike computation.
             big_blind: Big blind size for spike amount normalization
 
         Returns:
             EmotionalState with deterministic dimensions and LLM narrative
         """
-        # --- Layer 1 + 2: Compute dimensions deterministically ---
-        if computed_dimensions is not None:
-            dimensions = computed_dimensions
-        else:
-            tilt_level = getattr(tilt_state, 'tilt_level', 0.0)
-            outcome = hand_outcome.get('outcome', 'unknown')
-            amount = hand_outcome.get('amount', 0)
+        # Compute dimensions deterministically (baseline + spike)
+        tilt_level = getattr(tilt_state, 'tilt_level', 0.0)
+        outcome = hand_outcome.get('outcome', 'unknown')
+        amount = hand_outcome.get('amount', 0)
 
-            baseline = compute_baseline_mood(elastic_traits)
-            spike = compute_reactive_spike(
-                outcome=outcome,
-                amount=amount,
-                tilt_level=tilt_level,
-                big_blind=big_blind,
-            )
-            dimensions = blend_emotional_state(baseline, spike)
+        baseline = compute_baseline_mood(elastic_traits)
+        spike = compute_reactive_spike(
+            outcome=outcome,
+            amount=amount,
+            tilt_level=tilt_level,
+            big_blind=big_blind,
+        )
+        dimensions = blend_emotional_state(baseline, spike)
 
         # --- Narration: LLM produces text for the computed dimensions ---
         context = self._build_narration_context(
@@ -746,41 +661,12 @@ dimensions tell you the intensity — your job is to give it personality."""
 
         return "\n".join(lines)
 
-    # Keep legacy method name for backward compatibility
-    def _build_context(
-        self,
-        personality_name: str,
-        personality_config: Dict[str, Any],
-        hand_outcome: Dict[str, Any],
-        elastic_traits: Dict[str, Any],
-        tilt_state: Any,
-        session_context: Dict[str, Any]
-    ) -> str:
-        """Legacy context builder — delegates to narration context with neutral dimensions."""
-        dimensions = compute_baseline_mood(elastic_traits)
-        return self._build_narration_context(
-            personality_name=personality_name,
-            personality_config=personality_config,
-            hand_outcome=hand_outcome,
-            dimensions=dimensions,
-            tilt_state=tilt_state,
-            session_context=session_context,
-        )
-
     def _generate_narration_fallback(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Generate fallback narrative when LLM fails.
-
-        Dimensions are already computed deterministically — this only needs
-        to produce generic narrative text.
-        """
+        """Generate fallback narrative when LLM fails."""
         return {
             'narrative': 'Processing the last hand.',
             'inner_voice': 'Focus on the next one.'
         }
-
-    # Legacy fallback kept for backward compatibility
-    _generate_fallback = _generate_narration_fallback
 
 
 # Convenience function for external use

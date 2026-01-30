@@ -885,7 +885,7 @@ class AITournamentRunner:
             key_moment = 'bad_beat' if was_bad_beat else None
 
             # Call psychology update
-            big_blind = getattr(game_state, 'current_ante', 100)
+            big_blind = game_state.current_ante
             try:
                 controller.psychology.on_hand_complete(
                     outcome=outcome,

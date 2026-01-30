@@ -19,7 +19,7 @@ from .elasticity_manager import ElasticPersonality
 from .emotional_state import (
     EmotionalState, EmotionalStateGenerator,
     compute_baseline_mood, compute_reactive_spike, blend_emotional_state,
-)
+)  # compute_* used in recover() and exception fallback
 from .tilt_modifier import TiltState, TiltPromptModifier
 
 logger = logging.getLogger(__name__)
@@ -385,13 +385,7 @@ class PlayerPsychology:
         session_context: Dict[str, Any],
         big_blind: int = 100,
     ) -> None:
-        """Generate new emotional state using two-layer deterministic model.
-
-        Layer 1: Baseline mood from elastic traits (slow-moving session mood)
-        Layer 2: Reactive spike from hand outcome (fast, decays toward baseline)
-
-        The LLM is called only to narrate the computed dimensions.
-        """
+        """Generate new emotional state via two-layer model + LLM narration."""
         hand_outcome = {
             'outcome': outcome,
             'amount': amount,
@@ -399,39 +393,17 @@ class PlayerPsychology:
             'key_moment': key_moment
         }
 
-        # --- Compute dimensions deterministically ---
-        baseline = compute_baseline_mood(self.elastic.traits)
-        spike = compute_reactive_spike(
-            outcome=outcome,
-            amount=amount,
-            tilt_level=self.tilt.tilt_level,
-            big_blind=big_blind,
-        )
-        dimensions = blend_emotional_state(baseline, spike)
-
-        # Build elastic traits dict for generator context
-        elastic_traits = {}
-        for trait_name in TRAIT_NAMES:
-            if trait_name in self.elastic.traits:
-                trait = self.elastic.traits[trait_name]
-                elastic_traits[trait_name] = {
-                    'value': trait.value,
-                    'anchor': trait.anchor,
-                    'pressure': trait.pressure
-                }
-
         try:
             self.emotional = self._emotional_generator.generate(
                 personality_name=self.player_name,
                 personality_config=self.personality_config,
                 hand_outcome=hand_outcome,
-                elastic_traits=elastic_traits,
+                elastic_traits=self.elastic.traits,
                 tilt_state=self.tilt,
                 session_context=session_context,
                 hand_number=self.hand_count,
                 game_id=self.game_id,
                 owner_id=self.owner_id,
-                computed_dimensions=dimensions,
                 big_blind=big_blind,
             )
         except Exception as e:
@@ -439,7 +411,13 @@ class PlayerPsychology:
                 f"{self.player_name}: Failed to generate emotional state: {e}. "
                 f"Using computed dimensions with fallback narrative."
             )
-            # Dimensions are always valid — create state without LLM narrative
+            # Compute dimensions locally for fallback
+            baseline = compute_baseline_mood(self.elastic.traits)
+            spike = compute_reactive_spike(
+                outcome=outcome, amount=amount,
+                tilt_level=self.tilt.tilt_level, big_blind=big_blind,
+            )
+            dimensions = blend_emotional_state(baseline, spike)
             self.emotional = EmotionalState(
                 valence=dimensions['valence'],
                 arousal=dimensions['arousal'],

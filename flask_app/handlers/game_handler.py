@@ -431,8 +431,8 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
                         'streak_count': getattr(ctx, 'streak_count', 0)
                     }
 
-        # Get big blind for emotional spike scaling
-        big_blind = getattr(game_state, 'current_ante', 100)
+        # Get big blind for emotional spike scaling (current_ante stores the big blind amount)
+        big_blind = game_state.current_ante
 
         # Single unified call to update all psychology state
         try:
@@ -1044,12 +1044,9 @@ def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
     player_options = list(game_state.current_player_options) if game_state.current_player_options else []
     socketio.emit('player_turn_start', {'current_player_options': player_options, 'cost_to_call': cost_to_call}, to=game_id)
 
-    # Also recover standalone elasticity manager for backward compatibility
+    # Emit elasticity update for UI display
     if 'elasticity_manager' in game_data:
-        elasticity_manager = game_data['elasticity_manager']
-        elasticity_manager.recover_all()
-
-        elasticity_data = format_elasticity_data(elasticity_manager)
+        elasticity_data = format_elasticity_data(game_data['elasticity_manager'])
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 

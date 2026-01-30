@@ -5,11 +5,6 @@ decay) and their integration with PlayerPsychology and display emotions.
 """
 
 import unittest
-import sys
-import os
-
-# Add project root to path to import module directly
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from poker.emotional_state import (
     compute_baseline_mood,
@@ -17,7 +12,6 @@ from poker.emotional_state import (
     blend_emotional_state,
     EmotionalState,
     EMOTIONAL_NARRATION_SCHEMA,
-    EMOTIONAL_STATE_SCHEMA,
     _clamp,
 )
 from poker.elasticity_manager import ElasticTrait
@@ -33,10 +27,6 @@ def _make_traits(aggression=0.5, bluff=0.5, chat=0.5, emoji=0.3,
         'emoji_usage': ElasticTrait(value=emoji, anchor=emoji_anchor, elasticity=0.1),
     }
 
-
-# =============================================
-# Layer 1: Baseline mood from elastic traits
-# =============================================
 
 class TestComputeBaselineMood(unittest.TestCase):
     """Test deterministic baseline mood from elastic traits."""
@@ -118,10 +108,6 @@ class TestComputeBaselineMood(unittest.TestCase):
         self.assertGreater(baseline['valence'], 0)
 
 
-# =============================================
-# Layer 2: Reactive spike from hand outcome
-# =============================================
-
 class TestComputeReactiveSpike(unittest.TestCase):
     """Test reactive spike computation from hand outcomes."""
 
@@ -194,10 +180,6 @@ class TestComputeReactiveSpike(unittest.TestCase):
         self.assertIn('valence', spike)
 
 
-# =============================================
-# Blending baseline + spike
-# =============================================
-
 class TestBlendEmotionalState(unittest.TestCase):
     """Test blending baseline and spike."""
 
@@ -232,10 +214,6 @@ class TestBlendEmotionalState(unittest.TestCase):
         blended = blend_emotional_state(baseline, spike)
         self.assertAlmostEqual(blended['valence'], 0.3, places=3)
 
-
-# =============================================
-# EmotionalState: decay and display
-# =============================================
 
 class TestEmotionalStateDecay(unittest.TestCase):
     """Test emotional state decay toward baseline."""
@@ -292,17 +270,6 @@ class TestEmotionalStateDecay(unittest.TestCase):
         self.assertEqual(decayed.narrative, "Still angry.")
         self.assertEqual(decayed.inner_voice, "Ugh.")
 
-    def test_legacy_decay_toward_neutral(self):
-        """Legacy method should decay toward hardcoded neutral."""
-        state = EmotionalState(valence=-0.8, arousal=0.9, control=0.2, focus=0.3)
-        decayed = state.decay_toward_neutral(rate=0.5)
-        # Neutral valence target is 0.0
-        self.assertLess(abs(decayed.valence), abs(state.valence))
-
-
-# =============================================
-# Display emotion mapping
-# =============================================
 
 class TestGetDisplayEmotion(unittest.TestCase):
     """Test mapping of dimensions to discrete avatar emotions."""
@@ -312,19 +279,39 @@ class TestGetDisplayEmotion(unittest.TestCase):
         state = EmotionalState(valence=-0.5, arousal=0.8, control=0.3, focus=0.3)
         self.assertEqual(state.get_display_emotion(), 'angry')
 
+    def test_elated(self):
+        """High positive valence + high arousal = elated."""
+        state = EmotionalState(valence=0.7, arousal=0.7, control=0.6, focus=0.5)
+        self.assertEqual(state.get_display_emotion(), 'elated')
+
     def test_shocked(self):
         """Extreme arousal = shocked."""
-        state = EmotionalState(valence=0.0, arousal=0.85, control=0.5, focus=0.5)
+        state = EmotionalState(valence=0.0, arousal=0.9, control=0.5, focus=0.5)
         self.assertEqual(state.get_display_emotion(), 'shocked')
 
+    def test_smug(self):
+        """Positive mood + high control = smug."""
+        state = EmotionalState(valence=0.6, arousal=0.5, control=0.8, focus=0.5)
+        self.assertEqual(state.get_display_emotion(), 'smug')
+
+    def test_frustrated(self):
+        """Negative mood + moderate arousal = frustrated."""
+        state = EmotionalState(valence=-0.3, arousal=0.6, control=0.6, focus=0.5)
+        self.assertEqual(state.get_display_emotion(), 'frustrated')
+
     def test_nervous(self):
-        """Negative mood + low control + agitation = nervous."""
-        state = EmotionalState(valence=-0.2, arousal=0.6, control=0.3, focus=0.5)
+        """Negative mood + low control = nervous."""
+        state = EmotionalState(valence=-0.2, arousal=0.4, control=0.3, focus=0.5)
         self.assertEqual(state.get_display_emotion(), 'nervous')
 
+    def test_confident(self):
+        """Positive mood + good control = confident."""
+        state = EmotionalState(valence=0.5, arousal=0.5, control=0.7, focus=0.5)
+        self.assertEqual(state.get_display_emotion(), 'confident')
+
     def test_happy(self):
-        """Positive mood + low arousal = happy."""
-        state = EmotionalState(valence=0.7, arousal=0.4, control=0.7, focus=0.7)
+        """Positive mood without strong control = happy."""
+        state = EmotionalState(valence=0.5, arousal=0.4, control=0.4, focus=0.5)
         self.assertEqual(state.get_display_emotion(), 'happy')
 
     def test_thinking(self):
@@ -332,25 +319,26 @@ class TestGetDisplayEmotion(unittest.TestCase):
         state = EmotionalState(valence=0.1, arousal=0.3, control=0.5, focus=0.8)
         self.assertEqual(state.get_display_emotion(), 'thinking')
 
-    def test_confident(self):
-        """Positive mood + good control = confident."""
-        state = EmotionalState(valence=0.5, arousal=0.5, control=0.7, focus=0.5)
-        self.assertEqual(state.get_display_emotion(), 'confident')
-
-    def test_default_fallback(self):
-        """Neutral state should fall back to confident."""
+    def test_poker_face_default(self):
+        """Neutral state should fall back to poker_face."""
         state = EmotionalState(valence=0.0, arousal=0.3, control=0.4, focus=0.4)
-        self.assertEqual(state.get_display_emotion(), 'confident')
+        self.assertEqual(state.get_display_emotion(), 'poker_face')
 
     def test_angry_priority_over_shocked(self):
         """Angry should take priority over shocked when both conditions met."""
-        state = EmotionalState(valence=-0.5, arousal=0.85, control=0.3, focus=0.3)
+        state = EmotionalState(valence=-0.5, arousal=0.9, control=0.3, focus=0.3)
         self.assertEqual(state.get_display_emotion(), 'angry')
 
+    def test_smug_priority_over_confident(self):
+        """Smug should take priority over confident for high-control positive states."""
+        state = EmotionalState(valence=0.6, arousal=0.5, control=0.8, focus=0.5)
+        self.assertEqual(state.get_display_emotion(), 'smug')
 
-# =============================================
-# End-to-end: baseline + spike -> display
-# =============================================
+    def test_confident_priority_over_happy(self):
+        """Confident should take priority over happy for controlled-positive states."""
+        state = EmotionalState(valence=0.5, arousal=0.4, control=0.6, focus=0.5)
+        self.assertEqual(state.get_display_emotion(), 'confident')
+
 
 class TestEndToEndEmotionalFlow(unittest.TestCase):
     """Test the full flow from traits + outcome to avatar emotion."""
@@ -362,10 +350,8 @@ class TestEndToEndEmotionalFlow(unittest.TestCase):
         spike = compute_reactive_spike('won', 800, tilt_level=0.0, big_blind=100)
         blended = blend_emotional_state(baseline, spike)
         state = EmotionalState(**blended)
-        # High arousal from big win can trigger 'shocked' (overwhelmed with
-        # excitement), which is valid alongside happy/confident
         self.assertIn(state.get_display_emotion(),
-                      ['happy', 'confident', 'shocked'])
+                      ['elated', 'happy', 'confident', 'smug', 'shocked'])
 
     def test_losing_session_bad_beat_shows_angry_or_nervous(self):
         """Losing session + big loss + tilt should show angry or nervous."""
@@ -374,16 +360,16 @@ class TestEndToEndEmotionalFlow(unittest.TestCase):
         spike = compute_reactive_spike('lost', -800, tilt_level=0.6, big_blind=100)
         blended = blend_emotional_state(baseline, spike)
         state = EmotionalState(**blended)
-        self.assertIn(state.get_display_emotion(), ['angry', 'nervous', 'shocked'])
+        self.assertIn(state.get_display_emotion(), ['angry', 'nervous', 'shocked', 'frustrated'])
 
-    def test_neutral_session_fold_shows_thinking_or_confident(self):
+    def test_neutral_session_fold_shows_calm_emotion(self):
         """Neutral session + fold should show calm emotion."""
         traits = _make_traits()
         baseline = compute_baseline_mood(traits)
         spike = compute_reactive_spike('folded', -20, tilt_level=0.0, big_blind=100)
         blended = blend_emotional_state(baseline, spike)
         state = EmotionalState(**blended)
-        self.assertIn(state.get_display_emotion(), ['thinking', 'confident'])
+        self.assertIn(state.get_display_emotion(), ['thinking', 'confident', 'poker_face'])
 
     def test_spike_decays_back_to_baseline_emotion(self):
         """After many decay steps, emotion should match baseline-only state."""
@@ -406,10 +392,6 @@ class TestEndToEndEmotionalFlow(unittest.TestCase):
             baseline_state.get_display_emotion())
 
 
-# =============================================
-# Schema validation
-# =============================================
-
 class TestNarrationSchema(unittest.TestCase):
     """Test the narration-only schema."""
 
@@ -422,15 +404,6 @@ class TestNarrationSchema(unittest.TestCase):
         self.assertNotIn('control', EMOTIONAL_NARRATION_SCHEMA.fields)
         self.assertNotIn('focus', EMOTIONAL_NARRATION_SCHEMA.fields)
 
-    def test_legacy_schema_still_exists(self):
-        """Legacy schema should still have all fields for backward compat."""
-        self.assertIn('valence', EMOTIONAL_STATE_SCHEMA.fields)
-        self.assertIn('narrative', EMOTIONAL_STATE_SCHEMA.fields)
-
-
-# =============================================
-# Serialization
-# =============================================
 
 class TestEmotionalStateSerialization(unittest.TestCase):
     """Test serialization round-trip."""
@@ -457,10 +430,6 @@ class TestEmotionalStateSerialization(unittest.TestCase):
         self.assertAlmostEqual(state.valence, 0.3)
         self.assertEqual(state.narrative, '')
 
-
-# =============================================
-# Clamp helper
-# =============================================
 
 class TestClamp(unittest.TestCase):
     """Test the clamp utility."""
