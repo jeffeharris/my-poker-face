@@ -946,12 +946,12 @@
   display: none;
 }
 
-/* Avatar fills the available space in heads-up */
+/* Avatar takes 55% in heads-up, reading panel takes the remaining 45% */
 .mobile-opponent.heads-up-avatar {
   width: auto;
   min-width: 0;
-  flex: 1 1 100%;
-  max-width: 100%;
+  flex: 0 0 calc(55% - 6px);
+  max-width: calc(55% - 6px);
   transition: flex 0.3s ease-out, max-width 0.3s ease-out;
 }
 
