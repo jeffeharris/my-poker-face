@@ -4,8 +4,64 @@ Ensures responses meet required format and context-appropriate fields.
 """
 from typing import Dict, List, Optional, Set
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+
+_ACTION_PATTERN = re.compile(r'\*[^*]+\*')
+_ARTIFACT_CHARS = ',;:\n\r\t'
+
+
+def _clean_beat(text: str) -> str:
+    """Strip whitespace and punctuation artifacts from a beat."""
+    return text.strip().strip(_ARTIFACT_CHARS).strip()
+
+
+def normalize_dramatic_sequence(beats: List[str]) -> List[str]:
+    """Split mixed dramatic_sequence beats into separate action and speech beats.
+
+    AI sometimes returns beats that combine actions and speech in one entry,
+    e.g. "*leans forward* I'm going all in!" or "*leans forward* *pushes chips*".
+    This function splits them so each beat is either a pure action or pure speech.
+    Also strips trailing/leading punctuation artifacts (commas, semicolons, etc.).
+    """
+    normalized = []
+    for beat in beats:
+        if not isinstance(beat, str):
+            continue
+        beat = _clean_beat(beat)
+        if not beat:
+            continue
+
+        actions = _ACTION_PATTERN.findall(beat)
+        if not actions:
+            # Pure speech beat
+            normalized.append(beat)
+            continue
+
+        # Check if the entire beat is a single action (already correct)
+        if len(actions) == 1 and beat == actions[0]:
+            normalized.append(beat)
+            continue
+
+        # Mixed or multiple actions — split into segments preserving order
+        remaining = beat
+        for action in actions:
+            idx = remaining.find(action)
+            # Any text before this action is speech
+            before = _clean_beat(remaining[:idx])
+            if before:
+                normalized.append(before)
+            normalized.append(action)
+            remaining = remaining[idx + len(action):]
+
+        # Any trailing text after the last action is speech
+        trailing = _clean_beat(remaining)
+        if trailing:
+            normalized.append(trailing)
+
+    return normalized
 
 
 class ResponseValidator:
@@ -126,7 +182,15 @@ class ResponseValidator:
         if context.get("should_speak") == False:
             cleaned.pop("dramatic_sequence", None)
             logger.debug(f"Removed speech fields for quiet player")
-        
+
+        # Normalize dramatic_sequence beats (split mixed action+speech)
+        if 'dramatic_sequence' in cleaned:
+            ds = cleaned['dramatic_sequence']
+            if isinstance(ds, list):
+                cleaned['dramatic_sequence'] = normalize_dramatic_sequence(ds)
+            elif isinstance(ds, str):
+                cleaned['dramatic_sequence'] = normalize_dramatic_sequence([ds])
+
         return cleaned
     
     @staticmethod
