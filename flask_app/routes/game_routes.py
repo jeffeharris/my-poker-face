@@ -45,7 +45,7 @@ from ..validation import validate_player_action
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 from poker.guest_limits import (
     is_guest, check_guest_game_limit, validate_guest_opponent_count,
-    check_guest_message_limit
+    check_guest_message_limit, check_guest_hands_limit
 )
 from poker.guest_limits import GUEST_MAX_HANDS, GUEST_MAX_ACTIVE_GAMES, GUEST_MAX_OPPONENTS, GUEST_LIMITS_ENABLED
 
@@ -1044,6 +1044,15 @@ def api_player_action(game_id):
     if not is_valid:
         return jsonify({'error': error_message}), 400
 
+    current_user = auth_manager.get_current_user()
+    if current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED:
+        tracking_id = current_game_data.get('guest_tracking_id')
+        if tracking_id:
+            hands_played = persistence.get_hands_played(tracking_id)
+            allowed, error_msg = check_guest_hands_limit(current_user, hands_played)
+            if not allowed:
+                return jsonify({'error': error_msg, 'code': 'GUEST_LIMIT_HANDS'}), 403
+
     try:
         current_player = state_machine.game_state.current_player
         highest_bet = state_machine.game_state.highest_bet
@@ -1316,6 +1325,18 @@ def register_socket_events(sio):
         if not user or user.get('id') != owner_id:
             logger.debug(f"[SOCKET] player_action unauthorized: user={user.get('id') if user else None}, owner={owner_id}")
             return
+
+        if user and is_guest(user) and GUEST_LIMITS_ENABLED:
+            tracking_id = current_game_data.get('guest_tracking_id')
+            if tracking_id:
+                hands_played = persistence.get_hands_played(tracking_id)
+                allowed, _ = check_guest_hands_limit(user, hands_played)
+                if not allowed:
+                    socketio.emit('guest_limit_reached', {
+                        'hands_played': hands_played,
+                        'hands_limit': GUEST_MAX_HANDS,
+                    }, to=game_id)
+                    return
 
         state_machine = current_game_data['state_machine']
 

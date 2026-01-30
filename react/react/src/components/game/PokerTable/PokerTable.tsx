@@ -55,11 +55,13 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   const isGuest = user?.is_guest ?? true;
   const [guestChatSentThisAction, setGuestChatSentThisAction] = useState(false);
 
+  const wasAwaitingAction = useRef(false);
   const isHumanTurn = gameState?.awaiting_action;
   useEffect(() => {
-    if (isHumanTurn) {
+    if (wasAwaitingAction.current && !isHumanTurn) {
       setGuestChatSentThisAction(false);
     }
+    wasAwaitingAction.current = !!isHumanTurn;
   }, [isHumanTurn]);
 
   const wrappedSendMessage = useCallback(async (message: string) => {

@@ -89,12 +89,15 @@ export function MobilePokerTable({
     onNewAiMessage: handleNewAiMessage,
   });
 
-  // Reset guest chat counter when it becomes the human's turn
+  // Reset guest chat counter when the human takes an action
+  // (awaiting_action transitions from true → false)
+  const wasAwaitingAction = useRef(false);
   const isHumanTurn = gameState?.awaiting_action;
   useEffect(() => {
-    if (isHumanTurn) {
+    if (wasAwaitingAction.current && !isHumanTurn) {
       setGuestChatSentThisAction(false);
     }
+    wasAwaitingAction.current = !!isHumanTurn;
   }, [isHumanTurn]);
 
   // Wrap send message to track guest chat sends
