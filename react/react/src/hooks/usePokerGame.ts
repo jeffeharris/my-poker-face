@@ -42,7 +42,7 @@ interface UsePokerGameResult {
   clearWinnerInfo: () => void;
   clearTournamentResult: () => void;
   clearRevealedCards: () => void;
-  refreshGameState: (gId: string) => Promise<boolean>;
+  refreshGameState: (gId: string, silent?: boolean) => Promise<boolean>;
   // Debug functions
   debugTriggerSplitPot: () => void;
   debugTriggerSidePot: () => void;
@@ -281,6 +281,7 @@ export function usePokerGame({
   // refreshGameState: silent=true means don't touch loading state (for reconnections)
   const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
     try {
+      clearAiThinkingTimeout();
       const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
       if (!res.ok) {
         logger.error(`Failed to fetch game state: HTTP ${res.status}`);
@@ -314,7 +315,7 @@ export function usePokerGame({
       logger.error('Failed to refresh game state:', err);
       return false;
     }
-  }, []);
+  }, [clearAiThinkingTimeout]);
 
   const createSocket = useCallback((gId: string) => {
     const socket = io(config.SOCKET_URL, {
@@ -334,7 +335,7 @@ export function usePokerGame({
       socket.emit('join_game', gId);
       // Use silent mode for reconnections to avoid loading flash
       const success = await refreshGameState(gId, isReconnect);
-      if (success && isReconnect) {
+      if (success && isReconnect && socket.connected) {
         // After server restart, the first join_game may have been rejected
         // because the game wasn't in memory yet. The REST call above reloads
         // it from persistence, so re-join to ensure we're in the Socket.IO room.
