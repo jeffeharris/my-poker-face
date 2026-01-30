@@ -34,6 +34,7 @@ interface UsePokerGameResult {
   eliminationEvents: EliminationEvent[];
   socketRef: React.MutableRefObject<Socket | null>;
   isConnected: boolean;
+  showActionButtons: boolean;
   queuedAction: QueuedAction;
   setQueuedAction: (action: QueuedAction) => void;
   handlePlayerAction: (action: string, amount?: number) => Promise<void>;
@@ -111,8 +112,7 @@ export function usePokerGame({
   const setupSocketListeners = useCallback((socket: Socket) => {
     socket.on('disconnect', () => {
       setIsConnected(false);
-      // Clear aiThinking so UI isn't stuck while disconnected.
-      // On reconnect, refreshGameState will set the correct value.
+      // Clear aiThinking so UI doesn't appear stuck while disconnected
       setAiThinking(false);
       clearAiThinkingTimeout();
     });
@@ -282,6 +282,10 @@ export function usePokerGame({
   const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
     try {
       const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+      if (!res.ok) {
+        logger.error(`Failed to fetch game state: HTTP ${res.status}`);
+        return false;
+      }
       const data = await res.json();
 
       if (data.error || !data.players || data.players.length === 0) {
@@ -303,11 +307,7 @@ export function usePokerGame({
         capped.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
       }
 
-      if (!currentPlayer.is_human) {
-        setAiThinking(true);
-      } else {
-        setAiThinking(false);
-      }
+      setAiThinking(!currentPlayer.is_human);
 
       return true;
     } catch (err) {
@@ -456,7 +456,11 @@ export function usePokerGame({
       logger.warn('[RESILIENCE] aiThinking timeout — refreshing game state');
       const gId = gameIdRef.current;
       if (gId) {
-        await refreshGameState(gId, true);
+        const success = await refreshGameState(gId, true);
+        if (!success) {
+          logger.warn('[RESILIENCE] refresh failed after timeout — clearing aiThinking');
+          setAiThinking(false);
+        }
       }
     }, 30000);
 
@@ -612,6 +616,14 @@ export function usePokerGame({
     setWinnerInfo(mockWinnerData);
   }, [playerName]);
 
+  const currentPlayer = gameState?.players[gameState.current_player_idx];
+  const showActionButtons = !!(currentPlayer?.is_human &&
+                             !currentPlayer.is_folded &&
+                             gameState?.player_options &&
+                             gameState.player_options.length > 0 &&
+                             !aiThinking &&
+                             isConnected);
+
   return {
     gameState,
     loading,
@@ -625,6 +637,7 @@ export function usePokerGame({
     eliminationEvents,
     socketRef,
     isConnected,
+    showActionButtons,
     queuedAction,
     setQueuedAction,
     handlePlayerAction,

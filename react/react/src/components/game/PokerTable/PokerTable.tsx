@@ -41,6 +41,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     tournamentResult,
     socketRef: _socketRef,
     isConnected,
+    showActionButtons,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
@@ -116,14 +117,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     };
   };
 
-  // Check if current player is human and it's their turn
   const currentPlayer = gameState?.players[gameState.current_player_idx];
-  const showActionButtons = currentPlayer?.is_human &&
-                           !currentPlayer.is_folded &&
-                           gameState?.player_options &&
-                           gameState.player_options.length > 0 &&
-                           !aiThinking &&
-                           isConnected;
 
   // Stadium view helpers
   const humanPlayer = gameState?.players.find((p: Player) => p.is_human);
