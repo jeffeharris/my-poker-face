@@ -40,7 +40,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     winnerInfo,
     tournamentResult,
     socketRef: _socketRef,
-    isConnected,
+    isConnected: _isConnected,
     showActionButtons,
     handlePlayerAction,
     handleSendMessage,
@@ -117,7 +117,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     };
   };
 
-  const currentPlayer = gameState?.players[gameState.current_player_idx];
+  const _currentPlayer = gameState?.players[gameState.current_player_idx];
 
   // Stadium view helpers
   const humanPlayer = gameState?.players.find((p: Player) => p.is_human);
