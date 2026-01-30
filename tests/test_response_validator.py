@@ -85,6 +85,11 @@ class TestNormalizeDramaticSequence:
     def test_only_artifacts_filtered(self):
         assert normalize_dramatic_sequence([",", ";\n", "  ,  "]) == []
 
+    def test_code_comment_wrapped_action(self):
+        """/* *action* */ should unwrap to just the action."""
+        result = normalize_dramatic_sequence(["/* *staring down the table with a cold gaze* */"])
+        assert result == ["*staring down the table with a cold gaze*"]
+
 
 class TestCleanResponseNormalization:
     """Tests that clean_response integrates normalization."""

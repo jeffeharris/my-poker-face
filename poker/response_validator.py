@@ -10,12 +10,14 @@ logger = logging.getLogger(__name__)
 
 
 _ACTION_PATTERN = re.compile(r'\*[^*]+\*')
+_COMMENT_WRAPPER = re.compile(r'/\*\s*(.*?)\s*\*/', re.DOTALL)
 _ARTIFACT_CHARS = ',;\n\r\t'
 _SPEECH_ARTIFACT_CHARS = _ARTIFACT_CHARS + '*'
 
 
 def _clean_beat(text: str) -> str:
-    """Strip whitespace and punctuation artifacts from a beat."""
+    """Strip whitespace, punctuation artifacts, and comment wrappers from a beat."""
+    text = _COMMENT_WRAPPER.sub(r'\1', text)
     return text.strip().strip(_ARTIFACT_CHARS).strip()
 
 
