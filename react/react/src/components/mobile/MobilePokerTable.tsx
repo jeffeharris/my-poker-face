@@ -8,7 +8,6 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
-import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
@@ -305,14 +304,7 @@ export function MobilePokerTable({
           );
         })}
 
-        {/* Heads-up psychology panel */}
-        {isHeadsUp && headsUpOpponent && providedGameId && (
-          <HeadsUpOpponentPanel
-            opponent={headsUpOpponent}
-            gameId={providedGameId}
-            humanPlayerName={humanPlayer?.name}
-          />
-        )}
+        {/* Heads-up psychology panel - hidden when avatar fills space */}
       </div>
 
       {/* Floating Pot Display - between opponents and community cards */}
