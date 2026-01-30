@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from poker.equity_calculator import EquityCalculator
 from poker.hand_evaluator import HandEvaluator
+from poker.hand_ranges import OpponentInfo
 from poker.decision_analyzer import DecisionAnalyzer
 from poker.controllers import classify_preflop_hand
 from poker.card_utils import normalize_card_string
@@ -67,51 +68,36 @@ def _get_position_label(game_state, player_idx: int) -> str:
     return "Unknown"
 
 
-def _compute_equity(player_hand: List[str], community: List[str]) -> Optional[float]:
-    """Compute player equity via Monte Carlo simulation."""
+def _compute_equity(player_hand: List[str], community: List[str],
+                    opponent_infos: Optional[List] = None) -> Optional[float]:
+    """Compute player equity against opponent ranges via DecisionAnalyzer.
+
+    Uses opponent stats/ranges when available, falls back to vs-random.
+    """
+    if not player_hand:
+        return None
+
     try:
-        # We need at least one opponent range to calculate against.
-        # Use a generic "random hand" opponent.
-        result = _equity_calc.calculate_equity(
-            players_hands={'hero': player_hand, 'villain': []},
-            board=community,
+        if opponent_infos:
+            equity = _decision_analyzer._calculate_equity_vs_ranges(
+                player_hand, community, opponent_infos
+            )
+            if equity is not None:
+                return equity
+            logger.warning("Equity vs ranges failed, falling back to vs random")
+
+        # Fallback: vs random hands
+        num_opponents = len(opponent_infos) if opponent_infos else 1
+        equity = _decision_analyzer._calculate_equity_vs_random(
+            player_hand, community, num_opponents
         )
-        # The above won't work with empty villain hand. Use single-player
-        # equity against a random hand via Monte Carlo directly.
-        if result and 'hero' in result.equities:
-            return result.equities['hero']
-    except Exception:
-        pass
+        if equity is not None:
+            return equity
 
-    # Fallback: calculate equity with hero hand vs random opponent
-    try:
-        import eval7
-        import random
-
-        hero_cards = [eval7.Card(c) for c in player_hand]
-        board_cards = [eval7.Card(c) for c in community]
-        known = set(hero_cards + board_cards)
-        deck = [c for c in eval7.Deck().cards if c not in known]
-        cards_needed = 5 - len(board_cards)
-
-        wins = 0
-        iterations = 5000
-        for _ in range(iterations):
-            sampled = random.sample(deck, cards_needed + 2)  # board fill + 2 villain cards
-            full_board = board_cards + sampled[:cards_needed]
-            villain_hand = sampled[cards_needed:cards_needed + 2]
-
-            hero_score = eval7.evaluate(hero_cards + full_board)
-            villain_score = eval7.evaluate(villain_hand + full_board)
-
-            if hero_score > villain_score:
-                wins += 1
-            elif hero_score == villain_score:
-                wins += 0.5
-
-        return wins / iterations
+        logger.error("Both equity calculations (ranges + random) failed")
+        return None
     except Exception as e:
-        logger.warning(f"Equity calculation failed: {e}")
+        logger.error(f"Equity calculation failed: {e}")
         return None
 
 
@@ -184,6 +170,41 @@ def _compute_hand_strength(player_hand_cards, community_cards) -> Optional[Dict]
     except Exception as e:
         logger.warning(f"Hand strength evaluation failed: {e}")
         return None
+
+
+def _get_raw_position(game_state, player_idx: int) -> str:
+    """Get the raw position key (e.g. 'small_blind_player') for hand_ranges lookup."""
+    positions = game_state.table_positions
+    player_name = game_state.players[player_idx].name
+    for position, name in positions.items():
+        if name == player_name:
+            return position
+    return "unknown"
+
+
+def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[OpponentInfo]:
+    """Build OpponentInfo objects for active opponents (for range-based equity)."""
+    infos = []
+    memory_manager = game_data.get('memory_manager')
+    omm = getattr(memory_manager, 'opponent_model_manager', None) if memory_manager else None
+
+    for i, player in enumerate(game_state.players):
+        if player.name == human_name or player.is_folded:
+            continue
+
+        position = _get_raw_position(game_state, i)
+        info = OpponentInfo(name=player.name, position=position)
+
+        if omm and human_name in omm.models and player.name in omm.models[human_name]:
+            model = omm.models[human_name][player.name]
+            t = model.tendencies
+            info.hands_observed = t.hands_observed
+            info.vpip = t.vpip
+            info.pfr = t.pfr
+            info.aggression = t.aggression_factor
+
+        infos.append(info)
+    return infos
 
 
 def _get_opponent_stats(game_data: dict, human_name: str) -> List[Dict]:
@@ -269,6 +290,7 @@ def compute_coaching_data(game_id: str, player_name: str) -> Optional[Dict]:
         'cost_to_call': cost_to_call,
         'stack': player.stack,
         'equity': None,
+        'equity_vs_random': None,
         'pot_odds': None,
         'required_equity': None,
         'is_positive_ev': None,
@@ -281,9 +303,19 @@ def compute_coaching_data(game_id: str, player_name: str) -> Optional[Dict]:
         'opponent_stats': [],
     }
 
-    # Equity calculation
-    equity = _compute_equity(hand_strs, community_strs)
+    # Equity calculations
+    opponent_infos = _build_opponent_infos(game_data, game_state, player_name)
+    num_opponents = len(opponent_infos) or 1
+
+    # Primary: equity vs opponent ranges (used for coaching guidance)
+    equity = _compute_equity(hand_strs, community_strs, opponent_infos=opponent_infos)
     result['equity'] = round(equity, 3) if equity is not None else None
+
+    # Secondary: equity vs random hands (baseline reference)
+    equity_random = _decision_analyzer._calculate_equity_vs_random(
+        hand_strs, community_strs, num_opponents
+    )
+    result['equity_vs_random'] = round(equity_random, 3) if equity_random is not None else None
 
     # Pot odds
     if cost_to_call > 0:

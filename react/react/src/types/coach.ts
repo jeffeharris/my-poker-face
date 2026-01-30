@@ -1,5 +1,6 @@
 export interface CoachStats {
   equity: number | null;
+  equity_vs_random: number | null;
   pot_odds: number | null;
   required_equity: number | null;
   is_positive_ev: boolean | null;
