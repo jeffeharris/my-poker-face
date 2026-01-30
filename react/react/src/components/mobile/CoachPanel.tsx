@@ -29,6 +29,7 @@ export function CoachPanel({
   const [isClosing, setIsClosing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const wasOpenRef = useRef(false);
 
   // Drag-to-dismiss
   const dragStartY = useRef(0);
@@ -44,12 +45,19 @@ export function CoachPanel({
     };
   }, []);
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom: instant on open, smooth for new messages
   useEffect(() => {
     if (isOpen && messagesEndRef.current) {
+      const justOpened = !wasOpenRef.current;
+      wasOpenRef.current = true;
       setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
+        messagesEndRef.current?.scrollIntoView({
+          behavior: justOpened ? 'instant' : 'smooth',
+        });
+      }, justOpened ? 0 : 100);
+    }
+    if (!isOpen) {
+      wasOpenRef.current = false;
     }
   }, [isOpen, messages.length]);
 

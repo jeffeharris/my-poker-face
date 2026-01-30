@@ -168,7 +168,6 @@
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
   gap: 8px;
   -webkit-overflow-scrolling: touch;
 }
