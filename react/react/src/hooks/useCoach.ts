@@ -22,6 +22,10 @@ interface UseCoachResult {
   refreshStats: () => Promise<void>;
   proactiveTip: string | null;
   clearProactiveTip: () => void;
+  handReviewPending: boolean;
+  hasUnreadReview: boolean;
+  fetchHandReview: () => Promise<void>;
+  clearUnreadReview: () => void;
 }
 
 function loadMode(): CoachMode {
@@ -45,6 +49,8 @@ export function useCoach({
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [proactiveTip, setProactiveTip] = useState<string | null>(null);
+  const [handReviewPending, setHandReviewPending] = useState(false);
+  const [hasUnreadReview, setHasUnreadReview] = useState(false);
 
   // Track whether we've already fetched for this turn
   const fetchedForTurn = useRef(false);
@@ -150,6 +156,38 @@ export function useCoach({
     setProactiveTip(null);
   }, []);
 
+  const fetchHandReview = useCallback(async () => {
+    if (!gameId || handReviewPending) return;
+    setHandReviewPending(true);
+    try {
+      const res = await fetch(`${config.API_URL}/api/coach/${gameId}/hand-review`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const reviewMsg: CoachMessage = {
+          id: `review-${Date.now()}`,
+          role: 'coach',
+          content: data.review,
+          timestamp: Date.now(),
+          type: 'review',
+        };
+        setMessages(prev => [...prev, reviewMsg].slice(-MAX_MESSAGES));
+        setHasUnreadReview(true);
+      }
+    } catch {
+      /* non-critical */
+    } finally {
+      setHandReviewPending(false);
+    }
+  }, [gameId, handReviewPending]);
+
+  const clearUnreadReview = useCallback(() => {
+    setHasUnreadReview(false);
+  }, []);
+
   // When player's turn starts, auto-fetch stats (and proactive tip if enabled)
   useEffect(() => {
     if (isPlayerTurn && !prevIsPlayerTurn.current) {
@@ -185,5 +223,9 @@ export function useCoach({
     refreshStats,
     proactiveTip,
     clearProactiveTip,
+    handReviewPending,
+    hasUnreadReview,
+    fetchHandReview,
+    clearUnreadReview,
   };
 }

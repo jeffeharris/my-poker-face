@@ -8,6 +8,7 @@ from ..extensions import limiter, auth_manager
 from ..services import game_state_service
 from ..services.coach_engine import compute_coaching_data
 from ..services.coach_assistant import get_or_create_coach
+from .stats_routes import build_hand_context_from_recorded_hand, format_hand_context_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -94,3 +95,46 @@ def coach_config(game_id: str):
 
     game_data['coach_config'] = {'mode': mode}
     return jsonify({'status': 'ok', 'mode': mode})
+
+
+@coach_bp.route('/api/coach/<game_id>/hand-review', methods=['POST'])
+@limiter.limit("10/minute")
+def coach_hand_review(game_id: str):
+    """Generate a post-hand review of the most recently completed hand."""
+    game_data = game_state_service.get_game(game_id)
+    if not game_data:
+        return jsonify({'error': 'Game not found'}), 404
+
+    player_name = _get_human_player_name(game_data)
+    if not player_name:
+        return jsonify({'error': 'No human player found'}), 400
+
+    # Get the last completed hand from the memory manager
+    memory_manager = game_data.get('memory_manager')
+    completed_hands = (
+        memory_manager.hand_recorder.completed_hands
+        if memory_manager and hasattr(memory_manager, 'hand_recorder')
+        else []
+    )
+
+    if not completed_hands:
+        return jsonify({'error': 'No completed hands found'}), 404
+
+    hand = completed_hands[-1]
+
+    # Build context and format for LLM
+    context = build_hand_context_from_recorded_hand(hand, player_name)
+    hand_text = format_hand_context_for_prompt(context, player_name)
+
+    coach = get_or_create_coach(game_data, game_id)
+
+    try:
+        review = coach.review_hand(hand_text)
+    except Exception as e:
+        logger.error(f"Coach hand review failed: {e}", exc_info=True)
+        return jsonify({'error': 'Coach unavailable'}), 503
+
+    return jsonify({
+        'review': review,
+        'hand_number': getattr(hand, 'hand_number', None),
+    })

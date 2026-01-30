@@ -30,6 +30,17 @@ Given these stats, provide a brief 1-2 sentence coaching tip for the player's cu
 Focus on the most important decision factor right now. Be direct and actionable.\
 """
 
+HAND_REVIEW_PROMPT = """\
+Review this completed hand from the player's perspective. Be concise (3-5 sentences).
+
+Structure your review as:
+1. One sentence summarizing what happened
+2. One sentence on what the player did well OR the key mistake
+3. One sentence of specific advice for similar situations
+
+Be honest — if they played well, say so briefly. If they made an error, explain what the better play was and why (use pot odds/equity math if relevant). Don't sugarcoat, but don't be harsh either.\
+"""
+
 
 class CoachAssistant:
     """LLM-powered poker coaching assistant."""
@@ -54,6 +65,11 @@ class CoachAssistant:
         """Generate a brief proactive coaching tip."""
         stats_text = _format_stats_for_prompt(coaching_data)
         message = f"Current stats:\n{stats_text}\n\n{PROACTIVE_TIP_PROMPT}"
+        return self._assistant.chat(message)
+
+    def review_hand(self, hand_context_text: str) -> str:
+        """Generate a post-hand review."""
+        message = f"Completed hand:\n{hand_context_text}\n\n{HAND_REVIEW_PROMPT}"
         return self._assistant.chat(message)
 
 

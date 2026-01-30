@@ -223,6 +223,17 @@
   border-bottom-left-radius: 4px;
 }
 
+/* Hand review message */
+.coach-msg-review .coach-msg-sender {
+  color: var(--color-gold-light, #d4a574);
+}
+
+.coach-msg-review .coach-msg-text {
+  background: rgba(212, 165, 116, 0.12);
+  border: 1px solid rgba(212, 165, 116, 0.2);
+  border-bottom-left-radius: 4px;
+}
+
 .coach-thinking {
   color: var(--color-text-tertiary, #888) !important;
   animation: coachPulse 1.5s ease-in-out infinite;

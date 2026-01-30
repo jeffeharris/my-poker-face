@@ -200,6 +200,22 @@ export function MobilePokerTable({
     enabled: true,
   });
 
+  // When a hand ends, request a post-hand review from the coach
+  useEffect(() => {
+    if (winnerInfo && coach.mode !== 'off') {
+      coach.fetchHandReview();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [winnerInfo]);
+
+  // Clear unread review indicator when coach panel is opened
+  useEffect(() => {
+    if (showCoachPanel && coach.hasUnreadReview) {
+      coach.clearUnreadReview();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCoachPanel]);
+
   // Only show full loading screen on initial load (no game state yet)
   // If we have game state but are disconnected, we'll show a reconnecting overlay instead
   if (loading && !gameState) {
@@ -554,7 +570,7 @@ export function MobilePokerTable({
       {/* Coach Components */}
       <CoachButton
         onClick={() => setShowCoachPanel(true)}
-        hasNewInsight={!!coach.proactiveTip && !showCoachPanel}
+        hasNewInsight={(!!coach.proactiveTip || coach.hasUnreadReview) && !showCoachPanel}
       />
 
       <CoachBubble

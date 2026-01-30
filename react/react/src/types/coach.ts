@@ -31,6 +31,7 @@ export interface CoachMessage {
   role: 'user' | 'coach';
   content: string;
   timestamp: number;
+  type?: 'review';
 }
 
 export type CoachMode = 'proactive' | 'reactive' | 'off';
