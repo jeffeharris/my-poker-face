@@ -46,6 +46,7 @@ export interface GameState {
   messages: ChatMessage[];
   betting_context?: BettingContext;
   newly_dealt_count?: number;
+  awaiting_action?: boolean;
 }
 
 /** Player's showdown hand information */
