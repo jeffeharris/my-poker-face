@@ -183,7 +183,8 @@ export function MobilePokerTable({
                            !currentPlayer.is_folded &&
                            gameState?.player_options &&
                            gameState.player_options.length > 0 &&
-                           !aiThinking;
+                           !aiThinking &&
+                           isConnected;
 
   // Only show full loading screen on initial load (no game state yet)
   // If we have game state but are disconnected, we'll show a reconnecting overlay instead

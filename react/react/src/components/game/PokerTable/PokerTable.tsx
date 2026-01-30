@@ -40,6 +40,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     winnerInfo,
     tournamentResult,
     socketRef: _socketRef,
+    isConnected,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
@@ -121,7 +122,8 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                            !currentPlayer.is_folded &&
                            gameState?.player_options &&
                            gameState.player_options.length > 0 &&
-                           !aiThinking;
+                           !aiThinking &&
+                           isConnected;
 
   // Stadium view helpers
   const humanPlayer = gameState?.players.find((p: Player) => p.is_human);

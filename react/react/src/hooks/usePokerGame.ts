@@ -83,6 +83,8 @@ export function usePokerGame({
   const [queuedAction, setQueuedAction] = useState<QueuedAction>(null);
   const queuedActionRef = useRef<QueuedAction>(null);
   const handlePlayerActionRef = useRef<(action: string, amount?: number) => Promise<void>>(() => Promise.resolve());
+  const aiThinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gameIdRef = useRef<string | null>(null);
 
   const clearWinnerInfo = useCallback(() => {
     setWinnerInfo(null);
@@ -91,14 +93,28 @@ export function usePokerGame({
   const clearTournamentResult = useCallback(() => setTournamentResult(null), []);
   const clearRevealedCards = useCallback(() => setRevealedCards(null), []);
 
-  // Keep ref in sync with state for use in socket callbacks
+  // Keep refs in sync with state for use in socket callbacks
   useEffect(() => {
     queuedActionRef.current = queuedAction;
   }, [queuedAction]);
+  useEffect(() => {
+    gameIdRef.current = gameId;
+  }, [gameId]);
+
+  const clearAiThinkingTimeout = useCallback(() => {
+    if (aiThinkingTimeoutRef.current) {
+      clearTimeout(aiThinkingTimeoutRef.current);
+      aiThinkingTimeoutRef.current = null;
+    }
+  }, []);
 
   const setupSocketListeners = useCallback((socket: Socket) => {
     socket.on('disconnect', () => {
       setIsConnected(false);
+      // Clear aiThinking so UI isn't stuck while disconnected.
+      // On reconnect, refreshGameState will set the correct value.
+      setAiThinking(false);
+      clearAiThinkingTimeout();
     });
 
     socket.on('player_joined', (_data: { message: string }) => {
@@ -106,6 +122,7 @@ export function usePokerGame({
     });
 
     socket.on('update_game_state', (data: { game_state: GameState }) => {
+      clearAiThinkingTimeout();
       const transformedState = {
         ...data.game_state,
         messages: data.game_state.messages || []
@@ -184,6 +201,7 @@ export function usePokerGame({
     });
 
     socket.on('player_turn_start', (data: { current_player_options: string[], cost_to_call: number }) => {
+      clearAiThinkingTimeout();
       setAiThinking(false);
 
       // Check for queued preemptive action
@@ -204,6 +222,7 @@ export function usePokerGame({
     });
 
     socket.on('winner_announcement', (data: WinnerInfo) => {
+      clearAiThinkingTimeout();
       setWinnerInfo(data);
       setQueuedAction(null); // Clear queue when hand ends
     });
@@ -257,7 +276,7 @@ export function usePokerGame({
         };
       });
     });
-  }, [onNewAiMessage]);
+  }, [onNewAiMessage, clearAiThinkingTimeout]);
 
   // refreshGameState: silent=true means don't touch loading state (for reconnections)
   const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
@@ -268,6 +287,8 @@ export function usePokerGame({
       if (data.error || !data.players || data.players.length === 0) {
         return false;
       }
+
+      const currentPlayer = data.players[data.current_player_idx];
 
       setGameState(data);
       if (!silent) {
@@ -282,9 +303,10 @@ export function usePokerGame({
         capped.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
       }
 
-      const currentPlayer = data.players[data.current_player_idx];
       if (!currentPlayer.is_human) {
         setAiThinking(true);
+      } else {
+        setAiThinking(false);
       }
 
       return true;
@@ -306,12 +328,18 @@ export function usePokerGame({
 
     socketRef.current = socket;
 
-    socket.on('connect', () => {
+    socket.on('connect', async () => {
       const isReconnect = !isInitialConnectionRef.current;
       setIsConnected(true);
       socket.emit('join_game', gId);
       // Use silent mode for reconnections to avoid loading flash
-      refreshGameState(gId, isReconnect);
+      const success = await refreshGameState(gId, isReconnect);
+      if (success && isReconnect) {
+        // After server restart, the first join_game may have been rejected
+        // because the game wasn't in memory yet. The REST call above reloads
+        // it from persistence, so re-join to ensure we're in the Socket.IO room.
+        socket.emit('join_game', gId);
+      }
       isInitialConnectionRef.current = false;
     });
 
@@ -409,6 +437,9 @@ export function usePokerGame({
       if (socketRef.current) {
         socketRef.current.disconnect();
       }
+      if (aiThinkingTimeoutRef.current) {
+        clearTimeout(aiThinkingTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -418,6 +449,16 @@ export function usePokerGame({
     // Clear any queued action since user is acting manually
     setQueuedAction(null);
     setAiThinking(true);
+
+    // Safety net: if no socket event clears aiThinking within 30s, auto-refresh state
+    clearAiThinkingTimeout();
+    aiThinkingTimeoutRef.current = setTimeout(async () => {
+      logger.warn('[RESILIENCE] aiThinking timeout — refreshing game state');
+      const gId = gameIdRef.current;
+      if (gId) {
+        await refreshGameState(gId, true);
+      }
+    }, 30000);
 
     try {
       const response = await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
@@ -431,16 +472,15 @@ export function usePokerGame({
         }),
       });
 
-      if (response.ok) {
-        // Action sent, WebSocket will deliver state updates
-      } else {
+      if (!response.ok) {
         throw new Error('Action failed');
       }
     } catch (error) {
       logger.error('Failed to send action:', error);
       setAiThinking(false);
+      clearAiThinkingTimeout();
     }
-  }, [gameId]);
+  }, [gameId, clearAiThinkingTimeout, refreshGameState]);
 
   // Keep ref in sync for socket callback access (update synchronously)
   handlePlayerActionRef.current = handlePlayerAction;
