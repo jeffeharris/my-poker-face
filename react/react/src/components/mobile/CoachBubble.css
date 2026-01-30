@@ -63,7 +63,7 @@
   border: none;
   background: transparent;
   border-radius: 0;
-  color: var(--color-text-muted, #888);
+  color: var(--color-text-secondary, #bbb);
   display: flex;
   align-items: center;
   justify-content: center;

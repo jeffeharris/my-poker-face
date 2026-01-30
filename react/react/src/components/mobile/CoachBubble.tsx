@@ -58,7 +58,7 @@ export function CoachBubble({ isVisible, tip, stats, onTap, onDismiss }: CoachBu
             }}
             aria-label="Dismiss coach tip"
           >
-            <X size={14} />
+            <X size={18} />
           </button>
         </motion.div>
       )}
