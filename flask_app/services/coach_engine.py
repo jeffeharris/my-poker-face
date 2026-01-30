@@ -8,54 +8,17 @@ opponent stats, and an optimal action recommendation.
 import logging
 from typing import Any, Dict, List, Optional
 
-from poker.equity_calculator import EquityCalculator
 from poker.hand_evaluator import HandEvaluator
 from poker.hand_ranges import OpponentInfo
 from poker.decision_analyzer import DecisionAnalyzer
 from poker.controllers import classify_preflop_hand
-from poker.card_utils import normalize_card_string
+from poker.card_utils import card_to_string
 
 from ..services import game_state_service
 
 logger = logging.getLogger(__name__)
 
-_equity_calc = EquityCalculator(monte_carlo_iterations=5000)
 _decision_analyzer = DecisionAnalyzer(iterations=2000)
-
-
-def _card_dict_to_str(card: Any) -> str:
-    """Convert a card dict/object to a short string like 'As'."""
-    if isinstance(card, str):
-        return normalize_card_string(card)
-    if isinstance(card, dict):
-        rank = card.get('rank', '')
-        suit = card.get('suit', '')
-        if rank == '10':
-            rank = 'T'
-        suit_letter = suit[0].lower() if suit else ''
-        return f"{rank}{suit_letter}"
-    # Card object with rank/suit attributes
-    rank = getattr(card, 'rank', '') or ''
-    suit = getattr(card, 'suit', '') or ''
-    if rank == '10':
-        rank = 'T'
-    suit_letter = suit[0].lower() if suit else ''
-    return f"{rank}{suit_letter}"
-
-
-def _get_phase_name(game_state) -> str:
-    """Get the current phase name from the game state."""
-    community = list(game_state.community_cards) if game_state.community_cards else []
-    n = len(community)
-    if n == 0:
-        return "PRE_FLOP"
-    elif n == 3:
-        return "FLOP"
-    elif n == 4:
-        return "TURN"
-    elif n >= 5:
-        return "RIVER"
-    return "UNKNOWN"
 
 
 def _get_position_label(game_state, player_idx: int) -> str:
@@ -73,13 +36,15 @@ def _compute_equity(player_hand: List[str], community: List[str],
     """Compute player equity against opponent ranges via DecisionAnalyzer.
 
     Uses opponent stats/ranges when available, falls back to vs-random.
+    Returns (equity, used_ranges) tuple-style: equity float, and whether
+    range-based calc succeeded (to avoid redundant vs-random calc).
     """
     if not player_hand:
         return None
 
     try:
         if opponent_infos:
-            equity = _decision_analyzer._calculate_equity_vs_ranges(
+            equity = _decision_analyzer.calculate_equity_vs_ranges(
                 player_hand, community, opponent_infos
             )
             if equity is not None:
@@ -88,7 +53,7 @@ def _compute_equity(player_hand: List[str], community: List[str],
 
         # Fallback: vs random hands
         num_opponents = len(opponent_infos) if opponent_infos else 1
-        equity = _decision_analyzer._calculate_equity_vs_random(
+        equity = _decision_analyzer.calculate_equity_vs_random(
             player_hand, community, num_opponents
         )
         if equity is not None:
@@ -153,7 +118,7 @@ def _compute_hand_strength(player_hand_cards, community_cards) -> Optional[Dict]
     try:
         if not community_cards:
             # Pre-flop: use classify_preflop_hand
-            hand_strs = [_card_dict_to_str(c) for c in player_hand_cards]
+            hand_strs = [card_to_string(c) for c in player_hand_cards]
             classification = classify_preflop_hand(hand_strs)
             return {
                 'description': classification or 'Unknown',
@@ -261,7 +226,8 @@ def compute_coaching_data(game_id: str, player_name: str) -> Optional[Dict]:
     if not game_data:
         return None
 
-    game_state = game_data['state_machine'].game_state
+    state_machine = game_data['state_machine']
+    game_state = state_machine.game_state
 
     # Find the human player
     player_info = game_state.get_player_by_name(player_name)
@@ -273,15 +239,15 @@ def compute_coaching_data(game_id: str, player_name: str) -> Optional[Dict]:
     # Basic game info
     pot_total = game_state.pot.get('total', 0)
     cost_to_call = max(0, game_state.highest_bet - player.bet)
-    phase = _get_phase_name(game_state)
+    phase = state_machine.phase.name
     position = _get_position_label(game_state, player_idx)
 
     community_cards = list(game_state.community_cards) if game_state.community_cards else []
     player_hand = list(player.hand) if player.hand else []
 
     # Convert cards to string format for calculations
-    hand_strs = [_card_dict_to_str(c) for c in player_hand]
-    community_strs = [_card_dict_to_str(c) for c in community_cards]
+    hand_strs = [card_to_string(c) for c in player_hand]
+    community_strs = [card_to_string(c) for c in community_cards]
 
     result: Dict[str, Any] = {
         'phase': phase,
@@ -312,10 +278,12 @@ def compute_coaching_data(game_id: str, player_name: str) -> Optional[Dict]:
     result['equity'] = round(equity, 3) if equity is not None else None
 
     # Secondary: equity vs random hands (baseline reference)
-    equity_random = _decision_analyzer._calculate_equity_vs_random(
-        hand_strs, community_strs, num_opponents
-    )
-    result['equity_vs_random'] = round(equity_random, 3) if equity_random is not None else None
+    # Only calculate if primary equity used opponent ranges (avoid redundant calc)
+    if opponent_infos and equity is not None:
+        equity_random = _decision_analyzer.calculate_equity_vs_random(
+            hand_strs, community_strs, num_opponents
+        )
+        result['equity_vs_random'] = round(equity_random, 3) if equity_random is not None else None
 
     # Pot odds
     if cost_to_call > 0:
@@ -356,7 +324,7 @@ def compute_coaching_data(game_id: str, player_name: str) -> Optional[Dict]:
         ev_call = result['ev_call'] or 0.0
 
         try:
-            recommendation = _decision_analyzer._determine_optimal_action(
+            recommendation = _decision_analyzer.determine_optimal_action(
                 equity=equity,
                 ev_call=ev_call,
                 required_equity=required_equity,

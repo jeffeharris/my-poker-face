@@ -290,7 +290,7 @@ class DecisionAnalyzer:
         if player_hand and self.calculator and num_opponents > 0:
             try:
                 # Calculate equity vs random opponent hands using Monte Carlo
-                analysis.equity = self._calculate_equity_vs_random(
+                analysis.equity = self.calculate_equity_vs_random(
                     player_hand, community_cards or [], num_opponents
                 )
             except Exception as e:
@@ -300,7 +300,7 @@ class DecisionAnalyzer:
             range_data = opponent_infos if opponent_infos else opponent_positions
             if range_data:
                 try:
-                    analysis.equity_vs_ranges = self._calculate_equity_vs_ranges(
+                    analysis.equity_vs_ranges = self.calculate_equity_vs_ranges(
                         player_hand, community_cards or [], range_data
                     )
                     # Store opponent positions for reference
@@ -345,7 +345,7 @@ class DecisionAnalyzer:
         analysis.processing_time_ms = int((time.time() - start_time) * 1000)
         return analysis
 
-    def _calculate_equity_vs_random(
+    def calculate_equity_vs_random(
         self,
         player_hand: List[str],
         community_cards: List[str],
@@ -412,7 +412,7 @@ class DecisionAnalyzer:
             logger.debug(f"Equity vs random calculation failed: {e}")
             return None
 
-    def _calculate_equity_vs_ranges(
+    def calculate_equity_vs_ranges(
         self,
         player_hand: List[str],
         community_cards: List[str],
@@ -557,7 +557,7 @@ class DecisionAnalyzer:
         phase = analysis.phase
 
         # Determine optimal action using sophisticated logic
-        analysis.optimal_action = self._determine_optimal_action(
+        analysis.optimal_action = self.determine_optimal_action(
             equity=equity,
             ev_call=analysis.ev_call,
             required_equity=analysis.required_equity,
@@ -603,7 +603,7 @@ class DecisionAnalyzer:
             analysis.decision_quality = "correct"
             analysis.ev_lost = 0
 
-    def _determine_optimal_action(
+    def determine_optimal_action(
         self,
         equity: float,
         ev_call: float,

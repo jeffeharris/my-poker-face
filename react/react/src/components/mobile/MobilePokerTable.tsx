@@ -192,7 +192,6 @@ export function MobilePokerTable({
     gameId: providedGameId ?? null,
     playerName: playerName || '',
     isPlayerTurn: !!showActionButtons,
-    enabled: true,
   });
 
   const coachEnabled = coach.mode !== 'off';

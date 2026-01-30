@@ -1,6 +1,7 @@
 """Coach routes — REST endpoints for the poker coaching feature."""
 
 import logging
+from typing import Optional
 
 from flask import Blueprint, jsonify, request
 
@@ -17,7 +18,7 @@ coach_bp = Blueprint('coach', __name__)
 PROACTIVE_TIP_MARKER = '__proactive_tip__'
 
 
-def _get_human_player_name(game_data: dict) -> str | None:
+def _get_human_player_name(game_data: dict) -> Optional[str]:
     """Return the human player's name, or None."""
     game_state = game_data['state_machine'].game_state
     for player in game_state.players:

@@ -23,7 +23,6 @@ export function CoachButton({ onClick, hasNewInsight }: CoachButtonProps) {
   const touchStart = useRef({ x: 0, y: 0, btnX: 0, btnY: 0 });
   const totalMove = useRef(0);
   const isDragging = useRef(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     const touch = e.touches[0];
@@ -45,10 +44,8 @@ export function CoachButton({ onClick, hasNewInsight }: CoachButtonProps) {
 
     if (totalMove.current > DRAG_THRESHOLD) {
       isDragging.current = true;
-      // Position is offset from bottom-right corner
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const newX = Math.max(0, Math.min(vw - 56, vw - (touchStart.current.btnX + 28) - dx)) - (vw - 56 - touchStart.current.btnX) + touchStart.current.btnX;
       const newRight = touchStart.current.btnX - dx;
       const newBottom = touchStart.current.btnY - dy;
 
@@ -87,7 +84,6 @@ export function CoachButton({ onClick, hasNewInsight }: CoachButtonProps) {
 
   return (
     <button
-      ref={btnRef}
       className={`coach-fab ${hasNewInsight ? 'has-insight' : ''}`}
       style={{
         right: `${pos.x}px`,

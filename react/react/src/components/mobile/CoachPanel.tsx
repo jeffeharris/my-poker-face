@@ -4,6 +4,8 @@ import type { CoachStats, CoachMessage, CoachMode } from '../../types/coach';
 import { StatsBar } from './StatsBar';
 import './CoachPanel.css';
 
+const CLOSE_ANIMATION_MS = 250;
+
 interface CoachPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -108,7 +110,7 @@ export function CoachPanel({
     setTimeout(() => {
       setIsClosing(false);
       onClose();
-    }, 250);
+    }, CLOSE_ANIMATION_MS);
   };
 
   const handleSend = async () => {

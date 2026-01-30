@@ -9,7 +9,6 @@ interface UseCoachOptions {
   gameId: string | null;
   playerName: string;
   isPlayerTurn: boolean;
-  enabled: boolean;
 }
 
 interface UseCoachResult {
@@ -42,7 +41,6 @@ export function useCoach({
   gameId,
   playerName,
   isPlayerTurn,
-  enabled,
 }: UseCoachOptions): UseCoachResult {
   const [mode, setModeState] = useState<CoachMode>(loadMode);
   const [stats, setStats] = useState<CoachStats | null>(null);
@@ -55,6 +53,7 @@ export function useCoach({
   // Track whether we've already fetched for this turn
   const fetchedForTurn = useRef(false);
   const prevIsPlayerTurn = useRef(false);
+  const handReviewInFlightRef = useRef(false);
 
   const setMode = useCallback((newMode: CoachMode) => {
     setModeState(newMode);
@@ -74,7 +73,7 @@ export function useCoach({
   }, [gameId]);
 
   const refreshStats = useCallback(async () => {
-    if (!gameId || !enabled) return;
+    if (!gameId || mode === 'off') return;
     try {
       const res = await fetch(`${config.API_URL}/api/coach/${gameId}/stats`, {
         credentials: 'include',
@@ -86,7 +85,7 @@ export function useCoach({
     } catch {
       /* non-critical */
     }
-  }, [gameId, enabled]);
+  }, [gameId, mode]);
 
   const fetchProactiveTip = useCallback(async () => {
     if (!gameId) return;
@@ -116,7 +115,7 @@ export function useCoach({
   }, [gameId]);
 
   const sendQuestion = useCallback(async (question: string) => {
-    if (!gameId || !enabled) return;
+    if (!gameId || mode === 'off') return;
 
     const userMsg: CoachMessage = {
       id: `user-${Date.now()}`,
@@ -158,14 +157,15 @@ export function useCoach({
     } finally {
       setIsThinking(false);
     }
-  }, [gameId, enabled]);
+  }, [gameId, mode]);
 
   const clearProactiveTip = useCallback(() => {
     setProactiveTip(null);
   }, []);
 
   const fetchHandReview = useCallback(async () => {
-    if (!gameId || handReviewPending) return;
+    if (!gameId || handReviewInFlightRef.current) return;
+    handReviewInFlightRef.current = true;
     setHandReviewPending(true);
     try {
       const res = await fetch(`${config.API_URL}/api/coach/${gameId}/hand-review`, {
@@ -188,9 +188,10 @@ export function useCoach({
     } catch {
       /* non-critical */
     } finally {
+      handReviewInFlightRef.current = false;
       setHandReviewPending(false);
     }
-  }, [gameId, handReviewPending]);
+  }, [gameId]);
 
   const clearUnreadReview = useCallback(() => {
     setHasUnreadReview(false);
@@ -204,7 +205,7 @@ export function useCoach({
     }
     prevIsPlayerTurn.current = isPlayerTurn;
 
-    if (!isPlayerTurn || !enabled || fetchedForTurn.current) return;
+    if (!isPlayerTurn || mode === 'off' || fetchedForTurn.current) return;
     fetchedForTurn.current = true;
 
     refreshStats();
@@ -212,7 +213,7 @@ export function useCoach({
     if (mode === 'proactive') {
       fetchProactiveTip();
     }
-  }, [isPlayerTurn, enabled, mode, refreshStats, fetchProactiveTip]);
+  }, [isPlayerTurn, mode, refreshStats, fetchProactiveTip]);
 
   // Clear proactive tip when turn ends
   useEffect(() => {
