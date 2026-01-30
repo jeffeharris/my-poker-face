@@ -1,6 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
-import { config } from '../config';
-import { logger } from '../utils/logger';
+import { useContext, createContext } from 'react';
 
 export interface UsageStats {
   hands_played: number;
@@ -11,31 +9,18 @@ export interface UsageStats {
   is_guest: boolean;
 }
 
-export function useUsageStats() {
-  const [stats, setStats] = useState<UsageStats | null>(null);
-  const [loading, setLoading] = useState(true);
+export interface UsageStatsContextValue {
+  stats: UsageStats | null;
+  loading: boolean;
+  refetch: () => Promise<void>;
+}
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const response = await fetch(`${config.API_URL}/api/usage-stats`, {
-        credentials: 'include',
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setStats(data);
-      } else {
-        logger.warn(`Usage stats request failed: ${response.status}`);
-      }
-    } catch (error) {
-      logger.error('Failed to fetch usage stats:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+export const UsageStatsContext = createContext<UsageStatsContextValue | null>(null);
 
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
-
-  return { stats, loading, refetch: fetchStats };
+export function useUsageStats(): UsageStatsContextValue {
+  const context = useContext(UsageStatsContext);
+  if (!context) {
+    throw new Error('useUsageStats must be used within a UsageStatsProvider');
+  }
+  return context;
 }

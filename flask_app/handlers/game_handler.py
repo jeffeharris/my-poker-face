@@ -29,7 +29,7 @@ from ..services.elasticity_service import format_elasticity_data
 from ..services.ai_debug_service import get_all_players_llm_stats
 from .message_handler import send_message, format_action_message, record_action_in_memory, format_messages_for_api
 from .. import config
-from flask_app.config import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
+from poker.guest_limits import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
 
 logger = logging.getLogger(__name__)
 

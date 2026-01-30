@@ -34,16 +34,6 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 # CORS configuration
 CORS_ORIGINS_ENV = os.environ.get('CORS_ORIGINS', '*')
 
-# Guest user limits — canonical source is poker.guest_limits.
-# Re-exported here for convenience; override via env vars.
-from poker.guest_limits import (                    # noqa: F401, E402
-    GUEST_MAX_HANDS,
-    GUEST_MAX_ACTIVE_GAMES,
-    GUEST_MAX_OPPONENTS,
-    GUEST_MAX_MESSAGES_PER_ACTION,
-    GUEST_LIMITS_ENABLED,
-)
-
 # Rate limiting configuration
 RATE_LIMIT_DEFAULT = ['10000 per day', '1000 per hour', '100 per minute']
 RATE_LIMIT_NEW_GAME = os.environ.get('RATE_LIMIT_NEW_GAME', '10 per hour')

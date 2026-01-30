@@ -47,7 +47,7 @@ from poker.guest_limits import (
     is_guest, check_guest_game_limit, validate_guest_opponent_count,
     check_guest_message_limit
 )
-from flask_app.config import GUEST_MAX_HANDS, GUEST_MAX_ACTIVE_GAMES, GUEST_MAX_OPPONENTS, GUEST_LIMITS_ENABLED
+from poker.guest_limits import GUEST_MAX_HANDS, GUEST_MAX_ACTIVE_GAMES, GUEST_MAX_OPPONENTS, GUEST_LIMITS_ENABLED
 
 logger = logging.getLogger(__name__)
 
@@ -1067,7 +1067,6 @@ def api_player_action(game_id):
         state_machine.game_state = game_state
 
         current_game_data['state_machine'] = state_machine
-        # Reset guest chat counter on new action
         current_game_data['guest_messages_this_action'] = 0
         game_state_service.set_game(game_id, current_game_data)
 
@@ -1347,7 +1346,6 @@ def register_socket_events(sio):
         state_machine.game_state = game_state
 
         current_game_data['state_machine'] = state_machine
-        # Reset guest chat counter on new action
         current_game_data['guest_messages_this_action'] = 0
         game_state_service.set_game(game_id, current_game_data)
 
