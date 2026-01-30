@@ -229,6 +229,7 @@ export function MobilePokerTable({
             phase={gameState.phase}
             smallBlind={gameState.small_blind}
             bigBlind={gameState.big_blind}
+            handNumber={gameState.hand_number}
           />
         }
         showUserInfo

@@ -74,12 +74,13 @@ export interface GameInfoDisplayProps {
   phase: string;
   smallBlind: number;
   bigBlind: number;
+  handNumber?: number;
 }
 
 /**
  * Game info display for mobile header - shows phase and blinds.
  */
-export function GameInfoDisplay({ phase, smallBlind, bigBlind }: GameInfoDisplayProps) {
+export function GameInfoDisplay({ phase, smallBlind, bigBlind, handNumber }: GameInfoDisplayProps) {
   // Format phase for display (e.g., "PRE_FLOP" -> "Pre-Flop")
   const formatPhase = (p: string) => {
     return p
@@ -93,6 +94,9 @@ export function GameInfoDisplay({ phase, smallBlind, bigBlind }: GameInfoDisplay
 
   return (
     <div className="mobile-game-info">
+      {handNumber !== undefined && (
+        <span className="mobile-game-info__hand">#{handNumber}</span>
+      )}
       <span className="mobile-game-info__phase">{formatPhase(phase)}</span>
       <span className="mobile-game-info__blinds">{formatCompactCurrency(displaySmallBlind)}/{formatCompactCurrency(bigBlind, false)}</span>
     </div>
