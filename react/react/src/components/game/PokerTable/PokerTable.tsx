@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
@@ -9,6 +9,7 @@ import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
+import { useAuth } from '../../../hooks/useAuth';
 import { logger } from '../../../utils/logger';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
@@ -49,6 +50,30 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     playerName,
     onGameCreated,
   });
+
+  const { user } = useAuth();
+  const isGuest = user?.is_guest ?? true;
+  const [guestChatSentThisAction, setGuestChatSentThisAction] = useState(false);
+
+  const isHumanTurn = gameState?.awaiting_action;
+  useEffect(() => {
+    if (isHumanTurn) {
+      setGuestChatSentThisAction(false);
+    }
+  }, [isHumanTurn]);
+
+  const wrappedSendMessage = useCallback(async (message: string) => {
+    try {
+      await handleSendMessage(message);
+      if (isGuest) {
+        setGuestChatSentThisAction(true);
+      }
+    } catch {
+      // Don't mark as sent if the request failed
+    }
+  }, [handleSendMessage, isGuest]);
+
+  const guestChatDisabled = isGuest && guestChatSentThisAction;
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {
@@ -259,8 +284,9 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         rightPanel={
           <ActivityFeed
             messages={messages}
-            onSendMessage={handleSendMessage}
+            onSendMessage={wrappedSendMessage}
             playerName={playerName}
+            guestChatDisabled={guestChatDisabled}
           />
         }
       >
