@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
 import { Check, X, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
@@ -9,7 +10,6 @@ import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
 import { GuestLimitModal } from '../shared';
-import { useAuth } from '../../hooks/useAuth';
 import { useUsageStats } from '../../hooks/useUsageStats';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
@@ -36,11 +36,6 @@ export function MobilePokerTable({
   onGameCreated,
   onBack
 }: MobilePokerTableProps) {
-  // Auth + guest chat tracking
-  const { user } = useAuth();
-  const isGuest = user?.is_guest ?? true;
-  const [guestChatSentThisAction, setGuestChatSentThisAction] = useState(false);
-
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
@@ -89,30 +84,10 @@ export function MobilePokerTable({
     onNewAiMessage: handleNewAiMessage,
   });
 
-  // Reset guest chat counter when the human takes an action
-  // (awaiting_action transitions from true → false)
-  const wasAwaitingAction = useRef(false);
-  const isHumanTurn = gameState?.awaiting_action;
-  useEffect(() => {
-    if (wasAwaitingAction.current && !isHumanTurn) {
-      setGuestChatSentThisAction(false);
-    }
-    wasAwaitingAction.current = !!isHumanTurn;
-  }, [isHumanTurn]);
-
-  // Wrap send message to track guest chat sends
-  const wrappedSendMessage = useCallback(async (message: string) => {
-    try {
-      await handleSendMessage(message);
-      if (isGuest) {
-        setGuestChatSentThisAction(true);
-      }
-    } catch {
-      // Don't mark as sent if the request failed
-    }
-  }, [handleSendMessage, isGuest]);
-
-  const guestChatDisabled = isGuest && guestChatSentThisAction;
+  const { wrappedSendMessage, guestChatDisabled, isGuest } = useGuestChatLimit(
+    gameState?.awaiting_action,
+    handleSendMessage,
+  );
 
   // Usage stats for guest limit modal
   const { stats: usageStats } = useUsageStats();

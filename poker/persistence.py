@@ -3315,7 +3315,9 @@ class GamePersistence:
             ).fetchone()
 
             if existing_guest and existing_target:
-                # Both exist — merge guest stats into target, then delete guest row
+                # Both exist — merge guest stats into target, then delete guest row.
+                # SQLite UPDATE...FROM: the FROM clause aliases the guest row as 'g'
+                # while the main UPDATE targets the authenticated user's row.
                 conn.execute("""
                     UPDATE player_career_stats
                     SET games_played = player_career_stats.games_played + g.games_played,

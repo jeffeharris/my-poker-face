@@ -10,8 +10,10 @@ export function UsageStatsProvider({ children }: { children: ReactNode }) {
 
   const fetchStats = useCallback(async () => {
     try {
+      const token = localStorage.getItem('authToken');
       const response = await fetch(`${config.API_URL}/api/usage-stats`, {
         credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (response.ok) {
         const data = await response.json();

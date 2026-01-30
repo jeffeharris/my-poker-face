@@ -163,7 +163,7 @@ interface LockedMenuOptionProps {
   onClick: () => void;
   isGuest: boolean;
   isCreatingGame: boolean;
-  hoverHandlers: Record<string, () => void>;
+  hoverHandlers: { onMouseEnter?: () => void; onMouseLeave?: () => void };
   className: string;
 }
 

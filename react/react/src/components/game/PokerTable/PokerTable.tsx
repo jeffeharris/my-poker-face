@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
@@ -9,7 +9,7 @@ import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
-import { useAuth } from '../../../hooks/useAuth';
+import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { logger } from '../../../utils/logger';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
@@ -51,31 +51,10 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     onGameCreated,
   });
 
-  const { user } = useAuth();
-  const isGuest = user?.is_guest ?? true;
-  const [guestChatSentThisAction, setGuestChatSentThisAction] = useState(false);
-
-  const wasAwaitingAction = useRef(false);
-  const isHumanTurn = gameState?.awaiting_action;
-  useEffect(() => {
-    if (wasAwaitingAction.current && !isHumanTurn) {
-      setGuestChatSentThisAction(false);
-    }
-    wasAwaitingAction.current = !!isHumanTurn;
-  }, [isHumanTurn]);
-
-  const wrappedSendMessage = useCallback(async (message: string) => {
-    try {
-      await handleSendMessage(message);
-      if (isGuest) {
-        setGuestChatSentThisAction(true);
-      }
-    } catch {
-      // Don't mark as sent if the request failed
-    }
-  }, [handleSendMessage, isGuest]);
-
-  const guestChatDisabled = isGuest && guestChatSentThisAction;
+  const { wrappedSendMessage, guestChatDisabled } = useGuestChatLimit(
+    gameState?.awaiting_action,
+    handleSendMessage,
+  );
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {

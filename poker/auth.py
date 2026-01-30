@@ -354,13 +354,13 @@ class AuthManager:
                     session['user'] = user
                     session.permanent = True
 
-        # Attach tracking_id from cookie for guest users
+        # Attach tracking_id from cookie for guest users (shallow copy to avoid mutating session dict)
         if user and user.get('is_guest'):
             tracking_id = request.cookies.get('guest_tracking_id')
             if tracking_id:
                 try:
                     uuid.UUID(tracking_id)
-                    user['tracking_id'] = tracking_id
+                    user = {**user, 'tracking_id': tracking_id}
                 except ValueError:
                     logger.warning("Invalid guest_tracking_id cookie value")
 

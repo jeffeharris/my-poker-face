@@ -1109,14 +1109,12 @@ def api_send_message(game_id):
             allowed, error_msg = check_guest_message_limit(current_user, msgs_this_action)
             if not allowed:
                 return jsonify({'success': False, 'error': error_msg, 'code': 'GUEST_CHAT_LIMIT'}), 429
+            # Increment before sending to close the race window between check and send
+            current_game_data['guest_messages_this_action'] = msgs_this_action + 1
+            game_state_service.set_game(game_id, current_game_data)
 
     if message.strip():
         send_message(game_id, sender, message.strip(), 'player')
-        if is_guest_user:
-            current_game_data = game_state_service.get_game(game_id)
-            if current_game_data:
-                current_game_data['guest_messages_this_action'] = current_game_data.get('guest_messages_this_action', 0) + 1
-                game_state_service.set_game(game_id, current_game_data)
         return jsonify({'success': True})
 
     return jsonify({'success': False, 'error': 'Empty message'})
