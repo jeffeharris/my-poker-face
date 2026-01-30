@@ -285,6 +285,8 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state_dict['min_raise'] = game_state.min_raise_amount
     game_state_dict['big_blind'] = game_state.current_ante
     game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
+    memory_manager = current_game_data.get('memory_manager')
+    game_state_dict['hand_number'] = memory_manager.hand_count if memory_manager else 0
 
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
