@@ -25,7 +25,7 @@ import { type Theme } from './types/theme'
 import toast, { Toaster } from 'react-hot-toast'
 import './App.css'
 
-// Game limit constants (kept for backward compat with maxGamesError modal)
+// Fallback game limit values when usageStats hasn't loaded yet
 const MAX_GAMES_GUEST = 1;
 const MAX_GAMES_USER = 10;
 
@@ -122,10 +122,11 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   };
 
   // Helper to check for and handle max games limit error
-  const checkMaxGamesError = (response: Response, data: { error?: string }): boolean => {
-    if (response.status === 400 && data.error?.includes('Game limit reached')) {
-      const maxGames = user?.is_guest ? MAX_GAMES_GUEST : MAX_GAMES_USER;
-      setMaxGamesError({ message: data.error, maxGames });
+  const checkMaxGamesError = (response: Response, data: { error?: string; code?: string }): boolean => {
+    if ((response.status === 400 || response.status === 403) &&
+        (data.code === 'GUEST_LIMIT_GAMES' || data.error?.includes('Game limit reached'))) {
+      const maxGames = usageStats?.max_active_games ?? (user?.is_guest ? MAX_GAMES_GUEST : MAX_GAMES_USER);
+      setMaxGamesError({ message: data.error || 'Game limit reached', maxGames });
       return true;
     }
     return false;

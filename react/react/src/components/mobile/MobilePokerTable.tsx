@@ -98,10 +98,14 @@ export function MobilePokerTable({
   }, [isHumanTurn]);
 
   // Wrap send message to track guest chat sends
-  const wrappedSendMessage = useCallback((message: string) => {
-    handleSendMessage(message);
-    if (isGuest) {
-      setGuestChatSentThisAction(true);
+  const wrappedSendMessage = useCallback(async (message: string) => {
+    try {
+      await handleSendMessage(message);
+      if (isGuest) {
+        setGuestChatSentThisAction(true);
+      }
+    } catch {
+      // Don't mark as sent if the request failed
     }
   }, [handleSendMessage, isGuest]);
 
@@ -572,6 +576,7 @@ export function MobilePokerTable({
         <GuestLimitModal
           handsPlayed={usageStats.hands_played}
           handsLimit={usageStats.hands_limit}
+          onReturnToMenu={() => { if (onBack) onBack(); }}
         />
       )}
     </div>

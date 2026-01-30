@@ -335,8 +335,8 @@ class AuthManager:
                 try:
                     payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
                     user = payload.get('user')
-                except jwt.InvalidTokenError:
-                    pass
+                except jwt.InvalidTokenError as e:
+                    logger.debug(f"Invalid JWT token: {e}")
 
             # Check for guest_id cookie and restore session if valid
             if not user:
@@ -358,7 +358,11 @@ class AuthManager:
         if user and user.get('is_guest'):
             tracking_id = request.cookies.get('guest_tracking_id')
             if tracking_id:
-                user['tracking_id'] = tracking_id
+                try:
+                    uuid.UUID(tracking_id)
+                    user['tracking_id'] = tracking_id
+                except ValueError:
+                    logger.warning("Invalid guest_tracking_id cookie value")
 
         return user
     

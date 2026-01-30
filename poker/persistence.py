@@ -3318,15 +3318,17 @@ class GamePersistence:
                 # Both exist — merge guest stats into target, then delete guest row
                 conn.execute("""
                     UPDATE player_career_stats
-                    SET games_played = games_played + (SELECT games_played FROM player_career_stats WHERE owner_id = ?),
-                        games_won = games_won + (SELECT games_won FROM player_career_stats WHERE owner_id = ?),
-                        total_eliminations = total_eliminations + (SELECT total_eliminations FROM player_career_stats WHERE owner_id = ?),
-                        best_finish = MIN(best_finish, (SELECT best_finish FROM player_career_stats WHERE owner_id = ?)),
-                        worst_finish = MAX(worst_finish, (SELECT worst_finish FROM player_career_stats WHERE owner_id = ?)),
-                        biggest_pot_ever = MAX(biggest_pot_ever, (SELECT biggest_pot_ever FROM player_career_stats WHERE owner_id = ?)),
+                    SET games_played = player_career_stats.games_played + g.games_played,
+                        games_won = player_career_stats.games_won + g.games_won,
+                        total_eliminations = player_career_stats.total_eliminations + g.total_eliminations,
+                        best_finish = MIN(player_career_stats.best_finish, g.best_finish),
+                        worst_finish = MAX(player_career_stats.worst_finish, g.worst_finish),
+                        biggest_pot_ever = MAX(player_career_stats.biggest_pot_ever, g.biggest_pot_ever),
                         updated_at = CURRENT_TIMESTAMP
-                    WHERE owner_id = ?
-                """, (from_id, from_id, from_id, from_id, from_id, from_id, to_id))
+                    FROM player_career_stats g
+                    WHERE player_career_stats.owner_id = ?
+                      AND g.owner_id = ?
+                """, (to_id, from_id))
                 conn.execute(
                     "DELETE FROM player_career_stats WHERE owner_id = ?", (from_id,)
                 )

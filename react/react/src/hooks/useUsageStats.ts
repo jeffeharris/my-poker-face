@@ -23,6 +23,8 @@ export function useUsageStats() {
       if (response.ok) {
         const data = await response.json();
         setStats(data);
+      } else {
+        logger.warn(`Usage stats request failed: ${response.status}`);
       }
     } catch (error) {
       logger.error('Failed to fetch usage stats:', error);

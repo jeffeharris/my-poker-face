@@ -139,7 +139,7 @@ export function QuickChatSuggestions({
       setContainerHeight(null); // Release fixed height
       onSuggestionsLoaded?.();
     }
-  }, [gameId, playerName, lastAction, length, intensity, getCacheKey, onSuggestionsLoaded]);
+  }, [gameId, playerName, lastAction, length, intensity, getCacheKey, onSuggestionsLoaded, guestChatDisabled]);
 
   // Check cache when length/intensity changes and auto-fetch if no cache
   useEffect(() => {

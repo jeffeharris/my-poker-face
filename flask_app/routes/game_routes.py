@@ -45,7 +45,7 @@ from ..validation import validate_player_action
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 from poker.guest_limits import (
     is_guest, check_guest_game_limit, validate_guest_opponent_count,
-    check_guest_hands_limit
+    check_guest_message_limit
 )
 from flask_app.config import GUEST_MAX_HANDS, GUEST_MAX_ACTIVE_GAMES, GUEST_MAX_OPPONENTS, GUEST_LIMITS_ENABLED
 
@@ -207,7 +207,7 @@ def get_usage_stats():
 
     hands_played = 0
     if guest:
-        tracking_id = request.cookies.get('guest_tracking_id') if current_user else None
+        tracking_id = request.cookies.get('guest_tracking_id')
         if tracking_id:
             hands_played = persistence.get_hands_played(tracking_id)
 
@@ -251,7 +251,8 @@ def list_games():
                     break
 
             big_blind = state.get('current_ante', 20)
-        except:
+        except Exception:
+            logger.warning(f"Failed to parse game state for game {game.game_id}")
             player_names = []
             total_players = game.num_players
             active_players = game.num_players
@@ -261,7 +262,8 @@ def list_games():
         try:
             phase_num = int(game.phase) if isinstance(game.phase, str) else game.phase
             phase_name = PokerPhase(phase_num).name.replace('_', ' ').title()
-        except:
+        except (ValueError, TypeError):
+            logger.warning(f"Failed to parse phase for game {game.game_id}")
             phase_name = game.phase
 
         games_data.append({
@@ -1079,7 +1081,7 @@ def api_player_action(game_id):
         return jsonify({'success': True})
     except Exception as e:
         logger.error(f"Error processing action for game {game_id}: {e}", exc_info=True)
-        return jsonify({'error': 'Failed to process action', 'message': str(e)}), 500
+        return jsonify({'error': 'Failed to process action'}), 500
 
 
 @game_bp.route('/api/game/<game_id>/message', methods=['POST'])
@@ -1089,12 +1091,12 @@ def api_send_message(game_id):
     message = data.get('message', '')
     sender = data.get('sender', 'Player')
 
-    # Guest chat rate limiting
     current_user = auth_manager.get_current_user()
-    if current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED:
+    is_guest_user = current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED
+
+    if is_guest_user:
         current_game_data = game_state_service.get_game(game_id)
         if current_game_data:
-            from poker.guest_limits import check_guest_message_limit
             msgs_this_action = current_game_data.get('guest_messages_this_action', 0)
             allowed, error_msg = check_guest_message_limit(current_user, msgs_this_action)
             if not allowed:
@@ -1102,8 +1104,7 @@ def api_send_message(game_id):
 
     if message.strip():
         send_message(game_id, sender, message.strip(), 'player')
-        # Track guest message count
-        if current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED:
+        if is_guest_user:
             current_game_data = game_state_service.get_game(game_id)
             if current_game_data:
                 current_game_data['guest_messages_this_action'] = current_game_data.get('guest_messages_this_action', 0) + 1

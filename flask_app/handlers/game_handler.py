@@ -5,6 +5,7 @@ manageable functions for maintainability.
 """
 
 import logging
+import sqlite3
 import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, List
@@ -33,25 +34,22 @@ from flask_app.config import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
 logger = logging.getLogger(__name__)
 
 
-def _track_guest_hand(game_id: str, game_data: dict) -> None:
-    """Track hand completion for guest users and emit limit event if needed."""
+def _track_guest_hand(game_id: str, game_data: dict) -> bool:
+    """Track hand completion for guest users and emit limit event if needed.
+
+    Returns True if the guest hand limit has been reached, False otherwise.
+    """
     if not GUEST_LIMITS_ENABLED:
-        return
+        return False
 
     try:
-        # Prefer tracking_id stored on game_data at creation time — this works
-        # reliably in both HTTP and SocketIO contexts (cookies/session may not
-        # be available in background tasks).
         tracking_id = game_data.get('guest_tracking_id')
         if not tracking_id:
-            # Games created before the tracking cookie was introduced won't
-            # have a tracking_id in game_data.  These are grandfathered and
-            # exempt from hand tracking — the limit still applies to new games.
             owner_id, _ = game_state_service.get_game_owner_info(game_id)
             if not owner_id or not owner_id.startswith('guest_'):
-                return
+                return False
             logger.info(f"Guest game {game_id} has no tracking_id (pre-migration game), skipping hand tracking")
-            return
+            return False
 
         new_count = persistence.increment_hands_played(tracking_id)
         logger.debug(f"Guest hand tracked: tracking_id={tracking_id}, count={new_count}")
@@ -60,8 +58,14 @@ def _track_guest_hand(game_id: str, game_data: dict) -> None:
                 'hands_played': new_count,
                 'hands_limit': GUEST_MAX_HANDS,
             }, to=game_id)
+            return True
+        return False
+    except sqlite3.Error as e:
+        logger.error(f"Database error tracking guest hand for game {game_id}: {e}")
+        return False
     except Exception as e:
-        logger.error(f"Failed to track guest hand for game {game_id} (tracking_id={game_data.get('guest_tracking_id')}): {e}")
+        logger.error(f"Unexpected error tracking guest hand for game {game_id}: {e}")
+        return False
 
 
 def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
@@ -533,8 +537,8 @@ def handle_eliminations(game_id: str, game_data: dict, game_state,
             send_message(game_id, "Table",
                 f"{player.name} has been eliminated in {event.finishing_position}{position_suffix} place!",
                 "system")
-        except ValueError:
-            pass
+        except ValueError as e:
+            logger.warning(f"Failed to record elimination for {player.name} in game {game_id}: {e}")
 
     if human_eliminated and human_elimination_event:
         result = tracker.get_result()
@@ -1073,8 +1077,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     if 'tournament_tracker' in game_data:
         persistence.save_tournament_tracker(game_id, game_data['tournament_tracker'])
 
-    # Track guest hand usage
-    _track_guest_hand(game_id, game_data)
+    limit_reached = _track_guest_hand(game_id, game_data)
+    if limit_reached:
+        return game_state, True
 
     return game_state, False
 
