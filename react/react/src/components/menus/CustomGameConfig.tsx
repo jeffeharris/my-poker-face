@@ -207,7 +207,9 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       if (res.status === 429) throw new Error('Rate limit hit. Wait a moment and try again.');
       if (!res.ok) throw new Error('Failed to generate theme.');
       const data = await res.json();
-      const generated: string[] = data.personalities || [];
+      const raw: Array<string | { name: string }> = data.personalities || [];
+      // Extract name strings from personality objects (API may return {name, game_mode} objects)
+      const generated: string[] = raw.map(p => typeof p === 'string' ? p : p.name);
       // Adjust player count to match theme results (capped at 5)
       const count = Math.min(generated.length, 5);
       setPlayerCount(count);
