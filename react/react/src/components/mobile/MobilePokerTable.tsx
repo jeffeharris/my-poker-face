@@ -197,14 +197,19 @@ export function MobilePokerTable({
   const coachEnabled = coach.mode !== 'off';
 
   const handleCoachToggle = useCallback(() => {
-    if (coachEnabled) {
-      // Save current mode before turning off
-      localStorage.setItem('coach_mode_before_off', coach.mode);
-      coach.setMode('off');
-    } else {
-      // Restore previous mode
-      const previous = localStorage.getItem('coach_mode_before_off');
-      coach.setMode((previous === 'proactive' || previous === 'reactive') ? previous : 'reactive');
+    try {
+      if (coachEnabled) {
+        // Save current mode before turning off
+        localStorage.setItem('coach_mode_before_off', coach.mode);
+        coach.setMode('off');
+      } else {
+        // Restore previous mode
+        const previous = localStorage.getItem('coach_mode_before_off');
+        coach.setMode((previous === 'proactive' || previous === 'reactive') ? previous : 'reactive');
+      }
+    } catch {
+      // localStorage unavailable — just toggle mode without persisting
+      coach.setMode(coachEnabled ? 'off' : 'reactive');
     }
   }, [coachEnabled, coach]);
 
@@ -216,7 +221,9 @@ export function MobilePokerTable({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winnerInfo]);
 
-  // Clear unread review indicator when coach panel is opened
+  // Clear unread review indicator when coach panel is opened.
+  // `hasUnreadReview` is intentionally omitted from deps — we only want this
+  // to fire when the panel opens, not when a new review arrives while open.
   useEffect(() => {
     if (showCoachPanel && coach.hasUnreadReview) {
       coach.clearUnreadReview();

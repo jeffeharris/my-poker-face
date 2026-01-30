@@ -5,7 +5,7 @@ with a poker-coaching system prompt and stat formatting.
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict
 
 from core.llm.assistant import Assistant
 from core.llm.tracking import CallType

@@ -39,7 +39,6 @@ function loadMode(): CoachMode {
 
 export function useCoach({
   gameId,
-  playerName,
   isPlayerTurn,
 }: UseCoachOptions): UseCoachResult {
   const [mode, setModeState] = useState<CoachMode>(loadMode);

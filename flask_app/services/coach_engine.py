@@ -79,11 +79,8 @@ def _compute_outs(player_hand: List[str], community: List[str]) -> Optional[Dict
         known = set(hero_cards + board_cards)
         deck = [c for c in eval7.Deck().cards if c not in known]
 
-        current_score = eval7.evaluate(hero_cards + board_cards + [eval7.Card('2c')] * (5 - len(board_cards)))
-        # Actually evaluate current best hand with available cards
         if len(board_cards) >= 3:
-            # Pad board to 5 for evaluation if needed - but we want outs that improve
-            # Evaluate current hand properly
+            # Evaluate current hand with available cards
             if len(board_cards) == 5:
                 current_score = eval7.evaluate(hero_cards + board_cards)
             else:
@@ -278,12 +275,16 @@ def compute_coaching_data(game_id: str, player_name: str) -> Optional[Dict]:
     result['equity'] = round(equity, 3) if equity is not None else None
 
     # Secondary: equity vs random hands (baseline reference)
-    # Only calculate if primary equity used opponent ranges (avoid redundant calc)
+    # Only calculate separately when primary equity used opponent ranges;
+    # if no ranges were available, _compute_equity already fell back to vs-random.
     if opponent_infos and equity is not None:
         equity_random = _decision_analyzer.calculate_equity_vs_random(
             hand_strs, community_strs, num_opponents
         )
         result['equity_vs_random'] = round(equity_random, 3) if equity_random is not None else None
+    elif equity is not None:
+        # Primary equity was already vs-random — reuse it
+        result['equity_vs_random'] = result['equity']
 
     # Pot odds
     if cost_to_call > 0:

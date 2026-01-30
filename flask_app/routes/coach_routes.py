@@ -5,7 +5,7 @@ from typing import Optional
 
 from flask import Blueprint, jsonify, request
 
-from ..extensions import limiter, auth_manager
+from ..extensions import limiter
 from ..services import game_state_service
 from ..services.coach_engine import compute_coaching_data
 from ..services.coach_assistant import get_or_create_coach
@@ -28,6 +28,7 @@ def _get_human_player_name(game_data: dict) -> Optional[str]:
 
 
 @coach_bp.route('/api/coach/<game_id>/stats')
+@limiter.limit("30/minute")
 def coach_stats(game_id: str):
     """Return pre-computed coaching statistics for the human player."""
     game_data = game_state_service.get_game(game_id)

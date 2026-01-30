@@ -135,8 +135,8 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, coachEn
             <button
               className="user-dropdown__menu-item user-dropdown__menu-item--toggle"
               onClick={() => { onCoachToggle(); }}
-              role="menuitem"
-              aria-pressed={coachEnabled}
+              role="menuitemcheckbox"
+              aria-checked={coachEnabled}
             >
               <GraduationCap size={16} />
               <span>Poker Coach</span>

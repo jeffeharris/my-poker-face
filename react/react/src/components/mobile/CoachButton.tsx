@@ -92,12 +92,10 @@ export function CoachButton({ onClick, hasNewInsight }: CoachButtonProps) {
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onClick={(e) => {
-        // Desktop click fallback (touch handlers handle mobile)
-        if (!('ontouchstart' in window)) {
-          onClick();
-        }
-        e.preventDefault();
+      onClick={() => {
+        // On touch devices, handleTouchEnd calls preventDefault() which
+        // suppresses the synthetic click, so this only fires on desktop.
+        onClick();
       }}
       aria-label="Open poker coach"
     >
