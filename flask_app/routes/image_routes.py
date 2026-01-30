@@ -140,7 +140,7 @@ def get_character_grid():
             data[character][emotion] = f'/api/character-grid/icons/{f.name}'
 
         characters = sorted(data.keys())
-        emotions = ['confident', 'happy', 'thinking', 'nervous', 'angry', 'shocked']
+        emotions = list(EMOTIONS)
 
         return jsonify({
             'characters': characters,

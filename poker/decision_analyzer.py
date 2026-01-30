@@ -119,6 +119,17 @@ class DecisionAnalysis:
     equity_vs_ranges: Optional[float] = None  # Equity against position-based ranges
     opponent_positions: Optional[str] = None  # JSON list of opponent positions
 
+    # Psychology snapshot (emotional state at decision time)
+    tilt_level: Optional[float] = None
+    tilt_source: Optional[str] = None
+    valence: Optional[float] = None
+    arousal: Optional[float] = None
+    control: Optional[float] = None
+    focus: Optional[float] = None
+    display_emotion: Optional[str] = None
+    elastic_aggression: Optional[float] = None
+    elastic_bluff_tendency: Optional[float] = None
+
     # Metadata
     analyzer_version: str = "1.0"
     processing_time_ms: Optional[int] = None
@@ -193,6 +204,7 @@ class DecisionAnalyzer:
         opponent_infos: Optional[List[Any]] = None,
         player_bet: int = 0,
         all_players_bets: Optional[List[Tuple[int, bool]]] = None,
+        psychology_snapshot: Optional[dict] = None,
     ) -> DecisionAnalysis:
         """
         Analyze a decision and return analysis result.
@@ -246,6 +258,18 @@ class DecisionAnalyzer:
             raise_amount_bb=raise_amount_bb,
             analyzer_version=self.VERSION,
         )
+
+        # Apply psychology snapshot if provided
+        if psychology_snapshot:
+            analysis.tilt_level = psychology_snapshot.get('tilt_level')
+            analysis.tilt_source = psychology_snapshot.get('tilt_source')
+            analysis.valence = psychology_snapshot.get('valence')
+            analysis.arousal = psychology_snapshot.get('arousal')
+            analysis.control = psychology_snapshot.get('control')
+            analysis.focus = psychology_snapshot.get('focus')
+            analysis.display_emotion = psychology_snapshot.get('display_emotion')
+            analysis.elastic_aggression = psychology_snapshot.get('elastic_aggression')
+            analysis.elastic_bluff_tendency = psychology_snapshot.get('elastic_bluff_tendency')
 
         # Calculate hand strength if we have cards
         if player_hand and community_cards:

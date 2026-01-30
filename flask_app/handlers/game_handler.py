@@ -433,6 +433,9 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
                         'streak_count': getattr(ctx, 'streak_count', 0)
                     }
 
+        # Get big blind for emotional spike scaling (current_ante stores the big blind amount)
+        big_blind = game_state.current_ante
+
         # Single unified call to update all psychology state
         try:
             controller.psychology.on_hand_complete(
@@ -442,7 +445,8 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
                 was_bad_beat=was_bad_beat,
                 was_bluff_called=was_bluff_called,
                 session_context=session_context,
-                key_moment=key_moment
+                key_moment=key_moment,
+                big_blind=big_blind,
             )
             logger.debug(
                 f"Psychology update for {player.name}: "
@@ -997,6 +1001,14 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     # Small additional delay for visual pacing
     socketio.sleep(1 if is_showdown else 0.5)
+
+    # Apply psychology recovery between hands — elastic traits drift toward
+    # anchor, tilt naturally decays, emotional state decays toward baseline
+    ai_controllers = game_data.get('ai_controllers', {})
+    for controller in ai_controllers.values():
+        if hasattr(controller, 'psychology') and controller.psychology:
+            controller.psychology.recover(recovery_rate=0.1)
+
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
     # Reset card announcement and run-out reaction tracking for new hand
@@ -1034,12 +1046,9 @@ def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
     player_options = list(game_state.current_player_options) if game_state.current_player_options else []
     socketio.emit('player_turn_start', {'current_player_options': player_options, 'cost_to_call': cost_to_call}, to=game_id)
 
-    # Apply trait recovery
+    # Emit elasticity update for UI display
     if 'elasticity_manager' in game_data:
-        elasticity_manager = game_data['elasticity_manager']
-        elasticity_manager.recover_all()
-
-        elasticity_data = format_elasticity_data(elasticity_manager)
+        elasticity_data = format_elasticity_data(game_data['elasticity_manager'])
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 

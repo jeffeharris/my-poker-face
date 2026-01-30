@@ -920,7 +920,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
       // Fetch available emotions
       const emotionsRes = await fetch(`${config.API_URL}/api/avatar/emotions`);
       const emotionsData = await emotionsRes.json();
-      const emotionsList = emotionsData.emotions || ['confident', 'happy', 'thinking', 'nervous', 'angry', 'shocked'];
+      const emotionsList = emotionsData.emotions || ['confident', 'happy', 'thinking', 'nervous', 'angry', 'shocked', 'smug', 'frustrated', 'elated', 'poker_face'];
 
       // Check which images exist - use full/square images for the manager
       const imagePromises = emotionsList.map(async (emotion: string) => {

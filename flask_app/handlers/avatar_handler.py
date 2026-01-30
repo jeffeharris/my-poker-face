@@ -28,8 +28,8 @@ from ..extensions import socketio
 
 logger = logging.getLogger(__name__)
 
-# Emotions to generate first — these are needed immediately for display
-PRIORITY_EMOTIONS = ["confident", "thinking"]
+# Emotions to generate first — poker_face is the default fallback, then confident/thinking
+PRIORITY_EMOTIONS = ["poker_face", "confident", "thinking"]
 
 # Thread-safe tracking to prevent duplicate generation of the same emotion
 _generation_lock = threading.Lock()

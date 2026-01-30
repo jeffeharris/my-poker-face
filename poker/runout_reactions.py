@@ -274,34 +274,40 @@ def _equity_to_emotion(delta: float, equity_after: float) -> str:
     """Map an equity change and resulting position to an avatar emotion.
 
     Priority order ensures the most dramatic emotions take precedence.
-    Designed to be easily extended with new emotions later.
 
-    Returns one of: confident, happy, thinking, nervous, angry, shocked
+    Returns one of: elated, angry, happy, frustrated, smug, confident,
+                    nervous, thinking, poker_face
     """
-    # Huge surprise swing (either direction)
-    if delta > 0.25:
-        return "shocked"
+    # Huge positive swing → excitement
+    if delta > 0.30:
+        return "elated"
 
-    # Huge negative swing → frustration
-    if delta < -0.25:
+    # Huge negative swing → fury
+    if delta < -0.30:
         return "angry"
 
     # Notable positive swing
-    if delta > 0.15:
+    if delta > 0.18:
         return "happy"
 
-    # Notable negative swing
-    if delta < -0.15:
-        return "nervous"
+    # Notable negative swing → simmering frustration
+    if delta < -0.18:
+        return "frustrated"
 
     # Assess final position after smaller swings
-    if equity_after >= 0.70:
+    if equity_after >= 0.75:
+        return "smug"
+
+    if equity_after >= 0.60:
         return "confident"
 
-    if equity_after <= 0.30:
+    if equity_after <= 0.25:
         return "nervous"
 
-    return "thinking"
+    if equity_after <= 0.40:
+        return "thinking"
+
+    return "poker_face"
 
 
 def _equity_to_initial_emotion(equity: float) -> Optional[str]:
@@ -310,19 +316,22 @@ def _equity_to_initial_emotion(equity: float) -> Optional[str]:
     Returns None for mid-range equity (no strong reaction).
     Only players with clearly strong or weak positions react.
 
-    Returns one of: confident, happy, nervous, thinking, or None
+    Returns one of: smug, confident, happy, nervous, thinking, or None
     """
-    if equity >= 0.75:
+    if equity >= 0.80:
+        return "smug"
+
+    if equity >= 0.65:
         return "confident"
 
-    if equity >= 0.60:
+    if equity >= 0.50:
         return "happy"
 
-    if equity <= 0.25:
+    if equity <= 0.20:
         return "nervous"
 
-    if equity <= 0.40:
+    if equity <= 0.35:
         return "thinking"
 
-    # Mid-range equity (40-60%) — no obvious reaction
+    # Mid-range equity (35-50%) — no obvious reaction
     return None
