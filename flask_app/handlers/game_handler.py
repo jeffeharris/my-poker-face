@@ -29,8 +29,6 @@ from ..services.ai_debug_service import get_all_players_llm_stats
 from .message_handler import send_message, format_action_message, record_action_in_memory, format_messages_for_api
 from .. import config
 from flask_app.config import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
-from poker.guest_limits import is_guest
-from flask import request
 
 logger = logging.getLogger(__name__)
 
@@ -41,27 +39,21 @@ def _track_guest_hand(game_id: str, game_data: dict) -> None:
         return
 
     try:
-        # Get current user from Flask request context
-        from flask import has_request_context
-        if not has_request_context():
-            # We're in a socket context - get owner info from game data
+        # Prefer tracking_id stored on game_data at creation time — this works
+        # reliably in both HTTP and SocketIO contexts (cookies/session may not
+        # be available in background tasks).
+        tracking_id = game_data.get('guest_tracking_id')
+        if not tracking_id:
+            # Fallback: check if owner is a guest
             owner_id, _ = game_state_service.get_game_owner_info(game_id)
             if not owner_id or not owner_id.startswith('guest_'):
                 return
-            # Try to get tracking_id from game_data metadata
-            tracking_id = game_data.get('guest_tracking_id')
-            if not tracking_id:
-                return
-        else:
-            from ..extensions import auth_manager
-            user = auth_manager.get_current_user()
-            if not user or not is_guest(user):
-                return
-            tracking_id = user.get('tracking_id')
-            if not tracking_id:
-                return
+            # No tracking_id available
+            logger.debug(f"Guest game {game_id} has no tracking_id, skipping hand tracking")
+            return
 
         new_count = persistence.increment_hands_played(tracking_id)
+        logger.debug(f"Guest hand tracked: tracking_id={tracking_id}, count={new_count}")
         if new_count >= GUEST_MAX_HANDS:
             socketio.emit('guest_limit_reached', {
                 'hands_played': new_count,

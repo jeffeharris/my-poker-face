@@ -395,7 +395,8 @@ def api_game_state(game_id):
                     'owner_name': owner_name,
                     'messages': db_messages,
                     'last_announced_phase': None,  # Reset on game load
-                    'game_started': True
+                    'game_started': True,
+                    'guest_tracking_id': current_user.get('tracking_id') if current_user else None,
                 }
                 game_state_service.set_game(game_id, current_game_data)
 
