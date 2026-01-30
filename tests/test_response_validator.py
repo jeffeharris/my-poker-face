@@ -1,5 +1,4 @@
 """Tests for response_validator, focusing on dramatic_sequence normalization."""
-import pytest
 from poker.response_validator import normalize_dramatic_sequence, ResponseValidator
 
 
@@ -54,6 +53,18 @@ class TestNormalizeDramaticSequence:
     def test_single_string_wrapped_in_list(self):
         result = normalize_dramatic_sequence(["*grins* Let's do this"])
         assert result == ["*grins*", "Let's do this"]
+
+    def test_markdown_bold_action(self):
+        """**leans forward** should normalize to *leans forward* without orphaned asterisks."""
+        result = normalize_dramatic_sequence(["**leans forward**"])
+        assert result == ["*leans forward*"]
+
+    def test_markdown_bold_mixed_with_speech(self):
+        result = normalize_dramatic_sequence(["**narrows eyes** You're bluffing."])
+        assert result == ["*narrows eyes*", "You're bluffing."]
+
+    def test_orphaned_asterisk_only(self):
+        assert normalize_dramatic_sequence(["*"]) == []
 
     def test_trailing_comma_stripped(self):
         assert normalize_dramatic_sequence(["*leans forward*,"]) == ["*leans forward*"]
