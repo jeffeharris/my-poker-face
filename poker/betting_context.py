@@ -7,7 +7,7 @@ eliminating the "raise TO" vs "raise BY" confusion by standardizing on
 """
 
 from dataclasses import dataclass
-from typing import Dict, Tuple, TYPE_CHECKING
+from typing import Dict, List, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .poker_game import PokerGameState
@@ -157,3 +157,34 @@ class BettingContext:
             min_raise_amount=game_state.min_raise_amount,
             available_actions=tuple(game_state.current_player_options),
         )
+
+    @staticmethod
+    def get_opponent_covers(game_state: 'PokerGameState') -> List[Dict]:
+        """
+        Compute raise-to amounts that would put each active opponent all-in.
+
+        Returns a list of {name, stack, cover_amount} for each non-folded,
+        non-all-in opponent, sorted by cover_amount ascending.
+        cover_amount is the "raise TO" amount that matches the opponent's
+        total committed chips (current bet + stack).
+        """
+        current_player = game_state.current_player
+        opponents = [
+            p for p in game_state.players
+            if p.name != current_player.name
+            and not p.is_folded
+            and not p.is_all_in
+            and p.stack > 0
+        ]
+
+        covers = []
+        for opp in opponents:
+            # To put opponent all-in, raise TO their total (bet + stack)
+            cover_amount = opp.bet + opp.stack
+            covers.append({
+                'name': opp.name,
+                'stack': opp.stack,
+                'cover_amount': cover_amount,
+            })
+
+        return sorted(covers, key=lambda c: c['cover_amount'])

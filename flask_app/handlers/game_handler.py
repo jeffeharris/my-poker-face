@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List
 
 from poker.controllers import AIPlayerController
 from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
+from poker.betting_context import BettingContext
 from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
 from poker.poker_game import determine_winner, play_turn, advance_to_next_active_player, award_pot_winnings
 from poker.poker_state_machine import PokerPhase
@@ -323,6 +324,18 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
     memory_manager = current_game_data.get('memory_manager')
     game_state_dict['hand_number'] = memory_manager.hand_count if memory_manager else 0
+
+    # Include betting context with opponent cover amounts
+    betting_context = BettingContext.from_game_state(game_state).to_dict()
+    opponent_covers = BettingContext.get_opponent_covers(game_state)
+    for cover in opponent_covers:
+        controller = ai_controllers.get(cover['name'])
+        if controller:
+            cover['nickname'] = controller.ai_player.personality_config.get('nickname', cover['name'].split()[0])
+        else:
+            cover['nickname'] = cover['name'].split()[0]
+    betting_context['opponent_covers'] = opponent_covers
+    game_state_dict['betting_context'] = betting_context
 
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
@@ -1206,8 +1219,24 @@ def progress_game(game_id: str) -> None:
 
                 # Hold so the player can see reactions before next street
                 socketio.sleep(reaction_hold)
-                # Determine next phase (skip betting, go to dealing or showdown)
+                # Emit showdown reactions after all cards are dealt
                 current_phase = state_machine.current_phase
+                if current_phase == PokerPhase.RIVER:
+                    current_game_data = game_state_service.get_game(game_id)
+                    if current_game_data:
+                        reaction_schedule = current_game_data.get('runout_reaction_schedule')
+                        if reaction_schedule:
+                            overrides = current_game_data.get('runout_emotion_overrides', {})
+                            for reaction in reaction_schedule.reactions_by_phase.get('SHOWDOWN', []):
+                                if overrides.get(reaction.player_name) == reaction.emotion:
+                                    continue
+                                overrides[reaction.player_name] = reaction.emotion
+                                _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
+                            current_game_data['runout_emotion_overrides'] = overrides
+                            game_state_service.set_game(game_id, current_game_data)
+                        socketio.sleep(1.5)
+
+                # Determine next phase (skip betting, go to dealing or showdown)
                 if current_phase == PokerPhase.RIVER:
                     next_phase = PokerPhase.SHOWDOWN
                 else:

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, MessageCircle } from 'lucide-react';
+import { Check, Crosshair, HandCoins, MessageCircle } from 'lucide-react';
 import {
   useBettingCalculations,
   createBettingContext,
@@ -62,8 +62,7 @@ export function MobileActionButtons({
     const isValidRaise = calc.isValidRaise(raiseAmount) || isAllIn;
 
     if (isValidRaise) {
-      // Send the "raise TO" amount directly - backend now expects this
-      onAction('raise', raiseAmount);
+      onAction(isAllIn ? 'all_in' : 'raise', raiseAmount);
       setShowRaiseSheet(false);
     }
   };
@@ -148,11 +147,10 @@ export function MobileActionButtons({
             <button
               className="double-btn"
               onClick={() => {
-                // Double the "adding to pot" amount (totalToAdd)
-                // newRaise = currentBet + (totalToAdd * 2) = raiseAmount + totalToAdd
-                setRaiseAmount(Math.min(calc.safeMaxRaiseTo, raiseAmount + breakdown.totalToAdd));
+                // Double the raise portion (amount above the call)
+                setRaiseAmount(Math.min(calc.safeMaxRaiseTo, raiseAmount + breakdown.raisePortion));
               }}
-              disabled={raiseAmount + breakdown.totalToAdd > calc.safeMaxRaiseTo}
+              disabled={raiseAmount + breakdown.raisePortion > calc.safeMaxRaiseTo}
             >
               2x
             </button>
@@ -172,6 +170,7 @@ export function MobileActionButtons({
           )}
         </div>
 
+        {/* Row 1: Fractional pot amounts */}
         <div className="quick-bet-buttons">
           {calc.quickBets.map(({ label, amount, id }) => (
             <button
@@ -182,6 +181,21 @@ export function MobileActionButtons({
             >
               {label}
               <span className="quick-bet-amount">${amount}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Row 2: Cover targets + All-In */}
+        <div className="quick-bet-buttons">
+          {calc.targetBets.map(({ label, amount, id, isCover }) => (
+            <button
+              key={id}
+              className={`quick-bet-btn ${isCover ? 'cover' : ''} ${raiseAmount === amount ? 'selected' : ''}`}
+              onClick={() => setRaiseAmount(amount)}
+              disabled={amount > calc.safeMaxRaiseTo}
+            >
+              {label}
+              <span className="quick-bet-amount">{isCover && <Crosshair size={12} style={{verticalAlign: 'middle', display: 'inline'}} />} ${amount}</span>
             </button>
           ))}
         </div>
@@ -258,12 +272,13 @@ export function MobileActionButtons({
         </button>
       )}
 
-      {playerOptions.includes('all_in') && (
+      {/* When only all_in is available (can't call or raise), show button to open raise interface */}
+      {playerOptions.includes('all_in') && !playerOptions.includes('raise') && !playerOptions.includes('bet') && (
         <button
           className="action-btn allin-btn"
-          onClick={() => onAction('all_in')}
+          onClick={handleRaise}
         >
-          <span className="action-icon">★</span>
+          <span className="action-icon"><HandCoins /></span>
           <span className="btn-label">All-In ${calc.safeStack}</span>
         </button>
       )}

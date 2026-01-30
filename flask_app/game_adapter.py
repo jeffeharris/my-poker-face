@@ -19,30 +19,14 @@ class GameStateAdapter:
     
     @property
     def current_player_options(self) -> List[str]:
-        """Get available actions for the current player."""
-        options = []
+        """Get available actions for the current player.
 
-        if self._game_state.awaiting_action and not self._game_state.run_it_out:
-            current_player = self._game_state.current_player
-            cost_to_call = self._game_state.highest_bet - current_player.bet
-
-            # Fold and check are mutually exclusive:
-            # - fold only when there's a bet to call (folding for free is never correct)
-            # - check only when there's no bet to call
-            if cost_to_call > 0:
-                if not current_player.is_folded:
-                    options.append('fold')
-                # Can call if have chips
-                if current_player.stack > 0:
-                    options.append('call')
-            else:
-                options.append('check')
-
-            # Can raise if have chips
-            if current_player.stack > 0:
-                options.append('raise')
-
-        return options
+        Delegates to PokerGameState.current_player_options which has the
+        correct logic for stack-vs-cost-to-call, raise caps, and all-in.
+        """
+        if not self._game_state.awaiting_action or self._game_state.run_it_out:
+            return []
+        return self._game_state.current_player_options
     
     @property 
     def no_action_taken(self) -> bool:

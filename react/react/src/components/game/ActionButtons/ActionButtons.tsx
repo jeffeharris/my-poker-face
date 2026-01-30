@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Crosshair } from 'lucide-react';
 import {
   useBettingCalculations,
   createBettingContext,
@@ -61,8 +62,7 @@ export function ActionButtons({
     const isValidBet = calc.isValidRaise(raiseAmount) || isAllIn;
 
     if (isValidBet) {
-      // Send the "raise TO" amount directly - backend now expects this
-      onAction('raise', raiseAmount);
+      onAction(isAllIn ? 'all_in' : 'raise', raiseAmount);
       setShowBetInterface(false);
     }
   };
@@ -154,11 +154,10 @@ export function ActionButtons({
               <button
                 className="double-btn"
                 onClick={() => {
-                  // No snapping - just double (consistent with mobile)
-                  const doubled = raiseAmount * 2;
-                  setRaiseAmount(Math.min(calc.safeMaxRaiseTo, doubled));
+                  // Double the raise portion (amount above the call)
+                  setRaiseAmount(Math.min(calc.safeMaxRaiseTo, raiseAmount + breakdown.raisePortion));
                 }}
-                disabled={raiseAmount * 2 > calc.safeMaxRaiseTo}
+                disabled={raiseAmount + breakdown.raisePortion > calc.safeMaxRaiseTo}
               >
                 2x
               </button>
@@ -181,16 +180,30 @@ export function ActionButtons({
         </div>
 
         <div className="bet-options">
-          {/* Quick bet buttons */}
+          {/* Row 1: Fractional pot amounts */}
           <div className="quick-bets">
             {calc.quickBets.map(({ label, amount, id }) => (
               <button
                 key={id}
-                className={`bet-button ${id === 'all-in' ? 'all-in' : ''} ${raiseAmount === amount ? 'selected' : ''}`}
+                className={`bet-button ${raiseAmount === amount ? 'selected' : ''}`}
                 onClick={() => selectBetAmount(amount, id)}
                 disabled={amount > calc.safeMaxRaiseTo}
               >
                 {label}<br/>${amount}
+              </button>
+            ))}
+          </div>
+
+          {/* Row 2: Cover targets + All-In */}
+          <div className="quick-bets">
+            {calc.targetBets.map(({ label, amount, id, isCover }) => (
+              <button
+                key={id}
+                className={`bet-button ${id === 'all-in' ? 'all-in' : ''} ${isCover ? 'cover' : ''} ${raiseAmount === amount ? 'selected' : ''}`}
+                onClick={() => selectBetAmount(amount, id)}
+                disabled={amount > calc.safeMaxRaiseTo}
+              >
+                {label}<br/>{isCover && <Crosshair size={12} style={{verticalAlign: 'middle', display: 'inline'}} />} ${amount}
               </button>
             ))}
           </div>
@@ -283,10 +296,11 @@ export function ActionButtons({
           </button>
         )}
 
-        {playerOptions.includes('all_in') && (
+        {/* When only all_in is available (can't call or raise), show button to open raise interface */}
+        {playerOptions.includes('all_in') && !playerOptions.includes('raise') && !playerOptions.includes('bet') && (
           <button
             className="action-button all-in"
-            onClick={() => onAction('all_in')}
+            onClick={handleBetRaise}
           >
             All-In ${currentPlayerStack}
           </button>

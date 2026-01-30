@@ -70,6 +70,7 @@ export function MobilePokerTable({
     revealedCards,
     tournamentResult,
     isConnected,
+    showActionButtons,
     queuedAction,
     setQueuedAction,
     handlePlayerAction,
@@ -190,12 +191,6 @@ export function MobilePokerTable({
 
   // Two opponents mode: 2 AI opponents (3 players total)
   const isTwoOpponents = opponents.length === 2;
-
-  const showActionButtons = currentPlayer?.is_human &&
-                           !currentPlayer.is_folded &&
-                           gameState?.player_options &&
-                           gameState.player_options.length > 0 &&
-                           !aiThinking;
 
   // Only show full loading screen on initial load (no game state yet)
   // If we have game state but are disconnected, we'll show a reconnecting overlay instead
@@ -322,14 +317,7 @@ export function MobilePokerTable({
           );
         })}
 
-        {/* Heads-up psychology panel */}
-        {isHeadsUp && headsUpOpponent && providedGameId && (
-          <HeadsUpOpponentPanel
-            opponent={headsUpOpponent}
-            gameId={providedGameId}
-            humanPlayerName={humanPlayer?.name}
-          />
-        )}
+        {/* Heads-up psychology panel - hidden when avatar fills space */}
       </div>
 
       {/* Floating Pot Display - between opponents and community cards */}

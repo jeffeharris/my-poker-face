@@ -43,6 +43,7 @@ export interface QuickBet {
   amount: number;
   id: string;
   alwaysShow?: boolean;
+  isCover?: boolean;
 }
 
 /**
@@ -68,8 +69,10 @@ export interface BettingCalculations {
   // Magnetic snap points (pot fractions within valid range)
   magneticSnapPoints: number[];
 
-  // Quick bet buttons (filtered by affordability)
+  // Quick bet buttons - row 1: fractional pot amounts
   quickBets: QuickBet[];
+  // Quick bet buttons - row 2: cover targets + all-in
+  targetBets: QuickBet[];
 
   // Helper functions
   roundToSnap: (value: number) => number;
@@ -141,6 +144,9 @@ export function useBettingCalculations(
       return safeMinRaiseTo + snappedOffset;
     };
 
+    // Opponent cover amounts for magnetic snapping
+    const coverAmounts = (safeContext.opponent_covers ?? []).map(opp => opp.cover_amount);
+
     // Magnetic snap points - pot fractions that the slider "sticks" to
     // Always include min and max (all-in) as magnetic points
     const magneticSnapPoints = [
@@ -151,6 +157,7 @@ export function useBettingCalculations(
       potFractions.twoThirds,
       potFractions.threeQuarters,
       potFractions.full,
+      ...coverAmounts,
       safeMaxRaiseTo,
     ].filter(v => v >= safeMinRaiseTo && v <= safeMaxRaiseTo);
 
@@ -210,7 +217,23 @@ export function useBettingCalculations(
       return safeMinRaiseTo;
     };
 
-    // Build quick bet buttons (filtered by what player can afford)
+    // Build cover buttons for opponents (raise to put them all-in)
+    const coverBets: QuickBet[] = (safeContext.opponent_covers ?? [])
+      .filter(opp =>
+        opp.cover_amount >= safeMinRaiseTo &&
+        opp.cover_amount <= safeMaxRaiseTo &&
+        opp.cover_amount !== safeMinRaiseTo &&
+        opp.cover_amount !== safeMaxRaiseTo
+      )
+      .slice(0, 2)  // Show at most 2 cover buttons
+      .map(opp => ({
+        label: opp.nickname ?? opp.name.split(' ')[0],
+        amount: opp.cover_amount,
+        id: `cover-${opp.name}`,
+        isCover: true,
+      }));
+
+    // Row 1: Fractional pot amounts
     const quickBets: QuickBet[] = [
       { label: 'Min', amount: safeMinRaiseTo, id: 'min', alwaysShow: true },
       { label: '¼ Pot', amount: potFractions.quarter, id: '1/4' },
@@ -219,6 +242,14 @@ export function useBettingCalculations(
       { label: '⅔ Pot', amount: potFractions.twoThirds, id: '2/3' },
       { label: '¾ Pot', amount: potFractions.threeQuarters, id: '3/4' },
       { label: 'Pot', amount: potFractions.full, id: 'pot' },
+    ].filter(bet =>
+      bet.amount <= safeMaxRaiseTo &&
+      (bet.alwaysShow || bet.amount > safeMinRaiseTo)
+    );
+
+    // Row 2: Cover targets + All-In
+    const targetBets: QuickBet[] = [
+      ...coverBets,
       { label: 'All-In', amount: safeMaxRaiseTo, id: 'all-in', alwaysShow: true },
     ].filter(bet =>
       bet.amount <= safeMaxRaiseTo &&
@@ -238,6 +269,7 @@ export function useBettingCalculations(
       snapIncrement,
       magneticSnapPoints,
       quickBets,
+      targetBets,
       roundToSnap,
       snapWithMagnets,
       isValidRaise,

@@ -5,6 +5,13 @@ import type { ChatMessage } from './chat';
  * Betting context from the backend.
  * Provides all betting constraints using "raise TO" semantics.
  */
+export interface OpponentCover {
+  name: string;
+  nickname: string;
+  stack: number;
+  cover_amount: number;  // Raise TO amount that puts this opponent all-in
+}
+
 export interface BettingContext {
   player_stack: number;
   player_current_bet: number;
@@ -17,6 +24,8 @@ export interface BettingContext {
   min_raise_to: number;
   max_raise_to: number;
   effective_stack: number;
+  // Opponent cover amounts
+  opponent_covers?: OpponentCover[];
 }
 
 export interface GameState {
