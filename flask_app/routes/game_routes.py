@@ -432,6 +432,14 @@ def api_game_state(game_id):
 
     # Build betting context for current player
     betting_context = BettingContext.from_game_state(game_state).to_dict()
+    opponent_covers = BettingContext.get_opponent_covers(game_state)
+    for cover in opponent_covers:
+        controller = ai_controllers.get(cover['name'])
+        if controller:
+            cover['nickname'] = controller.ai_player.personality_config.get('nickname', cover['name'].split()[0])
+        else:
+            cover['nickname'] = cover['name'].split()[0]
+    betting_context['opponent_covers'] = opponent_covers
 
     response = {
         'players': players,

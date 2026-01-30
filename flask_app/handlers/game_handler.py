@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional, List
 
 from poker.controllers import AIPlayerController
 from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
+from poker.betting_context import BettingContext
 from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
 from poker.poker_game import determine_winner, play_turn, advance_to_next_active_player, award_pot_winnings
 from poker.poker_state_machine import PokerPhase
@@ -287,6 +288,18 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
     memory_manager = current_game_data.get('memory_manager')
     game_state_dict['hand_number'] = memory_manager.hand_count if memory_manager else 0
+
+    # Include betting context with opponent cover amounts
+    betting_context = BettingContext.from_game_state(game_state).to_dict()
+    opponent_covers = BettingContext.get_opponent_covers(game_state)
+    for cover in opponent_covers:
+        controller = ai_controllers.get(cover['name'])
+        if controller:
+            cover['nickname'] = controller.ai_player.personality_config.get('nickname', cover['name'].split()[0])
+        else:
+            cover['nickname'] = cover['name'].split()[0]
+    betting_context['opponent_covers'] = opponent_covers
+    game_state_dict['betting_context'] = betting_context
 
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 

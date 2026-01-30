@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, MessageCircle } from 'lucide-react';
+import { Check, Crosshair, HandCoins, MessageCircle } from 'lucide-react';
 import {
   useBettingCalculations,
   createBettingContext,
@@ -171,6 +171,7 @@ export function MobileActionButtons({
           )}
         </div>
 
+        {/* Row 1: Fractional pot amounts */}
         <div className="quick-bet-buttons">
           {calc.quickBets.map(({ label, amount, id }) => (
             <button
@@ -181,6 +182,21 @@ export function MobileActionButtons({
             >
               {label}
               <span className="quick-bet-amount">${amount}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Row 2: Cover targets + All-In */}
+        <div className="quick-bet-buttons">
+          {calc.targetBets.map(({ label, amount, id, isCover }) => (
+            <button
+              key={id}
+              className={`quick-bet-btn ${isCover ? 'cover' : ''} ${raiseAmount === amount ? 'selected' : ''}`}
+              onClick={() => setRaiseAmount(amount)}
+              disabled={amount > calc.safeMaxRaiseTo}
+            >
+              {label}
+              <span className="quick-bet-amount">{isCover && <Crosshair size={12} style={{verticalAlign: 'middle', display: 'inline'}} />} ${amount}</span>
             </button>
           ))}
         </div>
@@ -257,12 +273,13 @@ export function MobileActionButtons({
         </button>
       )}
 
-      {playerOptions.includes('all_in') && (
+      {/* When only all_in is available (can't call or raise), show button to open raise interface */}
+      {playerOptions.includes('all_in') && !playerOptions.includes('raise') && !playerOptions.includes('bet') && (
         <button
           className="action-btn allin-btn"
-          onClick={() => onAction('all_in')}
+          onClick={handleRaise}
         >
-          <span className="action-icon">★</span>
+          <span className="action-icon"><HandCoins /></span>
           <span className="btn-label">All-In ${calc.safeStack}</span>
         </button>
       )}
