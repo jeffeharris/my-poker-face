@@ -27,7 +27,7 @@ ASSISTANT_PROVIDER = os.environ.get("ASSISTANT_PROVIDER", "deepseek")
 DEFAULT_REASONING_EFFORT = "minimal"
 
 # Available OpenAI models for UI selection
-OPENAI_AVAILABLE_MODELS = ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
+OPENAI_AVAILABLE_MODELS = ["gpt-5-nano", "gpt-5-mini", "gpt-5", "dall-e-2"]
 
 # Image generation
 IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")
@@ -194,8 +194,9 @@ AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "go
 # To enable all models by default, set this to None or an empty dict.
 # To restrict to specific models, list them by provider.
 DEFAULT_ENABLED_MODELS = {
-    "openai": ["gpt-5-nano"],           # Cheapest OpenAI model
-    "groq": ["llama-3.1-8b-instant"],   # Fast and free-tier friendly
+    "openai": ["gpt-5-nano", "dall-e-2"],  # Cheapest OpenAI model + image generation
+    "groq": ["llama-3.1-8b-instant"],      # Fast and free-tier friendly
+    "runware": ["runware:100@1"],           # FLUX.1 Schnell - fast image generation
 }
 
 # Models by provider for UI selection
