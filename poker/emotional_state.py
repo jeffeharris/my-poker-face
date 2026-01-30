@@ -1,14 +1,24 @@
 """
 Emotional State System for AI Poker Players.
 
-Tracks the emotional state of AI players using a dimensional model:
+Two-layer emotional model:
+
+Layer 1 - Baseline mood: Deterministically computed from elastic personality
+traits. Moves slowly as traits shift under pressure and recover. No LLM needed.
+
+Layer 2 - Reactive spike: Computed from hand outcomes (won/lost/folded, amount)
+amplified by tilt level. Fast math, no LLM. Decays toward baseline between hands.
+
+The avatar emotion is derived from the blended state (baseline + spike).
+
+The LLM's role is narration only: given the computed dimensions, it produces
+personality-authentic narrative text and inner_voice.
+
+Dimensional model:
 - Valence: Negative to positive feeling (-1 to 1)
 - Arousal: Calm to agitated (0 to 1)
 - Control: Losing grip to in command (0 to 1)
 - Focus: Tunnel vision to clear-headed (0 to 1)
-
-Plus LLM-generated narrative elements for rich, personality-specific
-emotional expression.
 """
 
 import json
@@ -26,6 +36,194 @@ from core.llm_categorizer import (
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# Layer 1: Baseline mood from elastic traits (deterministic)
+# ============================================================
+
+def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
+    """
+    Compute baseline emotional dimensions from current elastic trait values.
+
+    This is the slow-moving "session mood" — it reflects accumulated pressure
+    and recovery across many hands. Moves only as fast as the elastic traits
+    themselves shift.
+
+    Args:
+        elastic_traits: Dict of trait name -> ElasticTrait (or dict with
+                       'value', 'anchor', 'pressure' keys)
+
+    Returns:
+        Dict with 'valence', 'arousal', 'control', 'focus' baseline values
+    """
+    def _trait_val(name: str, default: float = 0.5) -> float:
+        t = elastic_traits.get(name)
+        if t is None:
+            return default
+        return t.value if hasattr(t, 'value') else t.get('value', default)
+
+    def _trait_anchor(name: str, default: float = 0.5) -> float:
+        t = elastic_traits.get(name)
+        if t is None:
+            return default
+        return t.anchor if hasattr(t, 'anchor') else t.get('anchor', default)
+
+    def _trait_drift(name: str) -> float:
+        """How far the trait has drifted from anchor. Positive = above anchor."""
+        return _trait_val(name) - _trait_anchor(name)
+
+    aggression = _trait_val('aggression')
+    bluff = _trait_val('bluff_tendency')
+    chattiness = _trait_val('chattiness')
+    emoji = _trait_val('emoji_usage')
+
+    # Average drift from anchor across all traits — positive means the session
+    # has been going well (traits pushed up by wins), negative means pressure
+    avg_drift = sum(_trait_drift(t) for t in elastic_traits) / max(len(elastic_traits), 1)
+
+    # Valence: overall mood. Driven by whether traits are above or below anchor.
+    # High aggression + high bluff = feeling bold (positive).
+    # Traits below anchor = things have been going badly (negative).
+    valence = _clamp(avg_drift * 3.0, -1.0, 1.0)
+
+    # Arousal: energy level. High aggression and chattiness = high energy.
+    # Measured as absolute distance from anchor (any big shift = more aroused).
+    avg_abs_drift = sum(abs(_trait_drift(t)) for t in elastic_traits) / max(len(elastic_traits), 1)
+    arousal = _clamp(0.35 + aggression * 0.25 + avg_abs_drift * 2.0, 0.0, 1.0)
+
+    # Control: sense of command. Large trait drifts = less control (being pushed
+    # around by events). Traits near anchor = steady and in control.
+    control = _clamp(0.7 - avg_abs_drift * 3.0, 0.0, 1.0)
+
+    # Focus: mental clarity. High chattiness + emoji = more scattered.
+    # Low arousal + small drift = clear-headed.
+    focus = _clamp(0.7 - chattiness * 0.15 - emoji * 0.1 - avg_abs_drift * 1.5, 0.0, 1.0)
+
+    return {
+        'valence': round(valence, 3),
+        'arousal': round(arousal, 3),
+        'control': round(control, 3),
+        'focus': round(focus, 3),
+    }
+
+
+# ============================================================
+# Layer 2: Reactive spike from hand outcome (deterministic)
+# ============================================================
+
+def compute_reactive_spike(
+    outcome: str,
+    amount: int,
+    tilt_level: float = 0.0,
+    big_blind: int = 100,
+) -> Dict[str, float]:
+    """
+    Compute an emotional spike from a single hand outcome.
+
+    This is the fast-moving reaction — a big win or bad beat creates an
+    immediate emotional shift that decays back toward baseline.
+
+    Args:
+        outcome: 'won', 'lost', or 'folded'
+        amount: Net chip change (positive for wins, negative for losses)
+        tilt_level: Current tilt (0-1), amplifies the spike
+        big_blind: Big blind size for normalizing amount significance
+
+    Returns:
+        Dict with delta values for 'valence', 'arousal', 'control', 'focus'
+    """
+    # Normalize amount significance: how many big blinds was this?
+    bb_magnitude = min(abs(amount) / max(big_blind, 1), 10.0) / 10.0  # 0-1 scale
+
+    if outcome == 'won':
+        valence = 0.3 + bb_magnitude * 0.4    # +0.3 to +0.7
+        arousal = 0.1 + bb_magnitude * 0.3    # mild excitement
+        control = 0.1 + bb_magnitude * 0.15   # winning feels in-control
+        focus = 0.05                           # slight clarity boost
+    elif outcome == 'lost':
+        valence = -0.3 - bb_magnitude * 0.4   # -0.3 to -0.7
+        arousal = 0.15 + bb_magnitude * 0.35  # frustration/agitation
+        control = -0.15 - bb_magnitude * 0.2  # losing control
+        focus = -0.1 - bb_magnitude * 0.15    # harder to think clearly
+    else:  # folded
+        valence = -0.05 - bb_magnitude * 0.1  # mild negative
+        arousal = 0.05                         # barely registers
+        control = 0.0                          # neutral
+        focus = 0.0                            # neutral
+
+    # Tilt amplifies all spikes — tilted players react more intensely
+    amplifier = 1.0 + tilt_level * 0.8
+    valence *= amplifier
+    arousal *= amplifier
+    control *= amplifier
+    focus *= amplifier
+
+    return {
+        'valence': round(valence, 3),
+        'arousal': round(arousal, 3),
+        'control': round(control, 3),
+        'focus': round(focus, 3),
+    }
+
+
+# ============================================================
+# Blending baseline + spike
+# ============================================================
+
+def blend_emotional_state(
+    baseline: Dict[str, float],
+    spike: Dict[str, float],
+) -> Dict[str, float]:
+    """
+    Combine baseline mood and reactive spike into final emotional dimensions.
+
+    Simply adds the spike to the baseline and clamps to valid ranges.
+
+    Args:
+        baseline: Baseline mood from elastic traits
+        spike: Reactive spike from hand outcome
+
+    Returns:
+        Dict with clamped 'valence', 'arousal', 'control', 'focus' values
+    """
+    return {
+        'valence': _clamp(baseline['valence'] + spike['valence'], -1.0, 1.0),
+        'arousal': _clamp(baseline['arousal'] + spike['arousal'], 0.0, 1.0),
+        'control': _clamp(baseline['control'] + spike['control'], 0.0, 1.0),
+        'focus': _clamp(baseline['focus'] + spike['focus'], 0.0, 1.0),
+    }
+
+
+def _clamp(value: float, min_val: float, max_val: float) -> float:
+    """Clamp a value to a range."""
+    return max(min_val, min(max_val, value))
+
+
+# ============================================================
+# LLM narration schema (narrative + inner_voice only)
+# ============================================================
+
+# Schema for emotional state narration — LLM produces text only,
+# dimensions are computed deterministically above
+EMOTIONAL_NARRATION_SCHEMA = CategorizationSchema(
+    fields={
+        'narrative': {
+            'type': 'string',
+            'default': '',
+            'description': '1-2 sentences describing how the character is feeling, in third person'
+        },
+        'inner_voice': {
+            'type': 'string',
+            'default': '',
+            'description': 'A short thought echoing in their head, in first person, in their voice'
+        }
+    },
+    example_output={
+        'narrative': 'Gordon is seething after Phil\'s lucky river card. His jaw is tight and his patience is wearing thin.',
+        'inner_voice': 'That idiot called with nothing and got rewarded. Unbelievable.'
+    }
+)
+
+# Legacy schema kept for backward compatibility reference
 # Schema for emotional state categorization
 EMOTIONAL_STATE_SCHEMA = CategorizationSchema(
     fields={
@@ -246,20 +444,34 @@ class EmotionalState:
             inner_voice="Let's see what we've got."
         )
 
-    def decay_toward_neutral(self, rate: float = 0.1) -> 'EmotionalState':
+    def decay_toward_baseline(
+        self,
+        baseline: Dict[str, float],
+        rate: float = 0.1,
+    ) -> 'EmotionalState':
         """
-        Return a new state decayed toward neutral values.
+        Return a new state decayed toward the elastic-trait baseline.
 
-        Used between hands to gradually calm down.
+        The baseline is the slow-moving mood derived from personality traits.
+        Between hands, the reactive spike fades and the emotional state
+        drifts back toward who this player fundamentally is right now.
+
+        Args:
+            baseline: Dict with 'valence', 'arousal', 'control', 'focus'
+                     from compute_baseline_mood()
+            rate: Decay rate (0-1). Higher = faster return to baseline.
+
+        Returns:
+            New EmotionalState decayed toward baseline
         """
         def decay(current: float, target: float, r: float) -> float:
             return current + (target - current) * r
 
         return EmotionalState(
-            valence=decay(self.valence, 0.0, rate),
-            arousal=decay(self.arousal, 0.4, rate),
-            control=decay(self.control, 0.6, rate),
-            focus=decay(self.focus, 0.6, rate),
+            valence=decay(self.valence, baseline.get('valence', 0.0), rate),
+            arousal=decay(self.arousal, baseline.get('arousal', 0.4), rate),
+            control=decay(self.control, baseline.get('control', 0.6), rate),
+            focus=decay(self.focus, baseline.get('focus', 0.6), rate),
             narrative=self.narrative,  # Keep narrative until regenerated
             inner_voice=self.inner_voice,
             generated_at_hand=self.generated_at_hand,
@@ -268,34 +480,51 @@ class EmotionalState:
             used_fallback=self.used_fallback
         )
 
+    def decay_toward_neutral(self, rate: float = 0.1) -> 'EmotionalState':
+        """
+        Return a new state decayed toward neutral values.
+
+        Legacy method — prefer decay_toward_baseline() which targets the
+        personality-specific baseline instead of hardcoded neutral.
+        """
+        return self.decay_toward_baseline(
+            baseline={'valence': 0.0, 'arousal': 0.4, 'control': 0.6, 'focus': 0.6},
+            rate=rate,
+        )
+
 
 class EmotionalStateGenerator:
     """
     Generates emotional state for AI players after each hand.
 
-    Uses the StructuredLLMCategorizer to get dimensional scores
-    and narrative from a cheap/fast LLM call.
+    Two-layer architecture:
+    1. Dimensions (valence, arousal, control, focus) are computed
+       deterministically from elastic traits (baseline) + hand outcome (spike).
+    2. Narrative text (narrative, inner_voice) is generated by a cheap LLM call
+       that receives the computed dimensions as context — narration only.
+
+    If the LLM call fails, dimensions are still valid; only narrative falls
+    back to generic text.
     """
 
-    SYSTEM_PROMPT = """You are analyzing the emotional state of a poker player character.
+    SYSTEM_PROMPT = """You are narrating the emotional state of a poker player character.
 
-Based on their personality and what just happened in the game, determine their current emotional state.
+The emotional dimensions have already been determined. Your job is to describe
+how this character FEELS and THINKS right now, authentically in their voice.
 
-Be authentic to the character. Consider:
-- Their personality traits and how they typically react
-- What just happened (win/loss, bad beat, etc.)
-- Their session so far (winning/losing streak)
-- Their tilt level and psychological pressure
+Write:
+- narrative: 1-2 sentences in THIRD PERSON describing how they're feeling
+- inner_voice: A SHORT thought in FIRST PERSON in their speaking style
 
-The narrative should be 1-2 sentences in THIRD PERSON describing how they're feeling.
-The inner_voice should be a SHORT thought in FIRST PERSON in their voice/speaking style."""
+Be authentic to the character's personality and verbal tics. The emotional
+dimensions tell you the intensity — your job is to give it personality."""
 
     def __init__(self, timeout_seconds: float = 3.0):
-        """Initialize the generator with a categorizer."""
+        """Initialize the generator with a categorizer for narration."""
         self.categorizer = StructuredLLMCategorizer(
-            schema=EMOTIONAL_STATE_SCHEMA,
+            schema=EMOTIONAL_NARRATION_SCHEMA,
             timeout_seconds=timeout_seconds,
-            fallback_generator=self._generate_fallback
+            fallback_generator=self._generate_narration_fallback
         )
 
     def generate(
@@ -310,35 +539,60 @@ The inner_voice should be a SHORT thought in FIRST PERSON in their voice/speakin
         # Tracking context for cost analysis
         game_id: Optional[str] = None,
         owner_id: Optional[str] = None,
+        # Optional: pre-computed dimensions (if caller already computed them)
+        computed_dimensions: Optional[Dict[str, float]] = None,
+        big_blind: int = 100,
     ) -> EmotionalState:
         """
         Generate emotional state after a hand completes.
 
+        Dimensions are computed deterministically from elastic traits + outcome.
+        The LLM is called only to produce narrative text.
+
         Args:
             personality_name: Name of the AI player
             personality_config: Personality configuration dict
-            hand_outcome: Dict with outcome, amount, was_bad_beat, etc.
+            hand_outcome: Dict with outcome, amount, key_moment, etc.
             elastic_traits: Current elastic trait values
             tilt_state: Current TiltState object
             session_context: Session memory context
             hand_number: Current hand number
             game_id: Game ID for usage tracking
             owner_id: User ID for usage tracking
+            computed_dimensions: Pre-computed dimensions dict (optional).
+                If provided, skips baseline + spike computation.
+            big_blind: Big blind size for spike amount normalization
 
         Returns:
-            EmotionalState with dimensions and narrative
+            EmotionalState with deterministic dimensions and LLM narrative
         """
-        # Build context for the LLM
-        context = self._build_context(
-            personality_name,
-            personality_config,
-            hand_outcome,
-            elastic_traits,
-            tilt_state,
-            session_context
+        # --- Layer 1 + 2: Compute dimensions deterministically ---
+        if computed_dimensions is not None:
+            dimensions = computed_dimensions
+        else:
+            tilt_level = getattr(tilt_state, 'tilt_level', 0.0)
+            outcome = hand_outcome.get('outcome', 'unknown')
+            amount = hand_outcome.get('amount', 0)
+
+            baseline = compute_baseline_mood(elastic_traits)
+            spike = compute_reactive_spike(
+                outcome=outcome,
+                amount=amount,
+                tilt_level=tilt_level,
+                big_blind=big_blind,
+            )
+            dimensions = blend_emotional_state(baseline, spike)
+
+        # --- Narration: LLM produces text for the computed dimensions ---
+        context = self._build_narration_context(
+            personality_name=personality_name,
+            personality_config=personality_config,
+            hand_outcome=hand_outcome,
+            dimensions=dimensions,
+            tilt_state=tilt_state,
+            session_context=session_context,
         )
 
-        # Build additional context dict
         additional = {
             'personality': personality_name,
             'personality_description': personality_config.get('play_style', ''),
@@ -346,7 +600,6 @@ The inner_voice should be a SHORT thought in FIRST PERSON in their voice/speakin
             'tilt_source': getattr(tilt_state, 'tilt_source', ''),
         }
 
-        # Call the categorizer with tracking context
         result = self.categorizer.categorize(
             context=context,
             system_prompt=self.SYSTEM_PROMPT,
@@ -358,42 +611,48 @@ The inner_voice should be a SHORT thought in FIRST PERSON in their voice/speakin
             prompt_template='emotional_state',
         )
 
-        # Build EmotionalState from result
+        # Build source events list
+        source_events = []
+        if hand_outcome.get('outcome'):
+            source_events.append(hand_outcome['outcome'])
+        if hand_outcome.get('key_moment'):
+            source_events.append(hand_outcome['key_moment'])
+
+        # Narrative from LLM (or fallback)
+        narrative = ''
+        inner_voice = ''
+        used_fallback = True
         if result.success and result.data:
-            source_events = []
-            if hand_outcome.get('outcome'):
-                source_events.append(hand_outcome['outcome'])
-            if hand_outcome.get('key_moment'):
-                source_events.append(hand_outcome['key_moment'])
+            narrative = result.data.get('narrative', '')
+            inner_voice = result.data.get('inner_voice', '')
+            used_fallback = result.used_fallback
 
-            return EmotionalState(
-                valence=result.data.get('valence', 0.0),
-                arousal=result.data.get('arousal', 0.5),
-                control=result.data.get('control', 0.5),
-                focus=result.data.get('focus', 0.5),
-                narrative=result.data.get('narrative', ''),
-                inner_voice=result.data.get('inner_voice', ''),
-                generated_at_hand=hand_number,
-                source_events=source_events,
-                used_fallback=result.used_fallback
-            )
-        else:
-            # Return neutral state on failure
-            logger.warning(
-                f"[EMOTIONAL_STATE] Failed to generate for {personality_name}: {result.error}"
-            )
-            return EmotionalState.neutral()
+        return EmotionalState(
+            valence=dimensions['valence'],
+            arousal=dimensions['arousal'],
+            control=dimensions['control'],
+            focus=dimensions['focus'],
+            narrative=narrative,
+            inner_voice=inner_voice,
+            generated_at_hand=hand_number,
+            source_events=source_events,
+            used_fallback=used_fallback,
+        )
 
-    def _build_context(
+    def _build_narration_context(
         self,
         personality_name: str,
         personality_config: Dict[str, Any],
         hand_outcome: Dict[str, Any],
-        elastic_traits: Dict[str, Any],
+        dimensions: Dict[str, float],
         tilt_state: Any,
-        session_context: Dict[str, Any]
+        session_context: Dict[str, Any],
     ) -> str:
-        """Build the context string for the LLM."""
+        """Build the context string for the LLM narrator.
+
+        Includes the computed dimensions with descriptors so the LLM has
+        rich semantic cues, not just raw numbers.
+        """
         lines = [f"PLAYER: {personality_name}"]
 
         # Personality description
@@ -405,6 +664,21 @@ The inner_voice should be a SHORT thought in FIRST PERSON in their voice/speakin
         verbal_tics = personality_config.get('verbal_tics', [])
         if verbal_tics and isinstance(verbal_tics, list):
             lines.append(f"SPEAKING STYLE EXAMPLES: {', '.join(verbal_tics[:3])}")
+
+        # Computed emotional dimensions with descriptors
+        lines.append("")
+        lines.append("CURRENT EMOTIONAL STATE (already determined):")
+        # Create a temporary EmotionalState to get descriptors
+        temp = EmotionalState(
+            valence=dimensions['valence'],
+            arousal=dimensions['arousal'],
+            control=dimensions['control'],
+            focus=dimensions['focus'],
+        )
+        lines.append(f"  - Mood: {temp.valence_descriptor} ({dimensions['valence']:+.2f})")
+        lines.append(f"  - Energy: {temp.arousal_descriptor} ({dimensions['arousal']:.0%})")
+        lines.append(f"  - Control: {temp.control_descriptor} ({dimensions['control']:.0%})")
+        lines.append(f"  - Focus: {temp.focus_descriptor} ({dimensions['focus']:.0%})")
 
         # Hand outcome
         lines.append("")
@@ -439,24 +713,6 @@ The inner_voice should be a SHORT thought in FIRST PERSON in their voice/speakin
             if nemesis:
                 lines.append(f"  - Nemesis: {nemesis}")
 
-        # Elastic trait shifts
-        if elastic_traits:
-            trait_shifts = []
-            for trait_name, trait_data in elastic_traits.items():
-                if isinstance(trait_data, dict):
-                    value = trait_data.get('value', 0.5)
-                    anchor = trait_data.get('anchor', 0.5)
-                    delta = value - anchor
-                    if abs(delta) > 0.05:
-                        direction = "+" if delta > 0 else ""
-                        trait_shifts.append(f"{trait_name}: {direction}{delta:.0%}")
-
-            if trait_shifts:
-                lines.append("")
-                lines.append("TRAIT SHIFTS FROM BASELINE:")
-                for shift in trait_shifts:
-                    lines.append(f"  - {shift}")
-
         # Session context
         if session_context:
             lines.append("")
@@ -472,53 +728,46 @@ The inner_voice should be a SHORT thought in FIRST PERSON in their voice/speakin
             if streak_type and streak_count > 1:
                 lines.append(f"  - Streak: {streak_count}-hand {streak_type} streak")
 
+        lines.append("")
+        lines.append("Write a narrative and inner_voice that express this emotional state authentically for this character.")
+
         return "\n".join(lines)
 
-    def _generate_fallback(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    # Keep legacy method name for backward compatibility
+    def _build_context(
+        self,
+        personality_name: str,
+        personality_config: Dict[str, Any],
+        hand_outcome: Dict[str, Any],
+        elastic_traits: Dict[str, Any],
+        tilt_state: Any,
+        session_context: Dict[str, Any]
+    ) -> str:
+        """Legacy context builder — delegates to narration context with neutral dimensions."""
+        dimensions = compute_baseline_mood(elastic_traits)
+        return self._build_narration_context(
+            personality_name=personality_name,
+            personality_config=personality_config,
+            hand_outcome=hand_outcome,
+            dimensions=dimensions,
+            tilt_state=tilt_state,
+            session_context=session_context,
+        )
+
+    def _generate_narration_fallback(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generate fallback emotional state when LLM fails.
+        Generate fallback narrative when LLM fails.
 
-        Uses simple heuristics based on available context.
+        Dimensions are already computed deterministically — this only needs
+        to produce generic narrative text.
         """
-        tilt_level = context.get('tilt_level', 0.0)
-
-        # Parse outcome from context string if available
-        context_str = context.get('context', '')
-        outcome = 'unknown'
-        if 'WON' in context_str.upper():
-            outcome = 'won'
-        elif 'LOST' in context_str.upper():
-            outcome = 'lost'
-        elif 'FOLDED' in context_str.upper():
-            outcome = 'folded'
-
-        # Generate dimensions from heuristics
-        if outcome == 'won':
-            valence = 0.5
-            arousal = 0.5
-            control = 0.7
-        elif outcome == 'lost':
-            valence = -0.3
-            arousal = 0.6
-            control = 0.4
-        else:  # folded or unknown
-            valence = -0.1
-            arousal = 0.4
-            control = 0.5
-
-        # Tilt affects arousal and control
-        arousal = min(1.0, arousal + tilt_level * 0.3)
-        control = max(0.0, control - tilt_level * 0.4)
-        focus = max(0.0, 0.7 - tilt_level * 0.5)
-
         return {
-            'valence': valence,
-            'arousal': arousal,
-            'control': control,
-            'focus': focus,
             'narrative': 'Processing the last hand.',
             'inner_voice': 'Focus on the next one.'
         }
+
+    # Legacy fallback kept for backward compatibility
+    _generate_fallback = _generate_narration_fallback
 
 
 # Convenience function for external use
@@ -534,11 +783,13 @@ def generate_emotional_state(
     # Tracking context for cost analysis
     game_id: Optional[str] = None,
     owner_id: Optional[str] = None,
+    big_blind: int = 100,
 ) -> EmotionalState:
     """
     Convenience function to generate emotional state.
 
-    Creates a generator if not provided.
+    Creates a generator if not provided. Dimensions are computed
+    deterministically; the LLM is called only for narrative text.
     """
     if generator is None:
         generator = EmotionalStateGenerator()
@@ -553,4 +804,5 @@ def generate_emotional_state(
         hand_number=hand_number,
         game_id=game_id,
         owner_id=owner_id,
+        big_blind=big_blind,
     )

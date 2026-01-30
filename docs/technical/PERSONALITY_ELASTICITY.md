@@ -338,12 +338,27 @@ Elasticity changes create memorable moments that persist:
 - Personality "learns" from extreme pressure events
 - Memory of past elasticity affects current flexibility
 
-### Emotional State Evolution
-Beyond simple traits, rich emotional landscapes:
-- Multi-dimensional emotions (frustration, vengeance, desperation)
-- Emotional trajectories (tilt spirals, confidence arcs)
-- Personality-specific emotional ranges and limits
+### Emotional State Evolution (Implemented)
+Elastic traits now directly drive the avatar emotional state through a two-layer model:
+
+**Layer 1 — Baseline Mood**: `compute_baseline_mood()` deterministically maps current elastic
+trait values to emotional dimensions (valence, arousal, control, focus). This is the
+slow-moving "session mood" that reflects accumulated pressure and recovery. When traits
+drift above anchor (winning streak), valence rises; when they drift below (losing streak),
+the player's baseline mood darkens.
+
+**Layer 2 — Reactive Spike**: `compute_reactive_spike()` produces a fast emotional shift from
+each hand outcome, amplified by tilt level. Big wins spike positive valence; bad beats
+spike negative valence + high arousal. The spike decays toward the elastic baseline between
+hands via `decay_toward_baseline()`.
+
+**Result**: Avatar emotions track the session arc (via elastic traits) with reactive bursts
+from dramatic hands. The LLM is called only to narrate the computed dimensions — it produces
+personality-authentic text, not the dimensional values themselves.
+
+Future ideas:
 - Emotional contagion between players at the table
+- Permanent anchor shifts from extreme pressure events
 
 ### Meta-Strategy Awareness
 Elastic traits adapt to game context:

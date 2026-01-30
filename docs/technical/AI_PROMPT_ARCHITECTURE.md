@@ -106,7 +106,7 @@ This document describes the different systems that work together to create promp
 │   │                                                                      │          │   │
 │   │  Consolidates:                                                       │          │   │
 │   │  • ElasticPersonality (dynamic traits with pressure/recovery)        │          │   │
-│   │  • EmotionalState (LLM-generated dimensional model + narrative)      │          │   │
+│   │  • EmotionalState (deterministic dimensions + LLM-narrated text)     │          │   │
 │   │  • TiltState (tilt level, source, nemesis tracking)                  │          │   │
 │   │                                                                      │          │   │
 │   │  Events:                                                             │          │   │
@@ -284,7 +284,18 @@ AIPlayerController.psychology.on_hand_complete(outcome, amount, ...)
     │
     ├──► TiltState.update_from_hand() ──► tilt updated from outcome
     │
-    └──► EmotionalStateGenerator.generate() ──► new emotional state (LLM)
+    └──► Two-layer emotional state generation:
+         │
+         ├──► Layer 1: compute_baseline_mood(elastic_traits) ──► slow-moving session mood
+         │    (deterministic, from current trait values vs anchors)
+         │
+         ├──► Layer 2: compute_reactive_spike(outcome, amount, tilt) ──► fast hand reaction
+         │    (deterministic, amount normalized by big_blind, amplified by tilt)
+         │
+         ├──► blend_emotional_state(baseline, spike) ──► final dimensions
+         │
+         └──► EmotionalStateGenerator.generate() ──► LLM narrates the computed dimensions
+              (LLM produces narrative + inner_voice text only; dimensions are pre-computed)
 
 Recovery (between hands)
     │
@@ -293,5 +304,8 @@ AIPlayerController.psychology.recover()
     │
     ├──► ElasticPersonality.recover_traits() ──► traits drift to anchor
     │
-    └──► TiltState.decay() ──► tilt naturally decreases
+    ├──► TiltState.decay() ──► tilt naturally decreases
+    │
+    └──► EmotionalState.decay_toward_baseline() ──► spike fades toward elastic baseline
+         (not toward hardcoded neutral — toward personality-specific resting state)
 ```

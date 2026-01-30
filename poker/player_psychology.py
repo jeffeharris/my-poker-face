@@ -16,7 +16,10 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 from .elasticity_manager import ElasticPersonality
-from .emotional_state import EmotionalState, EmotionalStateGenerator
+from .emotional_state import (
+    EmotionalState, EmotionalStateGenerator,
+    compute_baseline_mood, compute_reactive_spike, blend_emotional_state,
+)
 from .tilt_modifier import TiltState, TiltPromptModifier
 
 logger = logging.getLogger(__name__)
@@ -130,12 +133,14 @@ class PlayerPsychology:
         was_bad_beat: bool = False,
         was_bluff_called: bool = False,
         session_context: Optional[Dict[str, Any]] = None,
-        key_moment: Optional[str] = None
+        key_moment: Optional[str] = None,
+        big_blind: int = 100,
     ) -> None:
         """
         Called after each hand completes.
 
-        Updates tilt from outcome AND generates new emotional state.
+        Updates tilt from outcome AND generates new emotional state using
+        the two-layer model (baseline from elastic traits + reactive spike).
 
         Args:
             outcome: 'won', 'lost', 'folded'
@@ -145,6 +150,7 @@ class PlayerPsychology:
             was_bluff_called: True if bluff was called
             session_context: Session stats for emotional state generation
             key_moment: Optional key moment ('bad_beat', 'bluff_called', etc.)
+            big_blind: Big blind size for normalizing reactive spike magnitude
         """
         # Update tilt from hand outcome
         self.tilt.update_from_hand(
@@ -155,13 +161,14 @@ class PlayerPsychology:
             was_bluff_called=was_bluff_called
         )
 
-        # Generate new emotional state
+        # Generate new emotional state (two-layer: baseline + spike)
         self._generate_emotional_state(
             outcome=outcome,
             amount=amount,
             opponent=opponent,
             key_moment=key_moment or ('bad_beat' if was_bad_beat else ('bluff_called' if was_bluff_called else None)),
-            session_context=session_context or {}
+            session_context=session_context or {},
+            big_blind=big_blind,
         )
 
         self.hand_count += 1
@@ -179,12 +186,22 @@ class PlayerPsychology:
 
         - Elastic traits drift back toward anchor
         - Tilt naturally decays
+        - Emotional state decays toward elastic-trait baseline (not neutral)
 
         Args:
             recovery_rate: Rate of elastic trait recovery (0.0-1.0)
         """
         self.elastic.recover_traits(recovery_rate)
         self.tilt.decay()
+
+        # Decay emotional state toward current baseline (recomputed from
+        # current elastic traits so it tracks trait recovery)
+        if self.emotional:
+            baseline = compute_baseline_mood(self.elastic.traits)
+            self.emotional = self.emotional.decay_toward_baseline(
+                baseline=baseline, rate=recovery_rate
+            )
+
         self._mark_updated()
 
     # === TRAIT ACCESS ===
@@ -365,9 +382,16 @@ class PlayerPsychology:
         amount: int,
         opponent: Optional[str],
         key_moment: Optional[str],
-        session_context: Dict[str, Any]
+        session_context: Dict[str, Any],
+        big_blind: int = 100,
     ) -> None:
-        """Generate new emotional state via LLM."""
+        """Generate new emotional state using two-layer deterministic model.
+
+        Layer 1: Baseline mood from elastic traits (slow-moving session mood)
+        Layer 2: Reactive spike from hand outcome (fast, decays toward baseline)
+
+        The LLM is called only to narrate the computed dimensions.
+        """
         hand_outcome = {
             'outcome': outcome,
             'amount': amount,
@@ -375,7 +399,17 @@ class PlayerPsychology:
             'key_moment': key_moment
         }
 
-        # Build elastic traits dict for generator
+        # --- Compute dimensions deterministically ---
+        baseline = compute_baseline_mood(self.elastic.traits)
+        spike = compute_reactive_spike(
+            outcome=outcome,
+            amount=amount,
+            tilt_level=self.tilt.tilt_level,
+            big_blind=big_blind,
+        )
+        dimensions = blend_emotional_state(baseline, spike)
+
+        # Build elastic traits dict for generator context
         elastic_traits = {}
         for trait_name in TRAIT_NAMES:
             if trait_name in self.elastic.traits:
@@ -397,15 +431,26 @@ class PlayerPsychology:
                 hand_number=self.hand_count,
                 game_id=self.game_id,
                 owner_id=self.owner_id,
+                computed_dimensions=dimensions,
+                big_blind=big_blind,
             )
         except Exception as e:
             logger.warning(
                 f"{self.player_name}: Failed to generate emotional state: {e}. "
-                f"Using fallback."
+                f"Using computed dimensions with fallback narrative."
             )
-            # Emotional generator handles fallback internally, but be safe
-            if not self.emotional:
-                self.emotional = None
+            # Dimensions are always valid — create state without LLM narrative
+            self.emotional = EmotionalState(
+                valence=dimensions['valence'],
+                arousal=dimensions['arousal'],
+                control=dimensions['control'],
+                focus=dimensions['focus'],
+                narrative='Processing the last hand.',
+                inner_voice='Focus on the next one.',
+                generated_at_hand=self.hand_count,
+                source_events=[outcome] + ([key_moment] if key_moment else []),
+                used_fallback=True,
+            )
 
     def _mark_updated(self) -> None:
         """Mark the last update timestamp."""

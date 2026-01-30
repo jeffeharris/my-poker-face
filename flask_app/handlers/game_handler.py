@@ -415,6 +415,9 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
                         'streak_count': getattr(ctx, 'streak_count', 0)
                     }
 
+        # Get big blind for emotional spike scaling
+        big_blind = getattr(game_state, 'current_ante', 100)
+
         # Single unified call to update all psychology state
         try:
             controller.psychology.on_hand_complete(
@@ -424,7 +427,8 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
                 was_bad_beat=was_bad_beat,
                 was_bluff_called=was_bluff_called,
                 session_context=session_context,
-                key_moment=key_moment
+                key_moment=key_moment,
+                big_blind=big_blind,
             )
             logger.debug(
                 f"Psychology update for {player.name}: "
