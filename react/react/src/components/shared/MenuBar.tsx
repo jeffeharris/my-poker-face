@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
+import { useUsageStats } from '../../hooks/useUsageStats';
 import { UserDropdown } from './UserDropdown';
 import './MenuBar.css';
 
@@ -44,6 +45,7 @@ export function MenuBar({
   className = '',
 }: MenuBarProps) {
   const { user, logout: authLogout } = useAuth();
+  const { stats: usageStats, refetch: refetchUsageStats } = useUsageStats();
   const canAccessAdmin = user ? hasPermission(user, 'can_access_admin_tools') : false;
 
   const handleLogout = async () => {
@@ -91,6 +93,9 @@ export function MenuBar({
             onLogout={handleLogout}
             onMainMenu={onMainMenu}
             onAdminTools={canAccessAdmin ? onAdminTools : undefined}
+            handsPlayed={usageStats?.is_guest ? usageStats.hands_played : undefined}
+            handsLimit={usageStats?.is_guest ? usageStats.hands_limit : undefined}
+            onOpen={refetchUsageStats}
           />
         )}
       </div>

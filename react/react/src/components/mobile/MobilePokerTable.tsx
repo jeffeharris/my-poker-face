@@ -556,6 +556,7 @@ export function MobilePokerTable({
         playerName={playerName || 'Player'}
         players={gameState?.players || []}
         guestChatDisabled={guestChatDisabled}
+        isGuest={isGuest}
       />
 
       {/* LLM Debug Modal */}

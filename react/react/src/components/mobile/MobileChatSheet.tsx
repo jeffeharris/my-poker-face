@@ -102,6 +102,7 @@ interface MobileChatSheetProps {
   playerName: string;
   players: Player[];
   guestChatDisabled?: boolean;
+  isGuest?: boolean;
 }
 
 export function MobileChatSheet({
@@ -113,8 +114,9 @@ export function MobileChatSheet({
   playerName,
   players,
   guestChatDisabled = false,
+  isGuest = false,
 }: MobileChatSheetProps) {
-  const [activeTab, setActiveTab] = useState<InputTab>('quick');
+  const [activeTab, setActiveTab] = useState<InputTab>(isGuest ? 'keyboard' : 'quick');
   const [inputValue, setInputValue] = useState('');
   const [isClosing, setIsClosing] = useState(false);
   const [quickChatKey, setQuickChatKey] = useState(0);
@@ -341,11 +343,12 @@ export function MobileChatSheet({
               aria-selected={activeTab === 'quick'}
               aria-controls="mcs-tabpanel-quick"
               aria-label="Switch to Quick Chat mode"
-              className={`mcs-tab ${activeTab === 'quick' ? 'mcs-tab-active' : ''}`}
-              onClick={() => setActiveTab('quick')}
+              className={`mcs-tab ${activeTab === 'quick' ? 'mcs-tab-active' : ''} ${isGuest ? 'mcs-tab-disabled' : ''}`}
+              onClick={() => !isGuest && setActiveTab('quick')}
+              disabled={isGuest}
             >
               <Zap size={15} />
-              <span>Quick Chat</span>
+              <span>{isGuest ? 'Quick Chat (Sign in)' : 'Quick Chat'}</span>
             </button>
             <button
               role="tab"
