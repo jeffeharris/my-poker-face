@@ -9,6 +9,7 @@ import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { PageLayout, MenuBar, BottomSheet } from '../shared';
 import { useLLMProviders } from '../../hooks/useLLMProviders';
+import { useAuth } from '../../hooks/useAuth';
 import type { OpponentLLMConfig, OpponentConfig } from '../../types/llm';
 import { GAME_MODES } from '../../constants/gameModes';
 import './CustomGameConfig.css';
@@ -92,6 +93,8 @@ const GAME_PRESETS: GamePreset[] = [
 // ─── Component ───────────────────────────────────────────────────────
 
 export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }: CustomGameConfigProps) {
+  const { user } = useAuth();
+
   // Wizard step: 0 = opponents, 1 = settings, 2 = review
   const [step, setStep] = useState(0);
 
@@ -126,6 +129,13 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   const [defaultProvider, setDefaultProvider] = useState('');
   const [defaultModel, setDefaultModel] = useState('');
   const [defaultReasoning, setDefaultReasoning] = useState('minimal');
+
+  // Guest guard: redirect back if guest somehow navigates here
+  useEffect(() => {
+    if (user?.is_guest) {
+      onBack();
+    }
+  }, [user?.is_guest, onBack]);
 
   // Seed model defaults from DB once providers load
   useEffect(() => {

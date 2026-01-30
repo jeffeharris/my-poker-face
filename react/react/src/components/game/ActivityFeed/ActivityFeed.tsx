@@ -7,12 +7,14 @@ interface ActivityFeedProps {
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
   playerName?: string;
+  guestChatDisabled?: boolean;
 }
 
 export function ActivityFeed({
   messages,
   onSendMessage,
   playerName: _playerName = 'You',
+  guestChatDisabled = false,
 }: ActivityFeedProps) {
   const [inputValue, setInputValue] = useState('');
   const [isInputExpanded, setIsInputExpanded] = useState(false);
@@ -153,13 +155,14 @@ export function ActivityFeed({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Say something..."
+              placeholder={guestChatDisabled ? 'Chat available next turn' : 'Say something...'}
               className="activity-feed__text-input"
+              disabled={guestChatDisabled}
               autoFocus
             />
             <button
               onClick={handleSend}
-              disabled={!inputValue.trim()}
+              disabled={!inputValue.trim() || guestChatDisabled}
               className="activity-feed__send-btn"
             >
               Send

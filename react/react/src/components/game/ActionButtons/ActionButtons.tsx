@@ -62,8 +62,7 @@ export function ActionButtons({
     const isValidBet = calc.isValidRaise(raiseAmount) || isAllIn;
 
     if (isValidBet) {
-      // Send the "raise TO" amount directly - backend now expects this
-      onAction('raise', raiseAmount);
+      onAction(isAllIn ? 'all_in' : 'raise', raiseAmount);
       setShowBetInterface(false);
     }
   };

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
 import { Check, X, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
@@ -8,6 +9,8 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
+import { GuestLimitModal } from '../shared';
+import { useUsageStats } from '../../hooks/useUsageStats';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
 import { CoachButton } from './CoachButton';
@@ -81,12 +84,21 @@ export function MobilePokerTable({
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
+    guestLimitReached,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
   });
+
+  const { wrappedSendMessage, guestChatDisabled, isGuest } = useGuestChatLimit(
+    gameState?.awaiting_action,
+    handleSendMessage,
+  );
+
+  // Usage stats for guest limit modal
+  const { stats: usageStats } = useUsageStats();
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {
@@ -194,7 +206,7 @@ export function MobilePokerTable({
     isPlayerTurn: !!showActionButtons,
   });
 
-  const coachEnabled = coach.mode !== 'off';
+  const coachEnabled = !isGuest && coach.mode !== 'off';
 
   const handleCoachToggle = useCallback(() => {
     try {
@@ -282,7 +294,7 @@ export function MobilePokerTable({
         showUserInfo
         onAdminTools={() => { window.location.href = '/admin'; }}
         coachEnabled={coachEnabled}
-        onCoachToggle={handleCoachToggle}
+        onCoachToggle={isGuest ? undefined : handleCoachToggle}
       />
       {/* Spacer for fixed MenuBar */}
       <div className="menu-bar-spacer" />
@@ -551,7 +563,7 @@ export function MobilePokerTable({
         onComplete={clearWinnerInfo}
         gameId={gameId || ''}
         playerName={playerName || ''}
-        onSendMessage={handleSendMessage}
+        onSendMessage={wrappedSendMessage}
       />
 
       {/* Tournament Complete - only show when winner announcement is dismissed */}
@@ -562,7 +574,7 @@ export function MobilePokerTable({
           onComplete={handleTournamentComplete}
           gameId={gameId || undefined}
           playerName={playerName}
-          onSendMessage={handleSendMessage}
+          onSendMessage={wrappedSendMessage}
         />
       )}
 
@@ -571,10 +583,12 @@ export function MobilePokerTable({
         isOpen={showChatSheet}
         onClose={() => setShowChatSheet(false)}
         messages={messages}
-        onSendMessage={handleSendMessage}
+        onSendMessage={wrappedSendMessage}
         gameId={providedGameId || ''}
         playerName={playerName || 'Player'}
         players={gameState?.players || []}
+        guestChatDisabled={guestChatDisabled}
+        isGuest={isGuest}
       />
 
       {/* LLM Debug Modal */}
@@ -612,6 +626,15 @@ export function MobilePokerTable({
             onModeChange={coach.setMode}
           />
         </>
+      )}
+
+      {/* Guest Hand Limit Modal */}
+      {guestLimitReached && usageStats && (
+        <GuestLimitModal
+          handsPlayed={usageStats.hands_played}
+          handsLimit={usageStats.hands_limit}
+          onReturnToMenu={() => { if (onBack) onBack(); }}
+        />
       )}
     </div>
   );

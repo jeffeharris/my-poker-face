@@ -64,8 +64,7 @@ export function MobileActionButtons({
     const isValidRaise = calc.isValidRaise(raiseAmount) || isAllIn;
 
     if (isValidRaise) {
-      // Send the "raise TO" amount directly - backend now expects this
-      onAction('raise', raiseAmount);
+      onAction(isAllIn ? 'all_in' : 'raise', raiseAmount);
       setShowRaiseSheet(false);
     }
   };

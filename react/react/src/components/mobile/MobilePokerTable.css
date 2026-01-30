@@ -904,9 +904,6 @@
   justify-content: center;
   gap: 12px;
   overflow-x: hidden; /* No scrolling needed with 2 opponents */
-  /* Constrain total width so opponents share fixed space */
-  max-width: 88vw;
-  margin: 0 auto;
   padding-left: 6vw;
   padding-right: 6vw;
 }
@@ -917,20 +914,18 @@
   display: none;
 }
 
-/* Flexible avatars that share the space */
+/* Avatars fill all available space, split 50/50 by default */
 .mobile-opponent.two-opponents-avatar {
-  /* Remove fixed width, use flex to share space */
   width: auto;
   min-width: 0;
-  flex: 1 1 40%;
-  max-width: 48%;
-  transition: flex 0.4s ease-out, max-width 0.4s ease-out;
+  flex: 1 1 50%;
+  max-width: 100%;
+  transition: flex 0.4s ease-out;
 }
 
-/* When thinking, take more space (other shrinks to accommodate) */
+/* Active player grows, inactive shrinks */
 .mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar.thinking {
-  flex: 1.5 1 50%;
-  max-width: 58%;
+  flex: 1.5 1 60%;
 }
 
 /* =================================
@@ -951,19 +946,13 @@
   display: none;
 }
 
-/* Avatar and panel share space via flex */
+/* Avatar takes 55% in heads-up, reading panel takes the remaining 45% */
 .mobile-opponent.heads-up-avatar {
   width: auto;
   min-width: 0;
-  flex: 0 0 45%;
-  max-width: 45%;
+  flex: 0 0 calc(55% - 6px);
+  max-width: calc(55% - 6px);
   transition: flex 0.3s ease-out, max-width 0.3s ease-out;
-}
-
-/* When thinking, grow slightly but leave room for panel */
-.mobile-opponents.heads-up-mode .mobile-opponent.heads-up-avatar.thinking {
-  flex: 0 0 50%;
-  max-width: 50%;
 }
 
 /* =================================
