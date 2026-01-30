@@ -195,6 +195,20 @@ export function MobilePokerTable({
     enabled: true,
   });
 
+  const coachEnabled = coach.mode !== 'off';
+
+  const handleCoachToggle = useCallback(() => {
+    if (coachEnabled) {
+      // Save current mode before turning off
+      localStorage.setItem('coach_mode_before_off', coach.mode);
+      coach.setMode('off');
+    } else {
+      // Restore previous mode
+      const previous = localStorage.getItem('coach_mode_before_off');
+      coach.setMode((previous === 'proactive' || previous === 'reactive') ? previous : 'reactive');
+    }
+  }, [coachEnabled, coach]);
+
   // When a hand ends, request a post-hand review from the coach
   useEffect(() => {
     if (winnerInfo && coach.mode !== 'off') {
@@ -259,6 +273,8 @@ export function MobilePokerTable({
         }
         showUserInfo
         onAdminTools={() => { window.location.href = '/admin'; }}
+        coachEnabled={coachEnabled}
+        onCoachToggle={handleCoachToggle}
       />
       {/* Spacer for fixed MenuBar */}
       <div className="menu-bar-spacer" />
@@ -562,29 +578,33 @@ export function MobilePokerTable({
       />
 
       {/* Coach Components */}
-      <CoachButton
-        onClick={() => setShowCoachPanel(true)}
-        hasNewInsight={(!!coach.proactiveTip || coach.hasUnreadReview) && !showCoachPanel}
-      />
+      {coachEnabled && (
+        <>
+          <CoachButton
+            onClick={() => setShowCoachPanel(true)}
+            hasNewInsight={(!!coach.proactiveTip || coach.hasUnreadReview) && !showCoachPanel}
+          />
 
-      <CoachBubble
-        isVisible={coach.mode === 'proactive' && !!showActionButtons && !!coach.proactiveTip && !showCoachPanel}
-        tip={coach.proactiveTip}
-        stats={coach.stats}
-        onTap={() => setShowCoachPanel(true)}
-        onDismiss={coach.clearProactiveTip}
-      />
+          <CoachBubble
+            isVisible={coach.mode === 'proactive' && !!showActionButtons && !!coach.proactiveTip && !showCoachPanel}
+            tip={coach.proactiveTip}
+            stats={coach.stats}
+            onTap={() => setShowCoachPanel(true)}
+            onDismiss={coach.clearProactiveTip}
+          />
 
-      <CoachPanel
-        isOpen={showCoachPanel}
-        onClose={() => setShowCoachPanel(false)}
-        stats={coach.stats}
-        messages={coach.messages}
-        onSendQuestion={coach.sendQuestion}
-        isThinking={coach.isThinking}
-        mode={coach.mode}
-        onModeChange={coach.setMode}
-      />
+          <CoachPanel
+            isOpen={showCoachPanel}
+            onClose={() => setShowCoachPanel(false)}
+            stats={coach.stats}
+            messages={coach.messages}
+            onSendQuestion={coach.sendQuestion}
+            isThinking={coach.isThinking}
+            mode={coach.mode}
+            onModeChange={coach.setMode}
+          />
+        </>
+      )}
     </div>
   );
 }
