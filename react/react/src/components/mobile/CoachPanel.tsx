@@ -217,7 +217,7 @@ export function CoachPanel({
             disabled={!inputValue.trim() || isThinking}
             aria-label="Send question"
           >
-            <Send size={20} />
+            <Send size={22} aria-hidden="true" />
           </button>
         </form>
       </div>
