@@ -73,7 +73,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-10 | `controllers.py` is 1794-line god object | `poker/controllers.py:554-1794` | `AIPlayerController` has 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Split into services. | |
 | T2-11 | `usePokerGame` hook is 588 lines | `react/src/hooks/usePokerGame.ts` | Socket management, state, messages, winners, tournaments all in one. Impossible to unit test. Split into focused hooks. | |
 | T2-12 | 120 console.log statements in production | 38 React files | No logging levels. Sensitive data in browser console. Performance overhead. | **FIXED** — created logger utility, deleted ~25 debug statements, converted ~70 console calls |
-| T2-13 | `any` types erode TypeScript safety | 32 occurrences in 16 files | `community_cards?: any[]`, `winnerInfo: any`, `[key: string]: any`. Defeats purpose of TypeScript. | |
+| T2-13 | `any` types erode TypeScript safety | 32 occurrences in 16 files | `community_cards?: any[]`, `winnerInfo: any`, `[key: string]: any`. Defeats purpose of TypeScript. | **FIXED** — zero `: any` type annotations remain in codebase |
 | T2-14 | Shuffle mutates module-level list | `poker/utils.py:86` | `random.shuffle(celebrities_list)` mutates in-place. Use `random.sample()` instead. | **FIXED** — uses `random.sample()` |
 | T2-15 | `setup_helper.py` references non-existent file | `setup_helper.py:123` | Says `python working_game.py` — file doesn't exist. Script is broken. | **FIXED** — deleted dead file |
 
@@ -96,7 +96,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-23 | No frontend tests at all | `react/react/` | Zero `.test.tsx` files. No unit, integration, or E2E tests. Regressions undetected. | |
 | T2-24 | Missing ARIA labels | All interactive elements | Only 49 ARIA attributes across 21 files vs 1275+ interactive elements. Screen reader users blocked. | |
 | T2-25 | No keyboard navigation for poker actions | PokerTable components | Mouse/touch only. Keyboard-only users can't play. | |
-| T2-26 | No code splitting | `react/src/App.tsx:286-371` | All routes imported synchronously. Admin panel code loaded for all users (~500KB+ unnecessary). | |
+| T2-26 | No code splitting | `react/src/App.tsx:286-371` | All routes imported synchronously. Admin panel code loaded for all users (~500KB+ unnecessary). | **FIXED** — React.lazy for 11 route components; core path (GamePage, GameMenu, LoginForm) stays eager |
 | T2-27 | `GameContext` violates SoC | `react/src/contexts/GameContext.tsx` | WebSocket, HTTP API, state management, message dedup all in one file. Hard to test or debug. | |
 | T2-28 | Duplicate socket event handling | `GameContext.tsx` + `usePokerGame.ts` | Both handle socket events independently. Confusing ownership, potential conflicts. | |
 
@@ -144,7 +144,7 @@ Issues to address once live, during ongoing development.
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T3-14 | Python/TypeScript types manually synced | `poker/poker_game.py` ↔ `react/src/types/game.ts` | No automated validation. Already out of sync (Python `has_acted` missing from TS `Player`). | |
+| T3-14 | Python/TypeScript types manually synced | `poker/poker_game.py` ↔ `react/src/types/game.ts` | No automated validation. `has_acted` exists in Python but is an internal game state flag — frontend doesn't need it. Types are currently in sync for all user-facing fields. Remains a maintenance risk long-term. | |
 | T3-15 | Card formatting duplicated across languages | `flask_app/routes/game_routes.py:100-114` + `react/src/utils/cards.ts` | Changes require updating both Python and TypeScript. | |
 | T3-16 | DB path logic duplicated 3+ times | `core/llm/tracking.py:34-52`, `flask_app/config.py:98-101`, `scripts/dbq.py:27-31` | Each with different fallback paths. Include hardcoded absolute paths. | **FIXED** — consolidated to canonical version in `flask_app/config.py` |
 | T3-17 | Schema version hardcoded, no migrations | `poker/persistence.py:20-39` | `SCHEMA_VERSION = 58` with manual migration comments. No Alembic or equivalent. | |
@@ -183,9 +183,9 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 34 | 15 | 1 | 18 |
+| **Tier 2: Should-Fix** | 34 | 17 | 1 | 16 |
 | **Tier 3: Post-Release** | 34 | 9 | 0 | 25 |
-| **Total** | **89** | **37** | **8** | **43** |
+| **Total** | **89** | **39** | **8** | **41** |
 
 ## Key Architectural Insight
 
