@@ -188,8 +188,15 @@ export function useAuth() {
     localStorage.removeItem('authToken');
   }, []);
 
+  // In dev mode, treat guests as non-guests so all features are accessible.
+  // Set VITE_FORCE_GUEST=true in .env to test guest restrictions locally.
+  const bypassGuest = import.meta.env.DEV && import.meta.env.VITE_FORCE_GUEST !== 'true';
+  const user = authState.user && bypassGuest && authState.user.is_guest
+    ? { ...authState.user, is_guest: false as const }
+    : authState.user;
+
   return {
-    user: authState.user,
+    user,
     isLoading: authState.isLoading,
     isAuthenticated: authState.isAuthenticated,
     login,
