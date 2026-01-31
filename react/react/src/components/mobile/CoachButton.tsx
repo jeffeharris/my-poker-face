@@ -99,7 +99,7 @@ export function CoachButton({ onClick, hasNewInsight }: CoachButtonProps) {
       }}
       aria-label="Open poker coach"
     >
-      <GraduationCap size={26} />
+      <GraduationCap size={28} />
       {hasNewInsight && <span className="coach-fab-badge" />}
     </button>
   );

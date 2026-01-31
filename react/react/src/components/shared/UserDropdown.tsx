@@ -159,7 +159,7 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, coachEn
               role="menuitemcheckbox"
               aria-checked={coachEnabled}
             >
-              <GraduationCap size={16} />
+              <GraduationCap size={18} />
               <span>Poker Coach</span>
               <span className={`user-dropdown__toggle-dot ${coachEnabled ? 'user-dropdown__toggle-dot--on' : ''}`} />
             </button>

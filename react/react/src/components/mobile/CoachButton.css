@@ -21,6 +21,10 @@
   user-select: none;
 }
 
+.coach-fab > svg {
+  flex-shrink: 0;
+}
+
 .coach-fab:active {
   transform: scale(0.93);
 }
