@@ -7,6 +7,7 @@ import os
 import logging
 from typing import List, Dict, Any, Optional
 
+import openai
 from openai import OpenAI
 
 from .base import LLMProvider
@@ -108,6 +109,15 @@ class MistralProvider(LLMProvider):
     ) -> Any:
         """Mistral doesn't support image generation."""
         raise NotImplementedError("Mistral does not support image generation")
+
+    def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
+        if isinstance(exception, openai.RateLimitError):
+            return True, 30
+        if isinstance(exception, (openai.APITimeoutError, openai.APIConnectionError)):
+            return True, 2
+        if isinstance(exception, openai.InternalServerError):
+            return True, 2
+        return False, 0
 
     def extract_usage(self, raw_response: Any) -> Dict[str, int]:
         """Extract token usage from Mistral response."""

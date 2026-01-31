@@ -164,6 +164,15 @@ class AnthropicProvider(LLMProvider):
         """Anthropic doesn't support image generation."""
         raise NotImplementedError("Anthropic does not support image generation")
 
+    def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
+        if isinstance(exception, anthropic.RateLimitError):
+            return True, 30
+        if isinstance(exception, (anthropic.APITimeoutError, anthropic.APIConnectionError)):
+            return True, 2
+        if isinstance(exception, anthropic.InternalServerError):
+            return True, 2
+        return False, 0
+
     def extract_usage(self, raw_response: Any) -> Dict[str, int]:
         """Extract token usage from Anthropic response."""
         usage = raw_response.usage
