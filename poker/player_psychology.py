@@ -91,10 +91,26 @@ class PlayerPsychology:
             personality_config=config
         )
 
+        # Generate initial baseline emotional state from personality traits
+        # so it's never None on the first hand
+        baseline = compute_baseline_mood(elastic.traits)
+        initial_emotional = EmotionalState(
+            valence=baseline['valence'],
+            arousal=baseline['arousal'],
+            control=baseline['control'],
+            focus=baseline['focus'],
+            narrative='Settling in at the table.',
+            inner_voice="Let's see what we've got.",
+            generated_at_hand=0,
+            source_events=['session_start'],
+            used_fallback=True,
+        )
+
         return cls(
             player_name=name,
             personality_config=config,
             elastic=elastic,
+            emotional=initial_emotional,
             game_id=game_id,
             owner_id=owner_id,
         )
