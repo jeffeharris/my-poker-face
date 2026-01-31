@@ -130,9 +130,9 @@ export function CoachPanel({
   };
 
   const cycleMode = () => {
-    const modes: CoachMode[] = ['proactive', 'reactive', 'off'];
-    const idx = modes.indexOf(mode);
-    onModeChange(modes[(idx + 1) % modes.length]);
+    // Only toggle between active modes — "off" is controlled via
+    // the UserDropdown toggle, not the in-panel button.
+    onModeChange(mode === 'proactive' ? 'reactive' : 'proactive');
   };
 
   if (!isOpen) return null;
