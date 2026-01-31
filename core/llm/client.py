@@ -142,17 +142,35 @@ class LLMClient:
         final_tool_calls = None
         reasoning_content = None
 
+        # Retry config for transient errors (timeouts, 5xx, rate limits)
+        max_retries = 2  # up to 3 total attempts
+        retryable_keywords = ("timeout", "rate limit", "429", "500", "502", "503", "504", "overloaded", "server error")
+
         try:
             while iteration < max_tool_iterations:
                 iteration += 1
 
-                raw_response = self._provider.complete(
-                    messages=working_messages,
-                    json_format=json_format,
-                    max_tokens=max_tokens,
-                    tools=tools,
-                    tool_choice=tool_choice,
-                )
+                raw_response = None
+                for attempt in range(max_retries + 1):
+                    try:
+                        raw_response = self._provider.complete(
+                            messages=working_messages,
+                            json_format=json_format,
+                            max_tokens=max_tokens,
+                            tools=tools,
+                            tool_choice=tool_choice,
+                        )
+                        break  # success
+                    except Exception as retry_err:
+                        err_str = str(retry_err).lower()
+                        is_retryable = any(kw in err_str for kw in retryable_keywords)
+                        if not is_retryable or attempt >= max_retries:
+                            raise  # non-retryable or final attempt — propagate
+                        wait = min(2 ** attempt, 16)
+                        if "rate limit" in err_str or "429" in err_str:
+                            wait = 30
+                        logger.warning(f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}), retrying in {wait}s: {retry_err}")
+                        time.sleep(wait)
 
                 usage = self._provider.extract_usage(raw_response)
                 total_input_tokens += usage["input_tokens"]
