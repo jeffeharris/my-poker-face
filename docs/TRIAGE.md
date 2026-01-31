@@ -58,7 +58,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 |----|-------|----------|-------------|--------|
 | T2-01 | Immutable/mutable confusion | `poker/poker_state_machine.py:458-485` | State machine provides BOTH immutable methods (`with_game_state()`) and mutable setters. Callers can't reason about behavior. Pick one paradigm. | |
 | T2-02 | Adapter reimplements core logic | `flask_app/game_adapter.py:20-44` | `current_player_options` duplicated with incomplete version (missing raise caps, heads-up rules, BB special case). Should delegate to core. | |
-| T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | Module-level `games` dict without thread-safety. `set_game()`, `delete_game()`, `list_game_ids()` all mutate without locks. | |
+| T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | Per-game locks, lock-of-locks, and TTL eviction already added. `get_game()`/`set_game()` don't acquire per-game locks but rely on GIL + single gevent worker (cooperative, no preemption during dict ops). Only becomes a real issue with true multi-threading or multiple workers (blocked by T2-29 Redis adapter). | |
 | T2-04 | Config scattered across 6+ locations | `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` | No single source of truth. Settings can conflict. | |
 | T2-05 | DB connection created per config lookup | `flask_app/config.py:44-94` | Config getter functions like `get_default_provider()` instantiate `GamePersistence()` on every call. New DB connection per lookup. | **FIXED** — @lru_cache shared instance |
 | T2-06 | Three layers of caching, no invalidation | localStorage + in-memory dict + SQLite | Game state cached at three levels with no clear invalidation strategy. Stale data bugs likely. | |
@@ -86,7 +86,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-18 | UsageTracker singleton not thread-safe | `core/llm/tracking.py:84-110` | `_instance` check-and-set has race condition. Multiple threads can create multiple instances. | **FIXED** — added threading.Lock for singleton |
 | T2-19 | Unbounded game state memory growth | `flask_app/services/game_state_service.py:14-16` | `games` dict stores all active games. Abandoned games never evicted. No TTL or LRU. | **FIXED** — added 2-hour TTL with auto-cleanup |
 | T2-20 | Unbounded message list growth | `flask_app/handlers/message_handler.py:82-126` | Messages appended without limit. Long games accumulate unbounded messages in memory. | **FIXED** — capped at 200 entries, trim on append |
-| T2-21 | Race condition in game state updates | `flask_app/handlers/game_handler.py:1005-1098` | Lock prevents concurrent `progress_game()` but state can be modified between reads within the function. | |
+| T2-21 | Race condition in game state updates | `flask_app/handlers/game_handler.py:1005-1098` | `progress_game()` uses per-game `lock.acquire(blocking=False)` — concurrent calls skip rather than corrupt. Under single gevent worker, state reads/writes within the function can't be preempted. Same as T2-03: only a real concern with multi-worker (blocked by T2-29). | |
 | T2-22 | Conversation memory trims by count, not tokens | `core/llm/conversation.py:58-61` | Trims at 15 messages regardless of token count. Long system prompts + 15 messages can exceed context limits. | **DISMISSED** — memory cleared each turn, usage is only 6.6% of 128k context |
 
 ### Frontend Quality
