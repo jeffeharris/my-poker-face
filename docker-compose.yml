@@ -1,9 +1,11 @@
 services:
   # Flask/SocketIO backend server
   backend:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile
+      args:
+        INSTALL_DEV: "true"
     ports:
       - "${BACKEND_PORT:-5000}:5000"
     volumes:

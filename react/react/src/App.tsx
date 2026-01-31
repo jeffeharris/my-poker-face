@@ -1,20 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { GameSelector } from './components/menus/GameSelector'
-import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
-import { PersonalityManager } from './components/admin/PersonalityManager'
 import { GameMenu, type QuickPlayConfig } from './components/menus/GameMenu'
-import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
-import { CustomGameConfig } from './components/menus/CustomGameConfig'
 import { LoginForm } from './components/auth/LoginForm'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
-import { CareerStats } from './components/stats/CareerStats'
-import { InstallPrompt } from './components/pwa/InstallPrompt'
 import { GamePage } from './components/game/GamePage'
-import { AdminRoutes } from './components/admin/AdminRoutes'
-import { PrivacyPolicy, TermsOfService } from './components/legal'
-import { LandingPage } from './components/landing'
 import { useAuth } from './hooks/useAuth'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { useUsageStats } from './hooks/useUsageStats'
@@ -24,6 +14,19 @@ import { config } from './config'
 import { type Theme } from './types/theme'
 import toast, { Toaster } from 'react-hot-toast'
 import './App.css'
+
+// Lazy-loaded routes — only downloaded when navigated to
+const GameSelector = lazy(() => import('./components/menus/GameSelector').then(m => ({ default: m.GameSelector })))
+const PlayerNameEntry = lazy(() => import('./components/menus/PlayerNameEntry').then(m => ({ default: m.PlayerNameEntry })))
+const PersonalityManager = lazy(() => import('./components/admin/PersonalityManager').then(m => ({ default: m.PersonalityManager })))
+const ThemedGameSelector = lazy(() => import('./components/menus/ThemedGameSelector').then(m => ({ default: m.ThemedGameSelector })))
+const CustomGameConfig = lazy(() => import('./components/menus/CustomGameConfig').then(m => ({ default: m.CustomGameConfig })))
+const CareerStats = lazy(() => import('./components/stats/CareerStats').then(m => ({ default: m.CareerStats })))
+const InstallPrompt = lazy(() => import('./components/pwa/InstallPrompt').then(m => ({ default: m.InstallPrompt })))
+const AdminRoutes = lazy(() => import('./components/admin/AdminRoutes').then(m => ({ default: m.AdminRoutes })))
+const LandingPage = lazy(() => import('./components/landing').then(m => ({ default: m.LandingPage })))
+const PrivacyPolicy = lazy(() => import('./components/legal').then(m => ({ default: m.PrivacyPolicy })))
+const TermsOfService = lazy(() => import('./components/legal').then(m => ({ default: m.TermsOfService })))
 
 // Fallback game limit values when usageStats hasn't loaded yet
 const MAX_GAMES_GUEST = 1;
@@ -314,6 +317,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
       {/* Routes */}
       <ErrorBoundary>
+      <Suspense fallback={<div className="loading-screen"><div className="loading-spinner" /></div>}>
       <Routes>
         {/* Public routes */}
         <Route path="/login" element={
@@ -402,6 +406,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         <Route path="/" element={isAuthenticated ? <Navigate to="/menu" replace /> : <LandingPage />} />
         <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/'} replace />} />
       </Routes>
+      </Suspense>
       </ErrorBoundary>
 
       {/* Loading Overlay - blocks all interaction during game creation */}
