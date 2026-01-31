@@ -94,7 +94,8 @@ jobs:
         run: |
           if [ -f data/poker_games.db ]; then
             cp data/poker_games.db "data/poker_games.db.bak.$(date +%Y%m%d-%H%M%S)"
-            echo "Database backed up"
+            ls -t data/poker_games.db.bak.* 2>/dev/null | tail -n +6 | xargs rm -f
+            echo "Database backed up (keeping last 5)"
           else
             echo "No database file found, skipping backup"
           fi
