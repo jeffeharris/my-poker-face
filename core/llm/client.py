@@ -144,7 +144,6 @@ class LLMClient:
 
         # Retry config for transient errors (timeouts, 5xx, rate limits)
         max_retries = 2  # up to 3 total attempts
-        retryable_keywords = ("timeout", "rate limit", "429", "500", "502", "503", "504", "overloaded", "server error")
 
         try:
             while iteration < max_tool_iterations:
@@ -162,13 +161,10 @@ class LLMClient:
                         )
                         break  # success
                     except Exception as retry_err:
-                        err_str = str(retry_err).lower()
-                        is_retryable = any(kw in err_str for kw in retryable_keywords)
+                        is_retryable, wait = self._provider.is_retryable_error(retry_err)
                         if not is_retryable or attempt >= max_retries:
                             raise  # non-retryable or final attempt — propagate
-                        wait = min(2 ** attempt, 16)
-                        if "rate limit" in err_str or "429" in err_str:
-                            wait = 30
+                        wait = max(wait, min(2 ** attempt, 16))
                         logger.warning(f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}), retrying in {wait}s: {retry_err}")
                         time.sleep(wait)
 

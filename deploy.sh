@@ -28,11 +28,15 @@ echo "==> Decrypting secrets on server..."
 ssh ${SERVER} "cd ${APP_DIR} && age -d -i ${AGE_KEY} .env.prod.age > .env"
 
 echo "==> Tagging current images for rollback..."
-ssh ${SERVER} "cd ${APP_DIR} && ${COMPOSE} images -q 2>/dev/null | xargs -r docker tag 2>/dev/null || true"
 ssh ${SERVER} "cd ${APP_DIR} && for svc in backend frontend; do
-  img=\$(${COMPOSE} images \$svc -q 2>/dev/null)
-  if [ -n \"\$img\" ]; then
-    docker tag \$img \${svc}:rollback 2>/dev/null || true
+  img=\$(${COMPOSE} images \$svc --format '{{.ID}}' 2>/dev/null | head -1)
+  repo=\$(${COMPOSE} images \$svc --format '{{.Repository}}' 2>/dev/null | head -1)
+  if [ -n \"\$img\" ] && [ -n \"\$repo\" ]; then
+    docker tag \$img \${repo}:rollback
+    echo \"\$repo\" > /tmp/rollback-\$svc
+    echo \"  Tagged \$svc (\$img) as \${repo}:rollback\"
+  else
+    echo \"  No existing image for \$svc (first deploy?)\"
   fi
 done"
 
@@ -56,12 +60,27 @@ echo "==> Checking health..."
 if ! ssh ${SERVER} "curl -sf http://localhost/health"; then
     echo ""
     echo "!!! Health check failed — rolling back..."
-    ssh ${SERVER} "cd ${APP_DIR} && for svc in backend frontend; do
-      if docker image inspect \${svc}:rollback >/dev/null 2>&1; then
-        docker tag \${svc}:rollback \$(${COMPOSE} images \$svc --format '{{.Repository}}:{{.Tag}}') 2>/dev/null || true
-      fi
-    done && ${COMPOSE} up -d"
-    echo "!!! Rolled back to previous images. Check logs with:"
+    ssh ${SERVER} "cd ${APP_DIR} && ROLLBACK_OK=1
+for svc in backend frontend; do
+  if [ -f /tmp/rollback-\$svc ]; then
+    REPO=\$(cat /tmp/rollback-\$svc)
+    if docker image inspect \${REPO}:rollback >/dev/null 2>&1; then
+      docker tag \${REPO}:rollback \${REPO}:latest
+      echo \"  Restored \$svc from \${REPO}:rollback\"
+    else
+      echo \"  WARNING: rollback image not found for \$svc\"
+      ROLLBACK_OK=0
+    fi
+  else
+    echo \"  WARNING: No rollback ref for \$svc\"
+    ROLLBACK_OK=0
+  fi
+done
+${COMPOSE} up -d
+if [ \"\$ROLLBACK_OK\" = \"0\" ]; then
+  echo 'WARNING: Rollback may be incomplete — check manually'
+fi"
+    echo "!!! Check logs with:"
     echo "    ssh ${SERVER} 'docker logs poker-backend-1'"
     exit 1
 fi

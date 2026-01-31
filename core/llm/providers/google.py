@@ -10,6 +10,11 @@ from typing import List, Dict, Any, Optional
 from google import genai
 from google.genai import types
 
+try:
+    from google.api_core import exceptions as google_exceptions
+except ImportError:
+    google_exceptions = None  # type: ignore[assignment]
+
 from .base import LLMProvider
 from .http_client import shared_http_client
 from ..config import DEFAULT_MAX_TOKENS, GOOGLE_DEFAULT_MODEL
@@ -186,6 +191,17 @@ class GoogleProvider(LLMProvider):
         """Generate image using Imagen."""
         # Imagen integration would go here
         raise NotImplementedError("Gemini image generation not yet implemented")
+
+    def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
+        if google_exceptions is None:
+            return False, 0
+        if isinstance(exception, google_exceptions.ResourceExhausted):
+            return True, 30
+        if isinstance(exception, google_exceptions.DeadlineExceeded):
+            return True, 2
+        if isinstance(exception, (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError)):
+            return True, 2
+        return False, 0
 
     def extract_usage(self, raw_response: Any) -> Dict[str, int]:
         """Extract token usage from Gemini response."""

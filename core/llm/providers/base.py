@@ -113,6 +113,15 @@ class LLMProvider(ABC):
         """
         ...
 
+    def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
+        """Check if an exception is retryable and suggest a wait time.
+
+        Returns:
+            (is_retryable, suggested_wait_seconds) — providers override
+            this to classify their SDK-specific exceptions.
+        """
+        return False, 0
+
     def extract_tool_calls(self, raw_response: Any) -> Optional[List[Dict[str, Any]]]:
         """Extract tool calls from response.
 
