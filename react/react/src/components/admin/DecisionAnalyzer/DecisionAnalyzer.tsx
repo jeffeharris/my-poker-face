@@ -149,6 +149,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
       if (filters.error_type) params.set('error_type', filters.error_type);
       if (filters.has_error !== undefined) params.set('has_error', filters.has_error.toString());
       if (filters.is_correction !== undefined) params.set('is_correction', filters.is_correction.toString());
+      if (filters.display_emotion) params.set('display_emotion', filters.display_emotion);
+      if (filters.min_tilt_level !== undefined) params.set('min_tilt_level', filters.min_tilt_level.toString());
+      if (filters.max_tilt_level !== undefined) params.set('max_tilt_level', filters.max_tilt_level.toString());
       if (filters.limit) params.set('limit', filters.limit.toString());
       if (filters.offset) params.set('offset', filters.offset.toString());
 
@@ -356,6 +359,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
     if (filters.error_type) count++;
     if (filters.has_error !== undefined) count++;
     if (filters.is_correction !== undefined) count++;
+    if (filters.display_emotion) count++;
+    if (filters.min_tilt_level !== undefined) count++;
+    if (filters.max_tilt_level !== undefined) count++;
     return count;
   };
 
@@ -380,6 +386,113 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
     if (highSeverity.includes(label)) return 'high';
     if (mediumSeverity.includes(label)) return 'medium';
     return 'low';
+  };
+
+  // Get tilt bar color class
+  const getTiltBarClass = (tiltLevel: number): string => {
+    if (tiltLevel < 0.3) return 'tilt-bar-fill--low';
+    if (tiltLevel < 0.6) return 'tilt-bar-fill--medium';
+    return 'tilt-bar-fill--high';
+  };
+
+  // Render psychology section (shared between mobile and desktop)
+  const renderPsychologySection = (analysis: DecisionAnalysis) => {
+    const hasPsychology = analysis.display_emotion != null || analysis.tilt_level != null ||
+      analysis.valence != null || analysis.arousal != null || analysis.control != null ||
+      analysis.focus != null || analysis.elastic_aggression != null || analysis.elastic_bluff_tendency != null;
+
+    if (!hasPsychology) return null;
+
+    return (
+      <div className="psychology-section">
+        <h4>Psychology</h4>
+        <div className="psychology-grid">
+          {analysis.display_emotion != null && (
+            <div className="psychology-item">
+              <label>Emotion:</label>
+              <span className={`emotion-badge emotion-badge--${analysis.display_emotion}`}>
+                {analysis.display_emotion}
+              </span>
+            </div>
+          )}
+          {analysis.tilt_level != null && (
+            <div className="psychology-item">
+              <label>Tilt:</label>
+              <div className="tilt-bar">
+                <span>{(analysis.tilt_level * 100).toFixed(0)}%</span>
+                <div className="tilt-bar-track">
+                  <div
+                    className={`tilt-bar-fill ${getTiltBarClass(analysis.tilt_level)}`}
+                    style={{ width: `${analysis.tilt_level * 100}%` }}
+                  />
+                </div>
+              </div>
+              {analysis.tilt_source && (
+                <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)' }}>
+                  {analysis.tilt_source}
+                </span>
+              )}
+            </div>
+          )}
+          {analysis.valence != null && (
+            <div className="psychology-item">
+              <label>Valence:</label>
+              <span>{analysis.valence.toFixed(2)}</span>
+            </div>
+          )}
+          {analysis.arousal != null && (
+            <div className="psychology-item">
+              <label>Arousal:</label>
+              <span>{analysis.arousal.toFixed(2)}</span>
+            </div>
+          )}
+          {analysis.control != null && (
+            <div className="psychology-item">
+              <label>Control:</label>
+              <span>{analysis.control.toFixed(2)}</span>
+            </div>
+          )}
+          {analysis.focus != null && (
+            <div className="psychology-item">
+              <label>Focus:</label>
+              <span>{analysis.focus.toFixed(2)}</span>
+            </div>
+          )}
+          {analysis.elastic_aggression != null && (
+            <div className="psychology-item">
+              <label>Aggression:</label>
+              <span>{analysis.elastic_aggression.toFixed(2)}</span>
+            </div>
+          )}
+          {analysis.elastic_bluff_tendency != null && (
+            <div className="psychology-item">
+              <label>Bluff Tendency:</label>
+              <span>{analysis.elastic_bluff_tendency.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Render prompt config section
+  const renderPromptConfigSection = (capture: PromptCapture) => {
+    if (!capture.prompt_config_json) return null;
+
+    let configDisplay: string;
+    try {
+      const parsed = JSON.parse(capture.prompt_config_json);
+      configDisplay = JSON.stringify(parsed, null, 2);
+    } catch {
+      configDisplay = capture.prompt_config_json;
+    }
+
+    return (
+      <details className="prompt-config-section">
+        <summary>Prompt Config</summary>
+        <pre>{configDisplay}</pre>
+      </details>
+    );
   };
 
   const activeFilterCount = getActiveFilterCount();
@@ -685,6 +798,42 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               <option value="true">Corrections Only</option>
             </select>
 
+            <select
+              value={filters.display_emotion || ''}
+              onChange={(e) => setFilters({
+                ...filters,
+                display_emotion: e.target.value || undefined,
+                offset: 0
+              })}
+            >
+              <option value="">All (Emotion)</option>
+              <option value="angry">Angry</option>
+              <option value="elated">Elated</option>
+              <option value="shocked">Shocked</option>
+              <option value="smug">Smug</option>
+              <option value="frustrated">Frustrated</option>
+              <option value="nervous">Nervous</option>
+              <option value="confident">Confident</option>
+              <option value="happy">Happy</option>
+              <option value="thinking">Thinking</option>
+              <option value="poker_face">Poker Face</option>
+            </select>
+
+            <input
+              type="number"
+              placeholder="Min Tilt"
+              value={filters.min_tilt_level ?? ''}
+              onChange={(e) => setFilters({
+                ...filters,
+                min_tilt_level: e.target.value ? parseFloat(e.target.value) : undefined,
+                offset: 0
+              })}
+              min={0}
+              max={1}
+              step={0.1}
+              style={{ width: '90px' }}
+            />
+
             {/* Label filter chips - desktop */}
             {labelStats && Object.keys(labelStats).length > 0 && (
               <div className="debugger-filter-chips debugger-filter-chips--inline">
@@ -704,7 +853,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               </div>
             )}
 
-            <button onClick={() => setFilters({ limit: 50, offset: 0, labels: undefined, error_type: undefined, has_error: undefined, is_correction: undefined })}>
+            <button onClick={() => setFilters({ limit: 50, offset: 0, labels: undefined, error_type: undefined, has_error: undefined, is_correction: undefined, display_emotion: undefined, min_tilt_level: undefined, max_tilt_level: undefined })}>
               Clear Filters
             </button>
 
@@ -855,6 +1004,12 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                     </div>
                   </div>
                 )}
+
+                {/* Psychology */}
+                {selectedAnalysis && renderPsychologySection(selectedAnalysis)}
+
+                {/* Prompt Config */}
+                {selectedCapture && renderPromptConfigSection(selectedCapture)}
 
                 <div className="detail-tabs">
                   <button
@@ -1306,6 +1461,12 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 </div>
               )}
 
+              {/* Psychology */}
+              {selectedAnalysis && renderPsychologySection(selectedAnalysis)}
+
+              {/* Prompt Config */}
+              {selectedCapture && renderPromptConfigSection(selectedCapture)}
+
               <div className="detail-tabs">
                 <button
                   className={mode === 'view' ? 'active' : ''}
@@ -1728,6 +1889,51 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               <option value="false">Original Only</option>
               <option value="true">Corrections Only</option>
             </select>
+          </FilterGroup>
+
+          <FilterGroup label="Emotion">
+            <select
+              className="mobile-filter-sheet__select"
+              value={filters.display_emotion || ''}
+              onChange={(e) => {
+                setFilters({
+                  ...filters,
+                  display_emotion: e.target.value || undefined,
+                  offset: 0
+                });
+              }}
+            >
+              <option value="">All</option>
+              <option value="angry">Angry</option>
+              <option value="elated">Elated</option>
+              <option value="shocked">Shocked</option>
+              <option value="smug">Smug</option>
+              <option value="frustrated">Frustrated</option>
+              <option value="nervous">Nervous</option>
+              <option value="confident">Confident</option>
+              <option value="happy">Happy</option>
+              <option value="thinking">Thinking</option>
+              <option value="poker_face">Poker Face</option>
+            </select>
+          </FilterGroup>
+
+          <FilterGroup label="Min Tilt">
+            <input
+              className="mobile-filter-sheet__input"
+              type="number"
+              placeholder="Min tilt level"
+              value={filters.min_tilt_level ?? ''}
+              onChange={(e) => {
+                setFilters({
+                  ...filters,
+                  min_tilt_level: e.target.value ? parseFloat(e.target.value) : undefined,
+                  offset: 0
+                });
+              }}
+              min={0}
+              max={1}
+              step={0.1}
+            />
           </FilterGroup>
 
           {/* Label filter chips */}

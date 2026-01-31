@@ -82,6 +82,11 @@ def list_captures():
     elif is_correction_str == 'false':
         is_correction = False
 
+    # Parse psychology filters
+    display_emotion = request.args.get('display_emotion')
+    min_tilt_level = float(request.args.get('min_tilt_level')) if request.args.get('min_tilt_level') else None
+    max_tilt_level = float(request.args.get('max_tilt_level')) if request.args.get('max_tilt_level') else None
+
     filters = {
         'game_id': request.args.get('game_id'),
         'player_name': request.args.get('player_name'),
@@ -98,6 +103,9 @@ def list_captures():
         'error_type': error_type,
         'has_error': has_error,
         'is_correction': is_correction,
+        'display_emotion': display_emotion,
+        'min_tilt_level': min_tilt_level,
+        'max_tilt_level': max_tilt_level,
         'limit': int(request.args.get('limit', 50)),
         'offset': int(request.args.get('offset', 0)),
     }

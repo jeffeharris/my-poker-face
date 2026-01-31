@@ -5442,6 +5442,9 @@ class GamePersistence:
         error_type: Optional[str] = None,
         has_error: Optional[bool] = None,
         is_correction: Optional[bool] = None,
+        display_emotion: Optional[str] = None,
+        min_tilt_level: Optional[float] = None,
+        max_tilt_level: Optional[float] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
@@ -5451,6 +5454,9 @@ class GamePersistence:
             error_type: Filter by specific error type (e.g., 'malformed_json', 'missing_field')
             has_error: Filter to captures with errors (True) or without errors (False)
             is_correction: Filter to correction attempts only (True) or original only (False)
+            display_emotion: Filter by display emotion (e.g., 'confident', 'tilted')
+            min_tilt_level: Filter by minimum tilt level
+            max_tilt_level: Filter by maximum tilt level
 
         Returns:
             Dict with 'captures' list and 'total' count.
@@ -5458,67 +5464,83 @@ class GamePersistence:
         conditions = []
         params = []
 
+        # Determine if we need the psychology join
+        needs_psychology_join = any([display_emotion, min_tilt_level is not None, max_tilt_level is not None])
+
         if game_id:
-            conditions.append("game_id = ?")
+            conditions.append("pc.game_id = ?")
             params.append(game_id)
         if player_name:
-            conditions.append("player_name = ?")
+            conditions.append("pc.player_name = ?")
             params.append(player_name)
         if action:
-            conditions.append("action_taken = ?")
+            conditions.append("pc.action_taken = ?")
             params.append(action)
         if phase:
-            conditions.append("phase = ?")
+            conditions.append("pc.phase = ?")
             params.append(phase)
         if min_pot_odds is not None:
-            conditions.append("pot_odds >= ?")
+            conditions.append("pc.pot_odds >= ?")
             params.append(min_pot_odds)
         if max_pot_odds is not None:
-            conditions.append("pot_odds <= ?")
+            conditions.append("pc.pot_odds <= ?")
             params.append(max_pot_odds)
         if call_type:
-            conditions.append("call_type = ?")
+            conditions.append("pc.call_type = ?")
             params.append(call_type)
         if error_type:
-            conditions.append("error_type = ?")
+            conditions.append("pc.error_type = ?")
             params.append(error_type)
         if has_error is True:
-            conditions.append("error_type IS NOT NULL")
+            conditions.append("pc.error_type IS NOT NULL")
         elif has_error is False:
-            conditions.append("error_type IS NULL")
+            conditions.append("pc.error_type IS NULL")
         if is_correction is True:
-            conditions.append("parent_id IS NOT NULL")
+            conditions.append("pc.parent_id IS NOT NULL")
         elif is_correction is False:
-            conditions.append("parent_id IS NULL")
+            conditions.append("pc.parent_id IS NULL")
         if tags:
             # Match any of the provided tags
             tag_conditions = []
             for tag in tags:
-                tag_conditions.append("tags LIKE ?")
+                tag_conditions.append("pc.tags LIKE ?")
                 params.append(f'%"{tag}"%')
             conditions.append(f"({' OR '.join(tag_conditions)})")
 
+        # Psychology filters (require join)
+        if display_emotion:
+            conditions.append("pda.display_emotion = ?")
+            params.append(display_emotion)
+        if min_tilt_level is not None:
+            conditions.append("pda.tilt_level >= ?")
+            params.append(min_tilt_level)
+        if max_tilt_level is not None:
+            conditions.append("pda.tilt_level <= ?")
+            params.append(max_tilt_level)
+
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        join_clause = "LEFT JOIN player_decision_analysis pda ON pda.capture_id = pc.id" if needs_psychology_join else ""
 
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Get total count
             count_cursor = conn.execute(
-                f"SELECT COUNT(*) FROM prompt_captures {where_clause}",
+                f"SELECT COUNT(*) FROM prompt_captures pc {join_clause} {where_clause}",
                 params
             )
             total = count_cursor.fetchone()[0]
 
             # Get captures with pagination
             query = f"""
-                SELECT id, created_at, game_id, player_name, hand_number, phase,
-                       action_taken, pot_total, cost_to_call, pot_odds, player_stack,
-                       community_cards, player_hand, model, provider, latency_ms, tags, notes,
-                       error_type, error_description, parent_id, correction_attempt
-                FROM prompt_captures
+                SELECT pc.id, pc.created_at, pc.game_id, pc.player_name, pc.hand_number, pc.phase,
+                       pc.action_taken, pc.pot_total, pc.cost_to_call, pc.pot_odds, pc.player_stack,
+                       pc.community_cards, pc.player_hand, pc.model, pc.provider, pc.latency_ms, pc.tags, pc.notes,
+                       pc.error_type, pc.error_description, pc.parent_id, pc.correction_attempt
+                FROM prompt_captures pc
+                {join_clause}
                 {where_clause}
-                ORDER BY created_at DESC
+                ORDER BY pc.created_at DESC
                 LIMIT ? OFFSET ?
             """
             params.extend([limit, offset])
