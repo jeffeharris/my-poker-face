@@ -9,8 +9,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ARG INSTALL_DEV=false
+COPY requirements.txt requirements-dev.txt ./
+RUN if [ "$INSTALL_DEV" = "true" ]; then \
+      pip install --no-cache-dir -r requirements-dev.txt; \
+    else \
+      pip install --no-cache-dir -r requirements.txt; \
+    fi
 
 # Copy the application code
 COPY . .

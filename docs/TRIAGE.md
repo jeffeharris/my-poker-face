@@ -108,7 +108,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-30 | No frontend health check | `docker-compose.prod.yml:51-57` | Frontend service has no healthcheck. Docker can't auto-recover if nginx crashes. | |
 | T2-31 | No deploy rollback mechanism | `deploy.sh:29-30` | Previous containers destroyed before testing new ones. Failed deploy = downtime. | |
 | T2-32 | Migration runs after health check | `.github/workflows/deploy.yml:100-107` | App goes live, THEN migration runs. If migration fails, app has wrong schema. | **FIXED** — reordered: migrations run before health check |
-| T2-33 | Production includes dev dependencies | `Dockerfile:13` | `pip install -r requirements.txt` includes pytest in production image. | |
+| T2-33 | Production includes dev dependencies | `Dockerfile:13` | `pip install -r requirements.txt` includes pytest in production image. | **FIXED** — split into requirements.txt + requirements-dev.txt, Dockerfile uses build arg |
 | T2-34 | No pre-deploy database backup | `.github/workflows/deploy.yml:92-95` | Deploy has no backup step. Failed migration = data loss risk. | **FIXED** — added backup step before build |
 
 ---
@@ -183,9 +183,9 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 34 | 12 | 1 | 21 |
+| **Tier 2: Should-Fix** | 34 | 13 | 1 | 20 |
 | **Tier 3: Post-Release** | 34 | 9 | 0 | 25 |
-| **Total** | **89** | **34** | **8** | **46** |
+| **Total** | **89** | **35** | **8** | **45** |
 
 ## Key Architectural Insight
 
