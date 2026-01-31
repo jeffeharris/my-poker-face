@@ -5564,6 +5564,15 @@ class GamePersistence:
                 'total': total
             }
 
+    def get_distinct_emotions(self) -> List[str]:
+        """Get distinct display_emotion values from player_decision_analysis."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT DISTINCT display_emotion FROM player_decision_analysis "
+                "WHERE display_emotion IS NOT NULL ORDER BY display_emotion"
+            )
+            return [row[0] for row in cursor.fetchall()]
+
     def get_prompt_capture_stats(
         self,
         game_id: Optional[str] = None,

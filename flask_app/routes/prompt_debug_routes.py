@@ -156,6 +156,13 @@ def list_captures():
     })
 
 
+@prompt_debug_bp.route('/api/prompt-debug/emotions', methods=['GET'])
+def get_distinct_emotions():
+    """Get distinct display_emotion values from decision analyses."""
+    emotions = persistence.get_distinct_emotions()
+    return jsonify({'success': True, 'emotions': emotions})
+
+
 @prompt_debug_bp.route('/api/prompt-debug/label-stats', methods=['GET'])
 def get_label_stats():
     """Get label statistics for prompt captures.

@@ -50,6 +50,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
+  const [availableEmotions, setAvailableEmotions] = useState<string[]>([]);
 
   // Filters
   const [filters, setFilters] = useState<CaptureFilters>({
@@ -195,6 +196,24 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
       logger.debug('Failed to fetch analysis stats:', err);
     }
   }, [filters.game_id]);
+
+  // Fetch distinct emotions for filter dropdown (once on mount)
+  useEffect(() => {
+    (async () => {
+      try {
+        const response = await fetch(
+          `${config.API_URL}/api/prompt-debug/emotions`,
+          { credentials: 'include' }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableEmotions(data.emotions || []);
+        }
+      } catch (err) {
+        logger.debug('Failed to fetch emotions:', err);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     fetchCaptures();
@@ -807,16 +826,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               })}
             >
               <option value="">All (Emotion)</option>
-              <option value="angry">Angry</option>
-              <option value="elated">Elated</option>
-              <option value="shocked">Shocked</option>
-              <option value="smug">Smug</option>
-              <option value="frustrated">Frustrated</option>
-              <option value="nervous">Nervous</option>
-              <option value="confident">Confident</option>
-              <option value="happy">Happy</option>
-              <option value="thinking">Thinking</option>
-              <option value="poker_face">Poker Face</option>
+              {availableEmotions.map(e => (
+                <option key={e} value={e}>{e.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+              ))}
             </select>
 
             <input
@@ -1904,16 +1916,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               }}
             >
               <option value="">All</option>
-              <option value="angry">Angry</option>
-              <option value="elated">Elated</option>
-              <option value="shocked">Shocked</option>
-              <option value="smug">Smug</option>
-              <option value="frustrated">Frustrated</option>
-              <option value="nervous">Nervous</option>
-              <option value="confident">Confident</option>
-              <option value="happy">Happy</option>
-              <option value="thinking">Thinking</option>
-              <option value="poker_face">Poker Face</option>
+              {availableEmotions.map(e => (
+                <option key={e} value={e}>{e.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+              ))}
             </select>
           </FilterGroup>
 
