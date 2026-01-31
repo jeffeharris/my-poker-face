@@ -105,8 +105,8 @@ Issues that won't crash but indicate quality problems that could bite early user
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T2-29 | Single gunicorn worker in production | `docker-compose.prod.yml:39`, `flask_app/extensions.py:30` | Uses gevent (not sync), so single worker handles many connections via green threads. But CPU-bound work (AI decisions) blocks the event loop for all clients. **Prerequisite**: add `message_queue=REDIS_URL` to `SocketIO()` init in extensions.py (Redis already running in prod). Then bump to `-w 2`. Also fix `async_mode='threading'` → auto-detect. ~3 files changed, main risk is testing. **Scale trigger**: becomes noticeable at 30+ concurrent games or when running AI tournaments alongside live users. | |
-| T2-30 | No frontend health check | `docker-compose.prod.yml:51-57` | Frontend service has no healthcheck. Docker can't auto-recover if nginx crashes. | |
-| T2-31 | No deploy rollback mechanism | `deploy.sh:29-30` | Previous containers destroyed before testing new ones. Failed deploy = downtime. | |
+| T2-30 | No frontend health check | `docker-compose.prod.yml:51-57` | Frontend service has no healthcheck. Docker can't auto-recover if nginx crashes. | **FIXED** — added curl health check on nginx |
+| T2-31 | No deploy rollback mechanism | `deploy.sh:29-30` | Previous containers destroyed before testing new ones. Failed deploy = downtime. | **FIXED** — tag images before build, auto-rollback on failed health check |
 | T2-32 | Migration runs after health check | `.github/workflows/deploy.yml:100-107` | App goes live, THEN migration runs. If migration fails, app has wrong schema. | **FIXED** — reordered: migrations run before health check |
 | T2-33 | Production includes dev dependencies | `Dockerfile:13` | `pip install -r requirements.txt` includes pytest in production image. | **FIXED** — split into requirements.txt + requirements-dev.txt, Dockerfile uses build arg |
 | T2-34 | No pre-deploy database backup | `.github/workflows/deploy.yml:92-95` | Deploy has no backup step. Failed migration = data loss risk. | **FIXED** — added backup step before build |
@@ -183,9 +183,9 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 34 | 13 | 1 | 20 |
+| **Tier 2: Should-Fix** | 34 | 15 | 1 | 18 |
 | **Tier 3: Post-Release** | 34 | 9 | 0 | 25 |
-| **Total** | **89** | **35** | **8** | **45** |
+| **Total** | **89** | **37** | **8** | **43** |
 
 ## Key Architectural Insight
 
