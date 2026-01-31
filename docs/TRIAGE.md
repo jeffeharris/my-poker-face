@@ -104,7 +104,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T2-29 | Single gunicorn worker in production | `docker-compose.prod.yml:39` | `gunicorn -w 1` — one slow request blocks all others. Increase to at least 4 workers. | |
+| T2-29 | Single gunicorn worker in production | `docker-compose.prod.yml:39`, `flask_app/extensions.py:30` | Uses gevent (not sync), so single worker handles many connections via green threads. But CPU-bound work (AI decisions) blocks the event loop for all clients. **Prerequisite**: add `message_queue=REDIS_URL` to `SocketIO()` init in extensions.py (Redis already running in prod). Then bump to `-w 2`. Also fix `async_mode='threading'` → auto-detect. ~3 files changed, main risk is testing. **Scale trigger**: becomes noticeable at 30+ concurrent games or when running AI tournaments alongside live users. | |
 | T2-30 | No frontend health check | `docker-compose.prod.yml:51-57` | Frontend service has no healthcheck. Docker can't auto-recover if nginx crashes. | |
 | T2-31 | No deploy rollback mechanism | `deploy.sh:29-30` | Previous containers destroyed before testing new ones. Failed deploy = downtime. | |
 | T2-32 | Migration runs after health check | `.github/workflows/deploy.yml:100-107` | App goes live, THEN migration runs. If migration fails, app has wrong schema. | |
