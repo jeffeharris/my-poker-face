@@ -76,7 +76,7 @@ for svc in backend frontend; do
     ROLLBACK_OK=0
   fi
 done
-${COMPOSE} up -d
+${COMPOSE} up -d --no-build
 if [ \"\$ROLLBACK_OK\" = \"0\" ]; then
   echo 'WARNING: Rollback may be incomplete — check manually'
 fi"

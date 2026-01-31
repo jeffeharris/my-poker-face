@@ -168,6 +168,7 @@ class LLMClient:
                         logger.warning(f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}), retrying in {wait}s: {retry_err}")
                         time.sleep(wait)
 
+                assert raw_response is not None, "Retry loop completed without response"
                 usage = self._provider.extract_usage(raw_response)
                 total_input_tokens += usage["input_tokens"]
                 total_output_tokens += usage["output_tokens"]
