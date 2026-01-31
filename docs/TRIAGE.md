@@ -68,7 +68,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T2-08 | `PokerAction` class entirely unused | `poker/poker_action.py` | Entire file is dead code (zero imports). Game uses plain dicts. Remove file. | |
+| T2-08 | `PokerAction` class entirely unused | `poker/poker_action.py` | Entire file is dead code (zero imports). Game uses plain dicts. Remove file. | **FIXED** — file deleted as part of T1-01 |
 | T2-09 | O(n²) player flag reset | `poker/poker_game.py:422-437` | Calls `update_player` per player in loop, each creating new tuple copy. Build new tuple in one pass. | **FIXED** — single-pass tuple comprehension |
 | T2-10 | `controllers.py` is 1794-line god object | `poker/controllers.py:554-1794` | `AIPlayerController` has 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Split into services. | |
 | T2-11 | `usePokerGame` hook is 588 lines | `react/src/hooks/usePokerGame.ts` | Socket management, state, messages, winners, tournaments all in one. Impossible to unit test. Split into focused hooks. | |
@@ -107,9 +107,9 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-29 | Single gunicorn worker in production | `docker-compose.prod.yml:39`, `flask_app/extensions.py:30` | Uses gevent (not sync), so single worker handles many connections via green threads. But CPU-bound work (AI decisions) blocks the event loop for all clients. **Prerequisite**: add `message_queue=REDIS_URL` to `SocketIO()` init in extensions.py (Redis already running in prod). Then bump to `-w 2`. Also fix `async_mode='threading'` → auto-detect. ~3 files changed, main risk is testing. **Scale trigger**: becomes noticeable at 30+ concurrent games or when running AI tournaments alongside live users. | |
 | T2-30 | No frontend health check | `docker-compose.prod.yml:51-57` | Frontend service has no healthcheck. Docker can't auto-recover if nginx crashes. | |
 | T2-31 | No deploy rollback mechanism | `deploy.sh:29-30` | Previous containers destroyed before testing new ones. Failed deploy = downtime. | |
-| T2-32 | Migration runs after health check | `.github/workflows/deploy.yml:100-107` | App goes live, THEN migration runs. If migration fails, app has wrong schema. | |
+| T2-32 | Migration runs after health check | `.github/workflows/deploy.yml:100-107` | App goes live, THEN migration runs. If migration fails, app has wrong schema. | **FIXED** — reordered: migrations run before health check |
 | T2-33 | Production includes dev dependencies | `Dockerfile:13` | `pip install -r requirements.txt` includes pytest in production image. | |
-| T2-34 | No pre-deploy database backup | `.github/workflows/deploy.yml:92-95` | Deploy has no backup step. Failed migration = data loss risk. | |
+| T2-34 | No pre-deploy database backup | `.github/workflows/deploy.yml:92-95` | Deploy has no backup step. Failed migration = data loss risk. | **FIXED** — added backup step before build |
 
 ---
 
@@ -161,7 +161,7 @@ Issues to address once live, during ongoing development.
 | T3-23 | Env var docs spread across 3 files | `.env.example`, `CLAUDE.md`, `DEVOPS.md` | Inconsistent and potentially conflicting. | |
 | T3-24 | No `.editorconfig` | Project root | No editor settings for tabs/spaces, line endings. | **FIXED** — added `.editorconfig` |
 | T3-25 | No dependabot or renovate | Missing `.github/dependabot.yml` | Dependency updates manual. Security patches could be missed. | **FIXED** — added `.github/dependabot.yml` |
-| T3-26 | `__pycache__` files committed | `tests/` | `.gitignore` incomplete. Merge conflicts on cache files. | |
+| T3-26 | `__pycache__` files committed | `tests/` | `.gitignore` incomplete. Merge conflicts on cache files. | **FIXED** — `.gitignore` already covers `__pycache__/`, no cached files in repo |
 | T3-27 | Makefile uses deprecated `docker-compose` | `Makefile:10-46` | Should use `docker compose` (v2). Won't work on newer systems. | **FIXED** — updated to `docker compose` v2 |
 | T3-28 | GitHub Actions allows 50 lint warnings | `.github/workflows/deploy.yml:57` | `--max-warnings=50` should be 0 for clean codebase. | **FIXED** — set `--max-warnings=0` |
 
@@ -183,9 +183,9 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 34 | 9 | 1 | 24 |
-| **Tier 3: Post-Release** | 34 | 8 | 0 | 26 |
-| **Total** | **89** | **30** | **8** | **50** |
+| **Tier 2: Should-Fix** | 34 | 12 | 1 | 21 |
+| **Tier 3: Post-Release** | 34 | 9 | 0 | 25 |
+| **Total** | **89** | **34** | **8** | **46** |
 
 ## Key Architectural Insight
 
