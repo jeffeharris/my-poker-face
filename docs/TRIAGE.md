@@ -81,7 +81,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T2-16 | No LLM retry logic | All LLM providers except Pollinations/Runware | API failures immediately fail. No exponential backoff. Games fail mid-hand on transient errors. | |
+| T2-16 | No LLM retry at provider level | All text LLM providers | Player decisions are well-covered: `@with_ai_fallback` (3 retries + exponential backoff + circuit breaker) and `_get_ai_decision` (correction prompt → personality fallback). Image providers (Pollinations/Runware) also have retries. **Actual gap**: non-decision calls (commentary, chat suggestions, personality/theme generation) have no retry — transient 500s or timeouts silently fail. Lower priority than originally assessed. | |
 | T2-17 | HTTP client never closed | `core/llm/providers/http_client.py:10-17` | Module-level `httpx.Client()` singleton has no shutdown hook. Connection leak in long-running processes. | **FIXED** — added `atexit` cleanup handler |
 | T2-18 | UsageTracker singleton not thread-safe | `core/llm/tracking.py:84-110` | `_instance` check-and-set has race condition. Multiple threads can create multiple instances. | **FIXED** — added threading.Lock for singleton |
 | T2-19 | Unbounded game state memory growth | `flask_app/services/game_state_service.py:14-16` | `games` dict stores all active games. Abandoned games never evicted. No TTL or LRU. | **FIXED** — added 2-hour TTL with auto-cleanup |
