@@ -31,7 +31,7 @@
 ## Phase 5: Playwright E2E — Hand Results
 
 - [x] PW-11: Winner announcement shows after hand and auto-dismisses
-- [ ] PW-12: Post-round chat — tone selection and suggestion sending
+- [x] PW-12: Post-round chat — tone selection and suggestion sending
 - [ ] PW-13: Tournament complete screen displays final standings
 
 ## Phase 6: Playwright E2E — Edge Cases & Modals
