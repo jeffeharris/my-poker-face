@@ -58,4 +58,4 @@
 - [x] VT-07: LLMDebugModal — stats rendering and CRT aesthetic
 - [x] VT-08: GuestLimitModal — content, CTA, benefits grid
 - [x] VT-09: useViewport hook — returns correct breakpoints
-- [ ] VT-10: ResponsiveGameLayout — routes to MobilePokerTable on mobile
+- [x] VT-10: ResponsiveGameLayout — routes to MobilePokerTable on mobile
