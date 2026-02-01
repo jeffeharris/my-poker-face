@@ -2311,47 +2311,227 @@ class ExperimentRepository(BaseRepository):
 
     # ==================== Live Stats & Analytics Methods (B4b) ====================
 
-    def _load_all_emotional_states(self, conn, game_id: str) -> Dict[str, Dict[str, Any]]:
+    def _load_all_emotional_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
         """Load all emotional states for a game. Delegates to GameRepository."""
         return self._game_repo.load_all_emotional_states(game_id)
 
-    def _load_all_controller_states(self, conn, game_id: str) -> Dict[str, Dict[str, Any]]:
+    def _load_all_controller_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
         """Load all controller states for a game. Delegates to GameRepository."""
         return self._game_repo.load_all_controller_states(game_id)
 
-    def _load_emotional_state(self, conn, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
+    def _load_emotional_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load emotional state for a player. Delegates to GameRepository."""
         return self._game_repo.load_emotional_state(game_id, player_name)
 
-    def _load_controller_state(self, conn, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
+    def _load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load controller state for a player. Delegates to GameRepository."""
         return self._game_repo.load_controller_state(game_id, player_name)
+
+    def _compute_latency_metrics(self, conn, experiment_id: int,
+                                 variant_clause: str, variant_params: list) -> Optional[Dict]:
+        """Compute latency percentile metrics for an experiment variant."""
+        cursor = conn.execute(f"""
+            SELECT au.latency_ms FROM api_usage au
+            JOIN experiment_games eg ON au.game_id = eg.game_id
+            WHERE eg.experiment_id = ? {variant_clause} AND au.latency_ms IS NOT NULL
+        """, [experiment_id] + variant_params)
+        latencies = [row[0] for row in cursor.fetchall()]
+
+        if not latencies:
+            return None
+        return {
+            'avg_ms': round(float(np.mean(latencies)), 2),
+            'p50_ms': round(float(np.percentile(latencies, 50)), 2),
+            'p95_ms': round(float(np.percentile(latencies, 95)), 2),
+            'p99_ms': round(float(np.percentile(latencies, 99)), 2),
+            'count': len(latencies),
+            '_raw_latencies': latencies,
+        }
+
+    def _compute_decision_quality(self, conn, experiment_id: int,
+                                   variant_clause: str, variant_params: list) -> Optional[Dict]:
+        """Compute decision quality metrics for an experiment variant."""
+        cursor = conn.execute(f"""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
+                SUM(CASE WHEN pda.decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake,
+                AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost
+            FROM player_decision_analysis pda
+            JOIN experiment_games eg ON pda.game_id = eg.game_id
+            WHERE eg.experiment_id = ? {variant_clause}
+        """, [experiment_id] + variant_params)
+        row = cursor.fetchone()
+        total = row[0] or 0
+
+        if total == 0:
+            return None
+        return {
+            'total': total,
+            'correct': row[1] or 0,
+            'correct_pct': round((row[1] or 0) * 100 / total, 1),
+            'mistakes': row[2] or 0,
+            'avg_ev_lost': round(row[3] or 0, 2),
+        }
+
+    def _compute_progress_metrics(self, conn, experiment_id: int,
+                                   variant_clause: str, variant_params: list,
+                                   max_hands: int, num_tournaments: int) -> Dict:
+        """Compute progress metrics for an experiment variant."""
+        cursor = conn.execute(f"""
+            SELECT
+                eg.game_id,
+                COALESCE(MAX(au.hand_number), 0) as max_hand
+            FROM experiment_games eg
+            LEFT JOIN api_usage au ON au.game_id = eg.game_id
+            WHERE eg.experiment_id = ? {variant_clause}
+            GROUP BY eg.game_id
+        """, [experiment_id] + variant_params)
+        games_data = cursor.fetchall()
+        games_count = len(games_data)
+        current_hands = sum(min(row[1], max_hands) for row in games_data)
+        variant_max_hands = num_tournaments * max_hands
+
+        return {
+            'current_hands': current_hands,
+            'max_hands': variant_max_hands,
+            'games_count': games_count,
+            'games_expected': num_tournaments,
+            'progress_pct': round(current_hands * 100 / variant_max_hands, 1) if variant_max_hands else 0,
+        }
+
+    def _compute_cost_metrics(self, conn, experiment_id: int,
+                               variant_clause: str, variant_params: list) -> Dict:
+        """Compute cost metrics for an experiment variant."""
+        cursor = conn.execute(f"""
+            SELECT
+                COALESCE(SUM(au.estimated_cost), 0) as total_cost,
+                COUNT(*) as total_calls,
+                COALESCE(AVG(au.estimated_cost), 0) as avg_cost_per_call
+            FROM api_usage au
+            JOIN experiment_games eg ON au.game_id = eg.game_id
+            WHERE eg.experiment_id = ? {variant_clause}
+        """, [experiment_id] + variant_params)
+        cost_row = cursor.fetchone()
+
+        cursor = conn.execute(f"""
+            SELECT
+                au.provider || '/' || au.model as model_key,
+                SUM(au.estimated_cost) as cost,
+                COUNT(*) as calls
+            FROM api_usage au
+            JOIN experiment_games eg ON au.game_id = eg.game_id
+            WHERE eg.experiment_id = ? {variant_clause} AND au.estimated_cost IS NOT NULL
+            GROUP BY au.provider, au.model
+        """, [experiment_id] + variant_params)
+        by_model = {row[0]: {'cost': row[1], 'calls': row[2]} for row in cursor.fetchall()}
+
+        cursor = conn.execute(f"""
+            SELECT AVG(au.estimated_cost), COUNT(*)
+            FROM api_usage au
+            JOIN experiment_games eg ON au.game_id = eg.game_id
+            WHERE eg.experiment_id = ? {variant_clause} AND au.call_type = 'player_decision'
+        """, [experiment_id] + variant_params)
+        decision_cost_row = cursor.fetchone()
+
+        cursor = conn.execute(f"""
+            SELECT COUNT(DISTINCT au.game_id || '-' || au.hand_number) as total_hands
+            FROM api_usage au
+            JOIN experiment_games eg ON au.game_id = eg.game_id
+            WHERE eg.experiment_id = ? {variant_clause} AND au.hand_number IS NOT NULL
+        """, [experiment_id] + variant_params)
+        total_hands = cursor.fetchone()[0] or 1
+
+        return {
+            'total_cost': round(cost_row[0] or 0, 6),
+            'total_calls': cost_row[1] or 0,
+            'avg_cost_per_call': round(cost_row[2] or 0, 8),
+            'by_model': by_model,
+            'avg_cost_per_decision': round(decision_cost_row[0] or 0, 8) if decision_cost_row[0] else 0,
+            'total_decisions': decision_cost_row[1] or 0,
+            'cost_per_hand': round((cost_row[0] or 0) / total_hands, 6),
+            'total_hands': total_hands,
+        }
+
+    def _compute_quality_indicators(self, conn, experiment_id: int,
+                                     variant_clause: str, variant_params: list) -> Optional[Dict]:
+        """Compute quality indicators for an experiment variant."""
+        from poker.quality_metrics import compute_allin_categorizations
+
+        cursor = conn.execute(f"""
+            SELECT
+                SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
+                SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
+                SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
+                COUNT(*) as total_decisions
+            FROM player_decision_analysis pda
+            JOIN experiment_games eg ON pda.game_id = eg.game_id
+            WHERE eg.experiment_id = ? {variant_clause}
+        """, [experiment_id] + variant_params)
+        qi_row = cursor.fetchone()
+
+        if not qi_row or qi_row[3] == 0:
+            return None
+
+        cursor = conn.execute(f"""
+            SELECT pc.stack_bb, pc.ai_response, pda.equity
+            FROM prompt_captures pc
+            JOIN experiment_games eg ON pc.game_id = eg.game_id
+            LEFT JOIN player_decision_analysis pda
+                ON pc.game_id = pda.game_id
+                AND pc.hand_number = pda.hand_number
+                AND pc.player_name = pda.player_name
+                AND pc.phase = pda.phase
+            WHERE eg.experiment_id = ? {variant_clause}
+              AND pc.action_taken = 'all_in'
+        """, [experiment_id] + variant_params)
+        suspicious_allins, marginal_allins = compute_allin_categorizations(cursor.fetchall())
+
+        cursor = conn.execute(f"""
+            SELECT
+                SUM(COALESCE(ts.times_eliminated, 0)) as total_eliminations,
+                SUM(COALESCE(ts.all_in_wins, 0)) as total_all_in_wins,
+                SUM(COALESCE(ts.all_in_losses, 0)) as total_all_in_losses
+            FROM tournament_standings ts
+            JOIN experiment_games eg ON ts.game_id = eg.game_id
+            WHERE eg.experiment_id = ? {variant_clause}
+        """, [experiment_id] + variant_params)
+        survival_row = cursor.fetchone()
+
+        fold_mistakes = qi_row[0] or 0
+        total_folds = qi_row[2] or 0
+        total_all_in_wins = survival_row[1] or 0 if survival_row else 0
+        total_all_in_losses = survival_row[2] or 0 if survival_row else 0
+        total_all_in_showdowns = total_all_in_wins + total_all_in_losses
+
+        result = {
+            'suspicious_allins': suspicious_allins,
+            'marginal_allins': marginal_allins,
+            'fold_mistakes': fold_mistakes,
+            'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1) if total_folds > 0 else 0,
+            'total_all_ins': qi_row[1] or 0,
+            'total_folds': total_folds,
+            'total_decisions': qi_row[3],
+        }
+
+        # Include survival metrics only for per-variant (has tournament_standings data)
+        if survival_row:
+            result.update({
+                'total_eliminations': survival_row[0] or 0,
+                'all_in_wins': total_all_in_wins,
+                'all_in_losses': total_all_in_losses,
+                'all_in_survival_rate': round(total_all_in_wins * 100 / total_all_in_showdowns, 1) if total_all_in_showdowns > 0 else None,
+            })
+
+        return result
 
     def get_experiment_live_stats(self, experiment_id: int) -> Dict:
         """Get real-time unified stats per variant for running/completed experiments.
 
-        Returns all metrics per variant in one call: latency, decision quality, and progress.
-        This is designed to be called on every 5s refresh for running experiments.
-
-        Args:
-            experiment_id: The experiment ID
-
-        Returns:
-            Dictionary with structure:
-            {
-                'by_variant': {
-                    'Variant Label': {
-                        'latency_metrics': { avg_ms, p50_ms, p95_ms, p99_ms, count },
-                        'decision_quality': { total, correct, correct_pct, mistakes, avg_ev_lost },
-                        'progress': { current_hands, max_hands, progress_pct }
-                    },
-                    ...
-                },
-                'overall': { ... same structure ... }
-            }
+        Returns all metrics per variant in one call: latency, decision quality,
+        progress, cost, and quality indicators.
         """
         with self._get_connection() as conn:
-            # Get experiment config for max_hands calculation
             exp = self.get_experiment(experiment_id)
             if not exp:
                 return {'by_variant': {}, 'overall': None}
@@ -2359,16 +2539,8 @@ class ExperimentRepository(BaseRepository):
             config = exp.get('config', {})
             max_hands = config.get('hands_per_tournament', 100)
             num_tournaments = config.get('num_tournaments', 1)
-
-            # Determine number of variants from control/variants config
             control = config.get('control')
             variants = config.get('variants', [])
-            if control is not None:
-                # A/B testing mode: control + variants
-                num_variant_configs = 1 + len(variants or [])
-            else:
-                # Legacy mode: single variant
-                num_variant_configs = 1
 
             result = {'by_variant': {}, 'overall': None}
 
@@ -2386,17 +2558,13 @@ class ExperimentRepository(BaseRepository):
                     for v in (variants or []):
                         variant_labels.append(v.get('label', 'Variant'))
                 else:
-                    variant_labels = [None]  # Legacy single variant
+                    variant_labels = [None]
 
-            # Aggregate stats for overall calculation
             all_latencies = []
-            overall_decision = {'total': 0, 'correct': 0, 'mistake': 0, 'ev_lost_sum': 0}
-            overall_progress = {'current_hands': 0, 'max_hands': 0}
 
             for variant in variant_labels:
                 variant_key = variant or 'default'
 
-                # Build variant clause
                 if variant is None:
                     variant_clause = "AND (eg.variant IS NULL OR eg.variant = '')"
                     variant_params = []
@@ -2404,357 +2572,47 @@ class ExperimentRepository(BaseRepository):
                     variant_clause = "AND eg.variant = ?"
                     variant_params = [variant]
 
-                # 1. Latency metrics from api_usage
-                cursor = conn.execute(f"""
-                    SELECT au.latency_ms FROM api_usage au
-                    JOIN experiment_games eg ON au.game_id = eg.game_id
-                    WHERE eg.experiment_id = ? {variant_clause} AND au.latency_ms IS NOT NULL
-                """, [experiment_id] + variant_params)
-                latencies = [row[0] for row in cursor.fetchall()]
+                latency = self._compute_latency_metrics(conn, experiment_id, variant_clause, variant_params)
+                if latency:
+                    all_latencies.extend(latency.pop('_raw_latencies'))
 
-                if latencies:
-                    latency_metrics = {
-                        'avg_ms': round(float(np.mean(latencies)), 2),
-                        'p50_ms': round(float(np.percentile(latencies, 50)), 2),
-                        'p95_ms': round(float(np.percentile(latencies, 95)), 2),
-                        'p99_ms': round(float(np.percentile(latencies, 99)), 2),
-                        'count': len(latencies),
-                    }
-                    all_latencies.extend(latencies)
-                else:
-                    latency_metrics = None
-
-                # 2. Decision quality from player_decision_analysis
-                cursor = conn.execute(f"""
-                    SELECT
-                        COUNT(*) as total,
-                        SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
-                        SUM(CASE WHEN pda.decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake,
-                        AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost
-                    FROM player_decision_analysis pda
-                    JOIN experiment_games eg ON pda.game_id = eg.game_id
-                    WHERE eg.experiment_id = ? {variant_clause}
-                """, [experiment_id] + variant_params)
-                row = cursor.fetchone()
-                total = row[0] or 0
-
-                if total > 0:
-                    decision_quality = {
-                        'total': total,
-                        'correct': row[1] or 0,
-                        'correct_pct': round((row[1] or 0) * 100 / total, 1),
-                        'mistakes': row[2] or 0,
-                        'avg_ev_lost': round(row[3] or 0, 2),
-                    }
-                    overall_decision['total'] += total
-                    overall_decision['correct'] += row[1] or 0
-                    overall_decision['mistake'] += row[2] or 0
-                    overall_decision['ev_lost_sum'] += (row[3] or 0) * total
-                else:
-                    decision_quality = None
-
-                # 3. Progress - sum hands across all games for this variant
-                cursor = conn.execute(f"""
-                    SELECT
-                        eg.game_id,
-                        COALESCE(MAX(au.hand_number), 0) as max_hand
-                    FROM experiment_games eg
-                    LEFT JOIN api_usage au ON au.game_id = eg.game_id
-                    WHERE eg.experiment_id = ? {variant_clause}
-                    GROUP BY eg.game_id
-                """, [experiment_id] + variant_params)
-                games_data = cursor.fetchall()
-                games_count = len(games_data)
-                current_hands = sum(min(row[1], max_hands) for row in games_data)
-
-                variant_max_hands = num_tournaments * max_hands
-
-                progress = {
-                    'current_hands': current_hands,
-                    'max_hands': variant_max_hands,
-                    'games_count': games_count,
-                    'games_expected': num_tournaments,
-                    'progress_pct': round(current_hands * 100 / variant_max_hands, 1) if variant_max_hands else 0,
-                }
-
-                overall_progress['current_hands'] += current_hands
-                overall_progress['max_hands'] += variant_max_hands
-
-                # 4. Cost metrics from api_usage
-                cursor = conn.execute(f"""
-                    SELECT
-                        COALESCE(SUM(au.estimated_cost), 0) as total_cost,
-                        COUNT(*) as total_calls,
-                        COALESCE(AVG(au.estimated_cost), 0) as avg_cost_per_call
-                    FROM api_usage au
-                    JOIN experiment_games eg ON au.game_id = eg.game_id
-                    WHERE eg.experiment_id = ? {variant_clause}
-                """, [experiment_id] + variant_params)
-                cost_row = cursor.fetchone()
-
-                # Cost by model
-                cursor = conn.execute(f"""
-                    SELECT
-                        au.provider || '/' || au.model as model_key,
-                        SUM(au.estimated_cost) as cost,
-                        COUNT(*) as calls
-                    FROM api_usage au
-                    JOIN experiment_games eg ON au.game_id = eg.game_id
-                    WHERE eg.experiment_id = ? {variant_clause} AND au.estimated_cost IS NOT NULL
-                    GROUP BY au.provider, au.model
-                """, [experiment_id] + variant_params)
-                by_model = {row[0]: {'cost': row[1], 'calls': row[2]} for row in cursor.fetchall()}
-
-                # Cost per decision (player_decision call type)
-                cursor = conn.execute(f"""
-                    SELECT AVG(au.estimated_cost), COUNT(*)
-                    FROM api_usage au
-                    JOIN experiment_games eg ON au.game_id = eg.game_id
-                    WHERE eg.experiment_id = ? {variant_clause} AND au.call_type = 'player_decision'
-                """, [experiment_id] + variant_params)
-                decision_cost_row = cursor.fetchone()
-
-                # Count hands for normalized cost
-                cursor = conn.execute(f"""
-                    SELECT COUNT(DISTINCT au.game_id || '-' || au.hand_number) as total_hands
-                    FROM api_usage au
-                    JOIN experiment_games eg ON au.game_id = eg.game_id
-                    WHERE eg.experiment_id = ? {variant_clause} AND au.hand_number IS NOT NULL
-                """, [experiment_id] + variant_params)
-                hand_row = cursor.fetchone()
-                total_hands_for_cost = hand_row[0] or 1
-
-                cost_metrics = {
-                    'total_cost': round(cost_row[0] or 0, 6),
-                    'total_calls': cost_row[1] or 0,
-                    'avg_cost_per_call': round(cost_row[2] or 0, 8),
-                    'by_model': by_model,
-                    'avg_cost_per_decision': round(decision_cost_row[0] or 0, 8) if decision_cost_row[0] else 0,
-                    'total_decisions': decision_cost_row[1] or 0,
-                    'cost_per_hand': round((cost_row[0] or 0) / total_hands_for_cost, 6),
-                    'total_hands': total_hands_for_cost,
-                }
-
-                # 5. Quality indicators from player_decision_analysis + prompt_captures
-                cursor = conn.execute(f"""
-                    SELECT
-                        SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
-                        SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
-                        SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
-                        COUNT(*) as total_decisions
-                    FROM player_decision_analysis pda
-                    JOIN experiment_games eg ON pda.game_id = eg.game_id
-                    WHERE eg.experiment_id = ? {variant_clause}
-                """, [experiment_id] + variant_params)
-                qi_row = cursor.fetchone()
-
-                # Query all-ins with AI response data for smarter categorization
-                cursor = conn.execute(f"""
-                    SELECT
-                        pc.stack_bb,
-                        pc.ai_response,
-                        pda.equity
-                    FROM prompt_captures pc
-                    JOIN experiment_games eg ON pc.game_id = eg.game_id
-                    LEFT JOIN player_decision_analysis pda
-                        ON pc.game_id = pda.game_id
-                        AND pc.hand_number = pda.hand_number
-                        AND pc.player_name = pda.player_name
-                        AND pc.phase = pda.phase
-                    WHERE eg.experiment_id = ? {variant_clause}
-                      AND pc.action_taken = 'all_in'
-                """, [experiment_id] + variant_params)
-
-                # Use shared categorization logic
-                from poker.quality_metrics import compute_allin_categorizations
-                suspicious_allins, marginal_allins = compute_allin_categorizations(cursor.fetchall())
-
-                # 6. Survival metrics from tournament_standings
-                cursor = conn.execute(f"""
-                    SELECT
-                        SUM(COALESCE(ts.times_eliminated, 0)) as total_eliminations,
-                        SUM(COALESCE(ts.all_in_wins, 0)) as total_all_in_wins,
-                        SUM(COALESCE(ts.all_in_losses, 0)) as total_all_in_losses,
-                        COUNT(*) as total_standings
-                    FROM tournament_standings ts
-                    JOIN experiment_games eg ON ts.game_id = eg.game_id
-                    WHERE eg.experiment_id = ? {variant_clause}
-                """, [experiment_id] + variant_params)
-                survival_row = cursor.fetchone()
-
-                quality_indicators = None
-                if qi_row and qi_row[3] > 0:
-                    fold_mistakes = qi_row[0] or 0
-                    total_all_ins = qi_row[1] or 0
-                    total_folds = qi_row[2] or 0
-                    total_decisions = qi_row[3]
-
-                    # Survival metrics
-                    total_eliminations = survival_row[0] or 0 if survival_row else 0
-                    total_all_in_wins = survival_row[1] or 0 if survival_row else 0
-                    total_all_in_losses = survival_row[2] or 0 if survival_row else 0
-                    total_all_in_showdowns = total_all_in_wins + total_all_in_losses
-
-                    quality_indicators = {
-                        'suspicious_allins': suspicious_allins,
-                        'marginal_allins': marginal_allins,
-                        'fold_mistakes': fold_mistakes,
-                        'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1) if total_folds > 0 else 0,
-                        'total_all_ins': total_all_ins,
-                        'total_folds': total_folds,
-                        'total_decisions': total_decisions,
-                        # Survival metrics
-                        'total_eliminations': total_eliminations,
-                        'all_in_wins': total_all_in_wins,
-                        'all_in_losses': total_all_in_losses,
-                        'all_in_survival_rate': round(total_all_in_wins * 100 / total_all_in_showdowns, 1) if total_all_in_showdowns > 0 else None,
-                    }
+                progress = self._compute_progress_metrics(
+                    conn, experiment_id, variant_clause, variant_params, max_hands, num_tournaments)
 
                 result['by_variant'][variant_key] = {
-                    'latency_metrics': latency_metrics,
-                    'decision_quality': decision_quality,
+                    'latency_metrics': latency,
+                    'decision_quality': self._compute_decision_quality(conn, experiment_id, variant_clause, variant_params),
                     'progress': progress,
-                    'cost_metrics': cost_metrics,
-                    'quality_indicators': quality_indicators,
+                    'cost_metrics': self._compute_cost_metrics(conn, experiment_id, variant_clause, variant_params),
+                    'quality_indicators': self._compute_quality_indicators(conn, experiment_id, variant_clause, variant_params),
                 }
 
             # Compute overall stats
-            if all_latencies:
-                overall_latency = {
-                    'avg_ms': round(float(np.mean(all_latencies)), 2),
-                    'p50_ms': round(float(np.percentile(all_latencies, 50)), 2),
-                    'p95_ms': round(float(np.percentile(all_latencies, 95)), 2),
-                    'p99_ms': round(float(np.percentile(all_latencies, 99)), 2),
-                    'count': len(all_latencies),
-                }
-            else:
-                overall_latency = None
+            no_filter = ""
+            no_params = []
 
-            if overall_decision['total'] > 0:
-                overall_decision_quality = {
-                    'total': overall_decision['total'],
-                    'correct': overall_decision['correct'],
-                    'correct_pct': round(overall_decision['correct'] * 100 / overall_decision['total'], 1),
-                    'mistakes': overall_decision['mistake'],
-                    'avg_ev_lost': round(overall_decision['ev_lost_sum'] / overall_decision['total'], 2),
-                }
-            else:
-                overall_decision_quality = None
+            overall_latency = self._compute_latency_metrics(conn, experiment_id, no_filter, no_params)
+            if overall_latency:
+                overall_latency.pop('_raw_latencies')
 
+            overall_progress = self._compute_progress_metrics(
+                conn, experiment_id, no_filter, no_params, max_hands, num_tournaments)
+            # Overall progress aggregates all variants, so recalculate max_hands
+            num_variant_configs = (1 + len(variants or [])) if control is not None else 1
+            overall_max = num_variant_configs * num_tournaments * max_hands
+            overall_current = overall_progress['current_hands']
             overall_progress_result = {
-                'current_hands': overall_progress['current_hands'],
-                'max_hands': overall_progress['max_hands'],
-                'progress_pct': round(overall_progress['current_hands'] * 100 / overall_progress['max_hands'], 1) if overall_progress['max_hands'] else 0,
+                'current_hands': overall_current,
+                'max_hands': overall_max,
+                'progress_pct': round(overall_current * 100 / overall_max, 1) if overall_max else 0,
             }
-
-            # Overall cost metrics
-            cursor = conn.execute("""
-                SELECT
-                    COALESCE(SUM(au.estimated_cost), 0) as total_cost,
-                    COUNT(*) as total_calls,
-                    COALESCE(AVG(au.estimated_cost), 0) as avg_cost_per_call
-                FROM api_usage au
-                JOIN experiment_games eg ON au.game_id = eg.game_id
-                WHERE eg.experiment_id = ?
-            """, (experiment_id,))
-            overall_cost_row = cursor.fetchone()
-
-            cursor = conn.execute("""
-                SELECT
-                    au.provider || '/' || au.model as model_key,
-                    SUM(au.estimated_cost) as cost,
-                    COUNT(*) as calls
-                FROM api_usage au
-                JOIN experiment_games eg ON au.game_id = eg.game_id
-                WHERE eg.experiment_id = ? AND au.estimated_cost IS NOT NULL
-                GROUP BY au.provider, au.model
-            """, (experiment_id,))
-            overall_by_model = {row[0]: {'cost': row[1], 'calls': row[2]} for row in cursor.fetchall()}
-
-            cursor = conn.execute("""
-                SELECT AVG(au.estimated_cost), COUNT(*)
-                FROM api_usage au
-                JOIN experiment_games eg ON au.game_id = eg.game_id
-                WHERE eg.experiment_id = ? AND au.call_type = 'player_decision'
-            """, (experiment_id,))
-            overall_decision_cost_row = cursor.fetchone()
-
-            cursor = conn.execute("""
-                SELECT COUNT(DISTINCT au.game_id || '-' || au.hand_number) as total_hands
-                FROM api_usage au
-                JOIN experiment_games eg ON au.game_id = eg.game_id
-                WHERE eg.experiment_id = ? AND au.hand_number IS NOT NULL
-            """, (experiment_id,))
-            overall_hand_row = cursor.fetchone()
-            overall_total_hands = overall_hand_row[0] or 1
-
-            overall_cost_metrics = {
-                'total_cost': round(overall_cost_row[0] or 0, 6),
-                'total_calls': overall_cost_row[1] or 0,
-                'avg_cost_per_call': round(overall_cost_row[2] or 0, 8),
-                'by_model': overall_by_model,
-                'avg_cost_per_decision': round(overall_decision_cost_row[0] or 0, 8) if overall_decision_cost_row[0] else 0,
-                'total_decisions': overall_decision_cost_row[1] or 0,
-                'cost_per_hand': round((overall_cost_row[0] or 0) / overall_total_hands, 6),
-                'total_hands': overall_total_hands,
-            }
-
-            # Overall quality indicators
-            cursor = conn.execute("""
-                SELECT
-                    SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
-                    SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
-                    SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
-                    COUNT(*) as total_decisions
-                FROM player_decision_analysis pda
-                JOIN experiment_games eg ON pda.game_id = eg.game_id
-                WHERE eg.experiment_id = ?
-            """, (experiment_id,))
-            overall_qi_row = cursor.fetchone()
-
-            # Query all-ins for smarter categorization (overall)
-            cursor = conn.execute("""
-                SELECT
-                    pc.stack_bb,
-                    pc.ai_response,
-                    pda.equity
-                FROM prompt_captures pc
-                JOIN experiment_games eg ON pc.game_id = eg.game_id
-                LEFT JOIN player_decision_analysis pda
-                    ON pc.game_id = pda.game_id
-                    AND pc.hand_number = pda.hand_number
-                    AND pc.player_name = pda.player_name
-                    AND pc.phase = pda.phase
-                WHERE eg.experiment_id = ?
-                  AND pc.action_taken = 'all_in'
-            """, (experiment_id,))
-
-            from poker.quality_metrics import compute_allin_categorizations
-            overall_suspicious_allins, overall_marginal_allins = compute_allin_categorizations(cursor.fetchall())
-
-            overall_quality_indicators = None
-            if overall_qi_row and overall_qi_row[3] > 0:
-                fold_mistakes = overall_qi_row[0] or 0
-                total_all_ins = overall_qi_row[1] or 0
-                total_folds = overall_qi_row[2] or 0
-                total_decisions = overall_qi_row[3]
-
-                overall_quality_indicators = {
-                    'suspicious_allins': overall_suspicious_allins,
-                    'marginal_allins': overall_marginal_allins,
-                    'fold_mistakes': fold_mistakes,
-                    'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1) if total_folds > 0 else 0,
-                    'total_all_ins': total_all_ins,
-                    'total_folds': total_folds,
-                    'total_decisions': total_decisions,
-                }
 
             result['overall'] = {
                 'latency_metrics': overall_latency,
-                'decision_quality': overall_decision_quality,
+                'decision_quality': self._compute_decision_quality(conn, experiment_id, no_filter, no_params),
                 'progress': overall_progress_result,
-                'cost_metrics': overall_cost_metrics,
-                'quality_indicators': overall_quality_indicators,
+                'cost_metrics': self._compute_cost_metrics(conn, experiment_id, no_filter, no_params),
+                'quality_indicators': self._compute_quality_indicators(conn, experiment_id, no_filter, no_params),
             }
 
             return result
@@ -2806,8 +2664,8 @@ class ExperimentRepository(BaseRepository):
                 current_player_idx = state_dict.get('current_player_idx', 0)
 
                 # Load psychology data for all players in this game
-                psychology_data = self._load_all_controller_states(conn, game_id)
-                emotional_data = self._load_all_emotional_states(conn, game_id)
+                psychology_data = self._load_all_controller_states(game_id)
+                emotional_data = self._load_all_emotional_states(game_id)
 
                 # Load LLM debug info from most recent api_usage records per player
                 llm_debug_cursor = conn.execute("""
@@ -2949,8 +2807,8 @@ class ExperimentRepository(BaseRepository):
                 return None
 
             # Get psychology data
-            ctrl_state = self._load_controller_state(conn, game_id, player_name)
-            emo_state = self._load_emotional_state(conn, game_id, player_name)
+            ctrl_state = self._load_controller_state(game_id, player_name)
+            emo_state = self._load_emotional_state(game_id, player_name)
 
             tilt_state = ctrl_state.get('tilt_state', {}) if ctrl_state else {}
             psychology = {

@@ -1,13 +1,10 @@
 """Tests for TournamentRepository."""
 import pytest
-from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.tournament_repository import TournamentRepository
 
 
 @pytest.fixture
-def repo(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    SchemaManager(db_path).ensure_schema()
+def repo(db_path):
     r = TournamentRepository(db_path)
     yield r
     r.close()

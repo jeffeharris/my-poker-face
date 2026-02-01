@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 class GamePersistence:
     """Handles persistence of poker games to SQLite database.
-    
+
     Schema management is delegated to SchemaManager.
     """
 
@@ -58,67 +58,48 @@ class GamePersistence:
                      self._llm_repo):
             repo.close()
 
+    # -- Game CRUD --
+
     def save_coach_mode(self, game_id: str, mode: str) -> None:
         """Persist coach mode preference for a game."""
         return self._game_repo.save_coach_mode(game_id, mode)
 
     def load_coach_mode(self, game_id: str) -> str:
-        """Load coach mode preference for a game. Defaults to 'off'."""
+        """Load coach mode preference for a game."""
         return self._game_repo.load_coach_mode(game_id)
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
-        """Save a game state to the database.
-
-        Args:
-            game_id: The game identifier
-            state_machine: The game's state machine
-            owner_id: The owner/user ID
-            owner_name: The owner's display name
-            llm_configs: Dict with 'player_llm_configs' and 'default_llm_config'
-        """
+        """Save a game state to the database."""
         return self._game_repo.save_game(game_id, state_machine, owner_id, owner_name, llm_configs)
-    
+
     def load_game(self, game_id: str) -> Optional[PokerStateMachine]:
         """Load a game state from the database."""
         return self._game_repo.load_game(game_id)
 
     def load_llm_configs(self, game_id: str) -> Optional[Dict]:
-        """Load LLM configs for a game.
-
-        Args:
-            game_id: The game identifier
-
-        Returns:
-            Dict with 'player_llm_configs' and 'default_llm_config', or None if not found
-        """
+        """Load LLM configs for a game."""
         return self._game_repo.load_llm_configs(game_id)
 
     def save_tournament_tracker(self, game_id: str, tracker) -> None:
-        """Save tournament tracker state to the database.
-
-        Args:
-            game_id: The game identifier
-            tracker: TournamentTracker instance or dict from to_dict()
-        """
+        """Save tournament tracker state to the database."""
         return self._game_repo.save_tournament_tracker(game_id, tracker)
 
     def load_tournament_tracker(self, game_id: str) -> Optional[Dict[str, Any]]:
-        """Load tournament tracker state from the database.
-
-        Args:
-            game_id: The game identifier
-
-        Returns:
-            Dict that can be passed to TournamentTracker.from_dict(), or None if not found
-        """
+        """Load tournament tracker state from the database."""
         return self._game_repo.load_tournament_tracker(game_id)
 
     def list_games(self, owner_id: Optional[str] = None, limit: int = 20) -> List[SavedGame]:
-        """List saved games, most recently updated first. Filter by owner_id if provided."""
+        """List saved games, most recently updated first."""
         return self._game_repo.list_games(owner_id, limit)
-    
+
+    def delete_game(self, game_id: str) -> None:
+        """Delete a game and all associated data."""
+        return self._game_repo.delete_game(game_id)
+
+    # -- User management --
+
     def count_user_games(self, owner_id: str) -> int:
         """Count how many games a user owns."""
         return self._user_repo.count_user_games(owner_id)
@@ -197,6 +178,8 @@ class GamePersistence:
         """Assign admin group to user with INITIAL_ADMIN_EMAIL."""
         return self._user_repo.initialize_admin_from_env()
 
+    # -- LLM models --
+
     def get_available_providers(self) -> Set[str]:
         """Get the set of all providers in the system."""
         return self._llm_repo.get_available_providers()
@@ -217,9 +200,7 @@ class GamePersistence:
         """Update display name and notes for a model."""
         return self._llm_repo.update_model_details(model_id, display_name, notes)
 
-    def delete_game(self, game_id: str) -> None:
-        """Delete a game and all associated data."""
-        return self._game_repo.delete_game(game_id)
+    # -- Messages --
 
     def save_message(self, game_id: str, message_type: str, message_text: str) -> None:
         """Save a game message/event."""
@@ -229,7 +210,8 @@ class GamePersistence:
         """Load recent messages for a game."""
         return self._game_repo.load_messages(game_id, limit)
 
-    # AI State Persistence Methods
+    # -- AI state --
+
     def save_ai_player_state(self, game_id: str, player_name: str,
                             messages: List[Dict[str, str]],
                             personality_state: Dict[str, Any]) -> None:
@@ -245,7 +227,9 @@ class GamePersistence:
                                  pressure_levels: Optional[Dict[str, float]] = None) -> None:
         """Save a snapshot of personality state for elasticity tracking."""
         return self._game_repo.save_personality_snapshot(game_id, player_name, hand_number, traits, pressure_levels)
-    
+
+    # -- Personalities --
+
     def save_personality(self, name: str, config: Dict[str, Any], source: str = 'ai_generated') -> None:
         """Save a personality configuration to the database."""
         return self._personality_repo.save_personality(name, config, source)
@@ -253,10 +237,6 @@ class GamePersistence:
     def load_personality(self, name: str) -> Optional[Dict[str, Any]]:
         """Load a personality configuration from the database."""
         return self._personality_repo.load_personality(name)
-
-    def increment_personality_usage(self, name: str) -> None:
-        """Increment the usage counter for a personality."""
-        return self._personality_repo.increment_personality_usage(name)
 
     def list_personalities(self, limit: int = 50) -> List[Dict[str, Any]]:
         """List all personalities with metadata."""
@@ -266,95 +246,65 @@ class GamePersistence:
         """Delete a personality from the database."""
         return self._personality_repo.delete_personality(name)
 
-    # Emotional State Persistence Methods
+    def seed_personalities_from_json(self, json_path: str, overwrite: bool = False) -> Dict[str, int]:
+        """Seed database with personalities from JSON file."""
+        return self._personality_repo.seed_personalities_from_json(json_path, overwrite)
+
+    # -- Emotional state --
+
     def save_emotional_state(self, game_id: str, player_name: str,
                              emotional_state) -> None:
-        """Save emotional state for a player.
-
-        Args:
-            game_id: The game identifier
-            player_name: The player's name
-            emotional_state: EmotionalState object or dict from EmotionalState.to_dict()
-        """
+        """Save emotional state for a player."""
         return self._game_repo.save_emotional_state(game_id, player_name, emotional_state)
 
     def load_emotional_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
-        """Load emotional state for a player.
-
-        Returns:
-            Dict suitable for EmotionalState.from_dict(), or None if not found
-        """
+        """Load emotional state for a player."""
         return self._game_repo.load_emotional_state(game_id, player_name)
 
     def load_all_emotional_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
-        """Load all emotional states for a game.
-
-        Returns:
-            Dict mapping player_name -> emotional_state dict
-        """
+        """Load all emotional states for a game."""
         return self._game_repo.load_all_emotional_states(game_id)
-
-    # Controller State Persistence Methods (Tilt + ElasticPersonality + PromptConfig)
-    def save_controller_state(self, game_id: str, player_name: str,
-                              psychology: Dict[str, Any],
-                              prompt_config: Optional[Dict[str, Any]] = None) -> None:
-        """Save unified psychology state and prompt config for a player.
-
-        Args:
-            game_id: The game identifier
-            player_name: The player's name
-            psychology: Dict from PlayerPsychology.to_dict()
-            prompt_config: Dict from PromptConfig.to_dict() (optional)
-        """
-        return self._game_repo.save_controller_state(game_id, player_name, psychology, prompt_config)
-
-    def load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
-        """Load controller state for a player.
-
-        Returns:
-            Dict with 'tilt_state', 'elastic_personality', and 'prompt_config' keys, or None if not found
-        """
-        return self._game_repo.load_controller_state(game_id, player_name)
-
-    def load_all_controller_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
-        """Load all controller states for a game.
-
-        Returns:
-            Dict mapping player_name -> controller state dict
-        """
-        return self._game_repo.load_all_controller_states(game_id)
 
     def delete_emotional_state_for_game(self, game_id: str) -> None:
         """Delete all emotional states for a game."""
         return self._game_repo.delete_emotional_state_for_game(game_id)
 
+    # -- Controller state --
+
+    def save_controller_state(self, game_id: str, player_name: str,
+                              psychology: Dict[str, Any],
+                              prompt_config: Optional[Dict[str, Any]] = None) -> None:
+        """Save unified psychology state and prompt config for a player."""
+        return self._game_repo.save_controller_state(game_id, player_name, psychology, prompt_config)
+
+    def load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
+        """Load controller state for a player."""
+        return self._game_repo.load_controller_state(game_id, player_name)
+
+    def load_all_controller_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
+        """Load all controller states for a game."""
+        return self._game_repo.load_all_controller_states(game_id)
+
     def delete_controller_state_for_game(self, game_id: str) -> None:
         """Delete all controller states for a game."""
         return self._game_repo.delete_controller_state_for_game(game_id)
 
-    # Opponent Model Persistence Methods
-    def save_opponent_models(self, game_id: str, opponent_model_manager) -> None:
-        """Save opponent models for a game.
+    # -- Opponent models --
 
-        Args:
-            game_id: The game identifier
-            opponent_model_manager: OpponentModelManager instance or dict from to_dict()
-        """
+    def save_opponent_models(self, game_id: str, opponent_model_manager) -> None:
+        """Save opponent models for a game."""
         return self._game_repo.save_opponent_models(game_id, opponent_model_manager)
 
     def load_opponent_models(self, game_id: str) -> Dict[str, Any]:
-        """Load opponent models for a game.
-
-        Returns:
-            Dict suitable for OpponentModelManager.from_dict(), or empty dict if not found
-        """
+        """Load opponent models for a game."""
         return self._game_repo.load_opponent_models(game_id)
 
     def delete_opponent_models_for_game(self, game_id: str) -> None:
         """Delete all opponent models for a game."""
         return self._game_repo.delete_opponent_models_for_game(game_id)
 
-    # Hand History Persistence Methods
+    # -- Hand history --
+
     def save_hand_history(self, recorded_hand) -> int:
         """Save a completed hand to the database."""
         return self._hand_history_repo.save_hand_history(recorded_hand)
@@ -390,7 +340,8 @@ class GamePersistence:
         """Get formatted session context string for AI prompts."""
         return self._hand_history_repo.get_session_context_for_prompt(game_id, player_name, max_recent)
 
-    # Tournament Results Persistence Methods
+    # -- Tournament results --
+
     def save_tournament_result(self, game_id: str, result: Dict[str, Any]) -> None:
         """Save tournament result when game completes."""
         return self._tournament_repo.save_tournament_result(game_id, result)
@@ -412,10 +363,11 @@ class GamePersistence:
         return self._tournament_repo.get_tournament_history(owner_id, limit)
 
     def get_eliminated_personalities(self, owner_id: str) -> List[Dict[str, Any]]:
-        """Get all unique personalities eliminated by this player across all games."""
+        """Get all unique personalities eliminated by this player."""
         return self._tournament_repo.get_eliminated_personalities(owner_id)
 
-    # Guest Usage Tracking Methods
+    # -- Guest tracking --
+
     def increment_hands_played(self, tracking_id: str) -> int:
         """Increment hands played for a guest tracking ID."""
         return self._guest_tracking_repo.increment_hands_played(tracking_id)
@@ -424,7 +376,8 @@ class GamePersistence:
         """Get the number of hands played for a guest tracking ID."""
         return self._guest_tracking_repo.get_hands_played(tracking_id)
 
-    # Avatar Image Persistence Methods
+    # -- Avatar images --
+
     def save_avatar_image(self, personality_name: str, emotion: str,
                           image_data: bytes, width: int = 256, height: int = 256,
                           content_type: str = 'image/png',
@@ -453,11 +406,11 @@ class GamePersistence:
         return self._personality_repo.load_full_avatar_image_with_metadata(personality_name, emotion)
 
     def has_full_avatar_image(self, personality_name: str, emotion: str) -> bool:
-        """Check if a full avatar image exists for the given personality and emotion."""
+        """Check if a full avatar image exists."""
         return self._personality_repo.has_full_avatar_image(personality_name, emotion)
 
     def has_avatar_image(self, personality_name: str, emotion: str) -> bool:
-        """Check if an avatar image exists for the given personality and emotion."""
+        """Check if an avatar image exists."""
         return self._personality_repo.has_avatar_image(personality_name, emotion)
 
     def get_available_avatar_emotions(self, personality_name: str) -> List[str]:
@@ -473,40 +426,21 @@ class GamePersistence:
         return self._personality_repo.delete_avatar_images(personality_name)
 
     def list_personalities_with_avatars(self) -> List[Dict[str, Any]]:
-        """Get list of all personalities that have at least one avatar image."""
+        """Get all personalities that have at least one avatar image."""
         return self._personality_repo.list_personalities_with_avatars()
 
     def get_avatar_stats(self) -> Dict[str, Any]:
         """Get statistics about avatar images in the database."""
         return self._personality_repo.get_avatar_stats()
 
-    def seed_personalities_from_json(self, json_path: str, overwrite: bool = False) -> Dict[str, int]:
-        """Seed database with personalities from JSON file."""
-        return self._personality_repo.seed_personalities_from_json(json_path, overwrite)
+    # -- Prompt captures --
 
-    # Prompt Capture Methods (for AI decision debugging)
     def save_prompt_capture(self, capture: Dict[str, Any]) -> int:
-        """Save a prompt capture for debugging AI decisions.
-
-        Args:
-            capture: Dict containing capture data with keys:
-                - game_id, player_name, hand_number, phase
-                - system_prompt, user_message, ai_response
-                - pot_total, cost_to_call, pot_odds, player_stack
-                - community_cards, player_hand, valid_actions
-                - action_taken, raise_amount
-                - model, latency_ms, input_tokens, output_tokens
-
-        Returns:
-            The ID of the inserted capture.
-        """
+        """Save a prompt capture for debugging AI decisions."""
         return self._experiment_repo.save_prompt_capture(capture)
 
     def get_prompt_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
-        """Get a single prompt capture by ID.
-
-        Joins with api_usage to get cached_tokens, reasoning_tokens, and estimated_cost.
-        """
+        """Get a single prompt capture by ID."""
         return self._experiment_repo.get_prompt_capture(capture_id)
 
     def list_prompt_captures(
@@ -525,16 +459,7 @@ class GamePersistence:
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
-        """List prompt captures with optional filtering.
-
-        Args:
-            error_type: Filter by specific error type (e.g., 'malformed_json', 'missing_field')
-            has_error: Filter to captures with errors (True) or without errors (False)
-            is_correction: Filter to correction attempts only (True) or original only (False)
-
-        Returns:
-            Dict with 'captures' list and 'total' count.
-        """
+        """List prompt captures with optional filtering."""
         return self._experiment_repo.list_prompt_captures(
             game_id=game_id, player_name=player_name, action=action,
             phase=phase, min_pot_odds=min_pot_odds, max_pot_odds=max_pot_odds,
@@ -561,18 +486,10 @@ class GamePersistence:
         return self._experiment_repo.update_prompt_capture_tags(capture_id, tags, notes)
 
     def delete_prompt_captures(self, game_id: Optional[str] = None, before_date: Optional[str] = None) -> int:
-        """Delete prompt captures, optionally filtered by game or date.
-
-        Args:
-            game_id: Delete captures for a specific game
-            before_date: Delete captures before this date (ISO format)
-
-        Returns:
-            Number of captures deleted.
-        """
+        """Delete prompt captures, optionally filtered by game or date."""
         return self._experiment_repo.delete_prompt_captures(game_id=game_id, before_date=before_date)
 
-    # ========== Playground Capture Methods ==========
+    # -- Playground captures --
 
     def list_playground_captures(
         self,
@@ -583,22 +500,7 @@ class GamePersistence:
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """List captures for the playground (filtered by call_type).
-
-        This method is similar to list_prompt_captures but focuses on
-        non-game captures identified by call_type.
-
-        Args:
-            call_type: Filter by call type (e.g., 'commentary', 'personality_generation')
-            provider: Filter by LLM provider
-            limit: Max results to return
-            offset: Pagination offset
-            date_from: Filter by start date (ISO format)
-            date_to: Filter by end date (ISO format)
-
-        Returns:
-            Dict with 'captures' list and 'total' count
-        """
+        """List captures for the playground filtered by call_type."""
         return self._experiment_repo.list_playground_captures(
             call_type=call_type, provider=provider, limit=limit,
             offset=offset, date_from=date_from, date_to=date_to
@@ -609,28 +511,13 @@ class GamePersistence:
         return self._experiment_repo.get_playground_capture_stats()
 
     def cleanup_old_captures(self, retention_days: int) -> int:
-        """Delete captures older than the retention period.
-
-        Args:
-            retention_days: Delete captures older than this many days.
-                           If 0, no deletion occurs (unlimited retention).
-
-        Returns:
-            Number of captures deleted.
-        """
+        """Delete captures older than the retention period."""
         return self._experiment_repo.cleanup_old_captures(retention_days)
 
-    # ========== Decision Analysis Methods ==========
+    # -- Decision analysis --
 
     def save_decision_analysis(self, analysis) -> int:
-        """Save a decision analysis to the database.
-
-        Args:
-            analysis: DecisionAnalysis dataclass or dict with analysis data
-
-        Returns:
-            The ID of the inserted row.
-        """
+        """Save a decision analysis to the database."""
         return self._experiment_repo.save_decision_analysis(analysis)
 
     def get_decision_analysis(self, analysis_id: int) -> Optional[Dict[str, Any]]:
@@ -642,12 +529,7 @@ class GamePersistence:
         return self._experiment_repo.get_decision_analysis_by_request(request_id)
 
     def get_decision_analysis_by_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
-        """Get decision analysis linked to a prompt capture.
-
-        Links via capture_id (preferred) or request_id (fallback).
-        Note: request_id fallback only works when request_id is non-empty,
-        as some providers (Google/Gemini) don't return request IDs.
-        """
+        """Get decision analysis linked to a prompt capture."""
         return self._experiment_repo.get_decision_analysis_by_capture(capture_id)
 
     def list_decision_analyses(
@@ -659,11 +541,7 @@ class GamePersistence:
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
-        """List decision analyses with optional filtering.
-
-        Returns:
-            Dict with 'analyses' list and 'total' count.
-        """
+        """List decision analyses with optional filtering."""
         return self._experiment_repo.list_decision_analyses(
             game_id=game_id, player_name=player_name,
             decision_quality=decision_quality, min_ev_lost=min_ev_lost,
@@ -671,23 +549,10 @@ class GamePersistence:
         )
 
     def get_decision_analysis_stats(self, game_id: Optional[str] = None) -> Dict[str, Any]:
-        """Get aggregate statistics for decision analyses.
-
-        Args:
-            game_id: Optional filter by game
-
-        Returns:
-            Dict with aggregate stats including:
-            - total: Total number of analyses
-            - by_quality: Count by decision quality
-            - by_action: Count by action taken
-            - total_ev_lost: Sum of EV lost
-            - avg_equity: Average equity across decisions
-            - avg_processing_ms: Average processing time
-        """
+        """Get aggregate statistics for decision analyses."""
         return self._experiment_repo.get_decision_analysis_stats(game_id=game_id)
 
-    # ==================== Experiment Methods ====================
+    # -- Experiments --
 
     def create_experiment(self, config: Dict, parent_experiment_id: Optional[int] = None) -> int:
         """Create a new experiment record."""
@@ -774,17 +639,7 @@ class GamePersistence:
         limit: int = 50,
         offset: int = 0
     ) -> List[Dict]:
-        """List experiments with optional status filter.
-
-        Args:
-            status: Optional status filter ('pending', 'running', 'completed', 'failed')
-            include_archived: If False (default), filter out experiments with _archived tag
-            limit: Maximum number of experiments to return
-            offset: Number of experiments to skip for pagination
-
-        Returns:
-            List of experiment dictionaries with basic info and progress
-        """
+        """List experiments with optional status filter."""
         return self._experiment_repo.list_experiments(status=status, include_archived=include_archived, limit=limit, offset=offset)
 
     def update_experiment_status(
@@ -793,48 +648,22 @@ class GamePersistence:
         status: str,
         error_message: Optional[str] = None
     ) -> None:
-        """Update experiment status.
-
-        Args:
-            experiment_id: The experiment ID
-            status: New status ('pending', 'running', 'completed', 'failed')
-            error_message: Optional error message if status is 'failed'
-        """
+        """Update experiment status."""
         return self._experiment_repo.update_experiment_status(experiment_id, status, error_message)
 
     def update_experiment_tags(self, experiment_id: int, tags: List[str]) -> None:
-        """Update experiment tags.
-
-        Args:
-            experiment_id: The experiment ID
-            tags: List of tags to set (replaces existing tags)
-        """
+        """Update experiment tags."""
         return self._experiment_repo.update_experiment_tags(experiment_id, tags)
 
     def mark_running_experiments_interrupted(self) -> int:
-        """Mark all 'running' experiments as 'interrupted'.
-
-        Called on startup to handle experiments that were running when the
-        server was stopped. Users can manually resume these experiments.
-
-        Returns:
-            Number of experiments marked as interrupted.
-        """
+        """Mark all 'running' experiments as 'interrupted'."""
         return self._experiment_repo.mark_running_experiments_interrupted()
 
     def get_incomplete_tournaments(self, experiment_id: int) -> List[Dict]:
-        """Get game_ids for tournaments that haven't completed (no tournament_results entry).
-
-        Used when resuming a paused experiment to identify which tournaments need to continue.
-
-        Args:
-            experiment_id: The experiment ID to check
-
-        Returns:
-            List of dicts with game info for incomplete tournaments:
-            [{'game_id': str, 'variant': str|None, 'variant_config': dict|None, 'tournament_number': int}]
-        """
+        """Get game_ids for tournaments that haven't completed."""
         return self._experiment_repo.get_incomplete_tournaments(experiment_id)
+
+    # -- Chat sessions --
 
     def save_chat_session(
         self,
@@ -844,173 +673,49 @@ class GamePersistence:
         config_snapshot: Dict,
         config_versions: Optional[List[Dict]] = None
     ) -> None:
-        """Save or update a chat session.
-
-        Args:
-            session_id: Unique session identifier
-            owner_id: User/owner identifier
-            messages: List of chat messages [{role, content, configDiff?}]
-            config_snapshot: Current config state
-            config_versions: List of config version snapshots
-        """
+        """Save or update a chat session."""
         return self._experiment_repo.save_chat_session(session_id, owner_id, messages, config_snapshot, config_versions)
 
     def get_chat_session(self, session_id: str) -> Optional[Dict]:
-        """Get a chat session by its ID.
-
-        Args:
-            session_id: The session ID to retrieve
-
-        Returns:
-            Dict with session data or None if not found:
-            {
-                'session_id': str,
-                'messages': List[Dict],
-                'config': Dict,
-                'config_versions': List[Dict] | None,
-                'updated_at': str
-            }
-        """
+        """Get a chat session by its ID."""
         return self._experiment_repo.get_chat_session(session_id)
 
     def get_latest_chat_session(self, owner_id: str) -> Optional[Dict]:
-        """Get the most recent non-archived chat session for an owner.
-
-        Args:
-            owner_id: User/owner identifier
-
-        Returns:
-            Dict with session data or None if no session exists:
-            {
-                'session_id': str,
-                'messages': List[Dict],
-                'config': Dict,
-                'config_versions': List[Dict] | None,
-                'updated_at': str
-            }
-        """
+        """Get the most recent non-archived chat session for an owner."""
         return self._experiment_repo.get_latest_chat_session(owner_id)
 
     def archive_chat_session(self, session_id: str) -> None:
-        """Archive a chat session so it won't be returned by get_latest_chat_session.
-
-        Args:
-            session_id: The session ID to archive
-        """
+        """Archive a chat session."""
         return self._experiment_repo.archive_chat_session(session_id)
 
     def delete_chat_session(self, session_id: str) -> None:
-        """Delete a chat session entirely.
-
-        Args:
-            session_id: The session ID to delete
-        """
+        """Delete a chat session."""
         return self._experiment_repo.delete_chat_session(session_id)
 
     def save_experiment_design_chat(self, experiment_id: int, chat_history: List[Dict]) -> None:
-        """Store the design chat history with an experiment.
-
-        Called when an experiment is created to preserve the conversation that led to its design.
-
-        Args:
-            experiment_id: The experiment ID
-            chat_history: List of chat messages from the design session
-        """
+        """Store the design chat history with an experiment."""
         return self._experiment_repo.save_experiment_design_chat(experiment_id, chat_history)
 
     def get_experiment_design_chat(self, experiment_id: int) -> Optional[List[Dict]]:
-        """Get the design chat history for an experiment.
-
-        Args:
-            experiment_id: The experiment ID
-
-        Returns:
-            List of chat messages or None if no design chat stored
-        """
+        """Get the design chat history for an experiment."""
         return self._experiment_repo.get_experiment_design_chat(experiment_id)
 
     def save_experiment_assistant_chat(self, experiment_id: int, chat_history: List[Dict]) -> None:
-        """Store the ongoing assistant chat history for an experiment.
-
-        Used for the experiment-scoped assistant that can query results and answer questions.
-
-        Args:
-            experiment_id: The experiment ID
-            chat_history: List of chat messages from the assistant session
-        """
+        """Store the ongoing assistant chat history for an experiment."""
         return self._experiment_repo.save_experiment_assistant_chat(experiment_id, chat_history)
 
     def get_experiment_assistant_chat(self, experiment_id: int) -> Optional[List[Dict]]:
-        """Get the assistant chat history for an experiment.
-
-        Args:
-            experiment_id: The experiment ID
-
-        Returns:
-            List of chat messages or None if no assistant chat stored
-        """
+        """Get the assistant chat history for an experiment."""
         return self._experiment_repo.get_experiment_assistant_chat(experiment_id)
 
+    # -- Live stats & monitoring --
+
     def get_experiment_live_stats(self, experiment_id: int) -> Dict:
-        """Get real-time unified stats per variant for running/completed experiments.
-
-        Returns all metrics per variant in one call: latency, decision quality, and progress.
-        This is designed to be called on every 5s refresh for running experiments.
-
-        Args:
-            experiment_id: The experiment ID
-
-        Returns:
-            Dictionary with structure:
-            {
-                'by_variant': {
-                    'Variant Label': {
-                        'latency_metrics': { avg_ms, p50_ms, p95_ms, p99_ms, count },
-                        'decision_quality': { total, correct, correct_pct, mistakes, avg_ev_lost },
-                        'progress': { current_hands, max_hands, progress_pct }
-                    },
-                    ...
-                },
-                'overall': { ... same structure ... }
-            }
-        """
+        """Get real-time unified stats per variant for running/completed experiments."""
         return self._experiment_repo.get_experiment_live_stats(experiment_id)
 
     def get_experiment_game_snapshots(self, experiment_id: int) -> List[Dict]:
-        """Load current game states for all running games in an experiment.
-
-        This method provides live game snapshots for the monitoring view,
-        including player states, community cards, pot, and psychology data.
-
-        Args:
-            experiment_id: The experiment ID
-
-        Returns:
-            List of dictionaries with game snapshots:
-            [
-                {
-                    'game_id': str,
-                    'variant': str | None,
-                    'phase': str,
-                    'hand_number': int,
-                    'pot': int,
-                    'community_cards': [...],
-                    'players': [
-                        {
-                            'name': str,
-                            'stack': int,
-                            'bet': int,
-                            'hole_cards': [...],  # Always visible
-                            'is_folded': bool,
-                            'is_all_in': bool,
-                            'is_current': bool,
-                            'psychology': {...},
-                            'llm_debug': {...}
-                        }
-                    ]
-                }
-            ]
-        """
+        """Load current game states for all running games in an experiment."""
         return self._experiment_repo.get_experiment_game_snapshots(experiment_id)
 
     def get_experiment_player_detail(
@@ -1019,27 +724,13 @@ class GamePersistence:
         game_id: str,
         player_name: str
     ) -> Optional[Dict]:
-        """Get detailed player info for the drill-down panel.
-
-        Args:
-            experiment_id: The experiment ID
-            game_id: The game ID
-            player_name: The player name
-
-        Returns:
-            Dictionary with detailed player info or None if not found:
-            {
-                'player': { name, stack, cards },
-                'psychology': { narrative, inner_voice, tilt_level, tilt_category, tilt_source },
-                'llm_debug': { provider, model, reasoning_effort, total_calls, avg_latency_ms, avg_cost_per_call },
-                'play_style': { vpip, pfr, aggression_factor, summary },
-                'recent_decisions': [ { hand_number, phase, action, decision_quality, ev_lost } ]
-            }
-        """
+        """Get detailed player info for the drill-down panel."""
         return self._experiment_repo.get_experiment_player_detail(experiment_id, game_id, player_name)
 
+    # -- Settings --
+
     def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
-        """Get an app setting by key, with optional default."""
+        """Get an app setting by key."""
         return self._settings_repo.get_setting(key, default)
 
     def set_setting(self, key: str, value: str, description: Optional[str] = None) -> bool:
@@ -1054,9 +745,7 @@ class GamePersistence:
         """Delete an app setting."""
         return self._settings_repo.delete_setting(key)
 
-    # ========================================
-    # Prompt Preset Methods (v47)
-    # ========================================
+    # -- Prompt presets --
 
     def create_prompt_preset(
         self,
@@ -1066,46 +755,18 @@ class GamePersistence:
         guidance_injection: Optional[str] = None,
         owner_id: Optional[str] = None
     ) -> int:
-        """Create a new prompt preset.
-
-        Args:
-            name: Unique name for the preset
-            description: Optional description of the preset
-            prompt_config: PromptConfig toggles as dict
-            guidance_injection: Extra guidance text to append to prompts
-            owner_id: Optional owner ID for multi-tenant support
-
-        Returns:
-            The ID of the created preset
-
-        Raises:
-            ValueError: If a preset with the same name already exists
-        """
+        """Create a new prompt preset."""
         return self._experiment_repo.create_prompt_preset(
             name, description=description, prompt_config=prompt_config,
             guidance_injection=guidance_injection, owner_id=owner_id
         )
 
     def get_prompt_preset(self, preset_id: int) -> Optional[Dict[str, Any]]:
-        """Get a prompt preset by ID.
-
-        Args:
-            preset_id: The preset ID
-
-        Returns:
-            Preset data as dict, or None if not found
-        """
+        """Get a prompt preset by ID."""
         return self._experiment_repo.get_prompt_preset(preset_id)
 
     def get_prompt_preset_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """Get a prompt preset by name.
-
-        Args:
-            name: The preset name
-
-        Returns:
-            Preset data as dict, or None if not found
-        """
+        """Get a prompt preset by name."""
         return self._experiment_repo.get_prompt_preset_by_name(name)
 
     def list_prompt_presets(
@@ -1113,15 +774,7 @@ class GamePersistence:
         owner_id: Optional[str] = None,
         limit: int = 100
     ) -> List[Dict[str, Any]]:
-        """List all prompt presets.
-
-        Args:
-            owner_id: Optional filter by owner ID
-            limit: Maximum number of results
-
-        Returns:
-            List of preset data dicts
-        """
+        """List all prompt presets."""
         return self._experiment_repo.list_prompt_presets(owner_id=owner_id, limit=limit)
 
     def update_prompt_preset(
@@ -1132,41 +785,17 @@ class GamePersistence:
         prompt_config: Optional[Dict[str, Any]] = None,
         guidance_injection: Optional[str] = None
     ) -> bool:
-        """Update a prompt preset.
-
-        Args:
-            preset_id: The preset ID to update
-            name: Optional new name
-            description: Optional new description
-            prompt_config: Optional new prompt config
-            guidance_injection: Optional new guidance text
-
-        Returns:
-            True if the preset was updated, False if not found
-
-        Raises:
-            ValueError: If the new name conflicts with an existing preset
-        """
+        """Update a prompt preset."""
         return self._experiment_repo.update_prompt_preset(
             preset_id, name=name, description=description,
             prompt_config=prompt_config, guidance_injection=guidance_injection
         )
 
     def delete_prompt_preset(self, preset_id: int) -> bool:
-        """Delete a prompt preset.
-
-        Args:
-            preset_id: The preset ID to delete
-
-        Returns:
-            True if the preset was deleted, False if not found
-        """
+        """Delete a prompt preset."""
         return self._experiment_repo.delete_prompt_preset(preset_id)
 
-    # ==================== Capture Labels Methods ====================
-    # These methods support labeling/tagging captured AI decisions for
-    # filtering and selection in replay experiments.
-    # ================================================================
+    # -- Capture labels --
 
     def add_capture_labels(
         self,
@@ -1174,31 +803,11 @@ class GamePersistence:
         labels: List[str],
         label_type: str = 'user'
     ) -> List[str]:
-        """Add labels to a captured AI decision.
-
-        Args:
-            capture_id: The prompt_captures ID
-            labels: List of label strings to add
-            label_type: Type of label ('user' for manual, 'smart' for auto-generated)
-
-        Returns:
-            List of labels that were actually added (excludes duplicates)
-        """
+        """Add labels to a captured AI decision."""
         return self._experiment_repo.add_capture_labels(capture_id, labels, label_type)
 
     def compute_and_store_auto_labels(self, capture_id: int, capture_data: Dict[str, Any]) -> List[str]:
-        """Compute auto-labels for a capture based on rules and store them.
-
-        Labels are computed based on the capture data at capture time.
-        Stored with label_type='auto' to distinguish from user-added labels.
-
-        Args:
-            capture_id: The prompt_captures ID
-            capture_data: Dict containing capture fields (action_taken, pot_odds, stack_bb, already_bet_bb, etc.)
-
-        Returns:
-            List of auto-labels that were added
-        """
+        """Compute auto-labels for a capture based on rules and store them."""
         return self._experiment_repo.compute_and_store_auto_labels(capture_id, capture_data)
 
     def remove_capture_labels(
@@ -1206,37 +815,15 @@ class GamePersistence:
         capture_id: int,
         labels: List[str]
     ) -> int:
-        """Remove labels from a captured AI decision.
-
-        Args:
-            capture_id: The prompt_captures ID
-            labels: List of label strings to remove
-
-        Returns:
-            Number of labels that were removed
-        """
+        """Remove labels from a captured AI decision."""
         return self._experiment_repo.remove_capture_labels(capture_id, labels)
 
     def get_capture_labels(self, capture_id: int) -> List[Dict[str, Any]]:
-        """Get all labels for a captured AI decision.
-
-        Args:
-            capture_id: The prompt_captures ID
-
-        Returns:
-            List of label dicts with 'label', 'label_type', 'created_at'
-        """
+        """Get all labels for a captured AI decision."""
         return self._experiment_repo.get_capture_labels(capture_id)
 
     def list_all_labels(self, label_type: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List all unique labels with counts.
-
-        Args:
-            label_type: Optional filter by label type ('user' or 'smart')
-
-        Returns:
-            List of dicts with 'name', 'count', 'label_type'
-        """
+        """List all unique labels with counts."""
         return self._experiment_repo.list_all_labels(label_type)
 
     def get_label_stats(
@@ -1245,16 +832,7 @@ class GamePersistence:
         player_name: Optional[str] = None,
         call_type: Optional[str] = None
     ) -> Dict[str, int]:
-        """Get label counts filtered by game_id, player_name, and/or call_type.
-
-        Args:
-            game_id: Optional filter by game
-            player_name: Optional filter by player
-            call_type: Optional filter by call type
-
-        Returns:
-            Dict mapping label name to count
-        """
+        """Get label counts filtered by game_id, player_name, and/or call_type."""
         return self._experiment_repo.get_label_stats(game_id=game_id, player_name=player_name, call_type=call_type)
 
     def search_captures_with_labels(
@@ -1278,31 +856,7 @@ class GamePersistence:
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
-        """Search captures by labels and optional filters.
-
-        Args:
-            labels: List of labels to search for
-            match_all: If True, captures must have ALL labels; if False, ANY label
-            game_id: Optional filter by game
-            player_name: Optional filter by player
-            action: Optional filter by action taken
-            phase: Optional filter by game phase
-            min_pot_odds: Optional minimum pot odds filter
-            max_pot_odds: Optional maximum pot odds filter
-            call_type: Optional filter by call type (e.g., 'player_decision')
-            min_pot_size: Optional minimum pot total filter
-            max_pot_size: Optional maximum pot total filter
-            min_big_blind: Optional minimum big blind filter (computed from stack_bb)
-            max_big_blind: Optional maximum big blind filter (computed from stack_bb)
-            error_type: Filter by specific error type (e.g., 'malformed_json', 'missing_field')
-            has_error: Filter to captures with errors (True) or without errors (False)
-            is_correction: Filter to correction attempts only (True) or original only (False)
-            limit: Maximum results to return
-            offset: Pagination offset
-
-        Returns:
-            Dict with 'captures' list and 'total' count
-        """
+        """Search captures by labels and optional filters."""
         return self._experiment_repo.search_captures_with_labels(
             labels, match_all=match_all, game_id=game_id, player_name=player_name,
             action=action, phase=phase, min_pot_odds=min_pot_odds, max_pot_odds=max_pot_odds,
@@ -1318,16 +872,7 @@ class GamePersistence:
         labels: List[str],
         label_type: str = 'user'
     ) -> Dict[str, int]:
-        """Add labels to multiple captures at once.
-
-        Args:
-            capture_ids: List of prompt_captures IDs
-            labels: Labels to add to all captures
-            label_type: Type of label
-
-        Returns:
-            Dict with 'captures_affected' and 'labels_added' counts
-        """
+        """Add labels to multiple captures at once."""
         return self._experiment_repo.bulk_add_capture_labels(capture_ids, labels, label_type)
 
     def bulk_remove_capture_labels(
@@ -1335,21 +880,10 @@ class GamePersistence:
         capture_ids: List[int],
         labels: List[str]
     ) -> Dict[str, int]:
-        """Remove labels from multiple captures at once.
-
-        Args:
-            capture_ids: List of prompt_captures IDs
-            labels: Labels to remove from all captures
-
-        Returns:
-            Dict with 'captures_affected' and 'labels_removed' counts
-        """
+        """Remove labels from multiple captures at once."""
         return self._experiment_repo.bulk_remove_capture_labels(capture_ids, labels)
 
-    # ==================== Replay Experiment Methods ====================
-    # These methods support replay experiments that re-run captured AI
-    # decisions with different variants (models, prompts, etc.).
-    # ===================================================================
+    # -- Replay experiments --
 
     def create_replay_experiment(
         self,
@@ -1361,20 +895,7 @@ class GamePersistence:
         tags: Optional[List[str]] = None,
         parent_experiment_id: Optional[int] = None
     ) -> int:
-        """Create a new replay experiment.
-
-        Args:
-            name: Unique experiment name
-            capture_ids: List of prompt_captures IDs to replay
-            variants: List of variant configurations
-            description: Optional experiment description
-            hypothesis: Optional hypothesis being tested
-            tags: Optional list of tags
-            parent_experiment_id: Optional parent for lineage tracking
-
-        Returns:
-            The experiment_id of the created record
-        """
+        """Create a new replay experiment."""
         return self._experiment_repo.create_replay_experiment(name, capture_ids, variants, description=description, hypothesis=hypothesis, tags=tags, parent_experiment_id=parent_experiment_id)
 
     def add_replay_result(
@@ -1395,39 +916,11 @@ class GamePersistence:
         latency_ms: Optional[int] = None,
         error_message: Optional[str] = None
     ) -> int:
-        """Add a result from replaying a capture with a variant.
-
-        Args:
-            experiment_id: The experiment ID
-            capture_id: The prompt_captures ID
-            variant: The variant label
-            new_response: The new AI response
-            new_action: The new action taken
-            new_raise_amount: Optional new raise amount
-            new_quality: Optional quality assessment
-            new_ev_lost: Optional EV lost calculation
-            provider: LLM provider used
-            model: Model used
-            reasoning_effort: Reasoning effort setting
-            input_tokens: Input token count
-            output_tokens: Output token count
-            latency_ms: Response latency
-            error_message: Error if the replay failed
-
-        Returns:
-            The replay_results record ID
-        """
+        """Add a result from replaying a capture with a variant."""
         return self._experiment_repo.add_replay_result(experiment_id, capture_id, variant, new_response, new_action, new_raise_amount=new_raise_amount, new_quality=new_quality, new_ev_lost=new_ev_lost, provider=provider, model=model, reasoning_effort=reasoning_effort, input_tokens=input_tokens, output_tokens=output_tokens, latency_ms=latency_ms, error_message=error_message)
 
     def get_replay_experiment(self, experiment_id: int) -> Optional[Dict[str, Any]]:
-        """Get a replay experiment with its captures and progress.
-
-        Args:
-            experiment_id: The experiment ID
-
-        Returns:
-            Experiment data with capture count and result progress, or None
-        """
+        """Get a replay experiment with its captures and progress."""
         return self._experiment_repo.get_replay_experiment(experiment_id)
 
     def get_replay_results(
@@ -1438,40 +931,15 @@ class GamePersistence:
         limit: int = 100,
         offset: int = 0
     ) -> Dict[str, Any]:
-        """Get replay results for an experiment.
-
-        Args:
-            experiment_id: The experiment ID
-            variant: Optional filter by variant
-            quality_change: Optional filter by quality change ('improved', 'degraded', 'unchanged')
-            limit: Maximum results to return
-            offset: Pagination offset
-
-        Returns:
-            Dict with 'results' list and 'total' count
-        """
+        """Get replay results for an experiment."""
         return self._experiment_repo.get_replay_results(experiment_id, variant=variant, quality_change=quality_change, limit=limit, offset=offset)
 
     def get_replay_results_summary(self, experiment_id: int) -> Dict[str, Any]:
-        """Get summary statistics for replay experiment results.
-
-        Args:
-            experiment_id: The experiment ID
-
-        Returns:
-            Dict with summary statistics by variant
-        """
+        """Get summary statistics for replay experiment results."""
         return self._experiment_repo.get_replay_results_summary(experiment_id)
 
     def get_replay_experiment_captures(self, experiment_id: int) -> List[Dict[str, Any]]:
-        """Get the captures linked to a replay experiment.
-
-        Args:
-            experiment_id: The experiment ID
-
-        Returns:
-            List of capture details with original info
-        """
+        """Get the captures linked to a replay experiment."""
         return self._experiment_repo.get_replay_experiment_captures(experiment_id)
 
     def list_replay_experiments(
@@ -1480,14 +948,5 @@ class GamePersistence:
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
-        """List replay experiments.
-
-        Args:
-            status: Optional filter by status
-            limit: Maximum results to return
-            offset: Pagination offset
-
-        Returns:
-            Dict with 'experiments' list and 'total' count
-        """
+        """List replay experiments."""
         return self._experiment_repo.list_replay_experiments(status=status, limit=limit, offset=offset)

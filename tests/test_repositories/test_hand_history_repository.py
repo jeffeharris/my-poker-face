@@ -1,14 +1,11 @@
 """Tests for HandHistoryRepository."""
 import json
 import pytest
-from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.hand_history_repository import HandHistoryRepository
 
 
 @pytest.fixture
-def repo(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    SchemaManager(db_path).ensure_schema()
+def repo(db_path):
     r = HandHistoryRepository(db_path)
     yield r
     r.close()

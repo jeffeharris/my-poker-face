@@ -1,5 +1,4 @@
 """LLM model management repository — enabled models and provider queries."""
-import sqlite3
 from typing import Dict, List, Any, Set
 
 from .base_repository import BaseRepository

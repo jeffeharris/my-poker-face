@@ -18,9 +18,25 @@ from poker.utils import get_celebrities
 from core.card import Card
 
 
+def _cleanup_test_db(db_path):
+    """Checkpoint WAL and remove database files."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.close()
+    except Exception:
+        pass
+    os.unlink(db_path)
+    for suffix in ('-wal', '-shm'):
+        path = db_path + suffix
+        if os.path.exists(path):
+            os.unlink(path)
+
+
 class TestGamePersistence(unittest.TestCase):
     """Test cases for game persistence."""
-    
+
     def setUp(self):
         """Create a temporary database for each test."""
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
@@ -29,20 +45,7 @@ class TestGamePersistence(unittest.TestCase):
         
     def tearDown(self):
         """Clean up temporary database."""
-        # Close any open connections before unlinking (T3-07)
-        try:
-            import sqlite3
-            conn = sqlite3.connect(self.test_db.name)
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            conn.close()
-        except Exception:
-            pass
-        os.unlink(self.test_db.name)
-        # Clean up WAL/SHM files if they exist
-        for suffix in ('-wal', '-shm'):
-            path = self.test_db.name + suffix
-            if os.path.exists(path):
-                os.unlink(path)
+        _cleanup_test_db(self.test_db.name)
     
     def test_save_and_load_game(self):
         """Test saving and loading a game preserves all state."""

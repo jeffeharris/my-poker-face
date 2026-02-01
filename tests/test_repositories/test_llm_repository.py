@@ -1,14 +1,11 @@
 """Tests for LLMRepository."""
 import sqlite3
 import pytest
-from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.llm_repository import LLMRepository
 
 
 @pytest.fixture
-def repo(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    SchemaManager(db_path).ensure_schema()
+def repo(db_path):
     r = LLMRepository(db_path)
     yield r
     r.close()

@@ -3,7 +3,6 @@
 Manages the personalities and avatar_images tables.
 """
 import json
-import sqlite3
 import logging
 from typing import Optional, List, Dict, Any
 
@@ -72,15 +71,6 @@ class PersonalityRepository(BaseRepository):
                 return config
 
             return None
-
-    def increment_personality_usage(self, name: str) -> None:
-        """Increment the usage counter for a personality."""
-        with self._get_connection() as conn:
-            conn.execute("""
-                UPDATE personalities
-                SET times_used = times_used + 1
-                WHERE name = ?
-            """, (name,))
 
     def list_personalities(self, limit: int = 50) -> List[Dict[str, Any]]:
         """List all personalities with metadata."""

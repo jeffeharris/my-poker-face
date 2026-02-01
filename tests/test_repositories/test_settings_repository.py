@@ -1,13 +1,10 @@
 """Tests for SettingsRepository."""
 import pytest
-from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.settings_repository import SettingsRepository
 
 
 @pytest.fixture
-def repo(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    SchemaManager(db_path).ensure_schema()
+def repo(db_path):
     r = SettingsRepository(db_path)
     yield r
     r.close()

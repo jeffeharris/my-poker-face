@@ -1,14 +1,11 @@
 """Tests for PersonalityRepository."""
 import json
 import pytest
-from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.personality_repository import PersonalityRepository
 
 
 @pytest.fixture
-def repo(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    SchemaManager(db_path).ensure_schema()
+def repo(db_path):
     r = PersonalityRepository(db_path)
     yield r
     r.close()
@@ -54,19 +51,6 @@ def test_load_personality_increments_usage(repo):
     usage_bot = next(p for p in personalities if p["name"] == "UsageBot")
     # 2 loads = 2 increments
     assert usage_bot["times_used"] >= 2
-
-
-def test_increment_personality_usage(repo):
-    config = {"play_style": "wild"}
-    repo.save_personality("CountBot", config)
-
-    repo.increment_personality_usage("CountBot")
-    repo.increment_personality_usage("CountBot")
-    repo.increment_personality_usage("CountBot")
-
-    personalities = repo.list_personalities()
-    count_bot = next(p for p in personalities if p["name"] == "CountBot")
-    assert count_bot["times_used"] >= 3
 
 
 def test_list_personalities(repo):

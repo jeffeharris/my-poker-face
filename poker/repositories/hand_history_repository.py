@@ -251,7 +251,7 @@ class HandHistoryRepository(BaseRepository):
                 # Determine outcome
                 if player_won:
                     stats['hands_won'] += 1
-                    stats['total_winnings'] += amount_won
+                    stats['total_winnings'] += (amount_won - amount_bet)
                     outcomes.append('won')
                     if pot_size > stats['biggest_pot_won']:
                         stats['biggest_pot_won'] = pot_size

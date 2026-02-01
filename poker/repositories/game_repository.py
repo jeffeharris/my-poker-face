@@ -68,7 +68,6 @@ class GameRepository(BaseRepository):
         """
         game_state = state_machine.game_state
 
-        # Convert game state to dict and then to JSON
         state_dict = game_state.to_dict()
         state_dict['current_phase'] = state_machine.current_phase.value
 
@@ -116,7 +115,6 @@ class GameRepository(BaseRepository):
             if not row:
                 return None
 
-            # Parse the JSON and recreate the game state
             state_dict = json.loads(row['game_state_json'])
             game_state = restore_state_from_dict(state_dict)
 
@@ -162,7 +160,6 @@ class GameRepository(BaseRepository):
             game_id: The game identifier
             tracker: TournamentTracker instance or dict from to_dict()
         """
-        # Convert to dict if it's a TournamentTracker object
         if hasattr(tracker, 'to_dict'):
             tracker_dict = tracker.to_dict()
         else:
@@ -347,7 +344,6 @@ class GameRepository(BaseRepository):
             player_name: The player's name
             emotional_state: EmotionalState object or dict from EmotionalState.to_dict()
         """
-        # Convert to dict if it's an EmotionalState object
         if hasattr(emotional_state, 'to_dict'):
             state_dict = emotional_state.to_dict()
         else:
@@ -377,6 +373,23 @@ class GameRepository(BaseRepository):
                 })
             ))
 
+    @staticmethod
+    def _build_emotional_state_dict(row) -> Dict[str, Any]:
+        """Build an emotional state dict from a database row."""
+        metadata = json.loads(row['metadata_json']) if row['metadata_json'] else {}
+        return {
+            'valence': row['valence'],
+            'arousal': row['arousal'],
+            'control': row['control'],
+            'focus': row['focus'],
+            'narrative': row['narrative'] or '',
+            'inner_voice': row['inner_voice'] or '',
+            'generated_at_hand': row['generated_at_hand'],
+            'source_events': json.loads(row['source_events']) if row['source_events'] else [],
+            'created_at': metadata.get('created_at'),
+            'used_fallback': metadata.get('used_fallback', False)
+        }
+
     def load_emotional_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load emotional state for a player.
 
@@ -384,7 +397,6 @@ class GameRepository(BaseRepository):
             Dict suitable for EmotionalState.from_dict(), or None if not found
         """
         with self._get_connection() as conn:
-
             cursor = conn.execute("""
                 SELECT * FROM emotional_state
                 WHERE game_id = ? AND player_name = ?
@@ -394,20 +406,7 @@ class GameRepository(BaseRepository):
             if not row:
                 return None
 
-            metadata = json.loads(row['metadata_json']) if row['metadata_json'] else {}
-
-            return {
-                'valence': row['valence'],
-                'arousal': row['arousal'],
-                'control': row['control'],
-                'focus': row['focus'],
-                'narrative': row['narrative'] or '',
-                'inner_voice': row['inner_voice'] or '',
-                'generated_at_hand': row['generated_at_hand'],
-                'source_events': json.loads(row['source_events']) if row['source_events'] else [],
-                'created_at': metadata.get('created_at'),
-                'used_fallback': metadata.get('used_fallback', False)
-            }
+            return self._build_emotional_state_dict(row)
 
     def load_all_emotional_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
         """Load all emotional states for a game.
@@ -416,29 +415,15 @@ class GameRepository(BaseRepository):
             Dict mapping player_name -> emotional_state dict
         """
         with self._get_connection() as conn:
-
             cursor = conn.execute("""
                 SELECT * FROM emotional_state
                 WHERE game_id = ?
             """, (game_id,))
 
-            states = {}
-            for row in cursor.fetchall():
-                metadata = json.loads(row['metadata_json']) if row['metadata_json'] else {}
-                states[row['player_name']] = {
-                    'valence': row['valence'],
-                    'arousal': row['arousal'],
-                    'control': row['control'],
-                    'focus': row['focus'],
-                    'narrative': row['narrative'] or '',
-                    'inner_voice': row['inner_voice'] or '',
-                    'generated_at_hand': row['generated_at_hand'],
-                    'source_events': json.loads(row['source_events']) if row['source_events'] else [],
-                    'created_at': metadata.get('created_at'),
-                    'used_fallback': metadata.get('used_fallback', False)
-                }
-
-            return states
+            return {
+                row['player_name']: self._build_emotional_state_dict(row)
+                for row in cursor.fetchall()
+            }
 
     def delete_emotional_state_for_game(self, game_id: str) -> None:
         """Delete all emotional states for a game."""
@@ -480,6 +465,23 @@ class GameRepository(BaseRepository):
                 json.dumps(prompt_config) if prompt_config else None
             ))
 
+    @staticmethod
+    def _build_controller_state_dict(row, player_name: str = '') -> Dict[str, Any]:
+        """Build a controller state dict from a database row."""
+        prompt_config = None
+        try:
+            if row['prompt_config_json']:
+                prompt_config = json.loads(row['prompt_config_json'])
+        except (KeyError, IndexError):
+            if player_name:
+                logger.warning(f"prompt_config_json column not found for {player_name}, using defaults")
+
+        return {
+            'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
+            'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None,
+            'prompt_config': prompt_config
+        }
+
     def load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load controller state for a player.
 
@@ -487,7 +489,6 @@ class GameRepository(BaseRepository):
             Dict with 'tilt_state', 'elastic_personality', and 'prompt_config' keys, or None if not found
         """
         with self._get_connection() as conn:
-
             cursor = conn.execute("""
                 SELECT tilt_state_json, elastic_personality_json, prompt_config_json
                 FROM controller_state
@@ -498,20 +499,7 @@ class GameRepository(BaseRepository):
             if not row:
                 return None
 
-            # Handle prompt_config_json which may not exist in older databases
-            prompt_config = None
-            try:
-                if row['prompt_config_json']:
-                    prompt_config = json.loads(row['prompt_config_json'])
-            except (KeyError, IndexError):
-                # Column doesn't exist in older schema
-                logger.warning(f"prompt_config_json column not found for {player_name}, using defaults")
-
-            return {
-                'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
-                'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None,
-                'prompt_config': prompt_config
-            }
+            return self._build_controller_state_dict(row, player_name)
 
     def load_all_controller_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
         """Load all controller states for a game.
@@ -520,30 +508,16 @@ class GameRepository(BaseRepository):
             Dict mapping player_name -> controller state dict
         """
         with self._get_connection() as conn:
-
             cursor = conn.execute("""
                 SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json
                 FROM controller_state
                 WHERE game_id = ?
             """, (game_id,))
 
-            states = {}
-            for row in cursor.fetchall():
-                # Handle prompt_config_json which may not exist in older databases
-                prompt_config = None
-                try:
-                    if row['prompt_config_json']:
-                        prompt_config = json.loads(row['prompt_config_json'])
-                except (KeyError, IndexError):
-                    pass  # Column doesn't exist in older schema
-
-                states[row['player_name']] = {
-                    'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
-                    'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None,
-                    'prompt_config': prompt_config
-                }
-
-            return states
+            return {
+                row['player_name']: self._build_controller_state_dict(row)
+                for row in cursor.fetchall()
+            }
 
     # --- Opponent Models ---
 
@@ -554,7 +528,6 @@ class GameRepository(BaseRepository):
             game_id: The game identifier
             opponent_model_manager: OpponentModelManager instance or dict from to_dict()
         """
-        # Convert to dict if it's an OpponentModelManager object
         if hasattr(opponent_model_manager, 'to_dict'):
             models_dict = opponent_model_manager.to_dict()
         else:

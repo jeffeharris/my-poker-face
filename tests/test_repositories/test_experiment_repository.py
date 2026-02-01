@@ -1,6 +1,5 @@
 """Tests for ExperimentRepository — Part 1 (captures, decisions, presets, labels)."""
 import pytest
-from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.experiment_repository import ExperimentRepository
 from poker.repositories.game_repository import GameRepository
 
@@ -22,9 +21,7 @@ def _make_capture(**overrides):
 
 
 @pytest.fixture
-def repo(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    SchemaManager(db_path).ensure_schema()
+def repo(db_path):
     game_repo = GameRepository(db_path)
     r = ExperimentRepository(db_path, game_repo=game_repo)
     yield r

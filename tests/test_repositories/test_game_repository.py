@@ -1,7 +1,6 @@
 """Tests for GameRepository."""
 import json
 import pytest
-from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.game_repository import GameRepository, SavedGame
 from poker.poker_game import PokerGameState, Player
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
@@ -9,9 +8,7 @@ from core.card import Card
 
 
 @pytest.fixture
-def repo(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    SchemaManager(db_path).ensure_schema()
+def repo(db_path):
     r = GameRepository(db_path)
     yield r
     r.close()
@@ -186,8 +183,20 @@ def test_personality_snapshot(repo):
     pressure = {"stack_pressure": 0.3}
 
     repo.save_personality_snapshot("game1", "Batman", 5, traits, pressure)
-    # No direct load method for snapshots — just verify no error
-    # Snapshots are read by other analysis queries
+
+    # Verify the snapshot was persisted via raw SQL
+    import sqlite3
+    conn = sqlite3.connect(repo.db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT * FROM personality_snapshots WHERE game_id = ? AND player_name = ?",
+        ("game1", "Batman")
+    ).fetchone()
+    conn.close()
+    assert row is not None
+    assert row["hand_number"] == 5
+    assert json.loads(row["personality_traits"]) == traits
+    assert json.loads(row["pressure_levels"]) == pressure
 
 
 # --- Emotional State ---
