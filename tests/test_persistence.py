@@ -29,7 +29,20 @@ class TestGamePersistence(unittest.TestCase):
         
     def tearDown(self):
         """Clean up temporary database."""
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
         os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
     
     def test_save_and_load_game(self):
         """Test saving and loading a game preserves all state."""
@@ -216,7 +229,20 @@ class TestCardSerialization(unittest.TestCase):
         self.persistence = GamePersistence(self.test_db.name)
     
     def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
         os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
     
     def test_serialize_card_object(self):
         """Test serializing a Card object."""
@@ -285,7 +311,20 @@ class TestAIStatePersistence(unittest.TestCase):
         self.game_id = "test_game_123"
     
     def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
         os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
     
     def test_save_ai_player_state(self):
         """Test saving AI player state."""
@@ -382,7 +421,20 @@ class TestPersonalitySnapshots(unittest.TestCase):
         self.game_id = "test_game_123"
     
     def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
         os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
     
     def test_save_personality_snapshot(self):
         """Test saving personality snapshot."""
@@ -437,7 +489,20 @@ class TestDatabaseSchema(unittest.TestCase):
         self.persistence = GamePersistence(self.test_db.name)
     
     def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
         os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
     
     def test_ai_tables_created(self):
         """Test that AI persistence tables are created."""
@@ -485,7 +550,20 @@ class TestAvatarPersistence(unittest.TestCase):
         self.persistence = GamePersistence(self.test_db.name)
 
     def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
         os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
 
     def _create_test_image_bytes(self) -> bytes:
         """Create minimal PNG bytes for testing."""
@@ -666,7 +744,20 @@ class TestPersonalitySeed(unittest.TestCase):
         self.persistence = GamePersistence(self.test_db.name)
 
     def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
         os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
 
     def test_seed_from_nonexistent_file(self):
         """Test seeding from non-existent file returns error."""

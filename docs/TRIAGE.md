@@ -127,14 +127,14 @@ Issues to address once live, during ongoing development.
 | T3-04 | Skipped tests not tracked | `test_prompt_golden_path.py:192` | `@unittest.skip` with no GitHub issue. Tests forgotten. | **FIXED** — updated test to match current archetype system |
 | T3-05 | Mixed unittest and pytest patterns | All test files | No standardization. Can't use pytest features consistently. | |
 | T3-06 | No test coverage reporting | CI/CD pipeline | No `pytest-cov`, no coverage enforcement. Don't know what's tested. | |
-| T3-07 | DB connection leaks in tests | `test_persistence.py:26-32` | `tearDown` unlinks file without closing DB connection first. | |
+| T3-07 | DB connection leaks in tests | `test_persistence.py:26-32` | `tearDown` unlinks file without closing DB connection first. | **IN PROGRESS** — persistence refactor milestone (T3-35) |
 | T3-08 | No experiment integration tests | `experiments/` | 11 files, 0 integration tests. Tournament runner untested end-to-end. | |
 
 ### Performance & Scalability
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T3-09 | No SQLite connection pooling | `poker/persistence.py` | New connection for every operation. Performance bottleneck under load. | |
+| T3-09 | No SQLite connection pooling | `poker/persistence.py` | New connection for every operation. Performance bottleneck under load. | **IN PROGRESS** — persistence refactor milestone (T3-35) |
 | T3-10 | Synchronous LLM calls block threads | `core/llm/client.py:145-211` | LLM API calls are synchronous. Block entire thread pool. | |
 | T3-11 | Frontend re-renders on every socket event | React components | Full game state replacement triggers unnecessary re-renders. No `React.memo`. | |
 | T3-12 | No pagination on game list | `flask_app/routes/game_routes.py:194` | Hardcoded `limit=10`, no offset support. | |
@@ -147,9 +147,13 @@ Issues to address once live, during ongoing development.
 | T3-14 | Python/TypeScript types manually synced | `poker/poker_game.py` ↔ `react/src/types/game.ts` | No automated validation. `has_acted` exists in Python but is an internal game state flag — frontend doesn't need it. Types are currently in sync for all user-facing fields. Remains a maintenance risk long-term. | |
 | T3-15 | Card formatting duplicated across languages | `flask_app/routes/game_routes.py:100-114` + `react/src/utils/cards.ts` | Changes require updating both Python and TypeScript. | |
 | T3-16 | DB path logic duplicated 3+ times | `core/llm/tracking.py:34-52`, `flask_app/config.py:98-101`, `scripts/dbq.py:27-31` | Each with different fallback paths. Include hardcoded absolute paths. | **FIXED** — consolidated to canonical version in `flask_app/config.py` |
-| T3-17 | Schema version hardcoded, no migrations | `poker/persistence.py:20-39` | `SCHEMA_VERSION = 58` with manual migration comments. No Alembic or equivalent. | |
-| T3-18 | Circular import workarounds | `flask_app/__init__.py:35-36`, `capture_config.py`, `persistence.py` | Lazy imports to avoid circular deps indicate architectural coupling. | |
+| T3-17 | Schema version hardcoded, no migrations | `poker/persistence.py:20-39` | `SCHEMA_VERSION = 62` with manual migration comments. No Alembic or equivalent. | **IN PROGRESS** — persistence refactor milestone (T3-35) |
+| T3-18 | Circular import workarounds | `flask_app/__init__.py:35-36`, `capture_config.py`, `persistence.py` | Lazy imports to avoid circular deps indicate architectural coupling. | **IN PROGRESS** — persistence refactor milestone (T3-35) |
 | T3-19 | Inconsistent error response format | Flask routes | Mix of `{'error': str}`, `{'success': False}`, `{'message': str}`, `{'status': 'error'}`. | |
+| T3-35 | God Object: `GamePersistence` is 9,000 lines | `poker/persistence.py` | Single class with 228 methods, 35+ tables. Split into domain repositories. See plan: `.claude/plans/functional-napping-forest.md`. | **IN PROGRESS** — persistence refactor milestone |
+| T3-36 | Remove `GamePersistence` facade after repo extraction | `poker/persistence.py`, 40+ caller files | After repo extraction, update all callers to import repos directly and remove the facade class. | Blocked by T3-35 |
+| T3-37 | `ExperimentRepository` may need further splitting | `poker/repositories/experiment_repository.py` | At ~1800 lines, may benefit from splitting into `ExperimentRepository` + `PromptCaptureRepository`. | Blocked by T3-35 |
+| T3-38 | No cross-repo transaction coordinator | `poker/repositories/` | Operations like `delete_game` cascade across repos without atomic transactions. Add a coordinator pattern. | Blocked by T3-35 |
 | T3-20 | `GET` allowed on destructive endpoint | `flask_app/routes/game_routes.py:1114` | `/api/end_game/<game_id>` accepts both GET and POST. GET should never mutate. | **FIXED** — POST only |
 
 ### Documentation & DX
@@ -180,12 +184,12 @@ Issues to address once live, during ongoing development.
 
 ## Summary Statistics
 
-| Tier | Total | Fixed | Dismissed | Open |
-|------|-------|-------|-----------|------|
-| **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 34 | 18 | 1 | 15 |
-| **Tier 3: Post-Release** | 34 | 9 | 0 | 25 |
-| **Total** | **89** | **40** | **8** | **40** |
+| Tier | Total | Fixed | Dismissed | In Progress | Open |
+|------|-------|-------|-----------|-------------|------|
+| **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 | 0 |
+| **Tier 2: Should-Fix** | 34 | 18 | 1 | 0 | 15 |
+| **Tier 3: Post-Release** | 38 | 9 | 0 | 5 | 24 |
+| **Total** | **93** | **40** | **8** | **5** | **39** |
 
 ## Key Architectural Insight
 
