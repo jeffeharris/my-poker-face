@@ -11,9 +11,11 @@ from .settings_repository import SettingsRepository
 from .guest_tracking_repository import GuestTrackingRepository
 from .personality_repository import PersonalityRepository
 from .user_repository import UserRepository
+from .experiment_repository import ExperimentRepository
 
 __all__ = [
     'BaseRepository',
+    'ExperimentRepository',
     'GuestTrackingRepository',
     'PersonalityRepository',
     'PressureEventRepository',

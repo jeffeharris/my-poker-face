@@ -15,7 +15,7 @@
 
 ## Phase 3: Experiment Domain (split into two batches)
 
-- [ ] T3-35-B4a: Extract `ExperimentRepository` Part 1 — prompt captures, decision analysis, presets, labels (~900 lines, 30 methods)
+- [x] T3-35-B4a: Extract `ExperimentRepository` Part 1 — prompt captures, decision analysis, presets, labels (~900 lines, 30 methods)
 - [ ] T3-35-B4b: Extend `ExperimentRepository` Part 2 — experiment lifecycle, chat sessions, analytics, replay (~900 lines, 28 methods)
 
 ## Phase 4: Core Game State
