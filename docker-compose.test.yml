@@ -1,4 +1,4 @@
-# Override for E2E testing: TEST_MODE backend + Playwright runner.
+# Override for E2E testing: fast LLM-free backend + Playwright runner.
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.test.yml up --build --exit-code-from playwright playwright
@@ -6,7 +6,16 @@
 services:
   backend:
     environment:
-      - TEST_MODE=true
+      - ANIMATION_SPEED=0
+      - AI_DECISION_MODE=fallback_random
+      - ENABLE_AVATAR_GENERATION=false
+      - ENABLE_AI_COMMENTARY=false
+      - ENABLE_TEST_ROUTES=true
+      - RATE_LIMIT_DEFAULT=
+      - RATE_LIMIT_NEW_GAME=99999 per minute
+      - RATE_LIMIT_GAME_ACTION=99999 per minute
+      - RATE_LIMIT_CHAT_SUGGESTIONS=99999 per minute
+      - RATE_LIMIT_GENERATE_PERSONALITY=99999 per minute
 
   frontend:
     environment:

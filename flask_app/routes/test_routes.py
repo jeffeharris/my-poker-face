@@ -1,4 +1,4 @@
-"""Test helper endpoints — only registered when TEST_MODE=true.
+"""Test helper endpoints — only registered when ENABLE_TEST_ROUTES=true.
 
 These endpoints allow Playwright E2E tests to manipulate game state
 directly, bypassing the normal game flow for targeted scenario testing.

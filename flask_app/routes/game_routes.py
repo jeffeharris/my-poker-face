@@ -1025,7 +1025,7 @@ def api_new_game():
     )
     persistence.save_tournament_tracker(game_id, tournament_tracker)
     persistence.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
-    if not config.test_mode:
+    if config.ENABLE_AVATAR_GENERATION:
         start_background_avatar_generation(game_id, ai_player_names)
 
     # Record game creation timestamp to prevent rapid duplicate creation

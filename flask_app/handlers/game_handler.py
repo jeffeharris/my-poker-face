@@ -988,8 +988,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Create event to track when async commentary tasks complete
     commentary_complete = threading.Event()
 
-    if config.test_mode:
-        # TEST_MODE: skip LLM-based commentary and emotional state updates
+    if not config.ENABLE_AI_COMMENTARY:
         commentary_complete.set()
     else:
         # Start async tasks for emotional state and commentary (LLM calls)
@@ -1057,8 +1056,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         logger.warning(f"Commentary did not complete within {commentary_timeout}s timeout")
 
     # Small additional delay for visual pacing
-    if not config.test_mode:
-        socketio.sleep(1 if is_showdown else 0.5)
+    delay = (1 if is_showdown else 0.5) * config.ANIMATION_SPEED
+    if delay > 0:
+        socketio.sleep(delay)
 
     # Apply psychology recovery between hands — elastic traits drift toward
     # anchor, tilt naturally decays, emotional state decays toward baseline
@@ -1192,9 +1192,10 @@ def progress_game(game_id: str) -> None:
                     current_game_data['runout_emotion_overrides'] = overrides
                     game_state_service.set_game(game_id, current_game_data)
 
-                    # Extra pause (4 seconds) for players to see the cards
-                    if not config.test_mode:
-                        socketio.sleep(4)
+                    # Extra pause for players to see the cards
+                    delay = 4 * config.ANIMATION_SPEED
+                    if delay > 0:
+                        socketio.sleep(delay)
 
                 # Wait for card animation to finish, then emit reactions,
                 # then hold so the player can absorb before next street.
@@ -1202,8 +1203,9 @@ def progress_game(game_id: str) -> None:
                 # Turn/River (1 card): ~0.825s animation
                 animation_sleep = 3 if current_phase == PokerPhase.FLOP else 1
                 reaction_hold = 1.5
-                if not config.test_mode:
-                    socketio.sleep(animation_sleep)
+                delay = animation_sleep * config.ANIMATION_SPEED
+                if delay > 0:
+                    socketio.sleep(delay)
 
                 # Check if game was deleted during sleep
                 current_game_data = game_state_service.get_game(game_id)
@@ -1225,8 +1227,9 @@ def progress_game(game_id: str) -> None:
                     game_state_service.set_game(game_id, current_game_data)
 
                 # Hold so the player can see reactions before next street
-                if not config.test_mode:
-                    socketio.sleep(reaction_hold)
+                delay = reaction_hold * config.ANIMATION_SPEED
+                if delay > 0:
+                    socketio.sleep(delay)
                 # Emit showdown reactions after all cards are dealt
                 current_phase = state_machine.current_phase
                 if current_phase == PokerPhase.RIVER:
@@ -1242,8 +1245,9 @@ def progress_game(game_id: str) -> None:
                                 _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
                             current_game_data['runout_emotion_overrides'] = overrides
                             game_state_service.set_game(game_id, current_game_data)
-                        if not config.test_mode:
-                            socketio.sleep(1.5)
+                        delay = 1.5 * config.ANIMATION_SPEED
+                        if delay > 0:
+                            socketio.sleep(delay)
 
                 # Determine next phase (skip betting, go to dealing or showdown)
                 if current_phase == PokerPhase.RIVER:
@@ -1336,8 +1340,8 @@ def handle_ai_action(game_id: str) -> None:
         controller.current_hand_number = current_game_data['memory_manager'].hand_count
 
     try:
-        if config.test_mode:
-            # TEST_MODE: skip LLM call, use random valid action for instant decisions
+        if config.AI_DECISION_MODE != 'llm':
+            # Fallback mode: use random valid action (no LLM call)
             valid_actions = state_machine.game_state.current_player_options
             call_amount = state_machine.game_state.highest_bet - current_player.bet
             max_raise = current_player.stack

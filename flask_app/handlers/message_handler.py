@@ -139,8 +139,9 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
 
     if sleep:
         from .. import config
-        if not config.test_mode:
-            socketio.sleep(sleep)
+        delay = sleep * config.ANIMATION_SPEED
+        if delay > 0:
+            socketio.sleep(delay)
 
 
 def format_messages_for_api(messages: list) -> list:

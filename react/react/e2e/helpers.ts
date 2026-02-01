@@ -112,11 +112,11 @@ export async function loginAsUser(page: Page, name = 'TestPlayer') {
   }, name);
 }
 
-// ─── Real-backend helpers (for use with TEST_MODE backend) ───
+// ─── Real-backend helpers (for use with ENABLE_TEST_ROUTES backend) ───
 
 /**
  * Load a game state snapshot into the backend via the test endpoint.
- * Requires TEST_MODE=true on the backend.
+ * Requires ENABLE_TEST_ROUTES=true on the backend.
  */
 export async function loadGameSnapshot(
   page: Page,
@@ -133,7 +133,7 @@ export async function loadGameSnapshot(
 
 /**
  * Emit a Socket.IO event to a game room via the test endpoint.
- * Requires TEST_MODE=true on the backend.
+ * Requires ENABLE_TEST_ROUTES=true on the backend.
  */
 export async function emitSocketEvent(
   page: Page,
@@ -151,7 +151,7 @@ export async function emitSocketEvent(
 
 /**
  * Reset all in-memory game state on the backend.
- * Requires TEST_MODE=true on the backend.
+ * Requires ENABLE_TEST_ROUTES=true on the backend.
  */
 export async function resetTestState(page: Page): Promise<void> {
   const response = await page.request.post(`${BACKEND_URL}/api/test/reset`);
