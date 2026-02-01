@@ -1,0 +1,24 @@
+FROM node:20-slim
+
+# Install Playwright system dependencies (Chromium + WebKit)
+RUN npx playwright install-deps chromium webkit
+
+# Set up working directory
+WORKDIR /app
+
+# Copy package files and install
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Install Playwright browsers after npm install
+RUN npx playwright install chromium webkit
+
+# Copy the rest of the app
+COPY . .
+
+# Expose Vite dev server port
+EXPOSE 5173
+
+# Run Playwright tests (Vite dev server auto-starts via webServer config)
+# Default: run all projects (Mobile Chrome + Mobile Safari)
+CMD ["npx", "playwright", "test", "--reporter=list"]

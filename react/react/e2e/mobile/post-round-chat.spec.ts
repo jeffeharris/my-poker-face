@@ -334,10 +334,10 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
     const overlay = page.locator('.mobile-winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    // Click Gracious tone
+    // Click Gracious tone (use force for WebKit where animation can detach element)
     const graciousBtn = overlay.locator('.tone-gracious');
     await expect(graciousBtn).toBeVisible({ timeout: 5000 });
-    await graciousBtn.click();
+    await graciousBtn.click({ force: true });
 
     // Suggestions should appear (loading may be too fast to reliably catch)
     const suggestions = overlay.locator('.post-round-suggestion');
@@ -369,7 +369,7 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
     // Click a tone to get suggestions
     const graciousBtn = overlay.locator('.tone-gracious');
     await expect(graciousBtn).toBeVisible({ timeout: 5000 });
-    await graciousBtn.click();
+    await graciousBtn.click({ force: true });
 
     // Wait for suggestions
     const suggestions = overlay.locator('.post-round-suggestion');
@@ -400,7 +400,7 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
     // Click a tone to get suggestions
     const graciousBtn = overlay.locator('.tone-gracious');
     await expect(graciousBtn).toBeVisible({ timeout: 5000 });
-    await graciousBtn.click();
+    await graciousBtn.click({ force: true });
 
     // Wait for suggestions to appear
     const suggestions = overlay.locator('.post-round-suggestion');

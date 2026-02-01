@@ -291,10 +291,10 @@ test.describe('PW-10: Floating chat bubbles appear and auto-dismiss', () => {
     const bubble = page.locator('.floating-chat').first();
     await expect(bubble).toBeVisible({ timeout: 10000 });
 
-    // Find and click the dismiss button
+    // Find and click the dismiss button (use force for WebKit where animation can detach element)
     const dismissBtn = bubble.locator('.floating-chat-dismiss');
     await expect(dismissBtn).toBeVisible();
-    await dismissBtn.click();
+    await dismissBtn.click({ force: true });
 
     // Bubble should disappear
     await expect(page.locator('.floating-chat')).not.toBeVisible({ timeout: 5000 });
