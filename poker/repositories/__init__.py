@@ -9,10 +9,12 @@ from .base_repository import BaseRepository
 from .schema_manager import SchemaManager
 from .settings_repository import SettingsRepository
 from .guest_tracking_repository import GuestTrackingRepository
+from .personality_repository import PersonalityRepository
 
 __all__ = [
     'BaseRepository',
     'GuestTrackingRepository',
+    'PersonalityRepository',
     'PressureEventRepository',
     'SchemaManager',
     'SettingsRepository',
