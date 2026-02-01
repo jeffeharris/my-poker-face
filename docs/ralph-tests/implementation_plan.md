@@ -19,7 +19,7 @@
 
 ## Phase 3: Playwright E2E — Gameplay Actions
 
-- [ ] PW-06: Mobile action buttons display correct options per game state
+- [x] PW-06: Mobile action buttons display correct options per game state
 - [ ] PW-07: Mobile raise sheet — open, slider, quick bets, confirm
 - [ ] PW-08: Preemptive fold while waiting for opponent
 
