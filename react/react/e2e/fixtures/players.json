@@ -1,0 +1,5 @@
+[
+  { "name": "Batman", "play_style": "Tight-Aggressive", "avatar_url": "/avatars/batman.png" },
+  { "name": "Gandalf", "play_style": "Calculated", "avatar_url": "/avatars/gandalf.png" },
+  { "name": "Gordon Ramsay", "play_style": "Aggressive", "avatar_url": "/avatars/ramsay.png" }
+]
