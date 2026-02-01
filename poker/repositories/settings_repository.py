@@ -1,7 +1,6 @@
 """Repository for app settings persistence.
 
 Manages the app_settings table for key-value configuration storage.
-Extracted from GamePersistence as part of T3-35-B1.
 """
 import sqlite3
 import logging

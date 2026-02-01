@@ -10,7 +10,7 @@ from poker.poker_game import initialize_game_state, Player
 from poker.repositories.serialization import (
     serialize_card, deserialize_card,
     serialize_cards, deserialize_cards,
-    prepare_state_for_save, restore_state_from_dict,
+    restore_state_from_dict,
 )
 
 
@@ -81,14 +81,14 @@ class TestGameStateSerialization(unittest.TestCase):
 
     def test_prepare_state_returns_dict(self):
         game_state = initialize_game_state(player_names=['P1', 'P2'])
-        result = prepare_state_for_save(game_state)
+        result = game_state.to_dict()
         self.assertIsInstance(result, dict)
         self.assertIn('players', result)
         self.assertIn('pot', result)
 
     def test_round_trip_game_state(self):
         original = initialize_game_state(player_names=['Alice', 'Bob', 'Charlie'])
-        state_dict = prepare_state_for_save(original)
+        state_dict = original.to_dict()
         restored = restore_state_from_dict(state_dict)
 
         self.assertEqual(len(restored.players), len(original.players))
@@ -104,7 +104,7 @@ class TestGameStateSerialization(unittest.TestCase):
     def test_restore_handles_missing_optional_fields(self):
         """State dicts from older versions may lack run_it_out."""
         game_state = initialize_game_state(player_names=['P1', 'P2'])
-        state_dict = prepare_state_for_save(game_state)
+        state_dict = game_state.to_dict()
         # Remove optional field
         state_dict.pop('run_it_out', None)
         restored = restore_state_from_dict(state_dict)
@@ -112,7 +112,7 @@ class TestGameStateSerialization(unittest.TestCase):
 
     def test_restore_handles_empty_hand(self):
         game_state = initialize_game_state(player_names=['P1', 'P2'])
-        state_dict = prepare_state_for_save(game_state)
+        state_dict = game_state.to_dict()
         # Ensure hand is None/empty
         for p in state_dict['players']:
             p['hand'] = None

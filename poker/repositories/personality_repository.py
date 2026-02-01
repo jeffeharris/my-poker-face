@@ -1,7 +1,6 @@
 """Repository for personality and avatar persistence.
 
 Manages the personalities and avatar_images tables.
-Extracted from GamePersistence as part of T3-35-B2.
 """
 import json
 import sqlite3

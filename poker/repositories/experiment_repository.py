@@ -1,8 +1,7 @@
 """Repository for experiment-related persistence.
 
-Part 1 (B4a): prompt_captures, player_decision_analysis, prompt_presets, capture_labels.
-Part 2 (B4b): experiment lifecycle, chat sessions, live stats/analytics, replay experiments.
-Extracted from GamePersistence as part of T3-35.
+Covers prompt_captures, player_decision_analysis, prompt_presets, capture_labels,
+experiment lifecycle, chat sessions, live stats/analytics, and replay experiments.
 """
 import sqlite3
 import json
@@ -22,6 +21,36 @@ class ExperimentRepository(BaseRepository):
     def __init__(self, db_path: str, game_repo=None):
         super().__init__(db_path)
         self._game_repo = game_repo
+
+    @staticmethod
+    def _parse_json_fields(row_dict: dict, fields: list, context: str = ""):
+        """Parse JSON string fields in a row dict, logging failures at debug level."""
+        for field in fields:
+            if row_dict.get(field):
+                try:
+                    row_dict[field] = json.loads(row_dict[field])
+                except json.JSONDecodeError:
+                    logger.debug(f"Failed to parse JSON for field '{field}'{f' in {context}' if context else ''}")
+
+    @staticmethod
+    def _preset_row_to_dict(row) -> dict:
+        """Convert a prompt_presets row to a dictionary."""
+        return {
+            'id': row['id'],
+            'name': row['name'],
+            'description': row['description'],
+            'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
+            'guidance_injection': row['guidance_injection'],
+            'owner_id': row['owner_id'],
+            'is_system': bool(row['is_system']) if row['is_system'] is not None else False,
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+        }
+
+    @staticmethod
+    def _build_where(conditions: list) -> str:
+        """Build a WHERE clause from a list of conditions."""
+        return f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     # ========== Prompt Capture Methods ==========
 
@@ -140,13 +169,11 @@ class ExperimentRepository(BaseRepository):
 
             capture = dict(row)
             # Parse JSON fields
-            capture_id_for_log = capture.get('id')
-            for field in ['community_cards', 'player_hand', 'valid_actions', 'tags', 'conversation_history']:
-                if capture.get(field):
-                    try:
-                        capture[field] = json.loads(capture[field])
-                    except json.JSONDecodeError:
-                        logger.debug(f"Failed to parse JSON for field '{field}' in prompt capture {capture_id_for_log}")
+            self._parse_json_fields(
+                capture,
+                ['community_cards', 'player_hand', 'valid_actions', 'tags', 'conversation_history'],
+                context=f"prompt capture {capture.get('id')}"
+            )
 
             # Handle image_data BLOB - convert to base64 data URL for JSON serialization
             if capture.get('is_image_capture') and capture.get('image_data'):
@@ -231,7 +258,7 @@ class ExperimentRepository(BaseRepository):
                 params.append(f'%"{tag}"%')
             conditions.append(f"({' OR '.join(tag_conditions)})")
 
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where_clause = self._build_where(conditions)
 
         with self._get_connection() as conn:
 
@@ -260,14 +287,11 @@ class ExperimentRepository(BaseRepository):
             captures = []
             for row in cursor.fetchall():
                 capture = dict(row)
-                # Parse JSON fields
-                capture_id_for_log = capture.get('id')
-                for field in ['community_cards', 'player_hand', 'tags']:
-                    if capture.get(field):
-                        try:
-                            capture[field] = json.loads(capture[field])
-                        except json.JSONDecodeError:
-                            logger.debug(f"Failed to parse JSON for field '{field}' in prompt capture {capture_id_for_log}")
+                self._parse_json_fields(
+                    capture,
+                    ['community_cards', 'player_hand', 'tags'],
+                    context=f"prompt capture {capture.get('id')}"
+                )
                 captures.append(capture)
 
             return {
@@ -291,7 +315,7 @@ class ExperimentRepository(BaseRepository):
             conditions.append("call_type = ?")
             params.append(call_type)
 
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where_clause = self._build_where(conditions)
 
         with self._get_connection() as conn:
             # Count by action (use 'unknown' for NULL to avoid JSON serialization issues)
@@ -370,7 +394,7 @@ class ExperimentRepository(BaseRepository):
             conditions.append("created_at < ?")
             params.append(before_date)
 
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where_clause = self._build_where(conditions)
 
         with self._get_connection() as conn:
             cursor = conn.execute(f"DELETE FROM prompt_captures {where_clause}", params)
@@ -419,7 +443,7 @@ class ExperimentRepository(BaseRepository):
             conditions.append("created_at <= ?")
             params.append(date_to)
 
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where_clause = self._build_where(conditions)
 
         with self._get_connection() as conn:
 
@@ -695,7 +719,7 @@ class ExperimentRepository(BaseRepository):
             conditions.append("ev_lost >= ?")
             params.append(min_ev_lost)
 
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where_clause = self._build_where(conditions)
 
         with self._get_connection() as conn:
 
@@ -847,19 +871,7 @@ class ExperimentRepository(BaseRepository):
                 WHERE id = ?
             """, (preset_id,))
             row = cursor.fetchone()
-            if row:
-                return {
-                    'id': row['id'],
-                    'name': row['name'],
-                    'description': row['description'],
-                    'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
-                    'guidance_injection': row['guidance_injection'],
-                    'owner_id': row['owner_id'],
-                    'is_system': bool(row['is_system']) if row['is_system'] is not None else False,
-                    'created_at': row['created_at'],
-                    'updated_at': row['updated_at'],
-                }
-            return None
+            return self._preset_row_to_dict(row) if row else None
 
     def get_prompt_preset_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get a prompt preset by name.
@@ -879,19 +891,7 @@ class ExperimentRepository(BaseRepository):
                 WHERE name = ?
             """, (name,))
             row = cursor.fetchone()
-            if row:
-                return {
-                    'id': row['id'],
-                    'name': row['name'],
-                    'description': row['description'],
-                    'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
-                    'guidance_injection': row['guidance_injection'],
-                    'owner_id': row['owner_id'],
-                    'is_system': bool(row['is_system']) if row['is_system'] is not None else False,
-                    'created_at': row['created_at'],
-                    'updated_at': row['updated_at'],
-                }
-            return None
+            return self._preset_row_to_dict(row) if row else None
 
     def list_prompt_presets(
         self,
@@ -928,20 +928,7 @@ class ExperimentRepository(BaseRepository):
                     LIMIT ?
                 """, (limit,))
 
-            return [
-                {
-                    'id': row['id'],
-                    'name': row['name'],
-                    'description': row['description'],
-                    'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
-                    'guidance_injection': row['guidance_injection'],
-                    'owner_id': row['owner_id'],
-                    'is_system': bool(row['is_system']) if row['is_system'] is not None else False,
-                    'created_at': row['created_at'],
-                    'updated_at': row['updated_at'],
-                }
-                for row in cursor.fetchall()
-            ]
+            return [self._preset_row_to_dict(row) for row in cursor.fetchall()]
 
     def update_prompt_preset(
         self,
@@ -1229,7 +1216,7 @@ class ExperimentRepository(BaseRepository):
             conditions.append("pc.call_type = ?")
             params.append(call_type)
 
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where_clause = self._build_where(conditions)
 
         with self._get_connection() as conn:
 
@@ -1359,7 +1346,7 @@ class ExperimentRepository(BaseRepository):
         elif is_correction is False:
             conditions.append("pc.parent_id IS NULL")
 
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where_clause = self._build_where(conditions)
 
         with self._get_connection() as conn:
 

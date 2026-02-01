@@ -1,7 +1,7 @@
 """Repository pattern implementations for poker game persistence.
 
 This package provides domain-specific repository classes. GamePersistence
-delegates to these repositories during the migration period (T3-35).
+delegates to these repositories.
 """
 
 from .sqlite_repositories import PressureEventRepository

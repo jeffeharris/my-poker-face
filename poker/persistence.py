@@ -31,11 +31,8 @@ class GamePersistence:
         self.db_path = db_path
         # Ensure directory exists
         db_dir = os.path.dirname(self.db_path)
-        if db_dir and not os.path.exists(db_dir):
-            try:
-                os.makedirs(db_dir, exist_ok=True)
-            except OSError as e:
-                logger.warning(f"Could not create database directory {db_dir}: {e}")
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
 
         # Delegate schema management
         schema_manager = SchemaManager(db_path)

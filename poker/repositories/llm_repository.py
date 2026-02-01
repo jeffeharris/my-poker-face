@@ -1,7 +1,4 @@
-"""LLM model management repository — enabled models and provider queries.
-
-Extracted from GamePersistence (T3-35-B6).
-"""
+"""LLM model management repository — enabled models and provider queries."""
 import sqlite3
 from typing import Dict, List, Any, Set
 

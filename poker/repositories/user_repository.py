@@ -1,7 +1,6 @@
 """Repository for user management and RBAC persistence.
 
 Manages the users, groups, user_groups, permissions, and group_permissions tables.
-Extracted from GamePersistence as part of T3-35-B3.
 """
 import os
 import sqlite3

@@ -1,7 +1,6 @@
 """Repository for guest usage tracking persistence.
 
 Manages the guest_usage_tracking table for tracking hands played by guests.
-Extracted from GamePersistence as part of T3-35-B1.
 """
 import logging
 

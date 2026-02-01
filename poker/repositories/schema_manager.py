@@ -1,7 +1,6 @@
 """Schema management for the poker database.
 
-Handles table creation and schema migrations. Extracted from GamePersistence
-as part of the persistence refactor (T3-35).
+Handles table creation and schema migrations.
 """
 import sqlite3
 import json

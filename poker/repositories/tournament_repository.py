@@ -1,7 +1,4 @@
-"""Tournament repository — tournament results, career stats, and history.
-
-Extracted from GamePersistence (T3-35-B6).
-"""
+"""Tournament repository — tournament results, career stats, and history."""
 import logging
 from typing import Dict, List, Any, Optional
 

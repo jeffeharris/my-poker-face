@@ -15,9 +15,9 @@ class BaseRepository:
     """Base class for SQLite-backed repositories.
 
     Provides:
-    - Thread-local connection reuse (T3-09: avoids creating a new connection per operation)
+    - Thread-local connection reuse (avoids creating a new connection per operation)
     - WAL mode with 5s busy timeout for concurrent read/write
-    - Explicit close() for clean shutdown (T3-07: prevents connection leaks)
+    - Explicit close() for clean shutdown (prevents connection leaks)
 
     Usage in subclasses:
         with self._get_connection() as conn:

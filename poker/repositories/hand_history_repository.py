@@ -1,7 +1,4 @@
-"""Hand history repository — hand records, commentary, and session stats.
-
-Extracted from GamePersistence (T3-35-B6).
-"""
+"""Hand history repository — hand records, commentary, and session stats."""
 import json
 import logging
 from datetime import datetime

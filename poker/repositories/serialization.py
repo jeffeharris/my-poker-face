@@ -1,8 +1,7 @@
 """Serialization utilities for game state persistence.
 
 Pure functions for converting game objects to/from dicts suitable for
-JSON storage. Extracted from GamePersistence as part of the persistence
-refactor (T3-35).
+JSON storage.
 """
 import logging
 from typing import Dict, Any, List
@@ -48,14 +47,6 @@ def deserialize_cards(cards_data) -> tuple:
     if not cards_data:
         return tuple()
     return tuple(deserialize_card(card_data) for card_data in cards_data)
-
-
-def prepare_state_for_save(game_state: PokerGameState) -> Dict[str, Any]:
-    """Prepare game state for JSON serialization."""
-    state_dict = game_state.to_dict()
-    # The to_dict() method already handles most serialization,
-    # but we need to ensure all custom objects are properly converted
-    return state_dict
 
 
 def restore_state_from_dict(state_dict: Dict[str, Any]) -> PokerGameState:

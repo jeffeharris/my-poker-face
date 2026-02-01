@@ -1,29 +1,15 @@
 """
 SQLite implementation of pressure event repository.
-Minimal file kept for backwards compatibility.
 """
 import sqlite3
 import json
-from datetime import datetime
 from typing import Optional, List, Dict, Any
-from contextlib import contextmanager
+
+from poker.repositories.base_repository import BaseRepository
 
 
-class PressureEventRepository:
+class PressureEventRepository(BaseRepository):
     """Repository for managing pressure event persistence."""
-
-    def __init__(self, db_path: str):
-        self.db_path = db_path
-
-    @contextmanager
-    def _get_connection(self):
-        """Get a database connection."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-        finally:
-            conn.close()
 
     def save_event(self, game_id: str, player_name: str, event_type: str,
                    details: Optional[Dict[str, Any]] = None) -> None:
@@ -42,7 +28,6 @@ class PressureEventRepository:
                     json.dumps(details) if details else None
                 )
             )
-            conn.commit()
 
     def get_events_for_game(self, game_id: str) -> List[Dict[str, Any]]:
         """Get all pressure events for a specific game."""
@@ -150,4 +135,3 @@ class PressureEventRepository:
                 "DELETE FROM pressure_events WHERE game_id = ?",
                 (game_id,)
             )
-            conn.commit()

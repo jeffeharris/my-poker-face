@@ -1,7 +1,4 @@
-"""Game state repository — game CRUD, messages, AI state, emotional/controller state, opponent models.
-
-Extracted from GamePersistence as part of the persistence refactor (T3-35-B5).
-"""
+"""Game state repository — game CRUD, messages, AI state, emotional/controller state, opponent models."""
 import json
 import logging
 from datetime import datetime
@@ -11,7 +8,7 @@ from dataclasses import dataclass
 from poker.poker_game import PokerGameState, Player
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.repositories.base_repository import BaseRepository
-from poker.repositories.serialization import prepare_state_for_save, restore_state_from_dict
+from poker.repositories.serialization import restore_state_from_dict
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +69,7 @@ class GameRepository(BaseRepository):
         game_state = state_machine.game_state
 
         # Convert game state to dict and then to JSON
-        state_dict = prepare_state_for_save(game_state)
+        state_dict = game_state.to_dict()
         state_dict['current_phase'] = state_machine.current_phase.value
 
         game_json = json.dumps(state_dict)
