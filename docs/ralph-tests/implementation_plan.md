@@ -37,7 +37,7 @@
 ## Phase 6: Playwright E2E — Edge Cases & Modals
 
 - [x] PW-14: Guest limit modal appears and offers upgrade
-- [ ] PW-15: Offline detection shows banner on mobile
+- [x] PW-15: Offline detection shows banner on mobile
 - [ ] PW-16: Reconnecting overlay appears when socket drops
 - [ ] PW-17: Mobile navigation — back button returns to menu
 
