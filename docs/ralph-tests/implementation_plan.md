@@ -43,7 +43,7 @@
 
 ## Phase 7: Playwright E2E — Custom Game Wizard (mobile)
 
-- [ ] PW-18: Custom game wizard step 0 — choose opponents on mobile
+- [x] PW-18: Custom game wizard step 0 — choose opponents on mobile
 - [ ] PW-19: Custom game wizard step 1 — game settings on mobile
 - [ ] PW-20: Custom game wizard step 2 — review and create on mobile
 
