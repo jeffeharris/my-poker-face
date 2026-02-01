@@ -26,7 +26,7 @@
 ## Phase 4: Playwright E2E — Chat & Communication
 
 - [x] PW-09: Mobile chat sheet — open, tab switch, send message, dismiss
-- [ ] PW-10: Floating chat bubbles appear and auto-dismiss
+- [x] PW-10: Floating chat bubbles appear and auto-dismiss
 
 ## Phase 5: Playwright E2E — Hand Results
 
