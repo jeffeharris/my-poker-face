@@ -6,7 +6,7 @@
 
 ## Phase 1: Small Extractions (no dependencies)
 
-- [ ] T3-35-B1: Extract `SettingsRepository` + `GuestTrackingRepository` (~135 lines, 6 methods)
+- [x] T3-35-B1: Extract `SettingsRepository` + `GuestTrackingRepository` (~135 lines, 6 methods)
 - [ ] T3-35-B2: Extract `PersonalityRepository` — personality + avatar CRUD (~500 lines, 18 methods)
 
 ## Phase 2: User Domain

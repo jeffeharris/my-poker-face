@@ -17,6 +17,8 @@ from core.card import Card
 import logging
 
 from poker.repositories.schema_manager import SchemaManager
+from poker.repositories.settings_repository import SettingsRepository
+from poker.repositories.guest_tracking_repository import GuestTrackingRepository
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +94,20 @@ class GamePersistence:
     def _get_connection(self) -> sqlite3.Connection:
         """Create a new database connection with standard timeout."""
         return sqlite3.connect(self.db_path, timeout=5.0)
+
+    # --- Repository lazy properties (T3-35 facade delegation) ---
+
+    @property
+    def _settings_repo(self):
+        if not hasattr(self, '__settings_repo'):
+            self.__settings_repo = SettingsRepository(self.db_path)
+        return self.__settings_repo
+
+    @property
+    def _guest_tracking_repo(self):
+        if not hasattr(self, '__guest_tracking_repo'):
+            self.__guest_tracking_repo = GuestTrackingRepository(self.db_path)
+        return self.__guest_tracking_repo
 
     def save_coach_mode(self, game_id: str, mode: str) -> None:
         """Persist coach mode preference for a game."""
@@ -2142,34 +2158,12 @@ class GamePersistence:
 
     # Guest Usage Tracking Methods
     def increment_hands_played(self, tracking_id: str) -> int:
-        """Increment hands played for a guest tracking ID.
-
-        Upserts the row and returns the new count.
-        """
-        with self._get_connection() as conn:
-            conn.execute("""
-                INSERT INTO guest_usage_tracking (tracking_id, hands_played, last_hand_at)
-                VALUES (?, 1, CURRENT_TIMESTAMP)
-                ON CONFLICT(tracking_id) DO UPDATE SET
-                    hands_played = hands_played + 1,
-                    last_hand_at = CURRENT_TIMESTAMP
-            """, (tracking_id,))
-            cursor = conn.execute(
-                "SELECT hands_played FROM guest_usage_tracking WHERE tracking_id = ?",
-                (tracking_id,)
-            )
-            row = cursor.fetchone()
-            return row[0] if row else 0
+        """Increment hands played for a guest tracking ID."""
+        return self._guest_tracking_repo.increment_hands_played(tracking_id)
 
     def get_hands_played(self, tracking_id: str) -> int:
         """Get the number of hands played for a guest tracking ID."""
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT hands_played FROM guest_usage_tracking WHERE tracking_id = ?",
-                (tracking_id,)
-            )
-            row = cursor.fetchone()
-            return row[0] if row else 0
+        return self._guest_tracking_repo.get_hands_played(tracking_id)
 
     # Avatar Image Persistence Methods
     def save_avatar_image(self, personality_name: str, emotion: str,
@@ -4841,100 +4835,20 @@ class GamePersistence:
     # ========== App Settings Methods ==========
 
     def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
-        """Get an app setting by key, with optional default.
-
-        Args:
-            key: The setting key (e.g., 'LLM_PROMPT_CAPTURE')
-            default: Default value if setting doesn't exist
-
-        Returns:
-            The setting value, or default if not found
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT value FROM app_settings WHERE key = ?",
-                    (key,)
-                )
-                row = cursor.fetchone()
-                return row[0] if row else default
-        except sqlite3.OperationalError:
-            # Table doesn't exist yet (e.g., during startup)
-            return default
+        """Get an app setting by key, with optional default."""
+        return self._settings_repo.get_setting(key, default)
 
     def set_setting(self, key: str, value: str, description: Optional[str] = None) -> bool:
-        """Set an app setting.
-
-        Args:
-            key: The setting key
-            value: The setting value (stored as string)
-            description: Optional description for the setting
-
-        Returns:
-            True if successful
-        """
-        try:
-            with self._get_connection() as conn:
-                conn.execute("""
-                    INSERT INTO app_settings (key, value, description, updated_at)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                    ON CONFLICT(key) DO UPDATE SET
-                        value = excluded.value,
-                        description = COALESCE(excluded.description, app_settings.description),
-                        updated_at = CURRENT_TIMESTAMP
-                """, (key, value, description))
-                conn.commit()
-                logger.info(f"Setting '{key}' updated to '{value}'")
-                return True
-        except Exception as e:
-            logger.error(f"Failed to set setting '{key}': {e}")
-            return False
+        """Set an app setting."""
+        return self._settings_repo.set_setting(key, value, description)
 
     def get_all_settings(self) -> Dict[str, Dict[str, Any]]:
-        """Get all app settings.
-
-        Returns:
-            Dict mapping setting keys to their values and metadata
-        """
-        try:
-            with self._get_connection() as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute("""
-                    SELECT key, value, description, updated_at
-                    FROM app_settings
-                    ORDER BY key
-                """)
-                return {
-                    row['key']: {
-                        'value': row['value'],
-                        'description': row['description'],
-                        'updated_at': row['updated_at'],
-                    }
-                    for row in cursor.fetchall()
-                }
-        except sqlite3.OperationalError:
-            return {}
+        """Get all app settings."""
+        return self._settings_repo.get_all_settings()
 
     def delete_setting(self, key: str) -> bool:
-        """Delete an app setting.
-
-        Args:
-            key: The setting key to delete
-
-        Returns:
-            True if the setting was deleted, False if not found
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.execute(
-                    "DELETE FROM app_settings WHERE key = ?",
-                    (key,)
-                )
-                conn.commit()
-                return cursor.rowcount > 0
-        except Exception as e:
-            logger.error(f"Failed to delete setting '{key}': {e}")
-            return False
+        """Delete an app setting."""
+        return self._settings_repo.delete_setting(key)
 
     # ========================================
     # Prompt Preset Methods (v47)
