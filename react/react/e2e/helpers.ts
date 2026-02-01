@@ -2,6 +2,15 @@ import { Page } from '@playwright/test';
 import gameStateFixture from './fixtures/game-state.json';
 
 /**
+ * Backend URL for test helper endpoints.
+ * In Docker compose, BACKEND_URL points directly to the backend service.
+ * Locally, the backend runs on port 5000.
+ */
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000';
+
+// ─── Mock-based helpers (still needed for tests requiring precise control) ───
+
+/**
  * Mock all common API routes so tests don't need a live backend.
  */
 export async function mockAPIRoutes(page: Page, overrides: Record<string, unknown> = {}) {
@@ -101,4 +110,262 @@ export async function loginAsUser(page: Page, name = 'TestPlayer') {
       permissions: ['play', 'custom_game', 'themed_game']
     }));
   }, name);
+}
+
+// ─── Real-backend helpers (for use with TEST_MODE backend) ───
+
+/**
+ * Load a game state snapshot into the backend via the test endpoint.
+ * Requires TEST_MODE=true on the backend.
+ */
+export async function loadGameSnapshot(
+  page: Page,
+  gameId: string,
+  snapshot: Record<string, unknown>
+): Promise<void> {
+  const response = await page.request.post(`${BACKEND_URL}/api/test/set-game-state`, {
+    data: { game_id: gameId, snapshot },
+  });
+  if (!response.ok()) {
+    throw new Error(`Failed to load snapshot: ${response.status()} ${await response.text()}`);
+  }
+}
+
+/**
+ * Emit a Socket.IO event to a game room via the test endpoint.
+ * Requires TEST_MODE=true on the backend.
+ */
+export async function emitSocketEvent(
+  page: Page,
+  gameId: string,
+  event: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const response = await page.request.post(`${BACKEND_URL}/api/test/emit-event/${gameId}`, {
+    data: { event, data },
+  });
+  if (!response.ok()) {
+    throw new Error(`Failed to emit event: ${response.status()} ${await response.text()}`);
+  }
+}
+
+/**
+ * Reset all in-memory game state on the backend.
+ * Requires TEST_MODE=true on the backend.
+ */
+export async function resetTestState(page: Page): Promise<void> {
+  const response = await page.request.post(`${BACKEND_URL}/api/test/reset`);
+  if (!response.ok()) {
+    throw new Error(`Failed to reset state: ${response.status()} ${await response.text()}`);
+  }
+}
+
+/**
+ * Login as a real guest via the backend API and set localStorage.
+ */
+export async function loginAsTestGuest(page: Page, name = 'TestPlayer'): Promise<void> {
+  const response = await page.request.post(`${BACKEND_URL}/api/auth/guest`, {
+    data: { name },
+  });
+  if (response.ok()) {
+    const data = await response.json();
+    const user = data.user || data;
+    await page.evaluate((u) => {
+      localStorage.setItem('currentUser', JSON.stringify(u));
+    }, user);
+  } else {
+    // Fallback: set localStorage directly for guest
+    await page.evaluate((playerName) => {
+      localStorage.setItem('currentUser', JSON.stringify({
+        id: 'guest-123',
+        name: playerName,
+        is_guest: true,
+        created_at: new Date().toISOString(),
+        permissions: ['play']
+      }));
+    }, name);
+  }
+}
+
+// ─── Common mock setup for game-page tests ───
+
+/**
+ * Standard mock setup used by most game-page tests.
+ * Intercepts useAuth module, mocks common API routes, and mocks Socket.IO.
+ *
+ * Returns a helper to control Socket.IO events.
+ */
+export async function mockGamePageRoutes(
+  page: Page,
+  opts: {
+    isGuest?: boolean;
+    gameState?: Record<string, unknown>;
+    gameId?: string;
+    socketEvents?: Array<[string, unknown]>;
+    socketConnected?: boolean;
+  } = {}
+) {
+  const isGuest = opts.isGuest !== false;
+  const gameId = opts.gameId || 'test-game-123';
+  const gameState = opts.gameState || gameStateFixture;
+  const socketEvents = opts.socketEvents || [];
+  const socketConnected = opts.socketConnected !== false;
+
+  // Intercept useAuth to disable dev-mode guest bypass
+  await page.route('**/@fs/**useAuth**', async route => {
+    const response = await route.fetch();
+    let body = await response.text();
+    body = body.replace(
+      /import\.meta\.env\.VITE_FORCE_GUEST\s*!==\s*['"]true['"]/,
+      'false'
+    );
+    await route.fulfill({ response, body });
+  });
+  await page.route('**/src/hooks/useAuth**', async route => {
+    const response = await route.fetch();
+    let body = await response.text();
+    body = body.replace(
+      /import\.meta\.env\.VITE_FORCE_GUEST\s*!==\s*['"]true['"]/,
+      'false'
+    );
+    await route.fulfill({ response, body });
+  });
+
+  // Mock auth
+  await page.route('**/api/auth/me', route =>
+    route.fulfill({
+      json: {
+        user: {
+          id: isGuest ? 'guest-123' : 'user-456',
+          name: 'TestPlayer',
+          is_guest: isGuest,
+          created_at: '2024-01-01',
+          permissions: isGuest ? ['play'] : ['play', 'custom_game', 'themed_game']
+        }
+      }
+    })
+  );
+
+  // Mock common API endpoints
+  await page.route('**/api/games', route =>
+    route.fulfill({ json: { games: [] } })
+  );
+  await page.route('**/api/career-stats*', route =>
+    route.fulfill({ json: { games_played: 5, games_won: 2, win_rate: 0.4, total_knockouts: 3 } })
+  );
+  await page.route('**/api/usage-stats*', route =>
+    route.fulfill({ json: { hands_played: 3, hands_limit: 20 } })
+  );
+  await page.route('**/api/personalities', route =>
+    route.fulfill({ json: { personalities: [] } })
+  );
+  await page.route('**/health', route =>
+    route.fulfill({ json: { status: 'ok' } })
+  );
+  await page.route('**/api/new-game', route =>
+    route.fulfill({ json: { game_id: gameId } })
+  );
+  await page.route(`**/api/game-state/${gameId}`, route =>
+    route.fulfill({ json: gameState })
+  );
+  await page.route('**/api/game/*/action', route =>
+    route.fulfill({ json: { success: true } })
+  );
+  await page.route('**/api/game/*/chat', route =>
+    route.fulfill({ json: { success: true } })
+  );
+  await page.route('**/api/game/*/post-round-chat*', route =>
+    route.fulfill({
+      json: {
+        suggestions: [
+          { text: 'Nice hand!', tone: 'humble' },
+          { text: 'Got lucky there.', tone: 'humble' }
+        ]
+      }
+    })
+  );
+  await page.route('**/api/game/*/chat-suggestions*', route =>
+    route.fulfill({
+      json: {
+        suggestions: [
+          { text: 'Nice play!', category: 'compliment' },
+          { text: 'You got me there!', category: 'concession' }
+        ]
+      }
+    })
+  );
+  await page.route('**/api/end_game/**', route =>
+    route.fulfill({ json: { success: true } })
+  );
+
+  // Socket.IO mock
+  let pollCount = 0;
+  await page.route('**/socket.io/**', route => {
+    const url = route.request().url();
+    if (url.includes('transport=polling') && route.request().method() === 'GET') {
+      if (!url.includes('sid=')) {
+        // Engine.IO handshake
+        route.fulfill({
+          contentType: 'text/plain',
+          body: '0{"sid":"fake-sid","upgrades":[],"pingInterval":25000,"pingTimeout":20000}'
+        });
+      } else {
+        pollCount++;
+        if (pollCount === 1 && socketConnected) {
+          // Socket.IO connect ack
+          route.fulfill({
+            contentType: 'text/plain',
+            body: '40{"sid":"fake-socket-sid"}'
+          });
+        } else if (pollCount > 1 && socketConnected && socketEvents.length > 0) {
+          const eventIdx = pollCount - 2;
+          if (eventIdx < socketEvents.length) {
+            const [eventName, eventData] = socketEvents[eventIdx];
+            const payload = JSON.stringify([eventName, eventData]);
+            route.fulfill({
+              contentType: 'text/plain',
+              body: `42${payload}`
+            });
+          } else {
+            route.fulfill({ contentType: 'text/plain', body: '6' });
+          }
+        } else if (!socketConnected) {
+          // Don't send CONNECT — keeps socket in disconnected state
+          route.fulfill({ contentType: 'text/plain', body: '6' });
+        } else {
+          route.fulfill({ contentType: 'text/plain', body: '6' });
+        }
+      }
+    } else if (route.request().method() === 'POST') {
+      route.fulfill({ contentType: 'text/plain', body: 'ok' });
+    } else {
+      route.fulfill({ body: '' });
+    }
+  });
+}
+
+/**
+ * Navigate to game page with localStorage set for the user.
+ */
+export async function navigateToGamePage(
+  page: Page,
+  opts: {
+    isGuest?: boolean;
+    gameId?: string;
+  } = {}
+) {
+  const isGuest = opts.isGuest !== false;
+  const gameId = opts.gameId || 'test-game-123';
+
+  await page.goto('/menu', { waitUntil: 'commit' });
+  await page.evaluate((guest) => {
+    localStorage.setItem('currentUser', JSON.stringify({
+      id: guest ? 'guest-123' : 'user-456',
+      name: 'TestPlayer',
+      is_guest: guest,
+      created_at: '2024-01-01',
+      permissions: guest ? ['play'] : ['play', 'custom_game', 'themed_game']
+    }));
+  }, isGuest);
+  await page.goto(`/game/${gameId}`);
 }

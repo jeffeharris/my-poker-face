@@ -64,5 +64,13 @@ export default defineConfig({
   ],
   server: {
     allowedHosts: ['homehub'],
+    // Proxy API and Socket.IO to backend when VITE_BACKEND_URL is set (Docker compose)
+    ...(process.env.VITE_BACKEND_URL ? {
+      proxy: {
+        '/api': { target: process.env.VITE_BACKEND_URL, changeOrigin: true },
+        '/socket.io': { target: process.env.VITE_BACKEND_URL, changeOrigin: true, ws: true },
+        '/health': { target: process.env.VITE_BACKEND_URL, changeOrigin: true },
+      },
+    } : {}),
   },
 })

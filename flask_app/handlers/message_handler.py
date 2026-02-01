@@ -138,7 +138,9 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
     socketio.emit('new_message', {'message': new_message}, to=game_id)
 
     if sleep:
-        socketio.sleep(sleep)
+        from .. import config
+        if not config.test_mode:
+            socketio.sleep(sleep)
 
 
 def format_messages_for_api(messages: list) -> list:

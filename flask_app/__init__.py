@@ -130,6 +130,13 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(user_bp)
     app.register_blueprint(coach_bp)
 
+    # Test endpoints — only available when TEST_MODE=true
+    from .config import test_mode
+    if test_mode:
+        from .routes.test_routes import test_bp
+        app.register_blueprint(test_bp)
+        logger.info("TEST_MODE enabled: test helper endpoints registered")
+
 
 def register_socket_handlers() -> None:
     """Register SocketIO event handlers."""

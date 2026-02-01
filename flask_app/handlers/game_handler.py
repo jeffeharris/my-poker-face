@@ -988,13 +988,17 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Create event to track when async commentary tasks complete
     commentary_complete = threading.Event()
 
-    # Start async tasks for emotional state and commentary (LLM calls)
-    # Commentary runs in parallel for all AI players, but we wait for all to finish
-    socketio.start_background_task(
-        _run_async_hand_complete_tasks,
-        game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award,
-        commentary_complete
-    )
+    if config.test_mode:
+        # TEST_MODE: skip LLM-based commentary and emotional state updates
+        commentary_complete.set()
+    else:
+        # Start async tasks for emotional state and commentary (LLM calls)
+        # Commentary runs in parallel for all AI players, but we wait for all to finish
+        socketio.start_background_task(
+            _run_async_hand_complete_tasks,
+            game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award,
+            commentary_complete
+        )
 
     # Apply pressure events (fast, local calculations)
     handle_pressure_events(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
@@ -1053,7 +1057,8 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         logger.warning(f"Commentary did not complete within {commentary_timeout}s timeout")
 
     # Small additional delay for visual pacing
-    socketio.sleep(1 if is_showdown else 0.5)
+    if not config.test_mode:
+        socketio.sleep(1 if is_showdown else 0.5)
 
     # Apply psychology recovery between hands — elastic traits drift toward
     # anchor, tilt naturally decays, emotional state decays toward baseline
@@ -1188,7 +1193,8 @@ def progress_game(game_id: str) -> None:
                     game_state_service.set_game(game_id, current_game_data)
 
                     # Extra pause (4 seconds) for players to see the cards
-                    socketio.sleep(4)
+                    if not config.test_mode:
+                        socketio.sleep(4)
 
                 # Wait for card animation to finish, then emit reactions,
                 # then hold so the player can absorb before next street.
@@ -1196,7 +1202,8 @@ def progress_game(game_id: str) -> None:
                 # Turn/River (1 card): ~0.825s animation
                 animation_sleep = 3 if current_phase == PokerPhase.FLOP else 1
                 reaction_hold = 1.5
-                socketio.sleep(animation_sleep)
+                if not config.test_mode:
+                    socketio.sleep(animation_sleep)
 
                 # Check if game was deleted during sleep
                 current_game_data = game_state_service.get_game(game_id)
@@ -1218,7 +1225,8 @@ def progress_game(game_id: str) -> None:
                     game_state_service.set_game(game_id, current_game_data)
 
                 # Hold so the player can see reactions before next street
-                socketio.sleep(reaction_hold)
+                if not config.test_mode:
+                    socketio.sleep(reaction_hold)
                 # Emit showdown reactions after all cards are dealt
                 current_phase = state_machine.current_phase
                 if current_phase == PokerPhase.RIVER:
@@ -1234,7 +1242,8 @@ def progress_game(game_id: str) -> None:
                                 _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
                             current_game_data['runout_emotion_overrides'] = overrides
                             game_state_service.set_game(game_id, current_game_data)
-                        socketio.sleep(1.5)
+                        if not config.test_mode:
+                            socketio.sleep(1.5)
 
                 # Determine next phase (skip betting, go to dealing or showdown)
                 if current_phase == PokerPhase.RIVER:
@@ -1327,22 +1336,39 @@ def handle_ai_action(game_id: str) -> None:
         controller.current_hand_number = current_game_data['memory_manager'].hand_count
 
     try:
-        player_response_dict = controller.decide_action(game_messages[-AI_MESSAGE_CONTEXT_LIMIT:])
+        if config.test_mode:
+            # TEST_MODE: skip LLM call, use random valid action for instant decisions
+            valid_actions = state_machine.game_state.current_player_options
+            call_amount = state_machine.game_state.highest_bet - current_player.bet
+            max_raise = current_player.stack
 
-        action = player_response_dict['action']
-        # Ensure amount is int (defensive - controllers.py should handle this, but be safe)
-        amount = int(player_response_dict.get('raise_to', 0) or 0)
-
-        # Extract dramatic_sequence beats
-        dramatic_sequence = player_response_dict.get('dramatic_sequence', [])
-        if isinstance(dramatic_sequence, list) and dramatic_sequence:
-            # Join beats with newlines for display
-            full_message = '\n'.join(dramatic_sequence)
-        elif isinstance(dramatic_sequence, str) and dramatic_sequence.strip():
-            # String format (LLM returned single string instead of list)
-            full_message = dramatic_sequence.strip()
-        else:
+            fallback_result = FallbackActionSelector.select_action(
+                valid_actions=valid_actions,
+                strategy=AIFallbackStrategy.RANDOM_VALID,
+                call_amount=call_amount,
+                min_raise=MIN_RAISE,
+                max_raise=max_raise
+            )
+            action = fallback_result['action']
+            amount = fallback_result['raise_to']
             full_message = ''
+        else:
+            player_response_dict = controller.decide_action(game_messages[-AI_MESSAGE_CONTEXT_LIMIT:])
+
+            action = player_response_dict['action']
+            # Ensure amount is int (defensive - controllers.py should handle this, but be safe)
+            amount = int(player_response_dict.get('raise_to', 0) or 0)
+
+            # Extract dramatic_sequence beats
+            dramatic_sequence = player_response_dict.get('dramatic_sequence', [])
+            if isinstance(dramatic_sequence, list) and dramatic_sequence:
+                # Join beats with newlines for display
+                full_message = '\n'.join(dramatic_sequence)
+            elif isinstance(dramatic_sequence, str) and dramatic_sequence.strip():
+                # String format (LLM returned single string instead of list)
+                full_message = dramatic_sequence.strip()
+            else:
+                full_message = ''
 
     except Exception as e:
         logger.debug(f"[AI_ACTION] Critical error getting AI decision: {e}")

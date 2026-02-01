@@ -15,6 +15,10 @@ is_development = (flask_env == 'development' or flask_debug == '1')
 # AI Debug mode - enables LLM stats on player cards
 enable_ai_debug = os.environ.get('ENABLE_AI_DEBUG', 'false').lower() == 'true'
 
+# Test mode - AI uses random valid actions (no LLM), skips avatar generation,
+# disables rate limiting, and reduces sleep delays for fast E2E testing.
+test_mode = os.environ.get('TEST_MODE', 'false').lower() == 'true'
+
 # Secret key
 if is_development:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-not-for-production')
@@ -35,11 +39,19 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 CORS_ORIGINS_ENV = os.environ.get('CORS_ORIGINS', '*')
 
 # Rate limiting configuration
-RATE_LIMIT_DEFAULT = ['10000 per day', '1000 per hour', '100 per minute']
-RATE_LIMIT_NEW_GAME = os.environ.get('RATE_LIMIT_NEW_GAME', '10 per hour')
-RATE_LIMIT_GAME_ACTION = os.environ.get('RATE_LIMIT_GAME_ACTION', '60 per minute')
-RATE_LIMIT_CHAT_SUGGESTIONS = os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour')
-RATE_LIMIT_GENERATE_PERSONALITY = os.environ.get('RATE_LIMIT_GENERATE_PERSONALITY', '15 per hour')
+# TEST_MODE: effectively unlimited to avoid rate limit interference in E2E tests
+if test_mode:
+    RATE_LIMIT_DEFAULT = []
+    RATE_LIMIT_NEW_GAME = '99999 per minute'
+    RATE_LIMIT_GAME_ACTION = '99999 per minute'
+    RATE_LIMIT_CHAT_SUGGESTIONS = '99999 per minute'
+    RATE_LIMIT_GENERATE_PERSONALITY = '99999 per minute'
+else:
+    RATE_LIMIT_DEFAULT = ['10000 per day', '1000 per hour', '100 per minute']
+    RATE_LIMIT_NEW_GAME = os.environ.get('RATE_LIMIT_NEW_GAME', '10 per hour')
+    RATE_LIMIT_GAME_ACTION = os.environ.get('RATE_LIMIT_GAME_ACTION', '60 per minute')
+    RATE_LIMIT_CHAT_SUGGESTIONS = os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour')
+    RATE_LIMIT_GENERATE_PERSONALITY = os.environ.get('RATE_LIMIT_GENERATE_PERSONALITY', '15 per hour')
 
 # Redis configuration
 REDIS_URL = os.environ.get('REDIS_URL')
