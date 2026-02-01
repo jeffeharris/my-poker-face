@@ -20,7 +20,7 @@
 
 ## Phase 4: Core Game State
 
-- [ ] T3-35-B5: Extract `GameRepository` — game CRUD, messages, AI state, emotional/controller state, opponent models (~800 lines, 25+ methods). Uses `serialization.py` functions.
+- [x] T3-35-B5: Extract `GameRepository` — game CRUD, messages, AI state, emotional/controller state, opponent models (~800 lines, 25+ methods). Uses `serialization.py` functions.
 
 ## Phase 5: Remaining Domains
 

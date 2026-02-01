@@ -12,10 +12,12 @@ from .guest_tracking_repository import GuestTrackingRepository
 from .personality_repository import PersonalityRepository
 from .user_repository import UserRepository
 from .experiment_repository import ExperimentRepository
+from .game_repository import GameRepository
 
 __all__ = [
     'BaseRepository',
     'ExperimentRepository',
+    'GameRepository',
     'GuestTrackingRepository',
     'PersonalityRepository',
     'PressureEventRepository',
