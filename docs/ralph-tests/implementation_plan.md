@@ -56,6 +56,6 @@
 - [x] VT-05: FloatingChat — message stacking, timing, dismiss
 - [x] VT-06: HeadsUpOpponentPanel — play style, tilt, record display
 - [x] VT-07: LLMDebugModal — stats rendering and CRT aesthetic
-- [ ] VT-08: GuestLimitModal — content, CTA, benefits grid
+- [x] VT-08: GuestLimitModal — content, CTA, benefits grid
 - [ ] VT-09: useViewport hook — returns correct breakpoints
 - [ ] VT-10: ResponsiveGameLayout — routes to MobilePokerTable on mobile
