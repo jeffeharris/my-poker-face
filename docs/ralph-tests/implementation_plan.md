@@ -10,7 +10,7 @@
 
 - [x] PW-01: Landing page renders correctly on mobile
 - [x] PW-02: Guest login flow on mobile
-- [ ] PW-03: Game menu renders on mobile with quick play options and guest locks
+- [x] PW-03: Game menu renders on mobile with quick play options and guest locks
 
 ## Phase 2: Playwright E2E — Game Creation & Table Load
 
