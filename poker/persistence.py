@@ -45,6 +45,17 @@ class GamePersistence:
         schema_manager = SchemaManager(db_path)
         schema_manager.ensure_schema()
 
+        # Initialize repositories
+        self._settings_repo = SettingsRepository(self.db_path)
+        self._guest_tracking_repo = GuestTrackingRepository(self.db_path)
+        self._personality_repo = PersonalityRepository(self.db_path)
+        self._user_repo = UserRepository(self.db_path)
+        self._experiment_repo = ExperimentRepository(self.db_path)
+        self._game_repo = GameRepository(self.db_path)
+        self._hand_history_repo = HandHistoryRepository(self.db_path)
+        self._tournament_repo = TournamentRepository(self.db_path)
+        self._llm_repo = LLMRepository(self.db_path)
+
     def _serialize_card(self, card) -> Dict[str, Any]:
         """Ensure card is properly serialized."""
         if hasattr(card, 'to_dict'):
@@ -82,62 +93,6 @@ class GamePersistence:
     def _get_connection(self) -> sqlite3.Connection:
         """Create a new database connection with standard timeout."""
         return sqlite3.connect(self.db_path, timeout=5.0)
-
-    # --- Repository lazy properties (T3-35 facade delegation) ---
-
-    @property
-    def _settings_repo(self):
-        if not hasattr(self, '__settings_repo'):
-            self.__settings_repo = SettingsRepository(self.db_path)
-        return self.__settings_repo
-
-    @property
-    def _guest_tracking_repo(self):
-        if not hasattr(self, '__guest_tracking_repo'):
-            self.__guest_tracking_repo = GuestTrackingRepository(self.db_path)
-        return self.__guest_tracking_repo
-
-    @property
-    def _personality_repo(self):
-        if not hasattr(self, '__personality_repo'):
-            self.__personality_repo = PersonalityRepository(self.db_path)
-        return self.__personality_repo
-
-    @property
-    def _user_repo(self):
-        if not hasattr(self, '__user_repo'):
-            self.__user_repo = UserRepository(self.db_path)
-        return self.__user_repo
-
-    @property
-    def _experiment_repo(self):
-        if not hasattr(self, '__experiment_repo'):
-            self.__experiment_repo = ExperimentRepository(self.db_path)
-        return self.__experiment_repo
-
-    @property
-    def _game_repo(self):
-        if not hasattr(self, '__game_repo'):
-            self.__game_repo = GameRepository(self.db_path)
-        return self.__game_repo
-
-    @property
-    def _hand_history_repo(self):
-        if not hasattr(self, '__hand_history_repo'):
-            self.__hand_history_repo = HandHistoryRepository(self.db_path)
-        return self.__hand_history_repo
-
-    @property
-    def _tournament_repo(self):
-        if not hasattr(self, '__tournament_repo'):
-            self.__tournament_repo = TournamentRepository(self.db_path)
-        return self.__tournament_repo
-
-    @property
-    def _llm_repo(self):
-        if not hasattr(self, '__llm_repo'):
-            self.__llm_repo = LLMRepository(self.db_path)
-        return self.__llm_repo
 
     def save_coach_mode(self, game_id: str, mode: str) -> None:
         """Persist coach mode preference for a game."""
