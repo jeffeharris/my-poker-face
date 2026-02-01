@@ -456,6 +456,9 @@ class GamePersistence:
         error_type: Optional[str] = None,
         has_error: Optional[bool] = None,
         is_correction: Optional[bool] = None,
+        display_emotion: Optional[str] = None,
+        min_tilt_level: Optional[float] = None,
+        max_tilt_level: Optional[float] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
@@ -465,8 +468,14 @@ class GamePersistence:
             phase=phase, min_pot_odds=min_pot_odds, max_pot_odds=max_pot_odds,
             tags=tags, call_type=call_type, error_type=error_type,
             has_error=has_error, is_correction=is_correction,
+            display_emotion=display_emotion, min_tilt_level=min_tilt_level,
+            max_tilt_level=max_tilt_level,
             limit=limit, offset=offset
         )
+
+    def get_distinct_emotions(self) -> List[str]:
+        """Get distinct display_emotion values from player_decision_analysis."""
+        return self._experiment_repo.get_distinct_emotions()
 
     def get_prompt_capture_stats(
         self,

@@ -1848,3 +1848,182 @@
 .link-button:hover {
   color: #74c0fc;
 }
+
+/* ========== Psychology Section ========== */
+
+.psychology-section {
+  background: rgba(138, 43, 226, 0.08);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(138, 43, 226, 0.2);
+  border-left: 3px solid rgba(138, 43, 226, 0.5);
+}
+
+.psychology-section h4 {
+  margin: 0 0 0.75rem 0;
+  color: #c9a0dc;
+  font-size: 0.9rem;
+}
+
+.psychology-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.75rem;
+}
+
+.psychology-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.psychology-item label {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+}
+
+.psychology-item span {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* Emotion badge */
+.emotion-badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.emotion-badge--angry {
+  background: rgba(255, 50, 50, 0.25);
+  color: #ff5555;
+}
+
+.emotion-badge--elated {
+  background: rgba(255, 217, 61, 0.2);
+  color: #ffd93d;
+}
+
+.emotion-badge--shocked {
+  background: rgba(255, 159, 28, 0.25);
+  color: #ff9f1c;
+}
+
+.emotion-badge--smug {
+  background: rgba(198, 120, 255, 0.2);
+  color: #c678ff;
+}
+
+.emotion-badge--frustrated {
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
+}
+
+.emotion-badge--nervous {
+  background: rgba(255, 180, 50, 0.2);
+  color: #ffb432;
+}
+
+.emotion-badge--confident {
+  background: rgba(78, 204, 163, 0.2);
+  color: #4ecca3;
+}
+
+.emotion-badge--happy {
+  background: rgba(100, 220, 100, 0.2);
+  color: #64dc64;
+}
+
+.emotion-badge--thinking {
+  background: rgba(0, 212, 255, 0.2);
+  color: #00d4ff;
+}
+
+.emotion-badge--poker_face {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Tilt level bar */
+.tilt-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tilt-bar-track {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  max-width: 80px;
+}
+
+.tilt-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.tilt-bar-fill--low {
+  background: #4ecca3;
+}
+
+.tilt-bar-fill--medium {
+  background: #ffd93d;
+}
+
+.tilt-bar-fill--high {
+  background: #ff6b6b;
+}
+
+/* Prompt Config Section */
+.prompt-config-section {
+  margin-bottom: 1rem;
+}
+
+.prompt-config-section summary {
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  background: rgba(15, 52, 96, 0.3);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.prompt-config-section summary:hover {
+  background: rgba(15, 52, 96, 0.5);
+}
+
+.prompt-config-section[open] summary {
+  border-radius: 6px 6px 0 0;
+}
+
+.prompt-config-section pre {
+  margin: 0;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1rem;
+  border-radius: 0 0 6px 6px;
+  overflow-x: auto;
+  font-size: 0.75rem;
+  color: #ddd;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Mobile adjustments for psychology */
+@media (max-width: 767px) {
+  .psychology-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

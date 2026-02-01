@@ -1,5 +1,5 @@
 """
-Decision Analyzer for AI Player Quality Monitoring.
+Decision Analyzer for AI Player Quality Monitoring (with psychology tracking).
 
 Analyzes AI decisions inline (called after every decision) to track
 decision quality and difficulty metrics without storing full prompts.

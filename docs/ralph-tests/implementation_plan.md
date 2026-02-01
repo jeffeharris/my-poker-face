@@ -1,0 +1,61 @@
+# Mobile Test Implementation Plan
+
+> Ordered task list for Ralph to work through. Each task = one Claude invocation.
+
+## Phase 0: Setup
+
+- [x] PW-00: Install Playwright and create mobile test config
+
+## Phase 1: Playwright E2E — Navigation & Auth (mobile viewport)
+
+- [x] PW-01: Landing page renders correctly on mobile
+- [x] PW-02: Guest login flow on mobile
+- [x] PW-03: Game menu renders on mobile with quick play options and guest locks
+
+## Phase 2: Playwright E2E — Game Creation & Table Load
+
+- [x] PW-04: Quick Play Lightning creates game and mobile table loads
+- [x] PW-05: Quick Play 1v1 creates heads-up game with opponent panel
+
+## Phase 3: Playwright E2E — Gameplay Actions
+
+- [x] PW-06: Mobile action buttons display correct options per game state
+- [x] PW-07: Mobile raise sheet — open, slider, quick bets, confirm
+- [x] PW-08: Preemptive fold while waiting for opponent
+
+## Phase 4: Playwright E2E — Chat & Communication
+
+- [x] PW-09: Mobile chat sheet — open, tab switch, send message, dismiss
+- [x] PW-10: Floating chat bubbles appear and auto-dismiss
+
+## Phase 5: Playwright E2E — Hand Results
+
+- [x] PW-11: Winner announcement shows after hand and auto-dismisses
+- [x] PW-12: Post-round chat — tone selection and suggestion sending
+- [x] PW-13: Tournament complete screen displays final standings
+
+## Phase 6: Playwright E2E — Edge Cases & Modals
+
+- [x] PW-14: Guest limit modal appears and offers upgrade
+- [x] PW-15: Offline detection shows banner on mobile
+- [x] PW-16: Reconnecting overlay appears when socket drops
+- [x] PW-17: Mobile navigation — back button returns to menu
+
+## Phase 7: Playwright E2E — Custom Game Wizard (mobile)
+
+- [x] PW-18: Custom game wizard step 0 — choose opponents on mobile
+- [x] PW-19: Custom game wizard step 1 — game settings on mobile
+- [x] PW-20: Custom game wizard step 2 — review and create on mobile
+
+## Phase 8: Vitest Component Tests — Mobile Components
+
+- [x] VT-01: MobileActionButtons renders correct buttons for each option set
+- [x] VT-02: MobileActionButtons raise sheet — calculations and interactions
+- [x] VT-03: MobileChatSheet — tabs, messages, guest restrictions
+- [x] VT-04: MobileWinnerAnnouncement — showdown vs fold display
+- [x] VT-05: FloatingChat — message stacking, timing, dismiss
+- [x] VT-06: HeadsUpOpponentPanel — play style, tilt, record display
+- [x] VT-07: LLMDebugModal — stats rendering and CRT aesthetic
+- [x] VT-08: GuestLimitModal — content, CTA, benefits grid
+- [x] VT-09: useViewport hook — returns correct breakpoints
+- [x] VT-10: ResponsiveGameLayout — routes to MobilePokerTable on mobile
