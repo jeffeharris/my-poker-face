@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 class ExperimentRepository(BaseRepository):
     """Handles prompt captures, decision analysis, prompt presets, and capture labels."""
 
+    def __init__(self, db_path: str, game_repo=None):
+        super().__init__(db_path)
+        self._game_repo = game_repo
+
     # ========== Prompt Capture Methods ==========
 
     def save_prompt_capture(self, capture: Dict[str, Any]) -> int:
@@ -1703,7 +1707,7 @@ class ExperimentRepository(BaseRepository):
             api_call_started: If True, also update last_api_call_started_at
             process_id: Optional process ID to record
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             if api_call_started:
                 conn.execute("""
                     UPDATE experiment_games
@@ -1741,7 +1745,7 @@ class ExperimentRepository(BaseRepository):
         Returns:
             List of stalled variant records
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT eg.id, eg.game_id, eg.variant, eg.variant_config_json,
                        eg.tournament_number, eg.state, eg.last_heartbeat_at,
@@ -1794,7 +1798,7 @@ class ExperimentRepository(BaseRepository):
         Returns:
             True if lock was acquired, False if already locked
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute(f"""
                 UPDATE experiment_games
                 SET resume_lock_acquired_at = CURRENT_TIMESTAMP
@@ -1810,7 +1814,7 @@ class ExperimentRepository(BaseRepository):
         Args:
             game_id: The game_id to release lock for
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 UPDATE experiment_games
                 SET resume_lock_acquired_at = NULL
@@ -1823,7 +1827,7 @@ class ExperimentRepository(BaseRepository):
         Args:
             experiment_game_id: The experiment_games.id to release lock for
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 UPDATE experiment_games
                 SET resume_lock_acquired_at = NULL
@@ -1842,7 +1846,7 @@ class ExperimentRepository(BaseRepository):
         Returns:
             True if superseded (should exit), False otherwise
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT resume_lock_acquired_at, last_heartbeat_at
                 FROM experiment_games
@@ -2321,115 +2325,20 @@ class ExperimentRepository(BaseRepository):
     # ==================== Live Stats & Analytics Methods (B4b) ====================
 
     def _load_all_emotional_states(self, conn, game_id: str) -> Dict[str, Dict[str, Any]]:
-        """Load all emotional states for a game (internal helper).
-
-        This inlines the query from GamePersistence to avoid cross-repository dependencies.
-        """
-
-        cursor = conn.execute("""
-            SELECT * FROM emotional_state
-            WHERE game_id = ?
-        """, (game_id,))
-
-        states = {}
-        for row in cursor.fetchall():
-            metadata = json.loads(row['metadata_json']) if row['metadata_json'] else {}
-            states[row['player_name']] = {
-                'valence': row['valence'],
-                'arousal': row['arousal'],
-                'control': row['control'],
-                'focus': row['focus'],
-                'narrative': row['narrative'] or '',
-                'inner_voice': row['inner_voice'] or '',
-                'generated_at_hand': row['generated_at_hand'],
-                'source_events': json.loads(row['source_events']) if row['source_events'] else [],
-                'created_at': metadata.get('created_at'),
-                'used_fallback': metadata.get('used_fallback', False)
-            }
-
-        return states
+        """Load all emotional states for a game. Delegates to GameRepository."""
+        return self._game_repo.load_all_emotional_states(game_id)
 
     def _load_all_controller_states(self, conn, game_id: str) -> Dict[str, Dict[str, Any]]:
-        """Load all controller states for a game (internal helper).
-
-        This inlines the query from GamePersistence to avoid cross-repository dependencies.
-        """
-
-        cursor = conn.execute("""
-            SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json
-            FROM controller_state
-            WHERE game_id = ?
-        """, (game_id,))
-
-        states = {}
-        for row in cursor.fetchall():
-            prompt_config = None
-            try:
-                if row['prompt_config_json']:
-                    prompt_config = json.loads(row['prompt_config_json'])
-            except (KeyError, IndexError):
-                pass
-
-            states[row['player_name']] = {
-                'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
-                'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None,
-                'prompt_config': prompt_config
-            }
-
-        return states
+        """Load all controller states for a game. Delegates to GameRepository."""
+        return self._game_repo.load_all_controller_states(game_id)
 
     def _load_emotional_state(self, conn, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
-        """Load emotional state for a player (internal helper)."""
-
-        cursor = conn.execute("""
-            SELECT * FROM emotional_state
-            WHERE game_id = ? AND player_name = ?
-        """, (game_id, player_name))
-
-        row = cursor.fetchone()
-        if not row:
-            return None
-
-        metadata = json.loads(row['metadata_json']) if row['metadata_json'] else {}
-
-        return {
-            'valence': row['valence'],
-            'arousal': row['arousal'],
-            'control': row['control'],
-            'focus': row['focus'],
-            'narrative': row['narrative'] or '',
-            'inner_voice': row['inner_voice'] or '',
-            'generated_at_hand': row['generated_at_hand'],
-            'source_events': json.loads(row['source_events']) if row['source_events'] else [],
-            'created_at': metadata.get('created_at'),
-            'used_fallback': metadata.get('used_fallback', False)
-        }
+        """Load emotional state for a player. Delegates to GameRepository."""
+        return self._game_repo.load_emotional_state(game_id, player_name)
 
     def _load_controller_state(self, conn, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
-        """Load controller state for a player (internal helper)."""
-
-        cursor = conn.execute("""
-            SELECT tilt_state_json, elastic_personality_json, prompt_config_json
-            FROM controller_state
-            WHERE game_id = ? AND player_name = ?
-        """, (game_id, player_name))
-
-        row = cursor.fetchone()
-        if not row:
-            return None
-
-        prompt_config = None
-        try:
-            if row['prompt_config_json']:
-                prompt_config = json.loads(row['prompt_config_json'])
-        except (KeyError, IndexError):
-            logger.warning(f"prompt_config_json column not found for {player_name}, using defaults")
-
-        return {
-            'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
-            'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None,
-            'prompt_config': prompt_config
-        }
+        """Load controller state for a player. Delegates to GameRepository."""
+        return self._game_repo.load_controller_state(game_id, player_name)
 
     def get_experiment_live_stats(self, experiment_id: int) -> Dict:
         """Get real-time unified stats per variant for running/completed experiments.
