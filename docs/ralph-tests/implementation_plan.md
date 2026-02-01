@@ -32,7 +32,7 @@
 
 - [x] PW-11: Winner announcement shows after hand and auto-dismisses
 - [x] PW-12: Post-round chat — tone selection and suggestion sending
-- [ ] PW-13: Tournament complete screen displays final standings
+- [x] PW-13: Tournament complete screen displays final standings
 
 ## Phase 6: Playwright E2E — Edge Cases & Modals
 
