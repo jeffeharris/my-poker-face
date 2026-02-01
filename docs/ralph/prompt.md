@@ -63,14 +63,14 @@ You are an autonomous code agent working through a pre-approved task list. Every
 
    f. **Update `poker/repositories/__init__.py`** — add the new repository to imports and `__all__`
 
-   g. **Run tests**:
+   g. **Run tests** directly (not via scripts/test.py — we're already inside the container):
       ```bash
-      python3 scripts/test.py
+      python3 -m pytest tests/ -v
       ```
       If the full suite is too slow, run targeted tests first:
       ```bash
-      python3 scripts/test.py test_repositories
-      python3 scripts/test.py --quick
+      python3 -m pytest tests/test_repositories/ -v
+      python3 -m pytest tests/ -k "not test_ai_memory and not test_ai_resilience and not test_personality_responses and not test_reflection_system and not test_message_history_impact and not test_tournament_flow" -v
       ```
 
    h. **Commit** with message format:
@@ -93,7 +93,7 @@ This is a poker game with AI personalities.
 - **Backend**: Python 3.10, Flask, SocketIO, SQLite
 - **Frontend**: React 18, TypeScript, Vite (at `react/react/src/`)
 - **Architecture**: Functional core with frozen dataclasses (immutable state)
-- **Tests**: Run via `python3 scripts/test.py` (executes inside Docker)
+- **Tests**: Run directly with `python3 -m pytest tests/ -v` (Ralph runs inside a container with deps installed)
 - **Game logic**: `poker/` package — use relative imports within the package
 - **Persistence**: `poker/persistence.py` — the file being refactored
 
