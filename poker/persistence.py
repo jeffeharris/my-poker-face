@@ -19,6 +19,9 @@ from poker.repositories.personality_repository import PersonalityRepository
 from poker.repositories.user_repository import UserRepository
 from poker.repositories.experiment_repository import ExperimentRepository
 from poker.repositories.game_repository import GameRepository, SavedGame
+from poker.repositories.hand_history_repository import HandHistoryRepository
+from poker.repositories.tournament_repository import TournamentRepository
+from poker.repositories.llm_repository import LLMRepository
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +120,24 @@ class GamePersistence:
         if not hasattr(self, '__game_repo'):
             self.__game_repo = GameRepository(self.db_path)
         return self.__game_repo
+
+    @property
+    def _hand_history_repo(self):
+        if not hasattr(self, '__hand_history_repo'):
+            self.__hand_history_repo = HandHistoryRepository(self.db_path)
+        return self.__hand_history_repo
+
+    @property
+    def _tournament_repo(self):
+        if not hasattr(self, '__tournament_repo'):
+            self.__tournament_repo = TournamentRepository(self.db_path)
+        return self.__tournament_repo
+
+    @property
+    def _llm_repo(self):
+        if not hasattr(self, '__llm_repo'):
+            self.__llm_repo = LLMRepository(self.db_path)
+        return self.__llm_repo
 
     def save_coach_mode(self, game_id: str, mode: str) -> None:
         """Persist coach mode preference for a game."""
@@ -258,87 +279,24 @@ class GamePersistence:
         return self._user_repo.initialize_admin_from_env()
 
     def get_available_providers(self) -> Set[str]:
-        """Get the set of all providers in the system.
-
-        Returns:
-            Set of all provider names in enabled_models table.
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT DISTINCT provider
-                FROM enabled_models
-            """)
-            return {row[0] for row in cursor.fetchall()}
+        """Get the set of all providers in the system."""
+        return self._llm_repo.get_available_providers()
 
     def get_enabled_models(self) -> Dict[str, List[str]]:
-        """Get all enabled models grouped by provider.
-
-        Returns:
-            Dict mapping provider name to list of enabled model names.
-            Example: {'openai': ['gpt-4o', 'gpt-5-nano'], 'groq': ['llama-3.1-8b-instant']}
-        """
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT provider, model
-                FROM enabled_models
-                WHERE enabled = 1
-                ORDER BY provider, sort_order
-            """)
-            result: Dict[str, List[str]] = {}
-            for row in cursor.fetchall():
-                provider = row['provider']
-                if provider not in result:
-                    result[provider] = []
-                result[provider].append(row['model'])
-            return result
+        """Get all enabled models grouped by provider."""
+        return self._llm_repo.get_enabled_models()
 
     def get_all_enabled_models(self) -> List[Dict[str, Any]]:
-        """Get all models with their enabled status.
-
-        Returns:
-            List of dicts with provider, model, enabled, user_enabled, display_name, etc.
-        """
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT id, provider, model, enabled, user_enabled, display_name, notes,
-                       supports_reasoning, supports_json_mode, supports_image_gen,
-                       sort_order, created_at, updated_at
-                FROM enabled_models
-                ORDER BY provider, sort_order
-            """)
-            return [dict(row) for row in cursor.fetchall()]
+        """Get all models with their enabled status."""
+        return self._llm_repo.get_all_enabled_models()
 
     def update_model_enabled(self, model_id: int, enabled: bool) -> bool:
-        """Update the enabled status of a model.
-
-        Returns:
-            True if model was found and updated, False otherwise.
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute("""
-                UPDATE enabled_models
-                SET enabled = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (1 if enabled else 0, model_id))
-            return cursor.rowcount > 0
+        """Update the enabled status of a model."""
+        return self._llm_repo.update_model_enabled(model_id, enabled)
 
     def update_model_details(self, model_id: int, display_name: str = None, notes: str = None) -> bool:
-        """Update display name and notes for a model.
-
-        Returns:
-            True if model was found and updated, False otherwise.
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute("""
-                UPDATE enabled_models
-                SET display_name = COALESCE(?, display_name),
-                    notes = COALESCE(?, notes),
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (display_name, notes, model_id))
-            return cursor.rowcount > 0
+        """Update display name and notes for a model."""
+        return self._llm_repo.update_model_details(model_id, display_name, notes)
 
     def delete_game(self, game_id: str) -> None:
         """Delete a game and all associated data."""
@@ -489,630 +447,64 @@ class GamePersistence:
 
     # Hand History Persistence Methods
     def save_hand_history(self, recorded_hand) -> int:
-        """Save a completed hand to the database.
+        """Save a completed hand to the database."""
+        return self._hand_history_repo.save_hand_history(recorded_hand)
 
-        Args:
-            recorded_hand: RecordedHand instance from hand_history.py
-
-        Returns:
-            The database ID of the saved hand
-        """
-        # Convert to dict if it's a RecordedHand object
-        if hasattr(recorded_hand, 'to_dict'):
-            hand_dict = recorded_hand.to_dict()
-        else:
-            hand_dict = recorded_hand
-
-        with self._get_connection() as conn:
-            cursor = conn.execute("""
-                INSERT OR REPLACE INTO hand_history
-                (game_id, hand_number, timestamp, players_json, hole_cards_json,
-                 community_cards_json, actions_json, winners_json, pot_size, showdown)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                hand_dict['game_id'],
-                hand_dict['hand_number'],
-                hand_dict.get('timestamp', datetime.now().isoformat()),
-                json.dumps(hand_dict.get('players', [])),
-                json.dumps(hand_dict.get('hole_cards', {})),
-                json.dumps(hand_dict.get('community_cards', [])),
-                json.dumps(hand_dict.get('actions', [])),
-                json.dumps(hand_dict.get('winners', [])),
-                hand_dict.get('pot_size', 0),
-                hand_dict.get('was_showdown', False)
-            ))
-
-            hand_id = cursor.lastrowid
-            logger.debug(f"Saved hand #{hand_dict['hand_number']} for game {hand_dict['game_id']}")
-            return hand_id
-
-    # Hand Commentary Persistence Methods
     def save_hand_commentary(self, game_id: str, hand_number: int, player_name: str,
                              commentary) -> None:
-        """Save AI commentary for a completed hand.
-
-        Args:
-            game_id: The game identifier
-            hand_number: The hand number
-            player_name: The AI player's name
-            commentary: HandCommentary instance or dict
-        """
-        if hasattr(commentary, 'to_dict'):
-            c = commentary.to_dict()
-        else:
-            c = commentary
-
-        with self._get_connection() as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO hand_commentary
-                (game_id, hand_number, player_name, emotional_reaction,
-                 strategic_reflection, opponent_observations, key_insight, decision_plans)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                game_id,
-                hand_number,
-                player_name,
-                c.get('emotional_reaction'),
-                c.get('strategic_reflection'),
-                json.dumps(c.get('opponent_observations', [])),
-                c.get('key_insight'),
-                json.dumps(c.get('decision_plans', []))
-            ))
-            logger.debug(f"Saved commentary for {player_name} hand #{hand_number}")
+        """Save AI commentary for a completed hand."""
+        return self._hand_history_repo.save_hand_commentary(game_id, hand_number, player_name, commentary)
 
     def get_recent_reflections(self, game_id: str, player_name: str,
                                limit: int = 5) -> List[Dict[str, Any]]:
-        """Get recent strategic reflections for a player.
-
-        Args:
-            game_id: The game identifier
-            player_name: The AI player's name
-            limit: Maximum number of reflections to return
-
-        Returns:
-            List of dicts with hand_number, strategic_reflection, key_insight
-        """
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT hand_number, strategic_reflection, key_insight,
-                       opponent_observations
-                FROM hand_commentary
-                WHERE game_id = ? AND player_name = ?
-                ORDER BY hand_number DESC
-                LIMIT ?
-            """, (game_id, player_name, limit))
-
-            return [dict(row) for row in cursor.fetchall()]
+        """Get recent strategic reflections for a player."""
+        return self._hand_history_repo.get_recent_reflections(game_id, player_name, limit)
 
     def get_hand_count(self, game_id: str) -> int:
-        """Get the current hand count for a game.
-
-        Args:
-            game_id: The game identifier
-
-        Returns:
-            The maximum hand_number for this game, or 0 if no hands recorded
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT MAX(hand_number) FROM hand_history WHERE game_id = ?",
-                (game_id,)
-            )
-            result = cursor.fetchone()[0]
-            return result or 0
+        """Get the current hand count for a game."""
+        return self._hand_history_repo.get_hand_count(game_id)
 
     def load_hand_history(self, game_id: str, limit: int = None) -> List[Dict[str, Any]]:
-        """Load hand history for a game.
-
-        Args:
-            game_id: The game identifier
-            limit: Optional limit on number of hands to load (most recent first)
-
-        Returns:
-            List of hand dicts suitable for RecordedHand.from_dict()
-        """
-        hands = []
-
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-
-            query = """
-                SELECT * FROM hand_history
-                WHERE game_id = ?
-                ORDER BY hand_number DESC
-            """
-            if limit:
-                query += f" LIMIT {limit}"
-
-            cursor = conn.execute(query, (game_id,))
-
-            for row in cursor.fetchall():
-                hand = {
-                    'id': row['id'],
-                    'game_id': row['game_id'],
-                    'hand_number': row['hand_number'],
-                    'timestamp': row['timestamp'],
-                    'players': json.loads(row['players_json'] or '[]'),
-                    'hole_cards': json.loads(row['hole_cards_json'] or '{}'),
-                    'community_cards': json.loads(row['community_cards_json'] or '[]'),
-                    'actions': json.loads(row['actions_json'] or '[]'),
-                    'winners': json.loads(row['winners_json'] or '[]'),
-                    'pot_size': row['pot_size'] or 0,
-                    'was_showdown': bool(row['showdown'])
-                }
-                hands.append(hand)
-
-        # Return in chronological order (oldest first)
-        hands.reverse()
-
-        if hands:
-            logger.debug(f"Loaded {len(hands)} hands for game {game_id}")
-
-        return hands
+        """Load hand history for a game."""
+        return self._hand_history_repo.load_hand_history(game_id, limit)
 
     def delete_hand_history_for_game(self, game_id: str) -> None:
         """Delete all hand history for a game."""
-        with self._get_connection() as conn:
-            conn.execute("DELETE FROM hand_history WHERE game_id = ?", (game_id,))
+        return self._hand_history_repo.delete_hand_history_for_game(game_id)
 
     def get_session_stats(self, game_id: str, player_name: str) -> Dict[str, Any]:
-        """Compute session statistics for a player from hand history.
-
-        Args:
-            game_id: The game identifier
-            player_name: The player to get stats for
-
-        Returns:
-            Dict with session statistics:
-                - hands_played: Total hands where player participated
-                - hands_won: Hands where player won
-                - total_winnings: Net chip change (positive = up, negative = down)
-                - biggest_pot_won: Largest pot won
-                - biggest_pot_lost: Largest pot lost at showdown
-                - current_streak: 'winning', 'losing', or 'neutral'
-                - streak_count: Length of current streak
-                - recent_hands: List of last N hand summaries
-        """
-        stats = {
-            'hands_played': 0,
-            'hands_won': 0,
-            'total_winnings': 0,
-            'biggest_pot_won': 0,
-            'biggest_pot_lost': 0,
-            'current_streak': 'neutral',
-            'streak_count': 0,
-            'recent_hands': []
-        }
-
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Get all hands for this game, ordered by hand_number
-            cursor = conn.execute("""
-                SELECT hand_number, players_json, winners_json, actions_json, pot_size, showdown
-                FROM hand_history
-                WHERE game_id = ?
-                ORDER BY hand_number ASC
-            """, (game_id,))
-
-            outcomes = []  # Track outcomes for streak calculation
-
-            for row in cursor.fetchall():
-                players = json.loads(row['players_json'] or '[]')
-                winners = json.loads(row['winners_json'] or '[]')
-                actions = json.loads(row['actions_json'] or '[]')
-                pot_size = row['pot_size'] or 0
-
-                # Check if player participated in this hand
-                player_in_hand = any(p.get('name') == player_name for p in players)
-                if not player_in_hand:
-                    continue
-
-                stats['hands_played'] += 1
-
-                # Check if player won
-                player_won = False
-                amount_won = 0
-                for winner in winners:
-                    if winner.get('name') == player_name:
-                        player_won = True
-                        amount_won = winner.get('amount_won', 0)
-                        break
-
-                # Calculate amount lost (sum of player's bets)
-                amount_bet = sum(
-                    a.get('amount', 0)
-                    for a in actions
-                    if a.get('player_name') == player_name
-                )
-
-                # Determine outcome
-                if player_won:
-                    stats['hands_won'] += 1
-                    stats['total_winnings'] += amount_won
-                    outcomes.append('won')
-                    if pot_size > stats['biggest_pot_won']:
-                        stats['biggest_pot_won'] = pot_size
-                else:
-                    # Check if folded or lost at showdown
-                    folded = any(
-                        a.get('player_name') == player_name and a.get('action') == 'fold'
-                        for a in actions
-                    )
-                    if folded:
-                        outcomes.append('folded')
-                        stats['total_winnings'] -= amount_bet
-                    else:
-                        # Lost at showdown
-                        outcomes.append('lost')
-                        stats['total_winnings'] -= amount_bet
-                        if pot_size > stats['biggest_pot_lost']:
-                            stats['biggest_pot_lost'] = pot_size
-
-                # Build recent hand summary (keep last 5)
-                if len(stats['recent_hands']) >= 5:
-                    stats['recent_hands'].pop(0)
-
-                outcome_str = outcomes[-1]
-                if outcome_str == 'won':
-                    summary = f"Hand {row['hand_number']}: Won ${amount_won}"
-                elif outcome_str == 'folded':
-                    summary = f"Hand {row['hand_number']}: Folded"
-                else:
-                    summary = f"Hand {row['hand_number']}: Lost ${amount_bet}"
-                stats['recent_hands'].append(summary)
-
-            # Calculate current streak from outcomes
-            if outcomes:
-                current = outcomes[-1]
-                if current in ('won', 'lost'):
-                    streak_type = 'winning' if current == 'won' else 'losing'
-                    streak_count = 1
-                    for outcome in reversed(outcomes[:-1]):
-                        if (streak_type == 'winning' and outcome == 'won') or \
-                           (streak_type == 'losing' and outcome == 'lost'):
-                            streak_count += 1
-                        else:
-                            break
-                    stats['current_streak'] = streak_type
-                    stats['streak_count'] = streak_count
-
-        return stats
+        """Compute session statistics for a player from hand history."""
+        return self._hand_history_repo.get_session_stats(game_id, player_name)
 
     def get_session_context_for_prompt(self, game_id: str, player_name: str,
                                         max_recent: int = 3) -> str:
-        """Get formatted session context string for AI prompts.
-
-        Args:
-            game_id: The game identifier
-            player_name: The player to get context for
-            max_recent: Maximum number of recent hands to include
-
-        Returns:
-            Formatted string suitable for injection into AI prompts
-        """
-        stats = self.get_session_stats(game_id, player_name)
-
-        parts = []
-
-        # Session overview
-        if stats['hands_played'] > 0:
-            win_rate = (stats['hands_won'] / stats['hands_played']) * 100
-            parts.append(f"Session: {stats['hands_won']}/{stats['hands_played']} hands won ({win_rate:.0f}%)")
-
-            # Net result
-            if stats['total_winnings'] > 0:
-                parts.append(f"Up ${stats['total_winnings']}")
-            elif stats['total_winnings'] < 0:
-                parts.append(f"Down ${abs(stats['total_winnings'])}")
-
-            # Current streak (only show if 2+)
-            if stats['streak_count'] >= 2:
-                parts.append(f"On a {stats['streak_count']}-hand {stats['current_streak']} streak")
-
-        # Recent hands
-        recent = stats['recent_hands'][-max_recent:]
-        if recent:
-            parts.append("Recent: " + " | ".join(recent))
-
-        return ". ".join(parts) if parts else ""
+        """Get formatted session context string for AI prompts."""
+        return self._hand_history_repo.get_session_context_for_prompt(game_id, player_name, max_recent)
 
     # Tournament Results Persistence Methods
     def save_tournament_result(self, game_id: str, result: Dict[str, Any]) -> None:
-        """Save tournament result when game completes.
-
-        Args:
-            game_id: The game identifier
-            result: Dict with keys: winner_name, total_hands, biggest_pot,
-                   starting_player_count, human_player_name, human_finishing_position,
-                   started_at, standings (list of player standings),
-                   owner_id (optional, human player's auth identity)
-        """
-        owner_id = result.get('owner_id')
-
-        with self._get_connection() as conn:
-            # Save main tournament result
-            conn.execute("""
-                INSERT OR REPLACE INTO tournament_results
-                (game_id, winner_name, total_hands, biggest_pot, starting_player_count,
-                 human_player_name, human_finishing_position, started_at, ended_at, human_owner_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-            """, (
-                game_id,
-                result.get('winner_name'),
-                result.get('total_hands', 0),
-                result.get('biggest_pot', 0),
-                result.get('starting_player_count'),
-                result.get('human_player_name'),
-                result.get('human_finishing_position'),
-                result.get('started_at'),
-                owner_id
-            ))
-
-            # Save individual standings
-            standings = result.get('standings', [])
-            for standing in standings:
-                # Set owner_id on the human player's standing row
-                standing_owner_id = owner_id if standing.get('is_human') else None
-                conn.execute("""
-                    INSERT OR REPLACE INTO tournament_standings
-                    (game_id, player_name, is_human, finishing_position,
-                     eliminated_by, eliminated_at_hand, final_stack, hands_won, hands_played,
-                     times_eliminated, all_in_wins, all_in_losses, owner_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    game_id,
-                    standing.get('player_name'),
-                    standing.get('is_human', False),
-                    standing.get('finishing_position'),
-                    standing.get('eliminated_by'),
-                    standing.get('eliminated_at_hand'),
-                    standing.get('final_stack'),
-                    standing.get('hands_won'),
-                    standing.get('hands_played'),
-                    standing.get('times_eliminated', 0),
-                    standing.get('all_in_wins', 0),
-                    standing.get('all_in_losses', 0),
-                    standing_owner_id,
-                ))
+        """Save tournament result when game completes."""
+        return self._tournament_repo.save_tournament_result(game_id, result)
 
     def get_tournament_result(self, game_id: str) -> Optional[Dict[str, Any]]:
         """Load tournament result for a completed game."""
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Get main result
-            cursor = conn.execute("""
-                SELECT * FROM tournament_results WHERE game_id = ?
-            """, (game_id,))
-            row = cursor.fetchone()
-
-            if not row:
-                return None
-
-            # Get standings
-            standings_cursor = conn.execute("""
-                SELECT * FROM tournament_standings
-                WHERE game_id = ?
-                ORDER BY finishing_position ASC
-            """, (game_id,))
-
-            standings = []
-            for s_row in standings_cursor.fetchall():
-                standings.append({
-                    'player_name': s_row['player_name'],
-                    'is_human': bool(s_row['is_human']),
-                    'finishing_position': s_row['finishing_position'],
-                    'eliminated_by': s_row['eliminated_by'],
-                    'eliminated_at_hand': s_row['eliminated_at_hand']
-                })
-
-            return {
-                'game_id': row['game_id'],
-                'winner_name': row['winner_name'],
-                'total_hands': row['total_hands'],
-                'biggest_pot': row['biggest_pot'],
-                'starting_player_count': row['starting_player_count'],
-                'human_player_name': row['human_player_name'],
-                'human_finishing_position': row['human_finishing_position'],
-                'started_at': row['started_at'],
-                'ended_at': row['ended_at'],
-                'standings': standings
-            }
+        return self._tournament_repo.get_tournament_result(game_id)
 
     def update_career_stats(self, owner_id: str, player_name: str, tournament_result: Dict[str, Any]) -> None:
-        """Update career stats for a player after a tournament.
-
-        Args:
-            owner_id: The user's auth identity (e.g., 'guest_jeff' or Google ID)
-            player_name: The human player's display name
-            tournament_result: Dict with tournament result data
-        """
-        # Find the player's standing in this tournament
-        standings = tournament_result.get('standings', [])
-        player_standing = next(
-            (s for s in standings if s.get('player_name') == player_name),
-            None
-        )
-
-        if not player_standing:
-            logger.warning(f"Player {player_name} not found in tournament standings")
-            return
-
-        finishing_position = player_standing.get('finishing_position', 0)
-        is_winner = finishing_position == 1
-
-        # Count eliminations by this player
-        eliminations_this_game = sum(
-            1 for s in standings
-            if s.get('eliminated_by') == player_name
-        )
-
-        biggest_pot = tournament_result.get('biggest_pot', 0)
-
-        with self._get_connection() as conn:
-            # Look up by owner_id first, fall back to player_name for legacy data
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT * FROM player_career_stats WHERE owner_id = ?
-            """, (owner_id,))
-            row = cursor.fetchone()
-
-            if not row:
-                # Try legacy lookup by player_name (for pre-migration data)
-                cursor = conn.execute("""
-                    SELECT * FROM player_career_stats WHERE player_name = ? AND owner_id IS NULL
-                """, (player_name,))
-                row = cursor.fetchone()
-
-            if row:
-                # Update existing stats
-                games_played = row['games_played'] + 1
-                games_won = row['games_won'] + (1 if is_winner else 0)
-                total_eliminations = row['total_eliminations'] + eliminations_this_game
-
-                # Update best/worst finish
-                best_finish = row['best_finish']
-                if best_finish is None or finishing_position < best_finish:
-                    best_finish = finishing_position
-
-                worst_finish = row['worst_finish']
-                if worst_finish is None or finishing_position > worst_finish:
-                    worst_finish = finishing_position
-
-                # Calculate new average
-                old_avg = row['avg_finish'] or finishing_position
-                avg_finish = ((old_avg * (games_played - 1)) + finishing_position) / games_played
-
-                # Update biggest pot
-                biggest_pot_ever = max(row['biggest_pot_ever'] or 0, biggest_pot)
-
-                conn.execute("""
-                    UPDATE player_career_stats
-                    SET games_played = ?,
-                        games_won = ?,
-                        total_eliminations = ?,
-                        best_finish = ?,
-                        worst_finish = ?,
-                        avg_finish = ?,
-                        biggest_pot_ever = ?,
-                        owner_id = ?,
-                        player_name = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (
-                    games_played, games_won, total_eliminations,
-                    best_finish, worst_finish, avg_finish, biggest_pot_ever,
-                    owner_id, player_name,
-                    row['id']
-                ))
-            else:
-                # Insert new player
-                conn.execute("""
-                    INSERT INTO player_career_stats
-                    (player_name, owner_id, games_played, games_won, total_eliminations,
-                     best_finish, worst_finish, avg_finish, biggest_pot_ever)
-                    VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
-                """, (
-                    player_name,
-                    owner_id,
-                    1 if is_winner else 0,
-                    eliminations_this_game,
-                    finishing_position,
-                    finishing_position,
-                    float(finishing_position),
-                    biggest_pot
-                ))
+        """Update career stats for a player after a tournament."""
+        return self._tournament_repo.update_career_stats(owner_id, player_name, tournament_result)
 
     def get_career_stats(self, owner_id: str) -> Optional[Dict[str, Any]]:
         """Get career stats for a player by owner_id."""
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT * FROM player_career_stats WHERE owner_id = ?
-            """, (owner_id,))
-            row = cursor.fetchone()
-
-            if not row:
-                return None
-
-            return {
-                'player_name': row['player_name'],
-                'games_played': row['games_played'],
-                'games_won': row['games_won'],
-                'total_eliminations': row['total_eliminations'],
-                'best_finish': row['best_finish'],
-                'worst_finish': row['worst_finish'],
-                'avg_finish': row['avg_finish'],
-                'biggest_pot_ever': row['biggest_pot_ever'],
-                'win_rate': row['games_won'] / row['games_played'] if row['games_played'] > 0 else 0
-            }
+        return self._tournament_repo.get_career_stats(owner_id)
 
     def get_tournament_history(self, owner_id: str, limit: int = 20) -> List[Dict[str, Any]]:
         """Get tournament history for a player by owner_id."""
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT tr.*, ts.finishing_position, ts.eliminated_by
-                FROM tournament_results tr
-                JOIN tournament_standings ts ON tr.game_id = ts.game_id
-                WHERE ts.owner_id = ?
-                ORDER BY tr.ended_at DESC
-                LIMIT ?
-            """, (owner_id, limit))
-
-            history = []
-            for row in cursor.fetchall():
-                history.append({
-                    'game_id': row['game_id'],
-                    'winner_name': row['winner_name'],
-                    'total_hands': row['total_hands'],
-                    'biggest_pot': row['biggest_pot'],
-                    'player_count': row['starting_player_count'],
-                    'your_position': row['finishing_position'],
-                    'eliminated_by': row['eliminated_by'],
-                    'ended_at': row['ended_at']
-                })
-
-            return history
+        return self._tournament_repo.get_tournament_history(owner_id, limit)
 
     def get_eliminated_personalities(self, owner_id: str) -> List[Dict[str, Any]]:
-        """Get all unique personalities eliminated by this player across all games.
-
-        Uses owner_id to find the human player's names, then looks for AI players
-        eliminated by any of those names.
-
-        Returns a list of personalities with the first time they were eliminated.
-        """
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            # Get unique personalities eliminated by this player, with first elimination date.
-            # The eliminated_by column stores player_name, so we find all names associated
-            # with this owner_id via tournament_standings, then match.
-            cursor = conn.execute("""
-                SELECT
-                    ts.player_name as personality_name,
-                    MIN(tr.ended_at) as first_eliminated_at,
-                    COUNT(*) as times_eliminated
-                FROM tournament_standings ts
-                JOIN tournament_results tr ON ts.game_id = tr.game_id
-                WHERE ts.eliminated_by IN (
-                    SELECT DISTINCT player_name FROM tournament_standings WHERE owner_id = ?
-                ) AND ts.is_human = 0
-                GROUP BY ts.player_name
-                ORDER BY MIN(tr.ended_at) ASC
-            """, (owner_id,))
-
-            personalities = []
-            for row in cursor.fetchall():
-                personalities.append({
-                    'name': row['personality_name'],
-                    'first_eliminated_at': row['first_eliminated_at'],
-                    'times_eliminated': row['times_eliminated']
-                })
-
-            return personalities
+        """Get all unique personalities eliminated by this player across all games."""
+        return self._tournament_repo.get_eliminated_personalities(owner_id)
 
     # Guest Usage Tracking Methods
     def increment_hands_played(self, tracking_id: str) -> int:

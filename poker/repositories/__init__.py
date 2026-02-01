@@ -13,15 +13,21 @@ from .personality_repository import PersonalityRepository
 from .user_repository import UserRepository
 from .experiment_repository import ExperimentRepository
 from .game_repository import GameRepository
+from .hand_history_repository import HandHistoryRepository
+from .tournament_repository import TournamentRepository
+from .llm_repository import LLMRepository
 
 __all__ = [
     'BaseRepository',
     'ExperimentRepository',
     'GameRepository',
     'GuestTrackingRepository',
+    'HandHistoryRepository',
+    'LLMRepository',
     'PersonalityRepository',
     'PressureEventRepository',
     'SchemaManager',
     'SettingsRepository',
+    'TournamentRepository',
     'UserRepository',
 ]

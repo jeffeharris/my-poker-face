@@ -24,4 +24,4 @@
 
 ## Phase 5: Remaining Domains
 
-- [ ] T3-35-B6: Extract `HandHistoryRepository` + `TournamentRepository` + `LLMRepository` (~1,000 lines combined, 19 methods)
+- [x] T3-35-B6: Extract `HandHistoryRepository` + `TournamentRepository` + `LLMRepository` (~1,000 lines combined, 19 methods)
