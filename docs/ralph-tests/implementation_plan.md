@@ -21,7 +21,7 @@
 
 - [x] PW-06: Mobile action buttons display correct options per game state
 - [x] PW-07: Mobile raise sheet — open, slider, quick bets, confirm
-- [ ] PW-08: Preemptive fold while waiting for opponent
+- [x] PW-08: Preemptive fold while waiting for opponent
 
 ## Phase 4: Playwright E2E — Chat & Communication
 
