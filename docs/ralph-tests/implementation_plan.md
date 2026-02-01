@@ -14,7 +14,7 @@
 
 ## Phase 2: Playwright E2E — Game Creation & Table Load
 
-- [ ] PW-04: Quick Play Lightning creates game and mobile table loads
+- [x] PW-04: Quick Play Lightning creates game and mobile table loads
 - [ ] PW-05: Quick Play 1v1 creates heads-up game with opponent panel
 
 ## Phase 3: Playwright E2E — Gameplay Actions
