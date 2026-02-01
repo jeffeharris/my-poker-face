@@ -10,6 +10,7 @@ from .schema_manager import SchemaManager
 from .settings_repository import SettingsRepository
 from .guest_tracking_repository import GuestTrackingRepository
 from .personality_repository import PersonalityRepository
+from .user_repository import UserRepository
 
 __all__ = [
     'BaseRepository',
@@ -18,4 +19,5 @@ __all__ = [
     'PressureEventRepository',
     'SchemaManager',
     'SettingsRepository',
+    'UserRepository',
 ]

@@ -20,6 +20,7 @@ from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.settings_repository import SettingsRepository
 from poker.repositories.guest_tracking_repository import GuestTrackingRepository
 from poker.repositories.personality_repository import PersonalityRepository
+from poker.repositories.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,12 @@ class GamePersistence:
         if not hasattr(self, '__personality_repo'):
             self.__personality_repo = PersonalityRepository(self.db_path)
         return self.__personality_repo
+
+    @property
+    def _user_repo(self):
+        if not hasattr(self, '__user_repo'):
+            self.__user_repo = UserRepository(self.db_path)
+        return self.__user_repo
 
     def save_coach_mode(self, game_id: str, mode: str) -> None:
         """Persist coach mode preference for a game."""
@@ -318,500 +325,81 @@ class GamePersistence:
     
     def count_user_games(self, owner_id: str) -> int:
         """Count how many games a user owns."""
-        with self._get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT COUNT(*) FROM games WHERE owner_id = ?
-            """, (owner_id,))
-            return cursor.fetchone()[0]
+        return self._user_repo.count_user_games(owner_id)
 
     def get_last_game_creation_time(self, owner_id: str) -> Optional[float]:
         """Get the timestamp of the user's last game creation."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "SELECT last_game_created_at FROM users WHERE id = ?",
-                (owner_id,)
-            )
-            row = cursor.fetchone()
-            return row[0] if row and row[0] is not None else None
+        return self._user_repo.get_last_game_creation_time(owner_id)
 
     def update_last_game_creation_time(self, owner_id: str, timestamp: float) -> None:
         """Update the user's last game creation timestamp."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "UPDATE users SET last_game_created_at = ? WHERE id = ?",
-                (timestamp, owner_id)
-            )
+        return self._user_repo.update_last_game_creation_time(owner_id, timestamp)
 
-    # ==================== User Management Methods ====================
-
-    def create_google_user(
-        self,
-        google_sub: str,
-        email: str,
-        name: str,
-        picture: Optional[str] = None,
-        linked_guest_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Create a new user from Google OAuth.
-
-        Args:
-            google_sub: Google's unique subject identifier
-            email: User's email address
-            name: User's display name
-            picture: URL to user's profile picture
-            linked_guest_id: Optional guest ID this account was linked from
-
-        Returns:
-            Dict containing user data
-
-        Raises:
-            sqlite3.IntegrityError: If email already exists
-        """
-        user_id = f"google_{google_sub}"
-        now = datetime.utcnow().isoformat()
-
-        with self._get_connection() as conn:
-            conn.execute("""
-                INSERT INTO users (id, email, name, picture, created_at, last_login, linked_guest_id, is_guest)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-            """, (user_id, email, name, picture, now, now, linked_guest_id))
-
-            # Auto-assign to 'user' group for full game access
-            conn.execute("""
-                INSERT OR IGNORE INTO user_groups (user_id, group_id, assigned_by)
-                SELECT ?, id, 'system' FROM groups WHERE name = 'user'
-            """, (user_id,))
-
-        return {
-            'id': user_id,
-            'email': email,
-            'name': name,
-            'picture': picture,
-            'is_guest': False,
-            'created_at': now,
-            'linked_guest_id': linked_guest_id
-        }
+    def create_google_user(self, google_sub: str, email: str, name: str,
+                           picture: Optional[str] = None,
+                           linked_guest_id: Optional[str] = None) -> Dict[str, Any]:
+        """Create a new user from Google OAuth."""
+        return self._user_repo.create_google_user(google_sub, email, name, picture, linked_guest_id)
 
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get a user by their ID.
-
-        Args:
-            user_id: The user's unique identifier
-
-        Returns:
-            User dict if found, None otherwise
-        """
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                "SELECT * FROM users WHERE id = ?",
-                (user_id,)
-            )
-            row = cursor.fetchone()
-            if row:
-                return dict(row)
-            return None
+        """Get a user by their ID."""
+        return self._user_repo.get_user_by_id(user_id)
 
     def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
-        """Get a user by their email address.
-
-        Args:
-            email: The user's email address
-
-        Returns:
-            User dict if found, None otherwise
-        """
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                "SELECT * FROM users WHERE email = ?",
-                (email,)
-            )
-            row = cursor.fetchone()
-            if row:
-                return dict(row)
-            return None
+        """Get a user by their email address."""
+        return self._user_repo.get_user_by_email(email)
 
     def get_user_by_linked_guest(self, guest_id: str) -> Optional[Dict[str, Any]]:
-        """Get a user by the guest ID they were linked from.
-
-        Args:
-            guest_id: The original guest ID
-
-        Returns:
-            User dict if found, None otherwise
-        """
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                "SELECT * FROM users WHERE linked_guest_id = ?",
-                (guest_id,)
-            )
-            row = cursor.fetchone()
-            if row:
-                return dict(row)
-            return None
+        """Get a user by the guest ID they were linked from."""
+        return self._user_repo.get_user_by_linked_guest(guest_id)
 
     def update_user_last_login(self, user_id: str) -> None:
-        """Update the last login timestamp for a user.
-
-        Args:
-            user_id: The user's unique identifier
-        """
-        with self._get_connection() as conn:
-            conn.execute(
-                "UPDATE users SET last_login = ? WHERE id = ?",
-                (datetime.utcnow().isoformat(), user_id)
-            )
+        """Update the last login timestamp for a user."""
+        return self._user_repo.update_user_last_login(user_id)
 
     def transfer_game_ownership(self, from_owner_id: str, to_owner_id: str, to_owner_name: str) -> int:
-        """Transfer all games from one owner to another.
-
-        Used when a guest links their account to Google OAuth.
-        Also an alias for transfer_guest_to_user for backward compatibility.
-
-        Args:
-            from_owner_id: The current owner ID (e.g., guest_jeff)
-            to_owner_id: The new owner ID (e.g., google_12345)
-            to_owner_name: The new owner's display name
-
-        Returns:
-            Number of games transferred
-        """
-        return self.transfer_guest_to_user(from_owner_id, to_owner_id, to_owner_name)
+        """Transfer all games from one owner to another."""
+        return self._user_repo.transfer_game_ownership(from_owner_id, to_owner_id, to_owner_name)
 
     def transfer_guest_to_user(self, from_id: str, to_id: str, to_name: str) -> int:
-        """Transfer all owner_id references from guest to authenticated user.
-
-        Updates owner_id across all relevant tables in a single transaction.
-        Used when a guest links their account via Google OAuth.
-
-        If the target user already has career stats (e.g., from a previous
-        guest session), the guest stats are merged into the existing record.
-
-        Args:
-            from_id: The guest owner ID (e.g., guest_jeff)
-            to_id: The new user ID (e.g., google_12345)
-            to_name: The new user's display name
-
-        Returns:
-            Number of games transferred
-        """
-        with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Transfer games
-            cursor = conn.execute("""
-                UPDATE games
-                SET owner_id = ?, owner_name = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE owner_id = ?
-            """, (to_id, to_name, from_id))
-            games_transferred = cursor.rowcount
-
-            # Transfer API usage records
-            conn.execute("""
-                UPDATE api_usage SET owner_id = ? WHERE owner_id = ?
-            """, (to_id, from_id))
-
-            # Transfer prompt captures
-            conn.execute("""
-                UPDATE prompt_captures SET owner_id = ? WHERE owner_id = ?
-            """, (to_id, from_id))
-
-            # Transfer career stats — merge if target already has stats
-            existing_target = conn.execute(
-                "SELECT id FROM player_career_stats WHERE owner_id = ?", (to_id,)
-            ).fetchone()
-            existing_guest = conn.execute(
-                "SELECT id FROM player_career_stats WHERE owner_id = ?", (from_id,)
-            ).fetchone()
-
-            if existing_guest and existing_target:
-                # Both exist — merge guest stats into target, then delete guest row.
-                # SQLite UPDATE...FROM: the FROM clause aliases the guest row as 'g'
-                # while the main UPDATE targets the authenticated user's row.
-                conn.execute("""
-                    UPDATE player_career_stats
-                    SET games_played = player_career_stats.games_played + g.games_played,
-                        games_won = player_career_stats.games_won + g.games_won,
-                        total_eliminations = player_career_stats.total_eliminations + g.total_eliminations,
-                        best_finish = MIN(player_career_stats.best_finish, g.best_finish),
-                        worst_finish = MAX(player_career_stats.worst_finish, g.worst_finish),
-                        biggest_pot_ever = MAX(player_career_stats.biggest_pot_ever, g.biggest_pot_ever),
-                        updated_at = CURRENT_TIMESTAMP
-                    FROM player_career_stats g
-                    WHERE player_career_stats.owner_id = ?
-                      AND g.owner_id = ?
-                """, (to_id, from_id))
-                conn.execute(
-                    "DELETE FROM player_career_stats WHERE owner_id = ?", (from_id,)
-                )
-            elif existing_guest:
-                # Only guest has stats — transfer directly
-                conn.execute("""
-                    UPDATE player_career_stats SET owner_id = ? WHERE owner_id = ?
-                """, (to_id, from_id))
-
-            # Transfer tournament standings
-            conn.execute("""
-                UPDATE tournament_standings SET owner_id = ? WHERE owner_id = ?
-            """, (to_id, from_id))
-
-            # Transfer tournament results
-            conn.execute("""
-                UPDATE tournament_results SET human_owner_id = ? WHERE human_owner_id = ?
-            """, (to_id, from_id))
-
-            return games_transferred
-
-    # ==================== RBAC / Group Management Methods ====================
+        """Transfer all owner_id references from guest to authenticated user."""
+        return self._user_repo.transfer_guest_to_user(from_id, to_id, to_name)
 
     def get_all_users(self) -> List[Dict[str, Any]]:
-        """Get all users (both Google and guest users).
-
-        Returns:
-            List of user dicts with groups included.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Get all users
-            cursor = conn.execute("""
-                SELECT id, email, name, picture, created_at, last_login, linked_guest_id, is_guest
-                FROM users
-                ORDER BY last_login DESC NULLS LAST, created_at DESC
-            """)
-            rows = cursor.fetchall()
-
-            # Build enriched user dicts immutably (functional approach)
-            return [
-                {**dict(row), 'groups': self.get_user_groups(row['id'])}
-                for row in rows
-            ]
+        """Get all users with their groups."""
+        return self._user_repo.get_all_users()
 
     def get_user_groups(self, user_id: str) -> List[str]:
-        """Get all group names for a user.
-
-        Args:
-            user_id: The user's ID
-
-        Returns:
-            List of group names the user belongs to
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
-                SELECT g.name
-                FROM groups g
-                JOIN user_groups ug ON g.id = ug.group_id
-                WHERE ug.user_id = ?
-                ORDER BY g.name
-            """, (user_id,))
-            return [row[0] for row in cursor.fetchall()]
+        """Get all group names for a user."""
+        return self._user_repo.get_user_groups(user_id)
 
     def get_user_permissions(self, user_id: str) -> List[str]:
-        """Get all permissions for a user via their groups.
-
-        Args:
-            user_id: The user's ID
-
-        Returns:
-            List of permission names the user has
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
-                SELECT DISTINCT p.name
-                FROM permissions p
-                JOIN group_permissions gp ON p.id = gp.permission_id
-                JOIN user_groups ug ON gp.group_id = ug.group_id
-                WHERE ug.user_id = ?
-                ORDER BY p.name
-            """, (user_id,))
-            return [row[0] for row in cursor.fetchall()]
+        """Get all permissions for a user via their groups."""
+        return self._user_repo.get_user_permissions(user_id)
 
     def assign_user_to_group(self, user_id: str, group_name: str, assigned_by: Optional[str] = None) -> bool:
-        """Assign a user to a group.
-
-        Args:
-            user_id: The user's ID
-            group_name: The name of the group
-            assigned_by: ID of the user making the assignment
-
-        Returns:
-            True if successful, False if group doesn't exist
-
-        Raises:
-            ValueError: If trying to assign a guest user to admin group (unless configured via INITIAL_ADMIN_EMAIL)
-            ValueError: If user_id doesn't exist in database (for non-guest users)
-        """
-        # Guest users can only be assigned to admin if configured via INITIAL_ADMIN_EMAIL
-        # (handled at startup by initialize_admin_from_env)
-        # For runtime API calls, prevent guest admin assignment
-        if group_name == 'admin' and user_id.startswith('guest_'):
-            # Check if this guest is the configured initial admin
-            initial_admin = os.environ.get('INITIAL_ADMIN_EMAIL', '')
-            if user_id != initial_admin:
-                raise ValueError("Guest users cannot be assigned to the admin group")
-
-        with sqlite3.connect(self.db_path) as conn:
-            # Validate user exists (skip for guest_ users - they're session-only)
-            if not user_id.startswith('guest_'):
-                cursor = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,))
-                if not cursor.fetchone():
-                    raise ValueError(f"User {user_id} does not exist")
-
-            # Get group ID
-            cursor = conn.execute("SELECT id FROM groups WHERE name = ?", (group_name,))
-            row = cursor.fetchone()
-            if not row:
-                return False
-
-            group_id = row[0]
-
-            # Insert the mapping (or ignore if already exists)
-            conn.execute("""
-                INSERT OR IGNORE INTO user_groups (user_id, group_id, assigned_by)
-                VALUES (?, ?, ?)
-            """, (user_id, group_id, assigned_by))
-
-            return True
+        """Assign a user to a group."""
+        return self._user_repo.assign_user_to_group(user_id, group_name, assigned_by)
 
     def remove_user_from_group(self, user_id: str, group_name: str) -> bool:
-        """Remove a user from a group.
-
-        Args:
-            user_id: The user's ID
-            group_name: The name of the group
-
-        Returns:
-            True if successfully removed, False if not found
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
-                DELETE FROM user_groups
-                WHERE user_id = ? AND group_id = (SELECT id FROM groups WHERE name = ?)
-            """, (user_id, group_name))
-            return cursor.rowcount > 0
+        """Remove a user from a group."""
+        return self._user_repo.remove_user_from_group(user_id, group_name)
 
     def count_users_in_group(self, group_name: str) -> int:
-        """Count the number of users in a group.
-
-        Args:
-            group_name: The name of the group
-
-        Returns:
-            Number of users in the group
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
-                SELECT COUNT(*)
-                FROM user_groups ug
-                JOIN groups g ON ug.group_id = g.id
-                WHERE g.name = ?
-            """, (group_name,))
-            return cursor.fetchone()[0]
+        """Count the number of users in a group."""
+        return self._user_repo.count_users_in_group(group_name)
 
     def get_all_groups(self) -> List[Dict[str, Any]]:
-        """Get all available groups.
-
-        Returns:
-            List of group dicts with id, name, description, is_system
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT id, name, description, is_system, created_at
-                FROM groups
-                ORDER BY is_system DESC, name
-            """)
-            return [dict(row) for row in cursor.fetchall()]
+        """Get all available groups."""
+        return self._user_repo.get_all_groups()
 
     def get_user_stats(self, user_id: str) -> Dict[str, Any]:
-        """Get statistics for a user from api_usage and games tables.
-
-        Args:
-            user_id: The user's ID
-
-        Returns:
-            Dict with total_cost, hands_played, games_completed, last_active
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            # Get total cost from api_usage
-            cursor = conn.execute("""
-                SELECT COALESCE(SUM(estimated_cost), 0) as total_cost
-                FROM api_usage
-                WHERE owner_id = ?
-            """, (user_id,))
-            total_cost = cursor.fetchone()[0] or 0
-
-            # Get hands played (count of player_decision calls)
-            cursor = conn.execute("""
-                SELECT COUNT(*) as hands_played
-                FROM api_usage
-                WHERE owner_id = ? AND call_type = 'player_decision'
-            """, (user_id,))
-            hands_played = cursor.fetchone()[0] or 0
-
-            # Get games completed (distinct game_ids)
-            cursor = conn.execute("""
-                SELECT COUNT(DISTINCT game_id) as games_completed
-                FROM games
-                WHERE owner_id = ?
-            """, (user_id,))
-            games_completed = cursor.fetchone()[0] or 0
-
-            # Get last active timestamp
-            cursor = conn.execute("""
-                SELECT MAX(created_at) as last_active
-                FROM api_usage
-                WHERE owner_id = ?
-            """, (user_id,))
-            last_active_row = cursor.fetchone()
-            last_active = last_active_row[0] if last_active_row else None
-
-            return {
-                'total_cost': round(total_cost, 4),
-                'hands_played': hands_played,
-                'games_completed': games_completed,
-                'last_active': last_active
-            }
+        """Get statistics for a user."""
+        return self._user_repo.get_user_stats(user_id)
 
     def initialize_admin_from_env(self) -> Optional[str]:
-        """Assign admin group to user with INITIAL_ADMIN_EMAIL.
-
-        Called on startup to ensure the initial admin is configured.
-        Supports both email addresses (for Google users) and guest IDs (e.g., "guest_jeff").
-
-        Returns:
-            User ID of the admin if found and assigned, None otherwise
-        """
-        admin_id = os.environ.get('INITIAL_ADMIN_EMAIL')
-        if not admin_id:
-            return None
-
-        # Support guest format: if starts with "guest_", use as user_id directly
-        if admin_id.startswith('guest_'):
-            user_id = admin_id
-            logger.info(f"INITIAL_ADMIN_EMAIL configured for guest user: {user_id}")
-        else:
-            # Regular email - look up user
-            user = self.get_user_by_email(admin_id)
-            if not user:
-                logger.info(f"Initial admin email {admin_id} not found in users table yet")
-                return None
-            user_id = user['id']
-
-        # Check if user already has admin group
-        groups = self.get_user_groups(user_id)
-        if 'admin' in groups:
-            logger.debug(f"User {user_id} already has admin group")
-            return user_id
-
-        # Assign admin group
-        if self.assign_user_to_group(user_id, 'admin', assigned_by='system'):
-            logger.info(f"Assigned admin group to {user_id}")
-            return user_id
-
-        return None
+        """Assign admin group to user with INITIAL_ADMIN_EMAIL."""
+        return self._user_repo.initialize_admin_from_env()
 
     def get_available_providers(self) -> Set[str]:
         """Get the set of all providers in the system.

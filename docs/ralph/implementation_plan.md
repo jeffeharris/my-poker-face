@@ -11,7 +11,7 @@
 
 ## Phase 2: User Domain
 
-- [ ] T3-35-B3: Extract `UserRepository` — user management + RBAC (~580 lines, 19 methods)
+- [x] T3-35-B3: Extract `UserRepository` — user management + RBAC (~580 lines, 19 methods)
 
 ## Phase 3: Experiment Domain (split into two batches)
 
