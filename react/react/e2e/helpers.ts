@@ -649,10 +649,10 @@ export async function navigateToMenuPage(
   const path = opts.path || '/menu';
 
   if (TEST_MODE === 'real') {
-    // Real mode: use real login via backend API
+    // Real mode: navigate once, login via backend API, then reload with auth
     await page.goto(path, { waitUntil: 'commit' });
     await loginAsTestGuest(page);
-    await page.goto(path);
+    await page.reload();
     return;
   }
 
