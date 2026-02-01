@@ -35,6 +35,7 @@ export interface PromptCapture {
   tags: string[];
   notes: string | null;
   raw_api_response: string | null;
+  prompt_config_json: string | null;
   labels?: Array<{ label: string; label_type: string; created_at: string }>;
   // Error/correction resilience fields
   error_type?: string | null;
@@ -92,6 +93,10 @@ export interface CaptureFilters {
   error_type?: string;
   has_error?: boolean;
   is_correction?: boolean;
+  // Psychology filters
+  display_emotion?: string;
+  min_tilt_level?: number;
+  max_tilt_level?: number;
   limit?: number;
   offset?: number;
 }
@@ -122,6 +127,16 @@ export interface DecisionAnalysis {
   ev_lost: number | null;
   analyzer_version: string | null;
   processing_time_ms: number | null;
+  // Psychology / emotional state
+  tilt_level: number | null;
+  tilt_source: string | null;
+  valence: number | null;
+  arousal: number | null;
+  control: number | null;
+  focus: number | null;
+  display_emotion: string | null;
+  elastic_aggression: number | null;
+  elastic_bluff_tendency: number | null;
 }
 
 export interface DecisionAnalysisStats {
