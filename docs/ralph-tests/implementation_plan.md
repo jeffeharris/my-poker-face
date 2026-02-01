@@ -49,7 +49,7 @@
 
 ## Phase 8: Vitest Component Tests — Mobile Components
 
-- [ ] VT-01: MobileActionButtons renders correct buttons for each option set
+- [x] VT-01: MobileActionButtons renders correct buttons for each option set
 - [ ] VT-02: MobileActionButtons raise sheet — calculations and interactions
 - [ ] VT-03: MobileChatSheet — tabs, messages, guest restrictions
 - [ ] VT-04: MobileWinnerAnnouncement — showdown vs fold display
