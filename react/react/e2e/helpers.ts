@@ -1,5 +1,14 @@
-import { Page } from '@playwright/test';
-import gameStateFixture from './fixtures/game-state.json';
+import { Page, expect } from '@playwright/test';
+import { readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const gameStateFixture = JSON.parse(
+  readFileSync(join(__dirname, './fixtures/game-state.json'), 'utf-8')
+);
 
 /**
  * Backend URL for test helper endpoints.
@@ -7,6 +16,39 @@ import gameStateFixture from './fixtures/game-state.json';
  * Locally, the backend runs on port 5000.
  */
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000';
+
+// ─── Dual-mode: mock (default) vs real backend ───
+
+export const TEST_MODE = process.env.TEST_MODE || 'mock';
+export const isRealMode = () => TEST_MODE === 'real';
+
+// Pending socket events for real-mode delivery after navigation
+let _pendingSocketEvents: Array<[string, unknown]> = [];
+let _pendingGameId = '';
+
+// ─── Shared game-state builder ───
+
+/**
+ * Build a full game state from the fixture with the given player_options on the human player.
+ * Adjusts top-level fields the frontend GameState type expects.
+ */
+export function buildGameState(
+  playerOptions: string[] = ['fold', 'call', 'raise'],
+  extraOverrides: Record<string, unknown> = {}
+) {
+  const players = (gameStateFixture.players as Record<string, unknown>[]).map((p, i) => {
+    if (i === 0) return { ...p, player_options: playerOptions };
+    return p;
+  });
+  return {
+    ...gameStateFixture,
+    players,
+    player_options: playerOptions,
+    highest_bet: gameStateFixture.betting_context.highest_bet,
+    min_raise: gameStateFixture.betting_context.min_raise_to,
+    ...extraOverrides,
+  };
+}
 
 // ─── Mock-based helpers (still needed for tests requiring precise control) ───
 
@@ -203,6 +245,7 @@ export async function mockGamePageRoutes(
     gameId?: string;
     socketEvents?: Array<[string, unknown]>;
     socketConnected?: boolean;
+    usageStats?: { hands_played: number; hands_limit: number; [key: string]: unknown };
   } = {}
 ) {
   const isGuest = opts.isGuest !== false;
@@ -210,6 +253,49 @@ export async function mockGamePageRoutes(
   const gameState = opts.gameState || gameStateFixture;
   const socketEvents = opts.socketEvents || [];
   const socketConnected = opts.socketConnected !== false;
+  const usageStats = opts.usageStats || { hands_played: 3, hands_limit: 20 };
+
+  // ── Real-backend mode: skip most mocks, let requests hit real backend ──
+  if (TEST_MODE === 'real') {
+    // Only mock LLM endpoints that require API keys
+    await page.route('**/api/game/*/post-round-chat*', route =>
+      route.fulfill({
+        json: {
+          suggestions: [
+            { text: 'Nice hand!', tone: 'humble' },
+            { text: 'Got lucky there.', tone: 'humble' },
+          ],
+        },
+      })
+    );
+    await page.route('**/api/game/*/chat-suggestions*', route =>
+      route.fulfill({
+        json: {
+          suggestions: [
+            { text: 'Nice play!', category: 'compliment' },
+            { text: 'You got me there!', category: 'concession' },
+          ],
+        },
+      })
+    );
+
+    // If socketConnected is explicitly false, block socket.io to simulate disconnect
+    if (!socketConnected) {
+      await page.route('**/socket.io/**', route => route.abort());
+    }
+
+    // If gameState provided, load it into the real backend via test endpoint
+    if (opts.gameState) {
+      await loadGameSnapshot(page, gameId, gameState as Record<string, unknown>);
+    }
+
+    // Store pending socket events for delivery after navigation
+    _pendingSocketEvents = socketEvents;
+    _pendingGameId = gameId;
+    return;
+  }
+
+  // ── Mock mode (default): intercept all routes ──
 
   // Intercept useAuth to disable dev-mode guest bypass
   await page.route('**/@fs/**useAuth**', async route => {
@@ -254,7 +340,7 @@ export async function mockGamePageRoutes(
     route.fulfill({ json: { games_played: 5, games_won: 2, win_rate: 0.4, total_knockouts: 3 } })
   );
   await page.route('**/api/usage-stats*', route =>
-    route.fulfill({ json: { hands_played: 3, hands_limit: 20 } })
+    route.fulfill({ json: usageStats })
   );
   await page.route('**/api/personalities', route =>
     route.fulfill({ json: { personalities: [] } })
@@ -357,6 +443,25 @@ export async function navigateToGamePage(
   const isGuest = opts.isGuest !== false;
   const gameId = opts.gameId || 'test-game-123';
 
+  if (TEST_MODE === 'real') {
+    // Real mode: use real login via backend API
+    await page.goto('/menu', { waitUntil: 'commit' });
+    await loginAsTestGuest(page);
+    await page.goto(`/game/${gameId}`);
+    await expect(page.locator('.mobile-poker-table')).toBeVisible({ timeout: 15000 });
+
+    // Deliver any pending socket events via backend API
+    if (_pendingSocketEvents.length > 0) {
+      await page.waitForTimeout(500); // ensure socket connection established
+      for (const [event, data] of _pendingSocketEvents) {
+        await emitSocketEvent(page, _pendingGameId, event, data as Record<string, unknown>);
+      }
+      _pendingSocketEvents = [];
+    }
+    return;
+  }
+
+  // Mock mode: set localStorage directly
   await page.goto('/menu', { waitUntil: 'commit' });
   await page.evaluate((guest) => {
     localStorage.setItem('currentUser', JSON.stringify({
@@ -368,4 +473,199 @@ export async function navigateToGamePage(
     }));
   }, isGuest);
   await page.goto(`/game/${gameId}`);
+  await expect(page.locator('.mobile-poker-table')).toBeVisible({ timeout: 10000 });
+}
+
+// ─── Common mock setup for menu-page tests ───
+
+/**
+ * Standard mock setup for tests that only need menu/auth mocks (no game state or Socket.IO events).
+ * Used by: landing, login, menu, navigation, guest-limit, offline-detection, custom-game-wizard tests.
+ */
+export async function mockMenuPageRoutes(
+  page: Page,
+  opts: {
+    isGuest?: boolean;
+    authenticated?: boolean;
+    handsPlayed?: number;
+    handsLimit?: number;
+    handsLimitReached?: boolean;
+    personalities?: unknown;
+    userModels?: Record<string, unknown>;
+    includeAvatar?: boolean;
+    usageStats?: Record<string, unknown>;
+  } = {}
+) {
+  const isGuest = opts.isGuest !== false;
+  const authenticated = opts.authenticated !== false;
+  const handsPlayed = opts.handsPlayed ?? 3;
+  const handsLimit = opts.handsLimit ?? 20;
+
+  // ── Real-backend mode: skip most mocks, let requests hit real backend ──
+  if (TEST_MODE === 'real') {
+    // Only mock LLM endpoints
+    await page.route('**/api/game/*/post-round-chat*', route =>
+      route.fulfill({ json: { suggestions: [] } })
+    );
+    await page.route('**/api/game/*/chat-suggestions*', route =>
+      route.fulfill({ json: { suggestions: [] } })
+    );
+
+    // If hands limit override needed (guest-limit test), mock just usage-stats
+    if (opts.handsLimitReached || opts.usageStats) {
+      await page.route('**/api/usage-stats*', route =>
+        route.fulfill({
+          json: opts.usageStats || {
+            hands_played: handsPlayed,
+            hands_limit: handsLimit,
+            hands_limit_reached: true,
+            max_opponents: 3,
+            max_active_games: 1,
+            is_guest: isGuest,
+          },
+        })
+      );
+    }
+    return;
+  }
+
+  // ── Mock mode (default): intercept all routes ──
+
+  // Intercept useAuth to disable dev-mode guest bypass
+  await page.route('**/@fs/**useAuth**', async route => {
+    const response = await route.fetch();
+    let body = await response.text();
+    body = body.replace(
+      /import\.meta\.env\.VITE_FORCE_GUEST\s*!==\s*['"]true['"]/,
+      'false'
+    );
+    await route.fulfill({ response, body });
+  });
+  await page.route('**/src/hooks/useAuth**', async route => {
+    const response = await route.fetch();
+    let body = await response.text();
+    body = body.replace(
+      /import\.meta\.env\.VITE_FORCE_GUEST\s*!==\s*['"]true['"]/,
+      'false'
+    );
+    await route.fulfill({ response, body });
+  });
+
+  // Mock auth
+  if (authenticated) {
+    await page.route('**/api/auth/me', route =>
+      route.fulfill({
+        json: {
+          user: {
+            id: isGuest ? 'guest-123' : 'user-456',
+            name: 'TestPlayer',
+            is_guest: isGuest,
+            created_at: '2024-01-01',
+            permissions: isGuest ? ['play'] : ['play', 'custom_game', 'themed_game']
+          }
+        }
+      })
+    );
+  } else {
+    await page.route('**/api/auth/me', route =>
+      route.fulfill({ status: 401, json: { error: 'Not authenticated' } })
+    );
+  }
+
+  // Mock common API endpoints
+  await page.route('**/api/games', route =>
+    route.fulfill({ json: { games: [] } })
+  );
+  await page.route('**/api/career-stats*', route =>
+    route.fulfill({ json: { games_played: 5, games_won: 2, win_rate: 0.4, total_knockouts: 3 } })
+  );
+  await page.route('**/api/usage-stats*', route =>
+    route.fulfill({
+      json: opts.usageStats || {
+        hands_played: handsPlayed,
+        hands_limit: handsLimit,
+        hands_limit_reached: opts.handsLimitReached ?? (handsPlayed >= handsLimit),
+        max_opponents: 3,
+        max_active_games: 1,
+        is_guest: isGuest,
+      }
+    })
+  );
+  await page.route('**/api/personalities', route =>
+    route.fulfill({ json: opts.personalities !== undefined ? opts.personalities : { personalities: [] } })
+  );
+  await page.route('**/health', route =>
+    route.fulfill({ json: { status: 'ok' } })
+  );
+
+  // Optional: user-models for custom game wizard
+  if (opts.userModels) {
+    await page.route('**/api/user-models', route =>
+      route.fulfill({ json: opts.userModels })
+    );
+  }
+
+  // Optional: avatar endpoint for custom-game-step2
+  if (opts.includeAvatar) {
+    await page.route('**/api/avatar/**', route =>
+      route.fulfill({
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'),
+      })
+    );
+  }
+
+  // Mock socket.io (no game events needed)
+  await page.route('**/socket.io/**', route => {
+    const url = route.request().url();
+    if (url.includes('transport=polling') && route.request().method() === 'GET') {
+      if (!url.includes('sid=')) {
+        route.fulfill({
+          contentType: 'text/plain',
+          body: '0{"sid":"fake-sid","upgrades":[],"pingInterval":25000,"pingTimeout":20000}'
+        });
+      } else {
+        route.fulfill({ contentType: 'text/plain', body: '6' });
+      }
+    } else if (route.request().method() === 'POST') {
+      route.fulfill({ contentType: 'text/plain', body: 'ok' });
+    } else {
+      route.fulfill({ body: '' });
+    }
+  });
+}
+
+/**
+ * Navigate to the menu page with localStorage set for the user.
+ */
+export async function navigateToMenuPage(
+  page: Page,
+  opts: {
+    isGuest?: boolean;
+    path?: string;
+  } = {}
+) {
+  const isGuest = opts.isGuest !== false;
+  const path = opts.path || '/menu';
+
+  if (TEST_MODE === 'real') {
+    // Real mode: use real login via backend API
+    await page.goto(path, { waitUntil: 'commit' });
+    await loginAsTestGuest(page);
+    await page.goto(path);
+    return;
+  }
+
+  // Mock mode: set localStorage directly
+  await page.goto(path, { waitUntil: 'commit' });
+  await page.evaluate((guest) => {
+    localStorage.setItem('currentUser', JSON.stringify({
+      id: guest ? 'guest-123' : 'user-456',
+      name: 'TestPlayer',
+      is_guest: guest,
+      created_at: '2024-01-01',
+      permissions: guest ? ['play'] : ['play', 'custom_game', 'themed_game']
+    }));
+  }, isGuest);
+  await page.goto(path);
 }
