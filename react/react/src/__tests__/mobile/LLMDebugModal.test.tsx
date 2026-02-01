@@ -11,23 +11,6 @@ vi.mock('lucide-react', () => ({
   ),
 }));
 
-// Mock config
-vi.mock('../../config', () => ({
-  config: {
-    API_URL: 'http://localhost:5000',
-  },
-}));
-
-// Mock logger
-vi.mock('../../utils/logger', () => ({
-  logger: {
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-  },
-}));
-
 function makeDebugInfo(overrides: Partial<LLMDebugInfo> = {}): LLMDebugInfo {
   return {
     provider: 'openai',

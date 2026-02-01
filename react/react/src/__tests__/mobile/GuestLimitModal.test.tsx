@@ -22,13 +22,6 @@ vi.mock('lucide-react', () => ({
   ),
 }));
 
-// Mock config
-vi.mock('../../config', () => ({
-  config: {
-    API_URL: 'http://localhost:5000',
-  },
-}));
-
 function makeProps(overrides: Partial<Parameters<typeof GuestLimitModal>[0]> = {}) {
   return {
     handsPlayed: 20,
