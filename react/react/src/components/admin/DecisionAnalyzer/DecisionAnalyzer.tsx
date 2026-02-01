@@ -407,6 +407,13 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
     return 'low';
   };
 
+  // Format emotion name for display
+  const formatEmotionName = (emotion: string): string =>
+    emotion.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+  // Default filter state
+  const DEFAULT_FILTERS: CaptureFilters = { limit: 50, offset: 0, labels: undefined, error_type: undefined, has_error: undefined, is_correction: undefined, display_emotion: undefined, min_tilt_level: undefined, max_tilt_level: undefined };
+
   // Get tilt bar color class
   const getTiltBarClass = (tiltLevel: number): string => {
     if (tiltLevel < 0.3) return 'tilt-bar-fill--low';
@@ -827,7 +834,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
             >
               <option value="">All (Emotion)</option>
               {availableEmotions.map(e => (
-                <option key={e} value={e}>{e.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+                <option key={e} value={e}>{formatEmotionName(e)}</option>
               ))}
             </select>
 
@@ -838,6 +845,21 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               onChange={(e) => setFilters({
                 ...filters,
                 min_tilt_level: e.target.value ? parseFloat(e.target.value) : undefined,
+                offset: 0
+              })}
+              min={0}
+              max={1}
+              step={0.1}
+              style={{ width: '90px' }}
+            />
+
+            <input
+              type="number"
+              placeholder="Max Tilt"
+              value={filters.max_tilt_level ?? ''}
+              onChange={(e) => setFilters({
+                ...filters,
+                max_tilt_level: e.target.value ? parseFloat(e.target.value) : undefined,
                 offset: 0
               })}
               min={0}
@@ -865,7 +887,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               </div>
             )}
 
-            <button onClick={() => setFilters({ limit: 50, offset: 0, labels: undefined, error_type: undefined, has_error: undefined, is_correction: undefined, display_emotion: undefined, min_tilt_level: undefined, max_tilt_level: undefined })}>
+            <button onClick={() => setFilters(DEFAULT_FILTERS)}>
               Clear Filters
             </button>
 
@@ -1917,7 +1939,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
             >
               <option value="">All</option>
               {availableEmotions.map(e => (
-                <option key={e} value={e}>{e.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+                <option key={e} value={e}>{formatEmotionName(e)}</option>
               ))}
             </select>
           </FilterGroup>
@@ -1932,6 +1954,25 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 setFilters({
                   ...filters,
                   min_tilt_level: e.target.value ? parseFloat(e.target.value) : undefined,
+                  offset: 0
+                });
+              }}
+              min={0}
+              max={1}
+              step={0.1}
+            />
+          </FilterGroup>
+
+          <FilterGroup label="Max Tilt">
+            <input
+              className="mobile-filter-sheet__input"
+              type="number"
+              placeholder="Max tilt level"
+              value={filters.max_tilt_level ?? ''}
+              onChange={(e) => {
+                setFilters({
+                  ...filters,
+                  max_tilt_level: e.target.value ? parseFloat(e.target.value) : undefined,
                   offset: 0
                 });
               }}

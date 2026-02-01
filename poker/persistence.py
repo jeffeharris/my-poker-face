@@ -5526,14 +5526,14 @@ class GamePersistence:
 
             # Get total count
             count_cursor = conn.execute(
-                f"SELECT COUNT(*) FROM prompt_captures pc {join_clause} {where_clause}",
+                f"SELECT COUNT(DISTINCT pc.id) FROM prompt_captures pc {join_clause} {where_clause}",
                 params
             )
             total = count_cursor.fetchone()[0]
 
             # Get captures with pagination
             query = f"""
-                SELECT pc.id, pc.created_at, pc.game_id, pc.player_name, pc.hand_number, pc.phase,
+                SELECT DISTINCT pc.id, pc.created_at, pc.game_id, pc.player_name, pc.hand_number, pc.phase,
                        pc.action_taken, pc.pot_total, pc.cost_to_call, pc.pot_odds, pc.player_stack,
                        pc.community_cards, pc.player_hand, pc.model, pc.provider, pc.latency_ms, pc.tags, pc.notes,
                        pc.error_type, pc.error_description, pc.parent_id, pc.correction_attempt

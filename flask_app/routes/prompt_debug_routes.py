@@ -84,8 +84,14 @@ def list_captures():
 
     # Parse psychology filters
     display_emotion = request.args.get('display_emotion')
-    min_tilt_level = float(request.args.get('min_tilt_level')) if request.args.get('min_tilt_level') else None
-    max_tilt_level = float(request.args.get('max_tilt_level')) if request.args.get('max_tilt_level') else None
+    try:
+        min_tilt_level = float(request.args.get('min_tilt_level')) if request.args.get('min_tilt_level') else None
+    except (ValueError, TypeError):
+        min_tilt_level = None
+    try:
+        max_tilt_level = float(request.args.get('max_tilt_level')) if request.args.get('max_tilt_level') else None
+    except (ValueError, TypeError):
+        max_tilt_level = None
 
     filters = {
         'game_id': request.args.get('game_id'),
