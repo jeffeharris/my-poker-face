@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { mockAPIRoutes } from '../helpers';
 
 test.describe('PW-02: Guest login flow on mobile', () => {
   test.beforeEach(async ({ page }) => {

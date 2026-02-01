@@ -5,19 +5,19 @@ import { GuestLimitModal } from '../../components/shared/GuestLimitModal';
 
 // Mock lucide-react
 vi.mock('lucide-react', () => ({
-  Crown: ({ size, ...props }: { size?: number } & Record<string, unknown>) => (
+  Crown: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
     <span data-testid="crown-icon" {...props}>Crown</span>
   ),
-  Shield: ({ size, ...props }: { size?: number } & Record<string, unknown>) => (
+  Shield: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
     <span data-testid="shield-icon" {...props}>Shield</span>
   ),
-  Users: ({ size, ...props }: { size?: number } & Record<string, unknown>) => (
+  Users: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
     <span data-testid="users-icon" {...props}>Users</span>
   ),
-  Sparkles: ({ size, ...props }: { size?: number } & Record<string, unknown>) => (
+  Sparkles: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
     <span data-testid="sparkles-icon" {...props}>Sparkles</span>
   ),
-  Settings: ({ size, ...props }: { size?: number } & Record<string, unknown>) => (
+  Settings: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
     <span data-testid="settings-icon" {...props}>Settings</span>
   ),
 }));

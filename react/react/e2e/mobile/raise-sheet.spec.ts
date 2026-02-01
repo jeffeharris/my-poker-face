@@ -271,7 +271,7 @@ test.describe('PW-07: Mobile raise sheet — open, slider, quick bets, confirm',
 
     // Get initial amount
     const amountDisplay = raiseSheet.locator('.amount-value, .amount-input');
-    const initialText = await amountDisplay.first().textContent() || await amountDisplay.first().inputValue().catch(() => '');
+    const _initialText = await amountDisplay.first().textContent() || await amountDisplay.first().inputValue().catch(() => '');
 
     // Click the last quick bet button (All-In) to get a clear change
     const quickBetButtons = raiseSheet.locator('.quick-bet-btn');

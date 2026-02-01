@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
 import { FloatingChat } from '../../components/mobile/FloatingChat';
 import type { ChatMessage, Player } from '../../types';
 
@@ -7,7 +7,7 @@ import type { ChatMessage, Player } from '../../types';
 vi.mock('framer-motion', () => ({
   motion: {
     div: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
-      const { initial, animate, exit, transition, layout, ...htmlProps } = props;
+      const { initial: _initial, animate: _animate, exit: _exit, transition: _transition, layout: _layout, ...htmlProps } = props;
       return <div {...htmlProps}>{children}</div>;
     },
   },

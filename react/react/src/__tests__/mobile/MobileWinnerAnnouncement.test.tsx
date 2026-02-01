@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { MobileWinnerAnnouncement } from '../../components/mobile/MobileWinnerAnnouncement';
 
 // Mock the Card component to avoid canvas/image rendering issues

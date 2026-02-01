@@ -6,7 +6,7 @@ import type { LLMDebugInfo } from '../../types/player';
 
 // Mock lucide-react
 vi.mock('lucide-react', () => ({
-  X: ({ size, ...props }: { size?: number } & Record<string, unknown>) => (
+  X: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
     <span data-testid="x-icon" {...props}>X</span>
   ),
 }));
