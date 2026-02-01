@@ -3,7 +3,6 @@
 Extracted from GamePersistence as part of the persistence refactor (T3-35-B5).
 """
 import json
-import sqlite3
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -110,7 +109,7 @@ class GameRepository(BaseRepository):
     def load_game(self, game_id: str) -> Optional[PokerStateMachine]:
         """Load a game state from the database."""
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute(
                 "SELECT * FROM games WHERE game_id = ?",
                 (game_id,)
@@ -147,7 +146,7 @@ class GameRepository(BaseRepository):
             Dict with 'player_llm_configs' and 'default_llm_config', or None if not found
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute(
                 "SELECT llm_configs_json FROM games WHERE game_id = ?",
                 (game_id,)
@@ -207,7 +206,7 @@ class GameRepository(BaseRepository):
     def list_games(self, owner_id: Optional[str] = None, limit: int = 20) -> List[SavedGame]:
         """List saved games, most recently updated first. Filter by owner_id if provided."""
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             if owner_id:
                 cursor = conn.execute("""
@@ -261,7 +260,7 @@ class GameRepository(BaseRepository):
     def load_messages(self, game_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Load recent messages for a game."""
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT * FROM game_messages
                 WHERE game_id = ?
@@ -307,7 +306,7 @@ class GameRepository(BaseRepository):
     def load_ai_player_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
         """Load all AI player states for a game."""
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT player_name, conversation_history, personality_state
                 FROM ai_player_state
@@ -388,7 +387,7 @@ class GameRepository(BaseRepository):
             Dict suitable for EmotionalState.from_dict(), or None if not found
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT * FROM emotional_state
                 WHERE game_id = ? AND player_name = ?
@@ -420,7 +419,7 @@ class GameRepository(BaseRepository):
             Dict mapping player_name -> emotional_state dict
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT * FROM emotional_state
                 WHERE game_id = ?
@@ -491,7 +490,7 @@ class GameRepository(BaseRepository):
             Dict with 'tilt_state', 'elastic_personality', and 'prompt_config' keys, or None if not found
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT tilt_state_json, elastic_personality_json, prompt_config_json
                 FROM controller_state
@@ -524,7 +523,7 @@ class GameRepository(BaseRepository):
             Dict mapping player_name -> controller state dict
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json
                 FROM controller_state
@@ -628,7 +627,7 @@ class GameRepository(BaseRepository):
         models_dict = {}
 
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Load all opponent models for this game
             cursor = conn.execute("""

@@ -119,7 +119,7 @@ class ExperimentRepository(BaseRepository):
         Joins with api_usage to get cached_tokens, reasoning_tokens, and estimated_cost.
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             # Join with api_usage to get usage metrics (cached tokens, reasoning tokens, cost)
             cursor = conn.execute("""
                 SELECT pc.*,
@@ -230,7 +230,7 @@ class ExperimentRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Get total count
             count_cursor = conn.execute(
@@ -418,7 +418,7 @@ class ExperimentRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Get total count
             count_cursor = conn.execute(
@@ -468,7 +468,7 @@ class ExperimentRepository(BaseRepository):
     def get_playground_capture_stats(self) -> Dict[str, Any]:
         """Get aggregate statistics for all prompt captures."""
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Count by call_type (legacy captures without call_type shown as 'player_decision')
             cursor = conn.execute("""
@@ -603,7 +603,7 @@ class ExperimentRepository(BaseRepository):
     def get_decision_analysis(self, analysis_id: int) -> Optional[Dict[str, Any]]:
         """Get a single decision analysis by ID."""
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute(
                 "SELECT * FROM player_decision_analysis WHERE id = ?",
                 (analysis_id,)
@@ -616,7 +616,7 @@ class ExperimentRepository(BaseRepository):
     def get_decision_analysis_by_request(self, request_id: str) -> Optional[Dict[str, Any]]:
         """Get decision analysis by api_usage request_id."""
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute(
                 "SELECT * FROM player_decision_analysis WHERE request_id = ?",
                 (request_id,)
@@ -634,7 +634,7 @@ class ExperimentRepository(BaseRepository):
         as some providers (Google/Gemini) don't return request IDs.
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             # First try direct capture_id link (preferred, always reliable)
             cursor = conn.execute(
                 "SELECT * FROM player_decision_analysis WHERE capture_id = ?",
@@ -694,7 +694,7 @@ class ExperimentRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Get total count
             count_cursor = conn.execute(
@@ -835,7 +835,7 @@ class ExperimentRepository(BaseRepository):
             Preset data as dict, or None if not found
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT id, name, description, prompt_config, guidance_injection,
                        owner_id, is_system, created_at, updated_at
@@ -867,7 +867,7 @@ class ExperimentRepository(BaseRepository):
             Preset data as dict, or None if not found
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT id, name, description, prompt_config, guidance_injection,
                        owner_id, is_system, created_at, updated_at
@@ -904,7 +904,7 @@ class ExperimentRepository(BaseRepository):
             List of preset data dicts
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             if owner_id:
                 # Include system presets for all users, plus user's own presets
                 cursor = conn.execute("""
@@ -1159,7 +1159,7 @@ class ExperimentRepository(BaseRepository):
             List of label dicts with 'label', 'label_type', 'created_at'
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT label, label_type, created_at
                 FROM capture_labels
@@ -1178,7 +1178,7 @@ class ExperimentRepository(BaseRepository):
             List of dicts with 'name', 'count', 'label_type'
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             if label_type:
                 cursor = conn.execute("""
                     SELECT label as name, label_type, COUNT(*) as count
@@ -1228,7 +1228,7 @@ class ExperimentRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute(f"""
                 SELECT cl.label, COUNT(*) as count
                 FROM capture_labels cl
@@ -1358,7 +1358,7 @@ class ExperimentRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Build label matching subquery
             label_placeholders = ','.join(['?' for _ in labels])
@@ -2098,7 +2098,7 @@ class ExperimentRepository(BaseRepository):
             List of dicts with game info for incomplete tournaments
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT eg.game_id, eg.variant, eg.variant_config_json, eg.tournament_number
                 FROM experiment_games eg
@@ -2173,7 +2173,7 @@ class ExperimentRepository(BaseRepository):
             Dict with session data or None if not found
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
                 FROM experiment_chat_sessions
@@ -2202,7 +2202,7 @@ class ExperimentRepository(BaseRepository):
             Dict with session data or None if no session exists
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
                 FROM experiment_chat_sessions
@@ -2325,7 +2325,7 @@ class ExperimentRepository(BaseRepository):
 
         This inlines the query from GamePersistence to avoid cross-repository dependencies.
         """
-        conn.row_factory = sqlite3.Row
+
         cursor = conn.execute("""
             SELECT * FROM emotional_state
             WHERE game_id = ?
@@ -2354,7 +2354,7 @@ class ExperimentRepository(BaseRepository):
 
         This inlines the query from GamePersistence to avoid cross-repository dependencies.
         """
-        conn.row_factory = sqlite3.Row
+
         cursor = conn.execute("""
             SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json
             FROM controller_state
@@ -2380,7 +2380,7 @@ class ExperimentRepository(BaseRepository):
 
     def _load_emotional_state(self, conn, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load emotional state for a player (internal helper)."""
-        conn.row_factory = sqlite3.Row
+
         cursor = conn.execute("""
             SELECT * FROM emotional_state
             WHERE game_id = ? AND player_name = ?
@@ -2407,7 +2407,7 @@ class ExperimentRepository(BaseRepository):
 
     def _load_controller_state(self, conn, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load controller state for a player (internal helper)."""
-        conn.row_factory = sqlite3.Row
+
         cursor = conn.execute("""
             SELECT tilt_state_json, elastic_personality_json, prompt_config_json
             FROM controller_state
@@ -2876,7 +2876,7 @@ class ExperimentRepository(BaseRepository):
             List of dictionaries with game snapshots
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Get all games for this experiment (stable order by game_id)
             cursor = conn.execute("""
@@ -3008,7 +3008,7 @@ class ExperimentRepository(BaseRepository):
             Dictionary with detailed player info or None if not found
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Verify game belongs to experiment and get variant config
             cursor = conn.execute("""
@@ -3362,7 +3362,7 @@ class ExperimentRepository(BaseRepository):
             Experiment data with capture count and result progress, or None
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Get experiment
             cursor = conn.execute("""
@@ -3436,7 +3436,7 @@ class ExperimentRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}"
 
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Get total count
             cursor = conn.execute(f"""
@@ -3547,7 +3547,7 @@ class ExperimentRepository(BaseRepository):
             List of capture details with original info
         """
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
             cursor = conn.execute("""
                 SELECT rec.*, pc.player_name, pc.phase, pc.pot_odds,
                        pc.pot_total, pc.cost_to_call, pc.player_stack,
@@ -3586,7 +3586,7 @@ class ExperimentRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}"
 
         with self._get_connection() as conn:
-            conn.row_factory = sqlite3.Row
+
 
             # Get total count
             cursor = conn.execute(f"""

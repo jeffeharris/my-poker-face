@@ -2,14 +2,10 @@
 Persistence layer for poker game using SQLite.
 Handles saving and loading game states.
 """
-import sqlite3
-import json
 import os
-from datetime import datetime
 from typing import Optional, List, Dict, Any, Set
-from poker.poker_game import PokerGameState, Player
+from poker.poker_game import PokerGameState
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
-from core.card import Card
 import logging
 
 from poker.repositories.schema_manager import SchemaManager
@@ -56,43 +52,14 @@ class GamePersistence:
         self._tournament_repo = TournamentRepository(self.db_path)
         self._llm_repo = LLMRepository(self.db_path)
 
-    def _serialize_card(self, card) -> Dict[str, Any]:
-        """Ensure card is properly serialized."""
-        if hasattr(card, 'to_dict'):
-            return card.to_dict()
-        elif isinstance(card, dict):
-            # Validate dict has required fields
-            if 'rank' in card and 'suit' in card:
-                return card
-            else:
-                raise ValueError(f"Invalid card dict: missing rank or suit in {card}")
-        else:
-            raise ValueError(f"Unknown card format: {type(card)}")
-    
-    def _deserialize_card(self, card_data) -> Card:
-        """Ensure card is properly deserialized to Card object."""
-        if isinstance(card_data, dict):
-            return Card.from_dict(card_data)
-        elif hasattr(card_data, 'rank'):  # Already a Card object
-            return card_data
-        else:
-            raise ValueError(f"Cannot deserialize card: {card_data}")
-    
-    def _serialize_cards(self, cards) -> List[Dict[str, Any]]:
-        """Serialize a collection of cards."""
-        if not cards:
-            return []
-        return [self._serialize_card(card) for card in cards]
-    
-    def _deserialize_cards(self, cards_data) -> tuple:
-        """Deserialize a collection of cards."""
-        if not cards_data:
-            return tuple()
-        return tuple(self._deserialize_card(card_data) for card_data in cards_data)
-
-    def _get_connection(self) -> sqlite3.Connection:
-        """Create a new database connection with standard timeout."""
-        return sqlite3.connect(self.db_path, timeout=5.0)
+    def close(self):
+        """Close all repository connections."""
+        for repo in (self._settings_repo, self._guest_tracking_repo,
+                     self._personality_repo, self._user_repo,
+                     self._experiment_repo, self._game_repo,
+                     self._hand_history_repo, self._tournament_repo,
+                     self._llm_repo):
+            repo.close()
 
     def save_coach_mode(self, game_id: str, mode: str) -> None:
         """Persist coach mode preference for a game."""
@@ -264,16 +231,6 @@ class GamePersistence:
     def load_messages(self, game_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Load recent messages for a game."""
         return self._game_repo.load_messages(game_id, limit)
-
-    def _prepare_state_for_save(self, game_state: PokerGameState) -> Dict[str, Any]:
-        """Prepare game state for JSON serialization."""
-        from poker.repositories.serialization import prepare_state_for_save
-        return prepare_state_for_save(game_state)
-
-    def _restore_state_from_dict(self, state_dict: Dict[str, Any]) -> PokerGameState:
-        """Restore game state from dictionary."""
-        from poker.repositories.serialization import restore_state_from_dict
-        return restore_state_from_dict(state_dict)
 
     # AI State Persistence Methods
     def save_ai_player_state(self, game_id: str, player_name: str,

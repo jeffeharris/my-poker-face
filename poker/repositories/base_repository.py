@@ -73,6 +73,6 @@ class BaseRepository:
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Error closing connection for {self.db_path}: {e}")
             self._local.connection = None

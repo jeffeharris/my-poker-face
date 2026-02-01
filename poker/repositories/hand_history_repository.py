@@ -146,10 +146,12 @@ class HandHistoryRepository(BaseRepository):
                 WHERE game_id = ?
                 ORDER BY hand_number DESC
             """
+            params = [game_id]
             if limit:
-                query += f" LIMIT {limit}"
+                query += " LIMIT ?"
+                params.append(limit)
 
-            cursor = conn.execute(query, (game_id,))
+            cursor = conn.execute(query, params)
 
             for row in cursor.fetchall():
                 hand = {
