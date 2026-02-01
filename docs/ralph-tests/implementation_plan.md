@@ -39,7 +39,7 @@
 - [x] PW-14: Guest limit modal appears and offers upgrade
 - [x] PW-15: Offline detection shows banner on mobile
 - [x] PW-16: Reconnecting overlay appears when socket drops
-- [ ] PW-17: Mobile navigation — back button returns to menu
+- [x] PW-17: Mobile navigation — back button returns to menu
 
 ## Phase 7: Playwright E2E — Custom Game Wizard (mobile)
 
