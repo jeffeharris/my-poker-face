@@ -51,7 +51,7 @@
 
 - [x] VT-01: MobileActionButtons renders correct buttons for each option set
 - [x] VT-02: MobileActionButtons raise sheet — calculations and interactions
-- [ ] VT-03: MobileChatSheet — tabs, messages, guest restrictions
+- [x] VT-03: MobileChatSheet — tabs, messages, guest restrictions
 - [ ] VT-04: MobileWinnerAnnouncement — showdown vs fold display
 - [ ] VT-05: FloatingChat — message stacking, timing, dismiss
 - [ ] VT-06: HeadsUpOpponentPanel — play style, tilt, record display
