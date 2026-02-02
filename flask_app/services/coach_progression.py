@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from .coach_models import (
+from poker.coach_models import (
     CoachingDecision, CoachingMode, GateProgress, PlayerSkillState,
     SKILL_STATE_ORDER, SkillState,
 )
@@ -32,15 +32,14 @@ class SessionMemory:
         self.coached_skills_this_hand: set = set()
         self.concept_count: Dict[str, int] = defaultdict(int)
         self.current_hand_number: int = 0
+        self.hand_evaluations: Dict[int, list] = defaultdict(list)
 
     def new_hand(self, hand_number: int) -> None:
-        """Reset per-hand tracking when a new hand starts."""
         if hand_number != self.current_hand_number:
             self.coached_skills_this_hand.clear()
             self.current_hand_number = hand_number
 
     def record_coaching(self, skill_id: str) -> None:
-        """Record that coaching was delivered for a skill this hand."""
         self.coached_skills_this_hand.add(skill_id)
         self.concept_count[skill_id] += 1
 
@@ -48,9 +47,22 @@ class SessionMemory:
         """Check if this skill was already coached in the current hand."""
         return skill_id in self.coached_skills_this_hand
 
+    CONCEPT_REPETITION_THRESHOLD = 3
+
     def should_shorten(self, skill_id: str) -> bool:
-        """After 3+ explanations of the same concept, shorten to stat-only."""
-        return self.concept_count[skill_id] >= 3
+        """After repeated explanations, shorten to stat-only."""
+        return self.concept_count[skill_id] >= self.CONCEPT_REPETITION_THRESHOLD
+
+    def record_hand_evaluation(self, hand_number: int, evaluation) -> None:
+        """Store a skill evaluation for later hand review retrieval."""
+        if evaluation.evaluation != 'not_applicable':
+            self.hand_evaluations[hand_number].append(evaluation)
+
+    def get_hand_evaluations(self, hand_number: int) -> list:
+        """Retrieve all skill evaluations for a given hand, sorted for review."""
+        evals = self.hand_evaluations.get(hand_number, [])
+        priority = {'incorrect': 0, 'marginal': 1, 'correct': 2}
+        return sorted(evals, key=lambda e: priority.get(e.evaluation, 3))
 
 
 class CoachProgressionService:
@@ -70,6 +82,13 @@ class CoachProgressionService:
         skill_states = self._coach_repo.load_all_skill_states(user_id)
         gate_progress = self._coach_repo.load_gate_progress(user_id)
         profile = self._coach_repo.load_coach_profile(user_id)
+
+        # Auto-initialize missing skills for already-unlocked gates (versioning)
+        if gate_progress:
+            skill_states = self._ensure_skills_for_unlocked_gates(
+                user_id, skill_states, gate_progress
+            )
+
         return {
             'skill_states': skill_states,
             'gate_progress': gate_progress,
@@ -133,6 +152,19 @@ class CoachProgressionService:
                 )
                 self._coach_repo.save_skill_state(user_id, ss)
 
+        # Experienced: also unlock Gate 3 with skills at Introduced
+        if level == 'experienced':
+            self._coach_repo.save_gate_progress(
+                user_id, GateProgress(gate_number=3, unlocked=True, unlocked_at=now)
+            )
+            for skill_def in get_skills_for_gate(3):
+                ss = PlayerSkillState(
+                    skill_id=skill_def.skill_id,
+                    state=SkillState.INTRODUCED,
+                    first_seen_at=now,
+                )
+                self._coach_repo.save_skill_state(user_id, ss)
+
         return self.get_player_state(user_id)
 
     # ------------------------------------------------------------------
@@ -183,6 +215,8 @@ class CoachProgressionService:
                 return CoachingDecision(mode=CoachingMode.SILENT)
 
         skill_def = ALL_SKILLS.get(classification.primary_skill)
+        if not skill_def:
+            logger.warning("No skill definition found for '%s'", classification.primary_skill)
         shorten = (session_memory.should_shorten(classification.primary_skill)
                    if session_memory else False)
         prompt = self._build_coaching_prompt(
@@ -470,20 +504,59 @@ class CoachProgressionService:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _ensure_skills_for_unlocked_gates(self, user_id: str,
+                                            skill_states: dict,
+                                            gate_progress: dict) -> dict:
+        """Create missing skill rows for already-unlocked gates.
+
+        Handles the case where new skills are added to an existing gate
+        in a deployment (per requirements §11.6).
+
+        Uses tiered initialization:
+        - Skills in "passed" gates (next gate is also unlocked) start at Practicing
+        - Skills in the current gate (unlocked but next gate is NOT unlocked) start at Introduced
+        """
+        now = datetime.now().isoformat()
+
+        for gate_num, gp in gate_progress.items():
+            if not gp.unlocked:
+                continue
+
+            next_gate = gate_progress.get(gate_num + 1)
+            is_passed = next_gate is not None and next_gate.unlocked
+            initial_state = SkillState.PRACTICING if is_passed else SkillState.INTRODUCED
+
+            for skill_def in get_skills_for_gate(gate_num):
+                if skill_def.skill_id not in skill_states:
+                    ss = PlayerSkillState(
+                        skill_id=skill_def.skill_id,
+                        state=initial_state,
+                        first_seen_at=now,
+                    )
+                    self._coach_repo.save_skill_state(user_id, ss)
+                    skill_states[skill_def.skill_id] = ss
+                    logger.info(f"Initialized missing skill {skill_def.skill_id} "
+                                f"for user {user_id} (gate {gate_num}, state={initial_state.value})")
+
+        return skill_states
+
     def _determine_mode(self, skill_state: Optional[PlayerSkillState]) -> CoachingMode:
         """Determine coaching mode from skill state."""
         if not skill_state:
             return CoachingMode.LEARN
 
-        # TODO (M3): Split PRACTICING into LEARN (accuracy < 0.60) and COMPETE
-        # (accuracy >= 0.60) per §5.2 of requirements
-        mode_map = {
-            SkillState.INTRODUCED: CoachingMode.LEARN,
-            SkillState.PRACTICING: CoachingMode.LEARN,
-            SkillState.RELIABLE: CoachingMode.COMPETE,
-            SkillState.AUTOMATIC: CoachingMode.SILENT,
-        }
-        return mode_map.get(skill_state.state, CoachingMode.LEARN)
+        if skill_state.state == SkillState.INTRODUCED:
+            return CoachingMode.LEARN
+        if skill_state.state == SkillState.PRACTICING:
+            if skill_state.window_accuracy >= 0.60:
+                return CoachingMode.COMPETE
+            return CoachingMode.LEARN
+        if skill_state.state == SkillState.RELIABLE:
+            return CoachingMode.COMPETE
+        if skill_state.state == SkillState.AUTOMATIC:
+            return CoachingMode.SILENT
+        logger.warning("Unexpected SkillState '%s', defaulting to LEARN", skill_state.state)
+        return CoachingMode.LEARN
 
     def _build_coaching_prompt(
         self,

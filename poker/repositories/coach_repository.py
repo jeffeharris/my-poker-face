@@ -46,7 +46,7 @@ class CoachRepository(BaseRepository):
 
     def load_skill_state(self, user_id: str, skill_id: str):
         """Load a single PlayerSkillState. Returns None if not found."""
-        from flask_app.services.coach_models import PlayerSkillState, SkillState
+        from poker.coach_models import PlayerSkillState, SkillState
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT skill_id, state, total_opportunities, total_correct, "
@@ -73,7 +73,7 @@ class CoachRepository(BaseRepository):
 
     def load_all_skill_states(self, user_id: str):
         """Load all PlayerSkillState records for a user. Returns dict keyed by skill_id."""
-        from flask_app.services.coach_models import PlayerSkillState, SkillState
+        from poker.coach_models import PlayerSkillState, SkillState
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT skill_id, state, total_opportunities, total_correct, "
@@ -116,7 +116,7 @@ class CoachRepository(BaseRepository):
 
     def load_gate_progress(self, user_id: str):
         """Load all gate progress for a user. Returns dict keyed by gate_number."""
-        from flask_app.services.coach_models import GateProgress
+        from poker.coach_models import GateProgress
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT gate, unlocked, unlocked_at FROM player_gate_progress WHERE user_id = ?",
