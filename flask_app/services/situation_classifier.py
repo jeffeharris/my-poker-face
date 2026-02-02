@@ -8,10 +8,8 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from .skill_definitions import (
-    ALL_SKILLS, PlayerSkillState, SkillState, build_poker_context,
-    get_skills_for_gate,
-)
+from .coach_models import PlayerSkillState, SkillState
+from .skill_definitions import ALL_SKILLS, build_poker_context, get_skills_for_gate
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +85,9 @@ class SituationClassifier:
             'fold_trash_hands': self._check_fold_trash_trigger,
             'position_matters': self._check_position_matters_trigger,
             'raise_or_fold': self._check_raise_or_fold_trigger,
+            'flop_connection': self._check_flop_connection_trigger,
+            'bet_when_strong': self._check_bet_when_strong_trigger,
+            'checking_is_allowed': self._check_checking_is_allowed_trigger,
         }
         checker = checkers.get(skill_id)
         if not checker:
@@ -110,6 +111,23 @@ class SituationClassifier:
         if ctx['phase'] != 'PRE_FLOP':
             return False
         return ctx['cost_to_call'] <= ctx.get('big_blind', 0)
+
+    # ---- Gate 2 triggers (post-flop) ----
+
+    def _check_flop_connection_trigger(self, ctx: Dict) -> bool:
+        """Trigger on flop when player has air (no pair, no draw)."""
+        return ctx['phase'] == 'FLOP' and ctx.get('is_air', False)
+
+    def _check_bet_when_strong_trigger(self, ctx: Dict) -> bool:
+        """Trigger on any post-flop street when player has a strong hand."""
+        return (ctx['phase'] in ('FLOP', 'TURN', 'RIVER')
+                and ctx.get('is_strong_hand', False))
+
+    def _check_checking_is_allowed_trigger(self, ctx: Dict) -> bool:
+        """Trigger when player has a weak hand and can check."""
+        return (ctx['phase'] in ('FLOP', 'TURN', 'RIVER')
+                and not ctx.get('has_pair', False)
+                and ctx.get('can_check', False))
 
     def _select_primary(
         self,

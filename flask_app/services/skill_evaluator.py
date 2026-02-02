@@ -51,6 +51,9 @@ class SkillEvaluator:
             'fold_trash_hands': self._eval_fold_trash,
             'position_matters': self._eval_position_matters,
             'raise_or_fold': self._eval_raise_or_fold,
+            'flop_connection': self._eval_flop_connection,
+            'bet_when_strong': self._eval_bet_when_strong,
+            'checking_is_allowed': self._eval_checking_is_allowed,
         }
 
         evaluator = evaluators.get(skill_id)
@@ -280,4 +283,128 @@ class SkillEvaluator:
             evaluation='incorrect',
             confidence=0.9,
             reasoning=f'Limped/called ({action}) instead of raising into an unopened pot.',
+        )
+
+    # ---- Gate 2 evaluators (post-flop) ----
+
+    def _eval_flop_connection(self, action: str, ctx: Dict) -> SkillEvaluation:
+        """Evaluate flop_connection: air on flop → fold is correct."""
+        if not ctx.get('is_air', False):
+            return SkillEvaluation(
+                skill_id='flop_connection',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
+                reasoning='Player has a made hand or draw, not air.',
+            )
+
+        if action == 'fold':
+            return SkillEvaluation(
+                skill_id='flop_connection',
+                action_taken=action,
+                evaluation='correct',
+                confidence=1.0,
+                reasoning='Correctly folded with no flop connection.',
+            )
+
+        if action == 'check':
+            return SkillEvaluation(
+                skill_id='flop_connection',
+                action_taken=action,
+                evaluation='marginal',
+                confidence=0.6,
+                reasoning='Checking with air is acceptable but folding to any bet is preferred.',
+            )
+
+        return SkillEvaluation(
+            skill_id='flop_connection',
+            action_taken=action,
+            evaluation='incorrect',
+            confidence=0.9,
+            reasoning=f'Put money in ({action}) with no flop connection.',
+        )
+
+    def _eval_bet_when_strong(self, action: str, ctx: Dict) -> SkillEvaluation:
+        """Evaluate bet_when_strong: strong hand post-flop → bet/raise is correct."""
+        if not ctx.get('is_strong_hand', False):
+            return SkillEvaluation(
+                skill_id='bet_when_strong',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
+                reasoning='Hand is not strong enough for this skill.',
+            )
+
+        if action in ('raise', 'bet') or action.startswith('raise'):
+            return SkillEvaluation(
+                skill_id='bet_when_strong',
+                action_taken=action,
+                evaluation='correct',
+                confidence=1.0,
+                reasoning='Bet/raised for value with a strong hand.',
+            )
+
+        if action == 'call':
+            return SkillEvaluation(
+                skill_id='bet_when_strong',
+                action_taken=action,
+                evaluation='marginal',
+                confidence=0.6,
+                reasoning='Called with a strong hand — a raise would extract more value.',
+            )
+
+        if action == 'check':
+            return SkillEvaluation(
+                skill_id='bet_when_strong',
+                action_taken=action,
+                evaluation='marginal',
+                confidence=0.5,
+                reasoning='Checked with a strong hand — betting for value is preferred.',
+            )
+
+        # fold with strong hand
+        return SkillEvaluation(
+            skill_id='bet_when_strong',
+            action_taken=action,
+            evaluation='incorrect',
+            confidence=0.9,
+            reasoning='Folded a strong hand instead of betting for value.',
+        )
+
+    def _eval_checking_is_allowed(self, action: str, ctx: Dict) -> SkillEvaluation:
+        """Evaluate checking_is_allowed: weak hand + can check → check/fold is correct."""
+        if ctx.get('has_pair', False):
+            return SkillEvaluation(
+                skill_id='checking_is_allowed',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
+                reasoning='Player has a pair or better.',
+            )
+
+        if not ctx.get('can_check', False):
+            return SkillEvaluation(
+                skill_id='checking_is_allowed',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
+                reasoning='Player is facing a bet and cannot check.',
+            )
+
+        if action in ('check', 'fold'):
+            return SkillEvaluation(
+                skill_id='checking_is_allowed',
+                action_taken=action,
+                evaluation='correct',
+                confidence=0.9,
+                reasoning='Correctly checked or folded with a weak hand.',
+            )
+
+        # bet/raise with weak hand when could have checked
+        return SkillEvaluation(
+            skill_id='checking_is_allowed',
+            action_taken=action,
+            evaluation='incorrect',
+            confidence=0.8,
+            reasoning=f'Bluffed ({action}) with a weak hand when checking was available.',
         )

@@ -6,6 +6,7 @@ from flask_app.services.skill_definitions import (
     ALL_GATES, ALL_SKILLS, CoachingDecision, CoachingMode,
     EvidenceRules, GateDefinition, GateProgress, PlayerSkillState,
     SkillDefinition, SkillState, get_skill_by_id, get_skills_for_gate,
+    build_poker_context,
 )
 
 
@@ -81,7 +82,7 @@ class TestGate1Skills(unittest.TestCase):
         self.assertEqual(ids, {'fold_trash_hands', 'position_matters', 'raise_or_fold'})
 
     def test_all_skills_registry(self):
-        self.assertEqual(len(ALL_SKILLS), 3)
+        self.assertEqual(len(ALL_SKILLS), 6)
         self.assertIn('fold_trash_hands', ALL_SKILLS)
         self.assertIn('position_matters', ALL_SKILLS)
         self.assertIn('raise_or_fold', ALL_SKILLS)
@@ -110,6 +111,49 @@ class TestGate1Skills(unittest.TestCase):
         self.assertAlmostEqual(skill.evidence_rules.advancement_threshold, 0.80)
 
 
+class TestGate2Skills(unittest.TestCase):
+    """Test Gate 2 skill definitions."""
+
+    def test_three_gate2_skills(self):
+        skills = get_skills_for_gate(2)
+        self.assertEqual(len(skills), 3)
+        ids = {s.skill_id for s in skills}
+        self.assertEqual(ids, {'flop_connection', 'bet_when_strong', 'checking_is_allowed'})
+
+    def test_gate2_skills_in_registry(self):
+        self.assertIn('flop_connection', ALL_SKILLS)
+        self.assertIn('bet_when_strong', ALL_SKILLS)
+        self.assertIn('checking_is_allowed', ALL_SKILLS)
+
+    def test_flop_connection_phases(self):
+        skill = ALL_SKILLS['flop_connection']
+        self.assertEqual(skill.phases, frozenset({'FLOP'}))
+        self.assertEqual(skill.gate, 2)
+
+    def test_bet_when_strong_phases(self):
+        skill = ALL_SKILLS['bet_when_strong']
+        self.assertEqual(skill.phases, frozenset({'FLOP', 'TURN', 'RIVER'}))
+
+    def test_checking_is_allowed_phases(self):
+        skill = ALL_SKILLS['checking_is_allowed']
+        self.assertEqual(skill.phases, frozenset({'FLOP', 'TURN', 'RIVER'}))
+
+    def test_gate2_window_size(self):
+        for sid in ('flop_connection', 'bet_when_strong', 'checking_is_allowed'):
+            skill = ALL_SKILLS[sid]
+            self.assertEqual(skill.evidence_rules.window_size, 30)
+
+    def test_gate2_evidence_rules(self):
+        skill = ALL_SKILLS['flop_connection']
+        self.assertEqual(skill.evidence_rules.min_opportunities, 8)
+        self.assertAlmostEqual(skill.evidence_rules.advancement_threshold, 0.70)
+
+    def test_checking_is_allowed_lower_thresholds(self):
+        skill = ALL_SKILLS['checking_is_allowed']
+        self.assertAlmostEqual(skill.evidence_rules.advancement_threshold, 0.65)
+        self.assertAlmostEqual(skill.evidence_rules.regression_threshold, 0.50)
+
+
 class TestGateDefinition(unittest.TestCase):
     """Test gate definitions."""
 
@@ -119,8 +163,110 @@ class TestGateDefinition(unittest.TestCase):
         self.assertEqual(gate.required_reliable, 2)
         self.assertEqual(len(gate.skill_ids), 3)
 
+    def test_gate2(self):
+        gate = ALL_GATES[2]
+        self.assertEqual(gate.gate_number, 2)
+        self.assertEqual(gate.name, 'Post-Flop Basics')
+        self.assertEqual(gate.required_reliable, 2)
+        self.assertEqual(len(gate.skill_ids), 3)
+
+    def test_all_gates_registry(self):
+        self.assertEqual(len(ALL_GATES), 2)
+        self.assertIn(1, ALL_GATES)
+        self.assertIn(2, ALL_GATES)
+
     def test_get_skills_for_nonexistent_gate(self):
         self.assertEqual(get_skills_for_gate(99), [])
+
+
+class TestBuildPokerContextPostFlop(unittest.TestCase):
+    """Test build_poker_context() with post-flop data."""
+
+    def test_strong_hand(self):
+        data = {
+            'phase': 'FLOP',
+            'hand_strength': 'Two Pair',
+            'hand_rank': 3,
+            'position': 'Button',
+            'cost_to_call': 20,
+            'pot_total': 100,
+            'big_blind': 10,
+        }
+        ctx = build_poker_context(data)
+        self.assertTrue(ctx['is_strong_hand'])
+        self.assertTrue(ctx['has_pair'])
+        self.assertFalse(ctx['is_air'])
+
+    def test_air_hand(self):
+        data = {
+            'phase': 'FLOP',
+            'hand_strength': 'High Card',
+            'hand_rank': 9,
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 50,
+            'big_blind': 10,
+            'outs': 2,
+        }
+        ctx = build_poker_context(data)
+        self.assertFalse(ctx['is_strong_hand'])
+        self.assertFalse(ctx['has_pair'])
+        self.assertTrue(ctx['is_air'])
+        self.assertTrue(ctx['can_check'])
+
+    def test_draw_hand_not_air(self):
+        data = {
+            'phase': 'FLOP',
+            'hand_strength': 'High Card',
+            'hand_rank': 9,
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 50,
+            'big_blind': 10,
+            'outs': 8,
+        }
+        ctx = build_poker_context(data)
+        self.assertTrue(ctx['has_draw'])
+        self.assertFalse(ctx['is_air'])
+
+    def test_can_check_when_no_cost(self):
+        data = {
+            'phase': 'TURN',
+            'hand_strength': 'One Pair',
+            'hand_rank': 8,
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 50,
+            'big_blind': 10,
+        }
+        ctx = build_poker_context(data)
+        self.assertTrue(ctx['can_check'])
+
+    def test_cannot_check_when_facing_bet(self):
+        data = {
+            'phase': 'TURN',
+            'hand_strength': 'One Pair',
+            'hand_rank': 8,
+            'position': 'Button',
+            'cost_to_call': 30,
+            'pot_total': 50,
+            'big_blind': 10,
+        }
+        ctx = build_poker_context(data)
+        self.assertFalse(ctx['can_check'])
+
+    def test_preflop_no_hand_rank(self):
+        data = {
+            'phase': 'PRE_FLOP',
+            'hand_strength': 'AA - High pocket pair, Top 3%',
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 30,
+            'big_blind': 10,
+        }
+        ctx = build_poker_context(data)
+        self.assertIsNone(ctx['hand_rank'])
+        self.assertFalse(ctx['is_strong_hand'])
 
 
 class TestCoachingDecision(unittest.TestCase):

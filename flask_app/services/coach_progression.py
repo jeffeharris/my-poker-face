@@ -5,19 +5,51 @@ and coaching mode selection for the progression system.
 """
 
 import logging
+from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from .skill_definitions import (
-    ALL_GATES, ALL_SKILLS, CoachingDecision, CoachingMode,
-    GateProgress, PlayerSkillState, SkillState,
-    get_skills_for_gate,
+from .coach_models import (
+    CoachingDecision, CoachingMode, GateProgress, PlayerSkillState, SkillState,
 )
+from .skill_definitions import ALL_GATES, ALL_SKILLS, get_skills_for_gate
 from .situation_classifier import SituationClassifier, SituationClassification
 from .skill_evaluator import SkillEvaluation, SkillEvaluator
 
 logger = logging.getLogger(__name__)
+
+
+class SessionMemory:
+    """In-memory tracking of coaching activity within a game session.
+
+    Stored in game_data['coach_session_memory']. Resets on game end
+    or server restart. Not persisted to database.
+    """
+
+    def __init__(self):
+        self.coached_skills_this_hand: set = set()
+        self.concept_count: Dict[str, int] = defaultdict(int)
+        self.current_hand_number: int = 0
+
+    def new_hand(self, hand_number: int) -> None:
+        """Reset per-hand tracking when a new hand starts."""
+        if hand_number != self.current_hand_number:
+            self.coached_skills_this_hand.clear()
+            self.current_hand_number = hand_number
+
+    def record_coaching(self, skill_id: str) -> None:
+        """Record that coaching was delivered for a skill this hand."""
+        self.coached_skills_this_hand.add(skill_id)
+        self.concept_count[skill_id] += 1
+
+    def was_coached_this_hand(self, skill_id: str) -> bool:
+        """Check if this skill was already coached in the current hand."""
+        return skill_id in self.coached_skills_this_hand
+
+    def should_shorten(self, skill_id: str) -> bool:
+        """After 3+ explanations of the same concept, shorten to stat-only."""
+        return self.concept_count[skill_id] >= 3
 
 
 class CoachProgressionService:
@@ -51,29 +83,54 @@ class CoachProgressionService:
         return state
 
     def initialize_player(self, user_id: str, level: str = 'beginner') -> Dict:
-        """Auto-initialize a beginner coaching profile.
+        """Initialize a coaching profile at the given level.
 
-        Creates the profile, unlocks gate 1, and initializes all gate-1
-        skills as 'introduced'.
+        Level determines initial gate/skill states:
+        - beginner: Gate 1 unlocked, all Gate 1 skills Introduced
+        - intermediate: Gate 1 Practicing, Gate 2 unlocked + Introduced
+        - experienced: Gate 1 Reliable, Gate 2 Practicing
         """
         self._persistence.save_coach_profile(
             user_id, self_reported_level=level, effective_level=level
         )
 
-        # Unlock gate 1
-        gate1 = GateProgress(gate_number=1, unlocked=True,
-                             unlocked_at=datetime.now().isoformat())
-        self._persistence.save_gate_progress(user_id, gate1)
-
-        # Initialize gate 1 skills
         now = datetime.now().isoformat()
+
+        # Gate 1 is always unlocked
+        self._persistence.save_gate_progress(
+            user_id, GateProgress(gate_number=1, unlocked=True, unlocked_at=now)
+        )
+
+        if level == 'beginner':
+            gate1_state = SkillState.INTRODUCED
+        elif level == 'intermediate':
+            gate1_state = SkillState.PRACTICING
+        else:  # experienced
+            gate1_state = SkillState.RELIABLE
+
+        # Initialize Gate 1 skills
         for skill_def in get_skills_for_gate(1):
             ss = PlayerSkillState(
                 skill_id=skill_def.skill_id,
-                state=SkillState.INTRODUCED,
+                state=gate1_state,
                 first_seen_at=now,
             )
             self._persistence.save_skill_state(user_id, ss)
+
+        # Intermediate and experienced: unlock Gate 2
+        if level in ('intermediate', 'experienced'):
+            self._persistence.save_gate_progress(
+                user_id, GateProgress(gate_number=2, unlocked=True, unlocked_at=now)
+            )
+            gate2_state = (SkillState.PRACTICING if level == 'experienced'
+                           else SkillState.INTRODUCED)
+            for skill_def in get_skills_for_gate(2):
+                ss = PlayerSkillState(
+                    skill_id=skill_def.skill_id,
+                    state=gate2_state,
+                    first_seen_at=now,
+                )
+                self._persistence.save_skill_state(user_id, ss)
 
         return self.get_player_state(user_id)
 
@@ -87,8 +144,17 @@ class CoachProgressionService:
         coaching_data: Dict,
         skill_states: Dict[str, PlayerSkillState],
         gate_progress: Dict[int, GateProgress],
+        session_memory: Optional[SessionMemory] = None,
+        hand_number: int = 0,
     ) -> CoachingDecision:
-        """Determine what to coach on for the current situation."""
+        """Determine what to coach on for the current situation.
+
+        Applies per-skill cadence rules via session_memory:
+        - Introduced: coach every relevant action (no cadence limit)
+        - Practicing: at most once per hand for this skill
+        - Reliable: only on deviation (post-action), not pre-action
+        - Automatic: silent
+        """
         unlocked = [g for g, gp in gate_progress.items() if gp.unlocked]
 
         classification = self._classifier.classify(
@@ -101,10 +167,29 @@ class CoachProgressionService:
         primary_state = skill_states.get(classification.primary_skill)
         mode = self._determine_mode(primary_state)
 
+        # Apply session cadence rules
+        if session_memory and mode != CoachingMode.SILENT:
+            session_memory.new_hand(hand_number)
+            skill_id = classification.primary_skill
+            state = primary_state.state if primary_state else SkillState.INTRODUCED
+
+            if state == SkillState.PRACTICING:
+                if session_memory.was_coached_this_hand(skill_id):
+                    return CoachingDecision(mode=CoachingMode.SILENT)
+            elif state == SkillState.RELIABLE:
+                # Reliable skills: only coach post-action (on deviation), skip pre-action
+                return CoachingDecision(mode=CoachingMode.SILENT)
+
         skill_def = ALL_SKILLS.get(classification.primary_skill)
+        shorten = (session_memory.should_shorten(classification.primary_skill)
+                   if session_memory else False)
         prompt = self._build_coaching_prompt(
-            mode, classification, skill_def, primary_state
+            mode, classification, skill_def, primary_state, shorten=shorten,
         )
+
+        # Record that we're coaching this skill
+        if session_memory and mode != CoachingMode.SILENT:
+            session_memory.record_coaching(classification.primary_skill)
 
         return CoachingDecision(
             mode=mode,
@@ -143,6 +228,9 @@ class CoachProgressionService:
 
         # Check for gate unlocks after all evaluations
         self._check_gate_unlocks(user_id)
+
+        # Check if observed play contradicts self-reported level
+        self._check_silent_downgrade(user_id)
 
         return evaluations
 
@@ -215,7 +303,7 @@ class CoachProgressionService:
         return replace(
             skill_state,
             window_opportunities=window_size,
-            window_correct=round(ratio * window_size),
+            window_correct=int(ratio * window_size),
         )
 
     def _check_state_transitions(
@@ -264,47 +352,114 @@ class CoachProgressionService:
         return skill_state
 
     def _check_gate_unlocks(self, user_id: str) -> None:
-        """Check if any new gates should be unlocked."""
+        """Check if any new gates should be unlocked.
+
+        A gate N unlocks when gate N-1's required_reliable threshold is met
+        by gate N-1's skills reaching Reliable or Automatic.
+        """
         skill_states = self._persistence.load_all_skill_states(user_id)
         gate_progress = self._persistence.load_gate_progress(user_id)
 
-        for gate_num, gate_def in sorted(ALL_GATES.items()):
+        for gate_num in sorted(ALL_GATES.keys()):
             gp = gate_progress.get(gate_num)
             if gp and gp.unlocked:
                 continue  # Already unlocked
 
-            # Check if enough skills are reliable+
+            # Gate N unlocks when gate N-1 meets its required_reliable
+            prev_gate_num = gate_num - 1
+            prev_gate_def = ALL_GATES.get(prev_gate_num)
+            if not prev_gate_def:
+                continue  # No previous gate to check
+
+            # Count reliable skills in the previous gate
             reliable_count = sum(
-                1 for sid in gate_def.skill_ids
+                1 for sid in prev_gate_def.skill_ids
                 if sid in skill_states and skill_states[sid].state in (
                     SkillState.RELIABLE, SkillState.AUTOMATIC
                 )
             )
 
-            if reliable_count >= gate_def.required_reliable:
+            if reliable_count >= prev_gate_def.required_reliable:
                 new_gp = GateProgress(
                     gate_number=gate_num,
                     unlocked=True,
                     unlocked_at=datetime.now().isoformat(),
                 )
                 self._persistence.save_gate_progress(user_id, new_gp)
-                logger.info(f"Gate {gate_num} ({gate_def.name}) unlocked for user {user_id}")
+                logger.info(f"Gate {gate_num} unlocked for user {user_id} "
+                            f"(gate {prev_gate_num} has {reliable_count} reliable skills)")
 
-                # Also check if next gate needs unlocking/initializing
-                next_gate = gate_num + 1
-                if next_gate in ALL_GATES:
-                    next_gp = gate_progress.get(next_gate)
-                    if not next_gp or not next_gp.unlocked:
-                        # Initialize skills for the next gate
-                        now = datetime.now().isoformat()
-                        for skill_def in get_skills_for_gate(next_gate):
-                            if skill_def.skill_id not in skill_states:
-                                ss = PlayerSkillState(
-                                    skill_id=skill_def.skill_id,
-                                    state=SkillState.INTRODUCED,
-                                    first_seen_at=now,
-                                )
-                                self._persistence.save_skill_state(user_id, ss)
+                # Initialize skills for the newly unlocked gate
+                now = datetime.now().isoformat()
+                for skill_def in get_skills_for_gate(gate_num):
+                    if skill_def.skill_id not in skill_states:
+                        ss = PlayerSkillState(
+                            skill_id=skill_def.skill_id,
+                            state=SkillState.INTRODUCED,
+                            first_seen_at=now,
+                        )
+                        self._persistence.save_skill_state(user_id, ss)
+
+                # Reload after mutations so subsequent iterations see fresh data
+                skill_states = self._persistence.load_all_skill_states(user_id)
+                gate_progress = self._persistence.load_gate_progress(user_id)
+
+    def _check_silent_downgrade(self, user_id: str) -> None:
+        """Downgrade effective_level if observed play contradicts self-reported level.
+
+        Only downgrades — never upgrades. Requires sufficient data (min_opportunities
+        on at least 2 skills) before triggering.
+        """
+        profile = self._persistence.load_coach_profile(user_id)
+        if not profile or profile['effective_level'] == 'beginner':
+            return
+
+        skill_states = self._persistence.load_all_skill_states(user_id)
+        gate1_skills = get_skills_for_gate(1)
+        gate2_skills = get_skills_for_gate(2)
+
+        def all_at_or_below(skills, max_state):
+            """Check if all skills with sufficient data are at or below max_state."""
+            state_order = {
+                SkillState.INTRODUCED: 0, SkillState.PRACTICING: 1,
+                SkillState.RELIABLE: 2, SkillState.AUTOMATIC: 3,
+            }
+            evaluated = [
+                skill_states[s.skill_id] for s in skills
+                if s.skill_id in skill_states and skill_states[s.skill_id].total_opportunities >= 5
+            ]
+            if len(evaluated) < 2:
+                return False  # Not enough data to judge
+            return all(state_order[ss.state] <= state_order[max_state] for ss in evaluated)
+
+        current_level = profile['effective_level']
+
+        if current_level == 'experienced':
+            # If gate 1 skills are all at practicing or below → beginner
+            if all_at_or_below(gate1_skills, SkillState.PRACTICING):
+                self._persistence.save_coach_profile(
+                    user_id, self_reported_level=profile['self_reported_level'],
+                    effective_level='beginner',
+                )
+                logger.info(f"Silent downgrade: {user_id} experienced -> beginner")
+                return
+            # If gate 2 skills are all at practicing or below → intermediate
+            if all_at_or_below(gate2_skills, SkillState.PRACTICING):
+                self._persistence.save_coach_profile(
+                    user_id, self_reported_level=profile['self_reported_level'],
+                    effective_level='intermediate',
+                )
+                logger.info(f"Silent downgrade: {user_id} experienced -> intermediate")
+                return
+
+        elif current_level == 'intermediate':
+            # If gate 1 skills are all at practicing or below → beginner
+            if all_at_or_below(gate1_skills, SkillState.PRACTICING):
+                self._persistence.save_coach_profile(
+                    user_id, self_reported_level=profile['self_reported_level'],
+                    effective_level='beginner',
+                )
+                logger.info(f"Silent downgrade: {user_id} intermediate -> beginner")
 
     # ------------------------------------------------------------------
     # Helpers
@@ -329,6 +484,7 @@ class CoachProgressionService:
         classification: SituationClassification,
         skill_def,
         skill_state: Optional[PlayerSkillState],
+        shorten: bool = False,
     ) -> str:
         """Build a coaching prompt fragment for the LLM."""
         if mode == CoachingMode.SILENT:
@@ -350,7 +506,12 @@ class CoachProgressionService:
         if classification.situation_tags:
             parts.append(f"Situation: {', '.join(classification.situation_tags)}")
 
-        if mode == CoachingMode.LEARN:
+        if shorten:
+            parts.append(
+                "BREVITY: This concept has been explained multiple times. "
+                "Give stats only — no explanation needed."
+            )
+        elif mode == CoachingMode.LEARN:
             parts.append(
                 "Teaching mode: Explain the concept clearly. "
                 "Tell the player what to look for and why it matters."
