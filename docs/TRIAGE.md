@@ -123,11 +123,11 @@ Issues to address once live, during ongoing development.
 |----|-------|----------|-------------|--------|
 | T3-01 | No `conftest.py` | `tests/` | No shared fixtures. Each test duplicates DB setup, mock configs, test data. | |
 | T3-02 | 19 poker modules with zero tests | `controllers.py`, `authorization.py`, `auth.py`, `response_validator.py`, + 15 more | Critical game logic completely untested. | |
-| T3-03 | Placeholder tests with no assertions | `test_poker_game_mutations.py:101-117` | Methods have `pass` or only comments. False coverage. | |
+| T3-03 | Placeholder tests with no assertions | `test_poker_game_mutations.py:101-117` | Methods have `pass` or only comments. False coverage. | **FIXED** — removed `TestPropertyMutationPatterns` class (zero-assertion pattern demos) |
 | T3-04 | Skipped tests not tracked | `test_prompt_golden_path.py:192` | `@unittest.skip` with no GitHub issue. Tests forgotten. | **FIXED** — updated test to match current archetype system |
 | T3-05 | Mixed unittest and pytest patterns | All test files | No standardization. Can't use pytest features consistently. | |
 | T3-06 | No test coverage reporting | CI/CD pipeline | No `pytest-cov`, no coverage enforcement. Don't know what's tested. | |
-| T3-07 | DB connection leaks in tests | `test_persistence.py:26-32` | `tearDown` unlinks file without closing DB connection first. | |
+| T3-07 | DB connection leaks in tests | `test_persistence.py:26-32` | `tearDown` unlinks file without closing DB connection first. | **DISMISSED** — `GamePersistence` uses `with sqlite3.connect()` per operation; no persistent connection to leak |
 | T3-08 | No experiment integration tests | `experiments/` | 11 files, 0 integration tests. Tournament runner untested end-to-end. | |
 
 ### Performance & Scalability
@@ -184,8 +184,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
 | **Tier 2: Should-Fix** | 34 | 18 | 1 | 15 |
-| **Tier 3: Post-Release** | 34 | 9 | 0 | 25 |
-| **Total** | **89** | **40** | **8** | **40** |
+| **Tier 3: Post-Release** | 34 | 10 | 1 | 23 |
+| **Total** | **89** | **41** | **9** | **38** |
 
 ## Key Architectural Insight
 
