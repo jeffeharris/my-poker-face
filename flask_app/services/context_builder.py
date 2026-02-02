@@ -7,7 +7,7 @@ into a single place used by SituationClassifier and SkillEvaluator.
 from collections import defaultdict
 from typing import Dict, Optional
 
-from poker.controllers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
+from poker.hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 
 
 def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
@@ -22,7 +22,6 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
     if not phase:
         return None
 
-    # Parse canonical hand from hand_strength string
     # Format: "AKs - Suited broadway, Top 10% of starting hands"
     canonical = ''
     hand_strength = coaching_data.get('hand_strength', '')
@@ -53,7 +52,6 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
     #            5=Flush, 6=Straight, 7=Three of a Kind, 8=Two Pair, 9=One Pair, 10=High Card
     hand_rank = coaching_data.get('hand_rank')
 
-    # Derived booleans for Gate 2 evaluators
     is_strong_hand = hand_rank is not None and hand_rank <= 8  # Two pair or better
     has_pair = hand_rank is not None and hand_rank <= 9        # One pair or better
     has_draw = (coaching_data.get('outs') or 0) >= 4           # 4+ outs = meaningful draw
@@ -78,10 +76,10 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
 
     _aggressive = {'raise', 'bet', 'all_in'}
     player_bet_flop = bool(_aggressive & set(player_actions_by_phase.get('FLOP', [])))
-    player_bet_turn = bool(_aggressive & set(player_actions_by_phase.get('TURN', [])))
-    opponent_bet_flop = len(opponent_bets_by_phase.get('FLOP', [])) > 0
     opponent_bet_turn = len(opponent_bets_by_phase.get('TURN', [])) > 0
-    opponent_double_barrel = opponent_bet_flop and opponent_bet_turn
+    opponent_double_barrel = (
+        len(opponent_bets_by_phase.get('FLOP', [])) > 0 and opponent_bet_turn
+    )
 
     # --- Equity fields ---
     equity = coaching_data.get('equity')

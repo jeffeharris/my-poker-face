@@ -35,13 +35,11 @@ class SessionMemory:
         self.hand_evaluations: Dict[int, list] = defaultdict(list)
 
     def new_hand(self, hand_number: int) -> None:
-        """Reset per-hand tracking when a new hand starts."""
         if hand_number != self.current_hand_number:
             self.coached_skills_this_hand.clear()
             self.current_hand_number = hand_number
 
     def record_coaching(self, skill_id: str) -> None:
-        """Record that coaching was delivered for a skill this hand."""
         self.coached_skills_this_hand.add(skill_id)
         self.concept_count[skill_id] += 1
 
@@ -49,9 +47,11 @@ class SessionMemory:
         """Check if this skill was already coached in the current hand."""
         return skill_id in self.coached_skills_this_hand
 
+    CONCEPT_REPETITION_THRESHOLD = 3
+
     def should_shorten(self, skill_id: str) -> bool:
-        """After 3+ explanations of the same concept, shorten to stat-only."""
-        return self.concept_count[skill_id] >= 3
+        """After repeated explanations, shorten to stat-only."""
+        return self.concept_count[skill_id] >= self.CONCEPT_REPETITION_THRESHOLD
 
     def record_hand_evaluation(self, hand_number: int, evaluation) -> None:
         """Store a skill evaluation for later hand review retrieval."""
@@ -215,6 +215,8 @@ class CoachProgressionService:
                 return CoachingDecision(mode=CoachingMode.SILENT)
 
         skill_def = ALL_SKILLS.get(classification.primary_skill)
+        if not skill_def:
+            logger.warning("No skill definition found for '%s'", classification.primary_skill)
         shorten = (session_memory.should_shorten(classification.primary_skill)
                    if session_memory else False)
         prompt = self._build_coaching_prompt(
@@ -553,6 +555,7 @@ class CoachProgressionService:
             return CoachingMode.COMPETE
         if skill_state.state == SkillState.AUTOMATIC:
             return CoachingMode.SILENT
+        logger.warning("Unexpected SkillState '%s', defaulting to LEARN", skill_state.state)
         return CoachingMode.LEARN
 
     def _build_coaching_prompt(

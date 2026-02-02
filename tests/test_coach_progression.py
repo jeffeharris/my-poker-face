@@ -274,14 +274,13 @@ class TestWindowTrimming(unittest.TestCase):
 
     def test_trim_uses_floor_not_round(self):
         """Verify int() floors — conservative rounding (M1 fix)."""
-        # 15/20 = 0.75, 0.75 * 20 = 15.0 (exact)
+        # 16/21 ≈ 0.7619, int(0.7619 * 20) = int(15.238) = 15 (floor, not round)
         ss = PlayerSkillState(
             skill_id='test',
             window_opportunities=21,
             window_correct=16,
         )
         trimmed = self.service._trim_window(ss, 20)
-        # 16/21 = 0.7619, int(0.7619 * 20) = int(15.238) = 15
         self.assertEqual(trimmed.window_correct, 15)
 
 
@@ -342,6 +341,26 @@ class TestGateUnlock(unittest.TestCase):
 
         gate_progress = self.coach_repo.load_gate_progress(self.user_id)
         self.assertNotIn(2, gate_progress)
+
+    def test_gate2_unlocks_at_exact_required_reliable(self):
+        """Gate 2 unlocks when exactly 2 skills are reliable (the minimum)."""
+        # Set exactly 2 skills to reliable with minimum qualifying stats
+        for skill_id in ('fold_trash_hands', 'position_matters'):
+            ss = PlayerSkillState(
+                skill_id=skill_id,
+                state=SkillState.RELIABLE,
+                total_opportunities=12,
+                total_correct=9,   # Exactly 75% (the advancement threshold)
+                window_opportunities=12,
+                window_correct=9,
+            )
+            self.coach_repo.save_skill_state(self.user_id, ss)
+
+        self.service.check_hand_end(self.user_id)
+
+        gate_progress = self.coach_repo.load_gate_progress(self.user_id)
+        self.assertIn(2, gate_progress)
+        self.assertTrue(gate_progress[2].unlocked)
 
     def test_gate_does_not_unlock_mid_hand(self):
         """evaluate_and_update alone should NOT trigger gate unlocks."""
@@ -1141,11 +1160,16 @@ class TestOverlapEvaluation(unittest.TestCase):
         # checking_is_allowed: check with weak hand → correct
         self.assertIn('checking_is_allowed', eval_skills)
 
-        # checking_is_allowed should have recorded an opportunity
         state = self.service.get_player_state(self.user_id)
+
+        # checking_is_allowed should have recorded an opportunity (correct)
         ss_check = state['skill_states']['checking_is_allowed']
         self.assertEqual(ss_check.total_opportunities, 1)
         self.assertEqual(ss_check.total_correct, 1)
+
+        # flop_connection marginal should NOT have counted as an opportunity
+        ss_flop = state['skill_states']['flop_connection']
+        self.assertEqual(ss_flop.total_opportunities, 0)
 
     def test_fold_is_correct_for_both_overlapping_skills(self):
         """Folding air when can check is correct for both skills."""

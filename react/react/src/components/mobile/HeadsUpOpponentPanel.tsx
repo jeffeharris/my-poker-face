@@ -101,7 +101,6 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
         delayMs = rateLimited ? Math.min(delayMs * 2, 60000) : 5000;
       } catch (error) {
         logger.error('Failed to fetch opponent data:', error);
-        delayMs = Math.min(delayMs * 2, 60000);
       }
 
       if (mounted) {

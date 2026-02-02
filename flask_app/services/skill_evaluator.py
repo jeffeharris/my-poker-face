@@ -273,7 +273,7 @@ class SkillEvaluator:
                 reasoning='Chose not to enter the pot (fold is acceptable).',
             )
 
-        if action == 'raise' or action.startswith('raise'):
+        if action.startswith('raise'):
             return SkillEvaluation(
                 skill_id='raise_or_fold',
                 action_taken=action,
@@ -597,7 +597,7 @@ class SkillEvaluator:
 
     def _eval_size_bets_with_purpose(self, action: str, ctx: Dict) -> SkillEvaluation:
         """When player bets/raises: check bet-to-pot ratio is in 33%-100% range."""
-        if action not in ('raise', 'bet', 'all_in') and not action.startswith('raise'):
+        if action not in ('bet', 'all_in') and not action.startswith('raise'):
             return SkillEvaluation(
                 skill_id='size_bets_with_purpose', action_taken=action,
                 evaluation='not_applicable', confidence=1.0,
