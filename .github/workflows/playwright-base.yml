@@ -1,0 +1,34 @@
+name: Build Playwright Base Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'react/react/package.json'
+      - 'react/react/Dockerfile.playwright-base'
+  workflow_dispatch:
+
+jobs:
+  build-base:
+    name: Build Playwright Base Image
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push base image
+        uses: docker/build-push-action@v6
+        with:
+          context: react/react
+          file: react/react/Dockerfile.playwright-base
+          push: true
+          tags: ghcr.io/jeffeharris/my-poker-face/playwright-base:latest
