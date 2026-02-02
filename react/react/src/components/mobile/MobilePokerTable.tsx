@@ -292,14 +292,17 @@ export function MobilePokerTable({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCoachPanel, coach.clearUnreadReview]);
 
-  // Skill unlock toasts — process queue one at a time with stagger
+  // Skill unlock toasts — show all staggered, then dismiss entire batch
   useEffect(() => {
     if (coach.skillUnlockQueue.length === 0) return;
 
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    coach.skillUnlockQueue.forEach((skillId, i) => {
+    // Snapshot the queue and dismiss immediately so the effect won't re-fire
+    const batch = [...coach.skillUnlockQueue];
+    batch.forEach(id => coach.dismissSkillUnlock(id));
+
+    const timers = batch.map((skillId, i) => {
       const skillName = coach.progression?.skill_states[skillId]?.name ?? skillId.replace(/_/g, ' ');
-      timers.push(setTimeout(() => {
+      return setTimeout(() => {
         toast(`New skill unlocked: ${skillName}`, {
           duration: 4000,
           style: {
@@ -310,14 +313,10 @@ export function MobilePokerTable({
             fontSize: '13px',
           },
         });
-        coach.dismissSkillUnlock(skillId);
-      }, i * 600));
+      }, i * 600);
     });
 
-    return () => {
-      timers.forEach(clearTimeout);
-      coach.skillUnlockQueue.forEach(id => coach.dismissSkillUnlock(id));
-    };
+    return () => { timers.forEach(clearTimeout); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coach.skillUnlockQueue]);
 
