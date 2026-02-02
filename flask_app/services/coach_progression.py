@@ -288,7 +288,6 @@ class CoachProgressionService:
                     unlocked_at=datetime.now().isoformat(),
                 )
                 self._persistence.save_gate_progress(user_id, new_gp)
-                gate_progress[gate_num] = new_gp
                 logger.info(f"Gate {gate_num} ({gate_def.name}) unlocked for user {user_id}")
 
                 # Also check if next gate needs unlocking/initializing

@@ -107,7 +107,7 @@ class PlayerSkillState:
         return self.total_correct / self.total_opportunities
 
 
-@dataclass
+@dataclass(frozen=True)
 class GateProgress:
     """Tracks whether a gate has been unlocked for a player."""
     gate_number: int
@@ -252,15 +252,13 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
     is_playable = canonical and canonical in TOP_35_HANDS
 
     # Situation tags
-    tags: List[str] = []
-    if is_trash:
-        tags.append('trash_hand')
-    if is_premium:
-        tags.append('premium_hand')
-    if is_early:
-        tags.append('early_position')
-    if is_late:
-        tags.append('late_position')
+    tag_conditions = [
+        ('trash_hand', is_trash),
+        ('premium_hand', is_premium),
+        ('early_position', is_early),
+        ('late_position', is_late),
+    ]
+    tags = tuple(tag for tag, cond in tag_conditions if cond)
 
     return {
         'phase': phase,
