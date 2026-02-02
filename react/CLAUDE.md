@@ -7,7 +7,7 @@ Guide for working with the React frontend of My Poker Face.
 - **Framework**: React 18 with TypeScript
 - **Build Tool**: Vite
 - **Styling**: Tailwind CSS + component CSS files
-- **State Management**: Custom hooks (`usePokerGame`, `useGameState`)
+- **State Management**: Zustand store (`gameStore.ts`) + custom hooks (`usePokerGame`, `useGameState`)
 - **Real-time**: Socket.IO client
 - **Animations**: Framer Motion
 - **Routing**: React Router v7
@@ -23,10 +23,38 @@ Guide for working with the React frontend of My Poker Face.
 - **Deployment**: Docker + Caddy reverse proxy (not Vercel/Netlify)
 
 ### Key Patterns
-- `usePokerGame` hook (`src/hooks/usePokerGame.ts`) is the central game state manager — socket events, game state, messages, winners, and tournaments
 - Route-level code splitting via `React.lazy` for admin and secondary pages
 - `ErrorBoundary` component for graceful error handling
 - `useOnlineStatus` hook for offline detection
+
+### State Management
+
+Two-layer architecture:
+
+1. **Zustand store** (`src/stores/gameStore.ts`) — the single source of truth for game state. Provides granular selectors so components subscribe only to the slices they need (e.g., `state.players`, `state.phase`, `state.pot`).
+2. **`usePokerGame` hook** (`src/hooks/usePokerGame.ts`) — manages socket lifecycle, receives game state from the backend, and writes it into the Zustand store via `applyGameState()`. Also exposes actions (`handleAction`, `sendMessage`, etc.) and non-store state (winners, tournament info).
+
+**How components should read game state:**
+- **Mobile components** (`MobilePokerTable` and children): read directly from Zustand store selectors for granular re-render control.
+- **Desktop components** (`PokerTable`): use the composed `gameState` object returned by `usePokerGame` for backward compatibility.
+
+### Performance: React.memo & Memoization
+
+Leaf components are wrapped with `React.memo` to prevent unnecessary re-renders. When adding or modifying memoized components, ensure props are reference-stable:
+
+- **Callbacks**: wrap with `useCallback` in the parent. Never pass inline arrow functions as props to memoized children.
+- **Derived objects/arrays**: wrap with `useMemo` in the parent. Zustand store selectors return new references on every state change, so derived values (e.g., filtering players, computing opponents) must be memoized.
+- **JSX as props**: if passing JSX as a prop (e.g., `centerContent`), wrap it in `useMemo`.
+- **Primitives**: strings, numbers, booleans are always stable — no action needed.
+
+**Known gaps** (components where memo is partially defeated by unstable props):
+- `ActionBadge` — receives `player` object and inline `onFadeComplete` callback
+- `MenuBar` — receives inline JSX via `centerContent`
+- `HeadsUpOpponentPanel` — receives `opponent` object from array access
+- `FloatingChat` — receives `players` array
+- `CoachBubble` — receives `stats` object
+
+Pure utility functions with no dependency on props or state (e.g., parsers, formatters) should be defined at module level, not wrapped in `useCallback`.
 
 ## Project Structure
 
@@ -87,7 +115,8 @@ cd react/react && npm run lint
 | File | Purpose |
 |------|---------|
 | `src/App.tsx` | Root routing, lazy-loaded routes |
-| `src/hooks/usePokerGame.ts` | Game state, socket events, messages, game flow |
+| `src/stores/gameStore.ts` | Zustand store — single source of truth for game state |
+| `src/hooks/usePokerGame.ts` | Socket lifecycle, writes to Zustand store, exposes actions |
 | `src/hooks/useSocket.ts` | Socket.IO connection management |
 | `src/components/game/GamePage.tsx` | Main game view |
 | `src/types/game.ts` | Game state TypeScript types |
