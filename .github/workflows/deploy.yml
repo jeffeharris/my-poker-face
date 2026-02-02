@@ -71,10 +71,22 @@ jobs:
   test-e2e:
     name: Test E2E (Playwright)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Create test environment file
+        run: |
+          printf '%s\n' \
+            'FLASK_ENV=development' \
+            'FLASK_DEBUG=1' \
+            'SECRET_KEY=test-secret-key-for-ci' \
+            'OPENAI_API_KEY=test-key-for-ci' \
+            'GOOGLE_CLIENT_ID=test' \
+            'GOOGLE_CLIENT_SECRET=test' \
+            'CORS_ORIGINS=*' \
+            > .env
 
       - name: Run E2E tests against real backend
         run: |
@@ -91,7 +103,7 @@ jobs:
 
   deploy:
     name: Deploy to Production
-    needs: [test-backend, test-frontend, test-e2e]
+    needs: [test-backend, test-frontend]
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
 

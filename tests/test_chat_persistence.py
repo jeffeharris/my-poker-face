@@ -2,33 +2,19 @@
 """
 Test suite for experiment chat persistence and session management.
 """
-import os
-import sys
-import unittest
-import tempfile
 import json
-from unittest.mock import patch, MagicMock
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+import pytest
+from unittest.mock import patch, MagicMock
 
 from flask_app import create_app
 from poker.persistence import GamePersistence
 
 
-class TestChatSessionPersistence(unittest.TestCase):
+class TestChatSessionPersistence:
     """Test cases for chat session persistence methods."""
 
-    def setUp(self):
-        """Create a temporary database for each test."""
-        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.test_db.close()
-        self.persistence = GamePersistence(self.test_db.name)
-
-    def tearDown(self):
-        """Clean up temporary database."""
-        os.unlink(self.test_db.name)
-
-    def test_save_and_get_chat_session(self):
+    def test_save_and_get_chat_session(self, persistence):
         """Test saving and retrieving a chat session."""
         session_id = 'test_session_123'
         owner_id = 'user_456'
@@ -40,7 +26,7 @@ class TestChatSessionPersistence(unittest.TestCase):
         versions = [{'timestamp': '2024-01-01', 'config': config}]
 
         # Save session
-        self.persistence.save_chat_session(
+        persistence.save_chat_session(
             session_id=session_id,
             owner_id=owner_id,
             messages=messages,
@@ -49,20 +35,20 @@ class TestChatSessionPersistence(unittest.TestCase):
         )
 
         # Get latest session
-        result = self.persistence.get_latest_chat_session(owner_id)
+        result = persistence.get_latest_chat_session(owner_id)
 
-        self.assertIsNotNone(result)
-        self.assertEqual(result['session_id'], session_id)
-        self.assertEqual(result['messages'], messages)
-        self.assertEqual(result['config'], config)
-        self.assertEqual(result['config_versions'], versions)
+        assert result is not None
+        assert result['session_id'] == session_id
+        assert result['messages'] == messages
+        assert result['config'] == config
+        assert result['config_versions'] == versions
 
-    def test_get_latest_chat_session_returns_most_recent(self):
+    def test_get_latest_chat_session_returns_most_recent(self, persistence):
         """Test that get_latest_chat_session returns the most recently updated session."""
         owner_id = 'user_123'
 
         # Save first session
-        self.persistence.save_chat_session(
+        persistence.save_chat_session(
             session_id='session_1',
             owner_id=owner_id,
             messages=[{'role': 'user', 'content': 'First'}],
@@ -70,7 +56,7 @@ class TestChatSessionPersistence(unittest.TestCase):
         )
 
         # Save second session
-        self.persistence.save_chat_session(
+        persistence.save_chat_session(
             session_id='session_2',
             owner_id=owner_id,
             messages=[{'role': 'user', 'content': 'Second'}],
@@ -78,7 +64,7 @@ class TestChatSessionPersistence(unittest.TestCase):
         )
 
         # Update session_1 to make it more recent
-        self.persistence.save_chat_session(
+        persistence.save_chat_session(
             session_id='session_1',
             owner_id=owner_id,
             messages=[{'role': 'user', 'content': 'First - updated'}],
@@ -86,18 +72,18 @@ class TestChatSessionPersistence(unittest.TestCase):
         )
 
         # Get latest should return session_1 (most recently updated)
-        result = self.persistence.get_latest_chat_session(owner_id)
+        result = persistence.get_latest_chat_session(owner_id)
 
-        self.assertIsNotNone(result)
-        self.assertEqual(result['session_id'], 'session_1')
-        self.assertEqual(result['config']['name'], 'first_updated')
+        assert result is not None
+        assert result['session_id'] == 'session_1'
+        assert result['config']['name'] == 'first_updated'
 
-    def test_get_latest_chat_session_no_session(self):
+    def test_get_latest_chat_session_no_session(self, persistence):
         """Test get_latest_chat_session returns None when no session exists."""
-        result = self.persistence.get_latest_chat_session('nonexistent_user')
-        self.assertIsNone(result)
+        result = persistence.get_latest_chat_session('nonexistent_user')
+        assert result is None
 
-    def test_get_chat_session_by_id(self):
+    def test_get_chat_session_by_id(self, persistence):
         """Test get_chat_session retrieves a session by its ID."""
         session_id = 'specific_session_123'
         owner_id = 'user_456'
@@ -107,7 +93,7 @@ class TestChatSessionPersistence(unittest.TestCase):
         ]
 
         # Save a session
-        self.persistence.save_chat_session(
+        persistence.save_chat_session(
             session_id=session_id,
             owner_id=owner_id,
             messages=[{'role': 'user', 'content': 'Hello'}],
@@ -116,26 +102,26 @@ class TestChatSessionPersistence(unittest.TestCase):
         )
 
         # Retrieve by ID
-        result = self.persistence.get_chat_session(session_id)
+        result = persistence.get_chat_session(session_id)
 
-        self.assertIsNotNone(result)
-        self.assertEqual(result['session_id'], session_id)
-        self.assertEqual(result['config']['name'], 'test_config')
-        self.assertEqual(len(result['config_versions']), 2)
-        self.assertEqual(result['config_versions'][0]['config']['name'], 'v1')
-        self.assertEqual(result['config_versions'][1]['config']['name'], 'v2')
+        assert result is not None
+        assert result['session_id'] == session_id
+        assert result['config']['name'] == 'test_config'
+        assert len(result['config_versions']) == 2
+        assert result['config_versions'][0]['config']['name'] == 'v1'
+        assert result['config_versions'][1]['config']['name'] == 'v2'
 
-    def test_get_chat_session_not_found(self):
+    def test_get_chat_session_not_found(self, persistence):
         """Test get_chat_session returns None for nonexistent session."""
-        result = self.persistence.get_chat_session('nonexistent_session')
-        self.assertIsNone(result)
+        result = persistence.get_chat_session('nonexistent_session')
+        assert result is None
 
-    def test_archive_chat_session(self):
+    def test_archive_chat_session(self, persistence):
         """Test archiving a chat session hides it from latest."""
         owner_id = 'user_123'
 
         # Save a session
-        self.persistence.save_chat_session(
+        persistence.save_chat_session(
             session_id='session_to_archive',
             owner_id=owner_id,
             messages=[{'role': 'user', 'content': 'Hello'}],
@@ -143,23 +129,23 @@ class TestChatSessionPersistence(unittest.TestCase):
         )
 
         # Verify it's returned as latest
-        result = self.persistence.get_latest_chat_session(owner_id)
-        self.assertIsNotNone(result)
-        self.assertEqual(result['session_id'], 'session_to_archive')
+        result = persistence.get_latest_chat_session(owner_id)
+        assert result is not None
+        assert result['session_id'] == 'session_to_archive'
 
         # Archive it
-        self.persistence.archive_chat_session('session_to_archive')
+        persistence.archive_chat_session('session_to_archive')
 
         # Should no longer be returned as latest
-        result = self.persistence.get_latest_chat_session(owner_id)
-        self.assertIsNone(result)
+        result = persistence.get_latest_chat_session(owner_id)
+        assert result is None
 
-    def test_delete_chat_session(self):
+    def test_delete_chat_session(self, persistence):
         """Test deleting a chat session."""
         owner_id = 'user_123'
 
         # Save a session
-        self.persistence.save_chat_session(
+        persistence.save_chat_session(
             session_id='session_to_delete',
             owner_id=owner_id,
             messages=[{'role': 'user', 'content': 'Hello'}],
@@ -167,23 +153,23 @@ class TestChatSessionPersistence(unittest.TestCase):
         )
 
         # Verify it exists
-        result = self.persistence.get_latest_chat_session(owner_id)
-        self.assertIsNotNone(result)
+        result = persistence.get_latest_chat_session(owner_id)
+        assert result is not None
 
         # Delete it
-        self.persistence.delete_chat_session('session_to_delete')
+        persistence.delete_chat_session('session_to_delete')
 
         # Should no longer exist
-        result = self.persistence.get_latest_chat_session(owner_id)
-        self.assertIsNone(result)
+        result = persistence.get_latest_chat_session(owner_id)
+        assert result is None
 
-    def test_update_existing_session(self):
+    def test_update_existing_session(self, persistence):
         """Test that saving to an existing session_id updates it."""
         session_id = 'session_123'
         owner_id = 'user_456'
 
         # Save initial session
-        self.persistence.save_chat_session(
+        persistence.save_chat_session(
             session_id=session_id,
             owner_id=owner_id,
             messages=[{'role': 'user', 'content': 'Hello'}],
@@ -191,7 +177,7 @@ class TestChatSessionPersistence(unittest.TestCase):
         )
 
         # Update the session
-        self.persistence.save_chat_session(
+        persistence.save_chat_session(
             session_id=session_id,
             owner_id=owner_id,
             messages=[
@@ -202,28 +188,18 @@ class TestChatSessionPersistence(unittest.TestCase):
         )
 
         # Get session and verify it was updated
-        result = self.persistence.get_latest_chat_session(owner_id)
-        self.assertEqual(len(result['messages']), 2)
-        self.assertEqual(result['config']['name'], 'updated')
+        result = persistence.get_latest_chat_session(owner_id)
+        assert len(result['messages']) == 2
+        assert result['config']['name'] == 'updated'
 
 
-class TestExperimentDesignChatPersistence(unittest.TestCase):
+class TestExperimentDesignChatPersistence:
     """Test cases for experiment design chat storage."""
 
-    def setUp(self):
-        """Create a temporary database for each test."""
-        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.test_db.close()
-        self.persistence = GamePersistence(self.test_db.name)
-
-    def tearDown(self):
-        """Clean up temporary database."""
-        os.unlink(self.test_db.name)
-
-    def test_save_and_get_design_chat(self):
+    def test_save_and_get_design_chat(self, persistence):
         """Test saving and retrieving design chat history."""
         # Create an experiment
-        exp_id = self.persistence.create_experiment({
+        exp_id = persistence.create_experiment({
             'name': 'test_with_design_chat',
             'description': 'Test experiment',
         })
@@ -235,29 +211,29 @@ class TestExperimentDesignChatPersistence(unittest.TestCase):
             {'role': 'user', 'content': 'Make it 5 tournaments'},
             {'role': 'assistant', 'content': 'Done, I set num_tournaments to 5.'},
         ]
-        self.persistence.save_experiment_design_chat(exp_id, design_chat)
+        persistence.save_experiment_design_chat(exp_id, design_chat)
 
         # Retrieve design chat
-        result = self.persistence.get_experiment_design_chat(exp_id)
+        result = persistence.get_experiment_design_chat(exp_id)
 
-        self.assertIsNotNone(result)
-        self.assertEqual(len(result), 4)
-        self.assertEqual(result[0]['role'], 'user')
-        self.assertEqual(result[1]['role'], 'assistant')
+        assert result is not None
+        assert len(result) == 4
+        assert result[0]['role'] == 'user'
+        assert result[1]['role'] == 'assistant'
 
-    def test_get_design_chat_no_chat(self):
+    def test_get_design_chat_no_chat(self, persistence):
         """Test get_experiment_design_chat returns None when no chat stored."""
-        exp_id = self.persistence.create_experiment({
+        exp_id = persistence.create_experiment({
             'name': 'test_no_chat',
         })
 
-        result = self.persistence.get_experiment_design_chat(exp_id)
-        self.assertIsNone(result)
+        result = persistence.get_experiment_design_chat(exp_id)
+        assert result is None
 
-    def test_save_and_get_assistant_chat(self):
+    def test_save_and_get_assistant_chat(self, persistence):
         """Test saving and retrieving assistant chat history."""
         # Create an experiment
-        exp_id = self.persistence.create_experiment({
+        exp_id = persistence.create_experiment({
             'name': 'test_with_assistant_chat',
         })
 
@@ -266,17 +242,17 @@ class TestExperimentDesignChatPersistence(unittest.TestCase):
             {'role': 'user', 'content': 'Why did we choose 5 tournaments?'},
             {'role': 'assistant', 'content': 'Based on our design conversation...'},
         ]
-        self.persistence.save_experiment_assistant_chat(exp_id, assistant_chat)
+        persistence.save_experiment_assistant_chat(exp_id, assistant_chat)
 
         # Retrieve assistant chat
-        result = self.persistence.get_experiment_assistant_chat(exp_id)
+        result = persistence.get_experiment_assistant_chat(exp_id)
 
-        self.assertIsNotNone(result)
-        self.assertEqual(len(result), 2)
+        assert result is not None
+        assert len(result) == 2
 
-    def test_design_and_assistant_chat_independent(self):
+    def test_design_and_assistant_chat_independent(self, persistence):
         """Test that design chat and assistant chat are stored independently."""
-        exp_id = self.persistence.create_experiment({
+        exp_id = persistence.create_experiment({
             'name': 'test_independent_chats',
         })
 
@@ -284,35 +260,27 @@ class TestExperimentDesignChatPersistence(unittest.TestCase):
         design_chat = [{'role': 'user', 'content': 'Design message'}]
         assistant_chat = [{'role': 'user', 'content': 'Assistant message'}]
 
-        self.persistence.save_experiment_design_chat(exp_id, design_chat)
-        self.persistence.save_experiment_assistant_chat(exp_id, assistant_chat)
+        persistence.save_experiment_design_chat(exp_id, design_chat)
+        persistence.save_experiment_assistant_chat(exp_id, assistant_chat)
 
         # Verify they're independent
-        design_result = self.persistence.get_experiment_design_chat(exp_id)
-        assistant_result = self.persistence.get_experiment_assistant_chat(exp_id)
+        design_result = persistence.get_experiment_design_chat(exp_id)
+        assistant_result = persistence.get_experiment_assistant_chat(exp_id)
 
-        self.assertEqual(design_result[0]['content'], 'Design message')
-        self.assertEqual(assistant_result[0]['content'], 'Assistant message')
+        assert design_result[0]['content'] == 'Design message'
+        assert assistant_result[0]['content'] == 'Assistant message'
 
 
-class TestChatEndpoints(unittest.TestCase):
+class TestChatEndpoints:
     """Test cases for chat-related API endpoints."""
 
-    def setUp(self):
-        """Create a test Flask app and temporary database."""
-        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.test_db.close()
-
-        self.persistence = GamePersistence(self.test_db.name)
-        self.app = create_app()
-        self.app.testing = True
-
-        with patch('flask_app.extensions.persistence', self.persistence):
-            self.client = self.app.test_client()
-
-    def tearDown(self):
-        """Clean up temporary database."""
-        os.unlink(self.test_db.name)
+    @pytest.fixture(autouse=True)
+    def setup_flask(self, persistence):
+        self.persistence = persistence
+        app = create_app()
+        app.testing = True
+        with patch('flask_app.extensions.persistence', persistence):
+            self.client = app.test_client()
 
     def test_get_latest_chat_session_empty(self):
         """Test getting latest chat session when none exists."""
@@ -320,9 +288,9 @@ class TestChatEndpoints(unittest.TestCase):
             response = self.client.get('/api/experiments/chat/latest')
             data = response.get_json()
 
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue(data['success'])
-            self.assertIsNone(data['session'])
+            assert response.status_code == 200
+            assert data['success'] is True
+            assert data['session'] is None
 
     def test_archive_chat_session_endpoint(self):
         """Test archiving a chat session via API."""
@@ -342,9 +310,9 @@ class TestChatEndpoints(unittest.TestCase):
             )
             data = response.get_json()
 
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue(data['success'])
-            self.assertTrue(data['archived'])
+            assert response.status_code == 200
+            assert data['success'] is True
+            assert data['archived'] is True
 
     def test_archive_chat_session_requires_session_id(self):
         """Test that archive endpoint requires session_id."""
@@ -354,8 +322,8 @@ class TestChatEndpoints(unittest.TestCase):
         )
         data = response.get_json()
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('error', data)
+        assert response.status_code == 400
+        assert 'error' in data
 
     @patch('flask_app.routes.experiment_routes.LLMClient')
     def test_chat_returns_config_diff(self, mock_llm_client):
@@ -377,12 +345,12 @@ class TestChatEndpoints(unittest.TestCase):
             )
             data = response.get_json()
 
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue(data['success'])
-            self.assertIn('config_diff', data)
+            assert response.status_code == 200
+            assert data['success'] is True
+            assert 'config_diff' in data
             # Should have a diff showing the changes
             if data['config_diff']:
-                self.assertIn('num_tournaments', data['config_diff'])
+                assert 'num_tournaments' in data['config_diff']
 
     @patch('flask_app.routes.experiment_routes.LLMClient')
     def test_chat_persists_session(self, mock_llm_client):
@@ -407,34 +375,26 @@ class TestChatEndpoints(unittest.TestCase):
 
             # Verify session was persisted
             session = self.persistence.get_latest_chat_session('anonymous')
-            self.assertIsNotNone(session)
-            self.assertEqual(session['session_id'], session_id)
+            assert session is not None
+            assert session['session_id'] == session_id
 
 
-class TestExperimentAssistantChat(unittest.TestCase):
+class TestExperimentAssistantChat:
     """Test cases for experiment-scoped assistant chat."""
 
-    def setUp(self):
-        """Create a test Flask app and temporary database."""
-        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.test_db.close()
-
-        self.persistence = GamePersistence(self.test_db.name)
-        self.app = create_app()
-        self.app.testing = True
-
-        with patch('flask_app.extensions.persistence', self.persistence):
-            self.client = self.app.test_client()
+    @pytest.fixture(autouse=True)
+    def setup_flask(self, persistence):
+        self.persistence = persistence
+        app = create_app()
+        app.testing = True
+        with patch('flask_app.extensions.persistence', persistence):
+            self.client = app.test_client()
 
         # Create a test experiment
-        self.exp_id = self.persistence.create_experiment({
+        self.exp_id = persistence.create_experiment({
             'name': 'test_assistant_experiment',
             'description': 'Test experiment for assistant chat',
         })
-
-    def tearDown(self):
-        """Clean up temporary database."""
-        os.unlink(self.test_db.name)
 
     def test_get_empty_chat_history(self):
         """Test getting chat history when none exists."""
@@ -442,9 +402,9 @@ class TestExperimentAssistantChat(unittest.TestCase):
             response = self.client.get(f'/api/experiments/{self.exp_id}/chat/history')
             data = response.get_json()
 
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue(data['success'])
-            self.assertEqual(data['history'], [])
+            assert response.status_code == 200
+            assert data['success'] is True
+            assert data['history'] == []
 
     @patch('flask_app.routes.experiment_routes.LLMClient')
     def test_experiment_assistant_chat(self, mock_llm_client):
@@ -460,9 +420,9 @@ class TestExperimentAssistantChat(unittest.TestCase):
             )
             data = response.get_json()
 
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue(data['success'])
-            self.assertIn('response', data)
+            assert response.status_code == 200
+            assert data['success'] is True
+            assert 'response' in data
 
     @patch('flask_app.routes.experiment_routes.LLMClient')
     @patch('flask_app.routes.experiment_routes._experiment_assistant_sessions', {})
@@ -481,8 +441,8 @@ class TestExperimentAssistantChat(unittest.TestCase):
 
             # Check history was saved
             history = self.persistence.get_experiment_assistant_chat(self.exp_id)
-            self.assertIsNotNone(history)
-            self.assertEqual(len(history), 2)  # User + assistant message
+            assert history is not None
+            assert len(history) == 2  # User + assistant message
 
     def test_clear_experiment_chat_history(self):
         """Test clearing experiment assistant chat history."""
@@ -497,13 +457,13 @@ class TestExperimentAssistantChat(unittest.TestCase):
             response = self.client.post(f'/api/experiments/{self.exp_id}/chat/clear')
             data = response.get_json()
 
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue(data['success'])
-            self.assertTrue(data['cleared'])
+            assert response.status_code == 200
+            assert data['success'] is True
+            assert data['cleared'] is True
 
             # Verify history is empty
             history = self.persistence.get_experiment_assistant_chat(self.exp_id)
-            self.assertEqual(history, [])
+            assert history == []
 
     def test_experiment_assistant_chat_requires_message(self):
         """Test that experiment assistant chat requires a message."""
@@ -514,8 +474,8 @@ class TestExperimentAssistantChat(unittest.TestCase):
             )
             data = response.get_json()
 
-            self.assertEqual(response.status_code, 400)
-            self.assertIn('error', data)
+            assert response.status_code == 400
+            assert 'error' in data
 
     def test_experiment_assistant_chat_nonexistent_experiment(self):
         """Test assistant chat with non-existent experiment."""
@@ -526,9 +486,5 @@ class TestExperimentAssistantChat(unittest.TestCase):
             )
             data = response.get_json()
 
-            self.assertEqual(response.status_code, 404)
-            self.assertIn('error', data)
-
-
-if __name__ == '__main__':
-    unittest.main()
+            assert response.status_code == 404
+            assert 'error' in data
