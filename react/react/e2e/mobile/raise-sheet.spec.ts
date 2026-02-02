@@ -4,8 +4,8 @@ import { mockGamePageRoutes, navigateToGamePage, buildGameState } from '../helpe
 test.describe('PW-07: Mobile raise sheet — open, slider, quick bets, confirm', () => {
 
   test('tapping Raise button opens the raise sheet', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const raiseBtn = page.locator('.action-btn.raise-btn');
     await expect(raiseBtn).toBeVisible();
@@ -17,8 +17,8 @@ test.describe('PW-07: Mobile raise sheet — open, slider, quick bets, confirm',
   });
 
   test('raise sheet has Cancel and Confirm buttons', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.raise-btn').click();
 
@@ -29,8 +29,8 @@ test.describe('PW-07: Mobile raise sheet — open, slider, quick bets, confirm',
   });
 
   test('raise sheet shows amount display', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.raise-btn').click();
 
@@ -42,8 +42,8 @@ test.describe('PW-07: Mobile raise sheet — open, slider, quick bets, confirm',
   });
 
   test('raise sheet shows quick bet buttons', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.raise-btn').click();
 
@@ -56,8 +56,8 @@ test.describe('PW-07: Mobile raise sheet — open, slider, quick bets, confirm',
   });
 
   test('raise sheet shows slider with min/max', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.raise-btn').click();
 
@@ -76,8 +76,8 @@ test.describe('PW-07: Mobile raise sheet — open, slider, quick bets, confirm',
   });
 
   test('tapping a quick bet button updates the amount', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.raise-btn').click();
 
@@ -99,8 +99,8 @@ test.describe('PW-07: Mobile raise sheet — open, slider, quick bets, confirm',
   });
 
   test('tapping Cancel closes the raise sheet and shows action buttons', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.raise-btn').click();
 
@@ -115,8 +115,8 @@ test.describe('PW-07: Mobile raise sheet — open, slider, quick bets, confirm',
   });
 
   test('tapping Confirm submits the raise action', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const actionRequests: string[] = [];
     await page.route('**/api/game/*/action', route => {
@@ -135,8 +135,8 @@ test.describe('PW-07: Mobile raise sheet — open, slider, quick bets, confirm',
   });
 
   test('raise sheet shows stack preview', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.raise-btn').click();
 

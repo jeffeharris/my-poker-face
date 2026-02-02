@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockGamePageRoutes, buildGameState } from '../helpers';
+import { mockGamePageRoutes, buildGameState, setAuthLocalStorage } from '../helpers';
 
 test.describe('PW-16: Reconnecting overlay appears when socket drops', () => {
 
@@ -8,15 +8,7 @@ test.describe('PW-16: Reconnecting overlay appears when socket drops', () => {
 
     // Navigate directly (not via navigateToGamePage since we need specific navigation)
     await page.goto('/game/test-game-123', { waitUntil: 'commit' });
-    await page.evaluate(() => {
-      localStorage.setItem('currentUser', JSON.stringify({
-        id: 'guest-123',
-        name: 'TestPlayer',
-        is_guest: true,
-        created_at: '2024-01-01',
-        permissions: ['play']
-      }));
-    });
+    await setAuthLocalStorage(page);
     await page.goto('/game/test-game-123');
 
     const table = page.locator('.mobile-poker-table');
@@ -31,15 +23,7 @@ test.describe('PW-16: Reconnecting overlay appears when socket drops', () => {
     await mockGamePageRoutes(page, { gameState: buildGameState(), socketConnected: false });
 
     await page.goto('/game/test-game-123', { waitUntil: 'commit' });
-    await page.evaluate(() => {
-      localStorage.setItem('currentUser', JSON.stringify({
-        id: 'guest-123',
-        name: 'TestPlayer',
-        is_guest: true,
-        created_at: '2024-01-01',
-        permissions: ['play']
-      }));
-    });
+    await setAuthLocalStorage(page);
     await page.goto('/game/test-game-123');
 
     const table = page.locator('.mobile-poker-table');
@@ -53,15 +37,7 @@ test.describe('PW-16: Reconnecting overlay appears when socket drops', () => {
     await mockGamePageRoutes(page, { gameState: buildGameState(), socketConnected: true });
 
     await page.goto('/game/test-game-123', { waitUntil: 'commit' });
-    await page.evaluate(() => {
-      localStorage.setItem('currentUser', JSON.stringify({
-        id: 'guest-123',
-        name: 'TestPlayer',
-        is_guest: true,
-        created_at: '2024-01-01',
-        permissions: ['play']
-      }));
-    });
+    await setAuthLocalStorage(page);
     await page.goto('/game/test-game-123');
 
     const table = page.locator('.mobile-poker-table');

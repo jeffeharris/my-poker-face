@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockGamePageRoutes, buildGameState } from '../helpers';
+import { mockGamePageRoutes, buildGameState, setAuthLocalStorage } from '../helpers';
 
 test.describe('PW-17: Mobile navigation — back button returns to menu', () => {
 
@@ -7,15 +7,7 @@ test.describe('PW-17: Mobile navigation — back button returns to menu', () => 
     await mockGamePageRoutes(page, { isGuest: false, gameState: buildGameState() });
 
     await page.goto('/game/test-game-123', { waitUntil: 'commit' });
-    await page.evaluate(() => {
-      localStorage.setItem('currentUser', JSON.stringify({
-        id: 'user-456',
-        name: 'TestPlayer',
-        is_guest: false,
-        created_at: '2024-01-01',
-        permissions: ['play', 'custom_game', 'themed_game']
-      }));
-    });
+    await setAuthLocalStorage(page, { isGuest: false });
     await page.goto('/game/test-game-123');
 
     const table = page.locator('.mobile-poker-table');
@@ -33,15 +25,7 @@ test.describe('PW-17: Mobile navigation — back button returns to menu', () => 
     await mockGamePageRoutes(page, { isGuest: false, gameState: buildGameState() });
 
     await page.goto('/stats', { waitUntil: 'commit' });
-    await page.evaluate(() => {
-      localStorage.setItem('currentUser', JSON.stringify({
-        id: 'user-456',
-        name: 'TestPlayer',
-        is_guest: false,
-        created_at: '2024-01-01',
-        permissions: ['play', 'custom_game', 'themed_game']
-      }));
-    });
+    await setAuthLocalStorage(page, { isGuest: false });
     await page.goto('/stats');
 
     const menuBar = page.locator('.menu-bar');
@@ -59,15 +43,7 @@ test.describe('PW-17: Mobile navigation — back button returns to menu', () => 
     await mockGamePageRoutes(page, { isGuest: false, gameState: buildGameState() });
 
     await page.goto('/game/new/custom', { waitUntil: 'commit' });
-    await page.evaluate(() => {
-      localStorage.setItem('currentUser', JSON.stringify({
-        id: 'user-456',
-        name: 'TestPlayer',
-        is_guest: false,
-        created_at: '2024-01-01',
-        permissions: ['play', 'custom_game', 'themed_game']
-      }));
-    });
+    await setAuthLocalStorage(page, { isGuest: false });
     await page.goto('/game/new/custom');
 
     const menuBar = page.locator('.menu-bar');
@@ -85,15 +61,7 @@ test.describe('PW-17: Mobile navigation — back button returns to menu', () => 
     await mockGamePageRoutes(page, { isGuest: false, gameState: buildGameState() });
 
     await page.goto('/menu', { waitUntil: 'commit' });
-    await page.evaluate(() => {
-      localStorage.setItem('currentUser', JSON.stringify({
-        id: 'user-456',
-        name: 'TestPlayer',
-        is_guest: false,
-        created_at: '2024-01-01',
-        permissions: ['play', 'custom_game', 'themed_game']
-      }));
-    });
+    await setAuthLocalStorage(page, { isGuest: false });
     await page.goto('/menu');
 
     await expect(page.locator('.quick-play-section')).toBeVisible({ timeout: 10000 });

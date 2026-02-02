@@ -35,14 +35,14 @@ async function setupWithTournament(
   page: import('@playwright/test').Page,
   tournamentPayload: Record<string, unknown>
 ) {
-  await mockGamePageRoutes(page, {
+  const ctx = await mockGamePageRoutes(page, {
     gameState: initialGameState,
     socketEvents: [
       ['update_game_state', { game_state: initialGameState }],
       ['tournament_complete', tournamentPayload],
     ],
   });
-  await navigateToGamePage(page);
+  await navigateToGamePage(page, { mockContext: ctx });
 }
 
 test.describe('PW-13: Tournament complete screen displays final standings', () => {
