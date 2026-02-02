@@ -186,7 +186,7 @@ class TestBuildPokerContextPostFlop(unittest.TestCase):
         data = {
             'phase': 'FLOP',
             'hand_strength': 'Two Pair',
-            'hand_rank': 3,
+            'hand_rank': 8,
             'position': 'Button',
             'cost_to_call': 20,
             'pot_total': 100,
@@ -197,11 +197,26 @@ class TestBuildPokerContextPostFlop(unittest.TestCase):
         self.assertTrue(ctx['has_pair'])
         self.assertFalse(ctx['is_air'])
 
+    def test_one_pair_is_not_strong(self):
+        data = {
+            'phase': 'FLOP',
+            'hand_strength': 'One Pair',
+            'hand_rank': 9,
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 100,
+            'big_blind': 10,
+        }
+        ctx = build_poker_context(data)
+        self.assertFalse(ctx['is_strong_hand'])
+        self.assertTrue(ctx['has_pair'])
+        self.assertFalse(ctx['is_air'])
+
     def test_air_hand(self):
         data = {
             'phase': 'FLOP',
             'hand_strength': 'High Card',
-            'hand_rank': 9,
+            'hand_rank': 10,
             'position': 'Button',
             'cost_to_call': 0,
             'pot_total': 50,
@@ -218,7 +233,7 @@ class TestBuildPokerContextPostFlop(unittest.TestCase):
         data = {
             'phase': 'FLOP',
             'hand_strength': 'High Card',
-            'hand_rank': 9,
+            'hand_rank': 10,
             'position': 'Button',
             'cost_to_call': 0,
             'pot_total': 50,
@@ -233,7 +248,7 @@ class TestBuildPokerContextPostFlop(unittest.TestCase):
         data = {
             'phase': 'TURN',
             'hand_strength': 'One Pair',
-            'hand_rank': 8,
+            'hand_rank': 9,
             'position': 'Button',
             'cost_to_call': 0,
             'pot_total': 50,
@@ -246,7 +261,7 @@ class TestBuildPokerContextPostFlop(unittest.TestCase):
         data = {
             'phase': 'TURN',
             'hand_strength': 'One Pair',
-            'hand_rank': 8,
+            'hand_rank': 9,
             'position': 'Button',
             'cost_to_call': 30,
             'pot_total': 50,

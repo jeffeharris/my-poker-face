@@ -325,7 +325,7 @@ class SkillEvaluator:
         )
 
     def _eval_bet_when_strong(self, action: str, ctx: Dict) -> SkillEvaluation:
-        """Evaluate bet_when_strong: strong hand post-flop → bet/raise is correct."""
+        """Evaluate bet_when_strong: two pair+ post-flop → bet/raise is correct."""
         if not ctx.get('is_strong_hand', False):
             return SkillEvaluation(
                 skill_id='bet_when_strong',
@@ -335,7 +335,7 @@ class SkillEvaluator:
                 reasoning='Hand is not strong enough for this skill.',
             )
 
-        if action in ('raise', 'bet') or action.startswith('raise'):
+        if action in ('raise', 'bet', 'all_in') or action.startswith('raise'):
             return SkillEvaluation(
                 skill_id='bet_when_strong',
                 action_taken=action,

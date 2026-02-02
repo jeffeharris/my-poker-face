@@ -157,7 +157,7 @@ class TestGate2SituationClassifier(unittest.TestCase):
         self.unlocked_gates = [1, 2]
         self.skill_states = {}
 
-    def _make_postflop_data(self, phase='FLOP', hand_rank=9, cost_to_call=0,
+    def _make_postflop_data(self, phase='FLOP', hand_rank=10, cost_to_call=0,
                              outs=0, hand_strength='High Card'):
         return {
             'phase': phase,
@@ -173,71 +173,80 @@ class TestGate2SituationClassifier(unittest.TestCase):
     # ---- flop_connection triggers ----
 
     def test_air_on_flop_triggers_flop_connection(self):
-        data = self._make_postflop_data(phase='FLOP', hand_rank=9, outs=2)
+        data = self._make_postflop_data(phase='FLOP', hand_rank=10, outs=2)
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertIn('flop_connection', result.relevant_skills)
 
     def test_pair_on_flop_does_not_trigger_flop_connection(self):
-        data = self._make_postflop_data(phase='FLOP', hand_rank=8, hand_strength='One Pair')
+        data = self._make_postflop_data(phase='FLOP', hand_rank=9, hand_strength='One Pair')
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertNotIn('flop_connection', result.relevant_skills)
 
     def test_draw_on_flop_does_not_trigger_flop_connection(self):
-        data = self._make_postflop_data(phase='FLOP', hand_rank=9, outs=8)
+        data = self._make_postflop_data(phase='FLOP', hand_rank=10, outs=8)
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertNotIn('flop_connection', result.relevant_skills)
 
     def test_flop_connection_only_on_flop(self):
-        data = self._make_postflop_data(phase='TURN', hand_rank=9, outs=2)
+        data = self._make_postflop_data(phase='TURN', hand_rank=10, outs=2)
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertNotIn('flop_connection', result.relevant_skills)
 
     # ---- bet_when_strong triggers ----
 
     def test_strong_hand_triggers_bet_when_strong(self):
-        data = self._make_postflop_data(phase='FLOP', hand_rank=3, hand_strength='Two Pair')
+        data = self._make_postflop_data(phase='FLOP', hand_rank=8, hand_strength='Two Pair')
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertIn('bet_when_strong', result.relevant_skills)
 
     def test_weak_hand_does_not_trigger_bet_when_strong(self):
-        data = self._make_postflop_data(phase='FLOP', hand_rank=8, hand_strength='One Pair')
+        data = self._make_postflop_data(phase='FLOP', hand_rank=9, hand_strength='One Pair')
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertNotIn('bet_when_strong', result.relevant_skills)
 
     def test_strong_hand_on_river_triggers_bet_when_strong(self):
-        data = self._make_postflop_data(phase='RIVER', hand_rank=2, hand_strength='Flush')
+        data = self._make_postflop_data(phase='RIVER', hand_rank=5, hand_strength='Flush')
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertIn('bet_when_strong', result.relevant_skills)
 
     def test_strong_hand_preflop_does_not_trigger(self):
-        data = self._make_postflop_data(phase='PRE_FLOP', hand_rank=3)
+        data = self._make_postflop_data(phase='PRE_FLOP', hand_rank=8)
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertNotIn('bet_when_strong', result.relevant_skills)
 
     # ---- checking_is_allowed triggers ----
 
     def test_weak_hand_can_check_triggers(self):
-        data = self._make_postflop_data(phase='FLOP', hand_rank=9, cost_to_call=0)
+        data = self._make_postflop_data(phase='FLOP', hand_rank=10, cost_to_call=0)
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertIn('checking_is_allowed', result.relevant_skills)
 
     def test_weak_hand_facing_bet_does_not_trigger(self):
-        data = self._make_postflop_data(phase='FLOP', hand_rank=9, cost_to_call=20)
+        data = self._make_postflop_data(phase='FLOP', hand_rank=10, cost_to_call=20)
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertNotIn('checking_is_allowed', result.relevant_skills)
 
     def test_pair_does_not_trigger_checking_is_allowed(self):
-        data = self._make_postflop_data(phase='FLOP', hand_rank=8, cost_to_call=0,
+        data = self._make_postflop_data(phase='FLOP', hand_rank=9, cost_to_call=0,
                                          hand_strength='One Pair')
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertNotIn('checking_is_allowed', result.relevant_skills)
+
+    # ---- overlap ----
+
+    def test_air_on_flop_can_check_triggers_both_skills(self):
+        """Air on flop + can check should trigger both flop_connection and checking_is_allowed."""
+        data = self._make_postflop_data(phase='FLOP', hand_rank=10, cost_to_call=0, outs=2)
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertIn('flop_connection', result.relevant_skills)
+        self.assertIn('checking_is_allowed', result.relevant_skills)
 
     # ---- gate unlock gating ----
 
     def test_gate2_skills_not_triggered_when_gate2_locked(self):
         """Gate 2 skills should not trigger when only Gate 1 is unlocked."""
         unlocked = [1]
-        data = self._make_postflop_data(phase='FLOP', hand_rank=9, cost_to_call=0)
+        data = self._make_postflop_data(phase='FLOP', hand_rank=10, cost_to_call=0)
         result = self.classifier.classify(data, unlocked, self.skill_states)
         self.assertNotIn('flop_connection', result.relevant_skills)
         self.assertNotIn('checking_is_allowed', result.relevant_skills)

@@ -115,7 +115,7 @@ SKILL_FLOP_CONNECTION = SkillDefinition(
 SKILL_BET_WHEN_STRONG = SkillDefinition(
     skill_id='bet_when_strong',
     name='Bet When Strong',
-    description='Bet or raise for value when you have top pair or better.',
+    description='Bet or raise for value when you have two pair or better.',
     gate=2,
     evidence_rules=EvidenceRules(
         min_opportunities=8,
@@ -235,15 +235,15 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
     is_playable = canonical and canonical in TOP_35_HANDS
 
     # Post-flop hand strength (from HandEvaluator via coaching_data)
-    # hand_rank: 1=Royal Flush, 2=Straight Flush, ... 8=One Pair, 9=High Card
+    # hand_rank: 1=Royal Flush, 2=Straight Flush, 3=Four of a Kind, 4=Full House,
+    #            5=Flush, 6=Straight, 7=Three of a Kind, 8=Two Pair, 9=One Pair, 10=High Card
     hand_rank = coaching_data.get('hand_rank')
-    hand_name = coaching_data.get('hand_strength', '')
 
     # Derived booleans for Gate 2 evaluators
-    is_strong_hand = hand_rank is not None and hand_rank <= 4  # Two pair or better
-    has_pair = hand_rank is not None and hand_rank <= 8        # Any pair or better
+    is_strong_hand = hand_rank is not None and hand_rank <= 8  # Two pair or better
+    has_pair = hand_rank is not None and hand_rank <= 9        # One pair or better
     has_draw = (coaching_data.get('outs') or 0) >= 4           # 4+ outs = meaningful draw
-    is_air = hand_rank is not None and hand_rank >= 9 and not has_draw  # High card, no draw
+    is_air = hand_rank is not None and hand_rank >= 10 and not has_draw  # High card, no draw
     can_check = cost_to_call == 0
 
     # Situation tags

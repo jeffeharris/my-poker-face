@@ -640,5 +640,176 @@ class TestSilentDowngrade(unittest.TestCase):
         self.assertEqual(profile['effective_level'], 'experienced')
 
 
+class TestMarginalNeutrality(unittest.TestCase):
+    """Test that marginal evaluations have no progression effect."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
+        self.persistence = GamePersistence(self.db_path)
+        self.service = CoachProgressionService(self.persistence)
+        self.user_id = 'test_marginal_user'
+        self.service.initialize_player(self.user_id)
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def test_marginal_does_not_increment_opportunities(self):
+        """Marginal evaluations should not change opportunity or correct counts."""
+        # Advance to practicing first (need 3 correct)
+        classification = SituationClassification(
+            relevant_skills=('fold_trash_hands',),
+            primary_skill='fold_trash_hands',
+            situation_tags=('trash_hand',),
+        )
+        coaching_data = {
+            'phase': 'PRE_FLOP',
+            'hand_strength': '72o - Unconnected cards, Bottom 10%',
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 30,
+        }
+
+        # Do 3 correct to get to practicing
+        for _ in range(3):
+            self.service.evaluate_and_update(
+                self.user_id, 'fold', coaching_data, classification
+            )
+
+        state_before = self.service.get_player_state(self.user_id)
+        ss_before = state_before['skill_states']['fold_trash_hands']
+        self.assertEqual(ss_before.total_opportunities, 3)
+
+        # Now do 5 marginal (check) evaluations
+        for _ in range(5):
+            self.service.evaluate_and_update(
+                self.user_id, 'check', coaching_data, classification
+            )
+
+        state_after = self.service.get_player_state(self.user_id)
+        ss_after = state_after['skill_states']['fold_trash_hands']
+
+        # Opportunities and correct counts should be unchanged
+        self.assertEqual(ss_after.total_opportunities, ss_before.total_opportunities)
+        self.assertEqual(ss_after.total_correct, ss_before.total_correct)
+        self.assertEqual(ss_after.window_opportunities, ss_before.window_opportunities)
+        self.assertEqual(ss_after.window_correct, ss_before.window_correct)
+        # State should remain practicing (not regressed or advanced)
+        self.assertEqual(ss_after.state, SkillState.PRACTICING)
+
+    def test_marginal_does_not_prevent_advancement(self):
+        """Marginal evals between correct evals shouldn't dilute accuracy."""
+        classification = SituationClassification(
+            relevant_skills=('fold_trash_hands',),
+            primary_skill='fold_trash_hands',
+            situation_tags=('trash_hand',),
+        )
+        coaching_data = {
+            'phase': 'PRE_FLOP',
+            'hand_strength': '72o - Unconnected cards, Bottom 10%',
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 30,
+        }
+
+        # Alternate: correct, marginal, correct, marginal, ...
+        for i in range(24):
+            action = 'fold' if i % 2 == 0 else 'check'
+            self.service.evaluate_and_update(
+                self.user_id, action, coaching_data, classification
+            )
+
+        state = self.service.get_player_state(self.user_id)
+        ss = state['skill_states']['fold_trash_hands']
+        # 12 correct, 0 incorrect (marginals don't count)
+        self.assertEqual(ss.total_opportunities, 12)
+        self.assertEqual(ss.total_correct, 12)
+        # Should have advanced to reliable (12 opps, 100% accuracy)
+        self.assertEqual(ss.state, SkillState.RELIABLE)
+
+
+class TestOverlapEvaluation(unittest.TestCase):
+    """Test that overlapping skills both get evaluated."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
+        self.persistence = GamePersistence(self.db_path)
+        self.service = CoachProgressionService(self.persistence)
+        self.user_id = 'test_overlap_user'
+        self.service.initialize_player(self.user_id, level='intermediate')
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def test_both_skills_evaluated_on_overlap(self):
+        """When flop_connection and checking_is_allowed both trigger, both are evaluated."""
+        classification = SituationClassification(
+            relevant_skills=('flop_connection', 'checking_is_allowed'),
+            primary_skill='flop_connection',
+            situation_tags=('air',),
+        )
+        coaching_data = {
+            'phase': 'FLOP',
+            'hand_strength': 'High Card',
+            'hand_rank': 10,
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 100,
+            'big_blind': 10,
+            'outs': 2,
+        }
+
+        evaluations = self.service.evaluate_and_update(
+            self.user_id, 'check', coaching_data, classification
+        )
+
+        eval_skills = {e.skill_id for e in evaluations}
+        # Both skills should have been evaluated (not filtered out)
+        # flop_connection: check with air → marginal (skipped from progression)
+        # checking_is_allowed: check with weak hand → correct
+        self.assertIn('checking_is_allowed', eval_skills)
+
+        # checking_is_allowed should have recorded an opportunity
+        state = self.service.get_player_state(self.user_id)
+        ss_check = state['skill_states']['checking_is_allowed']
+        self.assertEqual(ss_check.total_opportunities, 1)
+        self.assertEqual(ss_check.total_correct, 1)
+
+    def test_fold_is_correct_for_both_overlapping_skills(self):
+        """Folding air when can check is correct for both skills."""
+        classification = SituationClassification(
+            relevant_skills=('flop_connection', 'checking_is_allowed'),
+            primary_skill='flop_connection',
+            situation_tags=('air',),
+        )
+        coaching_data = {
+            'phase': 'FLOP',
+            'hand_strength': 'High Card',
+            'hand_rank': 10,
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 100,
+            'big_blind': 10,
+            'outs': 2,
+        }
+
+        evaluations = self.service.evaluate_and_update(
+            self.user_id, 'fold', coaching_data, classification
+        )
+
+        # Both should be correct
+        for ev in evaluations:
+            self.assertEqual(ev.evaluation, 'correct',
+                             f'{ev.skill_id} expected correct, got {ev.evaluation}')
+
+        # Both should have recorded opportunities
+        state = self.service.get_player_state(self.user_id)
+        for sid in ('flop_connection', 'checking_is_allowed'):
+            ss = state['skill_states'][sid]
+            self.assertEqual(ss.total_opportunities, 1)
+            self.assertEqual(ss.total_correct, 1)
+
+
 if __name__ == '__main__':
     unittest.main()

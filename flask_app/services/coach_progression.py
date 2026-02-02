@@ -250,26 +250,28 @@ class CoachProgressionService:
         is_correct = evaluation.evaluation == 'correct'
         is_marginal = evaluation.evaluation == 'marginal'
 
-        # Compute new totals
+        # Marginal evaluations are neutral — no progression effect.
+        # Only update the timestamp so we know when we last looked at this skill.
+        if is_marginal:
+            skill_state = replace(skill_state, last_evaluated_at=now)
+            self._persistence.save_skill_state(user_id, skill_state)
+            return skill_state
+
+        # Compute new totals (correct and incorrect only)
         new_total_opps = skill_state.total_opportunities + 1
         new_total_correct = skill_state.total_correct + (1 if is_correct else 0)
 
         # Compute new window values
         new_window_opps = skill_state.window_opportunities + 1
         new_window_correct = skill_state.window_correct + (1 if is_correct else 0)
-        # Marginal doesn't count as correct for window tracking
 
         # Compute new streaks
         if is_correct:
             new_streak_correct = skill_state.streak_correct + 1
             new_streak_incorrect = 0
-        elif evaluation.evaluation == 'incorrect':
+        else:
             new_streak_correct = 0
             new_streak_incorrect = skill_state.streak_incorrect + 1
-        else:
-            # Marginal doesn't reset streaks
-            new_streak_correct = skill_state.streak_correct
-            new_streak_incorrect = skill_state.streak_incorrect
 
         skill_state = replace(
             skill_state,
