@@ -2,6 +2,7 @@ import { Page, expect } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { mockSocketIO } from './socket-mock';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -407,49 +408,7 @@ export async function mockGamePageRoutes(
   );
 
   // Socket.IO mock
-  let pollCount = 0;
-  await page.route('**/socket.io/**', route => {
-    const url = route.request().url();
-    if (url.includes('transport=polling') && route.request().method() === 'GET') {
-      if (!url.includes('sid=')) {
-        // Engine.IO handshake
-        route.fulfill({
-          contentType: 'text/plain',
-          body: '0{"sid":"fake-sid","upgrades":[],"pingInterval":25000,"pingTimeout":20000}'
-        });
-      } else {
-        pollCount++;
-        if (pollCount === 1 && socketConnected) {
-          // Socket.IO connect ack
-          route.fulfill({
-            contentType: 'text/plain',
-            body: '40{"sid":"fake-socket-sid"}'
-          });
-        } else if (pollCount > 1 && socketConnected && socketEvents.length > 0) {
-          const eventIdx = pollCount - 2;
-          if (eventIdx < socketEvents.length) {
-            const [eventName, eventData] = socketEvents[eventIdx];
-            const payload = JSON.stringify([eventName, eventData]);
-            route.fulfill({
-              contentType: 'text/plain',
-              body: `42${payload}`
-            });
-          } else {
-            route.fulfill({ contentType: 'text/plain', body: '6' });
-          }
-        } else if (!socketConnected) {
-          // Don't send CONNECT — keeps socket in disconnected state
-          route.fulfill({ contentType: 'text/plain', body: '6' });
-        } else {
-          route.fulfill({ contentType: 'text/plain', body: '6' });
-        }
-      }
-    } else if (route.request().method() === 'POST') {
-      route.fulfill({ contentType: 'text/plain', body: 'ok' });
-    } else {
-      route.fulfill({ body: '' });
-    }
-  });
+  await mockSocketIO(page, { connected: socketConnected, events: socketEvents });
 
   return { pendingSocketEvents: [], pendingGameId: gameId } as MockContext;
 }
@@ -633,23 +592,7 @@ export async function mockMenuPageRoutes(
   }
 
   // Mock socket.io (no game events needed)
-  await page.route('**/socket.io/**', route => {
-    const url = route.request().url();
-    if (url.includes('transport=polling') && route.request().method() === 'GET') {
-      if (!url.includes('sid=')) {
-        route.fulfill({
-          contentType: 'text/plain',
-          body: '0{"sid":"fake-sid","upgrades":[],"pingInterval":25000,"pingTimeout":20000}'
-        });
-      } else {
-        route.fulfill({ contentType: 'text/plain', body: '6' });
-      }
-    } else if (route.request().method() === 'POST') {
-      route.fulfill({ contentType: 'text/plain', body: 'ok' });
-    } else {
-      route.fulfill({ body: '' });
-    }
-  });
+  await mockSocketIO(page, { connected: false });
 }
 
 /**
