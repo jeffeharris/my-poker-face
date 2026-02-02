@@ -1021,6 +1021,10 @@ def api_new_game():
             # Initialize human player for opponent observation tracking
             memory_manager.initialize_human_observer(player.name)
 
+    # Advance state machine to deal cards and post blinds before recording hand start,
+    # so that hole cards are available when on_hand_start records them.
+    state_machine.run_until_player_action()
+
     memory_manager.on_hand_start(state_machine.game_state, hand_number=1)
 
     starting_players = [
