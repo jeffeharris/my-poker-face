@@ -12,6 +12,7 @@ export default defineConfig({
   use: {
     baseURL,
     trace: 'on-first-retry',
+    reducedMotion: 'reduce',
   },
   // Skip webServer when BASE_URL is externally provided (e.g. Docker compose)
   ...(process.env.BASE_URL
