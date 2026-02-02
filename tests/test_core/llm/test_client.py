@@ -1,33 +1,16 @@
 """Tests for LLMClient."""
-import unittest
+import sqlite3
+
 from unittest.mock import Mock, patch
-import tempfile
-import os
 
 from core.llm import LLMClient, CallType, UsageTracker
 
 
-class TestLLMClient(unittest.TestCase):
+class TestLLMClient:
     """Tests for LLMClient class."""
 
-    def setUp(self):
-        """Set up test fixtures."""
-        # Create a temp database for tracking
-        self.temp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.temp_db.close()
-
-        # Initialize persistence to create tables
-        from poker.persistence import GamePersistence
-        GamePersistence(self.temp_db.name)
-
-        self.tracker = UsageTracker(db_path=self.temp_db.name)
-
-    def tearDown(self):
-        """Clean up temp files."""
-        os.unlink(self.temp_db.name)
-
     @patch('core.llm.providers.openai.OpenAI')
-    def test_complete_success(self, mock_openai_class):
+    def test_complete_success(self, mock_openai_class, usage_tracker, db_path):
         """Test successful completion."""
         # Set up mock
         mock_client = Mock()
@@ -46,19 +29,19 @@ class TestLLMClient(unittest.TestCase):
         mock_client.chat.completions.create.return_value = mock_response
 
         # Test
-        client = LLMClient(tracker=self.tracker)
+        client = LLMClient(tracker=usage_tracker)
         response = client.complete(
             messages=[{"role": "user", "content": "Hi"}],
             call_type=CallType.PLAYER_DECISION,
         )
 
-        self.assertEqual(response.content, "Hello!")
-        self.assertEqual(response.status, "ok")
-        self.assertEqual(response.input_tokens, 10)
-        self.assertEqual(response.output_tokens, 5)
+        assert response.content == "Hello!"
+        assert response.status == "ok"
+        assert response.input_tokens == 10
+        assert response.output_tokens == 5
 
     @patch('core.llm.providers.openai.OpenAI')
-    def test_complete_with_json_format(self, mock_openai_class):
+    def test_complete_with_json_format(self, mock_openai_class, usage_tracker):
         """Test completion with JSON format."""
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
@@ -75,7 +58,7 @@ class TestLLMClient(unittest.TestCase):
 
         mock_client.chat.completions.create.return_value = mock_response
 
-        client = LLMClient(tracker=self.tracker)
+        client = LLMClient(tracker=usage_tracker)
         response = client.complete(
             messages=[{"role": "user", "content": "What's your move?"}],
             json_format=True,
@@ -83,27 +66,27 @@ class TestLLMClient(unittest.TestCase):
 
         # Verify JSON format was requested
         call_kwargs = mock_client.chat.completions.create.call_args[1]
-        self.assertEqual(call_kwargs["response_format"], {"type": "json_object"})
-        self.assertEqual(response.content, '{"action": "fold"}')
+        assert call_kwargs["response_format"] == {"type": "json_object"}
+        assert response.content == '{"action": "fold"}'
 
     @patch('core.llm.providers.openai.OpenAI')
-    def test_complete_error_handling(self, mock_openai_class):
+    def test_complete_error_handling(self, mock_openai_class, usage_tracker):
         """Test error handling in completion."""
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
         mock_client.chat.completions.create.side_effect = Exception("API Error")
 
-        client = LLMClient(tracker=self.tracker)
+        client = LLMClient(tracker=usage_tracker)
         response = client.complete(
             messages=[{"role": "user", "content": "Hi"}],
         )
 
-        self.assertEqual(response.content, "")
-        self.assertEqual(response.status, "error")
-        self.assertEqual(response.error_code, "Exception")
+        assert response.content == ""
+        assert response.status == "error"
+        assert response.error_code == "Exception"
 
     @patch('core.llm.providers.openai.OpenAI')
-    def test_tracking_context(self, mock_openai_class):
+    def test_tracking_context(self, mock_openai_class, usage_tracker, db_path):
         """Test that tracking context is passed correctly."""
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
@@ -120,7 +103,7 @@ class TestLLMClient(unittest.TestCase):
 
         mock_client.chat.completions.create.return_value = mock_response
 
-        client = LLMClient(tracker=self.tracker)
+        client = LLMClient(tracker=usage_tracker)
         client.complete(
             messages=[{"role": "user", "content": "Hi"}],
             call_type=CallType.PLAYER_DECISION,
@@ -130,33 +113,26 @@ class TestLLMClient(unittest.TestCase):
         )
 
         # Verify tracking was recorded
-        import sqlite3
-        with sqlite3.connect(self.temp_db.name) as conn:
+        with sqlite3.connect(db_path) as conn:
             cursor = conn.execute("SELECT call_type, game_id, owner_id, player_name FROM api_usage")
             row = cursor.fetchone()
-            self.assertEqual(row[0], "player_decision")
-            self.assertEqual(row[1], "game_123")
-            self.assertEqual(row[2], "user_456")
-            self.assertEqual(row[3], "Batman")
+            assert row[0] == "player_decision"
+            assert row[1] == "game_123"
+            assert row[2] == "user_456"
+            assert row[3] == "Batman"
 
 
-class TestCallType(unittest.TestCase):
+class TestCallType:
     """Tests for CallType enum."""
 
     def test_call_type_values(self):
         """Test CallType enum has expected values."""
-        self.assertEqual(CallType.PLAYER_DECISION.value, "player_decision")
-        self.assertEqual(CallType.COMMENTARY.value, "commentary")
-        self.assertEqual(CallType.IMAGE_GENERATION.value, "image_generation")
+        assert CallType.PLAYER_DECISION.value == "player_decision"
+        assert CallType.COMMENTARY.value == "commentary"
+        assert CallType.IMAGE_GENERATION.value == "image_generation"
 
     def test_call_type_is_string(self):
         """Test CallType inherits from str."""
-        self.assertIsInstance(CallType.PLAYER_DECISION, str)
-        # The enum value is the string
-        self.assertEqual(CallType.PLAYER_DECISION.value, "player_decision")
-        # Can be used directly in string contexts
-        self.assertIn("player_decision", f"{CallType.PLAYER_DECISION.value}")
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert isinstance(CallType.PLAYER_DECISION, str)
+        assert CallType.PLAYER_DECISION.value == "player_decision"
+        assert "player_decision" in f"{CallType.PLAYER_DECISION.value}"
