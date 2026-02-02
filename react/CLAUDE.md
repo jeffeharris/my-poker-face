@@ -47,9 +47,6 @@ Leaf components are wrapped with `React.memo` to prevent unnecessary re-renders.
 - **JSX as props**: if passing JSX as a prop (e.g., `centerContent`), wrap it in `useMemo`.
 - **Primitives**: strings, numbers, booleans are always stable — no action needed.
 
-**Known gaps** (components where memo is partially defeated by unstable props):
-- `CoachBubble` — receives `stats` object from `useCoach`
-
 Pure utility functions with no dependency on props or state (e.g., parsers, formatters) should be defined at module level, not wrapped in `useCallback`.
 
 ## Project Structure
