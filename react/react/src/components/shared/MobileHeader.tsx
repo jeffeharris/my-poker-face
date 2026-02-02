@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { MessageCircle } from 'lucide-react';
 import { BackButton } from './BackButton';
 import { formatCompactCurrency } from '../../utils/formatters';
@@ -61,14 +61,14 @@ export interface PotDisplayProps {
 /**
  * Pot amount display for mobile header center slot.
  */
-export function PotDisplay({ total }: PotDisplayProps) {
+export const PotDisplay = memo(function PotDisplay({ total }: PotDisplayProps) {
   return (
     <div className="mobile-pot">
       <span className="mobile-pot__label">POT:</span>
       <span className="mobile-pot__amount">${total}</span>
     </div>
   );
-}
+});
 
 export interface GameInfoDisplayProps {
   phase: string;
@@ -80,7 +80,7 @@ export interface GameInfoDisplayProps {
 /**
  * Game info display for mobile header - shows phase and blinds.
  */
-export function GameInfoDisplay({ phase, smallBlind, bigBlind, handNumber }: GameInfoDisplayProps) {
+export const GameInfoDisplay = memo(function GameInfoDisplay({ phase, smallBlind, bigBlind, handNumber }: GameInfoDisplayProps) {
   // Format phase for display (e.g., "PRE_FLOP" -> "Pre-Flop")
   const formatPhase = (p: string) => {
     return p
@@ -101,7 +101,7 @@ export function GameInfoDisplay({ phase, smallBlind, bigBlind, handNumber }: Gam
       <span className="mobile-game-info__blinds">{formatCompactCurrency(displaySmallBlind)}/{formatCompactCurrency(bigBlind, false)}</span>
     </div>
   );
-}
+});
 
 export interface ChatToggleProps {
   onClick: () => void;

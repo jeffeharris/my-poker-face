@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Check, Crosshair, HandCoins, MessageCircle } from 'lucide-react';
 import {
   useBettingCalculations,
@@ -21,7 +21,7 @@ interface MobileActionButtonsProps {
   recommendedAction?: string | null;
 }
 
-export function MobileActionButtons({
+export const MobileActionButtons = memo(function MobileActionButtons({
   playerOptions,
   currentPlayerStack,
   highestBet,
@@ -307,4 +307,4 @@ export function MobileActionButtons({
       )}
     </div>
   );
-}
+});

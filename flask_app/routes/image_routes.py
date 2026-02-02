@@ -89,6 +89,7 @@ def list_character_images():
 
 
 @image_bp.route('/api/character-images/<filename>')
+@limiter.exempt
 def serve_character_image(filename):
     """Serve a generated character image."""
     try:
@@ -101,6 +102,7 @@ def serve_character_image(filename):
 
 
 @image_bp.route('/api/character-images/icons/<filename>')
+@limiter.exempt
 def serve_character_icon(filename):
     """Serve a circular character icon."""
     try:
@@ -150,6 +152,7 @@ def get_character_grid():
 
 
 @image_bp.route('/api/character-grid/icons/<filename>')
+@limiter.exempt
 def serve_grid_icon(filename):
     """Serve a grid icon from database or filesystem.
 
@@ -186,6 +189,7 @@ def serve_grid_icon(filename):
 
 
 @image_bp.route('/api/avatar/<personality_name>/<emotion>')
+@limiter.exempt
 def serve_avatar(personality_name: str, emotion: str):
     """Serve avatar image from database.
 
@@ -223,6 +227,7 @@ def serve_avatar(personality_name: str, emotion: str):
 
 
 @image_bp.route('/api/avatar/<personality_name>/<emotion>/full')
+@limiter.exempt
 def serve_full_avatar(personality_name: str, emotion: str):
     """Serve full uncropped avatar image from database.
 
@@ -270,6 +275,7 @@ def serve_full_avatar(personality_name: str, emotion: str):
 
 
 @image_bp.route('/api/avatar/emotions')
+@limiter.exempt
 def list_emotions():
     """List all available emotions for avatars.
 

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { useUsageStats } from '../../hooks/useUsageStats';
@@ -38,7 +38,7 @@ export interface MenuBarProps {
  * - Right: User info (name, guest badge, logout)
  * - Subtle background blur + border
  */
-export function MenuBar({
+export const MenuBar = memo(function MenuBar({
   onBack,
   title,
   centerContent,
@@ -109,4 +109,4 @@ export function MenuBar({
       </div>
     </header>
   );
-}
+});
