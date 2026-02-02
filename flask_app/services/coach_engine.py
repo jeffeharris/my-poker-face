@@ -19,6 +19,7 @@ from poker.card_utils import card_to_string
 
 from ..services import game_state_service
 from .skill_definitions import ALL_SKILLS
+from .coach_progression import CoachProgressionService
 
 logger = logging.getLogger(__name__)
 
@@ -390,8 +391,6 @@ def compute_coaching_data_with_progression(
         return data
 
     try:
-        from .coach_progression import CoachProgressionService
-
         service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
 
