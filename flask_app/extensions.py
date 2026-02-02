@@ -117,7 +117,7 @@ def init_limiter(app: Flask) -> Limiter:
             app=app,
             key_func=get_rate_limit_key,
             default_limits=default_limits,
-            request_filter=_skip_options_requests
+            default_limits_exempt_when=_skip_options_requests
         )
         logger.info("Rate limiter initialized with in-memory storage")
 
