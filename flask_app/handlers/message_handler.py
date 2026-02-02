@@ -138,7 +138,10 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
     socketio.emit('new_message', {'message': new_message}, to=game_id)
 
     if sleep:
-        socketio.sleep(sleep)
+        from .. import config
+        delay = sleep * config.ANIMATION_SPEED
+        if delay > 0:
+            socketio.sleep(delay)
 
 
 def format_messages_for_api(messages: list) -> list:

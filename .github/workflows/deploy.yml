@@ -28,10 +28,15 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest tests/test_prompt_management.py tests/test_functional_poker.py tests/test_state_machine_pure.py -v --tb=short
+          python -m pytest tests/ -v --tb=short
         env:
           PYTHONPATH: ${{ github.workspace }}
+          FLASK_ENV: 'development'
+          FLASK_DEBUG: '1'
+          SECRET_KEY: 'test-secret-key-for-ci'
           OPENAI_API_KEY: 'test-key-for-ci'
+          DEEPSEEK_API_KEY: 'test-key-for-ci'
+          CORS_ORIGINS: 'http://localhost:5173'
 
   test-frontend:
     name: Test Frontend (React)
@@ -71,24 +76,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - name: Run E2E tests against real backend
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.test.yml \
+            up --build --exit-code-from playwright playwright
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: react/react/package-lock.json
-
-      - name: Install dependencies
-        working-directory: react/react
-        run: npm ci
-
-      - name: Install Playwright browsers
-        working-directory: react/react
-        run: npx playwright install --with-deps chromium
-
-      - name: Run Playwright tests
-        working-directory: react/react
-        run: npx playwright test --project="Mobile Chrome" --reporter=github
+          name: playwright-report
+          path: react/react/test-results/
+          retention-days: 7
 
   deploy:
     name: Deploy to Production

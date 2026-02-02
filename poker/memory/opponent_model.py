@@ -420,8 +420,6 @@ class OpponentModelManager:
     def observe_action(self, observer: str, opponent: str, action: str,
                       phase: str, is_voluntary: bool = True, hand_number: int = None):
         """Record an action observation."""
-        if observer == opponent:
-            return  # Don't model yourself
         model = self.get_model(observer, opponent)
         model.observe_action(action, phase, is_voluntary, hand_number=hand_number)
 

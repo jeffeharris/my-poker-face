@@ -1,0 +1,45 @@
+{
+  "game_id": "test-game-123",
+  "phase": "PRE_FLOP",
+  "game_state": {
+    "players": [
+      {
+        "name": "TestPlayer",
+        "stack": 4950,
+        "bet": 50,
+        "is_human": true,
+        "is_folded": false,
+        "is_all_in": false,
+        "has_acted": false,
+        "hand": [
+          { "rank": "A", "suit": "spades" },
+          { "rank": "K", "suit": "hearts" }
+        ]
+      },
+      {
+        "name": "Batman",
+        "stack": 4975,
+        "bet": 25,
+        "is_human": false,
+        "is_folded": false,
+        "is_all_in": false,
+        "has_acted": false,
+        "hand": [
+          { "rank": "J", "suit": "diamonds" },
+          { "rank": "10", "suit": "clubs" }
+        ]
+      }
+    ],
+    "community_cards": [],
+    "pot": { "total": 75 },
+    "current_player_idx": 0,
+    "current_dealer_idx": 1,
+    "current_ante": 50,
+    "awaiting_action": true,
+    "run_it_out": false,
+    "player_options": ["fold", "call", "raise"]
+  },
+  "owner_id": "guest-123",
+  "owner_name": "TestPlayer",
+  "messages": []
+}

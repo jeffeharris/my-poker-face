@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockMenuPageRoutes, navigateToMenuPage } from '../helpers';
 
 const personalitiesResponse = {
   success: true,
@@ -31,9 +32,6 @@ const personalitiesResponse = {
   },
 };
 
-/**
- * Navigate through step 0 (fill opponents) and step 1 (settings) to reach step 2 (review).
- */
 async function navigateToStep2(page: import('@playwright/test').Page) {
   // Step 0: Fill opponents randomly
   await page.locator('.fill-btn--random').click();
@@ -50,80 +48,19 @@ async function navigateToStep2(page: import('@playwright/test').Page) {
 
 test.describe('PW-20: Custom game wizard step 2 — review and create on mobile', () => {
   test.beforeEach(async ({ page }) => {
-    // Mock auth/me to return registered user
-    await page.route('**/api/auth/me', route =>
-      route.fulfill({
-        json: {
-          user: {
-            id: 'user-456',
-            name: 'TestPlayer',
-            is_guest: false,
-            created_at: '2024-01-01',
-            permissions: ['play', 'custom_game', 'themed_game'],
-          },
-        },
-      })
-    );
-
-    // Mock personalities endpoint
-    await page.route('**/api/personalities', route =>
-      route.fulfill({ json: personalitiesResponse })
-    );
-
-    // Mock user-models endpoint
-    await page.route('**/api/user-models', route =>
-      route.fulfill({
-        json: {
-          providers: [
-            { name: 'openai', models: ['gpt-4', 'gpt-3.5-turbo'] },
-          ],
-          default_provider: 'openai',
-        },
-      })
-    );
-
-    // Mock health
-    await page.route('**/health', route =>
-      route.fulfill({ json: { status: 'ok' } })
-    );
-
-    // Mock saved games
-    await page.route('**/api/games', route =>
-      route.fulfill({ json: { games: [] } })
-    );
-
-    // Mock usage stats
-    await page.route('**/api/usage-stats*', route =>
-      route.fulfill({ json: { hands_played: 3, hands_limit: 20 } })
-    );
-
-    // Mock career stats
-    await page.route('**/api/career-stats*', route =>
-      route.fulfill({ json: { games_played: 5, games_won: 2, win_rate: 0.4, total_knockouts: 3 } })
-    );
-
-    // Mock avatar endpoint
-    await page.route('**/api/avatar/**', route =>
-      route.fulfill({
-        contentType: 'image/png',
-        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'),
-      })
-    );
-
-    // Set localStorage for registered user, then navigate
-    await page.goto('/game/new/custom', { waitUntil: 'commit' });
-    await page.evaluate(() => {
-      localStorage.setItem('currentUser', JSON.stringify({
-        id: 'user-456',
-        name: 'TestPlayer',
-        is_guest: false,
-        created_at: '2024-01-01',
-        permissions: ['play', 'custom_game', 'themed_game'],
-      }));
+    await mockMenuPageRoutes(page, {
+      isGuest: false,
+      personalities: personalitiesResponse,
+      userModels: {
+        providers: [
+          { name: 'openai', models: ['gpt-4', 'gpt-3.5-turbo'] },
+        ],
+        default_provider: 'openai',
+      },
+      includeAvatar: true,
     });
-    await page.goto('/game/new/custom');
+    await navigateToMenuPage(page, { isGuest: false, path: '/game/new/custom' });
 
-    // Navigate through steps 0 and 1 to reach step 2
     await navigateToStep2(page);
   });
 
@@ -131,24 +68,19 @@ test.describe('PW-20: Custom game wizard step 2 — review and create on mobile'
     const steps = page.locator('.wizard-step');
     await expect(steps).toHaveCount(3);
 
-    // Third step should be active
     await expect(steps.nth(2)).toHaveClass(/wizard-step--active/);
     await expect(steps.nth(2).locator('.wizard-step__label')).toContainText('Review');
   });
 
   test('review section shows selected opponents in fan layout', async ({ page }) => {
-    // Review blocks should be present
     const reviewBlocks = page.locator('.review-block');
     await expect(reviewBlocks).toHaveCount(2);
 
-    // First block is Opponents
     await expect(reviewBlocks.nth(0)).toContainText('Opponents');
 
-    // Fan layout should show the 3 randomly filled opponents
     const fanCards = page.locator('.review-fan__card');
     await expect(fanCards).toHaveCount(3);
 
-    // Each card should have a name
     const names = page.locator('.review-fan__name');
     await expect(names).toHaveCount(3);
   });
@@ -156,14 +88,11 @@ test.describe('PW-20: Custom game wizard step 2 — review and create on mobile'
   test('review section shows game settings summary', async ({ page }) => {
     const reviewBlocks = page.locator('.review-block');
 
-    // Second block is Settings
     await expect(reviewBlocks.nth(1)).toContainText('Settings');
 
-    // Settings strip should show 4 stats
     const stats = page.locator('.review-stat');
     await expect(stats).toHaveCount(4);
 
-    // Check stat labels
     await expect(page.locator('.review-stat__label').nth(0)).toContainText('Stack');
     await expect(page.locator('.review-stat__label').nth(1)).toContainText('BB');
     await expect(page.locator('.review-stat__label').nth(2)).toContainText('Mode');
@@ -174,10 +103,8 @@ test.describe('PW-20: Custom game wizard step 2 — review and create on mobile'
     const editBtns = page.locator('.review-block__edit');
     await expect(editBtns).toHaveCount(2);
 
-    // Click first Edit (Opponents)
     await editBtns.nth(0).click();
 
-    // Should return to step 0
     await expect(page.locator('.wizard-step').nth(0)).toHaveClass(/wizard-step--active/);
     await expect(page.locator('.player-count__btn').first()).toBeVisible();
   });
@@ -185,10 +112,8 @@ test.describe('PW-20: Custom game wizard step 2 — review and create on mobile'
   test('settings review block has Edit button that returns to step 1', async ({ page }) => {
     const editBtns = page.locator('.review-block__edit');
 
-    // Click second Edit (Settings)
     await editBtns.nth(1).click();
 
-    // Should return to step 1
     await expect(page.locator('.wizard-step').nth(1)).toHaveClass(/wizard-step--active/);
     await expect(page.locator('.preset-card').first()).toBeVisible();
   });
@@ -201,12 +126,10 @@ test.describe('PW-20: Custom game wizard step 2 — review and create on mobile'
   });
 
   test('clicking "Deal Me In" creates game and navigates to game page', async ({ page }) => {
-    // Mock new-game endpoint to return a game ID
     await page.route('**/api/new-game', route =>
       route.fulfill({ json: { game_id: 'test-game-123' } })
     );
 
-    // Mock game state endpoint for the created game
     await page.route('**/api/game/test-game-123/state', route =>
       route.fulfill({
         json: {
@@ -234,7 +157,6 @@ test.describe('PW-20: Custom game wizard step 2 — review and create on mobile'
       })
     );
 
-    // Mock socket.io polling
     await page.route('**/socket.io/**', route => {
       const url = route.request().url();
       if (url.includes('transport=polling') && route.request().method() === 'GET') {
@@ -251,10 +173,8 @@ test.describe('PW-20: Custom game wizard step 2 — review and create on mobile'
       }
     });
 
-    // Click "Deal Me In"
     await page.locator('.wizard-nav__btn--next.wizard-nav__btn--full').click();
 
-    // Should navigate to the game page
     await page.waitForURL(/\/game\/test-game-123/);
     await expect(page).toHaveURL(/\/game\/test-game-123/);
   });

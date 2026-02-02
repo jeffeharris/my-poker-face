@@ -7,8 +7,8 @@ from flask import Blueprint, jsonify, request
 
 from ..extensions import limiter, game_repo
 from ..services import game_state_service
-from ..services.coach_engine import compute_coaching_data
-from ..services.coach_assistant import get_or_create_coach
+from ..services.coach_engine import compute_coaching_data, compute_coaching_data_with_progression
+from ..services.coach_assistant import get_or_create_coach, get_or_create_coach_with_mode
 from .stats_routes import build_hand_context_from_recorded_hand, format_hand_context_for_prompt
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,18 @@ def _get_human_player_name(game_data: dict) -> Optional[str]:
     return None
 
 
+def _get_current_user_id() -> str:
+    """Get the current authenticated user's ID, or empty string."""
+    if not auth_manager:
+        return ''
+    user = auth_manager.get_current_user()
+    if not user:
+        return ''
+    if isinstance(user, dict):
+        return user.get('id', '')
+    return getattr(user, 'id', '')
+
+
 @coach_bp.route('/api/coach/<game_id>/stats')
 @limiter.limit("30/minute")
 def coach_stats(game_id: str):
@@ -37,7 +49,11 @@ def coach_stats(game_id: str):
     if not player_name:
         return jsonify({'error': 'No human player found'}), 400
 
-    data = compute_coaching_data(game_id, player_name, game_data=game_data)
+    user_id = _get_current_user_id()
+    data = compute_coaching_data_with_progression(
+        game_id, player_name, user_id=user_id,
+        game_data=game_data, persistence=persistence,
+    )
     if data is None:
         return jsonify({'error': 'Could not compute stats'}), 500
 
@@ -64,10 +80,24 @@ def coach_ask(game_id: str):
     if request_type != 'proactive_tip' and not question:
         return jsonify({'error': 'No question provided'}), 400
 
-    # Compute current stats
-    stats = compute_coaching_data(game_id, player_name, game_data=game_data)
+    # Compute current stats with progression context
+    user_id = _get_current_user_id()
+    stats = compute_coaching_data_with_progression(
+        game_id, player_name, user_id=user_id,
+        game_data=game_data, persistence=persistence,
+    )
 
-    coach = get_or_create_coach(game_data, game_id, player_name=request_player_name or player_name)
+    # Use mode-aware coach if progression data is available
+    progression = (stats or {}).get('progression', {})
+    coaching_mode = progression.get('coaching_mode', '')
+    coaching_prompt = progression.get('coaching_prompt', '')
+
+    coach = get_or_create_coach_with_mode(
+        game_data, game_id,
+        player_name=request_player_name or player_name,
+        mode=coaching_mode,
+        skill_context=coaching_prompt,
+    )
 
     try:
         if request_type == 'proactive_tip':
@@ -161,3 +191,68 @@ def coach_hand_review(game_id: str):
         'review': review,
         'hand_number': getattr(hand, 'hand_number', None),
     })
+
+
+@coach_bp.route('/api/coach/<game_id>/progression')
+@limiter.limit("30/minute")
+def coach_progression(game_id: str):
+    """Return the player's skill progression state."""
+    user_id = _get_current_user_id()
+    if not user_id:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    try:
+        from ..services.coach_progression import CoachProgressionService
+        service = CoachProgressionService(persistence)
+        state = service.get_or_initialize_player(user_id)
+
+        return jsonify({
+            'skill_states': {
+                sid: {
+                    'state': ss.state.value,
+                    'total_opportunities': ss.total_opportunities,
+                    'total_correct': ss.total_correct,
+                    'window_accuracy': round(ss.window_accuracy, 2),
+                    'streak_correct': ss.streak_correct,
+                }
+                for sid, ss in state['skill_states'].items()
+            },
+            'gate_progress': {
+                str(gn): {
+                    'unlocked': gp.unlocked,
+                    'unlocked_at': gp.unlocked_at,
+                }
+                for gn, gp in state['gate_progress'].items()
+            },
+            'profile': state['profile'],
+        })
+    except Exception as e:
+        logger.error(f"Coach progression failed: {e}", exc_info=True)
+        return jsonify({'error': 'Could not load progression'}), 500
+
+
+@coach_bp.route('/api/coach/<game_id>/onboarding', methods=['POST'])
+@limiter.limit("5/minute")
+def coach_onboarding(game_id: str):
+    """Initialize or update the player's coaching profile."""
+    user_id = _get_current_user_id()
+    if not user_id:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    body = request.get_json(silent=True) or {}
+    level = body.get('level', 'beginner')
+    if level not in ('beginner', 'intermediate', 'experienced'):
+        return jsonify({'error': 'Invalid level'}), 400
+
+    try:
+        from ..services.coach_progression import CoachProgressionService
+        service = CoachProgressionService(persistence)
+        state = service.initialize_player(user_id, level=level)
+
+        return jsonify({
+            'status': 'ok',
+            'profile': state['profile'],
+        })
+    except Exception as e:
+        logger.error(f"Coach onboarding failed: {e}", exc_info=True)
+        return jsonify({'error': 'Onboarding failed'}), 500

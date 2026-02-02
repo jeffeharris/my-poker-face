@@ -5,7 +5,8 @@ with a poker-coaching system prompt and stat formatting.
 """
 
 import logging
-from typing import Dict
+from collections import defaultdict
+from typing import Dict, List
 
 from core.llm.assistant import Assistant
 from core.llm.tracking import CallType
@@ -25,6 +26,28 @@ Rules:
 - Use poker terminology naturally but explain concepts for beginners when asked
 """
 
+LEARN_MODE_PROMPT = """\
+You are in TEACHING mode. The player is learning a new poker concept.
+- Explain the concept clearly and simply
+- Use examples from the current hand to illustrate
+- Be encouraging — they're building a new habit
+- Keep explanations to 2-3 sentences max
+"""
+
+COMPETE_MODE_PROMPT = """\
+You are in COMPETE mode. The player already understands the concept.
+- Give brief, actionable reminders (1 sentence)
+- Focus on execution, not explanation
+- Trust that they know the theory
+"""
+
+REVIEW_MODE_PROMPT = """\
+You are in REVIEW mode. Analyze what just happened.
+- Reference the specific skill being practiced
+- Note whether the action was correct for the concept
+- Give one concrete takeaway
+"""
+
 PROACTIVE_TIP_PROMPT = """\
 Given these stats, provide a brief 1-2 sentence coaching tip for the player's current situation. \
 Focus on the most important decision factor right now. Be direct and actionable.\
@@ -42,13 +65,26 @@ Be honest — if they played well, say so briefly. If they made an error, explai
 """
 
 
+_MODE_PROMPTS = {
+    'learn': LEARN_MODE_PROMPT,
+    'compete': COMPETE_MODE_PROMPT,
+    'review': REVIEW_MODE_PROMPT,
+}
+
+
 class CoachAssistant:
     """LLM-powered poker coaching assistant."""
 
-    def __init__(self, game_id: str, owner_id: str, player_name: str = ''):
+    def __init__(self, game_id: str, owner_id: str, player_name: str = '',
+                 mode: str = '', skill_context: str = ''):
+        self.mode = mode
         system_prompt = COACH_SYSTEM_PROMPT
         if player_name:
             system_prompt += f"\nThe player's name is {player_name}. Address them by name occasionally."
+        if mode and mode in _MODE_PROMPTS:
+            system_prompt += f"\n\n{_MODE_PROMPTS[mode]}"
+        if skill_context:
+            system_prompt += f"\n\n{skill_context}"
         self._assistant = Assistant(
             system_prompt=system_prompt,
             provider=get_default_provider(),
@@ -132,7 +168,66 @@ def _format_stats_for_prompt(data: Dict) -> str:
                 parts.append(f"{opp['hands_observed']} hands")
             lines.append(f"  - {', '.join(parts)}")
 
+    # Hand timeline (actions so far this hand)
+    timeline = _format_hand_timeline(
+        data.get('hand_actions', []),
+        data.get('hand_community_cards', []),
+    )
+    if timeline:
+        lines.append(f"\nHand timeline:\n{timeline}")
+
     return '\n'.join(lines)
+
+
+def _format_hand_timeline(actions: List[Dict], community_cards: List[str]) -> str:
+    """Format in-progress hand actions into a readable timeline.
+
+    Args:
+        actions: List of action dicts (from RecordedAction.to_dict()).
+        community_cards: Community card strings dealt so far.
+    """
+    if not actions:
+        return ''
+
+    phases = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER']
+    actions_by_phase: Dict[str, list] = defaultdict(list)
+    for a in actions:
+        actions_by_phase[a['phase']].append(a)
+
+    phase_cards = {
+        'FLOP': community_cards[0:3] if len(community_cards) >= 3 else [],
+        'TURN': [community_cards[3]] if len(community_cards) >= 4 else [],
+        'RIVER': [community_cards[4]] if len(community_cards) >= 5 else [],
+    }
+
+    parts = []
+    for phase in phases:
+        phase_actions = actions_by_phase.get(phase, [])
+        if not phase_actions:
+            continue
+
+        cards = phase_cards.get(phase, [])
+        header = f"{phase} [{' '.join(cards)}]" if cards else phase
+
+        action_strs = []
+        for a in phase_actions:
+            name = a['player_name']
+            act = a['action']
+            amount = a['amount']
+            if act in ('fold', 'check'):
+                action_strs.append(f"{name} {'folded' if act == 'fold' else 'checked'}")
+            elif act == 'call':
+                action_strs.append(f"{name} called" + (f" ${amount}" if amount > 0 else ""))
+            elif act in ('raise', 'bet'):
+                action_strs.append(f"{name} {'raised' if act == 'raise' else 'bet'} ${amount}")
+            elif act == 'all_in':
+                action_strs.append(f"{name} went all-in (${amount})")
+            else:
+                action_strs.append(f"{name} {act}")
+
+        parts.append(f"  {header}: {', '.join(action_strs)}")
+
+    return '\n'.join(parts)
 
 
 def get_or_create_coach(game_data: dict, game_id: str,
@@ -142,3 +237,26 @@ def get_or_create_coach(game_data: dict, game_id: str,
         owner_id = game_data.get('owner_id', '')
         game_data['coach_assistant'] = CoachAssistant(game_id, owner_id, player_name=player_name)
     return game_data['coach_assistant']
+
+
+def get_or_create_coach_with_mode(
+    game_data: dict,
+    game_id: str,
+    player_name: str = '',
+    mode: str = '',
+    skill_context: str = '',
+) -> CoachAssistant:
+    """Get or create a CoachAssistant, replacing it when mode changes."""
+    existing = game_data.get('coach_assistant')
+    if existing and getattr(existing, 'mode', '') == mode:
+        return existing
+
+    owner_id = game_data.get('owner_id', '')
+    coach = CoachAssistant(
+        game_id, owner_id,
+        player_name=player_name,
+        mode=mode,
+        skill_context=skill_context,
+    )
+    game_data['coach_assistant'] = coach
+    return coach

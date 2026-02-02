@@ -168,17 +168,17 @@ class AIMemoryManager:
             self._players_facing_cbet.discard(player_name)
             logger.debug(f"{player_name} {'folded to' if folded else 'called/raised'} c-bet")
 
-        # Update opponent models for all AI observers
+        # Update opponent models for all observers (including self-observation
+        # for coaching stats like VPIP/PFR)
         for observer in self.initialized_players:
-            if observer != player_name:
-                self.opponent_model_manager.observe_action(
-                    observer=observer,
-                    opponent=player_name,
-                    action=action,
-                    phase=phase,
-                    is_voluntary=(action not in ('sb', 'bb')),
-                    hand_number=self.hand_count
-                )
+            self.opponent_model_manager.observe_action(
+                observer=observer,
+                opponent=player_name,
+                action=action,
+                phase=phase,
+                is_voluntary=(action not in ('sb', 'bb')),
+                hand_number=self.hand_count
+            )
 
     def on_community_cards(self, phase: str, cards: List[str]) -> None:
         """Record community cards dealt.

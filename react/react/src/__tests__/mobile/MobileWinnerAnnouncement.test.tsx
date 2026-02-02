@@ -23,16 +23,6 @@ vi.mock('../../utils/api', () => ({
   },
 }));
 
-// Mock logger
-vi.mock('../../utils/logger', () => ({
-  logger: {
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-  },
-}));
-
 function makeShowdownWinnerInfo(overrides = {}) {
   return {
     winners: ['Batman'],

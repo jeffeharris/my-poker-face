@@ -8,11 +8,21 @@ import unittest
 from unittest.mock import Mock, patch
 import json
 from poker.poker_player import AIPokerPlayer
+from tests.conftest import load_personality_from_json
 
 
 class TestPersonalityResponses(unittest.TestCase):
     """Test how different personalities respond to identical game situations."""
-    
+
+    def setUp(self):
+        # Patch personality loading to use JSON file directly (no DB/LLM needed)
+        patcher = patch.object(
+            AIPokerPlayer, '_load_personality_config',
+            lambda self: load_personality_from_json(self.name)
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def create_mock_response(self, personality_name, scenario):
         """Create a mock AI response based on personality traits."""
         # Load actual personality config

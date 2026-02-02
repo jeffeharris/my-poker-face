@@ -15,6 +15,16 @@ is_development = (flask_env == 'development' or flask_debug == '1')
 # AI Debug mode - enables LLM stats on player cards
 enable_ai_debug = os.environ.get('ENABLE_AI_DEBUG', 'false').lower() == 'true'
 
+# Animation speed multiplier — 1.0 is normal, 0 disables all pacing delays
+ANIMATION_SPEED = float(os.environ.get('ANIMATION_SPEED', '1.0'))
+
+# AI decision mode — 'llm' for real LLM calls, 'fallback_random' for instant random actions
+AI_DECISION_MODE = os.environ.get('AI_DECISION_MODE', 'llm')
+
+# Optional expensive background features (avatar generation, post-hand commentary)
+ENABLE_AVATAR_GENERATION = os.environ.get('ENABLE_AVATAR_GENERATION', 'true').lower() == 'true'
+ENABLE_AI_COMMENTARY = os.environ.get('ENABLE_AI_COMMENTARY', 'true').lower() == 'true'
+
 # Secret key
 if is_development:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-not-for-production')
@@ -34,8 +44,12 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 # CORS configuration
 CORS_ORIGINS_ENV = os.environ.get('CORS_ORIGINS', '*')
 
-# Rate limiting configuration
-RATE_LIMIT_DEFAULT = ['10000 per day', '1000 per hour', '100 per minute']
+# Rate limiting configuration (all env-var overridable)
+_rate_limit_default_env = os.environ.get('RATE_LIMIT_DEFAULT')
+if _rate_limit_default_env is not None:
+    RATE_LIMIT_DEFAULT = [s.strip() for s in _rate_limit_default_env.split(';') if s.strip()]
+else:
+    RATE_LIMIT_DEFAULT = ['10000 per day', '1000 per hour', '100 per minute']
 RATE_LIMIT_NEW_GAME = os.environ.get('RATE_LIMIT_NEW_GAME', '10 per hour')
 RATE_LIMIT_GAME_ACTION = os.environ.get('RATE_LIMIT_GAME_ACTION', '60 per minute')
 RATE_LIMIT_CHAT_SUGGESTIONS = os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour')

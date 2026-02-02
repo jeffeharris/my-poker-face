@@ -1,0 +1,41 @@
+# Override for E2E testing: fast LLM-free backend + Playwright runner.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up --build --exit-code-from playwright playwright
+#
+services:
+  backend:
+    environment:
+      - ANIMATION_SPEED=0
+      - AI_DECISION_MODE=fallback_random
+      - ENABLE_AVATAR_GENERATION=false
+      - ENABLE_AI_COMMENTARY=false
+      - ENABLE_TEST_ROUTES=true
+      - RATE_LIMIT_DEFAULT=
+      - RATE_LIMIT_NEW_GAME=99999 per minute
+      - RATE_LIMIT_GAME_ACTION=99999 per minute
+      - RATE_LIMIT_CHAT_SUGGESTIONS=99999 per minute
+      - RATE_LIMIT_GENERATE_PERSONALITY=99999 per minute
+
+  frontend:
+    environment:
+      - VITE_BACKEND_PORT=5173
+      # Vite proxy forwards /api and /socket.io to backend
+      - VITE_BACKEND_URL=http://backend:5000
+
+  playwright:
+    build:
+      context: ./react/react
+      dockerfile: Dockerfile.playwright
+    environment:
+      - CI=true
+      - BASE_URL=http://frontend:5173
+      - BACKEND_URL=http://backend:5000
+      - TEST_MODE=real
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    networks:
+      - poker-network
