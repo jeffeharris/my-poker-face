@@ -130,8 +130,8 @@ export function MobileChatSheet({
   const dragStartY = useRef(0);
   const dragCurrentY = useRef(0);
   const isDragging = useRef(false);
-  const dragTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const snapTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const dragTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const snapTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Track whether the sheet just opened vs already open
   const wasOpenRef = useRef(false);
