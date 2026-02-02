@@ -97,6 +97,21 @@ export function useCoach({
     }
   }, [gameId]);
 
+  const fetchProgression = useCallback(async () => {
+    if (!gameId) return;
+    try {
+      const res = await fetch(`${config.API_URL}/api/coach/${gameId}/progression`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProgressionFull(data as ProgressionState);
+      }
+    } catch {
+      /* non-critical */
+    }
+  }, [gameId]);
+
   const refreshStats = useCallback(async () => {
     if (!gameId || mode === 'off') return;
     try {
@@ -123,12 +138,15 @@ export function useCoach({
             }
           }
           prevSkillStatesRef.current = prog.skill_states;
+
+          // Keep full progression in sync so detail view matches strip
+          fetchProgression();
         }
       }
     } catch {
       /* non-critical */
     }
-  }, [gameId, mode]);
+  }, [gameId, mode, fetchProgression]);
 
   const fetchProactiveTip = useCallback(async () => {
     if (!gameId) return;
@@ -243,20 +261,7 @@ export function useCoach({
     setHasUnreadReview(false);
   }, []);
 
-  const fetchProgression = useCallback(async () => {
-    if (!gameId) return;
-    try {
-      const res = await fetch(`${config.API_URL}/api/coach/${gameId}/progression`, {
-        credentials: 'include',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setProgressionFull(data as ProgressionState);
-      }
-    } catch {
-      /* non-critical */
-    }
-  }, [gameId]);
+
 
   const skipAhead = useCallback(async (level: string) => {
     if (!gameId) return;
