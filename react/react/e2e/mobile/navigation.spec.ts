@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockGamePageRoutes, navigateToMenuPage, buildGameState } from '../helpers';
+import { mockGamePageRoutes, buildGameState } from '../helpers';
 
 test.describe('PW-17: Mobile navigation — back button returns to menu', () => {
 
