@@ -7,7 +7,7 @@ Guide for working with the React frontend of My Poker Face.
 - **Framework**: React 18 with TypeScript
 - **Build Tool**: Vite
 - **Styling**: Tailwind CSS + component CSS files
-- **State Management**: React Context API (`GameContext`)
+- **State Management**: Custom hooks (`usePokerGame`, `useGameState`)
 - **Real-time**: Socket.IO client
 - **Animations**: Framer Motion
 - **Routing**: React Router v7
@@ -23,8 +23,7 @@ Guide for working with the React frontend of My Poker Face.
 - **Deployment**: Docker + Caddy reverse proxy (not Vercel/Netlify)
 
 ### Key Patterns
-- `GameContext` (`src/contexts/GameContext.tsx`) is the central state manager — handles WebSocket, HTTP API, state, and message dedup
-- `usePokerGame` hook (`src/hooks/usePokerGame.ts`) manages socket events, game state, messages, winners, and tournaments
+- `usePokerGame` hook (`src/hooks/usePokerGame.ts`) is the central game state manager — socket events, game state, messages, winners, and tournaments
 - Route-level code splitting via `React.lazy` for admin and secondary pages
 - `ErrorBoundary` component for graceful error handling
 - `useOnlineStatus` hook for offline detection
@@ -56,8 +55,7 @@ react/react/src/
 │   ├── mobile/         # Mobile-specific components
 │   ├── pwa/            # PWA install prompt
 │   └── shared/         # Reusable UI components
-├── contexts/
-│   └── GameContext.tsx  # Central game state + WebSocket management
+├── contexts/           # React contexts (auth, theme)
 ├── hooks/              # Custom hooks (usePokerGame, useSocket, useAuth, etc.)
 ├── types/              # TypeScript type definitions
 ├── utils/              # Utility functions
@@ -89,8 +87,7 @@ cd react/react && npm run lint
 | File | Purpose |
 |------|---------|
 | `src/App.tsx` | Root routing, lazy-loaded routes |
-| `src/contexts/GameContext.tsx` | Game state, WebSocket, API calls |
-| `src/hooks/usePokerGame.ts` | Socket events, game flow management |
+| `src/hooks/usePokerGame.ts` | Game state, socket events, messages, game flow |
 | `src/hooks/useSocket.ts` | Socket.IO connection management |
 | `src/components/game/GamePage.tsx` | Main game view |
 | `src/types/game.ts` | Game state TypeScript types |

@@ -98,7 +98,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-25 | No keyboard navigation for poker actions | PokerTable components | Mouse/touch only. Keyboard-only users can't play. | |
 | T2-26 | No code splitting | `react/src/App.tsx:286-371` | All routes imported synchronously. Admin panel code loaded for all users (~500KB+ unnecessary). | **FIXED** — React.lazy for 11 route components; core path (GamePage, GameMenu, LoginForm) stays eager |
 | T2-27 | `GameContext` violates SoC | `react/src/contexts/GameContext.tsx` | WebSocket, HTTP API, state management, message dedup all in one file. Hard to test or debug. | |
-| T2-28 | Duplicate socket event handling | `GameContext.tsx` + `usePokerGame.ts` | Both handle socket events independently. Confusing ownership, potential conflicts. | |
+| T2-28 | Duplicate socket event handling | `GameContext.tsx` + `usePokerGame.ts` | Both handle socket events independently. Confusing ownership, potential conflicts. | **FIXED** — deleted unused `GameContext.tsx`; `usePokerGame` is the sole socket handler |
 
 ### DevOps
 
@@ -184,9 +184,9 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 33 | 19 | 1 | 13 |
+| **Tier 2: Should-Fix** | 33 | 20 | 1 | 12 |
 | **Tier 3: Post-Release** | 35 | 19 | 1 | 15 |
-| **Total** | **89** | **51** | **9** | **28** |
+| **Total** | **89** | **52** | **9** | **27** |
 
 ## Key Architectural Insight
 
