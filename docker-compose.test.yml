@@ -31,7 +31,7 @@ services:
       - CI=true
       - BASE_URL=http://frontend:5173
       - BACKEND_URL=http://backend:5000
-      - TEST_MODE=real
+      - TEST_MODE=${TEST_MODE:-mock}
     depends_on:
       backend:
         condition: service_healthy

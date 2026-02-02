@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'E2E test mode (mock = browser mocks, real = full stack)'
+        required: false
+        default: 'mock'
+        type: choice
+        options:
+          - mock
+          - real
 
 jobs:
   test-backend:
@@ -86,8 +95,9 @@ jobs:
             'CORS_ORIGINS=*' \
             > .env
 
-      - name: Run E2E tests against real backend
+      - name: Run E2E tests
         run: |
+          TEST_MODE=${{ inputs.test_mode || 'mock' }} \
           docker compose -f docker-compose.yml -f docker-compose.test.yml \
             up --build --exit-code-from playwright playwright
 
