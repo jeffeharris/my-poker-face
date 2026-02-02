@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { memo, useState, useEffect, type ReactNode } from 'react';
 import { Target, Flame, Square, Phone, Search, Frown, Angry, Meh, Smile, type LucideIcon } from 'lucide-react';
 import type { Player } from '../../types';
 import { logger } from '../../utils/logger';
@@ -37,7 +37,7 @@ interface HeadsUpOpponentPanelProps {
   humanPlayerName?: string;
 }
 
-export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: HeadsUpOpponentPanelProps) {
+export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: HeadsUpOpponentPanelProps) {
   const [opponentStats, setOpponentStats] = useState<PlayerSummary | null>(null);
   const [observation, setObservation] = useState<OpponentObservation | null>(null);
 
@@ -238,4 +238,4 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
       )}
     </div>
   );
-}
+});

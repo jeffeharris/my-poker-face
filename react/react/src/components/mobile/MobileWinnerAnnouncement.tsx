@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { memo, useEffect, useState, useCallback } from "react";
 import { PartyPopper, Smile, Angry, Handshake, ArrowLeft, Check, type LucideIcon } from "lucide-react";
 import { Card } from "../cards";
 import { gameAPI } from "../../utils/api";
@@ -77,7 +77,7 @@ const LOSER_TONES: ToneOption[] = [
     { id: 'gracious', icon: Handshake, label: 'Gracious' },
 ];
 
-export function MobileWinnerAnnouncement({
+export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
     winnerInfo,
     onComplete,
     gameId,
@@ -378,4 +378,4 @@ export function MobileWinnerAnnouncement({
             </div>
         </div>
     );
-}
+});

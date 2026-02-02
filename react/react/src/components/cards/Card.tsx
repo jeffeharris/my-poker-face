@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { type Card as CardType, parseCard, cardFromBackend, getCardImagePathForPack } from '../../utils/cards';
 import { useDeckPack } from '../../hooks/useDeckPack';
 import { logger } from '../../utils/logger';
@@ -16,7 +17,7 @@ interface CardProps {
   className?: string;
 }
 
-export function Card({ card, faceDown = false, size = 'medium', className = '' }: CardProps) {
+export const Card = memo(function Card({ card, faceDown = false, size = 'medium', className = '' }: CardProps) {
   const { activePackId } = useDeckPack();
 
   // Handle different card input types
@@ -75,7 +76,7 @@ export function Card({ card, faceDown = false, size = 'medium', className = '' }
       <img src={imagePath} alt={`${cardObj.rank} of ${cardObj.suit}`} className="card-image" />
     </div>
   );
-}
+});
 
 // Specialized components
 export function CommunityCard({ card, revealed = false }: { card?: CardType | BackendCard | string | null, revealed?: boolean }) {

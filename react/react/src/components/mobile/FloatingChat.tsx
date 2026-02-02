@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, forwardRef } from 'react';
+import { memo, useEffect, useState, useRef, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatMessage, Player } from '../../types';
 import { config } from '../../config';
@@ -228,7 +228,7 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
 // How many messages can have active timers (visible zone)
 const ACTIVE_MESSAGE_LIMIT = 2;
 
-export function FloatingChat({ message, onDismiss, players = [] }: Omit<FloatingChatProps, 'duration'>) {
+export const FloatingChat = memo(function FloatingChat({ message, onDismiss, players = [] }: Omit<FloatingChatProps, 'duration'>) {
   const [messages, setMessages] = useState<MessageWithMeta[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
   // Keep a ref to current messages for timer callbacks (avoids stale closures)
@@ -348,4 +348,4 @@ export function FloatingChat({ message, onDismiss, players = [] }: Omit<Floating
       </AnimatePresence>
     </div>
   );
-}
+});

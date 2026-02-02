@@ -5,6 +5,7 @@ import type { ChatMessage, GameState, WinnerInfo, BackendChatMessage } from '../
 import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { useGameStore, selectGameState } from '../stores/gameStore';
 
 interface UsePokerGameOptions {
   gameId: string | null;
@@ -67,7 +68,12 @@ export function usePokerGame({
   onNewAiMessage,
   onGameLoadFailed,
 }: UsePokerGameOptions): UsePokerGameResult {
-  const [gameState, setGameState] = useState<GameState | null>(null);
+  // Game state lives in Zustand store for granular subscriptions
+  const applyGameState = useGameStore(state => state.applyGameState);
+  const updateStorePlayers = useGameStore(state => state.updatePlayers);
+  const updateStorePlayerOptions = useGameStore(state => state.updatePlayerOptions);
+  const gameState = useGameStore(selectGameState);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
@@ -130,7 +136,7 @@ export function usePokerGame({
         ...data.game_state,
         messages: data.game_state.messages || []
       };
-      setGameState(transformedState);
+      applyGameState(transformedState);
 
       if (data.game_state.messages) {
         const newMessages = data.game_state.messages.filter((msg: ChatMessage) => {
@@ -215,13 +221,7 @@ export function usePokerGame({
         return; // Action will trigger new state update
       }
 
-      setGameState(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          player_options: data.current_player_options
-        };
-      });
+      updateStorePlayerOptions(data.current_player_options);
     });
 
     socket.on('winner_announcement', (data: WinnerInfo) => {
@@ -264,31 +264,28 @@ export function usePokerGame({
         avatarCacheRef.current[data.player_name] = {};
       }
       avatarCacheRef.current[data.player_name][data.avatar_emotion] = data.avatar_url;
-      setGameState(prev => {
+      updateStorePlayers(prev => {
         if (!prev) return prev;
-        return {
-          ...prev,
-          players: prev.players.map(player => {
-            if (player.name !== data.player_name) return player;
-            // Always apply if player has no avatar yet
-            if (!player.avatar_url) {
-              return { ...player, avatar_url: data.avatar_url, avatar_emotion: data.avatar_emotion };
-            }
-            // Apply if the generated emotion matches what the player is currently showing
-            if (player.avatar_emotion === data.avatar_emotion) {
-              return { ...player, avatar_url: data.avatar_url };
-            }
-            // Check cache: if the player's current emotion was previously generated, use it
-            const cachedUrl = avatarCacheRef.current[player.name]?.[player.avatar_emotion || ''];
-            if (cachedUrl && player.avatar_url !== cachedUrl) {
-              return { ...player, avatar_url: cachedUrl };
-            }
-            return player;
-          })
-        };
+        return prev.map(player => {
+          if (player.name !== data.player_name) return player;
+          // Always apply if player has no avatar yet
+          if (!player.avatar_url) {
+            return { ...player, avatar_url: data.avatar_url, avatar_emotion: data.avatar_emotion };
+          }
+          // Apply if the generated emotion matches what the player is currently showing
+          if (player.avatar_emotion === data.avatar_emotion) {
+            return { ...player, avatar_url: data.avatar_url };
+          }
+          // Check cache: if the player's current emotion was previously generated, use it
+          const cachedUrl = avatarCacheRef.current[player.name]?.[player.avatar_emotion || ''];
+          if (cachedUrl && player.avatar_url !== cachedUrl) {
+            return { ...player, avatar_url: cachedUrl };
+          }
+          return player;
+        });
       });
     });
-  }, [onNewAiMessage, clearAiThinkingTimeout]);
+  }, [onNewAiMessage, clearAiThinkingTimeout, applyGameState, updateStorePlayers, updateStorePlayerOptions]);
 
   // refreshGameState: silent=true means don't touch loading state (for reconnections)
   const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
@@ -307,7 +304,7 @@ export function usePokerGame({
 
       const currentPlayer = data.players[data.current_player_idx];
 
-      setGameState(data);
+      applyGameState(data);
       if (!silent) {
         setLoading(false);
       }
@@ -327,7 +324,7 @@ export function usePokerGame({
       logger.error('Failed to refresh game state:', err);
       return false;
     }
-  }, [clearAiThinkingTimeout]);
+  }, [clearAiThinkingTimeout, applyGameState]);
 
   const createSocket = useCallback((gId: string) => {
     const socket = io(config.SOCKET_URL, {
