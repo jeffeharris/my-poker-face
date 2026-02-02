@@ -152,33 +152,35 @@ def _feed_strategic_reflection(memory_manager, player_name: str, reflection: str
         logger.debug(f"[SessionMemory] Added reflection for {player_name}")
 
 
-def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
+def restore_ai_controllers(game_id: str, state_machine, game_repo,
                            owner_id: str = None,
                            player_llm_configs: Dict[str, Dict] = None,
-                           default_llm_config: Dict = None) -> Dict[str, AIPlayerController]:
+                           default_llm_config: Dict = None,
+                           experiment_repo=None) -> Dict[str, AIPlayerController]:
     """Restore AI controllers with their saved state.
 
     Args:
         game_id: The game identifier
         state_machine: The game's state machine
-        persistence_layer: The persistence layer instance
+        game_repo: GameRepository for loading AI/controller/emotional states
         owner_id: The owner/user ID for tracking
         player_llm_configs: Per-player LLM configs (provider, model, etc.)
         default_llm_config: Default LLM config for players without specific config
+        experiment_repo: ExperimentRepository for AI decision tracking
 
     Returns:
         Dictionary mapping player names to their AI controllers
     """
     ai_controllers = {}
-    ai_states = persistence_layer.load_ai_player_states(game_id)
+    ai_states = game_repo.load_ai_player_states(game_id)
     player_llm_configs = player_llm_configs or {}
     default_llm_config = default_llm_config or {}
 
     controller_states = {}
     emotional_states = {}
     try:
-        controller_states = persistence_layer.load_all_controller_states(game_id)
-        emotional_states = persistence_layer.load_all_emotional_states(game_id)
+        controller_states = game_repo.load_all_controller_states(game_id)
+        emotional_states = game_repo.load_all_emotional_states(game_id)
     except Exception as e:
         logger.warning(f"Could not load controller/emotional states: {e}")
 
@@ -192,7 +194,7 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
                 llm_config=llm_config,
                 game_id=game_id,
                 owner_id=owner_id,
-                persistence=persistence_layer
+                experiment_repo=experiment_repo
             )
 
             if player.name in ai_states:
@@ -1031,7 +1033,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'tournament_tracker' in game_data:
-            tournament_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
+            game_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
         return game_state, True
 
     # Check tournament completion
@@ -1045,7 +1047,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'tournament_tracker' in game_data:
-            tournament_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
+            game_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
         return game_state, True
 
     # Wait for commentary to complete before starting new hand
@@ -1093,7 +1095,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
     game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     if 'tournament_tracker' in game_data:
-        tournament_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
+        game_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
 
     limit_reached = _track_guest_hand(game_id, game_data)
     if limit_reached:

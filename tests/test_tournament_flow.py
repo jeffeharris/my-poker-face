@@ -155,7 +155,7 @@ class TestTournamentTrackerPersistence(unittest.TestCase):
     def setUp(self):
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         repos = create_repos(self.test_db.name)
-        self.tournament_repo = repos['tournament_repo']
+        self.game_repo = repos['game_repo']
         self.game_id = 'test_tournament_123'
 
     def tearDown(self):
@@ -182,10 +182,10 @@ class TestTournamentTrackerPersistence(unittest.TestCase):
         tracker.biggest_pot = 1200
 
         # Save
-        self.tournament_repo.save_tournament_tracker(self.game_id, tracker)
+        self.game_repo.save_tournament_tracker(self.game_id, tracker)
 
         # Load
-        tracker_data = self.tournament_repo.load_tournament_tracker(self.game_id)
+        tracker_data = self.game_repo.load_tournament_tracker(self.game_id)
         loaded_tracker = TournamentTracker.from_dict(tracker_data)
 
         # Assert
@@ -212,8 +212,8 @@ class TestTournamentTrackerPersistence(unittest.TestCase):
             starting_players=starting_players
         )
 
-        self.tournament_repo.save_tournament_tracker(self.game_id, tracker)
-        tracker_data = self.tournament_repo.load_tournament_tracker(self.game_id)
+        self.game_repo.save_tournament_tracker(self.game_id, tracker)
+        tracker_data = self.game_repo.load_tournament_tracker(self.game_id)
         loaded_tracker = TournamentTracker.from_dict(tracker_data)
 
         self.assertEqual(len(loaded_tracker.eliminations), 0)

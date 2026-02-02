@@ -367,7 +367,8 @@ def api_game_state(game_id):
                     game_id, state_machine, game_repo,
                     owner_id=owner_id,
                     player_llm_configs=llm_configs.get('player_llm_configs'),
-                    default_llm_config=llm_configs.get('default_llm_config')
+                    default_llm_config=llm_configs.get('default_llm_config'),
+                    experiment_repo=experiment_repo
                 )
                 db_messages = game_repo.load_messages(game_id)
 
@@ -411,7 +412,7 @@ def api_game_state(game_id):
                 memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
 
                 # Try to load tournament tracker from database, or create new one
-                tracker_data = tournament_repo.load_tournament_tracker(game_id)
+                tracker_data = game_repo.load_tournament_tracker(game_id)
                 if tracker_data:
                     tournament_tracker = TournamentTracker.from_dict(tracker_data)
                     logger.info(f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations")
@@ -740,7 +741,7 @@ def api_new_game():
         owner_id = current_user.get('id')
         owner_name = current_user.get('name')
 
-        game_count = game_repo.count_user_games(owner_id)
+        game_count = user_repo.count_user_games(owner_id)
 
         # Use guest-specific limits if applicable
         if is_guest(current_user):
@@ -758,7 +759,7 @@ def api_new_game():
                 }), 400
 
         # Prevent duplicate game creation from rapid clicks
-        last_created = game_repo.get_last_game_creation_time(owner_id)
+        last_created = user_repo.get_last_game_creation_time(owner_id)
         if last_created is not None and (time.time() - last_created) < 3:
             return jsonify({
                 'error': 'Please wait a moment before creating another game.'
@@ -948,14 +949,14 @@ def api_new_game():
         game_id, state_machine._state_machine, owner_id, owner_name,
         llm_configs={'player_llm_configs': player_llm_configs, 'default_llm_config': default_llm_config}
     )
-    tournament_repo.save_tournament_tracker(game_id, tournament_tracker)
+    game_repo.save_tournament_tracker(game_id, tournament_tracker)
     game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
     if config.ENABLE_AVATAR_GENERATION:
         start_background_avatar_generation(game_id, ai_player_names)
 
     # Record game creation timestamp to prevent rapid duplicate creation
     if owner_id:
-        game_repo.update_last_game_creation_time(owner_id, time.time())
+        user_repo.update_last_game_creation_time(owner_id, time.time())
 
     return jsonify({'game_id': game_id})
 
