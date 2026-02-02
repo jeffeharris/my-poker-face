@@ -56,7 +56,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T2-01 | Immutable/mutable confusion | `poker/poker_state_machine.py:458-485` | State machine provides BOTH immutable methods (`with_game_state()`) and mutable setters. Callers can't reason about behavior. Pick one paradigm. | |
+| T2-01 | ~~Immutable/mutable confusion~~ | `poker/poker_state_machine.py` | **Demoted to Tier 3** — see T3-35. Inner core is genuinely immutable; mutable wrapper is a thin convenience layer. Cognitive overhead only, no bug risk. | |
 | T2-02 | Adapter reimplements core logic | `flask_app/game_adapter.py:20-44` | `current_player_options` duplicated with incomplete version (missing raise caps, heads-up rules, BB special case). Should delegate to core. | |
 | T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locks already in place. Remaining gaps only matter with multiple workers. | |
 | T2-04 | Config scattered across 6+ locations | `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` | No single source of truth. Settings can conflict. | |
@@ -151,6 +151,7 @@ Issues to address once live, during ongoing development.
 | T3-18 | Circular import workarounds | `flask_app/__init__.py:35-36`, `capture_config.py`, `persistence.py` | Lazy imports to avoid circular deps indicate architectural coupling. | |
 | T3-19 | Inconsistent error response format | Flask routes | Mix of `{'error': str}`, `{'success': False}`, `{'message': str}`, `{'status': 'error'}`. | |
 | T3-20 | `GET` allowed on destructive endpoint | `flask_app/routes/game_routes.py:1114` | `/api/end_game/<game_id>` accepts both GET and POST. GET should never mutate. | **FIXED** — POST only |
+| T3-35 | Dual API on state machine wrapper | `poker/poker_state_machine.py:336-539` | Outer `PokerStateMachine` exposes both mutable (`advance_state()`, `game_state` setter) and immutable (`advance()`, `with_game_state()`) APIs. Inner `ImmutableStateMachine` core is genuinely pure — mutable setters just reassign `self._state` with new frozen instances. Cleanup: remove duplicate immutable methods from outer class, keep mutable wrapper only. *(Demoted from T2-01)* | |
 
 ### Documentation & DX
 
@@ -183,13 +184,13 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 34 | 18 | 1 | 15 |
-| **Tier 3: Post-Release** | 34 | 19 | 1 | 14 |
+| **Tier 2: Should-Fix** | 33 | 18 | 1 | 14 |
+| **Tier 3: Post-Release** | 35 | 19 | 1 | 15 |
 | **Total** | **89** | **50** | **9** | **29** |
 
 ## Key Architectural Insight
 
-The most pervasive issue is the **immutable/mutable hybrid** in the state machine. The codebase claims functional/immutable architecture but provides mutable compatibility layers (`game_state.setter`, `advance_state()`). This creates confusion about which API to use and makes reasoning about state changes difficult. The recommendation: fully commit to immutability by removing all mutable interfaces, or accept mutability and simplify. The current hybrid gets the downsides of both.
+The state machine uses an **immutable/mutable hybrid** pattern. On deeper investigation, this is more intentional than it first appears: the inner `ImmutableStateMachine` core is genuinely pure (frozen dataclass, pure transition functions), while the outer `PokerStateMachine` provides a mutable-style convenience API for Flask handlers. The mutable setters just reassign `self._state` with new frozen instances — no actual mutation of immutable objects. The main downside is cognitive overhead (two APIs on the same class), not correctness risk. A cleanup would remove the duplicate immutable methods from the outer class, but this is low priority.
 
 ---
 
