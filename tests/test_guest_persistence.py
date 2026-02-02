@@ -16,7 +16,11 @@ import time
 # Use port 5000 to match docker-compose.yml default backend port
 BASE_URL = "http://localhost:5000"
 
-def test_guest_persistence():
+def run_guest_persistence_test():
+    """Manual integration test - requires a running server on localhost:5000.
+
+    Run directly: python tests/test_guest_persistence.py
+    """
     print("Testing guest user persistence flow...")
     
     # Create a session to maintain cookies
@@ -118,4 +122,4 @@ def test_guest_persistence():
             print("❌ FAIL: Original game not found")
 
 if __name__ == "__main__":
-    test_guest_persistence()
+    run_guest_persistence_test()
