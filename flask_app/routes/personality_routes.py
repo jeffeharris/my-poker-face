@@ -44,6 +44,7 @@ def get_personalities():
         )
 
         personalities = {}
+        metadata = {}
         categories = {'standard': [], 'mine': []}
         if is_admin:
             categories['disabled'] = []
@@ -57,6 +58,11 @@ def get_personalities():
                 visibility = p.get('visibility', 'public')
                 owner_id = p.get('owner_id')
 
+                metadata[name] = {
+                    'visibility': visibility,
+                    'owner_id': owner_id,
+                }
+
                 if visibility == 'disabled':
                     categories.get('disabled', []).append(name)
                 elif owner_id == user_id and visibility == 'private':
@@ -68,6 +74,8 @@ def get_personalities():
             'success': True,
             'personalities': personalities,
             'categories': categories,
+            'metadata': metadata,
+            'is_admin': bool(is_admin),
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -120,6 +128,11 @@ def create_personality():
 
         if not name:
             return jsonify({'success': False, 'error': 'Name is required'})
+
+        # Check for name collision
+        existing = personality_repo.load_personality(name)
+        if existing:
+            return jsonify({'success': False, 'error': 'A personality with this name already exists'}), 409
 
         personality_config = {k: v for k, v in data.items() if k != 'name'}
 
@@ -571,6 +584,12 @@ def generate_personality():
 
         force_generate = data.get('force', False)
 
+        # Check for name collision (skip if force-regenerating existing personality)
+        if not force_generate:
+            existing = personality_repo.load_personality(name)
+            if existing:
+                return jsonify({'success': False, 'error': 'A personality with this name already exists'}), 409
+
         generator = PersonalityGenerator()
 
         # This generates and saves to database automatically
@@ -596,15 +615,34 @@ def generate_personality():
 
 
 @personality_bp.route('/api/personality/<name>/visibility', methods=['PUT'])
-@require_permission('can_access_admin_tools')
 def update_personality_visibility(name):
-    """Set visibility for a personality. Admin only."""
+    """Set visibility for a personality.
+
+    Owners can toggle between public/private. Admins can also set disabled.
+    """
     try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+
         data = request.json
         visibility = data.get('visibility')
 
         if visibility not in ('public', 'private', 'disabled'):
             return jsonify({'success': False, 'error': 'Invalid visibility. Must be public, private, or disabled.'}), 400
+
+        # Only admins can set disabled
+        if visibility == 'disabled' and not is_admin:
+            return jsonify({'success': False, 'error': 'Only admins can disable personalities'}), 403
+
+        # Check ownership: must be owner or admin
+        owner_id = personality_repo.get_personality_owner(name)
+        if not is_admin and owner_id != user_id:
+            return jsonify({'success': False, 'error': 'You can only change visibility of your own personalities'}), 403
 
         updated = personality_repo.set_visibility(name, visibility)
         if not updated:
