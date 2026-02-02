@@ -4,7 +4,7 @@ Runtime getters that check app_settings in the database before falling back
 to the static defaults in core.llm.config.  Both poker/ and flask_app/ can
 import from here without circular dependencies.
 
-The GamePersistence import is lazy (inside function body) so that core/
+The repository imports are lazy (inside function body) so that core/
 has no import-time dependency on poker/.
 """
 
@@ -30,18 +30,17 @@ def _get_db_path() -> str:
 
 @lru_cache(maxsize=1)
 def _get_config_persistence():
-    """Get a cached GamePersistence instance for config lookups.
+    """Get a cached SettingsRepository instance for config lookups.
 
     Note: This caches a single shared instance across all callers. This is safe
-    because GamePersistence uses context managers for all DB operations and
+    because SettingsRepository uses context managers for all DB operations and
     maintains no connection state between calls. Each operation opens and closes
     its own connection.
-
-    If GamePersistence is ever modified to maintain persistent state (connection
-    pools, cached transactions, etc.), this caching pattern must be revisited.
     """
-    from poker.persistence import GamePersistence
-    return GamePersistence(_get_db_path())
+    from poker.repositories import SchemaManager, SettingsRepository
+    db_path = _get_db_path()
+    SchemaManager(db_path).ensure_schema()
+    return SettingsRepository(db_path)
 
 
 def _get_setting(key: str, default: str) -> str:

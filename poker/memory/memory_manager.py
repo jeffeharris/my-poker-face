@@ -68,13 +68,13 @@ class AIMemoryManager:
         # Persistence layer (set externally to avoid circular imports)
         self._persistence = None
 
-    def set_persistence(self, persistence) -> None:
-        """Set the persistence layer for saving hand history.
+    def set_hand_history_repo(self, hand_history_repo) -> None:
+        """Set the hand history repository for saving hand history.
 
         Args:
-            persistence: GamePersistence instance
+            hand_history_repo: HandHistoryRepository instance
         """
-        self._persistence = persistence
+        self._persistence = hand_history_repo
 
     def initialize_for_player(self, player_name: str) -> None:
         """Set up memory systems for an AI player.
@@ -88,7 +88,7 @@ class AIMemoryManager:
         # Create session memory with DB backing if persistence is available
         session_memory = SessionMemory(player_name)
         if self._persistence:
-            session_memory.set_persistence(self._persistence, self.game_id)
+            session_memory.set_hand_history_repo(self._persistence, self.game_id)
         self.session_memories[player_name] = session_memory
 
         self.initialized_players.add(player_name)
