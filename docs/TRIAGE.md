@@ -70,8 +70,8 @@ Issues that won't crash but indicate quality problems that could bite early user
 |----|-------|----------|-------------|--------|
 | T2-08 | `PokerAction` class entirely unused | `poker/poker_action.py` | Entire file is dead code (zero imports). Game uses plain dicts. Remove file. | **FIXED** — file deleted as part of T1-01 |
 | T2-09 | O(n²) player flag reset | `poker/poker_game.py:422-437` | Calls `update_player` per player in loop, each creating new tuple copy. Build new tuple in one pass. | **FIXED** — single-pass tuple comprehension |
-| T2-10 | `controllers.py` is 1794-line god object | `poker/controllers.py:554-1794` | `AIPlayerController` has 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Split into services. | |
-| T2-11 | `usePokerGame` hook is 588 lines | `react/src/hooks/usePokerGame.ts` | Socket management, state, messages, winners, tournaments all in one. Impossible to unit test. Split into focused hooks. | |
+| T2-10 | ~~`controllers.py` is 1794-line god object~~ | `poker/controllers.py:554-1794` | `AIPlayerController` has 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Split into services. | **Demoted to Tier 3** — see T3-41. Large refactor with limited pre-release ROI. |
+| T2-11 | ~~`usePokerGame` hook is 588 lines~~ | `react/src/hooks/usePokerGame.ts` | Socket management, state, messages, winners, tournaments all in one. Impossible to unit test. Split into focused hooks. | **Demoted to Tier 3** — see T3-42. Concerns are tightly coupled; splitting creates ref sync issues. Internal cleanup (extract pure functions) is better approach. |
 | T2-12 | 120 console.log statements in production | 38 React files | No logging levels. Sensitive data in browser console. Performance overhead. | **FIXED** — created logger utility, deleted ~25 debug statements, converted ~70 console calls |
 | T2-13 | `any` types erode TypeScript safety | 32 occurrences in 16 files | `community_cards?: any[]`, `winnerInfo: any`, `[key: string]: any`. Defeats purpose of TypeScript. | **FIXED** — zero `: any` type annotations remain in codebase |
 | T2-14 | Shuffle mutates module-level list | `poker/utils.py:86` | `random.shuffle(celebrities_list)` mutates in-place. Use `random.sample()` instead. | **FIXED** — uses `random.sample()` |
@@ -162,6 +162,8 @@ Issues to address once live, during ongoing development.
 | T3-20 | `GET` allowed on destructive endpoint | `flask_app/routes/game_routes.py:1114` | `/api/end_game/<game_id>` accepts both GET and POST. GET should never mutate. | **FIXED** — POST only |
 | T3-35 | Dual API on state machine wrapper | `poker/poker_state_machine.py:336-539` | Outer `PokerStateMachine` exposes both mutable (`advance_state()`, `game_state` setter) and immutable (`advance()`, `with_game_state()`) APIs. Inner `ImmutableStateMachine` core is genuinely pure — mutable setters just reassign `self._state` with new frozen instances. Cleanup: remove duplicate immutable methods from outer class, keep mutable wrapper only. *(Demoted from T2-01)* | |
 | T3-36 | Config naming & documentation | 6 config locations | Config spread across `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` is intentional (avoids circular imports), but naming is inconsistent (e.g., `.env` uses `OPENAI_MODEL`, DB uses `DEFAULT_MODEL`). Improvements: unify setting names in `.env.example`, document priority hierarchy (DB > env > hardcoded). *(Demoted from T2-04)* | |
+| T3-41 | Split `AIPlayerController` god object | `poker/controllers.py:554-1794` | 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Extract into focused service classes. *(Demoted from T2-10)* | |
+| T3-42 | Clean up `usePokerGame` hook | `react/src/hooks/usePokerGame.ts` | 661-line hook with tightly coupled concerns. Splitting into separate hooks creates ref sync issues. Better approach: extract pure functions (message dedup, avatar caching), organize socket handlers into named setup functions. *(Demoted from T2-11)* | |
 
 ### Documentation & DX
 
@@ -194,9 +196,9 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 28 | 20 | 4 | 4 |
-| **Tier 3: Post-Release** | 40 | 19 | 1 | 20 |
-| **Total** | **89** | **52** | **12** | **24** |
+| **Tier 2: Should-Fix** | 26 | 20 | 4 | 0 |
+| **Tier 3: Post-Release** | 42 | 19 | 1 | 22 |
+| **Total** | **89** | **52** | **12** | **22** |
 
 ## Key Architectural Insight
 
