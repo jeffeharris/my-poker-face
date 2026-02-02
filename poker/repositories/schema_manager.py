@@ -2972,11 +2972,7 @@ class SchemaManager:
         logger.info("Migration v64 complete: can_access_coach permission added")
 
     def _migrate_v65_add_window_decisions(self, conn: sqlite3.Connection) -> None:
-        """Migration v65: Add window_decisions column for true sliding window.
-
-        Replaces the broken proportional trim that used int(ratio * window_size),
-        which caused windows to get permanently stuck at certain ratios.
-        """
+        """Migration v65: Add window_decisions column for sliding window tracking."""
         columns = [row[1] for row in conn.execute(
             "PRAGMA table_info(player_skill_progress)"
         ).fetchall()]

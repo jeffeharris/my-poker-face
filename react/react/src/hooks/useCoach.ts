@@ -267,11 +267,10 @@ export function useCoach({
       });
       if (res.ok) {
         // Re-fetch both stats and full progression after onboarding
-        refreshStats();
-        fetchProgression();
+        await Promise.all([refreshStats(), fetchProgression()]);
       }
-    } catch {
-      /* non-critical */
+    } catch (err) {
+      console.error('skipAhead failed:', err);
     }
   }, [gameId, refreshStats, fetchProgression]);
 

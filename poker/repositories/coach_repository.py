@@ -204,7 +204,7 @@ class CoachRepository(BaseRepository):
                 "FROM player_gate_progress WHERE unlocked = 1 "
                 "GROUP BY gate ORDER BY gate"
             ).fetchall()
-            gates_unlocked = {row[0]: row[1] for row in gate_rows}
+            gates_unlocked = {str(row[0]): row[1] for row in gate_rows}
 
             return {
                 'total_players': total,

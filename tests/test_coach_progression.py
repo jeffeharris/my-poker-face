@@ -1315,5 +1315,50 @@ class TestOverlapEvaluation(unittest.TestCase):
             self.assertEqual(ss.total_correct, 1)
 
 
+class TestAdminMetrics(unittest.TestCase):
+    """Smoke tests for admin metrics repository methods."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
+        # Seed a player with some progression data
+        self.user_id = 'metrics_user'
+        self.service.get_or_initialize_player(self.user_id)
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def test_profile_stats_structure(self):
+        result = self.coach_repo.get_profile_stats()
+        self.assertIn('total_players', result)
+        self.assertIn('active_last_7d', result)
+        self.assertIn('by_level', result)
+        self.assertIn('gates_unlocked', result)
+        self.assertIsInstance(result['total_players'], int)
+        self.assertGreaterEqual(result['total_players'], 1)
+        # Gate keys should be strings
+        for key in result['gates_unlocked']:
+            self.assertIsInstance(key, str)
+
+    def test_skill_distribution_structure(self):
+        result = self.coach_repo.get_skill_distribution()
+        self.assertIn('skills', result)
+        # Seeded player should have at least some skill entries
+        if result['skills']:
+            first_skill = next(iter(result['skills'].values()))
+            self.assertIn('states', first_skill)
+            self.assertIn('total_players', first_skill)
+
+    def test_skill_advancement_stats_structure(self):
+        result = self.coach_repo.get_skill_advancement_stats()
+        self.assertIn('advancement', result)
+        self.assertIn('stuck_players', result)
+        self.assertIsInstance(result['advancement'], list)
+        self.assertIsInstance(result['stuck_players'], list)
+
+
 if __name__ == '__main__':
     unittest.main()

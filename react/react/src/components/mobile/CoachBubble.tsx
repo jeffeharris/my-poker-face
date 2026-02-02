@@ -32,11 +32,17 @@ export const CoachBubble = memo(function CoachBubble({ isVisible, tip, stats, on
       ? stats.hand_strength
       : null;
 
+  const modeClass = coachingMode === 'learn'
+    ? 'coach-bubble--learn'
+    : coachingMode === 'compete'
+      ? 'coach-bubble--compete'
+      : '';
+
   return (
     <AnimatePresence>
       {isVisible && tip && (
         <motion.div
-          className={`coach-bubble ${coachingMode === 'learn' ? 'coach-bubble--learn' : coachingMode === 'compete' ? 'coach-bubble--compete' : ''}`}
+          className={`coach-bubble ${modeClass}`}
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -20, scale: 0.95 }}

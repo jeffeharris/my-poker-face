@@ -6,6 +6,7 @@ import type { CoachStats, CoachMessage, CoachMode, CoachProgression, Progression
 import { StatsBar } from './StatsBar';
 import { ProgressionStrip } from './ProgressionStrip';
 import { ProgressionDetail } from './ProgressionDetail';
+import { safeGetItem, safeSetItem } from '../../utils/storage';
 import './CoachPanel.css';
 
 const CLOSE_ANIMATION_MS = 250;
@@ -42,9 +43,9 @@ export function CoachPanel({
   const [inputValue, setInputValue] = useState('');
   const [isClosing, setIsClosing] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
-  const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
-    try { return localStorage.getItem('coach_onboarding_dismissed') === 'true'; } catch { return false; }
-  });
+  const [onboardingDismissed, setOnboardingDismissed] = useState(
+    () => safeGetItem('coach_onboarding_dismissed') === 'true',
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
@@ -217,7 +218,7 @@ export function CoachPanel({
                 className="coach-onboarding__btn coach-onboarding__btn--dismiss"
                 onClick={() => {
                   setOnboardingDismissed(true);
-                  try { localStorage.setItem('coach_onboarding_dismissed', 'true'); } catch { /* */ }
+                  safeSetItem('coach_onboarding_dismissed', 'true');
                 }}
               >
                 New to poker
@@ -227,7 +228,7 @@ export function CoachPanel({
                 onClick={() => {
                   onSkipAhead?.('intermediate');
                   setOnboardingDismissed(true);
-                  try { localStorage.setItem('coach_onboarding_dismissed', 'true'); } catch { /* */ }
+                  safeSetItem('coach_onboarding_dismissed', 'true');
                 }}
               >
                 I know the basics
@@ -237,7 +238,7 @@ export function CoachPanel({
                 onClick={() => {
                   onSkipAhead?.('experienced');
                   setOnboardingDismissed(true);
-                  try { localStorage.setItem('coach_onboarding_dismissed', 'true'); } catch { /* */ }
+                  safeSetItem('coach_onboarding_dismissed', 'true');
                 }}
               >
                 Experienced
