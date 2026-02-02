@@ -3,6 +3,9 @@
 Pre-computes all coaching statistics from the current game state
 for the human player: equity, pot odds, hand strength, outs,
 opponent stats, and an optimal action recommendation.
+
+Also provides `compute_coaching_data_with_progression()` which
+enriches coaching data with skill-aware progression context.
 """
 
 import logging
@@ -224,7 +227,8 @@ def _get_current_hand_actions(game_data: dict) -> List[Dict]:
 
 
 def compute_coaching_data(game_id: str, player_name: str,
-                          game_data: Optional[Dict] = None) -> Optional[Dict]:
+                          game_data: Optional[Dict] = None,
+                          game_state_override=None) -> Optional[Dict]:
     """Compute all coaching statistics for the given player.
 
     Returns a dict with equity, pot odds, hand strength, outs,
@@ -236,7 +240,7 @@ def compute_coaching_data(game_id: str, player_name: str,
         return None
 
     state_machine = game_data['state_machine']
-    game_state = state_machine.game_state
+    game_state = game_state_override if game_state_override is not None else state_machine.game_state
 
     # Find the human player
     player_info = game_state.get_player_by_name(player_name)
@@ -263,6 +267,7 @@ def compute_coaching_data(game_id: str, player_name: str,
         'position': position,
         'pot_total': pot_total,
         'cost_to_call': cost_to_call,
+        'big_blind': game_state.current_ante,
         'stack': player.stack,
         'equity': None,
         'equity_vs_random': None,
@@ -359,3 +364,58 @@ def compute_coaching_data(game_id: str, player_name: str,
     result['hand_community_cards'] = community_strs
 
     return result
+
+
+def compute_coaching_data_with_progression(
+    game_id: str,
+    player_name: str,
+    user_id: str,
+    game_data: Optional[Dict] = None,
+    persistence=None,
+) -> Optional[Dict]:
+    """Compute coaching data enriched with skill progression context.
+
+    Wraps compute_coaching_data() and adds classification, coaching
+    decision, and skill states from the progression system.
+    """
+    data = compute_coaching_data(game_id, player_name, game_data=game_data)
+    if data is None:
+        return None
+
+    if not user_id or not persistence:
+        return data
+
+    try:
+        from .coach_progression import CoachProgressionService
+
+        service = CoachProgressionService(persistence)
+        player_state = service.get_or_initialize_player(user_id)
+
+        skill_states = player_state['skill_states']
+        gate_progress = player_state['gate_progress']
+
+        # Get coaching decision
+        decision = service.get_coaching_decision(
+            user_id, data, skill_states, gate_progress
+        )
+
+        # Attach progression context to coaching data
+        data['progression'] = {
+            'coaching_mode': decision.mode.value,
+            'primary_skill': decision.primary_skill_id,
+            'relevant_skills': decision.relevant_skill_ids,
+            'coaching_prompt': decision.coaching_prompt,
+            'situation_tags': decision.situation_tags,
+            'skill_states': {
+                sid: {
+                    'state': ss.state.value,
+                    'window_accuracy': round(ss.window_accuracy, 2),
+                    'total_opportunities': ss.total_opportunities,
+                }
+                for sid, ss in skill_states.items()
+            },
+        }
+    except Exception as e:
+        logger.error(f"Coach progression enrichment failed: {e}", exc_info=True)
+
+    return data

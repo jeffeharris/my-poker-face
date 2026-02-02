@@ -31,7 +31,12 @@ jobs:
           python -m pytest tests/ -v --tb=short
         env:
           PYTHONPATH: ${{ github.workspace }}
+          FLASK_ENV: 'development'
+          FLASK_DEBUG: '1'
+          SECRET_KEY: 'test-secret-key-for-ci'
           OPENAI_API_KEY: 'test-key-for-ci'
+          DEEPSEEK_API_KEY: 'test-key-for-ci'
+          CORS_ORIGINS: 'http://localhost:5173'
 
   test-frontend:
     name: Test Frontend (React)

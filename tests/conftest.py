@@ -10,14 +10,66 @@ The make_openai_response() helper is a plain function that can also
 be imported by unittest.TestCase classes:
 
     from tests.conftest import make_openai_response
+
+The load_personality_from_json() helper loads personality data directly
+from personalities.json, bypassing the database and LLM generation:
+
+    from tests.conftest import load_personality_from_json
 """
+import json
 import os
+from pathlib import Path
 
 import pytest
 from unittest.mock import Mock, patch
 
 from poker.persistence import GamePersistence
 from poker.poker_game import initialize_game_state
+
+
+# ---------------------------------------------------------------------------
+# Personality loading from JSON (bypasses DB and LLM)
+# ---------------------------------------------------------------------------
+
+_PERSONALITIES_JSON_PATH = Path(__file__).parent.parent / "poker" / "personalities.json"
+_personalities_cache = None
+
+
+def _load_all_personalities():
+    """Load and cache all personalities from personalities.json."""
+    global _personalities_cache
+    if _personalities_cache is None:
+        with open(_PERSONALITIES_JSON_PATH) as f:
+            data = json.load(f)
+        _personalities_cache = data.get("personalities", data)
+    return _personalities_cache
+
+
+def load_personality_from_json(name):
+    """Load a single personality config from personalities.json.
+
+    Returns the personality dict, or a default config if not found.
+    Usable from both pytest fixtures and unittest.TestCase methods::
+
+        from tests.conftest import load_personality_from_json
+
+    Can be used as a side_effect for mocking _load_personality_config::
+
+        @patch.object(AIPokerPlayer, '_load_personality_config',
+                      side_effect=lambda self: load_personality_from_json(self.name))
+    """
+    all_personalities = _load_all_personalities()
+    return all_personalities.get(name, {
+        "play_style": "balanced",
+        "default_confidence": "Unsure",
+        "default_attitude": "Distracted",
+        "personality_traits": {
+            "bluff_tendency": 0.5,
+            "aggression": 0.5,
+            "chattiness": 0.5,
+            "emoji_usage": 0.3,
+        },
+    })
 
 
 # ---------------------------------------------------------------------------

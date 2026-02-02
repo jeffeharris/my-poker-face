@@ -407,14 +407,14 @@ class TestOpponentModelManager(unittest.TestCase):
         model2 = manager.get_model("Alice", "Bob")
         self.assertIs(model, model2)
 
-    def test_observe_action_skips_self(self):
-        """Test that self-observations are skipped."""
+    def test_observe_action_allows_self(self):
+        """Test that self-observations are recorded (needed for coaching stats)."""
         manager = OpponentModelManager()
 
         manager.observe_action("Alice", "Alice", "raise", "PRE_FLOP")
 
-        # Should not create a model for self-observation
-        self.assertEqual(len(manager.models.get("Alice", {})), 0)
+        # Self-observation creates a model for coaching VPIP/PFR tracking
+        self.assertEqual(len(manager.models.get("Alice", {})), 1)
 
     def test_table_summary(self):
         """Test generating table summary for multiple opponents."""

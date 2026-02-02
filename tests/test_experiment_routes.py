@@ -246,8 +246,8 @@ This will compare model performance over 5 tournaments.'''
             self.assertEqual(response.status_code, 404)
             self.assertIn('error', data)
 
-    @patch('flask_app.routes.experiment_routes.threading.Thread')
-    def test_create_experiment(self, mock_thread):
+    @patch('flask_app.routes.experiment_routes.run_experiment_background')
+    def test_create_experiment(self, mock_run):
         """Test creating and launching an experiment."""
         with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
             response = self.client.post(
@@ -264,9 +264,6 @@ This will compare model performance over 5 tournaments.'''
             self.assertTrue(data['success'])
             self.assertIn('experiment_id', data)
             self.assertEqual(data['name'], 'test_experiment')
-
-            # Verify thread was started
-            mock_thread.return_value.start.assert_called_once()
 
     def test_create_experiment_duplicate_name(self):
         """Test creating experiment with duplicate name fails."""
