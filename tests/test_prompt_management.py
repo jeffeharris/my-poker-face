@@ -148,20 +148,20 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
     def test_personality_loading(self, mock_load_config):
         """Test that personalities load correctly from JSON."""
         # Mock to return the Eeyore personality from our fixtures
-        mock_load_config.return_value = PERSONALITIES_FIXTURE['Eeyore']
+        mock_load_config.return_value = PERSONALITIES_FIXTURE['Ebenezer Scrooge']
 
         # Test known personality
-        player = AIPokerPlayer(name='Eeyore', starting_money=10000)
-        self.assertEqual(player.personality_config['play_style'], 'tight and passive')
+        player = AIPokerPlayer(name='Ebenezer Scrooge', starting_money=10000)
+        self.assertEqual(player.personality_config['play_style'], 'miserly and tight, guards every chip like it\'s his last and only bets when absolutely certain')
         self.assertEqual(player.confidence, 'pessimistic')
-        self.assertEqual(player.attitude, 'gloomy')
+        self.assertEqual(player.attitude, 'grumpy and suspicious')
 
         # Test personality traits
         traits = player.personality_config['personality_traits']
-        self.assertEqual(traits['bluff_tendency'], 0.1)
+        self.assertEqual(traits['bluff_tendency'], 0.2)
         self.assertEqual(traits['aggression'], 0.2)
-        self.assertEqual(traits['chattiness'], 0.3)
-        self.assertEqual(traits['emoji_usage'], 0.1)
+        self.assertEqual(traits['chattiness'], 0.5)
+        self.assertEqual(traits['emoji_usage'], 0.0)
     
     def test_unknown_personality_gets_default(self):
         """Test that unknown personalities get default config."""
@@ -176,11 +176,11 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
     
     def test_persona_prompt_generation(self):
         """Test persona prompt generation."""
-        player = AIPokerPlayer(name='Donald Trump', starting_money=15000)
+        player = AIPokerPlayer(name='Napoleon', starting_money=15000)
         prompt = player.persona_prompt()
-        
+
         # Check prompt contains key elements
-        self.assertIn('Persona: Donald Trump', prompt)
+        self.assertIn('Persona: Napoleon', prompt)
         self.assertIn('$15000', prompt)
         self.assertIn('Example response:', prompt)
         
@@ -198,9 +198,9 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         - High aggression + high bluff = LAG (Loose-Aggressive)
         - Low aggression + low bluff = Tight-Passive (rock)
         """
-        # Donald Trump: high bluff (0.75) + high aggression (0.8) = LAG archetype
-        mock_load_config.return_value = PERSONALITIES_FIXTURE['Donald Trump']
-        bluffer = AIPokerPlayer(name='Donald Trump', starting_money=10000)
+        # Blackbeard: high bluff (0.8) + high aggression (0.9) = LAG archetype
+        mock_load_config.return_value = PERSONALITIES_FIXTURE['Blackbeard']
+        bluffer = AIPokerPlayer(name='Blackbeard', starting_money=10000)
         bluffer_mod = bluffer.get_personality_modifier()
         self.assertIn('loose-aggressive', bluffer_mod.lower())
         self.assertIn('bluff', bluffer_mod.lower())
@@ -288,7 +288,7 @@ class TestIntegration(unittest.TestCase):
     
     def test_ai_player_creation_and_prompt(self):
         """Test creating an AI player and generating a full prompt."""
-        players_to_test = ['Eeyore', 'Gordon Ramsay', 'A Mime']
+        players_to_test = ['Ebenezer Scrooge', 'Blackbeard', 'A Mime']
         
         for name in players_to_test:
             with self.subTest(player=name):

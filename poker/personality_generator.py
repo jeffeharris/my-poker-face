@@ -98,7 +98,8 @@ Respond with ONLY a JSON object in this exact format:
         else:
             return Path(__file__).parent.parent / 'poker_games.db'
     
-    def get_personality(self, name: str, description: Optional[str] = None, force_generate: bool = False) -> Dict[str, Any]:
+    def get_personality(self, name: str, description: Optional[str] = None,
+                        force_generate: bool = False, owner_id: Optional[str] = None) -> Dict[str, Any]:
         """Get a personality for a character, generating if needed.
 
         Personality loading hierarchy:
@@ -113,6 +114,7 @@ Respond with ONLY a JSON object in this exact format:
             name: Character name
             description: Optional description for more context
             force_generate: Force generation even if exists
+            owner_id: If provided, generated personality is owned by this user (private)
 
         Returns:
             Personality configuration dict
@@ -136,8 +138,12 @@ Respond with ONLY a JSON object in this exact format:
         logger.info(f"[PERSONALITY] Generating new personality for {name}")
         generated = self._generate_personality(name, description)
 
-        # Save to database
-        self.personality_repo.save_personality(name, generated, source='ai_generated')
+        # Save to database (private to owner if owner_id provided)
+        visibility = 'private' if owner_id else 'public'
+        self.personality_repo.save_personality(
+            name, generated, source='ai_generated',
+            owner_id=owner_id, visibility=visibility,
+        )
 
         # Cache it
         self._cache[name] = generated

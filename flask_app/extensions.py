@@ -182,7 +182,40 @@ def init_personality_generator() -> PersonalityGenerator:
     personality_generator = PersonalityGenerator(personality_repo=personality_repo)
     init_character_image_service(personality_generator, personality_repo=personality_repo)
 
+    # Assign unowned disabled personalities to admin (idempotent)
+    _assign_disabled_personalities_to_admin()
+
     return personality_generator
+
+
+def _assign_disabled_personalities_to_admin() -> None:
+    """Assign disabled personalities with no owner to the admin user.
+
+    Uses INITIAL_ADMIN_EMAIL to resolve the admin user ID.
+    Idempotent: no-op if all disabled personalities already have owners.
+    """
+    import os
+    admin_id = os.environ.get('INITIAL_ADMIN_EMAIL')
+    if not admin_id:
+        return
+
+    # For guest IDs, use directly; for emails, resolve to user ID
+    if not admin_id.startswith('guest_'):
+        try:
+            user = user_repo.get_user_by_email(admin_id)
+            if not user:
+                logger.debug(f"Admin email {admin_id} not found in users table yet, skipping personality assignment")
+                return
+            admin_id = user['id']
+        except Exception:
+            return
+
+    try:
+        assigned = personality_repo.assign_unowned_disabled_to_owner(admin_id)
+        if assigned:
+            logger.info(f"Assigned {assigned} disabled personalities to admin {admin_id}")
+    except Exception as e:
+        logger.warning(f"Failed to assign disabled personalities to admin: {e}")
 
 
 def init_oauth(app: Flask) -> OAuth:

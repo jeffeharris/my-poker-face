@@ -16,7 +16,8 @@ class PersonalityRepository(BaseRepository):
 
     # --- Personality CRUD ---
 
-    def save_personality(self, name: str, config: Dict[str, Any], source: str = 'ai_generated') -> None:
+    def save_personality(self, name: str, config: Dict[str, Any], source: str = 'ai_generated',
+                         owner_id: Optional[str] = None, visibility: str = 'public') -> None:
         """Save a personality configuration to the database."""
         elasticity_config = config.get('elasticity_config', {})
         config_without_elasticity = {k: v for k, v in config.items() if k != 'elasticity_config'}
@@ -25,7 +26,17 @@ class PersonalityRepository(BaseRepository):
             cursor = conn.execute("PRAGMA table_info(personalities)")
             columns = [row[1] for row in cursor.fetchall()]
 
-            if 'elasticity_config' in columns:
+            has_elasticity = 'elasticity_config' in columns
+            has_ownership = 'owner_id' in columns
+
+            if has_elasticity and has_ownership:
+                conn.execute("""
+                    INSERT OR REPLACE INTO personalities
+                    (name, config_json, elasticity_config, source, owner_id, visibility, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (name, json.dumps(config_without_elasticity), json.dumps(elasticity_config),
+                      source, owner_id, visibility))
+            elif has_elasticity:
                 conn.execute("""
                     INSERT OR REPLACE INTO personalities
                     (name, config_json, elasticity_config, source, updated_at)
@@ -72,26 +83,63 @@ class PersonalityRepository(BaseRepository):
 
             return None
 
-    def list_personalities(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """List all personalities with metadata."""
+    def list_personalities(self, limit: int = 50, user_id: Optional[str] = None,
+                           include_disabled: bool = False) -> List[Dict[str, Any]]:
+        """List personalities with metadata, filtered by visibility.
+
+        Args:
+            limit: Max number of results
+            user_id: If provided, include this user's private personalities
+            include_disabled: If True (admin), include disabled and all private personalities
+        """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT name, source, created_at, updated_at, times_used, is_generated
-                FROM personalities
-                ORDER BY times_used DESC, updated_at DESC
-                LIMIT ?
-            """, (limit,))
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
+            has_ownership = 'owner_id' in columns
+
+            if has_ownership:
+                conditions = ["visibility = 'public'"]
+                params: list = []
+
+                if user_id:
+                    conditions.append("owner_id = ?")
+                    params.append(user_id)
+
+                if include_disabled:
+                    conditions.append("visibility = 'disabled'")
+                    conditions.append("visibility = 'private'")
+
+                where_clause = "WHERE " + " OR ".join(conditions)
+
+                cursor = conn.execute(f"""
+                    SELECT name, source, created_at, updated_at, times_used, is_generated,
+                           owner_id, visibility
+                    FROM personalities
+                    {where_clause}
+                    ORDER BY times_used DESC, updated_at DESC
+                    LIMIT ?
+                """, params + [limit])
+            else:
+                cursor = conn.execute("""
+                    SELECT name, source, created_at, updated_at, times_used, is_generated
+                    FROM personalities
+                    ORDER BY times_used DESC, updated_at DESC
+                    LIMIT ?
+                """, (limit,))
 
             personalities = []
             for row in cursor:
-                personalities.append({
+                entry = {
                     'name': row['name'],
                     'source': row['source'],
                     'created_at': row['created_at'],
                     'updated_at': row['updated_at'],
                     'times_used': row['times_used'],
                     'is_generated': bool(row['is_generated'])
-                })
+                }
+                if has_ownership:
+                    entry['owner_id'] = row['owner_id']
+                    entry['visibility'] = row['visibility']
+                personalities.append(entry)
 
             return personalities
 
@@ -107,6 +155,82 @@ class PersonalityRepository(BaseRepository):
         except Exception as e:
             logger.error(f"Error deleting personality {name}: {e}")
             return False
+
+    def update_personality_config(self, name: str, config: Dict[str, Any], source: str = 'user_edited') -> bool:
+        """Update only the config for an existing personality, preserving ownership fields.
+
+        Unlike save_personality (which uses INSERT OR REPLACE and can wipe owner_id/visibility),
+        this method uses UPDATE to modify only config_json, elasticity_config, and source.
+
+        Returns:
+            True if the personality was found and updated, False otherwise.
+        """
+        elasticity_config = config.get('elasticity_config', {})
+        config_without_elasticity = {k: v for k, v in config.items() if k != 'elasticity_config'}
+
+        with self._get_connection() as conn:
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
+            has_elasticity = 'elasticity_config' in columns
+
+            if has_elasticity:
+                cursor = conn.execute("""
+                    UPDATE personalities
+                    SET config_json = ?, elasticity_config = ?, source = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE name = ?
+                """, (json.dumps(config_without_elasticity), json.dumps(elasticity_config), source, name))
+            else:
+                cursor = conn.execute("""
+                    UPDATE personalities
+                    SET config_json = ?, source = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE name = ?
+                """, (json.dumps(config_without_elasticity), source, name))
+
+            return cursor.rowcount > 0
+
+    def set_visibility(self, name: str, visibility: str) -> bool:
+        """Set visibility for a personality. Returns True if updated."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE personalities SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?",
+                (visibility, name)
+            )
+            return cursor.rowcount > 0
+
+    def set_owner(self, name: str, owner_id: str, visibility: str = 'private') -> bool:
+        """Assign an owner to a personality. Returns True if updated."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE personalities SET owner_id = ?, visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?",
+                (owner_id, visibility, name)
+            )
+            return cursor.rowcount > 0
+
+    def assign_unowned_disabled_to_owner(self, owner_id: str) -> int:
+        """Assign disabled personalities with no owner to the given user.
+
+        Changes their visibility to 'private' so the owner can use them.
+        Idempotent: no-op if all disabled personalities already have owners.
+
+        Returns:
+            Count of personalities assigned.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                UPDATE personalities
+                SET owner_id = ?, visibility = 'private', updated_at = CURRENT_TIMESTAMP
+                WHERE visibility = 'disabled' AND owner_id IS NULL
+            """, (owner_id,))
+            return cursor.rowcount
+
+    def get_personality_owner(self, name: str) -> Optional[str]:
+        """Get the owner_id of a personality, or None if unowned/not found."""
+        with self._get_connection() as conn:
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
+            if 'owner_id' not in columns:
+                return None
+            cursor = conn.execute("SELECT owner_id FROM personalities WHERE name = ?", (name,))
+            row = cursor.fetchone()
+            return row['owner_id'] if row else None
 
     def seed_personalities_from_json(self, json_path: str, overwrite: bool = False) -> Dict[str, int]:
         """Seed database with personalities from JSON file.
@@ -145,11 +269,12 @@ class PersonalityRepository(BaseRepository):
                 continue
 
             if existing:
+                # Use config-only update to preserve ownership fields
+                self.update_personality_config(name, config, source='personalities.json')
                 updated += 1
             else:
+                self.save_personality(name, config, source='personalities.json')
                 added += 1
-
-            self.save_personality(name, config, source='personalities.json')
 
         logger.info(f"Seeded personalities from JSON: {added} added, {updated} updated, {skipped} skipped")
         return {'added': added, 'skipped': skipped, 'updated': updated}

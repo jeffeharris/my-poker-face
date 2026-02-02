@@ -734,20 +734,29 @@ const MenuIcon = () => (
 // Reusable MasterList component for desktop sidebar
 interface MasterListProps {
   characters: string[];
+  groups: { label: string; names: string[] }[];
   selected: string | null;
   onSelect: (name: string) => void;
   onCreate: () => void;
   search: string;
   onSearchChange: (search: string) => void;
+  personalityMeta?: Record<string, { visibility?: string; owner_id?: string }>;
 }
 
-function MasterList({ characters, selected, onSelect, onCreate, search, onSearchChange }: MasterListProps) {
-  const filtered = useMemo(() =>
-    characters.filter(name =>
-      name.toLowerCase().includes(search.toLowerCase())
-    ),
-    [characters, search]
+function MasterList({ characters, groups, selected, onSelect, onCreate, search, onSearchChange, personalityMeta }: MasterListProps) {
+  const searchLower = search.toLowerCase();
+
+  const filteredGroups = useMemo(() =>
+    groups
+      .map(g => ({
+        ...g,
+        names: g.names.filter(name => name.toLowerCase().includes(searchLower))
+      }))
+      .filter(g => g.names.length > 0),
+    [groups, searchLower]
   );
+
+  const totalFiltered = filteredGroups.reduce((sum, g) => sum + g.names.length, 0);
 
   return (
     <>
@@ -770,23 +779,38 @@ function MasterList({ characters, selected, onSelect, onCreate, search, onSearch
         </div>
       </div>
       <div className="admin-master__list">
-        {filtered.map((name) => (
-          <button
-            key={name}
-            type="button"
-            className={`admin-master__item ${selected === name ? 'admin-master__item--selected' : ''}`}
-            onClick={() => onSelect(name)}
-          >
-            <span className="admin-master__item-avatar">{name.charAt(0)}</span>
-            <span className="admin-master__item-name">{name}</span>
-            {selected === name && (
-              <span className="admin-master__item-check">
-                <CheckIcon />
-              </span>
+        {filteredGroups.map((group) => (
+          <div key={group.label}>
+            {groups.length > 1 && (
+              <div className="admin-master__section-header">{group.label}</div>
             )}
-          </button>
+            {group.names.map((name) => {
+              const vis = personalityMeta?.[name]?.visibility;
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  className={`admin-master__item ${selected === name ? 'admin-master__item--selected' : ''}`}
+                  onClick={() => onSelect(name)}
+                >
+                  <span className="admin-master__item-avatar">{name.charAt(0)}</span>
+                  <span className="admin-master__item-name">{name}</span>
+                  {vis && vis !== 'public' && (
+                    <span className={`pm-visibility-badge pm-visibility-badge--${vis}`} title={vis}>
+                      {vis === 'private' ? '🔒' : '⊘'}
+                    </span>
+                  )}
+                  {selected === name && (
+                    <span className="admin-master__item-check">
+                      <CheckIcon />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         ))}
-        {filtered.length === 0 && (
+        {totalFiltered === 0 && (
           <div className="admin-master__empty">
             No characters found{search ? ` matching "${search}"` : ''}
           </div>
@@ -804,19 +828,28 @@ function MasterList({ characters, selected, onSelect, onCreate, search, onSearch
 
 interface CharacterSelectorProps {
   characters: string[];
+  groups: { label: string; names: string[] }[];
   selected: string | null;
   onSelect: (name: string) => void;
   onCreate: () => void;
   isOpen: boolean;
   onClose: () => void;
+  personalityMeta?: Record<string, { visibility?: string; owner_id?: string }>;
 }
 
-function CharacterSelector({ characters, selected, onSelect, onCreate, isOpen, onClose }: CharacterSelectorProps) {
+function CharacterSelector({ characters, groups, selected, onSelect, onCreate, isOpen, onClose, personalityMeta }: CharacterSelectorProps) {
   const [search, setSearch] = useState('');
+  const searchLower = search.toLowerCase();
 
-  const filtered = characters.filter(name =>
-    name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredGroups = groups
+    .map(g => ({
+      ...g,
+      names: g.names.filter(name => name.toLowerCase().includes(searchLower))
+    }))
+    .filter(g => g.names.length > 0);
+
+  const totalFiltered = filteredGroups.reduce((sum, g) => sum + g.names.length, 0);
+  let itemIndex = 0;
 
   const handleSelect = (name: string) => {
     onSelect(name);
@@ -847,26 +880,42 @@ function CharacterSelector({ characters, selected, onSelect, onCreate, isOpen, o
           />
         </div>
         <div className="pm-sheet__list">
-          {filtered.map((name, index) => (
-            <button
-              key={name}
-              type="button"
-              className={`pm-sheet__item ${selected === name ? 'pm-sheet__item--active' : ''}`}
-              onClick={() => handleSelect(name)}
-              style={{ animationDelay: `${index * 20}ms` }}
-            >
-              <span className="pm-sheet__item-avatar">{name.charAt(0)}</span>
-              <span className="pm-sheet__item-name">{name}</span>
-              {selected === name && (
-                <span className="pm-sheet__item-check">
-                  <CheckIcon />
-                </span>
+          {filteredGroups.map((group) => (
+            <div key={group.label}>
+              {groups.length > 1 && (
+                <div className="admin-master__section-header">{group.label}</div>
               )}
-            </button>
+              {group.names.map((name) => {
+                const vis = personalityMeta?.[name]?.visibility;
+                const idx = itemIndex++;
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`pm-sheet__item ${selected === name ? 'pm-sheet__item--active' : ''}`}
+                    onClick={() => handleSelect(name)}
+                    style={{ animationDelay: `${idx * 20}ms` }}
+                  >
+                    <span className="pm-sheet__item-avatar">{name.charAt(0)}</span>
+                    <span className="pm-sheet__item-name">{name}</span>
+                    {vis && vis !== 'public' && (
+                      <span className={`pm-visibility-badge pm-visibility-badge--${vis}`}>
+                        {vis === 'private' ? '🔒' : '⊘'}
+                      </span>
+                    )}
+                    {selected === name && (
+                      <span className="pm-sheet__item-check">
+                        <CheckIcon />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           ))}
-          {filtered.length === 0 && (
+          {totalFiltered === 0 && (
             <div className="pm-sheet__empty">
-              No characters found matching "{search}"
+              No characters found matching &quot;{search}&quot;
             </div>
           )}
         </div>
@@ -1229,6 +1278,12 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   const [formData, setFormData] = useState<PersonalityData | null>(null);
   const [originalData, setOriginalData] = useState<PersonalityData | null>(null);
 
+  // Categories and metadata
+  const [categories, setCategories] = useState<Record<string, string[]>>({ standard: [], mine: [] });
+  const [personalityMeta, setPersonalityMeta] = useState<Record<string, { visibility?: string; owner_id?: string }>>({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
   // UI state
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1264,10 +1319,14 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   const loadPersonalities = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${config.API_URL}/api/personalities`);
+      const response = await fetch(`${config.API_URL}/api/personalities`, { credentials: 'include' });
       const data = await response.json();
       if (data.success) {
         setPersonalities(data.personalities);
+        if (data.categories) setCategories(data.categories);
+        if (data.metadata) setPersonalityMeta(data.metadata);
+        if (data.is_admin !== undefined) setIsAdmin(data.is_admin);
+        if (data.user_id) setCurrentUserId(data.user_id);
       } else {
         showAlert('error', 'Failed to load personalities: ' + data.error);
       }
@@ -1346,6 +1405,43 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     });
   }, []);
 
+  const handleVisibilityChange = async (newVisibility: string) => {
+    if (!selectedName) return;
+    try {
+      const response = await fetch(`${config.API_URL}/api/personality/${encodeURIComponent(selectedName)}/visibility`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ visibility: newVisibility })
+      });
+      const data = await response.json();
+      if (data.success) {
+        showAlert('success', `${selectedName} is now ${newVisibility}`);
+        setPersonalityMeta(prev => ({
+          ...prev,
+          [selectedName]: { ...prev[selectedName], visibility: newVisibility }
+        }));
+        // Re-categorize: move personality between categories
+        setCategories(prev => {
+          const updated: Record<string, string[]> = {};
+          for (const [key, names] of Object.entries(prev)) {
+            updated[key] = names.filter(n => n !== selectedName);
+          }
+          const targetCategory = newVisibility === 'disabled' ? 'disabled'
+            : newVisibility === 'private' ? 'mine'
+            : 'standard';
+          if (!updated[targetCategory]) updated[targetCategory] = [];
+          updated[targetCategory].push(selectedName);
+          return updated;
+        });
+      } else {
+        showAlert('error', data.error || 'Failed to update visibility');
+      }
+    } catch {
+      showAlert('error', 'Error updating visibility');
+    }
+  };
+
   const handleSave = async () => {
     if (!selectedName || !formData) return;
 
@@ -1354,6 +1450,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
       const response = await fetch(`${config.API_URL}/api/personality/${selectedName}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(formData)
       });
       const data = await response.json();
@@ -1378,7 +1475,8 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     setSaving(true);
     try {
       const response = await fetch(`${config.API_URL}/api/personality/${selectedName}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       });
       const data = await response.json();
 
@@ -1413,6 +1511,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
       const response = await fetch(`${config.API_URL}/api/generate_personality`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ name: selectedName, force: true })
       });
       const data = await response.json();
@@ -1460,6 +1559,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
       const response = await fetch(`${config.API_URL}/api/generate_personality`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ name })
       });
       const data = await response.json();
@@ -1490,6 +1590,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
       const response = await fetch(`${config.API_URL}/api/personality/${selectedName}/avatar-description`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ avatar_description: formData.avatar_description || '' })
       });
       const data = await response.json();
@@ -1515,7 +1616,22 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
 
   const hasChanges = formData && originalData && JSON.stringify(formData) !== JSON.stringify(originalData);
 
-  const characterNames = Object.keys(personalities).sort();
+  // Build grouped character list: mine first, then standard, then disabled (admin only)
+  const characterGroups = useMemo(() => {
+    const groups: { label: string; names: string[] }[] = [];
+    const mine = (categories.mine || []).slice().sort();
+    const standard = (categories.standard || []).slice().sort();
+    const disabled = (categories.disabled || []).slice().sort();
+    if (mine.length > 0) groups.push({ label: 'My Characters', names: mine });
+    if (standard.length > 0) groups.push({ label: 'Standard', names: standard });
+    if (disabled.length > 0) groups.push({ label: 'Disabled', names: disabled });
+    return groups;
+  }, [categories]);
+
+  const characterNames = useMemo(() =>
+    characterGroups.flatMap(g => g.names),
+    [characterGroups]
+  );
 
   // Safely merge API data with defaults to handle missing/partial data
   const defaultTraits = getDefaultTraits();
@@ -1784,6 +1900,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
           <aside className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}>
             <MasterList
               characters={characterNames}
+              groups={characterGroups}
               selected={selectedName}
               onSelect={(name) => {
                 selectPersonality(name);
@@ -1795,6 +1912,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
               }}
               search={masterSearch}
               onSearchChange={setMasterSearch}
+              personalityMeta={personalityMeta}
             />
           </aside>
 
@@ -1813,14 +1931,43 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
             )}
 
             {/* Detail header when character selected */}
-            {selectedName && formData && (
-              <div className="admin-detail__header">
-                <div>
-                  <h2 className="admin-detail__title">{selectedName}</h2>
-                  <p className="admin-detail__subtitle">{formData.play_style || 'No play style defined'}</p>
+            {selectedName && formData && (() => {
+              const meta = personalityMeta[selectedName];
+              const currentVis = meta?.visibility || 'public';
+              const isOwner = !!currentUserId && meta?.owner_id === currentUserId;
+              const canChangeVisibility = isAdmin || isOwner;
+              const visibilityOptions = isAdmin
+                ? ['public', 'private', 'disabled'] as const
+                : ['public', 'private'] as const;
+              return (
+                <div className="admin-detail__header">
+                  <div>
+                    <h2 className="admin-detail__title">{selectedName}</h2>
+                    <p className="admin-detail__subtitle">{formData.play_style || 'No play style defined'}</p>
+                  </div>
+                  {canChangeVisibility && (
+                    <div className="pm-visibility-toggle">
+                      {visibilityOptions.map((vis) => (
+                        <button
+                          key={vis}
+                          type="button"
+                          className={`pm-visibility-toggle__btn pm-visibility-toggle__btn--${vis} ${currentVis === vis ? 'pm-visibility-toggle__btn--active' : ''}`}
+                          onClick={() => handleVisibilityChange(vis)}
+                          disabled={currentVis === vis}
+                        >
+                          {vis === 'public' ? 'Public' : vis === 'private' ? 'Private' : 'Disabled'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!canChangeVisibility && currentVis !== 'public' && (
+                    <span className={`pm-visibility-badge pm-visibility-badge--${currentVis}`}>
+                      {currentVis}
+                    </span>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Detail content (scrollable) */}
             <div className="admin-detail__content">
@@ -1875,11 +2022,13 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
           {/* Character Selector Bottom Sheet */}
           <CharacterSelector
             characters={characterNames}
+            groups={characterGroups}
             selected={selectedName}
             onSelect={selectPersonality}
             onCreate={() => { setSelectorOpen(false); setModal({ type: 'create' }); }}
             isOpen={selectorOpen}
             onClose={() => setSelectorOpen(false)}
+            personalityMeta={personalityMeta}
           />
 
           {/* Editor or Empty State */}

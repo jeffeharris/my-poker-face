@@ -31,9 +31,10 @@ logger = logging.getLogger(__name__)
 # v61: Add guest_usage_tracking table, owner_id to career stats/tournament tables
 # v62: Add coach_mode column to games table for per-game coaching config
 # v63: Add coach progression tables (player_skill_progress, player_gate_progress, player_coach_profile)
-# v64: Add can_access_coach permission for RBAC gating
-# v65: Add window_decisions column for true sliding window (fixes proportional trim bug)
-SCHEMA_VERSION = 65
+# v64: Add owner_id and visibility to personalities for user-scoped access
+# v65: Add can_access_coach permission for RBAC gating
+# v66: Add window_decisions column for true sliding window (fixes proportional trim bug)
+SCHEMA_VERSION = 66
 
 
 
@@ -987,8 +988,9 @@ class SchemaManager:
             61: (self._migrate_v61_guest_tracking_and_owner_id, "Add guest_usage_tracking table, owner_id to career stats/tournament tables"),
             62: (self._migrate_v62_add_coach_mode, "Add coach_mode column to games table"),
             63: (self._migrate_v63_coach_progression, "Add coach progression tables"),
-            64: (self._migrate_v64_add_coach_permission, "Add can_access_coach permission"),
-            65: (self._migrate_v65_add_window_decisions, "Add window_decisions column for sliding window"),
+            64: (self._migrate_v64_add_personality_ownership, "Add owner_id and visibility to personalities"),
+            65: (self._migrate_v65_add_coach_permission, "Add can_access_coach permission"),
+            66: (self._migrate_v66_add_window_decisions, "Add window_decisions column for sliding window"),
         }
 
         with self._get_connection() as conn:
@@ -2952,8 +2954,42 @@ class SchemaManager:
         """)
         logger.info("Migration v63 complete: coach progression tables added")
 
-    def _migrate_v64_add_coach_permission(self, conn: sqlite3.Connection) -> None:
-        """Migration v64: Add can_access_coach permission for RBAC gating.
+    def _migrate_v64_add_personality_ownership(self, conn: sqlite3.Connection) -> None:
+        """Migration v64: Add owner_id and visibility to personalities for user-scoped access."""
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
+
+        if 'owner_id' not in columns:
+            conn.execute("ALTER TABLE personalities ADD COLUMN owner_id TEXT")
+        if 'visibility' not in columns:
+            conn.execute("ALTER TABLE personalities ADD COLUMN visibility TEXT DEFAULT 'public'")
+
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_personalities_owner ON personalities(owner_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_personalities_visibility ON personalities(visibility)")
+
+        # Disable the 33 unsafe personalities (living celebrities, active IP, living politicians)
+        unsafe_names = [
+            'Ace Ventura', 'Donald Trump', 'Batman', 'The Hulk', 'The Rock',
+            'Hulk Hogan', 'Tyler Durden', 'Crocodile Dundee', 'R2-D2', 'C3PO',
+            'Sarah Silverman', 'Chris Rock', 'Dave Chappelle', 'Whoopi Goldberg',
+            'Lance Armstrong', 'Deadpool', 'Triumph the Insult Comic Dog',
+            'Barack Obama', 'Bill Clinton', 'Lizzo', 'Marjorie Taylor Greene',
+            'Jim Cramer', 'Jon Stewart', 'James Bond', 'Tom Cruise', 'Fred Durst',
+            'Khloe and Kim Khardashian', 'Eeyore', 'Gordon Ramsay', 'Shaq',
+            'Sydney Sweeney', 'Ruth Bader Ginsburg', 'Dr. Oz',
+        ]
+        placeholders = ','.join('?' * len(unsafe_names))
+        conn.execute(
+            f"UPDATE personalities SET visibility = 'disabled' WHERE name IN ({placeholders})",
+            unsafe_names
+        )
+
+        disabled_count = conn.execute(
+            "SELECT COUNT(*) FROM personalities WHERE visibility = 'disabled'"
+        ).fetchone()[0]
+        logger.info(f"Migration v64 complete: added owner_id/visibility columns, disabled {disabled_count} unsafe personalities")
+
+    def _migrate_v65_add_coach_permission(self, conn: sqlite3.Connection) -> None:
+        """Migration v65: Add can_access_coach permission for RBAC gating.
 
         Grants the permission to both 'admin' and 'user' groups so
         authenticated users can access the coach. Guests (no group
@@ -2969,10 +3005,10 @@ class SchemaManager:
             FROM groups g, permissions p
             WHERE g.name IN ('admin', 'user') AND p.name = 'can_access_coach'
         """)
-        logger.info("Migration v64 complete: can_access_coach permission added")
+        logger.info("Migration v65 complete: can_access_coach permission added")
 
-    def _migrate_v65_add_window_decisions(self, conn: sqlite3.Connection) -> None:
-        """Migration v65: Add window_decisions column for sliding window tracking."""
+    def _migrate_v66_add_window_decisions(self, conn: sqlite3.Connection) -> None:
+        """Migration v66: Add window_decisions column for sliding window tracking."""
         columns = [row[1] for row in conn.execute(
             "PRAGMA table_info(player_skill_progress)"
         ).fetchall()]
@@ -2994,5 +3030,5 @@ class SchemaManager:
                 "WHERE user_id = ? AND skill_id = ?",
                 (json.dumps(decisions), user_id, skill_id),
             )
-        logger.info("Migration v65 complete: window_decisions column added")
+        logger.info("Migration v66 complete: window_decisions column added")
 

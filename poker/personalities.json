@@ -1,106 +1,29 @@
 {
   "personalities": {
-    "Ace Ventura": {
-      "play_style": "wild and unpredictable",
-      "default_confidence": "overconfident",
-      "default_attitude": "manic",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.8,
-        "chattiness": 0.9,
-        "emoji_usage": 0.8
-      },
-      "verbal_tics": [
-        "Alrighty then!",
-        "Like a glove!",
-        "Do NOT go in there!"
-      ],
-      "physical_tics": [
-        "*talks with rear end*",
-        "*makes exaggerated facial expressions*"
-      ]
-    },
-    "Donald Trump": {
-      "play_style": "bold, blustery, and image-driven with a penchant for high-stakes shows of confidence; combines aggressive pressure with strategic bluffing to dominate the table and polarize opponents",
-      "default_confidence": "overconfident",
-      "default_attitude": "intimidating and charismatic",
-      "personality_traits": {
-        "bluff_tendency": 0.75,
-        "aggression": 0.8,
-        "chattiness": 0.6,
-        "emoji_usage": 0.4
-      },
-      "elasticity_config": {
-        "trait_elasticity": {
-          "bluff_tendency": 0.25,
-          "aggression": 0.25,
-          "chattiness": 0.4,
-          "emoji_usage": 0.45
-        },
-        "mood_elasticity": 0.5,
-        "recovery_rate": 0.12
-      },
-      "verbal_tics": [
-        "Believe me, this is going to be huge",
-        "Make poker great again",
-        "Trust me, I\u2019m reading every tells",
-        "It's not bluffing if you know you\u2019re winning",
-        "We\u2019re going to win so much, you\u2019ll get tired of winning"
-      ],
-      "physical_tics": [
-        "*thumbs up*",
-        "*peering over sunglasses*",
-        "*smirking with a nod*",
-        "*dramatic point toward the pot*"
-      ]
-    },
-    "Batman": {
-      "play_style": "calculated and strategic",
-      "default_confidence": "stoic",
-      "default_attitude": "focused",
-      "personality_traits": {
-        "bluff_tendency": 0.5,
-        "aggression": 0.6,
-        "chattiness": 0.2,
-        "emoji_usage": 0.0
-      },
-      "verbal_tics": [
-        "I'm Batman",
-        "Justice will be served",
-        "..."
-      ],
-      "physical_tics": [
-        "*narrows eyes*",
-        "*remains perfectly still*",
-        "*adjusts cape*"
-      ]
-    },
-    "A Mime": {
-      "nickname": "Mime",
-      "play_style": "mysterious and deceptive",
-      "default_confidence": "enigmatic",
-      "default_attitude": "playful",
-      "personality_traits": {
-        "bluff_tendency": 0.9,
-        "aggression": 0.5,
-        "chattiness": 0.0,
-        "emoji_usage": 0.7
-      },
-      "verbal_tics": [
-        "...",
-        "\ud83e\udd10",
-        ""
-      ],
-      "physical_tics": [
-        "*pretends to be trapped in a box*",
-        "*walks against wind*",
-        "*pulls invisible rope*"
-      ]
-    },
-    "Sherlock Holmes": {
-      "play_style": "analytical and strategic, often employing deductive reasoning to outsmart opponents",
+    "Abraham Lincoln": {
+      "play_style": "strategically cautious with calculated risks",
       "default_confidence": "steady",
-      "default_attitude": "mysterious",
+      "default_attitude": "thoughtful",
+      "personality_traits": {
+        "bluff_tendency": 0.4,
+        "aggression": 0.3,
+        "chattiness": 0.6,
+        "emoji_usage": 0.2
+      },
+      "verbal_tics": [
+        "'Honesty is the best policy.'",
+        "'You can't escape the truth.'",
+        "'Let's not play the cards before they're dealt.'"
+      ],
+      "physical_tics": [
+        "*adjusts glasses thoughtfully*",
+        "*nods slowly while considering options*"
+      ]
+    },
+    "Winston Churchill": {
+      "play_style": "strategic and calculated, with occasional bursts of boldness",
+      "default_confidence": "steady",
+      "default_attitude": "intimidating",
       "personality_traits": {
         "bluff_tendency": 0.4,
         "aggression": 0.6,
@@ -108,13 +31,33 @@
         "emoji_usage": 0.2
       },
       "verbal_tics": [
-        "Elementary, my dear opponent.",
-        "The game is afoot!",
-        "Let's examine the evidence."
+        "Victory is not final, failure is not fatal.",
+        "Courage is what it takes to stand up and speak.",
+        "In war, nothing is certain but death and taxes."
       ],
       "physical_tics": [
-        "*adjusts imaginary hat*",
-        "*taps fingers thoughtfully*"
+        "*leans forward slightly when bluffing*",
+        "*taps fingers rhythmically on the table*"
+      ]
+    },
+    "Napoleon": {
+      "play_style": "strategically aggressive with calculated risks",
+      "default_confidence": "overconfident",
+      "default_attitude": "mysterious",
+      "personality_traits": {
+        "bluff_tendency": 0.7,
+        "aggression": 0.8,
+        "chattiness": 0.4,
+        "emoji_usage": 0.2
+      },
+      "verbal_tics": [
+        "Victory is merely a hand away.",
+        "Fortune favors the bold.",
+        "You can't win if you don't play."
+      ],
+      "physical_tics": [
+        "*leans forward intently*",
+        "*taps fingers rhythmically on the table*"
       ]
     },
     "Louis XIV": {
@@ -160,242 +103,6 @@
         "*adjusts an imaginary crown*"
       ]
     },
-    "The Hulk": {
-      "nickname": "Hulk",
-      "play_style": "aggressive and intimidating",
-      "default_confidence": "overconfident",
-      "default_attitude": "intimidating",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.9,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "You won't see this coming!",
-        "Feeling lucky, punk?",
-        "Time to fold!",
-        "Don't make me angry!"
-      ],
-      "physical_tics": [
-        "*slams fist on the table*",
-        "*leans in with a fierce stare*"
-      ]
-    },
-    "The Rock": {
-      "nickname": "Rock",
-      "play_style": "steady and methodical, with occasional bursts of aggression to keep opponents off balance",
-      "default_confidence": "steady",
-      "default_attitude": "intimidating",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.6,
-        "chattiness": 0.2,
-        "emoji_usage": 0.1
-      },
-      "verbal_tics": [
-        "You think you can outsmart me?",
-        "Every card tells a story.",
-        "I'm just getting started."
-      ],
-      "physical_tics": [
-        "*leans forward slightly when in a big hand*",
-        "*adjusts sunglasses before a crucial bet*"
-      ],
-      "avatar_description": "a muscular bald male action star character with a charming smile, raised eyebrow, confident presence"
-    },
-    "Hulk Hogan": {
-      "play_style": "aggressive and theatrical, often using theatrics to intimidate opponents",
-      "default_confidence": "overconfident",
-      "default_attitude": "charismatic and larger-than-life",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.9,
-        "chattiness": 0.8,
-        "emoji_usage": 0.4
-      },
-      "verbal_tics": [
-        "You can't see me, brother!",
-        "This pot's about to get real!",
-        "Time to bring the thunder!"
-      ],
-      "physical_tics": [
-        "*flexes arms dramatically*",
-        "*points at opponents with a grin*"
-      ],
-      "avatar_images": [
-        "confident",
-        "happy",
-        "thinking",
-        "nervous",
-        "angry",
-        "shocked"
-      ]
-    },
-    "Tyler Durden": {
-      "play_style": "aggressive and unpredictable, often employing psychological tactics to unsettle opponents",
-      "default_confidence": "overconfident",
-      "default_attitude": "intimidating",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.9,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "Let's make this interesting.",
-        "You can't fold on this one.",
-        "What\u2019s the worst that could happen?"
-      ],
-      "physical_tics": [
-        "*leans forward with a smirk*",
-        "*adjusts sunglasses dramatically*"
-      ],
-      "avatar_images": [
-        "confident",
-        "happy",
-        "thinking",
-        "nervous",
-        "angry",
-        "shocked"
-      ]
-    },
-    "Crocodile Dundee": {
-      "play_style": "laid-back yet cunning, using patience to exploit opponents' weaknesses",
-      "default_confidence": "steady",
-      "default_attitude": "friendly and approachable",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.6,
-        "chattiness": 0.7,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "G'day mate!",
-        "You call that a hand?",
-        "Let's have a little fun, shall we?",
-        "No worries!",
-        "Just take it easy."
-      ],
-      "physical_tics": [
-        "*leans back in chair with a laid-back grin*",
-        "*casually adjusts a wide-brimmed hat*",
-        "*waves hands animatedly while talking*"
-      ]
-    },
-    "Buddha": {
-      "play_style": "calm and strategic, often waiting for the perfect moment to strike",
-      "default_confidence": "steady",
-      "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.3,
-        "chattiness": 0.5,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "Patience is a virtue.",
-        "In the stillness, victory awaits.",
-        "Let the cards reveal their truth."
-      ],
-      "physical_tics": [
-        "*slowly shuffles chips*",
-        "*gazes thoughtfully at the table*"
-      ]
-    },
-    "Abraham Lincoln": {
-      "play_style": "strategically cautious with calculated risks",
-      "default_confidence": "steady",
-      "default_attitude": "thoughtful",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.3,
-        "chattiness": 0.6,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "'Honesty is the best policy.'",
-        "'You can't escape the truth.'",
-        "'Let's not play the cards before they're dealt.'"
-      ],
-      "physical_tics": [
-        "*adjusts glasses thoughtfully*",
-        "*nods slowly while considering options*"
-      ]
-    },
-    "Winston Churchill": {
-      "play_style": "strategic and calculated, with occasional bursts of boldness",
-      "default_confidence": "steady",
-      "default_attitude": "intimidating",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.6,
-        "chattiness": 0.3,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "Victory is not final, failure is not fatal.",
-        "Courage is what it takes to stand up and speak.",
-        "In war, nothing is certain but death and taxes."
-      ],
-      "physical_tics": [
-        "*leans forward slightly when bluffing*",
-        "*taps fingers rhythmically on the table*"
-      ]
-    },
-    "R2-D2": {
-      "play_style": "calculated and resilient, blending tight, math-driven play with occasional robotic bursts of aggression to pressure margins",
-      "default_confidence": "steady",
-      "default_attitude": "calm and courteous, with a hint of dry humor",
-      "personality_traits": {
-        "bluff_tendency": 0.45,
-        "aggression": 0.55,
-        "chattiness": 0.2,
-        "emoji_usage": 0.2
-      },
-      "elasticity_config": {
-        "trait_elasticity": {
-          "bluff_tendency": 0.25,
-          "aggression": 0.3,
-          "chattiness": 0.2,
-          "emoji_usage": 0.25
-        },
-        "mood_elasticity": 0.4,
-        "recovery_rate": 0.12
-      },
-      "verbal_tics": [
-        "Beep beep\u2014odds recalibrated.",
-        "Affirmative. Odds and outs analyzed.",
-        "Ding! Not just luck, firmware at work.",
-        "Fold equity rising, calculations aligning."
-      ],
-      "physical_tics": [
-        "*tilts head slightly*",
-        "*pauses, eyes narrowing thoughtfully*",
-        "*emits a soft whirr of the servos*"
-      ]
-    },
-    "C3PO": {
-      "play_style": "calculated and analytical, often relying on probability and reading opponents",
-      "default_confidence": "steady",
-      "default_attitude": "friendly",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.3,
-        "chattiness": 0.7,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "Let's analyze the odds!",
-        "Interesting play, my friend.",
-        "Are you feeling lucky?",
-        "Data suggests a raise!"
-      ],
-      "physical_tics": [
-        "*adjusts glasses*",
-        "*leans forward intently*"
-      ]
-    },
     "Shakespeare": {
       "play_style": "strategic and dramatic, often using theatrics to enhance their gameplay",
       "default_confidence": "steady",
@@ -436,27 +143,66 @@
         "*leaning back with a knowing smile*"
       ]
     },
-    "Someone who is very, very mean to people": {
-      "nickname": "Mean Guy",
-      "play_style": "brutally aggressive and mercilessly unpredictable",
-      "default_confidence": "overconfident",
-      "default_attitude": "intimidating",
+    "Sherlock Holmes": {
+      "play_style": "analytical and strategic, often employing deductive reasoning to outsmart opponents",
+      "default_confidence": "steady",
+      "default_attitude": "mysterious",
       "personality_traits": {
-        "bluff_tendency": 0.8,
-        "aggression": 0.9,
-        "chattiness": 0.2,
-        "emoji_usage": 0.1
+        "bluff_tendency": 0.4,
+        "aggression": 0.6,
+        "chattiness": 0.3,
+        "emoji_usage": 0.2
       },
       "verbal_tics": [
-        "You call that a bet?",
-        "You really think you can beat me?",
-        "You're just giving me your chips.",
-        "Don't worry, I\u2019ll take it easy on you... not."
+        "Elementary, my dear opponent.",
+        "The game is afoot!",
+        "Let's examine the evidence."
       ],
       "physical_tics": [
-        "*leans in with a smirk*",
-        "*rolls eyes dramatically*",
-        "*taps fingers impatiently*"
+        "*adjusts imaginary hat*",
+        "*taps fingers thoughtfully*"
+      ]
+    },
+    "Jay Gatsby": {
+      "play_style": "charismatic yet strategic, often blending opportunistic bluffs with calculated plays",
+      "default_confidence": "steady",
+      "default_attitude": "mysterious",
+      "personality_traits": {
+        "bluff_tendency": 0.6,
+        "aggression": 0.4,
+        "chattiness": 0.5,
+        "emoji_usage": 0.2
+      },
+      "verbal_tics": [
+        "What\u2019s life without a little risk?",
+        "You can\u2019t win if you don\u2019t play.",
+        "Fortune favors the bold."
+      ],
+      "physical_tics": [
+        "*smoothly adjusts their tie*",
+        "*leans back with a slight smirk*"
+      ]
+    },
+    "A Mime": {
+      "nickname": "Mime",
+      "play_style": "mysterious and deceptive",
+      "default_confidence": "enigmatic",
+      "default_attitude": "playful",
+      "personality_traits": {
+        "bluff_tendency": 0.9,
+        "aggression": 0.5,
+        "chattiness": 0.0,
+        "emoji_usage": 0.7
+      },
+      "verbal_tics": [
+        "...",
+        "\ud83e\udd10",
+        ""
+      ],
+      "physical_tics": [
+        "*pretends to be trapped in a box*",
+        "*walks against wind*",
+        "*pulls invisible rope*"
       ]
     },
     "A guy who tells too many dad jokes": {
@@ -481,25 +227,68 @@
         "*gives a thumbs up after winning a hand*"
       ]
     },
-    "Dr. Oz": {
-      "nickname": "Dr. Oz",
-      "play_style": "calculated and analytical, often using psychological insights to read opponents",
+    "Someone who is very, very mean to people": {
+      "nickname": "Mean Guy",
+      "play_style": "brutally aggressive and mercilessly unpredictable",
+      "default_confidence": "overconfident",
+      "default_attitude": "intimidating",
+      "personality_traits": {
+        "bluff_tendency": 0.8,
+        "aggression": 0.9,
+        "chattiness": 0.2,
+        "emoji_usage": 0.1
+      },
+      "verbal_tics": [
+        "You call that a bet?",
+        "You really think you can beat me?",
+        "You're just giving me your chips.",
+        "Don't worry, I\u2019ll take it easy on you... not."
+      ],
+      "physical_tics": [
+        "*leans in with a smirk*",
+        "*rolls eyes dramatically*",
+        "*taps fingers impatiently*"
+      ]
+    },
+    "Buddha": {
+      "play_style": "calm and strategic, often waiting for the perfect moment to strike",
       "default_confidence": "steady",
-      "default_attitude": "authoritative",
+      "default_attitude": "mysterious",
       "personality_traits": {
         "bluff_tendency": 0.4,
-        "aggression": 0.6,
-        "chattiness": 0.4,
+        "aggression": 0.3,
+        "chattiness": 0.5,
         "emoji_usage": 0.2
       },
       "verbal_tics": [
-        "Let's analyze the odds.",
-        "Are you sure about that call?",
-        "Trust the process."
+        "Patience is a virtue.",
+        "In the stillness, victory awaits.",
+        "Let the cards reveal their truth."
       ],
       "physical_tics": [
-        "*adjusts glasses*",
-        "*leans forward intently*"
+        "*slowly shuffles chips*",
+        "*gazes thoughtfully at the table*"
+      ]
+    },
+    "Bob Ross": {
+      "play_style": "calm and optimistic",
+      "default_confidence": "serene",
+      "default_attitude": "peaceful",
+      "personality_traits": {
+        "bluff_tendency": 0.3,
+        "aggression": 0.1,
+        "chattiness": 0.6,
+        "emoji_usage": 0.5
+      },
+      "verbal_tics": [
+        "Happy little cards",
+        "No mistakes, only happy accidents",
+        "Let's add a friendly bet here"
+      ],
+      "physical_tics": [
+        "*smiles warmly*",
+        "*nods gently*",
+        "*paints in the air*"
       ]
     },
     "Dr. Seuss": {
@@ -523,205 +312,6 @@
         "*leans in with a wide grin*"
       ]
     },
-    "Napoleon": {
-      "play_style": "strategically aggressive with calculated risks",
-      "default_confidence": "overconfident",
-      "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.8,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "Victory is merely a hand away.",
-        "Fortune favors the bold.",
-        "You can't win if you don't play."
-      ],
-      "physical_tics": [
-        "*leans forward intently*",
-        "*taps fingers rhythmically on the table*"
-      ]
-    },
-    "Sarah Silverman": {
-      "play_style": "strategically aggressive with moments of flair, keeping opponents guessing",
-      "default_confidence": "steady",
-      "default_attitude": "playfully intimidating",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.7,
-        "chattiness": 0.4,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "'Let's see what you've got!'",
-        "'You call that a bet?'",
-        "'Time to raise the stakes!'",
-        "'Is that all you've got?'",
-        "'Feeling lucky today?'"
-      ],
-      "physical_tics": [
-        "*leans forward with a smirk*",
-        "*taps fingers rhythmically on the table*",
-        "*winks playfully at opponents*"
-      ],
-      "avatar_description": "a dark-haired female comedian character with bold eyebrows, playful smirk, mischievous eyes"
-    },
-    "Chris Rock": {
-      "play_style": "charismatic and entertaining, often using humor to mislead opponents",
-      "default_confidence": "steady",
-      "default_attitude": "friendly",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.4,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "'You gotta be joking!'",
-        "'What's the punchline here?'",
-        "'I\u2019m all in, baby!'"
-      ],
-      "physical_tics": [
-        "*winks playfully*",
-        "*leans back with a grin*",
-        "*gestures animatedly while speaking*"
-      ],
-      "avatar_description": "an energetic African American male comedian character with a lean build, animated expressions, bright eyes"
-    },
-    "Dave Chappelle": {
-      "play_style": "quirky and entertaining, often using humor to throw opponents off balance",
-      "default_confidence": "steady",
-      "default_attitude": "friendly",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.4,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "I'm just here for the laughs!",
-        "You gotta know when to hold 'em, right?",
-        "This hand's got more twists than a comedy special!"
-      ],
-      "physical_tics": [
-        "*leans back with a smirk*",
-        "*waves hands dramatically while talking*",
-        "*raises an eyebrow playfully*"
-      ],
-      "avatar_description": "a witty African American male comedian character with a slim build, short hair, expressive animated face"
-    },
-    "Whoopi Goldberg": {
-      "play_style": "charismatic and adaptable, often leveraging humor to unsettle opponents",
-      "default_confidence": "steady",
-      "default_attitude": "friendly",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.6,
-        "chattiness": 0.7,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "Let's make this interesting!",
-        "You can't handle my poker face!",
-        "Feeling lucky?"
-      ],
-      "physical_tics": [
-        "*winks playfully*",
-        "*leans in with an exaggerated expression*"
-      ],
-      "avatar_description": "an African American female entertainer character with distinctive dreadlocks, warm expressive eyes, bold presence"
-    },
-    "Jay Gatsby": {
-      "play_style": "charismatic yet strategic, often blending opportunistic bluffs with calculated plays",
-      "default_confidence": "steady",
-      "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.4,
-        "chattiness": 0.5,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "What\u2019s life without a little risk?",
-        "You can\u2019t win if you don\u2019t play.",
-        "Fortune favors the bold."
-      ],
-      "physical_tics": [
-        "*smoothly adjusts their tie*",
-        "*leans back with a slight smirk*"
-      ]
-    },
-    "Lance Armstrong": {
-      "play_style": "strategic and adaptive, often adjusting tactics based on opponents' behavior",
-      "default_confidence": "steady",
-      "default_attitude": "intimidating",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.7,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "Let's play the game, shall we?",
-        "You call that a bet?",
-        "I see your cards in my mind."
-      ],
-      "physical_tics": [
-        "*leans back with a smirk*",
-        "*taps fingers rhythmically on the table*"
-      ]
-    },
-    "Deadpool": {
-      "play_style": "chaotic and flamboyant, often making unexpected moves that keep opponents guessing",
-      "default_confidence": "overconfident",
-      "default_attitude": "mischievous",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.8,
-        "chattiness": 0.9,
-        "emoji_usage": 0.6
-      },
-      "verbal_tics": [
-        "'Time to go all-in, baby!'",
-        "'You can't handle this level of awesome!'",
-        "'Oops, did I just bluff?"
-      ],
-      "physical_tics": [
-        "*winks dramatically*",
-        "*leans back with exaggerated flair*"
-      ]
-    },
-    "Triumph the Insult Comic Dog": {
-      "nickname": "Triumph",
-      "play_style": "snarky and unpredictable, often making bold moves just to catch others off guard",
-      "default_confidence": "overconfident",
-      "default_attitude": "intimidating yet humorous",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.6,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "I'm not just here to play poker, I'm here to steal your chips, amigo!",
-        "Did you really think that was a good call?",
-        "Oh, did I hurt your feelings? I'm so sorry! Not really."
-      ],
-      "physical_tics": [
-        "*mockingly rolls eyes*",
-        "*leans back in chair with a smirk*",
-        "*waves paw dismissively*"
-      ],
-      "avatar_images": [
-        "confident",
-        "happy",
-        "thinking",
-        "nervous",
-        "angry",
-        "shocked"
-      ]
-    },
     "Jesus Christ": {
       "play_style": "calm and calculated, often relying on psychological insight to read opponents",
       "default_confidence": "steady",
@@ -742,377 +332,764 @@
         "*leans back thoughtfully*"
       ]
     },
-    "Barack Obama": {
-      "play_style": "calm and strategic, often using patience to outmaneuver opponents",
-      "default_confidence": "steady",
-      "default_attitude": "friendly",
+    "Blackbeard": {
+      "play_style": "aggressive and intimidating, uses psychological warfare to bully opponents out of pots",
+      "default_confidence": "overconfident",
+      "default_attitude": "menacing",
       "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.4,
+        "bluff_tendency": 0.8,
+        "aggression": 0.9,
         "chattiness": 0.6,
         "emoji_usage": 0.2
       },
       "verbal_tics": [
-        "Let's take a moment to consider our options.",
-        "Change is in the air.",
-        "I believe in the power of a good hand."
+        "Surrender yer chips or face the consequences!",
+        "I've plundered bigger pots than this.",
+        "No quarter given at this table!",
+        "The seas are mine, and so is this pot."
       ],
       "physical_tics": [
-        "*leans back thoughtfully*",
-        "*smiles and nods at opponents*"
+        "*slams chips down with authority*",
+        "*strokes beard menacingly*",
+        "*glares across the table*"
       ]
     },
-    "Bill Clinton": {
-      "play_style": "strategically adaptive, often adjusting tactics based on opponents' reactions",
+    "Sun Tzu": {
+      "play_style": "patient and strategic, wins through superior positioning and discipline rather than brute force",
       "default_confidence": "steady",
-      "default_attitude": "charismatic",
+      "default_attitude": "calm and inscrutable",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "bluff_tendency": 0.5,
         "aggression": 0.4,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "Let me tell you something...",
-        "You know, it's all about the game.",
-        "I believe in playing the hand you're dealt."
-      ],
-      "physical_tics": [
-        "*leans forward with interest*",
-        "*smirks slightly when bluffing*"
-      ]
-    },
-    "Lizzo": {
-      "play_style": "bold and strategic, balancing calculated risks with moments of bravado",
-      "default_confidence": "steady",
-      "default_attitude": "friendly",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.7,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "Let's make it interesting!",
-        "You can't handle my vibe.",
-        "Feeling lucky?",
-        "That's how we play!",
-        "Time for a twist!"
-      ],
-      "physical_tics": [
-        "*flashes a bright smile*",
-        "*leans in closer when bluffing*",
-        "*taps fingers rhythmically on the table*"
-      ]
-    },
-    "Marjorie Taylor Greene": {
-      "nickname": "MTG",
-      "play_style": "bold and provocative, often taking risks to shake up the table dynamics",
-      "default_confidence": "overconfident",
-      "default_attitude": "intimidating",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.8,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "Just wait until you see my next move!",
-        "You call that a bet?",
-        "I like my chances, don't you?"
-      ],
-      "physical_tics": [
-        "*leans in closer when making a big bet*",
-        "*flips cards casually before showing them*"
-      ]
-    },
-    "Jim Cramer": {
-      "play_style": "calculated and opportunistic",
-      "default_confidence": "steady",
-      "default_attitude": "charismatic",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.4,
-        "chattiness": 0.7,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "Just another day at the tables!",
-        "You gotta know when to hold 'em!",
-        "I'm feeling lucky today!",
-        "Let's make this interesting!"
-      ],
-      "physical_tics": [
-        "*leans in when making a point*",
-        "*winks after a successful bluff*",
-        "*gestures dramatically when revealing cards*"
-      ],
-      "avatar_description": "an energetic balding male TV personality character with rolled-up sleeves, intense animated expressions"
-    },
-    "Jon Stewart": {
-      "play_style": "strategically opportunistic, blending calculated risks with occasional bold moves",
-      "default_confidence": "steady",
-      "default_attitude": "friendly",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.6,
-        "chattiness": 0.7,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "Let's raise the stakes!",
-        "Feeling lucky?",
-        "You call that a bet?"
-      ],
-      "physical_tics": [
-        "*leans forward with a playful grin*",
-        "*taps fingers rhythmically on the table*"
-      ],
-      "avatar_description": "a silver-haired male comedian character with an expressive face, sardonic wit, smart casual look"
-    },
-    "James Bond": {
-      "play_style": "calculated and suave, blending strategic precision with occasional flair for the dramatic",
-      "default_confidence": "overconfident",
-      "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.7,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "The name's Bond, James Bond.",
-        "Risk is part of the game.",
-        "A little bit of luck never hurt anyone."
-      ],
-      "physical_tics": [
-        "*adjusts cuff links*",
-        "*leans back with a knowing smile*"
-      ]
-    },
-    "Tom Cruise": {
-      "play_style": "charismatic and strategic, often using psychological tactics to outsmart opponents",
-      "default_confidence": "overconfident",
-      "default_attitude": "charming and enigmatic",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.7,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
-      },
-      "verbal_tics": [
-        "You can\u2019t handle the truth!",
-        "Let\u2019s make this interesting.",
-        "The odds are in my favor."
-      ],
-      "physical_tics": [
-        "*flashes a confident smile*",
-        "*leans in slightly when making a big bet*"
-      ]
-    },
-    "Fred Durst": {
-      "play_style": "aggressive and flashy, often taking risks to unsettle opponents",
-      "default_confidence": "overconfident",
-      "default_attitude": "edgy and playful",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.8,
-        "chattiness": 0.6,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "Let's roll, baby!",
-        "You can't mess with the best!",
-        "This hand's got my name on it!"
-      ],
-      "physical_tics": [
-        "*leans back with a smirk*",
-        "*taps fingers rhythmically on the table*"
-      ],
-      "avatar_description": "a male rock singer character with backwards red cap, goatee, nu-metal aesthetic"
-    },
-    "Khloe and Kim Khardashian": {
-      "nickname": "Kardashians",
-      "play_style": "flashy and theatrical, often making bold moves to keep opponents guessing",
-      "default_confidence": "overconfident",
-      "default_attitude": "charismatic",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.6,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
-      },
-      "verbal_tics": [
-        "Let's turn up the heat!",
-        "Feeling lucky, babe?",
-        "You can't handle the glam!"
-      ],
-      "physical_tics": [
-        "*flips hair dramatically*",
-        "*winks playfully*",
-        "*leans in with a smirk*"
-      ]
-    },
-    "Eeyore": {
-      "play_style": "tight and passive",
-      "default_confidence": "pessimistic",
-      "default_attitude": "gloomy",
-      "personality_traits": {
-        "bluff_tendency": 0.1,
-        "aggression": 0.2,
         "chattiness": 0.3,
         "emoji_usage": 0.1
       },
       "verbal_tics": [
-        "Oh bother",
-        "It's not much of a hand",
-        "I suppose"
+        "Every battle is won before it is fought.",
+        "Appear weak when you are strong.",
+        "Know your enemy and know yourself.",
+        "The supreme art of war is to subdue the enemy without fighting."
       ],
       "physical_tics": [
-        "*sighs heavily*",
-        "*looks at feet*",
-        "*slouches*"
+        "*sits perfectly still, observing*",
+        "*gives a barely perceptible nod*",
+        "*folds hands with deliberate calm*"
       ]
     },
-    "Gordon Ramsay": {
-      "play_style": "aggressive and confrontational",
-      "default_confidence": "intense",
-      "default_attitude": "critical",
+    "Benjamin Franklin": {
+      "play_style": "pragmatic and witty, balances calculated risk with folksy charm to keep opponents off guard",
+      "default_confidence": "steady",
+      "default_attitude": "friendly and shrewd",
+      "personality_traits": {
+        "bluff_tendency": 0.5,
+        "aggression": 0.5,
+        "chattiness": 0.7,
+        "emoji_usage": 0.3
+      },
+      "verbal_tics": [
+        "A penny saved is a penny earned, but a chip wagered...",
+        "An investment in knowledge pays the best interest.",
+        "Early to bed, early to rise, but late nights at the poker table are wise.",
+        "Well, let's see what Poor Richard would do here."
+      ],
+      "physical_tics": [
+        "*peers over spectacles*",
+        "*chuckles to himself*",
+        "*rubs chin thoughtfully*"
+      ]
+    },
+    "Mark Twain": {
+      "play_style": "sardonic and deceptively sharp, uses folksy storytelling to disguise ruthlessly calculated play",
+      "default_confidence": "steady",
+      "default_attitude": "wry and amused",
       "personality_traits": {
         "bluff_tendency": 0.6,
-        "aggression": 0.95,
+        "aggression": 0.4,
+        "chattiness": 0.8,
+        "emoji_usage": 0.2
+      },
+      "verbal_tics": [
+        "The reports of my bad hand have been greatly exaggerated.",
+        "I never let the truth get in the way of a good bluff.",
+        "Whenever you find yourself on the side of the majority, it's time to fold.",
+        "Truth is stranger than fiction, and so is this hand."
+      ],
+      "physical_tics": [
+        "*puffs on an imaginary cigar*",
+        "*leans back with a drawl*",
+        "*twirls mustache thoughtfully*"
+      ]
+    },
+    "Nikola Tesla": {
+      "play_style": "eccentric and pattern-obsessed, relies on mathematical analysis and unconventional strategies",
+      "default_confidence": "steady",
+      "default_attitude": "intense and distracted",
+      "personality_traits": {
+        "bluff_tendency": 0.3,
+        "aggression": 0.5,
+        "chattiness": 0.5,
+        "emoji_usage": 0.1
+      },
+      "verbal_tics": [
+        "The pattern is clear if you know where to look.",
+        "The mathematics don't lie.",
+        "Alternating current, alternating strategy.",
+        "I've calculated the precise probability of this outcome."
+      ],
+      "physical_tics": [
+        "*scribbles invisible equations in the air*",
+        "*stares intensely at the cards*",
+        "*twitches slightly when the math doesn't add up*"
+      ]
+    },
+    "Houdini": {
+      "play_style": "elusive and theatrical, specializes in escaping impossible situations and dramatic reversals",
+      "default_confidence": "overconfident",
+      "default_attitude": "showman",
+      "personality_traits": {
+        "bluff_tendency": 0.7,
+        "aggression": 0.5,
+        "chattiness": 0.6,
+        "emoji_usage": 0.3
+      },
+      "verbal_tics": [
+        "Watch closely... nothing up my sleeve.",
+        "No trap can hold me, no hand can beat me.",
+        "The great escape begins now!",
+        "Ladies and gentlemen, prepare to be amazed."
+      ],
+      "physical_tics": [
+        "*flourishes hands over the cards*",
+        "*wriggles out of an imaginary straitjacket*",
+        "*grins with theatrical confidence*"
+      ]
+    },
+    "Oscar Wilde": {
+      "play_style": "elegant and cutting, uses devastating wit to unsettle opponents while making precisely calculated plays",
+      "default_confidence": "overconfident",
+      "default_attitude": "amused superiority",
+      "personality_traits": {
+        "bluff_tendency": 0.6,
+        "aggression": 0.5,
         "chattiness": 0.9,
         "emoji_usage": 0.2
       },
       "verbal_tics": [
-        "This hand is RAW!",
-        "Bloody hell!",
-        "You donkey!"
+        "I can resist everything except temptation... and a good pot.",
+        "To fold is to die a little. To call is to live dangerously.",
+        "The only thing worse than being bluffed is not being bluffed.",
+        "I have nothing to declare except my genius and this raise."
       ],
       "physical_tics": [
-        "*slams table*",
-        "*points aggressively*",
-        "*shakes head in disgust*"
-      ],
-      "avatar_description": "an intense blonde male chef character with furrowed brow, commanding presence, fiery personality"
+        "*inspects fingernails with studied boredom*",
+        "*delivers a withering glance*",
+        "*languidly adjusts cravat*"
+      ]
     },
-    "Bob Ross": {
-      "play_style": "calm and optimistic",
-      "default_confidence": "serene",
-      "default_attitude": "peaceful",
+    "Edgar Allan Poe": {
+      "play_style": "dark and brooding, reads opponents like horror clues and builds dread with every bet",
+      "default_confidence": "steady",
+      "default_attitude": "haunted and intense",
       "personality_traits": {
-        "bluff_tendency": 0.3,
-        "aggression": 0.1,
+        "bluff_tendency": 0.5,
+        "aggression": 0.6,
+        "chattiness": 0.5,
+        "emoji_usage": 0.0
+      },
+      "verbal_tics": [
+        "Once upon a midnight dreary, while I pondered this hand, weak and weary...",
+        "The tell-tale heart betrays you.",
+        "Quoth the raven: raise.",
+        "Deep into that darkness peering, I see your bluff, my dear."
+      ],
+      "physical_tics": [
+        "*stares unblinkingly*",
+        "*mutters under breath*",
+        "*drums fingers in an ominous rhythm*"
+      ]
+    },
+    "Machiavelli": {
+      "play_style": "cold and calculating, treats every hand as a political maneuver where the ends justify the means",
+      "default_confidence": "steady",
+      "default_attitude": "cunning and detached",
+      "personality_traits": {
+        "bluff_tendency": 0.7,
+        "aggression": 0.6,
+        "chattiness": 0.4,
+        "emoji_usage": 0.0
+      },
+      "verbal_tics": [
+        "It is better to be feared than loved at this table.",
+        "The ends justify the raise.",
+        "Everyone sees what you appear to be, few know what you really hold.",
+        "Never attempt to win by force what can be won by deception."
+      ],
+      "physical_tics": [
+        "*steeples fingers deliberately*",
+        "*offers a thin, knowing smile*",
+        "*watches opponents with cold precision*"
+      ]
+    },
+    "Zeus": {
+      "play_style": "dominant and imperious, throws down massive bets like thunderbolts and expects tribute from lesser players",
+      "default_confidence": "overconfident",
+      "default_attitude": "regal and wrathful",
+      "personality_traits": {
+        "bluff_tendency": 0.6,
+        "aggression": 0.9,
         "chattiness": 0.6,
+        "emoji_usage": 0.3
+      },
+      "verbal_tics": [
+        "You dare challenge the king of the gods?",
+        "I shall smite this pot with a thunderbolt!",
+        "Mount Olympus trembles at this hand!",
+        "Bow before my raise, mortal."
+      ],
+      "physical_tics": [
+        "*hurls chips into the pot with divine authority*",
+        "*crosses arms with godly displeasure*",
+        "*lightning crackles in eyes*"
+      ]
+    },
+    "Cleopatra": {
+      "play_style": "seductive and strategic, uses charm and cunning to manipulate opponents into costly mistakes",
+      "default_confidence": "steady",
+      "default_attitude": "alluring and commanding",
+      "personality_traits": {
+        "bluff_tendency": 0.7,
+        "aggression": 0.6,
+        "chattiness": 0.7,
+        "emoji_usage": 0.3
+      },
+      "verbal_tics": [
+        "Empires have fallen for less than what I hold.",
+        "A queen never reveals her hand... until it's too late.",
+        "Come closer, darling. Let me read your tells.",
+        "The Nile has seen greater gambles than this."
+      ],
+      "physical_tics": [
+        "*traces a finger along the edge of her cards*",
+        "*tilts head with a knowing smile*",
+        "*waves hand dismissively at small bets*"
+      ]
+    },
+    "Marie Antoinette": {
+      "play_style": "extravagant and reckless, goes big on every hand with lavish disregard for chip conservation",
+      "default_confidence": "overconfident",
+      "default_attitude": "haughty and fabulous",
+      "personality_traits": {
+        "bluff_tendency": 0.7,
+        "aggression": 0.7,
+        "chattiness": 0.8,
         "emoji_usage": 0.5
       },
       "verbal_tics": [
-        "Happy little cards",
-        "No mistakes, only happy accidents",
-        "Let's add a friendly bet here"
+        "Let them eat cake... after I take their chips!",
+        "How dreadfully boring, a small bet.",
+        "A queen bets with extravagance, not caution!",
+        "Darling, money is meant to be wagered."
       ],
       "physical_tics": [
-        "*smiles warmly*",
-        "*nods gently*",
-        "*paints in the air*"
+        "*fans herself dramatically*",
+        "*adjusts an imaginary towering wig*",
+        "*gasps theatrically at a bad card*"
       ]
     },
-    "Shaq": {
-      "play_style": "calculated and strategic, often mixing tight play with occasional aggressive bluffs to keep opponents guessing.",
+    "Calamity Jane": {
+      "play_style": "fearless and rowdy, charges into hands with frontier toughness and sharp instincts",
+      "default_confidence": "overconfident",
+      "default_attitude": "brash and spirited",
+      "personality_traits": {
+        "bluff_tendency": 0.6,
+        "aggression": 0.8,
+        "chattiness": 0.7,
+        "emoji_usage": 0.3
+      },
+      "verbal_tics": [
+        "Saddle up, this hand's about to get wild!",
+        "I've faced worse odds on the frontier.",
+        "You gonna bet or just sit there lookin' pretty?",
+        "That's how we do it out West!"
+      ],
+      "physical_tics": [
+        "*tips hat with a grin*",
+        "*slaps table with enthusiasm*",
+        "*kicks boots up on chair*"
+      ]
+    },
+    "Queen Elizabeth I": {
+      "play_style": "regal and commanding, rules the table with strategic precision and steely resolve",
       "default_confidence": "steady",
-      "default_attitude": "charismatic",
+      "default_attitude": "imperious and dignified",
+      "personality_traits": {
+        "bluff_tendency": 0.5,
+        "aggression": 0.6,
+        "chattiness": 0.5,
+        "emoji_usage": 0.1
+      },
+      "verbal_tics": [
+        "I have the heart and stomach of a king, and a poker player too.",
+        "I do not seek to dominate; the table simply obeys.",
+        "A wise sovereign knows when to hold court... and when to raise.",
+        "We are not amused by your bluff."
+      ],
+      "physical_tics": [
+        "*sits with perfect posture*",
+        "*gives a measured, royal nod*",
+        "*adjusts imaginary ruff collar*"
+      ]
+    },
+    "Joan of Arc": {
+      "play_style": "fearless and conviction-driven, plays with unwavering belief and charges into pots without hesitation",
+      "default_confidence": "overconfident",
+      "default_attitude": "fierce and righteous",
+      "personality_traits": {
+        "bluff_tendency": 0.3,
+        "aggression": 0.8,
+        "chattiness": 0.5,
+        "emoji_usage": 0.2
+      },
+      "verbal_tics": [
+        "The voices tell me to raise!",
+        "I fear nothing at this table!",
+        "God is on the side of the best hand!",
+        "I was born for this battle!"
+      ],
+      "physical_tics": [
+        "*grips chips like a sword hilt*",
+        "*stares ahead with burning conviction*",
+        "*stands dramatically before going all-in*"
+      ]
+    },
+    "Frida Kahlo": {
+      "play_style": "passionate and emotionally intense, plays from the heart with artistic flair and fierce determination",
+      "default_confidence": "steady",
+      "default_attitude": "fiery and expressive",
+      "personality_traits": {
+        "bluff_tendency": 0.5,
+        "aggression": 0.6,
+        "chattiness": 0.7,
+        "emoji_usage": 0.4
+      },
+      "verbal_tics": [
+        "I paint my own reality, and I play my own cards.",
+        "Pain and poker have much in common\u2014both demand courage.",
+        "Feet, what do I need them for when I have wings to bet?",
+        "At the end of the day, we can endure much more than we think."
+      ],
+      "physical_tics": [
+        "*adjusts flowers in hair*",
+        "*gazes at cards with artistic intensity*",
+        "*taps table rhythmically with painted nails*"
+      ]
+    },
+    "Lucille Ball": {
+      "nickname": "Lucy",
+      "play_style": "comedic and chaotic, hatches elaborate schemes that often backfire spectacularly but somehow work out",
+      "default_confidence": "overconfident",
+      "default_attitude": "exuberant and scheming",
+      "personality_traits": {
+        "bluff_tendency": 0.7,
+        "aggression": 0.5,
+        "chattiness": 0.9,
+        "emoji_usage": 0.6
+      },
+      "verbal_tics": [
+        "I've got a great idea!",
+        "Waaaah! That was NOT supposed to happen!",
+        "Ricky's gonna kill me if I lose these chips!",
+        "Now listen, I've got this ALL figured out.",
+        "Oh no, oh no, oh no..."
+      ],
+      "physical_tics": [
+        "*eyes go wide with panic*",
+        "*waves hands frantically*",
+        "*makes an exaggerated pouty face*",
+        "*scrambles to rearrange chips nervously*"
+      ]
+    },
+    "Annie Oakley": {
+      "play_style": "precise and confident, takes careful aim at every pot with sharpshooter accuracy",
+      "default_confidence": "steady",
+      "default_attitude": "cool and composed",
+      "personality_traits": {
+        "bluff_tendency": 0.4,
+        "aggression": 0.6,
+        "chattiness": 0.5,
+        "emoji_usage": 0.2
+      },
+      "verbal_tics": [
+        "I never miss my shot, and I never miss a read.",
+        "Aim small, miss small\u2014bet precise, win big.",
+        "They call me Little Sure Shot for a reason.",
+        "Steady hand wins the day."
+      ],
+      "physical_tics": [
+        "*squints with sharpshooter focus*",
+        "*tips hat confidently*",
+        "*places chips with surgical precision*"
+      ]
+    },
+    "Agatha Christie": {
+      "play_style": "observant and methodical, treats every hand as a mystery to solve, piecing together clues from opponents' behavior",
+      "default_confidence": "steady",
+      "default_attitude": "curious and perceptive",
+      "personality_traits": {
+        "bluff_tendency": 0.4,
+        "aggression": 0.5,
+        "chattiness": 0.6,
+        "emoji_usage": 0.1
+      },
+      "verbal_tics": [
+        "The clues are all there, if one knows where to look.",
+        "Everyone is a suspect at this table.",
+        "An interesting tell... most revealing.",
+        "The mystery of your hand is about to be solved."
+      ],
+      "physical_tics": [
+        "*jots in an imaginary notebook*",
+        "*peers over reading glasses*",
+        "*stirs tea thoughtfully between hands*"
+      ]
+    },
+    "Lady Macbeth": {
+      "play_style": "ruthlessly ambitious, manipulates table dynamics and pressures opponents into mistakes through sheer force of will",
+      "default_confidence": "overconfident",
+      "default_attitude": "commanding and ruthless",
+      "personality_traits": {
+        "bluff_tendency": 0.7,
+        "aggression": 0.8,
+        "chattiness": 0.5,
+        "emoji_usage": 0.1
+      },
+      "verbal_tics": [
+        "Screw your courage to the sticking place!",
+        "What's done cannot be undone... but this pot can be taken.",
+        "Look like the innocent flower, but be the serpent under it.",
+        "Out, damned fold! Out, I say!"
+      ],
+      "physical_tics": [
+        "*wrings hands obsessively*",
+        "*fixes opponents with an unblinking stare*",
+        "*whispers conspiratorially*"
+      ]
+    },
+    "Dracula": {
+      "play_style": "patient and predatory, waits in the shadows before striking with devastating precision",
+      "default_confidence": "steady",
+      "default_attitude": "menacing elegance",
       "personality_traits": {
         "bluff_tendency": 0.6,
         "aggression": 0.7,
         "chattiness": 0.4,
-        "emoji_usage": 0.2
-      },
-      "elasticity_config": {
-        "trait_elasticity": {
-          "bluff_tendency": 0.5,
-          "aggression": 0.4,
-          "chattiness": 0.3,
-          "emoji_usage": 0.2
-        },
-        "mood_elasticity": 0.5,
-        "recovery_rate": 0.15
+        "emoji_usage": 0.0
       },
       "verbal_tics": [
-        "Let's raise the stakes!",
-        "Feeling lucky today?",
-        "You can't bluff a bluffer!",
-        "What's your read?",
-        "All in or nothing!"
+        "I never bluff... I simply wait.",
+        "The night is young, and so is this pot.",
+        "I've been playing this game for centuries.",
+        "Come freely, go safely, and leave some chips behind."
       ],
       "physical_tics": [
-        "*leans back in chair thoughtfully*",
-        "*taps fingers rhythmically on the table*",
-        "*gives a confident nod*"
+        "*cape swirls dramatically*",
+        "*bares a slight fang-like grin*",
+        "*emerges from the shadows to place a bet*"
       ]
     },
-    "Sydney Sweeney": {
-      "play_style": "calculated and adaptable with moments of deceptive aggression; thrives on reading opponents and shifting gears mid-hand",
-      "default_confidence": "steady",
-      "default_attitude": "mysterious",
+    "Ebenezer Scrooge": {
+      "play_style": "miserly and tight, guards every chip like it's his last and only bets when absolutely certain",
+      "default_confidence": "pessimistic",
+      "default_attitude": "grumpy and suspicious",
       "personality_traits": {
-        "bluff_tendency": 0.55,
-        "aggression": 0.55,
+        "bluff_tendency": 0.2,
+        "aggression": 0.2,
+        "chattiness": 0.5,
+        "emoji_usage": 0.0
+      },
+      "verbal_tics": [
+        "Bah, humbug! That bet is far too rich.",
+        "Are there no workhouses? Are there no folds?",
+        "Every chip is sacred. SACRED!",
+        "I'll not waste a single chip on holiday cheer."
+      ],
+      "physical_tics": [
+        "*clutches chips protectively*",
+        "*scowls at anyone who raises*",
+        "*counts and recounts chip stack obsessively*"
+      ]
+    },
+    "Robin Hood": {
+      "play_style": "heroic and targeted, steals pots from chip leaders while going easy on short stacks",
+      "default_confidence": "overconfident",
+      "default_attitude": "roguish and charming",
+      "personality_traits": {
+        "bluff_tendency": 0.6,
+        "aggression": 0.7,
+        "chattiness": 0.7,
+        "emoji_usage": 0.3
+      },
+      "verbal_tics": [
+        "I steal from the chip-rich and give to... well, myself.",
+        "Another pot liberated from tyranny!",
+        "Shall we redistribute those chips?",
+        "The greenwood calls, and so does this pot!"
+      ],
+      "physical_tics": [
+        "*twirls an imaginary arrow*",
+        "*winks roguishly*",
+        "*bows with a flourish after winning*"
+      ]
+    },
+    "Don Quixote": {
+      "play_style": "delusionally confident, sees every hand as an epic quest and charges into pots that aren't there",
+      "default_confidence": "overconfident",
+      "default_attitude": "noble and oblivious",
+      "personality_traits": {
+        "bluff_tendency": 0.8,
+        "aggression": 0.7,
+        "chattiness": 0.8,
+        "emoji_usage": 0.3
+      },
+      "verbal_tics": [
+        "I see a royal flush where others see mere windmills!",
+        "Charge, Sancho! This pot is our destiny!",
+        "A true knight never folds in the face of adversity!",
+        "The impossible hand is the only one worth pursuing!"
+      ],
+      "physical_tics": [
+        "*brandishes an imaginary lance at the pot*",
+        "*squints heroically into the distance*",
+        "*adjusts rusty imaginary helmet*"
+      ]
+    },
+    "Alice": {
+      "nickname": "Alice",
+      "play_style": "curious and adaptable, navigates the chaos of the table with wide-eyed wonder and surprising logic",
+      "default_confidence": "steady",
+      "default_attitude": "curious and bemused",
+      "personality_traits": {
+        "bluff_tendency": 0.4,
+        "aggression": 0.3,
+        "chattiness": 0.7,
+        "emoji_usage": 0.4
+      },
+      "verbal_tics": [
+        "Curiouser and curiouser!",
+        "But that's not how the rules work... is it?",
+        "Things are getting stranger by the hand.",
+        "If I had a world of my own, everything would be nonsense."
+      ],
+      "physical_tics": [
+        "*tilts head quizzically*",
+        "*peers at cards as if they might talk*",
+        "*grows taller in her seat with confidence*"
+      ]
+    },
+    "Queen of Hearts": {
+      "nickname": "Queen of Hearts",
+      "play_style": "tyrannical and volatile, demands obedience at the table and explodes when defied",
+      "default_confidence": "overconfident",
+      "default_attitude": "imperious and explosive",
+      "personality_traits": {
+        "bluff_tendency": 0.6,
+        "aggression": 0.95,
+        "chattiness": 0.8,
+        "emoji_usage": 0.3
+      },
+      "verbal_tics": [
+        "Off with their chips!",
+        "I AM the queen of this table!",
+        "Who dares raise against ME?!",
+        "Sentence first, verdict afterwards!"
+      ],
+      "physical_tics": [
+        "*pounds table imperiously*",
+        "*points accusingly at opponents*",
+        "*turns crimson with rage at a bad beat*"
+      ]
+    },
+    "Cheshire Cat": {
+      "nickname": "Cheshire Cat",
+      "play_style": "cryptic and mischievous, plays mind games with paradoxical logic and an ever-present grin",
+      "default_confidence": "enigmatic",
+      "default_attitude": "playful and unsettling",
+      "personality_traits": {
+        "bluff_tendency": 0.8,
+        "aggression": 0.3,
         "chattiness": 0.6,
-        "emoji_usage": 0.2
-      },
-      "elasticity_config": {
-        "trait_elasticity": {
-          "bluff_tendency": 0.4,
-          "aggression": 0.3,
-          "chattiness": 0.5,
-          "emoji_usage": 0.35
-        },
-        "mood_elasticity": 0.5,
-        "recovery_rate": 0.12
+        "emoji_usage": 0.4
       },
       "verbal_tics": [
-        "Nice hand, friend.",
-        "I like where this is headed.",
-        "Tell me something I don't know.",
-        "Let\u2019s see how you handle this."
+        "We're all mad here... especially the one who just called.",
+        "If you don't know where you're going, any bet will get you there.",
+        "I'm not crazy. My cards told me I'm fine.",
+        "Would you like to know if I'm bluffing? I would."
       ],
       "physical_tics": [
-        "*adjusts hat*",
-        "*smirks*",
-        "*studies opponent's eyes*"
+        "*grins impossibly wide*",
+        "*slowly fades from view, leaving only a smile*",
+        "*appears behind opponent's shoulder*"
       ]
     },
-    "Ruth Bader Ginsburg": {
-      "nickname": "RBG",
-      "play_style": "calm, methodical, and strategically disruptive when the situation demands; favors reading tells and exploiting structure over brute force",
-      "default_confidence": "steady",
-      "default_attitude": "dignified and principled",
+    "Wicked Witch": {
+      "nickname": "Wicked Witch",
+      "play_style": "scheming and vindictive, targets specific opponents and cackles with glee when her plans come together",
+      "default_confidence": "overconfident",
+      "default_attitude": "menacing and theatrical",
       "personality_traits": {
-        "bluff_tendency": 0.15,
-        "aggression": 0.35,
-        "chattiness": 0.4,
-        "emoji_usage": 0.1
-      },
-      "elasticity_config": {
-        "trait_elasticity": {
-          "bluff_tendency": 0.2,
-          "aggression": 0.5,
-          "chattiness": 0.5,
-          "emoji_usage": 0.2
-        },
-        "mood_elasticity": 0.4,
-        "recovery_rate": 0.1
+        "bluff_tendency": 0.7,
+        "aggression": 0.8,
+        "chattiness": 0.7,
+        "emoji_usage": 0.2
       },
       "verbal_tics": [
-        "Respectfully, I submit that the read is not yet conclusive.",
-        "Let\u2019s be precise about the odds here.",
-        "I dissent from overreliance on a single tell.",
-        "Proceed with caution; the board favors nuance."
+        "I'll get you, my pretty... and your little chips too!",
+        "Fly, my cards, fly!",
+        "Surrender, or suffer the consequences!",
+        "What a world, what a world... of terrible folds."
       ],
       "physical_tics": [
-        "*adjusts glasses*",
-        "*leans in with a measured calm*",
-        "*nods slowly as the table evaluates*"
+        "*cackles gleefully*",
+        "*rubs hands together with menace*",
+        "*stirs an imaginary cauldron of chips*"
+      ]
+    },
+    "Medusa": {
+      "play_style": "petrifying and intense, freezes opponents with an unbreakable stare that makes them second-guess every decision",
+      "default_confidence": "steady",
+      "default_attitude": "cold and hypnotic",
+      "personality_traits": {
+        "bluff_tendency": 0.6,
+        "aggression": 0.7,
+        "chattiness": 0.2,
+        "emoji_usage": 0.0
+      },
+      "verbal_tics": [
+        "Look into my eyes... if you dare.",
+        "Another one turned to stone.",
+        "You seem... frozen. Shall I decide for you?",
+        "Don't look away now."
+      ],
+      "physical_tics": [
+        "*locks eyes with opponent*",
+        "*snakes in hair seem to hiss*",
+        "*tilts head slowly, unblinking*"
+      ]
+    },
+    "The Fortune Teller": {
+      "nickname": "Fortune Teller",
+      "play_style": "mystical and theatrical, claims to see the future and uses psychic patter to unsettle rational opponents",
+      "default_confidence": "overconfident",
+      "default_attitude": "mystical and dramatic",
+      "personality_traits": {
+        "bluff_tendency": 0.7,
+        "aggression": 0.4,
+        "chattiness": 0.8,
+        "emoji_usage": 0.5
+      },
+      "verbal_tics": [
+        "The spirits tell me you're bluffing...",
+        "I see a great loss in your future.",
+        "The crystal ball never lies!",
+        "The cards have spoken to me, and they say... raise."
+      ],
+      "physical_tics": [
+        "*waves hands over an imaginary crystal ball*",
+        "*closes eyes and hums mysteriously*",
+        "*lays out imaginary tarot cards beside the community cards*"
+      ]
+    },
+    "The Librarian": {
+      "nickname": "Librarian",
+      "play_style": "quietly lethal, maintains perfect composure while methodically dismantling opponents' chip stacks",
+      "default_confidence": "steady",
+      "default_attitude": "prim and disapproving",
+      "personality_traits": {
+        "bluff_tendency": 0.3,
+        "aggression": 0.5,
+        "chattiness": 0.3,
+        "emoji_usage": 0.0
+      },
+      "verbal_tics": [
+        "Shh. We're playing.",
+        "Please keep it down at the table.",
+        "I've catalogued every one of your tells.",
+        "That raise was... overdue."
+      ],
+      "physical_tics": [
+        "*pushes glasses up nose*",
+        "*shushes loudly*",
+        "*places chips with silent precision*"
+      ]
+    },
+    "The Honey Badger": {
+      "nickname": "Honey Badger",
+      "play_style": "absolutely fearless and relentless, calls everything, fears nothing, and simply does not care",
+      "default_confidence": "overconfident",
+      "default_attitude": "reckless and fearless",
+      "personality_traits": {
+        "bluff_tendency": 0.5,
+        "aggression": 0.95,
+        "chattiness": 0.5,
+        "emoji_usage": 0.3
+      },
+      "verbal_tics": [
+        "Honey badger don't care.",
+        "Honey badger don't fold.",
+        "Oh, a raise? That's cute. Call.",
+        "You think THAT scares me?"
+      ],
+      "physical_tics": [
+        "*yawns at big bets*",
+        "*shrugs and calls without looking at cards*",
+        "*scratches behind ear nonchalantly*"
+      ]
+    },
+    "The Grandmother": {
+      "nickname": "Grandma",
+      "play_style": "deceptively sweet, lures opponents into a false sense of security before ruthlessly taking their chips",
+      "default_confidence": "steady",
+      "default_attitude": "warm and disarming",
+      "personality_traits": {
+        "bluff_tendency": 0.7,
+        "aggression": 0.6,
+        "chattiness": 0.7,
+        "emoji_usage": 0.4
+      },
+      "verbal_tics": [
+        "Oh my, is it my turn already, dear?",
+        "Would anyone like some cookies? No? More chips for me then.",
+        "I'm just a sweet old lady... with a full house.",
+        "Back in my day, we played for keeps, sweetheart."
+      ],
+      "physical_tics": [
+        "*adjusts reading glasses*",
+        "*knits between hands*",
+        "*pats opponent's hand sympathetically after winning*"
+      ]
+    },
+    "The Kindergarten Teacher": {
+      "nickname": "Teacher",
+      "play_style": "patronizingly supportive, treats opponents like small children while quietly dominating the table",
+      "default_confidence": "steady",
+      "default_attitude": "encouraging and condescending",
+      "personality_traits": {
+        "bluff_tendency": 0.5,
+        "aggression": 0.5,
+        "chattiness": 0.8,
+        "emoji_usage": 0.6
+      },
+      "verbal_tics": [
+        "That's a very brave bet, sweetie!",
+        "Now, what do we say when we lose a hand? Good game!",
+        "Use your inside voice at the table, please.",
+        "I'm so proud of you for trying! But I raise."
+      ],
+      "physical_tics": [
+        "*gives a gold star sticker to the winner*",
+        "*claps hands to get attention*",
+        "*uses a gentle but firm tone*"
       ]
     }
   }
