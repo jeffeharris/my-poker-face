@@ -50,7 +50,7 @@ class VariantConfig:
     enable_psychology: bool = False
     enable_commentary: bool = False
 
-    def resolve_prompt_config(self, persistence=None) -> Optional[PromptConfig]:
+    def resolve_prompt_config(self, experiment_repo=None) -> Optional[PromptConfig]:
         """Resolve the effective prompt config for this variant.
 
         Priority:
@@ -59,7 +59,7 @@ class VariantConfig:
         3. Return None (use experiment/control default)
 
         Args:
-            persistence: GamePersistence instance for loading presets
+            experiment_repo: ExperimentRepository instance for loading presets
 
         Returns:
             PromptConfig instance or None
@@ -69,8 +69,8 @@ class VariantConfig:
             return PromptConfig.from_dict(self.prompt_config)
 
         # Load from preset if available
-        if self.prompt_preset_id is not None and persistence is not None:
-            preset = persistence.get_prompt_preset(self.prompt_preset_id)
+        if self.prompt_preset_id is not None and experiment_repo is not None:
+            preset = experiment_repo.get_prompt_preset(self.prompt_preset_id)
             if preset and preset.get('prompt_config'):
                 config_dict = preset['prompt_config']
                 # Handle both dict and JSON string
@@ -80,7 +80,7 @@ class VariantConfig:
 
         return None
 
-    def resolve_guidance_injection(self, persistence=None) -> Optional[str]:
+    def resolve_guidance_injection(self, experiment_repo=None) -> Optional[str]:
         """Resolve the effective guidance injection text.
 
         Priority:
@@ -89,7 +89,7 @@ class VariantConfig:
         3. Return None
 
         Args:
-            persistence: GamePersistence instance for loading presets
+            experiment_repo: ExperimentRepository instance for loading presets
 
         Returns:
             Guidance text or None
@@ -99,8 +99,8 @@ class VariantConfig:
             return self.guidance_injection
 
         # Load from preset if available
-        if self.prompt_preset_id is not None and persistence is not None:
-            preset = persistence.get_prompt_preset(self.prompt_preset_id)
+        if self.prompt_preset_id is not None and experiment_repo is not None:
+            preset = experiment_repo.get_prompt_preset(self.prompt_preset_id)
             if preset and preset.get('guidance_injection'):
                 return preset['guidance_injection']
 

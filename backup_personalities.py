@@ -11,7 +11,7 @@ from datetime import datetime
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 
 def backup_personalities():
     """Backup all personalities from database to JSON file."""
@@ -22,11 +22,12 @@ def backup_personalities():
     else:
         db_path = os.path.join(project_root, 'poker_games.db')
     
-    persistence = GamePersistence(db_path)
+    repos = create_repos(db_path)
+    personality_repo = repos['personality_repo']
     
     # Get all personalities from database
     print("Loading personalities from database...")
-    db_personalities = persistence.list_personalities(limit=500)
+    db_personalities = personality_repo.list_personalities(limit=500)
     print(f"Found {len(db_personalities)} personalities in database")
     
     # Create backup data structure
@@ -44,7 +45,7 @@ def backup_personalities():
         name = p['name']
         
         # Load the full config from database
-        config = persistence.load_personality(name)
+        config = personality_repo.load_personality(name)
         if not config:
             print(f"⚠️  Warning: Could not load config for {name}")
             continue

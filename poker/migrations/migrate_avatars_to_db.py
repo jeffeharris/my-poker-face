@@ -27,7 +27,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 from poker.db_utils import get_default_db_path
 
 
@@ -41,11 +41,11 @@ def get_personalities_json_path() -> Path:
     return project_root / 'poker' / 'personalities.json'
 
 
-def seed_personalities(persistence: GamePersistence, overwrite: bool = False) -> dict:
+def seed_personalities(personality_repo, overwrite: bool = False) -> dict:
     """Seed database with personalities from JSON file.
 
     Args:
-        persistence: GamePersistence instance
+        personality_repo: PersonalityRepository instance
         overwrite: Whether to overwrite existing personalities
 
     Returns:
@@ -54,7 +54,7 @@ def seed_personalities(persistence: GamePersistence, overwrite: bool = False) ->
     json_path = get_personalities_json_path()
     print(f"\nSeeding personalities from: {json_path}")
 
-    result = persistence.seed_personalities_from_json(str(json_path), overwrite=overwrite)
+    result = personality_repo.seed_personalities_from_json(str(json_path), overwrite=overwrite)
 
     print(f"  Added: {result.get('added', 0)}")
     print(f"  Updated: {result.get('updated', 0)}")
@@ -66,11 +66,11 @@ def seed_personalities(persistence: GamePersistence, overwrite: bool = False) ->
     return result
 
 
-def import_avatars(persistence: GamePersistence, images_dir: Path) -> dict:
+def import_avatars(personality_repo, images_dir: Path) -> dict:
     """Import avatar images from filesystem to database.
 
     Args:
-        persistence: GamePersistence instance
+        personality_repo: PersonalityRepository instance
         images_dir: Path to icons directory
 
     Returns:
@@ -107,7 +107,7 @@ def import_avatars(persistence: GamePersistence, images_dir: Path) -> dict:
             personality_name = ' '.join(word.title() for word in personality_slug.split('_'))
 
             # Check if already exists in database
-            if persistence.has_avatar_image(personality_name, emotion):
+            if personality_repo.has_avatar_image(personality_name, emotion):
                 stats['skipped'] += 1
                 continue
 
@@ -116,7 +116,7 @@ def import_avatars(persistence: GamePersistence, images_dir: Path) -> dict:
                 image_data = f.read()
 
             # Save to database
-            persistence.save_avatar_image(
+            personality_repo.save_avatar_image(
                 personality_name=personality_name,
                 emotion=emotion,
                 image_data=image_data,
@@ -139,11 +139,11 @@ def import_avatars(persistence: GamePersistence, images_dir: Path) -> dict:
     return stats
 
 
-def verify_migration(persistence: GamePersistence, images_dir: Path) -> None:
+def verify_migration(personality_repo, images_dir: Path) -> None:
     """Verify the migration by comparing filesystem and database counts.
 
     Args:
-        persistence: GamePersistence instance
+        personality_repo: PersonalityRepository instance
         images_dir: Path to icons directory
     """
     print("\n=== Migration Verification ===\n")
@@ -156,14 +156,14 @@ def verify_migration(persistence: GamePersistence, images_dir: Path) -> None:
     print(f"Filesystem images: {fs_count}")
 
     # Get database stats
-    db_stats = persistence.get_avatar_stats()
+    db_stats = personality_repo.get_avatar_stats()
     print(f"Database images: {db_stats['total_images']}")
     print(f"Database size: {db_stats['total_size_mb']} MB")
     print(f"Personalities with avatars: {db_stats['personality_count']}")
     print(f"Complete personalities (6 emotions): {db_stats['complete_personality_count']}")
 
     # List personalities in database
-    db_personalities = persistence.list_personalities(limit=200)
+    db_personalities = personality_repo.list_personalities(limit=200)
     print(f"\nPersonalities in database: {len(db_personalities)}")
 
     # Compare
@@ -202,22 +202,23 @@ def main():
     print(f"Database: {db_path}")
     print(f"Images directory: {images_dir}")
 
-    # Initialize persistence (this runs schema migrations)
-    persistence = GamePersistence(db_path)
+    # Initialize repositories (this runs schema migrations)
+    repos = create_repos(db_path)
+    personality_repo = repos['personality_repo']
 
     if args.verify:
-        verify_migration(persistence, images_dir)
+        verify_migration(personality_repo, images_dir)
         return
 
     # Run migrations
     if not args.avatars_only:
-        seed_personalities(persistence, overwrite=args.overwrite)
+        seed_personalities(personality_repo, overwrite=args.overwrite)
 
     if not args.seed_only:
-        import_avatars(persistence, images_dir)
+        import_avatars(personality_repo, images_dir)
 
     # Show final stats
-    verify_migration(persistence, images_dir)
+    verify_migration(personality_repo, images_dir)
 
     print("\n=== Migration Complete ===")
 
