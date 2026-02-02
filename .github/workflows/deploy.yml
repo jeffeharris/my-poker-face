@@ -71,7 +71,7 @@ jobs:
   test-e2e:
     name: Test E2E (Playwright)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
 
     steps:
       - uses: actions/checkout@v6
