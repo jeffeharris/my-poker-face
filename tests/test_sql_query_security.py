@@ -8,16 +8,10 @@ Tests the _execute_sql_query function to ensure:
 3. LIMIT is properly enforced (including comment bypass prevention)
 4. Only SELECT and specific PRAGMAs are allowed
 """
-import os
-import sys
-import unittest
-import tempfile
 import json
 import re
 import sqlite3
 from unittest.mock import MagicMock, patch
-
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from poker.persistence import GamePersistence
 
@@ -100,17 +94,12 @@ def _execute_sql_query_standalone(sql: str, db_path: str) -> str:
         return json.dumps({"error": f"SQL error: {str(e)}"})
 
 
-class TestSQLQuerySecurity(unittest.TestCase):
+class TestSQLQuerySecurity:
     """Test cases for SQL query security."""
 
-    def setUp(self):
-        """Create a test database with sample data."""
-        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.test_db.close()
-        self.db_path = self.test_db.name
-
-        # Create tables that match the allowed list
-        conn = sqlite3.connect(self.db_path)
+    def _setup_db(self, db_path):
+        """Create custom tables for security testing."""
+        conn = sqlite3.connect(db_path)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS personalities (
                 id INTEGER PRIMARY KEY,
@@ -142,109 +131,118 @@ class TestSQLQuerySecurity(unittest.TestCase):
         conn.commit()
         conn.close()
 
-    def tearDown(self):
-        """Clean up temporary database."""
-        os.unlink(self.test_db.name)
-
-    def _execute(self, sql: str) -> dict:
+    def _execute(self, sql: str, db_path: str) -> dict:
         """Helper to execute and parse result."""
-        result = _execute_sql_query_standalone(sql, self.db_path)
+        result = _execute_sql_query_standalone(sql, db_path)
         return json.loads(result)
 
     # ============================================================
     # Table Whitelist Tests
     # ============================================================
 
-    def test_allowed_table_query_succeeds(self):
+    def test_allowed_table_query_succeeds(self, db_path):
         """Verify queries to whitelisted tables succeed."""
-        data = self._execute("SELECT * FROM personalities LIMIT 1")
-        self.assertIn("rows", data)
-        self.assertNotIn("error", data)
+        self._setup_db(db_path)
+        data = self._execute("SELECT * FROM personalities LIMIT 1", db_path)
+        assert "rows" in data
+        assert "error" not in data
 
-    def test_disallowed_table_blocked(self):
+    def test_disallowed_table_blocked(self, db_path):
         """Verify queries to non-whitelisted tables are rejected."""
-        data = self._execute("SELECT * FROM admin_tokens")
-        self.assertIn("error", data)
-        self.assertIn("not allowed", data["error"].lower())
+        self._setup_db(db_path)
+        data = self._execute("SELECT * FROM admin_tokens", db_path)
+        assert "error" in data
+        assert "not allowed" in data["error"].lower()
 
-    def test_disallowed_table_users_blocked(self):
+    def test_disallowed_table_users_blocked(self, db_path):
         """Verify queries to users table are rejected."""
-        data = self._execute("SELECT * FROM users")
-        self.assertIn("error", data)
-        self.assertIn("not allowed", data["error"].lower())
+        self._setup_db(db_path)
+        data = self._execute("SELECT * FROM users", db_path)
+        assert "error" in data
+        assert "not allowed" in data["error"].lower()
 
-    def test_join_with_disallowed_table_blocked(self):
+    def test_join_with_disallowed_table_blocked(self, db_path):
         """Verify JOINs with non-whitelisted tables are rejected."""
+        self._setup_db(db_path)
         data = self._execute(
-            "SELECT * FROM prompt_captures JOIN admin_tokens ON 1=1"
+            "SELECT * FROM prompt_captures JOIN admin_tokens ON 1=1", db_path
         )
-        self.assertIn("error", data)
-        self.assertIn("not allowed", data["error"].lower())
+        assert "error" in data
+        assert "not allowed" in data["error"].lower()
 
-    def test_left_join_with_disallowed_table_blocked(self):
+    def test_left_join_with_disallowed_table_blocked(self, db_path):
         """Verify LEFT JOINs with non-whitelisted tables are rejected."""
+        self._setup_db(db_path)
         data = self._execute(
-            "SELECT * FROM personalities LEFT JOIN users ON 1=1"
+            "SELECT * FROM personalities LEFT JOIN users ON 1=1", db_path
         )
-        self.assertIn("error", data)
-        self.assertIn("not allowed", data["error"].lower())
+        assert "error" in data
+        assert "not allowed" in data["error"].lower()
 
-    def test_subquery_with_disallowed_table_blocked(self):
+    def test_subquery_with_disallowed_table_blocked(self, db_path):
         """Verify subqueries with non-whitelisted tables are rejected."""
+        self._setup_db(db_path)
         data = self._execute(
-            "SELECT * FROM personalities WHERE id IN (SELECT id FROM admin_tokens)"
+            "SELECT * FROM personalities WHERE id IN (SELECT id FROM admin_tokens)", db_path
         )
-        self.assertIn("error", data)
-        self.assertIn("not allowed", data["error"].lower())
+        assert "error" in data
+        assert "not allowed" in data["error"].lower()
 
     # ============================================================
     # Dangerous Keyword Tests
     # ============================================================
 
-    def test_insert_blocked(self):
+    def test_insert_blocked(self, db_path):
         """Verify INSERT statements are blocked."""
+        self._setup_db(db_path)
         data = self._execute(
-            "INSERT INTO personalities (name) VALUES ('test')"
+            "INSERT INTO personalities (name) VALUES ('test')", db_path
         )
-        self.assertIn("error", data)
+        assert "error" in data
 
-    def test_update_blocked(self):
+    def test_update_blocked(self, db_path):
         """Verify UPDATE statements are blocked."""
+        self._setup_db(db_path)
         data = self._execute(
-            "UPDATE personalities SET name='hacked'"
+            "UPDATE personalities SET name='hacked'", db_path
         )
-        self.assertIn("error", data)
+        assert "error" in data
 
-    def test_delete_blocked(self):
+    def test_delete_blocked(self, db_path):
         """Verify DELETE statements are blocked."""
-        data = self._execute("DELETE FROM personalities")
-        self.assertIn("error", data)
+        self._setup_db(db_path)
+        data = self._execute("DELETE FROM personalities", db_path)
+        assert "error" in data
 
-    def test_drop_blocked(self):
+    def test_drop_blocked(self, db_path):
         """Verify DROP statements are blocked."""
-        data = self._execute("DROP TABLE personalities")
-        self.assertIn("error", data)
+        self._setup_db(db_path)
+        data = self._execute("DROP TABLE personalities", db_path)
+        assert "error" in data
 
-    def test_alter_blocked(self):
+    def test_alter_blocked(self, db_path):
         """Verify ALTER statements are blocked."""
+        self._setup_db(db_path)
         data = self._execute(
-            "ALTER TABLE personalities ADD COLUMN pwned TEXT"
+            "ALTER TABLE personalities ADD COLUMN pwned TEXT", db_path
         )
-        self.assertIn("error", data)
+        assert "error" in data
 
-    def test_attach_blocked(self):
+    def test_attach_blocked(self, db_path):
         """Verify ATTACH statements are blocked (potential security risk)."""
-        data = self._execute("ATTACH DATABASE ':memory:' AS temp")
-        self.assertIn("error", data)
+        self._setup_db(db_path)
+        data = self._execute("ATTACH DATABASE ':memory:' AS temp", db_path)
+        assert "error" in data
 
     # ============================================================
     # LIMIT Enforcement Tests
     # ============================================================
 
-    def test_limit_auto_added(self):
+    def test_limit_auto_added(self, db_path):
         """Verify LIMIT is automatically added to queries without it."""
+        self._setup_db(db_path)
         # Insert test data
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(db_path)
         for i in range(150):
             conn.execute(
                 "INSERT INTO personalities (name, config_json) VALUES (?, ?)",
@@ -254,15 +252,16 @@ class TestSQLQuerySecurity(unittest.TestCase):
         conn.close()
 
         # Query without LIMIT
-        data = self._execute("SELECT * FROM personalities")
-        self.assertIn("rows", data)
+        data = self._execute("SELECT * FROM personalities", db_path)
+        assert "rows" in data
         # Should be capped at 100
-        self.assertLessEqual(len(data["rows"]), 100)
+        assert len(data["rows"]) <= 100
 
-    def test_comment_limit_bypass_prevented(self):
+    def test_comment_limit_bypass_prevented(self, db_path):
         """Verify LIMIT is applied even with trailing comments."""
+        self._setup_db(db_path)
         # Insert test data
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(db_path)
         for i in range(150):
             conn.execute(
                 "INSERT INTO personalities (name, config_json) VALUES (?, ?)",
@@ -272,15 +271,16 @@ class TestSQLQuerySecurity(unittest.TestCase):
         conn.close()
 
         # Try to bypass with comment
-        data = self._execute("SELECT * FROM personalities -- bypass")
-        self.assertIn("rows", data)
+        data = self._execute("SELECT * FROM personalities -- bypass", db_path)
+        assert "rows" in data
         # Should still be capped at 100
-        self.assertLessEqual(len(data["rows"]), 100)
+        assert len(data["rows"]) <= 100
 
-    def test_block_comment_limit_bypass_prevented(self):
+    def test_block_comment_limit_bypass_prevented(self, db_path):
         """Verify LIMIT is applied even with block comments."""
+        self._setup_db(db_path)
         # Insert test data
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(db_path)
         for i in range(150):
             conn.execute(
                 "INSERT INTO personalities (name, config_json) VALUES (?, ?)",
@@ -290,73 +290,79 @@ class TestSQLQuerySecurity(unittest.TestCase):
         conn.close()
 
         # Try to bypass with block comment
-        data = self._execute("SELECT * FROM personalities /* bypass */")
-        self.assertIn("rows", data)
+        data = self._execute("SELECT * FROM personalities /* bypass */", db_path)
+        assert "rows" in data
         # Should still be capped at 100
-        self.assertLessEqual(len(data["rows"]), 100)
+        assert len(data["rows"]) <= 100
 
-    def test_explicit_limit_respected(self):
+    def test_explicit_limit_respected(self, db_path):
         """Verify explicit LIMIT in query is respected."""
-        data = self._execute("SELECT * FROM personalities LIMIT 5")
-        self.assertIn("rows", data)
-        self.assertLessEqual(len(data["rows"]), 5)
+        self._setup_db(db_path)
+        data = self._execute("SELECT * FROM personalities LIMIT 5", db_path)
+        assert "rows" in data
+        assert len(data["rows"]) <= 5
 
     # ============================================================
     # Query Type Tests
     # ============================================================
 
-    def test_only_select_allowed(self):
+    def test_only_select_allowed(self, db_path):
         """Verify only SELECT statements are allowed."""
-        data = self._execute("EXPLAIN SELECT * FROM personalities")
+        self._setup_db(db_path)
+        data = self._execute("EXPLAIN SELECT * FROM personalities", db_path)
         # EXPLAIN is not SELECT or PRAGMA, so should be blocked
-        self.assertIn("error", data)
+        assert "error" in data
 
-    def test_pragma_table_info_allowed(self):
+    def test_pragma_table_info_allowed(self, db_path):
         """Verify PRAGMA TABLE_INFO is allowed."""
-        data = self._execute("PRAGMA table_info(personalities)")
-        self.assertIn("rows", data)
+        self._setup_db(db_path)
+        data = self._execute("PRAGMA table_info(personalities)", db_path)
+        assert "rows" in data
 
-    def test_pragma_table_list_allowed(self):
+    def test_pragma_table_list_allowed(self, db_path):
         """Verify PRAGMA TABLE_LIST is allowed."""
-        data = self._execute("PRAGMA table_list")
-        self.assertIn("rows", data)
+        self._setup_db(db_path)
+        data = self._execute("PRAGMA table_list", db_path)
+        assert "rows" in data
 
-    def test_dangerous_pragma_blocked(self):
+    def test_dangerous_pragma_blocked(self, db_path):
         """Verify dangerous PRAGMAs are blocked."""
+        self._setup_db(db_path)
         # PRAGMA writable_schema can be used to bypass security
-        data = self._execute("PRAGMA writable_schema = ON")
-        self.assertIn("error", data)
+        data = self._execute("PRAGMA writable_schema = ON", db_path)
+        assert "error" in data
 
-    def test_pragma_integrity_check_blocked(self):
+    def test_pragma_integrity_check_blocked(self, db_path):
         """Verify PRAGMA integrity_check is blocked (can be slow)."""
-        data = self._execute("PRAGMA integrity_check")
-        self.assertIn("error", data)
+        self._setup_db(db_path)
+        data = self._execute("PRAGMA integrity_check", db_path)
+        assert "error" in data
 
     # ============================================================
     # Edge Case Tests
     # ============================================================
 
-    def test_case_insensitive_keyword_blocking(self):
+    def test_case_insensitive_keyword_blocking(self, db_path):
         """Verify keyword blocking is case insensitive."""
-        data = self._execute("DeLeTe FROM personalities")
-        self.assertIn("error", data)
+        self._setup_db(db_path)
+        data = self._execute("DeLeTe FROM personalities", db_path)
+        assert "error" in data
 
-    def test_empty_query_rejected(self):
+    def test_empty_query_rejected(self, db_path):
         """Verify empty queries are rejected."""
-        data = self._execute("")
-        self.assertIn("error", data)
+        self._setup_db(db_path)
+        data = self._execute("", db_path)
+        assert "error" in data
 
-    def test_whitespace_only_query_rejected(self):
+    def test_whitespace_only_query_rejected(self, db_path):
         """Verify whitespace-only queries are rejected."""
-        data = self._execute("   \n\t  ")
-        self.assertIn("error", data)
+        self._setup_db(db_path)
+        data = self._execute("   \n\t  ", db_path)
+        assert "error" in data
 
-    def test_case_insensitive_table_whitelist(self):
+    def test_case_insensitive_table_whitelist(self, db_path):
         """Verify table whitelist is case insensitive."""
-        data = self._execute("SELECT * FROM PERSONALITIES LIMIT 1")
-        self.assertIn("rows", data)
-        self.assertNotIn("error", data)
-
-
-if __name__ == '__main__':
-    unittest.main()
+        self._setup_db(db_path)
+        data = self._execute("SELECT * FROM PERSONALITIES LIMIT 1", db_path)
+        assert "rows" in data
+        assert "error" not in data

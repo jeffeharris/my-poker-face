@@ -309,7 +309,7 @@ Stored in new `player_skill_progress` table, keyed by `user_id` + `skill_id`.
 
 ### 7.1 Gate Structure
 
-Skills are organized into gated tiers. A gate opens when **all skills in the previous gate reach at least `Reliable`**.
+Skills are organized into gated tiers. A gate opens when **the required number of skills in the previous gate reach at least `Reliable`** (configured per gate via `required_reliable`).
 
 ```
 Gate 1: Fundamentals (Preflop Basics)

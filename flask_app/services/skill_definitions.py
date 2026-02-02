@@ -1,49 +1,18 @@
 """Skill definitions, gates, and core data structures for coach progression.
 
-Defines the skill tree (Gate 1 preflop skills), state machine enums,
-and frozen dataclasses used throughout the progression system.
+Defines the skill tree (Gate 1 preflop skills, Gate 2 post-flop skills),
+skill/gate definitions, and the build_poker_context() helper.
+
+Shared data structures (enums, PlayerSkillState, etc.) live in
+coach_models.py to avoid circular imports with persistence.py.
 """
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
+from poker.controllers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 
-# ---------------------------------------------------------------------------
-# Enums
-# ---------------------------------------------------------------------------
-
-class SkillState(str, Enum):
-    """Progression state for an individual skill."""
-    INTRODUCED = 'introduced'
-    PRACTICING = 'practicing'
-    RELIABLE = 'reliable'
-    AUTOMATIC = 'automatic'
-
-
-class CoachingMode(str, Enum):
-    """Coaching delivery mode based on skill state and context."""
-    LEARN = 'learn'       # Teach concepts, explain reasoning
-    COMPETE = 'compete'   # Brief reminders, focus on execution
-    REVIEW = 'review'     # Post-hand analysis
-    SILENT = 'silent'     # No coaching (skill is automatic)
-
-
-# ---------------------------------------------------------------------------
-# Evidence / thresholds
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class EvidenceRules:
-    """Thresholds governing skill state transitions."""
-    min_opportunities: int          # Min opps before practicing -> reliable
-    window_size: int = 20           # Rolling window size
-    advancement_threshold: float = 0.75   # Window accuracy to advance
-    regression_threshold: float = 0.60    # Window accuracy to regress
-    automatic_min_opps: int = 30          # Min opps for reliable -> automatic
-    automatic_threshold: float = 0.85     # Window accuracy for automatic
-    automatic_regression: float = 0.70    # Window accuracy to regress from automatic
-    introduced_min_opps: int = 3          # Min opps before introduced -> practicing
+from .coach_models import EvidenceRules
 
 
 # ---------------------------------------------------------------------------
@@ -74,55 +43,6 @@ class GateDefinition:
     description: str
     skill_ids: Tuple[str, ...]
     required_reliable: int   # How many skills must be 'reliable' to unlock next gate
-
-
-# ---------------------------------------------------------------------------
-# Player state dataclasses
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class PlayerSkillState:
-    """Immutable tracking of a player's progress on a single skill."""
-    skill_id: str
-    state: SkillState = SkillState.INTRODUCED
-    total_opportunities: int = 0
-    total_correct: int = 0
-    window_opportunities: int = 0
-    window_correct: int = 0
-    streak_correct: int = 0
-    streak_incorrect: int = 0
-    last_evaluated_at: Optional[str] = None
-    first_seen_at: Optional[str] = None
-
-    @property
-    def window_accuracy(self) -> float:
-        if self.window_opportunities == 0:
-            return 0.0
-        return self.window_correct / self.window_opportunities
-
-    @property
-    def total_accuracy(self) -> float:
-        if self.total_opportunities == 0:
-            return 0.0
-        return self.total_correct / self.total_opportunities
-
-
-@dataclass(frozen=True)
-class GateProgress:
-    """Tracks whether a gate has been unlocked for a player."""
-    gate_number: int
-    unlocked: bool = False
-    unlocked_at: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class CoachingDecision:
-    """Outcome of the coaching engine deciding what to coach on."""
-    mode: CoachingMode
-    primary_skill_id: Optional[str] = None
-    relevant_skill_ids: tuple = ()
-    coaching_prompt: str = ''
-    situation_tags: tuple = ()
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +92,55 @@ SKILL_RAISE_OR_FOLD = SkillDefinition(
 )
 
 # ---------------------------------------------------------------------------
+# Gate 2 skill definitions (post-flop basics)
+# ---------------------------------------------------------------------------
+
+SKILL_FLOP_CONNECTION = SkillDefinition(
+    skill_id='flop_connection',
+    name='Flop Connection',
+    description='Fold when the flop misses your hand (no pair, no draw).',
+    gate=2,
+    evidence_rules=EvidenceRules(
+        min_opportunities=8,
+        window_size=30,
+        advancement_threshold=0.70,
+        regression_threshold=0.55,
+    ),
+    phases=frozenset({'FLOP'}),
+    tags=frozenset({'hand_reading', 'postflop'}),
+)
+
+SKILL_BET_WHEN_STRONG = SkillDefinition(
+    skill_id='bet_when_strong',
+    name='Bet When Strong',
+    description='Bet or raise for value when you have two pair or better.',
+    gate=2,
+    evidence_rules=EvidenceRules(
+        min_opportunities=8,
+        window_size=30,
+        advancement_threshold=0.70,
+        regression_threshold=0.55,
+    ),
+    phases=frozenset({'FLOP', 'TURN', 'RIVER'}),
+    tags=frozenset({'value_betting', 'postflop'}),
+)
+
+SKILL_CHECKING_IS_ALLOWED = SkillDefinition(
+    skill_id='checking_is_allowed',
+    name='Checking Is Allowed',
+    description='Check or fold with weak hands instead of bluffing into strength.',
+    gate=2,
+    evidence_rules=EvidenceRules(
+        min_opportunities=8,
+        window_size=30,
+        advancement_threshold=0.65,
+        regression_threshold=0.50,
+    ),
+    phases=frozenset({'FLOP', 'TURN', 'RIVER'}),
+    tags=frozenset({'pot_control', 'postflop'}),
+)
+
+# ---------------------------------------------------------------------------
 # Gate definitions
 # ---------------------------------------------------------------------------
 
@@ -183,16 +152,28 @@ GATE_1 = GateDefinition(
     required_reliable=2,
 )
 
+GATE_2 = GateDefinition(
+    gate_number=2,
+    name='Post-Flop Basics',
+    description='Fold when you miss, bet when you hit, check when uncertain.',
+    skill_ids=('flop_connection', 'bet_when_strong', 'checking_is_allowed'),
+    required_reliable=2,
+)
+
 # ---------------------------------------------------------------------------
 # Registries
 # ---------------------------------------------------------------------------
 
 ALL_SKILLS: Dict[str, SkillDefinition] = {
-    s.skill_id: s for s in [SKILL_FOLD_TRASH, SKILL_POSITION_MATTERS, SKILL_RAISE_OR_FOLD]
+    s.skill_id: s for s in [
+        SKILL_FOLD_TRASH, SKILL_POSITION_MATTERS, SKILL_RAISE_OR_FOLD,
+        SKILL_FLOP_CONNECTION, SKILL_BET_WHEN_STRONG, SKILL_CHECKING_IS_ALLOWED,
+    ]
 }
 
 ALL_GATES: Dict[int, GateDefinition] = {
     GATE_1.gate_number: GATE_1,
+    GATE_2.gate_number: GATE_2,
 }
 
 
@@ -217,10 +198,6 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
 
     Returns None when there is no phase (nothing to evaluate).
     """
-    from poker.controllers import (
-        PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS,
-    )
-
     phase = coaching_data.get('phase', '')
     if not phase:
         return None
@@ -251,12 +228,26 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
     is_top20 = canonical and canonical in TOP_20_HANDS
     is_playable = canonical and canonical in TOP_35_HANDS
 
+    # Post-flop hand strength (from HandEvaluator via coaching_data)
+    # hand_rank: 1=Royal Flush, 2=Straight Flush, 3=Four of a Kind, 4=Full House,
+    #            5=Flush, 6=Straight, 7=Three of a Kind, 8=Two Pair, 9=One Pair, 10=High Card
+    hand_rank = coaching_data.get('hand_rank')
+
+    # Derived booleans for Gate 2 evaluators
+    is_strong_hand = hand_rank is not None and hand_rank <= 8  # Two pair or better
+    has_pair = hand_rank is not None and hand_rank <= 9        # One pair or better
+    has_draw = (coaching_data.get('outs') or 0) >= 4           # 4+ outs = meaningful draw
+    is_air = hand_rank is not None and hand_rank >= 10 and not has_draw  # High card, no draw
+    can_check = cost_to_call == 0
+
     # Situation tags
     tag_conditions = [
         ('trash_hand', is_trash),
         ('premium_hand', is_premium),
         ('early_position', is_early),
         ('late_position', is_late),
+        ('strong_hand', is_strong_hand),
+        ('air', is_air),
     ]
     tags = tuple(tag for tag, cond in tag_conditions if cond)
 
@@ -275,5 +266,11 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
         'cost_to_call': cost_to_call,
         'pot_total': pot_total,
         'big_blind': big_blind,
+        'hand_rank': hand_rank,
+        'is_strong_hand': is_strong_hand,
+        'has_pair': has_pair,
+        'has_draw': has_draw,
+        'is_air': is_air,
+        'can_check': can_check,
         'tags': tags,
     }

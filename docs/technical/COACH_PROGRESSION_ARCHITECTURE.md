@@ -127,7 +127,6 @@ class SkillState(str, Enum):
 class CoachingMode(str, Enum):
     LEARN = "learn"
     COMPETE = "compete"
-    REVIEW = "review"
     SILENT = "silent"
 
 @dataclass

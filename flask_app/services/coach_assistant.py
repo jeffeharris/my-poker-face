@@ -50,7 +50,8 @@ You are in REVIEW mode. Analyze what just happened.
 
 PROACTIVE_TIP_PROMPT = """\
 Given these stats, provide a brief 1-2 sentence coaching tip for the player's current situation. \
-Focus on the most important decision factor right now. Be direct and actionable.\
+If a SKILL FOCUS is listed, your tip MUST teach or reinforce that specific concept using the current hand as an example. \
+Be direct and actionable.\
 """
 
 HAND_REVIEW_PROMPT = """\
@@ -167,6 +168,35 @@ def _format_stats_for_prompt(data: Dict) -> str:
             if opp.get('hands_observed', 0) > 0:
                 parts.append(f"{opp['hands_observed']} hands")
             lines.append(f"  - {', '.join(parts)}")
+
+    # Progression context — skill focus for coaching
+    progression = data.get('progression', {})
+    primary_skill = progression.get('primary_skill')
+    if primary_skill:
+        coaching_mode = progression.get('coaching_mode', '')
+        skill_info = progression.get('skill_states', {}).get(primary_skill, {})
+        skill_state = skill_info.get('state', '')
+        accuracy = skill_info.get('window_accuracy', 0)
+        opps = skill_info.get('total_opportunities', 0)
+
+        from .skill_definitions import get_skill_by_id
+        skill_def = get_skill_by_id(primary_skill)
+        skill_name = skill_def.name if skill_def else primary_skill
+        skill_desc = skill_def.description if skill_def else ''
+
+        lines.append(f"\nSKILL FOCUS: {skill_name}")
+        if skill_desc:
+            lines.append(f"Concept: {skill_desc}")
+        if skill_state:
+            lines.append(f"Player level: {skill_state} ({accuracy:.0%} accuracy, {opps} opportunities)")
+        if coaching_mode:
+            mode_labels = {
+                'learn': 'Teaching — explain the concept using this hand',
+                'compete': 'Reinforcing — brief reminder only',
+                'review': 'Reviewing — analyze what happened',
+            }
+            label = mode_labels.get(coaching_mode, coaching_mode)
+            lines.append(f"Coaching approach: {label}")
 
     # Hand timeline (actions so far this hand)
     timeline = _format_hand_timeline(
