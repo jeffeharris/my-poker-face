@@ -7,7 +7,7 @@ applied to tournament variants or replay experiments for A/B testing.
 import logging
 from flask import Blueprint, jsonify, request
 
-from ..extensions import experiment_repo, auth_manager
+from ..extensions import prompt_preset_repo, auth_manager
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ def list_prompt_presets():
         current_user = auth_manager.get_current_user()
         owner_id = current_user.get('id') if current_user else None
 
-        presets = experiment_repo.list_prompt_presets(owner_id=owner_id, limit=limit)
+        presets = prompt_preset_repo.list_prompt_presets(owner_id=owner_id, limit=limit)
 
         return jsonify({
             'success': True,
@@ -78,7 +78,7 @@ def create_prompt_preset():
         current_user = auth_manager.get_current_user()
         owner_id = current_user.get('id') if current_user else None
 
-        preset_id = experiment_repo.create_prompt_preset(
+        preset_id = prompt_preset_repo.create_prompt_preset(
             name=name,
             description=data.get('description'),
             prompt_config=data.get('prompt_config'),
@@ -86,7 +86,7 @@ def create_prompt_preset():
             owner_id=owner_id
         )
 
-        preset = experiment_repo.get_prompt_preset(preset_id)
+        preset = prompt_preset_repo.get_prompt_preset(preset_id)
 
         return jsonify({
             'success': True,
@@ -112,7 +112,7 @@ def get_prompt_preset(preset_id: int):
         }
     """
     try:
-        preset = experiment_repo.get_prompt_preset(preset_id)
+        preset = prompt_preset_repo.get_prompt_preset(preset_id)
 
         if not preset:
             return jsonify({
@@ -152,7 +152,7 @@ def update_prompt_preset(preset_id: int):
         data = request.json or {}
 
         # Check if preset exists
-        existing = experiment_repo.get_prompt_preset(preset_id)
+        existing = prompt_preset_repo.get_prompt_preset(preset_id)
         if not existing:
             return jsonify({
                 'success': False,
@@ -183,7 +183,7 @@ def update_prompt_preset(preset_id: int):
                 'error': 'No fields to update'
             }), 400
 
-        updated = experiment_repo.update_prompt_preset(preset_id, **update_kwargs)
+        updated = prompt_preset_repo.update_prompt_preset(preset_id, **update_kwargs)
 
         if not updated:
             return jsonify({
@@ -191,7 +191,7 @@ def update_prompt_preset(preset_id: int):
                 'error': 'Failed to update preset'
             }), 500
 
-        preset = experiment_repo.get_prompt_preset(preset_id)
+        preset = prompt_preset_repo.get_prompt_preset(preset_id)
 
         return jsonify({
             'success': True,
@@ -218,7 +218,7 @@ def delete_prompt_preset(preset_id: int):
     """
     try:
         # Check if preset exists first
-        existing = experiment_repo.get_prompt_preset(preset_id)
+        existing = prompt_preset_repo.get_prompt_preset(preset_id)
         if not existing:
             return jsonify({
                 'success': False,
@@ -232,7 +232,7 @@ def delete_prompt_preset(preset_id: int):
                 'error': 'System presets cannot be deleted (managed by config/game_modes.yaml)'
             }), 403
 
-        deleted = experiment_repo.delete_prompt_preset(preset_id)
+        deleted = prompt_preset_repo.delete_prompt_preset(preset_id)
 
         if not deleted:
             return jsonify({

@@ -7,7 +7,7 @@ variants (models, prompts, guidance, etc.) and analyzing the results.
 Usage:
     # Run from API (typical)
     from experiments.run_replay_experiment import ReplayExperimentRunner
-    runner = ReplayExperimentRunner(experiment_repo, db_path=db_path)
+    runner = ReplayExperimentRunner(replay_experiment_repo=replay_experiment_repo, db_path=db_path)
     runner.run_experiment(experiment_id)
 
     # Run from command line
@@ -65,7 +65,7 @@ class ReplayExperimentRunner:
 
     def __init__(
         self,
-        experiment_repo,
+        replay_experiment_repo,
         db_path: str,
         max_workers: int = 3,
         progress_callback: Optional[Callable[[int, int, str], None]] = None
@@ -73,12 +73,12 @@ class ReplayExperimentRunner:
         """Initialize the runner.
 
         Args:
-            experiment_repo: ExperimentRepository instance for database access
+            replay_experiment_repo: ReplayExperimentRepository instance for database access
             db_path: Database path for direct SQL queries
             max_workers: Maximum concurrent workers for parallel execution
             progress_callback: Optional callback(completed, total, message) for progress updates
         """
-        self.experiment_repo = experiment_repo
+        self.replay_experiment_repo = replay_experiment_repo
         self.db_path = db_path
         self.max_workers = max_workers
         self.progress_callback = progress_callback
@@ -103,16 +103,16 @@ class ReplayExperimentRunner:
         self._stop_requested = False
 
         # Load experiment
-        experiment = self.experiment_repo.get_replay_experiment(experiment_id)
+        experiment = self.replay_experiment_repo.get_replay_experiment(experiment_id)
         if not experiment:
             raise ValueError(f"Replay experiment {experiment_id} not found")
 
         # Update status to running
-        self.experiment_repo.update_experiment_status(experiment_id, 'running')
+        self.replay_experiment_repo.update_experiment_status(experiment_id, 'running')
 
         try:
             # Get captures and variants
-            captures = self.experiment_repo.get_replay_experiment_captures(experiment_id)
+            captures = self.replay_experiment_repo.get_replay_experiment_captures(experiment_id)
             config = experiment.get('config_json', {})
             variants = config.get('variants', []) if isinstance(config, dict) else []
 
@@ -227,17 +227,17 @@ class ReplayExperimentRunner:
 
             # Update status with summary
             if self._stop_requested:
-                self.experiment_repo.update_experiment_status(experiment_id, 'interrupted')
+                self.replay_experiment_repo.update_experiment_status(experiment_id, 'interrupted')
             else:
                 # Use complete_experiment which sets status and stores summary
-                self.experiment_repo.complete_experiment(experiment_id, summary)
+                self.replay_experiment_repo.complete_experiment(experiment_id, summary)
 
             logger.info(f"Replay experiment {experiment_id} completed")
             return summary
 
         except Exception as e:
             logger.error(f"Replay experiment {experiment_id} failed: {e}")
-            self.experiment_repo.update_experiment_status(experiment_id, 'failed', str(e))
+            self.replay_experiment_repo.update_experiment_status(experiment_id, 'failed', str(e))
             raise
 
     def stop(self):
@@ -433,7 +433,7 @@ class ReplayExperimentRunner:
     def _store_result(self, experiment_id: int, result: ReplayResult) -> None:
         """Store a replay result in the database."""
         try:
-            self.experiment_repo.add_replay_result(
+            self.replay_experiment_repo.add_replay_result(
                 experiment_id=experiment_id,
                 capture_id=result.capture_id,
                 variant=result.variant,
@@ -455,7 +455,7 @@ class ReplayExperimentRunner:
 
     def _generate_summary(self, experiment_id: int) -> Dict[str, Any]:
         """Generate summary statistics for the experiment."""
-        return self.experiment_repo.get_replay_results_summary(experiment_id)
+        return self.replay_experiment_repo.get_replay_results_summary(experiment_id)
 
     def _report_progress(self, completed: int, total: int, message: str) -> None:
         """Report progress via callback."""
@@ -468,7 +468,7 @@ class ReplayExperimentRunner:
 
 def run_replay_experiment_async(
     experiment_id: int,
-    experiment_repo,
+    replay_experiment_repo,
     db_path: str,
     parallel: bool = True,
     max_workers: int = 3
@@ -477,7 +477,7 @@ def run_replay_experiment_async(
 
     Args:
         experiment_id: The experiment ID to run
-        experiment_repo: ExperimentRepository instance
+        replay_experiment_repo: ReplayExperimentRepository instance
         db_path: Database path
         parallel: If True, run replays in parallel
         max_workers: Maximum concurrent workers
@@ -487,7 +487,7 @@ def run_replay_experiment_async(
     """
     def run():
         try:
-            runner = ReplayExperimentRunner(experiment_repo, db_path=db_path, max_workers=max_workers)
+            runner = ReplayExperimentRunner(replay_experiment_repo, db_path=db_path, max_workers=max_workers)
             runner.run_experiment(experiment_id, parallel=parallel)
         except Exception as e:
             logger.error(f"Async replay experiment {experiment_id} failed: {e}")
@@ -519,13 +519,13 @@ def main():
         logging.basicConfig(level=logging.INFO)
 
     repos = create_repos(args.db)
-    experiment_repo = repos['experiment_repo']
+    replay_experiment_repo = repos['replay_experiment_repo']
 
     def progress_callback(completed, total, message):
         print(f"[{completed}/{total}] {message}")
 
     runner = ReplayExperimentRunner(
-        experiment_repo,
+        replay_experiment_repo,
         db_path=args.db,
         max_workers=args.max_workers,
         progress_callback=progress_callback
