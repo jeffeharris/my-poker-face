@@ -63,6 +63,22 @@ No M2 bugs to fix. The existing marginal evaluation logic correctly skips margin
 
 ---
 
+## Pre-Implementation Exploration Findings
+
+Codebase exploration completed before implementation. Key findings that modify the plan:
+
+1. **Step 14 (`check_hand_end()` REST path fix) is UNNECESSARY — skip it.** `check_hand_end()` IS already called from the REST path via: `progress_game()` (game_routes.py:1025) → `handle_evaluating_hand_phase()` (game_handler.py:1282) → `check_hand_end()` (game_handler.py:1028). Both REST and WebSocket action handlers call `progress_game()` after processing actions, and `progress_game()`'s while loop handles `EVALUATING_HAND` phase by calling `handle_evaluating_hand_phase()`.
+
+2. **Hand number access**: Available via `game_data['memory_manager'].hand_count` inside `_evaluate_coach_progression()`. No need to add `hand_number` as a new function parameter — extract directly from `game_data` (already passed to the function).
+
+3. **Skill versioning (Step 12) — tiered initialization**: Use `Introduced` for skills in the player's current unlocked gate, `Practicing` for skills in gates the player has already passed (per requirements §11.6). A gate is "passed" if the next gate is also unlocked.
+
+4. **Existing dispatch patterns** confirmed: Both `SituationClassifier._check_skill_trigger()` (situation_classifier.py:85) and `SkillEvaluator.evaluate()` (skill_evaluator.py:63) use dict-based dispatch. New skills must be registered in both dicts.
+
+5. **`build_poker_context()`** (skill_definitions.py:193) is the single source of truth for evaluation context. All new multi-street and equity fields go here.
+
+---
+
 ## M3 Scope (from Requirements §4, §8.3, §8.4, §10.5-10.6, §5.2, §9.5, §11.6)
 
 **What ships:**
@@ -199,9 +215,15 @@ if action in ('raise', 'bet', 'all_in') and amount > 0:
     coaching_data['bet_to_pot_ratio'] = amount / pot_total if pot_total > 0 else 0
 ```
 
-**Also update** both call sites of `_evaluate_coach_progression()` in `game_routes.py` (lines ~1123 and ~1416) to pass `amount`:
+**Also update** both call sites of `_evaluate_coach_progression()` in `game_routes.py` (lines ~1003 and ~1293) to pass `amount`:
 ```python
 _evaluate_coach_progression(game_id, current_player.name, action, amount, current_game_data, pre_action_state)
+```
+
+**Hand number**: Extract from `game_data` inside the function rather than adding as a parameter:
+```python
+memory_manager = game_data.get('memory_manager')
+hand_number = memory_manager.hand_count if memory_manager else 0
 ```
 
 ### Step 3: Gate 3 skill definitions
@@ -803,7 +825,7 @@ def _determine_mode(self, skill_state: Optional[PlayerSkillState]) -> CoachingMo
 
 **Modify**: `flask_app/services/coach_progression.py` — `get_player_state()` or `get_or_initialize_player()`
 
-Add a check that initializes missing skills for already-unlocked gates:
+Add a check that initializes missing skills for already-unlocked gates, with tiered state:
 
 ```python
 def _ensure_skills_for_unlocked_gates(self, user_id: str,
@@ -813,25 +835,33 @@ def _ensure_skills_for_unlocked_gates(self, user_id: str,
 
     Handles the case where new skills are added to an existing gate
     in a deployment (per requirements §11.6).
+
+    Uses tiered initialization:
+    - Skills in "passed" gates (next gate is also unlocked) start at Practicing
+    - Skills in the current gate (unlocked but next gate is NOT unlocked) start at Introduced
     """
     now = datetime.now().isoformat()
-    changed = False
 
     for gate_num, gp in gate_progress.items():
         if not gp.unlocked:
             continue
+
+        # Determine if this gate is "passed" (next gate is also unlocked)
+        next_gate = gate_progress.get(gate_num + 1)
+        is_passed = next_gate is not None and next_gate.unlocked
+        initial_state = SkillState.PRACTICING if is_passed else SkillState.INTRODUCED
+
         for skill_def in get_skills_for_gate(gate_num):
             if skill_def.skill_id not in skill_states:
                 ss = PlayerSkillState(
                     skill_id=skill_def.skill_id,
-                    state=SkillState.INTRODUCED,
+                    state=initial_state,
                     first_seen_at=now,
                 )
                 self._coach_repo.save_skill_state(user_id, ss)
                 skill_states[skill_def.skill_id] = ss
-                changed = True
                 logger.info(f"Initialized missing skill {skill_def.skill_id} "
-                            f"for user {user_id} (gate {gate_num} already unlocked)")
+                            f"for user {user_id} (gate {gate_num}, state={initial_state.value})")
 
     return skill_states
 ```
@@ -869,27 +899,9 @@ if level == 'experienced':
 
 Gate 4 remains locked for all starting levels — it unlocks through normal progression.
 
-### Step 14: Fix `check_hand_end()` on REST action path
+### Step 14: ~~Fix `check_hand_end()` on REST action path~~ — SKIPPED
 
-**Why**: `check_hand_end()` runs gate unlocks and silent downgrades. It IS called from the WebSocket handler (`game_handler.py`) but NOT from the REST path (`game_routes.py`). Without this, the Gate 2→3→4 unlock chain won't fire for REST-path games.
-
-**Modify**: `flask_app/routes/game_routes.py`
-
-At the point where a hand ends in the REST action flow (after the final action of a hand, when phase transitions to HAND_OVER), call `check_hand_end()`:
-
-```python
-# After action processing, check if hand just ended
-if game_state.phase == 'HAND_OVER':
-    user_id = game_data.get('owner_id', '')
-    if user_id:
-        try:
-            service = CoachProgressionService(coach_repo)
-            service.check_hand_end(user_id)
-        except Exception as e:
-            logger.error(f"[COACH_PROGRESSION] check_hand_end failed: {e}", exc_info=True)
-```
-
-This mirrors the existing pattern in the WebSocket handler at `game_handler.py:1020-1028`.
+**SKIPPED**: Pre-implementation exploration confirmed this is unnecessary. `check_hand_end()` IS already called from the REST path via: `progress_game()` (game_routes.py:1025) → `handle_evaluating_hand_phase()` (game_handler.py:1282) → `check_hand_end()` (game_handler.py:1028). Both REST and WebSocket paths call `progress_game()` after processing actions.
 
 ### Step 15: Marginal band tuning
 
@@ -953,7 +965,7 @@ No code changes unless play data reveals issues. Document thresholds for future 
 | `flask_app/services/coach_engine.py` | Add `player_name` to `compute_coaching_data()` result dict |
 | `flask_app/services/coach_assistant.py` | Enhanced `HAND_REVIEW_PROMPT` with conditional skill evaluation + explanation instructions |
 | `flask_app/routes/coach_routes.py` | Hand review: skill eval context from SessionMemory, mode-aware coach factory (REVIEW mode), player explanation support |
-| `flask_app/routes/game_routes.py` | `_evaluate_coach_progression()`: add `amount` + `hand_number` params, inject `bet_to_pot_ratio`, SessionMemory recording; add `check_hand_end()` call on REST path |
+| `flask_app/routes/game_routes.py` | `_evaluate_coach_progression()`: add `amount` param, inject `bet_to_pot_ratio`, extract `hand_number` from `game_data`, SessionMemory recording |
 | `tests/test_skill_definitions.py` | Gate 3+4 tests, multi-street context tests, equity fields, bet_to_pot_ratio |
 | `tests/test_situation_classifier.py` | Gate 3+4 trigger tests |
 | `tests/test_skill_evaluator.py` | Gate 3+4 evaluator tests with edge cases |
@@ -990,6 +1002,22 @@ No code changes unless play data reveals issues. Document thresholds for future 
 13. **Practicing mode split**: Players at Practicing with >= 60% accuracy get COMPETE mode (stat-surfacing, brief reminders). Below 60% stays at LEARN mode (prescriptive teaching). This resolves the explicit M3 TODO in the codebase.
 
 14. **`size_bets_with_purpose` trigger**: Fires on ALL post-flop situations. The evaluator returns `not_applicable` for non-bet actions. This is intentional — bet sizing can only be evaluated after the action, and the broad trigger ensures no betting action is missed.
+
+---
+
+## Implementation Batches
+
+Implement in this order, verifying tests pass after each batch:
+
+| Batch | Steps | What | Key Files |
+|-------|-------|------|-----------|
+| 1 | 1-2 | Multi-street context fields, `player_name` threading, `bet_to_pot_ratio` injection | `skill_definitions.py`, `coach_engine.py`, `game_routes.py` |
+| 2 | 3-4 | Gate 3+4 skill/gate definitions + registry updates | `skill_definitions.py` |
+| 3 | 5-8 | Gate 3+4 situation classifiers + skill evaluators | `situation_classifier.py`, `skill_evaluator.py` |
+| 4 | 9-13 | Hand review enhancement, practicing mode split, skill versioning, experienced onboarding | `coach_progression.py`, `coach_routes.py`, `coach_assistant.py` |
+| 5 | 16 | Tests for all new functionality | `tests/test_*.py` |
+
+**Skipped**: Step 14 (check_hand_end REST path — already works), Step 15 (marginal band tuning — no changes needed per plan).
 
 ---
 

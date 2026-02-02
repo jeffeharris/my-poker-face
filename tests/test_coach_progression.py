@@ -615,6 +615,13 @@ class TestOnboarding(unittest.TestCase):
         for sid in ('flop_connection', 'bet_when_strong', 'checking_is_allowed'):
             self.assertEqual(state['skill_states'][sid].state, SkillState.PRACTICING)
 
+        # Gate 3 unlocked with skills at Introduced
+        self.assertIn(3, state['gate_progress'])
+        self.assertTrue(state['gate_progress'][3].unlocked)
+        for sid in ('draws_need_price', 'respect_big_bets', 'have_a_plan'):
+            self.assertIn(sid, state['skill_states'])
+            self.assertEqual(state['skill_states'][sid].state, SkillState.INTRODUCED)
+
 
 class TestSilentDowngrade(unittest.TestCase):
     """Test silent downgrade when observed play contradicts self-reported level."""
@@ -718,6 +725,288 @@ class TestSilentDowngrade(unittest.TestCase):
 
         profile = self.coach_repo.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'experienced')
+
+
+class TestGateUnlockChain(unittest.TestCase):
+    """Test gate unlock chain 1→2→3→4."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
+        self.user_id = 'test_chain_user'
+        self.service.initialize_player(self.user_id)
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def _set_skills_reliable(self, skill_ids):
+        for sid in skill_ids:
+            ss = PlayerSkillState(
+                skill_id=sid,
+                state=SkillState.RELIABLE,
+                total_opportunities=20,
+                total_correct=18,
+                window_opportunities=20,
+                window_correct=18,
+            )
+            self.coach_repo.save_skill_state(self.user_id, ss)
+
+    def test_gate_chain_1_to_4(self):
+        """Full chain: Gate 1 reliable → Gate 2 unlocks → ... → Gate 4 unlocks."""
+        # Gate 1 → 2
+        self._set_skills_reliable(['fold_trash_hands', 'raise_or_fold'])
+        self.service.check_hand_end(self.user_id)
+        gp = self.coach_repo.load_gate_progress(self.user_id)
+        self.assertTrue(gp[2].unlocked)
+
+        # Gate 2 → 3
+        self._set_skills_reliable(['flop_connection', 'bet_when_strong'])
+        self.service.check_hand_end(self.user_id)
+        gp = self.coach_repo.load_gate_progress(self.user_id)
+        self.assertTrue(gp[3].unlocked)
+
+        # Gate 3 → 4
+        self._set_skills_reliable(['draws_need_price', 'respect_big_bets'])
+        self.service.check_hand_end(self.user_id)
+        gp = self.coach_repo.load_gate_progress(self.user_id)
+        self.assertTrue(gp[4].unlocked)
+
+    def test_gate3_skills_initialized_on_unlock(self):
+        """Gate 3 skills should be initialized as INTRODUCED when Gate 3 unlocks."""
+        self._set_skills_reliable(['flop_connection', 'bet_when_strong'])
+        # Must also unlock gate 2 first
+        from flask_app.services.coach_models import GateProgress
+        self.coach_repo.save_gate_progress(
+            self.user_id, GateProgress(gate_number=2, unlocked=True, unlocked_at='now')
+        )
+        self.service.check_hand_end(self.user_id)
+
+        skill_states = self.coach_repo.load_all_skill_states(self.user_id)
+        for sid in ('draws_need_price', 'respect_big_bets', 'have_a_plan'):
+            self.assertIn(sid, skill_states)
+            self.assertEqual(skill_states[sid].state, SkillState.INTRODUCED)
+
+
+class TestSkillVersioning(unittest.TestCase):
+    """Test skill definition versioning for existing players."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
+        self.user_id = 'test_versioning_user'
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def test_missing_skills_auto_initialized(self):
+        """Skills added to unlocked gate should be auto-initialized."""
+        # Simulate player with Gate 3 unlocked but no Gate 3 skill rows
+        self.service.initialize_player(self.user_id, level='experienced')
+
+        # Remove Gate 3 skill rows to simulate pre-M3 state
+        # (experienced init now creates them, so we remove them to test versioning)
+        for sid in ('draws_need_price', 'respect_big_bets', 'have_a_plan'):
+            # Delete from DB by saving with state INTRODUCED then removing
+            pass
+
+        # Actually, test the versioning by adding a gate 3 unlock without skills
+        user2 = 'test_versioning_user2'
+        self.coach_repo.save_coach_profile(user2, 'experienced', 'experienced')
+        from flask_app.services.coach_models import GateProgress
+        self.coach_repo.save_gate_progress(
+            user2, GateProgress(gate_number=1, unlocked=True, unlocked_at='now')
+        )
+        self.coach_repo.save_gate_progress(
+            user2, GateProgress(gate_number=2, unlocked=True, unlocked_at='now')
+        )
+        self.coach_repo.save_gate_progress(
+            user2, GateProgress(gate_number=3, unlocked=True, unlocked_at='now')
+        )
+
+        # Load state — should auto-initialize missing skills
+        state = self.service.get_player_state(user2)
+        for sid in ('draws_need_price', 'respect_big_bets', 'have_a_plan'):
+            self.assertIn(sid, state['skill_states'])
+            self.assertEqual(state['skill_states'][sid].state, SkillState.INTRODUCED)
+
+    def test_passed_gate_skills_start_at_practicing(self):
+        """Skills in passed gates should start at Practicing."""
+        user = 'test_passed_gate_user'
+        self.coach_repo.save_coach_profile(user, 'experienced', 'experienced')
+        from flask_app.services.coach_models import GateProgress
+        # Gates 1, 2, 3 unlocked; gate 3 is "passed" because gate 4 is also unlocked
+        for g in (1, 2, 3, 4):
+            self.coach_repo.save_gate_progress(
+                user, GateProgress(gate_number=g, unlocked=True, unlocked_at='now')
+            )
+
+        state = self.service.get_player_state(user)
+        # Gate 1, 2, 3 skills should be at Practicing (passed gates)
+        for sid in ('draws_need_price', 'respect_big_bets', 'have_a_plan'):
+            self.assertIn(sid, state['skill_states'])
+            self.assertEqual(state['skill_states'][sid].state, SkillState.PRACTICING)
+        # Gate 4 skills should be at Introduced (current gate)
+        for sid in ('dont_pay_double_barrels', 'size_bets_with_purpose'):
+            self.assertIn(sid, state['skill_states'])
+            self.assertEqual(state['skill_states'][sid].state, SkillState.INTRODUCED)
+
+
+class TestPracticingModeSplit(unittest.TestCase):
+    """Test practicing mode split at 60% accuracy."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
+        self.user_id = 'test_mode_split_user'
+        self.service.initialize_player(self.user_id)
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def test_practicing_below_60_returns_learn(self):
+        ss = PlayerSkillState(
+            skill_id='fold_trash_hands',
+            state=SkillState.PRACTICING,
+            window_opportunities=10,
+            window_correct=5,  # 50% accuracy
+        )
+        self.coach_repo.save_skill_state(self.user_id, ss)
+
+        from flask_app.services.coach_models import CoachingMode
+        mode = self.service._determine_mode(ss)
+        self.assertEqual(mode, CoachingMode.LEARN)
+
+    def test_practicing_at_60_returns_compete(self):
+        ss = PlayerSkillState(
+            skill_id='fold_trash_hands',
+            state=SkillState.PRACTICING,
+            window_opportunities=10,
+            window_correct=6,  # 60% accuracy
+        )
+        from flask_app.services.coach_models import CoachingMode
+        mode = self.service._determine_mode(ss)
+        self.assertEqual(mode, CoachingMode.COMPETE)
+
+    def test_practicing_above_60_returns_compete(self):
+        ss = PlayerSkillState(
+            skill_id='fold_trash_hands',
+            state=SkillState.PRACTICING,
+            window_opportunities=10,
+            window_correct=8,  # 80% accuracy
+        )
+        from flask_app.services.coach_models import CoachingMode
+        mode = self.service._determine_mode(ss)
+        self.assertEqual(mode, CoachingMode.COMPETE)
+
+    def test_introduced_always_learn(self):
+        ss = PlayerSkillState(
+            skill_id='fold_trash_hands',
+            state=SkillState.INTRODUCED,
+        )
+        from flask_app.services.coach_models import CoachingMode
+        mode = self.service._determine_mode(ss)
+        self.assertEqual(mode, CoachingMode.LEARN)
+
+
+class TestSessionMemoryHandEvaluations(unittest.TestCase):
+    """Test SessionMemory hand evaluation tracking."""
+
+    def test_record_and_retrieve(self):
+        mem = SessionMemory()
+        ev1 = SkillEvaluation(
+            skill_id='fold_trash_hands', action_taken='fold',
+            evaluation='correct', confidence=1.0, reasoning='Good fold',
+        )
+        ev2 = SkillEvaluation(
+            skill_id='position_matters', action_taken='call',
+            evaluation='incorrect', confidence=0.8, reasoning='Bad call',
+        )
+        mem.record_hand_evaluation(1, ev1)
+        mem.record_hand_evaluation(1, ev2)
+
+        evals = mem.get_hand_evaluations(1)
+        self.assertEqual(len(evals), 2)
+        # incorrect should sort first
+        self.assertEqual(evals[0].evaluation, 'incorrect')
+        self.assertEqual(evals[1].evaluation, 'correct')
+
+    def test_not_applicable_filtered(self):
+        mem = SessionMemory()
+        ev = SkillEvaluation(
+            skill_id='fold_trash_hands', action_taken='fold',
+            evaluation='not_applicable', confidence=1.0, reasoning='N/A',
+        )
+        mem.record_hand_evaluation(1, ev)
+        evals = mem.get_hand_evaluations(1)
+        self.assertEqual(len(evals), 0)
+
+    def test_empty_hand(self):
+        mem = SessionMemory()
+        evals = mem.get_hand_evaluations(99)
+        self.assertEqual(evals, [])
+
+    def test_multiple_hands_independent(self):
+        mem = SessionMemory()
+        ev1 = SkillEvaluation(
+            skill_id='fold_trash_hands', action_taken='fold',
+            evaluation='correct', confidence=1.0, reasoning='Good',
+        )
+        ev2 = SkillEvaluation(
+            skill_id='position_matters', action_taken='call',
+            evaluation='incorrect', confidence=0.8, reasoning='Bad',
+        )
+        mem.record_hand_evaluation(1, ev1)
+        mem.record_hand_evaluation(2, ev2)
+
+        self.assertEqual(len(mem.get_hand_evaluations(1)), 1)
+        self.assertEqual(len(mem.get_hand_evaluations(2)), 1)
+
+
+class TestExperiencedOnboardingGate3(unittest.TestCase):
+    """Test experienced onboarding includes Gate 3."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
+        self.user_id = 'test_exp_g3_user'
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def test_experienced_has_gate3_unlocked(self):
+        state = self.service.initialize_player(self.user_id, level='experienced')
+        self.assertIn(3, state['gate_progress'])
+        self.assertTrue(state['gate_progress'][3].unlocked)
+
+    def test_experienced_has_gate3_skills_introduced(self):
+        state = self.service.initialize_player(self.user_id, level='experienced')
+        for sid in ('draws_need_price', 'respect_big_bets', 'have_a_plan'):
+            self.assertIn(sid, state['skill_states'])
+            self.assertEqual(state['skill_states'][sid].state, SkillState.INTRODUCED)
+
+    def test_experienced_gate4_not_unlocked(self):
+        state = self.service.initialize_player(self.user_id, level='experienced')
+        self.assertNotIn(4, state['gate_progress'])
+
+    def test_beginner_no_gate3(self):
+        state = self.service.initialize_player(self.user_id, level='beginner')
+        self.assertNotIn(3, state['gate_progress'])
+
+    def test_intermediate_no_gate3(self):
+        state = self.service.initialize_player(self.user_id, level='intermediate')
+        self.assertNotIn(3, state['gate_progress'])
 
 
 class TestMarginalNeutrality(unittest.TestCase):

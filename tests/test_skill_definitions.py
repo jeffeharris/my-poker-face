@@ -83,7 +83,7 @@ class TestGate1Skills(unittest.TestCase):
         self.assertEqual(ids, {'fold_trash_hands', 'position_matters', 'raise_or_fold'})
 
     def test_all_skills_registry(self):
-        self.assertEqual(len(ALL_SKILLS), 6)
+        self.assertEqual(len(ALL_SKILLS), 11)
         self.assertIn('fold_trash_hands', ALL_SKILLS)
         self.assertIn('position_matters', ALL_SKILLS)
         self.assertIn('raise_or_fold', ALL_SKILLS)
@@ -172,9 +172,11 @@ class TestGateDefinition(unittest.TestCase):
         self.assertEqual(len(gate.skill_ids), 3)
 
     def test_all_gates_registry(self):
-        self.assertEqual(len(ALL_GATES), 2)
+        self.assertEqual(len(ALL_GATES), 4)
         self.assertIn(1, ALL_GATES)
         self.assertIn(2, ALL_GATES)
+        self.assertIn(3, ALL_GATES)
+        self.assertIn(4, ALL_GATES)
 
     def test_get_skills_for_nonexistent_gate(self):
         self.assertEqual(get_skills_for_gate(99), [])
@@ -283,6 +285,147 @@ class TestBuildPokerContextPostFlop(unittest.TestCase):
         ctx = build_poker_context(data)
         self.assertIsNone(ctx['hand_rank'])
         self.assertFalse(ctx['is_strong_hand'])
+
+
+class TestGate3Skills(unittest.TestCase):
+    """Test Gate 3 skill definitions."""
+
+    def test_three_gate3_skills(self):
+        skills = get_skills_for_gate(3)
+        self.assertEqual(len(skills), 3)
+        ids = {s.skill_id for s in skills}
+        self.assertEqual(ids, {'draws_need_price', 'respect_big_bets', 'have_a_plan'})
+
+    def test_gate3_skills_in_registry(self):
+        self.assertIn('draws_need_price', ALL_SKILLS)
+        self.assertIn('respect_big_bets', ALL_SKILLS)
+        self.assertIn('have_a_plan', ALL_SKILLS)
+
+    def test_draws_need_price_phases(self):
+        skill = ALL_SKILLS['draws_need_price']
+        self.assertEqual(skill.phases, frozenset({'FLOP', 'TURN'}))
+        self.assertEqual(skill.gate, 3)
+
+    def test_respect_big_bets_phases(self):
+        skill = ALL_SKILLS['respect_big_bets']
+        self.assertEqual(skill.phases, frozenset({'TURN', 'RIVER'}))
+
+    def test_have_a_plan_phases(self):
+        skill = ALL_SKILLS['have_a_plan']
+        self.assertEqual(skill.phases, frozenset({'TURN'}))
+
+    def test_gate3_window_size(self):
+        for sid in ('draws_need_price', 'respect_big_bets', 'have_a_plan'):
+            skill = ALL_SKILLS[sid]
+            self.assertEqual(skill.evidence_rules.window_size, 30)
+
+    def test_gate3_definition(self):
+        gate = ALL_GATES[3]
+        self.assertEqual(gate.name, 'Pressure Recognition')
+        self.assertEqual(gate.required_reliable, 2)
+        self.assertEqual(len(gate.skill_ids), 3)
+
+
+class TestGate4Skills(unittest.TestCase):
+    """Test Gate 4 skill definitions."""
+
+    def test_two_gate4_skills(self):
+        skills = get_skills_for_gate(4)
+        self.assertEqual(len(skills), 2)
+        ids = {s.skill_id for s in skills}
+        self.assertEqual(ids, {'dont_pay_double_barrels', 'size_bets_with_purpose'})
+
+    def test_gate4_skills_in_registry(self):
+        self.assertIn('dont_pay_double_barrels', ALL_SKILLS)
+        self.assertIn('size_bets_with_purpose', ALL_SKILLS)
+
+    def test_dont_pay_double_barrels_phases(self):
+        skill = ALL_SKILLS['dont_pay_double_barrels']
+        self.assertEqual(skill.phases, frozenset({'TURN', 'RIVER'}))
+        self.assertEqual(skill.gate, 4)
+
+    def test_size_bets_with_purpose_phases(self):
+        skill = ALL_SKILLS['size_bets_with_purpose']
+        self.assertEqual(skill.phases, frozenset({'FLOP', 'TURN', 'RIVER'}))
+
+    def test_gate4_definition(self):
+        gate = ALL_GATES[4]
+        self.assertEqual(gate.name, 'Multi-Street Thinking')
+        self.assertEqual(gate.required_reliable, 2)
+        self.assertEqual(len(gate.skill_ids), 2)
+
+
+class TestBuildPokerContextMultiStreet(unittest.TestCase):
+    """Test multi-street context fields in build_poker_context()."""
+
+    def _make_data(self, **kwargs):
+        defaults = {
+            'phase': 'TURN',
+            'hand_strength': 'One Pair',
+            'hand_rank': 9,
+            'position': 'Button',
+            'cost_to_call': 20,
+            'pot_total': 100,
+            'big_blind': 10,
+            'hand_actions': [],
+            'player_name': 'Hero',
+        }
+        defaults.update(kwargs)
+        return defaults
+
+    def test_player_bet_flop_detected(self):
+        data = self._make_data(hand_actions=[
+            {'player_name': 'Hero', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+        ])
+        ctx = build_poker_context(data)
+        self.assertTrue(ctx['player_bet_flop'])
+        self.assertFalse(ctx['player_bet_turn'])
+
+    def test_opponent_double_barrel_detected(self):
+        data = self._make_data(hand_actions=[
+            {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+            {'player_name': 'Villain', 'action': 'bet', 'phase': 'TURN', 'amount': 40},
+        ])
+        ctx = build_poker_context(data)
+        self.assertTrue(ctx['opponent_double_barrel'])
+        self.assertTrue(ctx['opponent_bet_flop'])
+        self.assertTrue(ctx['opponent_bet_turn'])
+
+    def test_no_double_barrel_when_only_flop(self):
+        data = self._make_data(hand_actions=[
+            {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+        ])
+        ctx = build_poker_context(data)
+        self.assertFalse(ctx['opponent_double_barrel'])
+
+    def test_empty_hand_actions(self):
+        data = self._make_data(hand_actions=[])
+        ctx = build_poker_context(data)
+        self.assertFalse(ctx['player_bet_flop'])
+        self.assertFalse(ctx['opponent_double_barrel'])
+
+    def test_player_name_filtering(self):
+        data = self._make_data(hand_actions=[
+            {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+        ])
+        ctx = build_poker_context(data)
+        self.assertFalse(ctx['player_bet_flop'])  # Villain's bet, not Hero's
+
+    def test_equity_passthrough(self):
+        data = self._make_data(equity=0.45, required_equity=0.22)
+        ctx = build_poker_context(data)
+        self.assertEqual(ctx['equity'], 0.45)
+        self.assertEqual(ctx['required_equity'], 0.22)
+
+    def test_bet_to_pot_ratio_passthrough(self):
+        data = self._make_data(bet_to_pot_ratio=0.5)
+        ctx = build_poker_context(data)
+        self.assertEqual(ctx['bet_to_pot_ratio'], 0.5)
+
+    def test_missing_player_name(self):
+        data = self._make_data(player_name='')
+        ctx = build_poker_context(data)
+        self.assertFalse(ctx['player_bet_flop'])
 
 
 class TestCoachingDecision(unittest.TestCase):

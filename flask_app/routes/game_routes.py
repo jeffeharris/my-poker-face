@@ -179,11 +179,12 @@ def analyze_player_decision(
 
 
 def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
-                                 game_data: dict, pre_action_state) -> None:
+                                 amount: int, game_data: dict,
+                                 pre_action_state) -> None:
     """Post-action hook: evaluate the human player's action against skill targets."""
     try:
         from flask_app.services.coach_engine import compute_coaching_data
-        from flask_app.services.coach_progression import CoachProgressionService
+        from flask_app.services.coach_progression import CoachProgressionService, SessionMemory
         from flask_app.services.situation_classifier import SituationClassifier
 
         user_id = game_data.get('owner_id', '')
@@ -197,6 +198,12 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
         )
         if not coaching_data:
             return
+
+        # Inject current action's bet sizing (not available from hand_actions
+        # because the current action hasn't been recorded yet)
+        if action in ('raise', 'bet', 'all_in') and amount > 0:
+            pot_total = coaching_data.get('pot_total', 0)
+            coaching_data['bet_to_pot_ratio'] = amount / pot_total if pot_total > 0 else 0
 
         service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
@@ -216,6 +223,20 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
                     f"[COACH_PROGRESSION] {player_name}: evaluated {len(evaluations)} skills, "
                     f"primary={classification.primary_skill}"
                 )
+
+                # Record evaluations in session memory for hand review
+                session_memory = game_data.get('coach_session_memory')
+                if session_memory is None:
+                    session_memory = SessionMemory()
+                    game_data['coach_session_memory'] = session_memory
+
+                memory_manager = game_data.get('memory_manager')
+                hand_number = 0
+                if memory_manager and hasattr(memory_manager, 'hand_recorder'):
+                    hand_number = getattr(memory_manager.hand_recorder, 'hand_count', 0)
+
+                for ev in evaluations:
+                    session_memory.record_hand_evaluation(hand_number, ev)
     except Exception as e:
         logger.error(
             f"[COACH_PROGRESSION] Failed for game={game_id} player={player_name}: {e}",
@@ -1000,7 +1021,7 @@ def api_player_action(game_id):
 
         # Coach progression: evaluate human player actions against skill targets
         if current_player.is_human:
-            _evaluate_coach_progression(game_id, current_player.name, action, current_game_data, pre_action_state)
+            _evaluate_coach_progression(game_id, current_player.name, action, amount, current_game_data, pre_action_state)
 
         record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
@@ -1290,7 +1311,7 @@ def register_socket_events(sio):
 
         # Coach progression: evaluate human player actions against skill targets
         if current_player.is_human:
-            _evaluate_coach_progression(game_id, current_player.name, action, current_game_data, pre_action_state)
+            _evaluate_coach_progression(game_id, current_player.name, action, amount, current_game_data, pre_action_state)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")

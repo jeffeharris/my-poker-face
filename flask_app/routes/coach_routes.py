@@ -172,6 +172,7 @@ def coach_hand_review(game_id: str):
 
     body = request.get_json(silent=True) or {}
     request_player_name = body.get('playerName', '')
+    explanation = body.get('explanation', '').strip()
 
     hand = completed_hands[-1]
 
@@ -179,7 +180,28 @@ def coach_hand_review(game_id: str):
     context = build_hand_context_from_recorded_hand(hand, player_name)
     hand_text = format_hand_context_for_prompt(context, player_name)
 
-    coach = get_or_create_coach(game_data, game_id, player_name=request_player_name or player_name)
+    # Append skill evaluations from SessionMemory (if available)
+    session_memory = game_data.get('coach_session_memory')
+    hand_number = getattr(hand, 'hand_number', None)
+    if session_memory and hand_number is not None:
+        evaluations = session_memory.get_hand_evaluations(hand_number)
+        if evaluations:
+            skill_eval_text = "\n\nSKILL EVALUATIONS FOR THIS HAND:\n"
+            for ev in evaluations:
+                skill_eval_text += f"- {ev.skill_id}: {ev.evaluation} — {ev.reasoning}\n"
+            hand_text += skill_eval_text
+
+    # Append player explanation
+    if explanation:
+        hand_text += f"\n\nPlayer's explanation: {explanation}"
+
+    # Use mode-aware coach with REVIEW mode
+    coach = get_or_create_coach_with_mode(
+        game_data, game_id,
+        player_name=request_player_name or player_name,
+        mode='review',
+        skill_context='',
+    )
 
     try:
         review = coach.review_hand(hand_text)
@@ -189,7 +211,7 @@ def coach_hand_review(game_id: str):
 
     return jsonify({
         'review': review,
-        'hand_number': getattr(hand, 'hand_number', None),
+        'hand_number': hand_number,
     })
 
 

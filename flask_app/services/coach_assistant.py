@@ -62,6 +62,13 @@ Structure your review as:
 2. One sentence on what the player did well OR the key mistake
 3. One sentence of specific advice for similar situations
 
+If SKILL EVALUATIONS FOR THIS HAND are provided above, reference them:
+- Cover incorrect evaluations first (1-2 sentences each)
+- Then mention correct applications briefly
+- Keep each skill's review to 1-2 sentences
+
+If the player provided an explanation, acknowledge their reasoning and compare it with the stats.
+
 Be honest — if they played well, say so briefly. If they made an error, explain what the better play was and why (use pot odds/equity math if relevant). Don't sugarcoat, but don't be harsh either.\
 """
 

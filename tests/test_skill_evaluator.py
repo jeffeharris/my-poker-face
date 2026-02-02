@@ -290,6 +290,254 @@ class TestForcedAllIn(TestSkillEvaluator):
         self.assertEqual(result.evaluation, 'correct')
 
 
+class TestDrawsNeedPriceEvaluation(TestSkillEvaluator):
+    """Test draws_need_price evaluation."""
+
+    def _make_draw_data(self, equity=0.35, required_equity=0.22, **kwargs):
+        defaults = dict(phase='FLOP', hand_rank=10, hand_strength='High Card',
+                        position='Button', cost_to_call=20, pot_total=100,
+                        outs=8, big_blind=10)
+        defaults.update(kwargs)
+        data = self._make_data(**defaults)
+        data['equity'] = equity
+        data['required_equity'] = required_equity
+        data['hand_actions'] = []
+        data['player_name'] = 'Hero'
+        return data
+
+    def test_call_good_odds_is_correct(self):
+        data = self._make_draw_data(equity=0.35, required_equity=0.22)
+        result = self.evaluator.evaluate('draws_need_price', 'call', data)
+        self.assertEqual(result.evaluation, 'correct')
+
+    def test_fold_good_odds_is_incorrect(self):
+        data = self._make_draw_data(equity=0.35, required_equity=0.22)
+        result = self.evaluator.evaluate('draws_need_price', 'fold', data)
+        self.assertEqual(result.evaluation, 'incorrect')
+
+    def test_fold_bad_odds_is_correct(self):
+        data = self._make_draw_data(equity=0.15, required_equity=0.30)
+        result = self.evaluator.evaluate('draws_need_price', 'fold', data)
+        self.assertEqual(result.evaluation, 'correct')
+
+    def test_call_bad_odds_is_incorrect(self):
+        data = self._make_draw_data(equity=0.15, required_equity=0.30)
+        result = self.evaluator.evaluate('draws_need_price', 'call', data)
+        self.assertEqual(result.evaluation, 'incorrect')
+
+    def test_no_draw_is_not_applicable(self):
+        data = self._make_draw_data(outs=2)  # Below 4 outs threshold
+        result = self.evaluator.evaluate('draws_need_price', 'call', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+
+    def test_no_cost_to_call_is_not_applicable(self):
+        data = self._make_draw_data(cost_to_call=0)
+        result = self.evaluator.evaluate('draws_need_price', 'call', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+
+    def test_missing_equity_is_marginal(self):
+        data = self._make_draw_data(equity=0, required_equity=0)
+        result = self.evaluator.evaluate('draws_need_price', 'call', data)
+        self.assertEqual(result.evaluation, 'marginal')
+
+
+class TestRespectBigBetsEvaluation(TestSkillEvaluator):
+    """Test respect_big_bets evaluation."""
+
+    def _make_big_bet_data(self, **kwargs):
+        # pot_total=150, cost_to_call=100 => pot_before_bet=50, bet >= 50*0.5
+        defaults = dict(phase='TURN', hand_rank=9, hand_strength='One Pair',
+                        position='Button', cost_to_call=100, pot_total=150,
+                        big_blind=10)
+        defaults.update(kwargs)
+        data = self._make_data(**defaults)
+        data['hand_actions'] = []
+        data['player_name'] = 'Hero'
+        return data
+
+    def test_fold_medium_facing_big_bet_is_correct(self):
+        data = self._make_big_bet_data()
+        result = self.evaluator.evaluate('respect_big_bets', 'fold', data)
+        self.assertEqual(result.evaluation, 'correct')
+
+    def test_call_medium_facing_big_bet_is_incorrect(self):
+        data = self._make_big_bet_data()
+        result = self.evaluator.evaluate('respect_big_bets', 'call', data)
+        self.assertEqual(result.evaluation, 'incorrect')
+
+    def test_raise_medium_facing_big_bet_is_incorrect(self):
+        data = self._make_big_bet_data()
+        result = self.evaluator.evaluate('respect_big_bets', 'raise', data)
+        self.assertEqual(result.evaluation, 'incorrect')
+
+    def test_small_bet_not_applicable(self):
+        data = self._make_big_bet_data(cost_to_call=10, pot_total=200)
+        result = self.evaluator.evaluate('respect_big_bets', 'call', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+
+    def test_strong_hand_not_applicable(self):
+        data = self._make_big_bet_data(hand_rank=8)  # Two pair = strong
+        result = self.evaluator.evaluate('respect_big_bets', 'call', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+
+
+class TestHaveAPlanEvaluation(TestSkillEvaluator):
+    """Test have_a_plan evaluation."""
+
+    def _make_turn_data(self, player_bet_flop=True, **kwargs):
+        defaults = dict(phase='TURN', hand_rank=9, hand_strength='One Pair',
+                        position='Button', cost_to_call=0, pot_total=100,
+                        big_blind=10)
+        defaults.update(kwargs)
+        data = self._make_data(**defaults)
+        actions = []
+        if player_bet_flop:
+            actions.append({'player_name': 'Hero', 'action': 'bet', 'phase': 'FLOP', 'amount': 20})
+        data['hand_actions'] = actions
+        data['player_name'] = 'Hero'
+        return data
+
+    def test_bet_turn_after_flop_bet_is_correct(self):
+        data = self._make_turn_data()
+        result = self.evaluator.evaluate('have_a_plan', 'bet', data)
+        self.assertEqual(result.evaluation, 'correct')
+
+    def test_raise_turn_after_flop_bet_is_correct(self):
+        data = self._make_turn_data()
+        result = self.evaluator.evaluate('have_a_plan', 'raise', data)
+        self.assertEqual(result.evaluation, 'correct')
+
+    def test_call_turn_after_flop_bet_is_marginal(self):
+        data = self._make_turn_data()
+        result = self.evaluator.evaluate('have_a_plan', 'call', data)
+        self.assertEqual(result.evaluation, 'marginal')
+
+    def test_check_turn_after_flop_bet_is_marginal(self):
+        data = self._make_turn_data()
+        result = self.evaluator.evaluate('have_a_plan', 'check', data)
+        self.assertEqual(result.evaluation, 'marginal')
+
+    def test_fold_turn_after_flop_bet_is_incorrect(self):
+        data = self._make_turn_data()
+        result = self.evaluator.evaluate('have_a_plan', 'fold', data)
+        self.assertEqual(result.evaluation, 'incorrect')
+
+    def test_no_flop_bet_not_applicable(self):
+        data = self._make_turn_data(player_bet_flop=False)
+        result = self.evaluator.evaluate('have_a_plan', 'fold', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+
+
+class TestDontPayDoubleBarrelsEvaluation(TestSkillEvaluator):
+    """Test dont_pay_double_barrels evaluation."""
+
+    def _make_double_barrel_data(self, **kwargs):
+        defaults = dict(phase='TURN', hand_rank=9, hand_strength='One Pair',
+                        position='Button', cost_to_call=40, pot_total=120,
+                        big_blind=10)
+        defaults.update(kwargs)
+        data = self._make_data(**defaults)
+        data['hand_actions'] = [
+            {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+            {'player_name': 'Villain', 'action': 'bet', 'phase': 'TURN', 'amount': 40},
+        ]
+        data['player_name'] = 'Hero'
+        return data
+
+    def test_fold_marginal_vs_double_barrel_is_correct(self):
+        data = self._make_double_barrel_data()
+        result = self.evaluator.evaluate('dont_pay_double_barrels', 'fold', data)
+        self.assertEqual(result.evaluation, 'correct')
+
+    def test_call_marginal_vs_double_barrel_is_incorrect(self):
+        data = self._make_double_barrel_data()
+        result = self.evaluator.evaluate('dont_pay_double_barrels', 'call', data)
+        self.assertEqual(result.evaluation, 'incorrect')
+
+    def test_raise_vs_double_barrel_is_marginal(self):
+        data = self._make_double_barrel_data()
+        result = self.evaluator.evaluate('dont_pay_double_barrels', 'raise', data)
+        self.assertEqual(result.evaluation, 'marginal')
+
+    def test_not_double_barrel_is_not_applicable(self):
+        data = self._make_double_barrel_data()
+        data['hand_actions'] = [
+            {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+        ]
+        result = self.evaluator.evaluate('dont_pay_double_barrels', 'fold', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+
+    def test_strong_hand_not_applicable(self):
+        data = self._make_double_barrel_data(hand_rank=8)  # Two pair
+        result = self.evaluator.evaluate('dont_pay_double_barrels', 'call', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+
+
+class TestSizeBetsWithPurposeEvaluation(TestSkillEvaluator):
+    """Test size_bets_with_purpose evaluation."""
+
+    def _make_bet_data(self, ratio=0.5, **kwargs):
+        defaults = dict(phase='FLOP', hand_rank=8, hand_strength='Two Pair',
+                        position='Button', cost_to_call=0, pot_total=100,
+                        big_blind=10)
+        defaults.update(kwargs)
+        data = self._make_data(**defaults)
+        data['bet_to_pot_ratio'] = ratio
+        data['hand_actions'] = []
+        data['player_name'] = 'Hero'
+        return data
+
+    def test_good_sizing_is_correct(self):
+        data = self._make_bet_data(ratio=0.5)
+        result = self.evaluator.evaluate('size_bets_with_purpose', 'bet', data)
+        self.assertEqual(result.evaluation, 'correct')
+
+    def test_33_percent_is_correct(self):
+        data = self._make_bet_data(ratio=0.33)
+        result = self.evaluator.evaluate('size_bets_with_purpose', 'bet', data)
+        self.assertEqual(result.evaluation, 'correct')
+
+    def test_100_percent_is_correct(self):
+        data = self._make_bet_data(ratio=1.0)
+        result = self.evaluator.evaluate('size_bets_with_purpose', 'raise', data)
+        self.assertEqual(result.evaluation, 'correct')
+
+    def test_borderline_small_is_marginal(self):
+        data = self._make_bet_data(ratio=0.28)
+        result = self.evaluator.evaluate('size_bets_with_purpose', 'bet', data)
+        self.assertEqual(result.evaluation, 'marginal')
+
+    def test_borderline_large_is_marginal(self):
+        data = self._make_bet_data(ratio=1.3)
+        result = self.evaluator.evaluate('size_bets_with_purpose', 'bet', data)
+        self.assertEqual(result.evaluation, 'marginal')
+
+    def test_too_small_is_incorrect(self):
+        data = self._make_bet_data(ratio=0.15)
+        result = self.evaluator.evaluate('size_bets_with_purpose', 'bet', data)
+        self.assertEqual(result.evaluation, 'incorrect')
+
+    def test_too_large_is_incorrect(self):
+        data = self._make_bet_data(ratio=2.0)
+        result = self.evaluator.evaluate('size_bets_with_purpose', 'bet', data)
+        self.assertEqual(result.evaluation, 'incorrect')
+
+    def test_non_bet_action_not_applicable(self):
+        data = self._make_bet_data(ratio=0.5)
+        result = self.evaluator.evaluate('size_bets_with_purpose', 'call', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+
+    def test_no_ratio_not_applicable(self):
+        data = self._make_bet_data(ratio=0)
+        result = self.evaluator.evaluate('size_bets_with_purpose', 'bet', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+
+    def test_zero_pot_not_applicable(self):
+        data = self._make_bet_data(ratio=0)
+        result = self.evaluator.evaluate('size_bets_with_purpose', 'bet', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+
+
 class TestUnknownSkill(TestSkillEvaluator):
     """Test handling of unknown skills."""
 

@@ -7,6 +7,7 @@ Shared data structures (enums, PlayerSkillState, etc.) live in
 coach_models.py to avoid circular imports with persistence.py.
 """
 
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
@@ -141,6 +142,89 @@ SKILL_CHECKING_IS_ALLOWED = SkillDefinition(
 )
 
 # ---------------------------------------------------------------------------
+# Gate 3 skill definitions (pressure recognition)
+# ---------------------------------------------------------------------------
+
+SKILL_DRAWS_NEED_PRICE = SkillDefinition(
+    skill_id='draws_need_price',
+    name='Draws Need Price',
+    description='Only call with a draw when pot odds justify it.',
+    gate=3,
+    evidence_rules=EvidenceRules(
+        min_opportunities=6,
+        window_size=30,
+        advancement_threshold=0.70,
+        regression_threshold=0.55,
+    ),
+    phases=frozenset({'FLOP', 'TURN'}),
+    tags=frozenset({'pot_odds', 'draws', 'postflop'}),
+)
+
+SKILL_RESPECT_BIG_BETS = SkillDefinition(
+    skill_id='respect_big_bets',
+    name='Respect Big Bets',
+    description='Fold medium hands facing large bets (>=50% pot) on turn or river.',
+    gate=3,
+    evidence_rules=EvidenceRules(
+        min_opportunities=6,
+        window_size=30,
+        advancement_threshold=0.65,
+        regression_threshold=0.50,
+    ),
+    phases=frozenset({'TURN', 'RIVER'}),
+    tags=frozenset({'bet_reading', 'postflop'}),
+)
+
+SKILL_HAVE_A_PLAN = SkillDefinition(
+    skill_id='have_a_plan',
+    name='Have a Plan for the Hand',
+    description="Don't bet the flop then check-fold the turn without reason.",
+    gate=3,
+    evidence_rules=EvidenceRules(
+        min_opportunities=6,
+        window_size=30,
+        advancement_threshold=0.75,
+        regression_threshold=0.60,
+    ),
+    phases=frozenset({'TURN'}),
+    tags=frozenset({'multi_street', 'planning', 'postflop'}),
+)
+
+# ---------------------------------------------------------------------------
+# Gate 4 skill definitions (multi-street thinking)
+# ---------------------------------------------------------------------------
+
+SKILL_DONT_PAY_DOUBLE_BARRELS = SkillDefinition(
+    skill_id='dont_pay_double_barrels',
+    name="Don't Pay Off Double Barrels",
+    description='Fold marginal hands when opponents bet multiple streets.',
+    gate=4,
+    evidence_rules=EvidenceRules(
+        min_opportunities=5,
+        window_size=30,
+        advancement_threshold=0.60,
+        regression_threshold=0.45,
+    ),
+    phases=frozenset({'TURN', 'RIVER'}),
+    tags=frozenset({'multi_street', 'bet_reading', 'postflop'}),
+)
+
+SKILL_SIZE_BETS_WITH_PURPOSE = SkillDefinition(
+    skill_id='size_bets_with_purpose',
+    name='Size Your Bets With Purpose',
+    description='Size bets proportional to the pot — not too small, not too big.',
+    gate=4,
+    evidence_rules=EvidenceRules(
+        min_opportunities=12,
+        window_size=30,
+        advancement_threshold=0.65,
+        regression_threshold=0.50,
+    ),
+    phases=frozenset({'FLOP', 'TURN', 'RIVER'}),
+    tags=frozenset({'bet_sizing', 'postflop'}),
+)
+
+# ---------------------------------------------------------------------------
 # Gate definitions
 # ---------------------------------------------------------------------------
 
@@ -160,6 +244,22 @@ GATE_2 = GateDefinition(
     required_reliable=2,
 )
 
+GATE_3 = GateDefinition(
+    gate_number=3,
+    name='Pressure Recognition',
+    description='Understand pot odds on draws, respect aggression, follow through on plans.',
+    skill_ids=('draws_need_price', 'respect_big_bets', 'have_a_plan'),
+    required_reliable=2,
+)
+
+GATE_4 = GateDefinition(
+    gate_number=4,
+    name='Multi-Street Thinking',
+    description='Recognize multi-street aggression and size your bets with purpose.',
+    skill_ids=('dont_pay_double_barrels', 'size_bets_with_purpose'),
+    required_reliable=2,
+)
+
 # ---------------------------------------------------------------------------
 # Registries
 # ---------------------------------------------------------------------------
@@ -168,12 +268,16 @@ ALL_SKILLS: Dict[str, SkillDefinition] = {
     s.skill_id: s for s in [
         SKILL_FOLD_TRASH, SKILL_POSITION_MATTERS, SKILL_RAISE_OR_FOLD,
         SKILL_FLOP_CONNECTION, SKILL_BET_WHEN_STRONG, SKILL_CHECKING_IS_ALLOWED,
+        SKILL_DRAWS_NEED_PRICE, SKILL_RESPECT_BIG_BETS, SKILL_HAVE_A_PLAN,
+        SKILL_DONT_PAY_DOUBLE_BARRELS, SKILL_SIZE_BETS_WITH_PURPOSE,
     ]
 }
 
 ALL_GATES: Dict[int, GateDefinition] = {
     GATE_1.gate_number: GATE_1,
     GATE_2.gate_number: GATE_2,
+    GATE_3.gate_number: GATE_3,
+    GATE_4.gate_number: GATE_4,
 }
 
 
@@ -240,6 +344,36 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
     is_air = hand_rank is not None and hand_rank >= 10 and not has_draw  # High card, no draw
     can_check = cost_to_call == 0
 
+    # --- Multi-street context ---
+    hand_actions = coaching_data.get('hand_actions', [])
+    player_name = coaching_data.get('player_name', '')
+
+    # Player's actions by phase
+    player_actions_by_phase = defaultdict(list)
+    for a in hand_actions:
+        if a.get('player_name') == player_name:
+            player_actions_by_phase[a['phase']].append(a['action'])
+
+    # Opponent aggressive actions by phase
+    opponent_bets_by_phase = defaultdict(list)
+    for a in hand_actions:
+        if a.get('player_name') != player_name and a['action'] in ('raise', 'bet', 'all_in'):
+            opponent_bets_by_phase[a['phase']].append(a)
+
+    _aggressive = {'raise', 'bet', 'all_in'}
+    player_bet_flop = bool(_aggressive & set(player_actions_by_phase.get('FLOP', [])))
+    player_bet_turn = bool(_aggressive & set(player_actions_by_phase.get('TURN', [])))
+    opponent_bet_flop = len(opponent_bets_by_phase.get('FLOP', [])) > 0
+    opponent_bet_turn = len(opponent_bets_by_phase.get('TURN', [])) > 0
+    opponent_double_barrel = opponent_bet_flop and opponent_bet_turn
+
+    # --- Equity fields ---
+    equity = coaching_data.get('equity')
+    required_equity = coaching_data.get('required_equity')
+
+    # --- Bet sizing context ---
+    bet_to_pot_ratio = coaching_data.get('bet_to_pot_ratio', 0)
+
     # Situation tags
     tag_conditions = [
         ('trash_hand', is_trash),
@@ -273,4 +407,16 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
         'is_air': is_air,
         'can_check': can_check,
         'tags': tags,
+        # Multi-street context
+        'player_actions_by_phase': dict(player_actions_by_phase),
+        'player_bet_flop': player_bet_flop,
+        'player_bet_turn': player_bet_turn,
+        'opponent_bet_flop': opponent_bet_flop,
+        'opponent_bet_turn': opponent_bet_turn,
+        'opponent_double_barrel': opponent_double_barrel,
+        # Equity fields
+        'equity': equity,
+        'required_equity': required_equity,
+        # Bet sizing
+        'bet_to_pot_ratio': bet_to_pot_ratio,
     }
