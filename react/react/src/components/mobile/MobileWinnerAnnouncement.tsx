@@ -205,7 +205,7 @@ export function MobileWinnerAnnouncement({
     const hasSidePots = winnerInfo.pot_breakdown && winnerInfo.pot_breakdown.length > 1;
 
     return (
-        <div className="mobile-winner-overlay">
+        <div className="mobile-winner-overlay" data-testid="winner-overlay">
             <div className="mobile-winner-content">
                 {/* Tournament Outcome Banner - only shown on final hand */}
                 {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (
@@ -219,14 +219,14 @@ export function MobileWinnerAnnouncement({
                 {/* Winner Announcement Header */}
                 {winnerInfo.showdown && (
                     <div className="winner-header">
-                        <div className="winner-names">
+                        <div className="winner-names" data-testid="winner-names">
                             {winnerInfo.winners.length > 1
                                 ? `${winnerInfo.winners.join(' & ')} split`
                                 : `${winnerInfo.winners[0]} wins`}
                         </div>
-                        <div className="winner-amount">${totalWinnings}</div>
+                        <div className="winner-amount" data-testid="winner-amount">${totalWinnings}</div>
                         {winnerInfo.hand_name && !hasSidePots && (
-                            <div className="winner-hand-name">{winnerInfo.hand_name}</div>
+                            <div className="winner-hand-name" data-testid="winner-hand-name">{winnerInfo.hand_name}</div>
                         )}
                     </div>
                 )}
@@ -247,10 +247,10 @@ export function MobileWinnerAnnouncement({
                 )}
 
                 {winnerInfo.showdown && showCards && (
-                    <div className="showdown-section">
+                    <div className="showdown-section" data-testid="showdown-section">
                         {winnerInfo.community_cards &&
                             winnerInfo.community_cards.length > 0 && (
-                                <div className="community-section">
+                                <div className="community-section" data-testid="community-section">
                                     <div className="section-label">Board</div>
                                     <div className="community-cards-row">
                                         {winnerInfo.community_cards.map(
@@ -278,6 +278,7 @@ export function MobileWinnerAnnouncement({
                                             <div
                                                 key={showdownPlayerName}
                                                 className={`player-showdown ${isWinner ? 'winner' : ''}`}
+                                            data-testid="player-showdown"
                                             >
                                                 <div className="showdown-player-info">
                                                     <div className="showdown-player-header">
@@ -316,10 +317,10 @@ export function MobileWinnerAnnouncement({
                 )}
 
                 {!winnerInfo.showdown && (
-                    <div className="no-showdown-winner">
-                        <div className="no-showdown-name">{winnerInfo.winners[0]}</div>
-                        <div className="no-showdown-amount">Wins ${totalWinnings}</div>
-                        <div className="no-showdown-text">All opponents folded</div>
+                    <div className="no-showdown-winner" data-testid="no-showdown-winner">
+                        <div className="no-showdown-name" data-testid="no-showdown-name">{winnerInfo.winners[0]}</div>
+                        <div className="no-showdown-amount" data-testid="no-showdown-amount">Wins ${totalWinnings}</div>
+                        <div className="no-showdown-text" data-testid="no-showdown-text">All opponents folded</div>
                     </div>
                 )}
 
@@ -371,7 +372,7 @@ export function MobileWinnerAnnouncement({
                     </div>
                 )}
 
-                <button className="dismiss-btn" onClick={onComplete}>
+                <button className="dismiss-btn" data-testid="winner-dismiss" onClick={onComplete}>
                     {winnerInfo.is_final_hand ? 'Continue to Results' : 'Continue'}
                 </button>
             </div>

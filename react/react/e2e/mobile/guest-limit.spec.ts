@@ -7,10 +7,10 @@ test.describe('PW-14: Guest limit modal appears and offers upgrade', () => {
     await mockMenuPageRoutes(page, { isGuest: true, handsPlayed: 20, handsLimit: 20, handsLimitReached: true });
     await navigateToMenuPage(page);
 
-    const overlay = page.locator('.guest-limit-modal__overlay');
+    const overlay = page.getByTestId('guest-limit-overlay');
     await expect(overlay).toBeVisible({ timeout: 10000 });
 
-    const modal = page.locator('.guest-limit-modal');
+    const modal = page.getByTestId('guest-limit-modal');
     await expect(modal).toBeVisible();
   });
 
@@ -18,14 +18,14 @@ test.describe('PW-14: Guest limit modal appears and offers upgrade', () => {
     await mockMenuPageRoutes(page, { isGuest: true, handsPlayed: 20, handsLimit: 20, handsLimitReached: true });
     await navigateToMenuPage(page);
 
-    const overlay = page.locator('.guest-limit-modal__overlay');
+    const overlay = page.getByTestId('guest-limit-overlay');
     await expect(overlay).toBeVisible({ timeout: 10000 });
 
-    const title = page.locator('.guest-limit-modal__title');
+    const title = page.getByTestId('guest-limit-title');
     await expect(title).toBeVisible();
     await expect(title).toContainText("You've played 20 hands!");
 
-    const icon = page.locator('.guest-limit-modal__icon');
+    const icon = page.getByTestId('guest-limit-icon');
     await expect(icon).toBeVisible();
   });
 
@@ -33,10 +33,10 @@ test.describe('PW-14: Guest limit modal appears and offers upgrade', () => {
     await mockMenuPageRoutes(page, { isGuest: true, handsPlayed: 20, handsLimit: 20, handsLimitReached: true });
     await navigateToMenuPage(page);
 
-    const overlay = page.locator('.guest-limit-modal__overlay');
+    const overlay = page.getByTestId('guest-limit-overlay');
     await expect(overlay).toBeVisible({ timeout: 10000 });
 
-    const benefits = page.locator('.guest-limit-modal__benefit');
+    const benefits = page.getByTestId('guest-limit-benefit');
     await expect(benefits).toHaveCount(4);
 
     await expect(benefits.nth(0)).toContainText('Unlimited hands');
@@ -49,10 +49,10 @@ test.describe('PW-14: Guest limit modal appears and offers upgrade', () => {
     await mockMenuPageRoutes(page, { isGuest: true, handsPlayed: 20, handsLimit: 20, handsLimitReached: true });
     await navigateToMenuPage(page);
 
-    const overlay = page.locator('.guest-limit-modal__overlay');
+    const overlay = page.getByTestId('guest-limit-overlay');
     await expect(overlay).toBeVisible({ timeout: 10000 });
 
-    const cta = page.locator('.guest-limit-modal__cta');
+    const cta = page.getByTestId('guest-limit-cta');
     await expect(cta).toBeVisible();
     await expect(cta).toContainText('Sign in with Google');
   });
@@ -61,10 +61,10 @@ test.describe('PW-14: Guest limit modal appears and offers upgrade', () => {
     await mockMenuPageRoutes(page, { isGuest: true, handsPlayed: 20, handsLimit: 20, handsLimitReached: true });
     await navigateToMenuPage(page);
 
-    const overlay = page.locator('.guest-limit-modal__overlay');
+    const overlay = page.getByTestId('guest-limit-overlay');
     await expect(overlay).toBeVisible({ timeout: 10000 });
 
-    const secondary = page.locator('.guest-limit-modal__secondary');
+    const secondary = page.getByTestId('guest-limit-secondary');
     await expect(secondary).toBeVisible();
     await expect(secondary).toContainText('Return to Main Menu');
 
@@ -79,7 +79,7 @@ test.describe('PW-14: Guest limit modal appears and offers upgrade', () => {
 
     await page.waitForTimeout(2000);
 
-    const overlay = page.locator('.guest-limit-modal__overlay');
+    const overlay = page.getByTestId('guest-limit-overlay');
     await expect(overlay).not.toBeVisible();
   });
 

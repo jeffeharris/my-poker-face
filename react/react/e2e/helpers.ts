@@ -432,7 +432,7 @@ export async function navigateToGamePage(
     await page.goto('/menu', { waitUntil: 'commit' });
     await loginAsTestGuest(page);
     await page.goto(`/game/${gameId}`);
-    await expect(page.locator('.mobile-poker-table')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('mobile-poker-table')).toBeVisible({ timeout: 15000 });
 
     // Deliver any pending socket events via backend API
     const ctx = opts.mockContext;

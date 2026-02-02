@@ -10,7 +10,7 @@ test.describe('PW-17: Mobile navigation — back button returns to menu', () => 
     await setAuthLocalStorage(page, { isGuest: false });
     await page.goto('/game/test-game-123');
 
-    const table = page.locator('.mobile-poker-table');
+    const table = page.getByTestId('mobile-poker-table');
     await expect(table).toBeVisible({ timeout: 10000 });
 
     const backButton = page.locator('.menu-bar__back');

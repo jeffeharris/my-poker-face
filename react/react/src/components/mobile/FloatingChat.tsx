@@ -188,8 +188,9 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
         y: { type: "spring", stiffness: 500, damping: 35 }
       }}
       className="floating-chat"
+      data-testid="floating-chat"
     >
-      <div className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`}>
+      <div className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`} data-testid="floating-chat-avatar">
         {avatarUrl ? (
           <img src={avatarUrl} alt={msg.sender} className="floating-avatar-img" />
         ) : (
@@ -198,17 +199,18 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
         {isAI && !avatarUrl && <span className="ai-badge">AI</span>}
       </div>
       <div className="floating-chat-content">
-        <div className="floating-chat-sender">
+        <div className="floating-chat-sender" data-testid="floating-chat-sender">
           {msg.action || msg.sender}
         </div>
         {msg.message && (
-          <div className="floating-chat-message">
+          <div className="floating-chat-message" data-testid="floating-chat-message">
             <DramaticMessage text={msg.message} />
           </div>
         )}
       </div>
       <button
         className="floating-chat-dismiss"
+        data-testid="floating-chat-dismiss"
         onClick={(e) => {
           e.stopPropagation();
           onDismiss(msg.id);
@@ -328,7 +330,7 @@ export function FloatingChat({ message, onDismiss, players = [] }: Omit<Floating
   if (messages.length === 0) return null;
 
   return (
-    <div className="floating-chat-stack">
+    <div className="floating-chat-stack" data-testid="floating-chat-stack">
       <AnimatePresence mode="popLayout">
         {messages.map((msg) => {
           const isAI = msg.type === 'ai';

@@ -83,21 +83,21 @@ test.describe('PW-11: Winner announcement shows after hand and auto-dismisses', 
   test('showdown winner overlay appears with winner name and amount', async ({ page }) => {
     await setupWithWinner(page, showdownWinnerInfo);
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const winnerNames = overlay.locator('.winner-names');
+    const winnerNames = overlay.getByTestId('winner-names');
     await expect(winnerNames).toBeVisible();
     const nameText = await winnerNames.textContent();
     expect(nameText).toContain('Batman');
     expect(nameText).toContain('wins');
 
-    const winnerAmount = overlay.locator('.winner-amount');
+    const winnerAmount = overlay.getByTestId('winner-amount');
     await expect(winnerAmount).toBeVisible();
     const amountText = await winnerAmount.textContent();
     expect(amountText).toContain('300');
 
-    const handName = overlay.locator('.winner-hand-name');
+    const handName = overlay.getByTestId('winner-hand-name');
     await expect(handName).toBeVisible();
     const handText = await handName.textContent();
     expect(handText).toContain('Pair of Kings');
@@ -106,16 +106,16 @@ test.describe('PW-11: Winner announcement shows after hand and auto-dismisses', 
   test('showdown displays community cards and player hands', async ({ page }) => {
     await setupWithWinner(page, showdownWinnerInfo);
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const showdownSection = overlay.locator('.showdown-section');
+    const showdownSection = overlay.getByTestId('showdown-section');
     await expect(showdownSection).toBeVisible({ timeout: 5000 });
 
-    const communitySection = overlay.locator('.community-section');
+    const communitySection = overlay.getByTestId('community-section');
     await expect(communitySection).toBeVisible();
 
-    const playerShowdowns = overlay.locator('.player-showdown');
+    const playerShowdowns = overlay.getByTestId('player-showdown');
     const count = await playerShowdowns.count();
     expect(count).toBe(2);
 
@@ -126,10 +126,10 @@ test.describe('PW-11: Winner announcement shows after hand and auto-dismisses', 
   test('showdown has Continue button', async ({ page }) => {
     await setupWithWinner(page, showdownWinnerInfo);
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const dismissBtn = overlay.locator('.dismiss-btn');
+    const dismissBtn = overlay.getByTestId('winner-dismiss');
     await expect(dismissBtn).toBeVisible();
     const btnText = await dismissBtn.textContent();
     expect(btnText).toContain('Continue');
@@ -138,26 +138,26 @@ test.describe('PW-11: Winner announcement shows after hand and auto-dismisses', 
   test('fold winner shows name, amount, and "All opponents folded"', async ({ page }) => {
     await setupWithWinner(page, foldWinnerInfo);
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const showdownSection = overlay.locator('.showdown-section');
+    const showdownSection = overlay.getByTestId('showdown-section');
     await expect(showdownSection).not.toBeVisible();
 
-    const noShowdown = overlay.locator('.no-showdown-winner');
+    const noShowdown = overlay.getByTestId('no-showdown-winner');
     await expect(noShowdown).toBeVisible();
 
-    const noShowdownName = overlay.locator('.no-showdown-name');
+    const noShowdownName = overlay.getByTestId('no-showdown-name');
     await expect(noShowdownName).toBeVisible();
     const nameText = await noShowdownName.textContent();
     expect(nameText).toContain('TestPlayer');
 
-    const noShowdownAmount = overlay.locator('.no-showdown-amount');
+    const noShowdownAmount = overlay.getByTestId('no-showdown-amount');
     await expect(noShowdownAmount).toBeVisible();
     const amountText = await noShowdownAmount.textContent();
     expect(amountText).toContain('150');
 
-    const foldedText = overlay.locator('.no-showdown-text');
+    const foldedText = overlay.getByTestId('no-showdown-text');
     await expect(foldedText).toBeVisible();
     const text = await foldedText.textContent();
     expect(text).toContain('All opponents folded');
@@ -166,23 +166,23 @@ test.describe('PW-11: Winner announcement shows after hand and auto-dismisses', 
   test('fold winner has no showdown cards section', async ({ page }) => {
     await setupWithWinner(page, foldWinnerInfo);
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const showdownSection = overlay.locator('.showdown-section');
+    const showdownSection = overlay.getByTestId('showdown-section');
     await expect(showdownSection).not.toBeVisible();
 
-    const dismissBtn = overlay.locator('.dismiss-btn');
+    const dismissBtn = overlay.getByTestId('winner-dismiss');
     await expect(dismissBtn).toBeVisible();
   });
 
   test('clicking Continue dismisses the winner overlay', async ({ page }) => {
     await setupWithWinner(page, foldWinnerInfo);
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const dismissBtn = overlay.locator('.dismiss-btn');
+    const dismissBtn = overlay.getByTestId('winner-dismiss');
     await dismissBtn.click();
 
     await expect(overlay).not.toBeVisible({ timeout: 5000 });

@@ -77,15 +77,15 @@ test.describe('PW-05: Quick Play 1v1 creates heads-up game with opponent panel',
   });
 
   test('game loads with exactly 1 opponent', async ({ page }) => {
-    const table = page.locator('.mobile-poker-table');
+    const table = page.getByTestId('mobile-poker-table');
     await expect(table).toBeVisible({ timeout: 10000 });
 
-    const opponents = page.locator('.mobile-opponent');
+    const opponents = page.getByTestId('mobile-opponent');
     await expect(opponents).toHaveCount(1);
   });
 
   test('opponent has heads-up-avatar class', async ({ page }) => {
-    const table = page.locator('.mobile-poker-table');
+    const table = page.getByTestId('mobile-poker-table');
     await expect(table).toBeVisible({ timeout: 10000 });
 
     const headsUpAvatar = page.locator('.mobile-opponent.heads-up-avatar');
@@ -93,18 +93,18 @@ test.describe('PW-05: Quick Play 1v1 creates heads-up game with opponent panel',
   });
 
   test('HeadsUpOpponentPanel renders', async ({ page }) => {
-    const table = page.locator('.mobile-poker-table');
+    const table = page.getByTestId('mobile-poker-table');
     await expect(table).toBeVisible({ timeout: 10000 });
 
-    const panel = page.locator('.heads-up-opponent-panel');
+    const panel = page.getByTestId('heads-up-panel');
     await expect(panel).toBeVisible({ timeout: 10000 });
   });
 
   test('panel shows "Reading" header with opponent name', async ({ page }) => {
-    const table = page.locator('.mobile-poker-table');
+    const table = page.getByTestId('mobile-poker-table');
     await expect(table).toBeVisible({ timeout: 10000 });
 
-    const panel = page.locator('.heads-up-opponent-panel');
+    const panel = page.getByTestId('heads-up-panel');
     await expect(panel).toBeVisible({ timeout: 10000 });
 
     await expect(panel.locator('.panel-header')).toContainText(/reading/i);
@@ -112,10 +112,10 @@ test.describe('PW-05: Quick Play 1v1 creates heads-up game with opponent panel',
   });
 
   test('opponent name and stack visible', async ({ page }) => {
-    const table = page.locator('.mobile-poker-table');
+    const table = page.getByTestId('mobile-poker-table');
     await expect(table).toBeVisible({ timeout: 10000 });
 
-    const opponentName = page.locator('.opponent-name');
+    const opponentName = page.getByTestId('opponent-name');
     await expect(opponentName).toBeVisible();
     await expect(opponentName).toContainText('The Dark Knight');
 
