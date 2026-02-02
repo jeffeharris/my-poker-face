@@ -91,8 +91,8 @@
 }
 
 .coach-bubble--learn .coach-bubble-icon {
-  background: rgba(52, 211, 153, 0.15);
-  color: #34d399;
+  background: var(--color-emerald-muted, rgba(52, 211, 153, 0.15));
+  color: var(--color-emerald, #34d399);
 }
 
 .coach-bubble--compete {
@@ -109,7 +109,7 @@
 }
 
 .coach-bubble--learn .coach-bubble__mode-label {
-  color: #34d399;
+  color: var(--color-emerald, #34d399);
 }
 
 .coach-bubble--compete .coach-bubble__mode-label {

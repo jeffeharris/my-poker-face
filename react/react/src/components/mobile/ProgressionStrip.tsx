@@ -23,7 +23,7 @@ export function ProgressionStrip({ progression, isExpanded, onToggle }: Progress
   const colorClass = accuracyColor(accuracy);
 
   return (
-    <button className="progression-strip" onClick={onToggle} aria-label="Toggle skill detail">
+    <button className="progression-strip" onClick={onToggle} aria-label="Toggle skill detail" aria-expanded={isExpanded}>
       <div className="progression-strip__top">
         <span className="progression-strip__gate">Gate {gateNumber}</span>
         <span className="progression-strip__skill">
@@ -38,12 +38,14 @@ export function ProgressionStrip({ progression, isExpanded, onToggle }: Progress
           {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </span>
       </div>
-      <div className={`progression-strip__bar progression-strip__bar--${colorClass}`}>
-        <div
-          className="progression-strip__bar-fill"
-          style={{ width: `${Math.round(accuracy * 100)}%` }}
-        />
-      </div>
+      {primarySkill && (
+        <div className={`progression-strip__bar progression-strip__bar--${colorClass}`}>
+          <div
+            className="progression-strip__bar-fill"
+            style={{ width: `${Math.round(accuracy * 100)}%` }}
+          />
+        </div>
+      )}
     </button>
   );
 }

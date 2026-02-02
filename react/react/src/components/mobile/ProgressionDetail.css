@@ -65,11 +65,11 @@
 }
 
 .progression-detail__dot.state-reliable {
-  background: #34d399;
+  background: var(--color-emerald, #34d399);
 }
 
 .progression-detail__dot.state-automatic {
-  background: #3b82f6;
+  background: var(--color-sapphire, #3b82f6);
 }
 
 .progression-detail__dot.state-locked {
@@ -124,11 +124,11 @@
 }
 
 .progression-detail__skill-accuracy.state-reliable {
-  color: #34d399;
+  color: var(--color-emerald, #34d399);
 }
 
 .progression-detail__skill-accuracy.state-automatic {
-  color: #3b82f6;
+  color: var(--color-sapphire, #3b82f6);
 }
 
 /* Mini progress bar */
@@ -155,11 +155,11 @@
 }
 
 .progression-detail__skill-bar-fill.state-reliable {
-  background: #34d399;
+  background: var(--color-emerald, #34d399);
 }
 
 .progression-detail__skill-bar-fill.state-automatic {
-  background: #3b82f6;
+  background: var(--color-sapphire, #3b82f6);
 }
 
 /* State label */
@@ -180,9 +180,9 @@
 }
 
 .progression-detail__skill-state.state-reliable {
-  color: #34d399;
+  color: var(--color-emerald, #34d399);
 }
 
 .progression-detail__skill-state.state-automatic {
-  color: #3b82f6;
+  color: var(--color-sapphire, #3b82f6);
 }

@@ -314,7 +314,10 @@ export function MobilePokerTable({
       }, i * 600));
     });
 
-    return () => timers.forEach(clearTimeout);
+    return () => {
+      timers.forEach(clearTimeout);
+      coach.skillUnlockQueue.forEach(id => coach.dismissSkillUnlock(id));
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coach.skillUnlockQueue]);
 

@@ -52,7 +52,7 @@
 }
 
 .progression-strip__accuracy--emerald {
-  color: #34d399;
+  color: var(--color-emerald, #34d399);
 }
 
 .progression-strip__accuracy--gold {
@@ -60,7 +60,7 @@
 }
 
 .progression-strip__accuracy--ruby {
-  color: #f87171;
+  color: var(--color-ruby, #f43f5e);
 }
 
 .progression-strip__chevron {
@@ -86,7 +86,7 @@
 }
 
 .progression-strip__bar--emerald .progression-strip__bar-fill {
-  background: #34d399;
+  background: var(--color-emerald, #34d399);
 }
 
 .progression-strip__bar--gold .progression-strip__bar-fill {
@@ -94,5 +94,5 @@
 }
 
 .progression-strip__bar--ruby .progression-strip__bar-fill {
-  background: #f87171;
+  background: var(--color-ruby, #f43f5e);
 }

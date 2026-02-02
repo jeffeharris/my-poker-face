@@ -374,9 +374,9 @@
 }
 
 .coach-onboarding__btn--skip {
-  background: rgba(52, 211, 153, 0.15);
+  background: var(--color-emerald-muted, rgba(52, 211, 153, 0.15));
   border-color: rgba(52, 211, 153, 0.3);
-  color: #34d399;
+  color: var(--color-emerald, #34d399);
 }
 
 .coach-onboarding__btn--skip:active {
