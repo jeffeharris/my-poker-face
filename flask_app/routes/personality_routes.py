@@ -182,7 +182,11 @@ def update_personality(name):
         # Use update method that preserves owner_id and visibility
         updated = personality_repo.update_personality_config(name, personality_config, source='user_edited')
         if not updated:
-            return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
+            # Personality doesn't exist yet (e.g., manual create) — create it
+            personality_repo.save_personality(
+                name, personality_config, source='user_created',
+                owner_id=user_id, visibility='private',
+            )
 
         return jsonify({
             'success': True,
