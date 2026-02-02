@@ -9,11 +9,11 @@ import os
 # =============================================================================
 
 # Default model for all LLM operations
-DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-nano")
+DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", os.environ.get("OPENAI_MODEL", "gpt-5-nano"))
 DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "openai")
 
 # Fast model for quick operations (chat suggestions, categorization, etc.)
-FAST_MODEL = os.environ.get("FAST_MODEL", os.environ.get("OPENAI_FAST_MODEL", DEFAULT_MODEL))
+FAST_MODEL = os.environ.get("FAST_MODEL", DEFAULT_MODEL)
 FAST_PROVIDER = os.environ.get("FAST_PROVIDER", "openai")
 
 # Model for assistants (experiment designer, etc.)

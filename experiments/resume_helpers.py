@@ -73,7 +73,7 @@ def create_controllers_for_resume(
     llm_config: Dict[str, str],
     game_id: str,
     exp_config,
-    persistence,
+    experiment_repo,
     ai_states: Dict[str, Dict],
     prompt_config=None,
 ) -> Dict[str, Any]:
@@ -84,8 +84,8 @@ def create_controllers_for_resume(
         llm_config: Dict with 'provider' and 'model' keys
         game_id: The game ID being resumed
         exp_config: ExperimentConfig instance
-        persistence: GamePersistence instance
-        ai_states: Saved AI player states (from persistence.load_ai_player_states)
+        experiment_repo: ExperimentRepository instance
+        ai_states: Saved AI player states (from game_repo.load_ai_player_states)
         prompt_config: Optional PromptConfig instance
 
     Returns:
@@ -101,7 +101,7 @@ def create_controllers_for_resume(
             llm_config=llm_config,
             game_id=game_id,
             owner_id=f"experiment_{exp_config.name}",
-            persistence=persistence,
+            experiment_repo=experiment_repo,
             debug_capture=exp_config.capture_prompts,
             prompt_config=prompt_config,
         )
@@ -119,7 +119,7 @@ def create_controllers_for_resume(
 
 
 def resume_variant_impl(
-    persistence,
+    db_path: str,
     experiment_id: int,
     game_id: str,
     variant: Optional[str],
@@ -134,7 +134,7 @@ def resume_variant_impl(
     - Continuing the tournament
 
     Args:
-        persistence: GamePersistence instance
+        db_path: Database path
         experiment_id: The experiment ID
         game_id: The game_id to resume
         variant: Variant label (optional)
@@ -151,18 +151,24 @@ def resume_variant_impl(
     from experiments.run_ai_tournament import AITournamentRunner
     from poker.memory.memory_manager import AIMemoryManager
     from poker.prompt_config import PromptConfig
+    from poker.repositories import create_repos
 
     # Build experiment config
     exp_config = build_experiment_config(config_dict)
 
+    # Create repos
+    repos = create_repos(db_path)
+    game_repo = repos['game_repo']
+    experiment_repo = repos['experiment_repo']
+
     # Load saved game state
-    state_machine = persistence.load_game(game_id)
+    state_machine = game_repo.load_game(game_id)
     if not state_machine:
         logger.warning(f"Could not load game state for {game_id}")
         return None
 
     # Load AI player states (conversation history)
-    ai_states = persistence.load_ai_player_states(game_id)
+    ai_states = game_repo.load_ai_player_states(game_id)
 
     # Determine LLM config
     llm_config = determine_llm_config(variant_config, exp_config)
@@ -177,7 +183,7 @@ def resume_variant_impl(
         llm_config=llm_config,
         game_id=game_id,
         exp_config=exp_config,
-        persistence=persistence,
+        experiment_repo=experiment_repo,
         ai_states=ai_states,
         prompt_config=prompt_config,
     )
@@ -185,13 +191,13 @@ def resume_variant_impl(
     # Create memory manager
     memory_manager = AIMemoryManager(
         game_id=game_id,
-        db_path=persistence.db_path,
+        db_path=db_path,
     )
 
     # Create runner
     runner = AITournamentRunner(
         exp_config,
-        db_path=persistence.db_path,
+        db_path=db_path,
     )
     runner.experiment_id = experiment_id
 
@@ -199,7 +205,7 @@ def resume_variant_impl(
     hand_number = getattr(state_machine.game_state, 'hand_number', 1)
 
     # Update heartbeat to show we're actively resuming
-    persistence.update_experiment_game_heartbeat(game_id, 'processing', process_id=os.getpid())
+    experiment_repo.update_experiment_game_heartbeat(game_id, 'processing', process_id=os.getpid())
 
     logger.info(f"Resuming variant {game_id} from hand {hand_number}")
 

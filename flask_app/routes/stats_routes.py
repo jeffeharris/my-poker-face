@@ -10,7 +10,7 @@ from openai import OpenAI
 
 from core.llm import LLMClient, CallType
 
-from ..extensions import persistence, auth_manager, limiter, personality_generator
+from ..extensions import tournament_repo, hand_history_repo, auth_manager, limiter, personality_generator
 from poker.prompt_manager import PromptManager
 from poker.memory.hand_history import RecordedHand
 from poker.config import is_development_mode
@@ -266,9 +266,9 @@ def get_career_stats():
     if not owner_id:
         return jsonify({'error': 'No user ID found'}), 400
 
-    stats = persistence.get_career_stats(owner_id)
-    history = persistence.get_tournament_history(owner_id, limit=10)
-    eliminated = persistence.get_eliminated_personalities(owner_id)
+    stats = tournament_repo.get_career_stats(owner_id)
+    history = tournament_repo.get_tournament_history(owner_id, limit=10)
+    eliminated = tournament_repo.get_eliminated_personalities(owner_id)
 
     return jsonify({
         'stats': stats,
@@ -656,7 +656,7 @@ def get_post_round_chat_suggestions(game_id):
             if memory_manager:
                 hand_count = memory_manager.hand_count
                 if hand_count > 0:
-                    loaded_hand = persistence.load_hand_history(game_id, hand_count)
+                    loaded_hand = hand_history_repo.load_hand_history(game_id, hand_count)
                     if loaded_hand:
                         recorded_hand = loaded_hand
                         logger.info(f"[PostRound] Loaded hand #{hand_count} from database")

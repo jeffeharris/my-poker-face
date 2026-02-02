@@ -54,6 +54,12 @@ RATE_LIMIT_NEW_GAME = os.environ.get('RATE_LIMIT_NEW_GAME', '10 per hour')
 RATE_LIMIT_GAME_ACTION = os.environ.get('RATE_LIMIT_GAME_ACTION', '60 per minute')
 RATE_LIMIT_CHAT_SUGGESTIONS = os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour')
 RATE_LIMIT_GENERATE_PERSONALITY = os.environ.get('RATE_LIMIT_GENERATE_PERSONALITY', '15 per hour')
+RATE_LIMIT_GENERATE_THEME = os.environ.get('RATE_LIMIT_GENERATE_THEME', '10 per hour')
+RATE_LIMIT_REGENERATE_AVATAR = os.environ.get('RATE_LIMIT_REGENERATE_AVATAR', '10 per hour')
+RATE_LIMIT_GENERATE_IMAGES = os.environ.get('RATE_LIMIT_GENERATE_IMAGES', '5 per hour')
+
+# Pagination
+GAME_LIST_MAX_LIMIT = int(os.environ.get('GAME_LIST_MAX_LIMIT', '100'))
 
 # Redis configuration
 REDIS_URL = os.environ.get('REDIS_URL')
@@ -77,11 +83,6 @@ from core.llm.settings import (           # noqa: F401
 )
 
 # Database path
-def get_db_path():
-    """Get the database path based on environment."""
-    if os.path.exists('/app/data'):
-        return '/app/data/poker_games.db'
-    else:
-        return os.path.join(os.path.dirname(__file__), '..', 'poker_games.db')
+from poker.db_utils import get_default_db_path as get_db_path  # noqa: F401 — re-exported for route imports
 
 DB_PATH = get_db_path()

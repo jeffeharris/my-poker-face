@@ -4,11 +4,11 @@ Runtime getters that check app_settings in the database before falling back
 to the static defaults in core.llm.config.  Both poker/ and flask_app/ can
 import from here without circular dependencies.
 
-The GamePersistence import is lazy (inside function body) so that core/
+The repository imports are lazy (inside function body) so that core/
 has no import-time dependency on poker/.
 """
 
-import os
+import logging
 from functools import lru_cache
 
 from .config import (
@@ -24,30 +24,27 @@ from .config import (
 
 
 def _get_db_path() -> str:
-    """Get the database path based on environment.
-
-    Duplicates the logic from flask_app.config.get_db_path() so that
-    core/ has no import-time dependency on flask_app/.
-    """
-    if os.path.exists('/app/data'):
-        return '/app/data/poker_games.db'
-    return os.path.join(os.path.dirname(__file__), '..', '..', 'poker_games.db')
+    """Get the database path based on environment."""
+    from poker.db_utils import get_default_db_path
+    return get_default_db_path()
 
 
 @lru_cache(maxsize=1)
 def _get_config_persistence():
-    """Get a cached GamePersistence instance for config lookups.
+    """Get a cached SettingsRepository instance for config lookups.
 
     Note: This caches a single shared instance across all callers. This is safe
-    because GamePersistence uses context managers for all DB operations and
+    because SettingsRepository uses context managers for all DB operations and
     maintains no connection state between calls. Each operation opens and closes
     its own connection.
-
-    If GamePersistence is ever modified to maintain persistent state (connection
-    pools, cached transactions, etc.), this caching pattern must be revisited.
     """
-    from poker.persistence import GamePersistence
-    return GamePersistence(_get_db_path())
+    from poker.repositories import SchemaManager, SettingsRepository
+    db_path = _get_db_path()
+    SchemaManager(db_path).ensure_schema()
+    return SettingsRepository(db_path)
+
+
+_logger = logging.getLogger(__name__)
 
 
 def _get_setting(key: str, default: str) -> str:
@@ -55,9 +52,13 @@ def _get_setting(key: str, default: str) -> str:
 
     Priority: 1. Database (app_settings), 2. default (from core.llm.config / env)
     """
-    p = _get_config_persistence()
-    db_value = p.get_setting(key, '')
-    return db_value if db_value else default
+    try:
+        p = _get_config_persistence()
+        db_value = p.get_setting(key, '')
+        return db_value if db_value else default
+    except Exception:
+        _logger.debug("DB unavailable for setting %s, using default", key)
+        return default
 
 
 def get_default_provider() -> str:

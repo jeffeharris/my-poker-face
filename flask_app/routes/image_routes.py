@@ -9,6 +9,9 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_from_directory, Response
 
+from ..extensions import limiter
+from .. import config
+
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
 
 from poker.character_images import (
@@ -21,8 +24,7 @@ from poker.character_images import (
     get_character_image_service,
     EMOTIONS,
 )
-from poker.persistence import GamePersistence
-from ..config import get_db_path
+from ..extensions import personality_repo, persistence_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +45,6 @@ def _detect_image_mimetype(image_data: bytes) -> str:
     return 'image/png'
 
 GENERATED_IMAGES_DIR = Path(__file__).parent.parent.parent / 'generated_images'
-
-# Initialize persistence for avatar lookups
-def _get_persistence() -> GamePersistence:
-    """Get persistence instance for avatar operations."""
-    return GamePersistence(get_db_path())
 
 
 @image_bp.route('/api/character-images', methods=['GET'])
@@ -284,6 +281,7 @@ def list_emotions():
 
 
 @image_bp.route('/api/avatar/<personality_name>/regenerate', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_REGENERATE_AVATAR)
 def regenerate_avatar(personality_name: str):
     """Regenerate avatar images for specific emotions.
 
@@ -399,7 +397,7 @@ def _get_reference_image_data_url(reference_id: str) -> str | None:
     import sqlite3
 
     try:
-        with sqlite3.connect(get_db_path()) as conn:
+        with sqlite3.connect(persistence_db_path) as conn:
             cursor = conn.execute(
                 "SELECT image_data, content_type FROM reference_images WHERE id = ?",
                 (reference_id,)
@@ -420,8 +418,7 @@ def _get_reference_image_data_url(reference_id: str) -> str | None:
 def get_avatar_stats():
     """Get statistics about avatar images in the database."""
     try:
-        persistence = _get_persistence()
-        stats = persistence.get_avatar_stats()
+        stats = personality_repo.get_avatar_stats()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Error getting avatar stats: {e}")
@@ -429,6 +426,7 @@ def get_avatar_stats():
 
 
 @image_bp.route('/api/generate-character-images/<personality_name>', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_GENERATE_IMAGES)
 def generate_character_images_endpoint(personality_name):
     """Generate images for a personality on-demand."""
     try:

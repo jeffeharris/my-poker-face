@@ -26,8 +26,9 @@ src/
 │   ├── menus/          # Menu and game setup screens
 │   └── admin/          # Admin tools (personality manager)
 ├── contexts/
-│   └── GameContext.tsx # Centralized game state management
+│   └── ThemeContext.tsx # Theme/appearance context
 ├── hooks/
+│   ├── usePokerGame.ts # Central game state, socket events, messages
 │   ├── useSocket.ts    # WebSocket connection management
 │   ├── useGameState.ts # Game state fetching and updates
 │   └── usePolling.ts   # Fallback polling for game updates
@@ -82,23 +83,23 @@ Development tools that should be excluded from production:
 
 ## State Management
 
-### GameContext
-The `GameContext` provides centralized state management for:
+### usePokerGame Hook
+The `usePokerGame` hook (`src/hooks/usePokerGame.ts`) is the central game state manager:
 - Game state (players, cards, pot, etc.)
-- WebSocket connection
-- Chat messages
+- Socket.IO event handling
+- Chat messages and deduplication
 - AI thinking states
-- Player positions
+- Winner announcements and tournaments
 
 ### Usage Example
 ```typescript
-import { useGame } from '../contexts/GameContext';
+import { usePokerGame } from '../hooks/usePokerGame';
 
 function MyComponent() {
-  const { gameState, sendAction, loading } = useGame();
-  
+  const { gameState, sendAction, loading } = usePokerGame({ gameId });
+
   if (loading) return <LoadingIndicator />;
-  
+
   return <div>{gameState?.pot.total}</div>;
 }
 ```

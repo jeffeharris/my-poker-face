@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from core.llm import CallType, UsageTracker
 from core.llm.response import LLMResponse, ImageResponse
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 
 
 class TestCallType:
@@ -56,7 +56,7 @@ class TestUsageTracker:
     @pytest.fixture(autouse=True)
     def setup_tracker(self, db_path):
         self.db_path = db_path
-        GamePersistence(db_path)
+        create_repos(db_path)
         UsageTracker._instance = None
         yield
         UsageTracker._instance = None

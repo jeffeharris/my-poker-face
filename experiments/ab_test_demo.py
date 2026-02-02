@@ -102,12 +102,13 @@ def run_ab_test(db_path: str = None):
     print("RESULTS COMPARISON")
     print("=" * 60)
 
-    from poker.persistence import GamePersistence
-    persistence = GamePersistence(db_path)
+    from poker.repositories import create_repos
+    repos = create_repos(db_path)
+    experiment_repo = repos['experiment_repo']
 
     # Get experiment details
-    exp_a = persistence.get_experiment(experiment_id_a) if experiment_id_a else None
-    exp_b = persistence.get_experiment(experiment_id_b) if experiment_id_b else None
+    exp_a = experiment_repo.get_experiment(experiment_id_a) if experiment_id_a else None
+    exp_b = experiment_repo.get_experiment(experiment_id_b) if experiment_id_b else None
 
     print("\nVariant A:")
     if exp_a:
@@ -138,13 +139,13 @@ def run_ab_test(db_path: str = None):
     print("Linked Games:")
 
     if experiment_id_a:
-        games_a = persistence.get_experiment_games(experiment_id_a)
+        games_a = experiment_repo.get_experiment_games(experiment_id_a)
         print(f"\nVariant A games ({len(games_a)}):")
         for g in games_a:
             print(f"  - {g['game_id']} (tournament #{g['tournament_number']})")
 
     if experiment_id_b:
-        games_b = persistence.get_experiment_games(experiment_id_b)
+        games_b = experiment_repo.get_experiment_games(experiment_id_b)
         print(f"\nVariant B games ({len(games_b)}):")
         for g in games_b:
             print(f"  - {g['game_id']} (tournament #{g['tournament_number']})")
@@ -154,11 +155,11 @@ def run_ab_test(db_path: str = None):
     print("Decision Stats Query (via get_experiment_decision_stats):")
 
     if experiment_id_a:
-        stats_a = persistence.get_experiment_decision_stats(experiment_id_a)
+        stats_a = experiment_repo.get_experiment_decision_stats(experiment_id_a)
         print(f"\nVariant A: {stats_a.get('total', 0)} decisions, {stats_a.get('correct_pct', 0)}% correct")
 
     if experiment_id_b:
-        stats_b = persistence.get_experiment_decision_stats(experiment_id_b)
+        stats_b = experiment_repo.get_experiment_decision_stats(experiment_id_b)
         print(f"Variant B: {stats_b.get('total', 0)} decisions, {stats_b.get('correct_pct', 0)}% correct")
 
     print("\n" + "=" * 60)

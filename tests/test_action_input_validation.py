@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 from flask_app.validation import validate_player_action, VALID_ACTIONS
 
 
-def _make_game_state(is_human=True, options=None):
+def _make_game_state(is_human=True, options=None, awaiting_action=True, run_it_out=False):
     """Create a mock game state for validation testing."""
     if options is None:
         options = ['fold', 'call', 'raise', 'all_in']
@@ -16,6 +16,8 @@ def _make_game_state(is_human=True, options=None):
     game_state = MagicMock()
     game_state.current_player.is_human = is_human
     game_state.current_player_options = options
+    game_state.awaiting_action = awaiting_action
+    game_state.run_it_out = run_it_out
     return game_state
 
 
@@ -85,6 +87,18 @@ class TestValidatePlayerAction:
         game_state = _make_game_state(options=['fold', 'call', 'all_in'])
         is_valid, error = validate_player_action(game_state, 'all_in', 0)
         assert is_valid is True
+
+    def test_not_awaiting_action_rejected(self):
+        game_state = _make_game_state(awaiting_action=False)
+        is_valid, error = validate_player_action(game_state, 'call', 0)
+        assert is_valid is False
+        assert "awaiting" in error.lower()
+
+    def test_run_it_out_rejected(self):
+        game_state = _make_game_state(run_it_out=True)
+        is_valid, error = validate_player_action(game_state, 'call', 0)
+        assert is_valid is False
+        assert "run-it-out" in error.lower()
 
     def test_valid_actions_constant_contains_expected(self):
         expected = {'fold', 'check', 'call', 'raise', 'all_in'}

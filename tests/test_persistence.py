@@ -2,27 +2,53 @@
 """
 Test suite for game persistence functionality.
 """
+import os
+import sys
+import unittest
+import tempfile
 import json
-import sqlite3
 from datetime import datetime
 
-import pytest
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from poker.persistence import GamePersistence, SavedGame
+from poker.repositories import create_repos
 from poker.poker_game import initialize_game_state, Player
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
 from core.card import Card
 
 
-# Required for test stats
-EMOTIONS = ["confident", "happy", "thinking", "nervous", "angry", "shocked"]
+def _cleanup_test_db(db_path):
+    """Checkpoint WAL and remove database files."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.close()
+    except Exception:
+        pass
+    os.unlink(db_path)
+    for suffix in ('-wal', '-shm'):
+        path = db_path + suffix
+        if os.path.exists(path):
+            os.unlink(path)
 
 
-class TestGamePersistence:
+class TestGamePersistence(unittest.TestCase):
     """Test cases for game persistence."""
 
-    def test_save_and_load_game(self, persistence):
+    def setUp(self):
+        """Create a temporary database for each test."""
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        repos = create_repos(self.test_db.name)
+        self.game_repo = repos['game_repo']
+
+    def tearDown(self):
+        """Clean up temporary database."""
+        _cleanup_test_db(self.test_db.name)
+
+    def test_save_and_load_game(self):
         """Test saving and loading a game preserves all state."""
         # Create a game
         player_names = ['Jeff', 'AI1', 'AI2', 'AI3']
@@ -35,24 +61,26 @@ class TestGamePersistence:
         state_machine.advance_state()  # Move past INITIALIZING_HAND
 
         # Save the game
-        persistence.save_game(game_id, state_machine)
+        self.game_repo.save_game(game_id, state_machine)
 
         # Load it back
-        loaded_machine = persistence.load_game(game_id)
-
-        assert loaded_machine is not None
-        assert loaded_machine.current_phase == state_machine.current_phase
-
+        loaded_machine = self.game_repo.load_game(game_id)
+        
+        self.assertIsNotNone(loaded_machine)
+        self.assertEqual(loaded_machine.current_phase, state_machine.current_phase)
+        
         # Check players match
         original_players = [(p.name, p.stack, p.is_human) for p in state_machine.game_state.players]
         loaded_players = [(p.name, p.stack, p.is_human) for p in loaded_machine.game_state.players]
-        assert original_players == loaded_players
-
+        self.assertEqual(original_players, loaded_players)
+        
         # Check game state details
-        assert loaded_machine.game_state.pot['total'] == state_machine.game_state.pot['total']
-        assert loaded_machine.game_state.current_dealer_idx == state_machine.game_state.current_dealer_idx
-
-    def test_save_and_load_messages(self, persistence):
+        self.assertEqual(loaded_machine.game_state.pot['total'], 
+                        state_machine.game_state.pot['total'])
+        self.assertEqual(loaded_machine.game_state.current_dealer_idx,
+                        state_machine.game_state.current_dealer_idx)
+    
+    def test_save_and_load_messages(self):
         """Test message persistence."""
         game_id = "test_game_002"
 
@@ -65,64 +93,64 @@ class TestGamePersistence:
         ]
 
         for msg_type, msg_text in messages:
-            persistence.save_message(game_id, msg_type, msg_text)
+            self.game_repo.save_message(game_id, msg_type, msg_text)
 
         # Load messages back
-        loaded_messages = persistence.load_messages(game_id)
-
-        assert len(loaded_messages) == len(messages)
-
+        loaded_messages = self.game_repo.load_messages(game_id)
+        
+        self.assertEqual(len(loaded_messages), len(messages))
+        
         for i, (msg_type, msg_text) in enumerate(messages):
-            assert loaded_messages[i]['type'] == msg_type
+            self.assertEqual(loaded_messages[i]['type'], msg_type)
             # load_messages parses "sender: content" format, so check via sender+content
             if ': ' in msg_text:
                 sender, content = msg_text.split(': ', 1)
-                assert loaded_messages[i]['sender'] == sender
-                assert loaded_messages[i]['content'] == content
+                self.assertEqual(loaded_messages[i]['sender'], sender)
+                self.assertEqual(loaded_messages[i]['content'], content)
             else:
-                assert loaded_messages[i]['content'] == msg_text
-
-    def test_list_games(self, persistence):
+                self.assertEqual(loaded_messages[i]['content'], msg_text)
+    
+    def test_list_games(self):
         """Test listing saved games."""
         # Save multiple games
         game_ids = []
         for i in range(5):
             game_id = f"test_game_{i:03d}"
             game_ids.append(game_id)
-
+            
             player_names = get_celebrities(shuffled=True)[:4]
             game_state = initialize_game_state(player_names=player_names)
             state_machine = PokerStateMachine(game_state=game_state)
-
-            persistence.save_game(game_id, state_machine)
+            
+            self.game_repo.save_game(game_id, state_machine)
 
         # List games
-        games = persistence.list_games(limit=10)
-
-        assert len(games) == 5
-
+        games = self.game_repo.list_games(limit=10)
+        
+        self.assertEqual(len(games), 5)
+        
         # Check they're ordered by update time (most recent first)
         for i in range(len(games) - 1):
-            assert games[i].updated_at >= games[i + 1].updated_at
-
+            self.assertGreaterEqual(games[i].updated_at, games[i + 1].updated_at)
+        
         # Check game IDs are present
         listed_ids = [g.game_id for g in games]
         for game_id in game_ids:
-            assert game_id in listed_ids
-
-    def test_game_state_with_cards(self, persistence):
+            self.assertIn(game_id, listed_ids)
+    
+    def test_game_state_with_cards(self):
         """Test serialization of game state with dealt cards."""
         player_names = ['Jeff', 'AI1']
         game_state = initialize_game_state(player_names=player_names)
         state_machine = PokerStateMachine(game_state=game_state)
-
+        
         # Deal some cards manually for testing
         from dataclasses import replace
         test_cards = [
             Card(rank='A', suit='Spades'),
             Card(rank='K', suit='Hearts')
         ]
-
+        
         # Update players with cards
         new_players = []
         for i, p in enumerate(game_state.players):
@@ -130,7 +158,7 @@ class TestGamePersistence:
                 new_players.append(replace(p, hand=tuple(test_cards)))
             else:
                 new_players.append(p)
-
+        
         game_state = replace(game_state,
             players=tuple(new_players),
             community_cards=[
@@ -140,128 +168,90 @@ class TestGamePersistence:
             ]
         )
         state_machine.game_state = game_state
-
+        
         # Save and load
         game_id = "test_cards"
-        persistence.save_game(game_id, state_machine)
-        loaded_machine = persistence.load_game(game_id)
-
+        self.game_repo.save_game(game_id, state_machine)
+        loaded_machine = self.game_repo.load_game(game_id)
+        
         # Check cards were preserved
         loaded_player = loaded_machine.game_state.players[0]
-        assert len(loaded_player.hand) == 2
-        assert loaded_player.hand[0].rank == 'A'
-        assert loaded_player.hand[0].suit == 'Spades'
-
-        assert len(loaded_machine.game_state.community_cards) == 3
-        assert loaded_machine.game_state.community_cards[0].rank == 'Q'
-
-    def test_delete_game(self, persistence):
+        self.assertEqual(len(loaded_player.hand), 2)
+        self.assertEqual(loaded_player.hand[0].rank, 'A')
+        self.assertEqual(loaded_player.hand[0].suit, 'Spades')
+        
+        self.assertEqual(len(loaded_machine.game_state.community_cards), 3)
+        self.assertEqual(loaded_machine.game_state.community_cards[0].rank, 'Q')
+    
+    def test_delete_game(self):
         """Test deleting a game and its messages."""
         game_id = "test_delete"
-
+        
         # Create and save a game
         game_state = initialize_game_state(player_names=['Jeff', 'AI1'])
         state_machine = PokerStateMachine(game_state=game_state)
-        persistence.save_game(game_id, state_machine)
+        self.game_repo.save_game(game_id, state_machine)
 
         # Add some messages
-        persistence.save_message(game_id, "table", "Test message 1")
-        persistence.save_message(game_id, "table", "Test message 2")
+        self.game_repo.save_message(game_id, "table", "Test message 1")
+        self.game_repo.save_message(game_id, "table", "Test message 2")
 
         # Verify it exists
-        loaded = persistence.load_game(game_id)
-        assert loaded is not None
+        loaded = self.game_repo.load_game(game_id)
+        self.assertIsNotNone(loaded)
 
-        messages = persistence.load_messages(game_id)
-        assert len(messages) == 2
+        messages = self.game_repo.load_messages(game_id)
+        self.assertEqual(len(messages), 2)
 
         # Delete it
-        persistence.delete_game(game_id)
+        self.game_repo.delete_game(game_id)
 
         # Verify it's gone
-        loaded = persistence.load_game(game_id)
-        assert loaded is None
+        loaded = self.game_repo.load_game(game_id)
+        self.assertIsNone(loaded)
 
-        messages = persistence.load_messages(game_id)
-        assert len(messages) == 0
-
-    def test_nonexistent_game(self, persistence):
+        messages = self.game_repo.load_messages(game_id)
+        self.assertEqual(len(messages), 0)
+    
+    def test_nonexistent_game(self):
         """Test loading a game that doesn't exist."""
-        loaded = persistence.load_game("nonexistent_game_id")
-        assert loaded is None
+        loaded = self.game_repo.load_game("nonexistent_game_id")
+        self.assertIsNone(loaded)
 
-    def test_empty_game_list(self, persistence):
+    def test_empty_game_list(self):
         """Test listing games when none exist."""
-        games = persistence.list_games()
-        assert len(games) == 0
+        games = self.game_repo.list_games()
+        self.assertEqual(len(games), 0)
 
 
-class TestCardSerialization:
-    """Test card serialization and deserialization."""
-
-    def test_serialize_card_object(self, persistence):
-        """Test serializing a Card object."""
-        card = Card('A', 'Spades')
-        result = persistence._serialize_card(card)
-        # Card.to_dict() includes suit_symbol
-        assert result['rank'] == 'A'
-        assert result['suit'] == 'Spades'
-        assert 'suit_symbol' in result
-
-    def test_serialize_card_dict(self, persistence):
-        """Test serializing a card dict."""
-        card_dict = {'rank': 'K', 'suit': 'Hearts'}
-        result = persistence._serialize_card(card_dict)
-        assert result == card_dict
-
-    def test_serialize_invalid_card(self, persistence):
-        """Test serializing invalid card raises error."""
-        with pytest.raises(ValueError):
-            persistence._serialize_card("not a card")
-
-    def test_deserialize_card_dict(self, persistence):
-        """Test deserializing a card dict."""
-        card_dict = {'rank': 'Q', 'suit': 'Diamonds'}
-        result = persistence._deserialize_card(card_dict)
-        assert isinstance(result, Card)
-        assert result.rank == 'Q'
-        assert result.suit == 'Diamonds'
-
-    def test_deserialize_card_object(self, persistence):
-        """Test deserializing an already Card object."""
-        card = Card('J', 'Clubs')
-        result = persistence._deserialize_card(card)
-        assert result == card
-
-    def test_serialize_cards_collection(self, persistence):
-        """Test serializing a collection of cards."""
-        cards = [
-            Card('A', 'Spades'),
-            {'rank': 'K', 'suit': 'Hearts'},
-            Card('Q', 'Diamonds')
-        ]
-        result = persistence._serialize_cards(cards)
-        assert len(result) == 3
-        assert all(isinstance(c, dict) for c in result)
-
-    def test_deserialize_cards_collection(self, persistence):
-        """Test deserializing a collection of cards."""
-        cards_data = [
-            {'rank': 'A', 'suit': 'Spades'},
-            {'rank': 'K', 'suit': 'Hearts'},
-            {'rank': 'Q', 'suit': 'Diamonds'}
-        ]
-        result = persistence._deserialize_cards(cards_data)
-        assert len(result) == 3
-        assert all(isinstance(c, Card) for c in result)
-
-
-class TestAIStatePersistence:
+class TestAIStatePersistence(unittest.TestCase):
     """Test AI state saving and loading."""
+    
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        repos = create_repos(self.test_db.name)
+        self.game_repo = repos['game_repo']
+        self.game_id = "test_game_123"
 
-    def test_save_ai_player_state(self, persistence):
+    def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
+        os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_save_ai_player_state(self):
         """Test saving AI player state."""
-        game_id = "test_game_123"
         messages = [
             {"role": "system", "content": "You are Eeyore"},
             {"role": "user", "content": "What's your move?"},
@@ -279,49 +269,47 @@ class TestAIStatePersistence:
         }
 
         # Save AI state
-        persistence.save_ai_player_state(
-            game_id,
+        self.game_repo.save_ai_player_state(
+            self.game_id,
             "Eeyore",
             messages,
             personality_state
         )
 
         # Load and verify
-        ai_states = persistence.load_ai_player_states(game_id)
-        assert "Eeyore" in ai_states
-
+        ai_states = self.game_repo.load_ai_player_states(self.game_id)
+        self.assertIn("Eeyore", ai_states)
+        
         eeyore_state = ai_states["Eeyore"]
-        assert eeyore_state["messages"] == messages
-        assert eeyore_state["personality_state"] == personality_state
-
-    def test_save_multiple_ai_states(self, persistence):
+        self.assertEqual(eeyore_state["messages"], messages)
+        self.assertEqual(eeyore_state["personality_state"], personality_state)
+    
+    def test_save_multiple_ai_states(self):
         """Test saving states for multiple AI players."""
-        game_id = "test_game_123"
         # Save states for multiple players
         players = ["Eeyore", "Kanye West", "Sherlock Holmes"]
-
+        
         for player in players:
             messages = [{"role": "system", "content": f"You are {player}"}]
             personality = {"traits": {"aggression": 0.5}}
-            persistence.save_ai_player_state(
-                game_id, player, messages, personality
+            self.game_repo.save_ai_player_state(
+                self.game_id, player, messages, personality
             )
 
         # Load all states
-        ai_states = persistence.load_ai_player_states(game_id)
-        assert len(ai_states) == 3
+        ai_states = self.game_repo.load_ai_player_states(self.game_id)
+        self.assertEqual(len(ai_states), 3)
         for player in players:
-            assert player in ai_states
-
-    def test_update_ai_state(self, persistence):
+            self.assertIn(player, ai_states)
+    
+    def test_update_ai_state(self):
         """Test updating existing AI state."""
-        game_id = "test_game_123"
         # Initial save
         initial_messages = [{"role": "system", "content": "You are Eeyore"}]
         initial_personality = {"traits": {"aggression": 0.3}}
-
-        persistence.save_ai_player_state(
-            game_id, "Eeyore", initial_messages, initial_personality
+        
+        self.game_repo.save_ai_player_state(
+            self.game_id, "Eeyore", initial_messages, initial_personality
         )
 
         # Update with more messages
@@ -331,28 +319,50 @@ class TestAIStatePersistence:
         ]
         updated_personality = {"traits": {"aggression": 0.25}}
 
-        persistence.save_ai_player_state(
-            game_id, "Eeyore", updated_messages, updated_personality
+        self.game_repo.save_ai_player_state(
+            self.game_id, "Eeyore", updated_messages, updated_personality
         )
 
         # Verify update
-        ai_states = persistence.load_ai_player_states(game_id)
+        ai_states = self.game_repo.load_ai_player_states(self.game_id)
         eeyore_state = ai_states["Eeyore"]
-        assert len(eeyore_state["messages"]) == 3
-        assert eeyore_state["personality_state"]["traits"]["aggression"] == 0.25
-
-    def test_load_nonexistent_ai_states(self, persistence):
+        self.assertEqual(len(eeyore_state["messages"]), 3)
+        self.assertEqual(eeyore_state["personality_state"]["traits"]["aggression"], 0.25)
+    
+    def test_load_nonexistent_ai_states(self):
         """Test loading AI states for non-existent game."""
-        ai_states = persistence.load_ai_player_states("nonexistent_game")
-        assert ai_states == {}
+        ai_states = self.game_repo.load_ai_player_states("nonexistent_game")
+        self.assertEqual(ai_states, {})
 
 
-class TestPersonalitySnapshots:
+class TestPersonalitySnapshots(unittest.TestCase):
     """Test personality snapshot functionality."""
 
-    def test_save_personality_snapshot(self, persistence):
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        repos = create_repos(self.test_db.name)
+        self.game_repo = repos['game_repo']
+        self.game_id = "test_game_123"
+
+    def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
+        os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_save_personality_snapshot(self):
         """Test saving personality snapshot."""
-        game_id = "test_game_123"
         traits = {
             "bluff_tendency": 0.8,
             "aggression": 0.7,
@@ -368,72 +378,118 @@ class TestPersonalitySnapshots:
         }
 
         # Save snapshot
-        persistence.save_personality_snapshot(
-            game_id,
+        self.game_repo.save_personality_snapshot(
+            self.game_id,
             "Kanye West",
             hand_number=5,
             traits=traits,
             pressure_levels=pressure_levels
         )
-
+        
         # TODO: Add load method when needed for elasticity
         # For now, just verify it doesn't crash
-
-    def test_save_snapshot_without_pressure(self, persistence):
+    
+    def test_save_snapshot_without_pressure(self):
         """Test saving snapshot without pressure levels."""
-        game_id = "test_game_123"
         traits = {
             "bluff_tendency": 0.5,
             "aggression": 0.5
         }
-
+        
         # Should not crash when pressure_levels is None
-        persistence.save_personality_snapshot(
-            game_id,
+        self.game_repo.save_personality_snapshot(
+            self.game_id,
             "Test Player",
             hand_number=1,
             traits=traits
         )
 
 
-class TestDatabaseSchema:
+class TestDatabaseSchema(unittest.TestCase):
     """Test database schema creation and indices."""
 
-    def test_ai_tables_created(self, db_path, persistence):
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        create_repos(self.test_db.name)  # ensures schema is created
+    
+    def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
+        os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
+    
+    def test_ai_tables_created(self):
         """Test that AI persistence tables are created."""
-        with sqlite3.connect(db_path) as conn:
+        import sqlite3
+        
+        with sqlite3.connect(self.test_db.name) as conn:
             # Check ai_player_state table
             cursor = conn.execute("""
-                SELECT name FROM sqlite_master
+                SELECT name FROM sqlite_master 
                 WHERE type='table' AND name='ai_player_state'
             """)
-            assert cursor.fetchone() is not None
-
+            self.assertIsNotNone(cursor.fetchone())
+            
             # Check personality_snapshots table
             cursor = conn.execute("""
-                SELECT name FROM sqlite_master
+                SELECT name FROM sqlite_master 
                 WHERE type='table' AND name='personality_snapshots'
             """)
-            assert cursor.fetchone() is not None
-
-    def test_indices_created(self, db_path, persistence):
+            self.assertIsNotNone(cursor.fetchone())
+    
+    def test_indices_created(self):
         """Test that indices are created."""
-        with sqlite3.connect(db_path) as conn:
+        import sqlite3
+        
+        with sqlite3.connect(self.test_db.name) as conn:
             cursor = conn.execute("""
-                SELECT name FROM sqlite_master
+                SELECT name FROM sqlite_master 
                 WHERE type='index' AND name='idx_ai_player_game'
             """)
-            assert cursor.fetchone() is not None
-
+            self.assertIsNotNone(cursor.fetchone())
+            
             cursor = conn.execute("""
                 SELECT name FROM sqlite_master
                 WHERE type='index' AND name='idx_personality_snapshots'
             """)
-            assert cursor.fetchone() is not None
+            self.assertIsNotNone(cursor.fetchone())
 
 
-class TestAvatarPersistence:
+class TestAvatarPersistence(unittest.TestCase):
     """Test avatar image persistence functionality."""
+
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        repos = create_repos(self.test_db.name)
+        self.personality_repo = repos['personality_repo']
+
+    def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
+        os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
 
     def _create_test_image_bytes(self) -> bytes:
         """Create minimal PNG bytes for testing."""
@@ -450,12 +506,12 @@ class TestAvatarPersistence:
             0x42, 0x60, 0x82
         ])
 
-    def test_save_and_load_avatar_image(self, persistence):
+    def test_save_and_load_avatar_image(self):
         """Test saving and loading avatar image bytes."""
         image_data = self._create_test_image_bytes()
 
         # Save
-        persistence.save_avatar_image(
+        self.personality_repo.save_avatar_image(
             personality_name="Bob Ross",
             emotion="confident",
             image_data=image_data,
@@ -464,82 +520,82 @@ class TestAvatarPersistence:
         )
 
         # Load
-        loaded_data = persistence.load_avatar_image("Bob Ross", "confident")
+        loaded_data = self.personality_repo.load_avatar_image("Bob Ross", "confident")
 
-        assert loaded_data is not None
-        assert loaded_data == image_data
+        self.assertIsNotNone(loaded_data)
+        self.assertEqual(loaded_data, image_data)
 
-    def test_has_avatar_image(self, persistence):
+    def test_has_avatar_image(self):
         """Test checking if avatar exists."""
         image_data = self._create_test_image_bytes()
 
         # Should not exist initially
-        assert not persistence.has_avatar_image("Bob Ross", "happy")
+        self.assertFalse(self.personality_repo.has_avatar_image("Bob Ross", "happy"))
 
         # Save it
-        persistence.save_avatar_image("Bob Ross", "happy", image_data)
+        self.personality_repo.save_avatar_image("Bob Ross", "happy", image_data)
 
         # Should exist now
-        assert persistence.has_avatar_image("Bob Ross", "happy")
+        self.assertTrue(self.personality_repo.has_avatar_image("Bob Ross", "happy"))
 
         # Other emotions should not exist
-        assert not persistence.has_avatar_image("Bob Ross", "angry")
+        self.assertFalse(self.personality_repo.has_avatar_image("Bob Ross", "angry"))
 
-    def test_get_available_emotions(self, persistence):
+    def test_get_available_emotions(self):
         """Test listing available emotions for personality."""
         image_data = self._create_test_image_bytes()
 
         # Save multiple emotions
-        persistence.save_avatar_image("Batman", "confident", image_data)
-        persistence.save_avatar_image("Batman", "angry", image_data)
-        persistence.save_avatar_image("Batman", "thinking", image_data)
+        self.personality_repo.save_avatar_image("Batman", "confident", image_data)
+        self.personality_repo.save_avatar_image("Batman", "angry", image_data)
+        self.personality_repo.save_avatar_image("Batman", "thinking", image_data)
 
         # Get available
-        emotions = persistence.get_available_avatar_emotions("Batman")
+        emotions = self.personality_repo.get_available_avatar_emotions("Batman")
 
-        assert len(emotions) == 3
-        assert "confident" in emotions
-        assert "angry" in emotions
-        assert "thinking" in emotions
+        self.assertEqual(len(emotions), 3)
+        self.assertIn("confident", emotions)
+        self.assertIn("angry", emotions)
+        self.assertIn("thinking", emotions)
 
-    def test_has_all_avatar_emotions(self, persistence):
+    def test_has_all_avatar_emotions(self):
         """Test checking if personality has all 6 emotions."""
         image_data = self._create_test_image_bytes()
 
         # Add only 3 emotions
         for emotion in ["confident", "happy", "thinking"]:
-            persistence.save_avatar_image("Joker", emotion, image_data)
+            self.personality_repo.save_avatar_image("Joker", emotion, image_data)
 
-        assert not persistence.has_all_avatar_emotions("Joker")
+        self.assertFalse(self.personality_repo.has_all_avatar_emotions("Joker"))
 
         # Add remaining 3 emotions
         for emotion in ["nervous", "angry", "shocked"]:
-            persistence.save_avatar_image("Joker", emotion, image_data)
+            self.personality_repo.save_avatar_image("Joker", emotion, image_data)
 
-        assert persistence.has_all_avatar_emotions("Joker")
+        self.assertTrue(self.personality_repo.has_all_avatar_emotions("Joker"))
 
-    def test_delete_avatar_images(self, persistence):
+    def test_delete_avatar_images(self):
         """Test deleting all avatars for a personality."""
         image_data = self._create_test_image_bytes()
 
         # Save multiple emotions
         for emotion in ["confident", "happy", "angry"]:
-            persistence.save_avatar_image("Villain", emotion, image_data)
+            self.personality_repo.save_avatar_image("Villain", emotion, image_data)
 
         # Verify they exist
-        assert len(persistence.get_available_avatar_emotions("Villain")) == 3
+        self.assertEqual(len(self.personality_repo.get_available_avatar_emotions("Villain")), 3)
 
         # Delete
-        count = persistence.delete_avatar_images("Villain")
+        count = self.personality_repo.delete_avatar_images("Villain")
 
-        assert count == 3
-        assert len(persistence.get_available_avatar_emotions("Villain")) == 0
+        self.assertEqual(count, 3)
+        self.assertEqual(len(self.personality_repo.get_available_avatar_emotions("Villain")), 0)
 
-    def test_load_avatar_with_metadata(self, persistence):
+    def test_load_avatar_with_metadata(self):
         """Test loading avatar image with metadata."""
         image_data = self._create_test_image_bytes()
 
-        persistence.save_avatar_image(
+        self.personality_repo.save_avatar_image(
             personality_name="Hero",
             emotion="confident",
             image_data=image_data,
@@ -547,73 +603,97 @@ class TestAvatarPersistence:
             height=256
         )
 
-        result = persistence.load_avatar_image_with_metadata("Hero", "confident")
+        result = self.personality_repo.load_avatar_image_with_metadata("Hero", "confident")
 
-        assert result is not None
-        assert result['image_data'] == image_data
-        assert result['content_type'] == 'image/png'
-        assert result['width'] == 256
-        assert result['height'] == 256
-        assert result['file_size'] == len(image_data)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['image_data'], image_data)
+        self.assertEqual(result['content_type'], 'image/png')
+        self.assertEqual(result['width'], 256)
+        self.assertEqual(result['height'], 256)
+        self.assertEqual(result['file_size'], len(image_data))
 
-    def test_get_avatar_stats(self, persistence):
+    def test_get_avatar_stats(self):
         """Test getting avatar statistics."""
         image_data = self._create_test_image_bytes()
 
         # Add some avatars
         for emotion in EMOTIONS:
-            persistence.save_avatar_image("Complete Player", emotion, image_data)
+            self.personality_repo.save_avatar_image("Complete Player", emotion, image_data)
 
-        persistence.save_avatar_image("Incomplete Player", "confident", image_data)
-        persistence.save_avatar_image("Incomplete Player", "happy", image_data)
+        self.personality_repo.save_avatar_image("Incomplete Player", "confident", image_data)
+        self.personality_repo.save_avatar_image("Incomplete Player", "happy", image_data)
 
-        stats = persistence.get_avatar_stats()
+        stats = self.personality_repo.get_avatar_stats()
 
-        assert stats['total_images'] == 8  # 6 + 2
-        assert stats['personality_count'] == 2
-        assert stats['complete_personality_count'] == 1
-        assert stats['total_size_bytes'] > 0
+        self.assertEqual(stats['total_images'], 8)  # 6 + 2
+        self.assertEqual(stats['personality_count'], 2)
+        self.assertEqual(stats['complete_personality_count'], 1)
+        self.assertGreater(stats['total_size_bytes'], 0)
 
-    def test_list_personalities_with_avatars(self, persistence):
+    def test_list_personalities_with_avatars(self):
         """Test listing personalities that have avatars."""
         image_data = self._create_test_image_bytes()
 
-        persistence.save_avatar_image("Alice", "confident", image_data)
-        persistence.save_avatar_image("Alice", "happy", image_data)
-        persistence.save_avatar_image("Bob", "confident", image_data)
+        self.personality_repo.save_avatar_image("Alice", "confident", image_data)
+        self.personality_repo.save_avatar_image("Alice", "happy", image_data)
+        self.personality_repo.save_avatar_image("Bob", "confident", image_data)
 
-        result = persistence.list_personalities_with_avatars()
+        result = self.personality_repo.list_personalities_with_avatars()
 
-        assert len(result) == 2
+        self.assertEqual(len(result), 2)
         names = [p['personality_name'] for p in result]
-        assert "Alice" in names
-        assert "Bob" in names
+        self.assertIn("Alice", names)
+        self.assertIn("Bob", names)
 
         # Check counts
         alice = next(p for p in result if p['personality_name'] == "Alice")
-        assert alice['emotion_count'] == 2
+        self.assertEqual(alice['emotion_count'], 2)
 
-    def test_avatar_table_created(self, db_path, persistence):
+    def test_avatar_table_created(self):
         """Test that avatar_images table is created."""
-        with sqlite3.connect(db_path) as conn:
+        import sqlite3
+
+        with sqlite3.connect(self.test_db.name) as conn:
             cursor = conn.execute("""
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name='avatar_images'
             """)
-            assert cursor.fetchone() is not None
+            self.assertIsNotNone(cursor.fetchone())
 
 
-class TestPersonalitySeed:
+class TestPersonalitySeed(unittest.TestCase):
     """Test personality seeding functionality."""
 
-    def test_seed_from_nonexistent_file(self, persistence):
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        repos = create_repos(self.test_db.name)
+        self.personality_repo = repos['personality_repo']
+
+    def tearDown(self):
+        # Close any open connections before unlinking (T3-07)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.test_db.name)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception:
+            pass
+        os.unlink(self.test_db.name)
+        # Clean up WAL/SHM files if they exist
+        for suffix in ('-wal', '-shm'):
+            path = self.test_db.name + suffix
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_seed_from_nonexistent_file(self):
         """Test seeding from non-existent file returns error."""
-        result = persistence.seed_personalities_from_json("/nonexistent/path.json")
+        result = self.personality_repo.seed_personalities_from_json("/nonexistent/path.json")
 
-        assert result['added'] == 0
-        assert 'error' in result
+        self.assertEqual(result['added'], 0)
+        self.assertIn('error', result)
 
-    def test_save_and_load_personality(self, persistence):
+    def test_save_and_load_personality(self):
         """Test saving and loading a personality."""
         config = {
             "play_style": "aggressive",
@@ -624,10 +704,18 @@ class TestPersonalitySeed:
             }
         }
 
-        persistence.save_personality("Test Player", config, source='test')
+        self.personality_repo.save_personality("Test Player", config, source='test')
 
-        loaded = persistence.load_personality("Test Player")
+        loaded = self.personality_repo.load_personality("Test Player")
 
-        assert loaded is not None
-        assert loaded['play_style'] == "aggressive"
-        assert loaded['personality_traits']['bluff_tendency'] == 0.8
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded['play_style'], "aggressive")
+        self.assertEqual(loaded['personality_traits']['bluff_tendency'], 0.8)
+
+
+# Required for test stats
+EMOTIONS = ["confident", "happy", "thinking", "nervous", "angry", "shocked"]
+
+
+if __name__ == '__main__':
+    unittest.main()

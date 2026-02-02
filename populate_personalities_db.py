@@ -14,7 +14,7 @@ load_dotenv(override=True)
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 from poker.personality_generator import PersonalityGenerator
 from poker.utils import ALL_CELEBRITIES_LIST
 
@@ -29,7 +29,8 @@ def populate_all_personalities():
     else:
         db_path = os.path.join(project_root, 'poker_games.db')
 
-    persistence = GamePersistence(db_path)
+    repos = create_repos(db_path)
+    personality_repo = repos['personality_repo']
     
     # Initialize personality generator
     generator = PersonalityGenerator()
@@ -44,7 +45,7 @@ def populate_all_personalities():
     for name in ALL_CELEBRITIES_LIST:
         try:
             # Check if already exists in database
-            existing = persistence.load_personality(name)
+            existing = personality_repo.load_personality(name)
             if existing:
                 existing_count += 1
                 print(f"⏭️  {name} - Already exists in database")
@@ -55,7 +56,7 @@ def populate_all_personalities():
             personality = generator.get_personality(name, force_generate=True)
             
             # Save to database
-            persistence.save_personality(name, personality, source='ai_generated')
+            personality_repo.save_personality(name, personality, source='ai_generated')
             success_count += 1
             print(f" ✅ Success!")
             
@@ -71,7 +72,7 @@ def populate_all_personalities():
     print(f"  📊 Total: {len(ALL_CELEBRITIES_LIST)}")
     
     # List all personalities in DB
-    db_personalities = persistence.list_personalities(limit=200)
+    db_personalities = personality_repo.list_personalities(limit=200)
     print(f"\nTotal personalities in database: {len(db_personalities)}")
     
     # Also update personalities.json with all personalities

@@ -30,8 +30,8 @@ class TestMessageTrim:
         _reset_state()
 
     @patch("flask_app.handlers.message_handler.socketio")
-    @patch("flask_app.handlers.message_handler.persistence")
-    def test_messages_under_limit_not_trimmed(self, mock_persistence, mock_socketio):
+    @patch("flask_app.handlers.message_handler.game_repo")
+    def test_messages_under_limit_not_trimmed(self, mock_game_repo, mock_socketio):
         """Messages under MAX_MESSAGES_IN_MEMORY are all retained."""
         game_data = _make_game_data(num_messages=10)
         game_state_service.set_game("g1", game_data)
@@ -42,8 +42,8 @@ class TestMessageTrim:
         assert len(result["messages"]) == 11
 
     @patch("flask_app.handlers.message_handler.socketio")
-    @patch("flask_app.handlers.message_handler.persistence")
-    def test_messages_trimmed_when_exceeding_limit(self, mock_persistence, mock_socketio):
+    @patch("flask_app.handlers.message_handler.game_repo")
+    def test_messages_trimmed_when_exceeding_limit(self, mock_game_repo, mock_socketio):
         """Messages are trimmed to MAX_MESSAGES_IN_MEMORY when limit is exceeded."""
         game_data = _make_game_data(num_messages=MAX_MESSAGES_IN_MEMORY)
         game_state_service.set_game("g1", game_data)
@@ -55,8 +55,8 @@ class TestMessageTrim:
         assert len(result["messages"]) == MAX_MESSAGES_IN_MEMORY
 
     @patch("flask_app.handlers.message_handler.socketio")
-    @patch("flask_app.handlers.message_handler.persistence")
-    def test_most_recent_messages_retained(self, mock_persistence, mock_socketio):
+    @patch("flask_app.handlers.message_handler.game_repo")
+    def test_most_recent_messages_retained(self, mock_game_repo, mock_socketio):
         """After trimming, the most recent messages are kept (oldest dropped)."""
         game_data = _make_game_data(num_messages=MAX_MESSAGES_IN_MEMORY)
         game_state_service.set_game("g1", game_data)
@@ -75,8 +75,8 @@ class TestMessageTrim:
         assert messages[0]["content"] == "msg_1"
 
     @patch("flask_app.handlers.message_handler.socketio")
-    @patch("flask_app.handlers.message_handler.persistence")
-    def test_bulk_append_trims_correctly(self, mock_persistence, mock_socketio):
+    @patch("flask_app.handlers.message_handler.game_repo")
+    def test_bulk_append_trims_correctly(self, mock_game_repo, mock_socketio):
         """Adding many messages one at a time keeps list at limit."""
         game_data = _make_game_data(num_messages=0)
         game_state_service.set_game("g1", game_data)

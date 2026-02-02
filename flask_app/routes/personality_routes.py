@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request, redirect
 from poker.utils import get_celebrities
 from core.llm import LLMClient, CallType
 
-from ..extensions import persistence, limiter, auth_manager, personality_generator
+from ..extensions import personality_repo, limiter, auth_manager, personality_generator
 from .. import config
 
 logger = logging.getLogger(__name__)
@@ -28,12 +28,12 @@ def personalities_page():
 def get_personalities():
     """Get all personalities."""
     try:
-        db_personalities = persistence.list_personalities(limit=200)
+        db_personalities = personality_repo.list_personalities(limit=200)
 
         personalities = {}
         for p in db_personalities:
             name = p['name']
-            config_data = persistence.load_personality(name)
+            config_data = personality_repo.load_personality(name)
             if config_data:
                 personalities[name] = config_data
 
@@ -59,7 +59,7 @@ def get_personalities():
 def get_personality(name):
     """Get a specific personality."""
     try:
-        db_personality = persistence.load_personality(name)
+        db_personality = personality_repo.load_personality(name)
         if db_personality:
             return jsonify({
                 'success': True,
@@ -109,7 +109,7 @@ def create_personality():
                 "emoji_usage": 0.3
             }
 
-        persistence.save_personality(name, personality_config, source='user_created')
+        personality_repo.save_personality(name, personality_config, source='user_created')
 
         return jsonify({
             'success': True,
@@ -128,7 +128,7 @@ def update_personality(name):
     try:
         personality_config = request.json
 
-        persistence.save_personality(name, personality_config, source='user_edited')
+        personality_repo.save_personality(name, personality_config, source='user_edited')
 
         return jsonify({
             'success': True,
@@ -190,10 +190,10 @@ def delete_personality(name):
     """
     try:
         # Delete associated avatar images
-        persistence.delete_avatar_images(name)
+        personality_repo.delete_avatar_images(name)
 
         # Delete the personality
-        deleted = persistence.delete_personality(name)
+        deleted = personality_repo.delete_personality(name)
 
         if not deleted:
             return jsonify({
@@ -344,6 +344,7 @@ def _validate_theme_personalities(personalities_list: list, personality_sample: 
 
 
 @personality_bp.route('/api/generate-theme', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_GENERATE_THEME)
 def generate_theme():
     """Generate a themed game with appropriate personalities and game settings."""
     try:
@@ -356,7 +357,7 @@ def generate_theme():
             return jsonify({'error': 'Theme is required'}), 400
 
         # Load personality names from database (source of truth), fall back to hardcoded list
-        db_personalities = persistence.list_personalities(limit=200)
+        db_personalities = personality_repo.list_personalities(limit=200)
         if db_personalities:
             all_personalities = [p['name'] for p in db_personalities]
         else:

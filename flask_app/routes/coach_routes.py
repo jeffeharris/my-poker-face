@@ -5,7 +5,7 @@ from typing import Optional
 
 from flask import Blueprint, jsonify, request
 
-from ..extensions import limiter, persistence, auth_manager
+from ..extensions import limiter, game_repo, coach_repo, auth_manager
 from ..services import game_state_service
 from ..services.coach_engine import compute_coaching_data, compute_coaching_data_with_progression
 from ..services.coach_assistant import get_or_create_coach, get_or_create_coach_with_mode
@@ -52,7 +52,7 @@ def coach_stats(game_id: str):
     user_id = _get_current_user_id()
     data = compute_coaching_data_with_progression(
         game_id, player_name, user_id=user_id,
-        game_data=game_data, persistence=persistence,
+        game_data=game_data, coach_repo=coach_repo,
     )
     if data is None:
         return jsonify({'error': 'Could not compute stats'}), 500
@@ -84,7 +84,7 @@ def coach_ask(game_id: str):
     user_id = _get_current_user_id()
     stats = compute_coaching_data_with_progression(
         game_id, player_name, user_id=user_id,
-        game_data=game_data, persistence=persistence,
+        game_data=game_data, coach_repo=coach_repo,
     )
 
     # Use mode-aware coach if progression data is available
@@ -125,7 +125,7 @@ def coach_config_get(game_id: str):
         if mode:
             return jsonify({'mode': mode})
 
-    mode = persistence.load_coach_mode(game_id)
+    mode = game_repo.load_coach_mode(game_id)
     return jsonify({'mode': mode})
 
 
@@ -143,7 +143,7 @@ def coach_config(game_id: str):
         return jsonify({'error': 'Invalid mode'}), 400
 
     game_data['coach_config'] = {'mode': mode}
-    persistence.save_coach_mode(game_id, mode)
+    game_repo.save_coach_mode(game_id, mode)
     return jsonify({'status': 'ok', 'mode': mode})
 
 
@@ -203,7 +203,7 @@ def coach_progression(game_id: str):
 
     try:
         from ..services.coach_progression import CoachProgressionService
-        service = CoachProgressionService(persistence)
+        service = CoachProgressionService(coach_repo)
         state = service.get_or_initialize_player(user_id)
 
         return jsonify({
@@ -246,7 +246,7 @@ def coach_onboarding(game_id: str):
 
     try:
         from ..services.coach_progression import CoachProgressionService
-        service = CoachProgressionService(persistence)
+        service = CoachProgressionService(coach_repo)
         state = service.initialize_player(user_id, level=level)
 
         return jsonify({

@@ -7,7 +7,7 @@ enabling filtering and selection for replay experiments.
 import logging
 from flask import Blueprint, jsonify, request
 
-from ..extensions import persistence
+from ..extensions import experiment_repo
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def list_capture_labels():
     try:
         label_type = request.args.get('label_type')
 
-        labels = persistence.list_all_labels(label_type=label_type)
+        labels = experiment_repo.list_all_labels(label_type=label_type)
 
         return jsonify({
             'success': True,
@@ -52,7 +52,7 @@ def get_capture_labels(capture_id: int):
         }
     """
     try:
-        labels = persistence.get_capture_labels(capture_id)
+        labels = experiment_repo.get_capture_labels(capture_id)
 
         return jsonify({
             'success': True,
@@ -96,13 +96,13 @@ def update_capture_labels(capture_id: int):
         removed = 0
 
         if labels_to_add:
-            added = persistence.add_capture_labels(capture_id, labels_to_add)
+            added = experiment_repo.add_capture_labels(capture_id, labels_to_add)
 
         if labels_to_remove:
-            removed = persistence.remove_capture_labels(capture_id, labels_to_remove)
+            removed = experiment_repo.remove_capture_labels(capture_id, labels_to_remove)
 
         # Get current labels after changes
-        labels = persistence.get_capture_labels(capture_id)
+        labels = experiment_repo.get_capture_labels(capture_id)
 
         return jsonify({
             'success': True,
@@ -173,7 +173,7 @@ def search_captures():
             is_correction = False
 
         if labels:
-            result = persistence.search_captures_with_labels(
+            result = experiment_repo.search_captures_with_labels(
                 labels=labels,
                 match_all=match_all,
                 game_id=game_id,
@@ -190,7 +190,7 @@ def search_captures():
             )
         else:
             # No labels, use regular listing
-            result = persistence.list_prompt_captures(
+            result = experiment_repo.list_prompt_captures(
                 game_id=game_id,
                 player_name=player_name,
                 action=action,
@@ -254,10 +254,10 @@ def bulk_update_labels():
         removed_result = {'captures_affected': 0, 'labels_removed': 0}
 
         if labels_to_add:
-            added_result = persistence.bulk_add_capture_labels(capture_ids, labels_to_add)
+            added_result = experiment_repo.bulk_add_capture_labels(capture_ids, labels_to_add)
 
         if labels_to_remove:
-            removed_result = persistence.bulk_remove_capture_labels(capture_ids, labels_to_remove)
+            removed_result = experiment_repo.bulk_remove_capture_labels(capture_ids, labels_to_remove)
 
         return jsonify({
             'success': True,

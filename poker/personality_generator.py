@@ -10,7 +10,7 @@ from pathlib import Path
 
 from core.llm import LLMClient, CallType
 from core.llm.settings import get_default_model, get_default_provider
-from .persistence import GamePersistence
+from .repositories import PersonalityRepository
 
 logger = logging.getLogger(__name__)
 
@@ -70,18 +70,20 @@ Respond with ONLY a JSON object in this exact format:
 }}
 """
     
-    def __init__(self, persistence: Optional[GamePersistence] = None, db_path: Optional[str] = None):
+    def __init__(self, personality_repo: Optional[PersonalityRepository] = None, db_path: Optional[str] = None):
         """Initialize the personality generator.
-        
+
         Args:
-            persistence: Existing GamePersistence instance
-            db_path: Path to database (used if persistence not provided)
+            personality_repo: Existing PersonalityRepository instance
+            db_path: Path to database (used if personality_repo not provided)
         """
-        if persistence:
-            self.persistence = persistence
+        if personality_repo:
+            self.personality_repo = personality_repo
         else:
+            from .repositories import SchemaManager
             db_path = db_path or self._get_default_db_path()
-            self.persistence = GamePersistence(db_path)
+            SchemaManager(db_path).ensure_schema()
+            self.personality_repo = PersonalityRepository(db_path)
 
         # Use stateless LLMClient for generation
         self._client = LLMClient(model=get_default_model(), provider=get_default_provider())
@@ -124,7 +126,7 @@ Respond with ONLY a JSON object in this exact format:
 
         # Check database (source of truth) unless forcing generation
         if not force_generate:
-            db_personality = self.persistence.load_personality(name)
+            db_personality = self.personality_repo.load_personality(name)
             if db_personality:
                 logger.info(f"[PERSONALITY] Found {name} in database")
                 self._cache[name] = db_personality
@@ -135,7 +137,7 @@ Respond with ONLY a JSON object in this exact format:
         generated = self._generate_personality(name, description)
 
         # Save to database
-        self.persistence.save_personality(name, generated, source='ai_generated')
+        self.personality_repo.save_personality(name, generated, source='ai_generated')
 
         # Cache it
         self._cache[name] = generated
@@ -261,7 +263,7 @@ Respond with ONLY a JSON object in this exact format:
         # Update in database (source of truth)
         personality = self.get_personality(name)
         personality['avatar_description'] = description
-        self.persistence.save_personality(name, personality, source='updated')
+        self.personality_repo.save_personality(name, personality, source='updated')
 
     def get_avatar_images(self, name: str) -> list:
         """Get list of available avatar emotions for a personality.
@@ -274,7 +276,7 @@ Respond with ONLY a JSON object in this exact format:
         Returns:
             List of emotion names that have avatar images
         """
-        return self.persistence.get_available_avatar_emotions(name)
+        return self.personality_repo.get_available_avatar_emotions(name)
 
     def has_avatar_image(self, name: str, emotion: str) -> bool:
         """Check if an avatar image exists for the personality and emotion.
@@ -286,7 +288,7 @@ Respond with ONLY a JSON object in this exact format:
         Returns:
             True if avatar image exists in database
         """
-        return self.persistence.has_avatar_image(name, emotion)
+        return self.personality_repo.has_avatar_image(name, emotion)
 
     # ==================== Reference Image Management ====================
 
@@ -325,4 +327,4 @@ Respond with ONLY a JSON object in this exact format:
             personality['reference_image_id'] = reference_id
         elif 'reference_image_id' in personality:
             del personality['reference_image_id']
-        self.persistence.save_personality(name, personality, source='updated')
+        self.personality_repo.save_personality(name, personality, source='updated')

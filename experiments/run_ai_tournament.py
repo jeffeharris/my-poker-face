@@ -34,8 +34,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
-
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -51,7 +49,7 @@ from poker.poker_game import (
 )
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.controllers import AIPlayerController
-from poker.persistence import GamePersistence as Persistence
+from poker.repositories import create_repos
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
@@ -447,7 +445,7 @@ class TournamentWorker:
             # Link game to experiment before running (enables live progress tracking)
             if self.experiment_id:
                 try:
-                    runner.persistence.link_game_to_experiment(
+                    runner.experiment_repo.link_game_to_experiment(
                         experiment_id=self.experiment_id,
                         game_id=task.tournament_id,
                         variant=task.variant_label,
@@ -455,7 +453,7 @@ class TournamentWorker:
                         tournament_number=task.tournament_number,
                     )
                     # Record process_id and initial heartbeat for resume tracking
-                    runner.persistence.update_experiment_game_heartbeat(
+                    runner.experiment_repo.update_experiment_game_heartbeat(
                         task.tournament_id, 'processing', process_id=os.getpid()
                     )
                 except Exception as e:
@@ -560,7 +558,11 @@ class AITournamentRunner:
             self.db_path = str(project_root / "data" / "poker_games.db")
         else:
             self.db_path = str(project_root / "poker_games.db")
-        self.persistence = Persistence(self.db_path)
+        repos = create_repos(self.db_path)
+        self.game_repo = repos['game_repo']
+        self.experiment_repo = repos['experiment_repo']
+        self.tournament_repo = repos['tournament_repo']
+        self.hand_history_repo = repos['hand_history_repo']
         self.all_personalities = get_celebrities()
 
         # Experiment tracking
@@ -600,7 +602,7 @@ class AITournamentRunner:
         """Save game checkpoint for resume capability."""
         if tournament_id and self.experiment_id:
             try:
-                self.persistence.save_game(tournament_id, state_machine, self._owner_id)
+                self.game_repo.save_game(tournament_id, state_machine, self._owner_id)
             except Exception as e:
                 logger.warning(f"Checkpoint save failed: {e}")
 
@@ -616,7 +618,7 @@ class AITournamentRunner:
         Returns:
             PromptConfig with the preset's settings applied
         """
-        preset = self.persistence.get_prompt_preset_by_name(game_mode)
+        preset = self.experiment_repo.get_prompt_preset_by_name(game_mode)
         if preset and preset.get('prompt_config'):
             return PromptConfig.from_dict(preset['prompt_config'])
         else:
@@ -724,7 +726,7 @@ class AITournamentRunner:
             commentary_enabled=commentary_enabled
         )
         # Set persistence so hand history is saved to database
-        memory_manager.set_persistence(self.persistence)
+        memory_manager.set_hand_history_repo(self.hand_history_repo)
 
         # Determine LLM config: use variant_config if provided, else use experiment defaults
         if variant_config:
@@ -760,7 +762,7 @@ class AITournamentRunner:
             prompt_config = base_config.copy(**prompt_config_dict)
         elif prompt_preset_id is not None:
             # Load from preset and merge with base
-            preset = self.persistence.get_prompt_preset(prompt_preset_id)
+            preset = self.experiment_repo.get_prompt_preset(prompt_preset_id)
             if preset and preset.get('prompt_config'):
                 prompt_config = base_config.copy(**preset['prompt_config'])
                 # Use preset's guidance_injection if not overridden by variant
@@ -820,7 +822,7 @@ class AITournamentRunner:
                 owner_id=self._owner_id,
                 debug_capture=self.config.capture_prompts,
                 prompt_config=player_prompt_config,
-                persistence=self.persistence,
+                experiment_repo=self.experiment_repo,
             )
             controllers[player.name] = controller
             # Initialize memory manager for this player
@@ -905,7 +907,7 @@ class AITournamentRunner:
                 # Save psychology state to database for live monitoring
                 psychology_dict = controller.psychology.to_dict()
                 prompt_config_dict = controller.prompt_config.to_dict() if hasattr(controller, 'prompt_config') and controller.prompt_config else None
-                self.persistence.save_controller_state(
+                self.game_repo.save_controller_state(
                     game_id,
                     player.name,
                     psychology=psychology_dict,
@@ -914,7 +916,7 @@ class AITournamentRunner:
 
                 # Save emotional state if available
                 if controller.psychology.emotional:
-                    self.persistence.save_emotional_state(
+                    self.game_repo.save_emotional_state(
                         game_id,
                         player.name,
                         controller.psychology.emotional
@@ -1022,7 +1024,7 @@ class AITournamentRunner:
                     try:
                         # Update heartbeat before API call
                         if tournament_id and self.experiment_id:
-                            self.persistence.update_experiment_game_heartbeat(
+                            self.experiment_repo.update_experiment_game_heartbeat(
                                 tournament_id, 'calling_api', api_call_started=True,
                                 process_id=os.getpid()
                             )
@@ -1034,7 +1036,7 @@ class AITournamentRunner:
 
                         # Update heartbeat after API call
                         if tournament_id and self.experiment_id:
-                            self.persistence.update_experiment_game_heartbeat(
+                            self.experiment_repo.update_experiment_game_heartbeat(
                                 tournament_id, 'processing', process_id=os.getpid()
                             )
 
@@ -1057,7 +1059,7 @@ class AITournamentRunner:
                         # Per-action save for resilience (enables pause/resume)
                         if tournament_id and self.experiment_id:
                             try:
-                                self.persistence.save_game(
+                                self.game_repo.save_game(
                                     tournament_id, state_machine,
                                     self._owner_id
                                 )
@@ -1065,7 +1067,7 @@ class AITournamentRunner:
                                 for player_name, ctrl in controllers.items():
                                     if hasattr(ctrl, 'assistant') and ctrl.assistant:
                                         messages = ctrl.assistant.memory.get_history()
-                                        self.persistence.save_ai_player_state(
+                                        self.game_repo.save_ai_player_state(
                                             tournament_id, player_name, messages, {}
                                         )
                             except Exception as save_error:
@@ -1183,7 +1185,7 @@ class AITournamentRunner:
         original_players = state_machine.game_state.players
 
         # Save initial game state for live monitoring
-        self.persistence.save_game(tournament_id, state_machine, self._owner_id)
+        self.game_repo.save_game(tournament_id, state_machine, self._owner_id)
 
         elimination_order = []  # Legacy: names only for backwards compatibility
         all_eliminations: List[Dict] = []  # New: detailed elimination tracking
@@ -1219,16 +1221,16 @@ class AITournamentRunner:
             )
 
             # Save game state for live monitoring (every hand)
-            self.persistence.save_game(tournament_id, state_machine, self._owner_id)
+            self.game_repo.save_game(tournament_id, state_machine, self._owner_id)
 
             # Check if we've been superseded by a resume operation
-            if self.experiment_id and self.persistence.check_resume_lock_superseded(tournament_id):
+            if self.experiment_id and self.experiment_repo.check_resume_lock_superseded(tournament_id):
                 logger.info(f"Tournament {tournament_id} superseded by resume operation, exiting gracefully")
                 raise TournamentSupersededException(tournament_id)
 
             # Periodic heartbeat every 5 hands
             if self.experiment_id and hand_number % 5 == 0:
-                self.persistence.update_experiment_game_heartbeat(
+                self.experiment_repo.update_experiment_game_heartbeat(
                     tournament_id, 'processing', process_id=os.getpid()
                 )
 
@@ -1388,12 +1390,12 @@ class AITournamentRunner:
             'started_at': start_time.isoformat(),
             'standings': standings_data,  # Include standings for persistence
         }
-        self.persistence.save_tournament_result(tournament_id, tournament_result_data)
+        self.tournament_repo.save_tournament_result(tournament_id, tournament_result_data)
 
         # Mark tournament as idle (completed) for heartbeat tracking
         if self.experiment_id:
-            self.persistence.update_experiment_game_heartbeat(tournament_id, 'idle')
-            self.persistence.release_resume_lock(tournament_id)
+            self.experiment_repo.update_experiment_game_heartbeat(tournament_id, 'idle')
+            self.experiment_repo.release_resume_lock(tournament_id)
 
         variant_info = f" [{variant_label}]" if variant_label else ""
         resets_info = f", Resets = {total_resets}" if total_resets > 0 else ""
@@ -1463,16 +1465,16 @@ class AITournamentRunner:
             )
 
             # Save game state for live monitoring
-            self.persistence.save_game(tournament_id, state_machine, self._owner_id)
+            self.game_repo.save_game(tournament_id, state_machine, self._owner_id)
 
             # Check for superseded
-            if self.experiment_id and self.persistence.check_resume_lock_superseded(tournament_id):
+            if self.experiment_id and self.experiment_repo.check_resume_lock_superseded(tournament_id):
                 logger.info(f"Tournament {tournament_id} superseded by resume operation")
                 raise TournamentSupersededException(tournament_id)
 
             # Periodic heartbeat
             if self.experiment_id and hand_number % 5 == 0:
-                self.persistence.update_experiment_game_heartbeat(
+                self.experiment_repo.update_experiment_game_heartbeat(
                     tournament_id, 'processing', process_id=os.getpid()
                 )
 
@@ -1588,8 +1590,8 @@ class AITournamentRunner:
 
         # Mark tournament as idle
         if self.experiment_id:
-            self.persistence.update_experiment_game_heartbeat(tournament_id, 'idle')
-            self.persistence.release_resume_lock(tournament_id)
+            self.experiment_repo.update_experiment_game_heartbeat(tournament_id, 'idle')
+            self.experiment_repo.release_resume_lock(tournament_id)
 
         logger.info(f"Tournament {tournament_id} complete: Winner = {winner}, Hands = {hand_number}")
         return result
@@ -1597,35 +1599,10 @@ class AITournamentRunner:
     def _get_decision_stats(self, game_id: str) -> Dict:
         """Get decision quality stats from the database."""
         try:
-            import sqlite3
-            with sqlite3.connect(self.persistence.db_path) as conn:
-                cursor = conn.cursor()
-
-                cursor.execute('''
-                    SELECT
-                        COUNT(*) as total,
-                        SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
-                        SUM(CASE WHEN decision_quality = 'marginal' THEN 1 ELSE 0 END) as marginal,
-                        SUM(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake,
-                        AVG(COALESCE(ev_lost, 0)) as avg_ev_lost
-                    FROM player_decision_analysis
-                    WHERE game_id = ?
-                ''', (game_id,))
-
-                row = cursor.fetchone()
-                if row and row[0]:
-                    return {
-                        "total": row[0],
-                        "correct": row[1] or 0,
-                        "marginal": row[2] or 0,
-                        "mistake": row[3] or 0,
-                        "correct_pct": round((row[1] or 0) * 100 / row[0], 1) if row[0] else 0,
-                        "avg_ev_lost": round(row[4] or 0, 2),
-                    }
+            return self.experiment_repo.get_decision_stats(game_id)
         except Exception as e:
             logger.warning(f"Could not get decision stats: {e}")
-
-        return {}
+            return {}
 
     def _get_player_outcomes(self, game_id: str) -> Dict[str, Dict[str, int]]:
         """Get per-player outcome metrics from hand_history table.
@@ -1637,54 +1614,7 @@ class AITournamentRunner:
             Dict mapping player name to {hands_played, hands_won}
         """
         try:
-            import sqlite3
-
-            with sqlite3.connect(self.persistence.db_path) as conn:
-                cursor = conn.cursor()
-
-                cursor.execute('''
-                    SELECT players_json, winners_json
-                    FROM hand_history
-                    WHERE game_id = ?
-                ''', (game_id,))
-
-                rows = cursor.fetchall()
-
-                # Aggregate per-player stats
-                player_stats: Dict[str, Dict[str, int]] = {}
-
-                for players_json, winners_json in rows:
-                    # Parse players
-                    try:
-                        players = json.loads(players_json) if players_json else []
-                    except json.JSONDecodeError:
-                        continue
-
-                    # Parse winners
-                    try:
-                        winners = json.loads(winners_json) if winners_json else []
-                    except json.JSONDecodeError:
-                        winners = []
-
-                    # Track hands played
-                    for player in players:
-                        name = player.get('name') if isinstance(player, dict) else str(player)
-                        if name not in player_stats:
-                            player_stats[name] = {'hands_played': 0, 'hands_won': 0}
-                        player_stats[name]['hands_played'] += 1
-
-                    # Track hands won
-                    winner_names = set()
-                    for winner in winners:
-                        name = winner.get('name') if isinstance(winner, dict) else str(winner)
-                        winner_names.add(name)
-
-                    for name in winner_names:
-                        if name in player_stats:
-                            player_stats[name]['hands_won'] += 1
-
-                return player_stats
-
+            return self.experiment_repo.get_player_outcomes(game_id)
         except Exception as e:
             logger.warning(f"Could not get player outcomes: {e}")
             return {}
@@ -1729,7 +1659,7 @@ class AITournamentRunner:
         # Only create experiment record if not already set (e.g., from web launcher)
         if self.experiment_id is None:
             try:
-                self.experiment_id = self.persistence.create_experiment(experiment_config)
+                self.experiment_id = self.experiment_repo.create_experiment(experiment_config)
                 logger.info(f"Created experiment record with id {self.experiment_id}")
             except Exception as e:
                 logger.warning(f"Could not create experiment record: {e}")
@@ -1760,7 +1690,7 @@ class AITournamentRunner:
                     if len(error_msgs) > 3:
                         error_summary += f" (and {len(error_msgs) - 3} more)"
                     logger.error(f"All {len(failed)} tournaments failed, marking experiment as failed")
-                    self.persistence.update_experiment_status(
+                    self.experiment_repo.update_experiment_status(
                         self.experiment_id, 'failed',
                         f"All {len(failed)} tournaments failed: {error_summary}"
                     )
@@ -1768,7 +1698,7 @@ class AITournamentRunner:
                     summary = self._compute_experiment_summary(results, failed)
                     # Generate AI interpretation of results (best-effort, won't block completion)
                     summary = self._generate_ai_interpretation(summary, failed)
-                    self.persistence.complete_experiment(self.experiment_id, summary)
+                    self.experiment_repo.complete_experiment(self.experiment_id, summary)
             except Exception as e:
                 logger.warning(f"Could not complete experiment: {e}")
 
@@ -1843,7 +1773,7 @@ class AITournamentRunner:
                 # Link game to experiment BEFORE running so live_stats can track progress
                 if self.experiment_id:
                     try:
-                        self.persistence.link_game_to_experiment(
+                        self.experiment_repo.link_game_to_experiment(
                             experiment_id=self.experiment_id,
                             game_id=task.tournament_id,
                             variant=task.variant_label,
@@ -2191,30 +2121,11 @@ class AITournamentRunner:
         """
         if not game_ids:
             return None
-
         try:
-            import sqlite3
-
-            with sqlite3.connect(self.persistence.db_path) as conn:
-                placeholders = ','.join('?' * len(game_ids))
-                cursor = conn.execute(f"""
-                    SELECT latency_ms FROM api_usage
-                    WHERE game_id IN ({placeholders}) AND latency_ms IS NOT NULL
-                """, game_ids)
-                latencies = [row[0] for row in cursor.fetchall()]
-
-                if latencies:
-                    return {
-                        'avg_ms': round(float(np.mean(latencies)), 2),
-                        'p50_ms': round(float(np.percentile(latencies, 50)), 2),
-                        'p95_ms': round(float(np.percentile(latencies, 95)), 2),
-                        'p99_ms': round(float(np.percentile(latencies, 99)), 2),
-                        'count': len(latencies),
-                    }
+            return self.experiment_repo.get_latency_metrics(game_ids)
         except Exception as e:
             logger.warning(f"Could not get latency metrics: {e}")
-
-        return None
+            return None
 
     def _get_error_stats_for_games(self, game_ids: List[str]) -> Optional[Dict]:
         """Get aggregated error stats for a list of games.
@@ -2227,46 +2138,11 @@ class AITournamentRunner:
         """
         if not game_ids:
             return None
-
         try:
-            import sqlite3
-
-            with sqlite3.connect(self.persistence.db_path) as conn:
-                placeholders = ','.join('?' * len(game_ids))
-
-                # Get total calls and error counts
-                cursor = conn.execute(f"""
-                    SELECT
-                        COUNT(*) as total,
-                        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
-                    FROM api_usage
-                    WHERE game_id IN ({placeholders})
-                """, game_ids)
-                row = cursor.fetchone()
-
-                if row and row[0] > 0:
-                    total, errors = row[0], row[1] or 0
-
-                    # Get error breakdown by error_code
-                    cursor = conn.execute(f"""
-                        SELECT error_code, COUNT(*) as count
-                        FROM api_usage
-                        WHERE game_id IN ({placeholders}) AND status = 'error'
-                        GROUP BY error_code
-                        ORDER BY count DESC
-                    """, game_ids)
-                    by_code = {row[0]: row[1] for row in cursor.fetchall()}
-
-                    return {
-                        'total_calls': total,
-                        'errors': errors,
-                        'error_rate': round(errors * 100 / total, 2) if total > 0 else 0,
-                        'by_error_code': by_code,
-                    }
+            return self.experiment_repo.get_error_stats(game_ids)
         except Exception as e:
             logger.warning(f"Could not get error stats: {e}")
-
-        return None
+            return None
 
     def _compute_quality_indicators(self, experiment_id: str) -> Optional[Dict]:
         """Compute quality indicators from player_decision_analysis + prompt_captures.
@@ -2287,67 +2163,9 @@ class AITournamentRunner:
             Dictionary with quality indicators, or None if no data
         """
         try:
-            import sqlite3
-            from poker.quality_metrics import compute_allin_categorizations, build_quality_indicators
-
-            with sqlite3.connect(self.persistence.db_path) as conn:
-                # Get basic quality metrics
-                cursor = conn.execute("""
-                    SELECT
-                        SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
-                        SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
-                        SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
-                        COUNT(*) as total_decisions
-                    FROM player_decision_analysis pda
-                    JOIN experiment_games eg ON pda.game_id = eg.game_id
-                    WHERE eg.experiment_id = ?
-                """, (experiment_id,))
-
-                row = cursor.fetchone()
-
-                if not row or row[3] == 0:  # total_decisions == 0 (now at index 3)
-                    logger.debug(f"No decision analysis records found for experiment {experiment_id}")
-                    return None
-
-                fold_mistakes = row[0] or 0
-                total_all_ins = row[1] or 0
-                total_folds = row[2] or 0
-                total_decisions = row[3]
-
-                # Query all-ins with AI response data for smarter categorization
-                cursor = conn.execute("""
-                    SELECT
-                        pc.stack_bb,
-                        pc.ai_response,
-                        pda.equity
-                    FROM prompt_captures pc
-                    JOIN experiment_games eg ON pc.game_id = eg.game_id
-                    LEFT JOIN player_decision_analysis pda
-                        ON pc.game_id = pda.game_id
-                        AND pc.hand_number = pda.hand_number
-                        AND pc.player_name = pda.player_name
-                        AND pc.phase = pda.phase
-                    WHERE eg.experiment_id = ?
-                      AND pc.action_taken = 'all_in'
-                """, (experiment_id,))
-
-                # Use shared categorization logic
-                suspicious_allins, marginal_allins = compute_allin_categorizations(cursor.fetchall())
-
-                result = build_quality_indicators(
-                    fold_mistakes=fold_mistakes,
-                    total_all_ins=total_all_ins,
-                    total_folds=total_folds,
-                    total_decisions=total_decisions,
-                    suspicious_allins=suspicious_allins,
-                    marginal_allins=marginal_allins,
-                )
-
-                logger.info(f"Computed quality indicators: {suspicious_allins} suspicious all-ins, {marginal_allins} marginal all-ins, {fold_mistakes} fold mistakes")
-                return result
-
+            return self.experiment_repo.get_quality_metrics(experiment_id)
         except Exception as e:
-            logger.warning(f"Could not compute quality indicators: {e}", exc_info=True)
+            logger.warning(f"Could not compute quality indicators: {e}")
             return None
 
     def _generate_ai_interpretation(
@@ -2377,7 +2195,7 @@ class AITournamentRunner:
             # Get experiment config from persistence
             experiment_data = None
             if self.experiment_id:
-                experiment_data = self.persistence.get_experiment(self.experiment_id)
+                experiment_data = self.experiment_repo.get_experiment(self.experiment_id)
 
             if not experiment_data:
                 logger.warning("Could not retrieve experiment data for AI interpretation")
@@ -2464,7 +2282,7 @@ Respond in JSON format with keys: summary, verdict, surprises (array, can be emp
                 }
 
             # Get live stats for rich per-variant data (includes cost metrics)
-            live_stats = self.persistence.get_experiment_live_stats(self.experiment_id)
+            live_stats = self.experiment_repo.get_experiment_live_stats(self.experiment_id)
             if live_stats and live_stats.get('by_variant'):
                 per_variant = {}
                 for label, v in live_stats['by_variant'].items():

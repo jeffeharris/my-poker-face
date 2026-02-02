@@ -7,7 +7,7 @@ variants (models, prompts, guidance, etc.) and analyzing the results.
 Usage:
     # Run from API (typical)
     from experiments.run_replay_experiment import ReplayExperimentRunner
-    runner = ReplayExperimentRunner(persistence)
+    runner = ReplayExperimentRunner(experiment_repo, db_path=db_path)
     runner.run_experiment(experiment_id)
 
     # Run from command line
@@ -29,7 +29,7 @@ from typing import Dict, Optional, Any, Callable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.llm import LLMClient, CallType
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 from experiments.variant_config import build_effective_variant_config
 from experiments.pause_coordinator import pause_coordinator
 
@@ -65,18 +65,21 @@ class ReplayExperimentRunner:
 
     def __init__(
         self,
-        persistence: GamePersistence,
+        experiment_repo,
+        db_path: str,
         max_workers: int = 3,
         progress_callback: Optional[Callable[[int, int, str], None]] = None
     ):
         """Initialize the runner.
 
         Args:
-            persistence: GamePersistence instance for database access
+            experiment_repo: ExperimentRepository instance for database access
+            db_path: Database path for direct SQL queries
             max_workers: Maximum concurrent workers for parallel execution
             progress_callback: Optional callback(completed, total, message) for progress updates
         """
-        self.persistence = persistence
+        self.experiment_repo = experiment_repo
+        self.db_path = db_path
         self.max_workers = max_workers
         self.progress_callback = progress_callback
         self._stop_requested = False
@@ -100,16 +103,16 @@ class ReplayExperimentRunner:
         self._stop_requested = False
 
         # Load experiment
-        experiment = self.persistence.get_replay_experiment(experiment_id)
+        experiment = self.experiment_repo.get_replay_experiment(experiment_id)
         if not experiment:
             raise ValueError(f"Replay experiment {experiment_id} not found")
 
         # Update status to running
-        self.persistence.update_experiment_status(experiment_id, 'running')
+        self.experiment_repo.update_experiment_status(experiment_id, 'running')
 
         try:
             # Get captures and variants
-            captures = self.persistence.get_replay_experiment_captures(experiment_id)
+            captures = self.experiment_repo.get_replay_experiment_captures(experiment_id)
             config = experiment.get('config_json', {})
             variants = config.get('variants', []) if isinstance(config, dict) else []
 
@@ -224,17 +227,17 @@ class ReplayExperimentRunner:
 
             # Update status with summary
             if self._stop_requested:
-                self.persistence.update_experiment_status(experiment_id, 'interrupted')
+                self.experiment_repo.update_experiment_status(experiment_id, 'interrupted')
             else:
                 # Use complete_experiment which sets status and stores summary
-                self.persistence.complete_experiment(experiment_id, summary)
+                self.experiment_repo.complete_experiment(experiment_id, summary)
 
             logger.info(f"Replay experiment {experiment_id} completed")
             return summary
 
         except Exception as e:
             logger.error(f"Replay experiment {experiment_id} failed: {e}")
-            self.persistence.update_experiment_status(experiment_id, 'failed', str(e))
+            self.experiment_repo.update_experiment_status(experiment_id, 'failed', str(e))
             raise
 
     def stop(self):
@@ -244,7 +247,7 @@ class ReplayExperimentRunner:
     def _load_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
         """Load full capture data including prompts."""
         import sqlite3
-        with sqlite3.connect(self.persistence.db_path) as conn:
+        with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT * FROM prompt_captures WHERE id = ?
@@ -408,7 +411,7 @@ class ReplayExperimentRunner:
         """
         # Try to get decision analysis for this capture
         import sqlite3
-        with sqlite3.connect(self.persistence.db_path) as conn:
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
                 SELECT optimal_action, decision_quality
                 FROM player_decision_analysis
@@ -430,7 +433,7 @@ class ReplayExperimentRunner:
     def _store_result(self, experiment_id: int, result: ReplayResult) -> None:
         """Store a replay result in the database."""
         try:
-            self.persistence.add_replay_result(
+            self.experiment_repo.add_replay_result(
                 experiment_id=experiment_id,
                 capture_id=result.capture_id,
                 variant=result.variant,
@@ -452,7 +455,7 @@ class ReplayExperimentRunner:
 
     def _generate_summary(self, experiment_id: int) -> Dict[str, Any]:
         """Generate summary statistics for the experiment."""
-        return self.persistence.get_replay_results_summary(experiment_id)
+        return self.experiment_repo.get_replay_results_summary(experiment_id)
 
     def _report_progress(self, completed: int, total: int, message: str) -> None:
         """Report progress via callback."""
@@ -465,7 +468,8 @@ class ReplayExperimentRunner:
 
 def run_replay_experiment_async(
     experiment_id: int,
-    persistence: GamePersistence,
+    experiment_repo,
+    db_path: str,
     parallel: bool = True,
     max_workers: int = 3
 ) -> threading.Thread:
@@ -473,7 +477,8 @@ def run_replay_experiment_async(
 
     Args:
         experiment_id: The experiment ID to run
-        persistence: GamePersistence instance
+        experiment_repo: ExperimentRepository instance
+        db_path: Database path
         parallel: If True, run replays in parallel
         max_workers: Maximum concurrent workers
 
@@ -482,7 +487,7 @@ def run_replay_experiment_async(
     """
     def run():
         try:
-            runner = ReplayExperimentRunner(persistence, max_workers=max_workers)
+            runner = ReplayExperimentRunner(experiment_repo, db_path=db_path, max_workers=max_workers)
             runner.run_experiment(experiment_id, parallel=parallel)
         except Exception as e:
             logger.error(f"Async replay experiment {experiment_id} failed: {e}")
@@ -513,13 +518,15 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
-    persistence = GamePersistence(args.db)
+    repos = create_repos(args.db)
+    experiment_repo = repos['experiment_repo']
 
     def progress_callback(completed, total, message):
         print(f"[{completed}/{total}] {message}")
 
     runner = ReplayExperimentRunner(
-        persistence,
+        experiment_repo,
+        db_path=args.db,
         max_workers=args.max_workers,
         progress_callback=progress_callback
     )

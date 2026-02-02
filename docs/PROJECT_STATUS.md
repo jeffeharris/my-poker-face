@@ -109,7 +109,7 @@ Currently, no features are actively in development. The project is in a stable s
 - ✅ Components now organized by domain: cards/, game/, chat/, stats/, menus/, debug/, admin/
 - ✅ Added TypeScript interfaces in centralized /types/ directory
 - ✅ Created custom React hooks (useSocket, useGameState, usePolling)
-- ✅ Added GameContext for centralized state management
+- ✅ Added usePokerGame hook for centralized game state management
 - ✅ Created utility functions in /utils/ (api.ts, cards.ts)
 - ✅ Fixed CSS naming conflicts (e.g., .player-cards)
 - ✅ All functionality and styling preserved during migration

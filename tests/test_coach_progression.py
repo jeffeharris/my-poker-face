@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 from flask_app.services.coach_models import GateProgress, PlayerSkillState, SkillState
 from flask_app.services.skill_definitions import ALL_SKILLS
 from flask_app.services.coach_progression import CoachProgressionService, SessionMemory
@@ -17,8 +17,9 @@ class TestCoachProgressionWithDB(unittest.TestCase):
 
     def setUp(self):
         self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
-        self.persistence = GamePersistence(self.db_path)
-        self.service = CoachProgressionService(self.persistence)
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
         self.user_id = 'test_user_123'
 
     def tearDown(self):
@@ -149,8 +150,8 @@ class TestCoachProgressionWithDB(unittest.TestCase):
             window_correct=8,
             streak_correct=3,
         )
-        self.persistence.save_skill_state(self.user_id, ss)
-        loaded = self.persistence.load_skill_state(self.user_id, 'fold_trash_hands')
+        self.coach_repo.save_skill_state(self.user_id, ss)
+        loaded = self.coach_repo.load_skill_state(self.user_id, 'fold_trash_hands')
         self.assertIsNotNone(loaded)
         self.assertEqual(loaded.state, SkillState.PRACTICING)
         self.assertEqual(loaded.total_opportunities, 10)
@@ -158,33 +159,33 @@ class TestCoachProgressionWithDB(unittest.TestCase):
 
     def test_gate_progress_persistence(self):
         gp = GateProgress(gate_number=1, unlocked=True, unlocked_at='2024-01-01T00:00:00')
-        self.persistence.save_gate_progress(self.user_id, gp)
-        loaded = self.persistence.load_gate_progress(self.user_id)
+        self.coach_repo.save_gate_progress(self.user_id, gp)
+        loaded = self.coach_repo.load_gate_progress(self.user_id)
         self.assertIn(1, loaded)
         self.assertTrue(loaded[1].unlocked)
         self.assertEqual(loaded[1].unlocked_at, '2024-01-01T00:00:00')
 
     def test_coach_profile_persistence(self):
-        self.persistence.save_coach_profile(self.user_id, 'beginner', 'beginner')
-        loaded = self.persistence.load_coach_profile(self.user_id)
+        self.coach_repo.save_coach_profile(self.user_id, 'beginner', 'beginner')
+        loaded = self.coach_repo.load_coach_profile(self.user_id)
         self.assertIsNotNone(loaded)
         self.assertEqual(loaded['effective_level'], 'beginner')
 
     def test_load_all_skill_states(self):
         for skill_id in ['fold_trash_hands', 'position_matters', 'raise_or_fold']:
             ss = PlayerSkillState(skill_id=skill_id, total_opportunities=5)
-            self.persistence.save_skill_state(self.user_id, ss)
+            self.coach_repo.save_skill_state(self.user_id, ss)
 
-        all_states = self.persistence.load_all_skill_states(self.user_id)
+        all_states = self.coach_repo.load_all_skill_states(self.user_id)
         self.assertEqual(len(all_states), 3)
         self.assertIn('fold_trash_hands', all_states)
 
     def test_load_nonexistent_skill_state(self):
-        result = self.persistence.load_skill_state(self.user_id, 'nonexistent')
+        result = self.coach_repo.load_skill_state(self.user_id, 'nonexistent')
         self.assertIsNone(result)
 
     def test_load_nonexistent_profile(self):
-        result = self.persistence.load_coach_profile('nonexistent_user')
+        result = self.coach_repo.load_coach_profile('nonexistent_user')
         self.assertIsNone(result)
 
 
@@ -193,8 +194,9 @@ class TestCoachingDecision(unittest.TestCase):
 
     def setUp(self):
         self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
-        self.persistence = GamePersistence(self.db_path)
-        self.service = CoachProgressionService(self.persistence)
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
         self.user_id = 'test_user_456'
         self.service.initialize_player(self.user_id)
 
@@ -240,8 +242,9 @@ class TestWindowTrimming(unittest.TestCase):
 
     def setUp(self):
         self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
-        self.persistence = GamePersistence(self.db_path)
-        self.service = CoachProgressionService(self.persistence)
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
 
     def tearDown(self):
         os.close(self.db_fd)
@@ -287,8 +290,9 @@ class TestGateUnlock(unittest.TestCase):
 
     def setUp(self):
         self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
-        self.persistence = GamePersistence(self.db_path)
-        self.service = CoachProgressionService(self.persistence)
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
         self.user_id = 'test_gate_user'
         self.service.initialize_player(self.user_id)
 
@@ -308,16 +312,16 @@ class TestGateUnlock(unittest.TestCase):
                 window_opportunities=20,
                 window_correct=18,
             )
-            self.persistence.save_skill_state(self.user_id, ss)
+            self.coach_repo.save_skill_state(self.user_id, ss)
 
         self.service.check_hand_end(self.user_id)
 
-        gate_progress = self.persistence.load_gate_progress(self.user_id)
+        gate_progress = self.coach_repo.load_gate_progress(self.user_id)
         self.assertIn(2, gate_progress)
         self.assertTrue(gate_progress[2].unlocked)
 
         # Gate 2 skills should be initialized as INTRODUCED
-        skill_states = self.persistence.load_all_skill_states(self.user_id)
+        skill_states = self.coach_repo.load_all_skill_states(self.user_id)
         for sid in ('flop_connection', 'bet_when_strong', 'checking_is_allowed'):
             self.assertIn(sid, skill_states)
             self.assertEqual(skill_states[sid].state, SkillState.INTRODUCED)
@@ -332,11 +336,11 @@ class TestGateUnlock(unittest.TestCase):
             window_opportunities=20,
             window_correct=18,
         )
-        self.persistence.save_skill_state(self.user_id, ss)
+        self.coach_repo.save_skill_state(self.user_id, ss)
 
         self.service.check_hand_end(self.user_id)
 
-        gate_progress = self.persistence.load_gate_progress(self.user_id)
+        gate_progress = self.coach_repo.load_gate_progress(self.user_id)
         self.assertNotIn(2, gate_progress)
 
     def test_gate_does_not_unlock_mid_hand(self):
@@ -351,7 +355,7 @@ class TestGateUnlock(unittest.TestCase):
                 window_opportunities=11,
                 window_correct=11,
             )
-            self.persistence.save_skill_state(self.user_id, ss)
+            self.coach_repo.save_skill_state(self.user_id, ss)
 
         classification = SituationClassification(
             relevant_skills=('fold_trash_hands',),
@@ -372,7 +376,7 @@ class TestGateUnlock(unittest.TestCase):
             self.user_id, 'fold', coaching_data, classification
         )
 
-        gate_progress = self.persistence.load_gate_progress(self.user_id)
+        gate_progress = self.coach_repo.load_gate_progress(self.user_id)
         self.assertNotIn(2, gate_progress)
 
     def test_gate_unlocks_on_check_hand_end(self):
@@ -386,7 +390,7 @@ class TestGateUnlock(unittest.TestCase):
                 window_opportunities=20,
                 window_correct=18,
             )
-            self.persistence.save_skill_state(self.user_id, ss)
+            self.coach_repo.save_skill_state(self.user_id, ss)
 
         # evaluate_and_update alone — no gate unlock
         classification = SituationClassification(
@@ -404,12 +408,12 @@ class TestGateUnlock(unittest.TestCase):
         self.service.evaluate_and_update(
             self.user_id, 'fold', coaching_data, classification
         )
-        gate_progress = self.persistence.load_gate_progress(self.user_id)
+        gate_progress = self.coach_repo.load_gate_progress(self.user_id)
         self.assertNotIn(2, gate_progress)
 
         # Now call check_hand_end — gate should unlock
         self.service.check_hand_end(self.user_id)
-        gate_progress = self.persistence.load_gate_progress(self.user_id)
+        gate_progress = self.coach_repo.load_gate_progress(self.user_id)
         self.assertIn(2, gate_progress)
         self.assertTrue(gate_progress[2].unlocked)
 
@@ -459,8 +463,9 @@ class TestSessionMemoryCadence(unittest.TestCase):
 
     def setUp(self):
         self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
-        self.persistence = GamePersistence(self.db_path)
-        self.service = CoachProgressionService(self.persistence)
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
         self.user_id = 'test_cadence_user'
         self.service.initialize_player(self.user_id)
 
@@ -477,7 +482,7 @@ class TestSessionMemoryCadence(unittest.TestCase):
                 state=SkillState.PRACTICING,
                 total_opportunities=5,
             )
-            self.persistence.save_skill_state(self.user_id, ss)
+            self.coach_repo.save_skill_state(self.user_id, ss)
 
         state = self.service.get_player_state(self.user_id)
         coaching_data = {
@@ -514,7 +519,7 @@ class TestSessionMemoryCadence(unittest.TestCase):
                 state=SkillState.RELIABLE,
                 total_opportunities=20,
             )
-            self.persistence.save_skill_state(self.user_id, ss)
+            self.coach_repo.save_skill_state(self.user_id, ss)
 
         state = self.service.get_player_state(self.user_id)
         coaching_data = {
@@ -564,8 +569,9 @@ class TestOnboarding(unittest.TestCase):
 
     def setUp(self):
         self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
-        self.persistence = GamePersistence(self.db_path)
-        self.service = CoachProgressionService(self.persistence)
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
         self.user_id = 'test_onboarding_user'
 
     def tearDown(self):
@@ -615,8 +621,9 @@ class TestSilentDowngrade(unittest.TestCase):
 
     def setUp(self):
         self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
-        self.persistence = GamePersistence(self.db_path)
-        self.service = CoachProgressionService(self.persistence)
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
         self.user_id = 'test_downgrade_user'
 
     def tearDown(self):
@@ -637,11 +644,11 @@ class TestSilentDowngrade(unittest.TestCase):
                 window_opportunities=10,
                 window_correct=5,
             )
-            self.persistence.save_skill_state(self.user_id, ss)
+            self.coach_repo.save_skill_state(self.user_id, ss)
 
         self.service.check_hand_end(self.user_id)
 
-        profile = self.persistence.load_coach_profile(self.user_id)
+        profile = self.coach_repo.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'beginner')
         # Self-reported level should be preserved
         self.assertEqual(profile['self_reported_level'], 'experienced')
@@ -661,11 +668,11 @@ class TestSilentDowngrade(unittest.TestCase):
                 window_opportunities=10,
                 window_correct=5,
             )
-            self.persistence.save_skill_state(self.user_id, ss)
+            self.coach_repo.save_skill_state(self.user_id, ss)
 
         self.service.check_hand_end(self.user_id)
 
-        profile = self.persistence.load_coach_profile(self.user_id)
+        profile = self.coach_repo.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'intermediate')
 
     def test_intermediate_downgrades_to_beginner(self):
@@ -681,18 +688,18 @@ class TestSilentDowngrade(unittest.TestCase):
                 window_opportunities=10,
                 window_correct=5,
             )
-            self.persistence.save_skill_state(self.user_id, ss)
+            self.coach_repo.save_skill_state(self.user_id, ss)
 
         self.service.check_hand_end(self.user_id)
 
-        profile = self.persistence.load_coach_profile(self.user_id)
+        profile = self.coach_repo.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'beginner')
 
     def test_beginner_never_downgrades(self):
         """Beginner level should never trigger downgrade."""
         self.service.initialize_player(self.user_id, level='beginner')
         self.service.check_hand_end(self.user_id)
-        profile = self.persistence.load_coach_profile(self.user_id)
+        profile = self.coach_repo.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'beginner')
 
     def test_no_downgrade_without_enough_data(self):
@@ -705,11 +712,11 @@ class TestSilentDowngrade(unittest.TestCase):
             state=SkillState.PRACTICING,
             total_opportunities=10,
         )
-        self.persistence.save_skill_state(self.user_id, ss)
+        self.coach_repo.save_skill_state(self.user_id, ss)
 
         self.service.check_hand_end(self.user_id)
 
-        profile = self.persistence.load_coach_profile(self.user_id)
+        profile = self.coach_repo.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'experienced')
 
 
@@ -718,8 +725,9 @@ class TestMarginalNeutrality(unittest.TestCase):
 
     def setUp(self):
         self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
-        self.persistence = GamePersistence(self.db_path)
-        self.service = CoachProgressionService(self.persistence)
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
         self.user_id = 'test_marginal_user'
         self.service.initialize_player(self.user_id)
 
@@ -806,8 +814,9 @@ class TestOverlapEvaluation(unittest.TestCase):
 
     def setUp(self):
         self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
-        self.persistence = GamePersistence(self.db_path)
-        self.service = CoachProgressionService(self.persistence)
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
         self.user_id = 'test_overlap_user'
         self.service.initialize_player(self.user_id, level='intermediate')
 

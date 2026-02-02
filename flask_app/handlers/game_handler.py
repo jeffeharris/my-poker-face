@@ -24,7 +24,7 @@ from poker.emotional_state import EmotionalState
 from poker.runout_reactions import compute_runout_reactions
 from core.card import Card
 
-from ..extensions import socketio, persistence
+from ..extensions import socketio, game_repo, guest_tracking_repo, tournament_repo, hand_history_repo, personality_repo, experiment_repo, coach_repo
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..services.ai_debug_service import get_all_players_llm_stats
@@ -52,7 +52,7 @@ def _track_guest_hand(game_id: str, game_data: dict) -> bool:
             logger.info(f"Guest game {game_id} has no tracking_id (pre-migration game), skipping hand tracking")
             return False
 
-        new_count = persistence.increment_hands_played(tracking_id)
+        new_count = guest_tracking_repo.increment_hands_played(tracking_id)
         logger.debug(f"Guest hand tracked: tracking_id={tracking_id}, count={new_count}")
         if new_count >= GUEST_MAX_HANDS:
             socketio.emit('guest_limit_reached', {
@@ -152,33 +152,35 @@ def _feed_strategic_reflection(memory_manager, player_name: str, reflection: str
         logger.debug(f"[SessionMemory] Added reflection for {player_name}")
 
 
-def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
+def restore_ai_controllers(game_id: str, state_machine, game_repo,
                            owner_id: str = None,
                            player_llm_configs: Dict[str, Dict] = None,
-                           default_llm_config: Dict = None) -> Dict[str, AIPlayerController]:
+                           default_llm_config: Dict = None,
+                           experiment_repo=None) -> Dict[str, AIPlayerController]:
     """Restore AI controllers with their saved state.
 
     Args:
         game_id: The game identifier
         state_machine: The game's state machine
-        persistence_layer: The persistence layer instance
+        game_repo: GameRepository for loading AI/controller/emotional states
         owner_id: The owner/user ID for tracking
         player_llm_configs: Per-player LLM configs (provider, model, etc.)
         default_llm_config: Default LLM config for players without specific config
+        experiment_repo: ExperimentRepository for AI decision tracking
 
     Returns:
         Dictionary mapping player names to their AI controllers
     """
     ai_controllers = {}
-    ai_states = persistence_layer.load_ai_player_states(game_id)
+    ai_states = game_repo.load_ai_player_states(game_id)
     player_llm_configs = player_llm_configs or {}
     default_llm_config = default_llm_config or {}
 
     controller_states = {}
     emotional_states = {}
     try:
-        controller_states = persistence_layer.load_all_controller_states(game_id)
-        emotional_states = persistence_layer.load_all_emotional_states(game_id)
+        controller_states = game_repo.load_all_controller_states(game_id)
+        emotional_states = game_repo.load_all_emotional_states(game_id)
     except Exception as e:
         logger.warning(f"Could not load controller/emotional states: {e}")
 
@@ -192,7 +194,7 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
                 llm_config=llm_config,
                 game_id=game_id,
                 owner_id=owner_id,
-                persistence=persistence_layer
+                experiment_repo=experiment_repo
             )
 
             if player.name in ai_states:
@@ -561,10 +563,10 @@ def handle_eliminations(game_id: str, game_data: dict, game_state,
         try:
             owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
             result['owner_id'] = owner_id
-            persistence.save_tournament_result(game_id, result)
+            tournament_repo.save_tournament_result(game_id, result)
             human_player = tracker.get_human_player()
             if human_player and owner_id:
-                persistence.update_career_stats(owner_id, human_player['name'], result)
+                tournament_repo.update_career_stats(owner_id, human_player['name'], result)
         except Exception as e:
             logger.error(f"Failed to save tournament result after human elimination: {e}")
 
@@ -762,8 +764,8 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
 
         # Persist commentary to database
         try:
-            if persistence:
-                persistence.save_hand_commentary(
+            if hand_history_repo:
+                hand_history_repo.save_hand_commentary(
                     game_id=game_id,
                     hand_number=hand_number,
                     player_name=player_name,
@@ -771,7 +773,7 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
                 )
                 logger.info(f"[Commentary] Persisted commentary for {player_name} hand {hand_number}")
             else:
-                logger.warning(f"[Commentary] Persistence not available for {player_name}")
+                logger.warning(f"[Commentary] hand_history_repo not available for {player_name}")
         except Exception as e:
             logger.warning(f"[Commentary] Failed to persist commentary for {player_name}: {e}")
 
@@ -838,12 +840,12 @@ def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: di
     try:
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         result['owner_id'] = owner_id
-        persistence.save_tournament_result(game_id, result)
+        tournament_repo.save_tournament_result(game_id, result)
         logger.info(f"Tournament {game_id} saved: winner={result['winner_name']}")
 
         human_player_name = result.get('human_player_name')
         if human_player_name and owner_id:
-            persistence.update_career_stats(owner_id, human_player_name, result)
+            tournament_repo.update_career_stats(owner_id, human_player_name, result)
             logger.info(f"Career stats updated for {human_player_name} (owner: {owner_id})")
     except Exception as e:
         logger.error(f"Failed to save tournament result: {e}")
@@ -1022,7 +1024,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         from flask_app.services.coach_progression import CoachProgressionService
         user_id = game_data.get('owner_id', '')
         if user_id:
-            coach_service = CoachProgressionService(persistence)
+            coach_service = CoachProgressionService(coach_repo)
             coach_service.check_hand_end(user_id)
     except Exception as e:
         logger.warning(f"Coach progression hand-end check failed: {e}")
@@ -1039,9 +1041,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         update_and_emit_game_state(game_id)
         # Save final state to persistence
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'tournament_tracker' in game_data:
-            persistence.save_tournament_tracker(game_id, game_data['tournament_tracker'])
+            game_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
         return game_state, True
 
     # Check tournament completion
@@ -1053,9 +1055,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         update_and_emit_game_state(game_id)
         # Save final state to persistence
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'tournament_tracker' in game_data:
-            persistence.save_tournament_tracker(game_id, game_data['tournament_tracker'])
+            game_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
         return game_state, True
 
     # Wait for commentary to complete before starting new hand
@@ -1101,9 +1103,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     # Save state after hand evaluation completes (now in stable phase)
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     if 'tournament_tracker' in game_data:
-        persistence.save_tournament_tracker(game_id, game_data['tournament_tracker'])
+        game_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
 
     limit_reached = _track_guest_hand(game_id, game_data)
     if limit_reached:
@@ -1158,7 +1160,7 @@ def progress_game(game_id: str) -> None:
             # This prevents getting stuck if the client disconnects during evaluation
             if state_machine.current_phase != PokerPhase.EVALUATING_HAND:
                 owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-                persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+                game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
             # Only announce cards when phase just changed to a card-dealing phase
             # Track in game_data to persist across progress_game calls
@@ -1435,7 +1437,7 @@ def handle_ai_action(game_id: str) -> None:
     game_state_service.set_game(game_id, current_game_data)
 
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
     if hasattr(controller, 'assistant') and controller.assistant:
         personality_state = {
@@ -1443,7 +1445,7 @@ def handle_ai_action(game_id: str) -> None:
             'confidence': getattr(controller.ai_player, 'confidence', 'Normal'),
             'attitude': getattr(controller.ai_player, 'attitude', 'Neutral')
         }
-        persistence.save_ai_player_state(
+        game_repo.save_ai_player_state(
             game_id,
             current_player.name,
             controller.assistant.memory.get_history(),
@@ -1453,7 +1455,7 @@ def handle_ai_action(game_id: str) -> None:
         # Save unified psychology state and prompt config
         psychology_dict = controller.psychology.to_dict()
         prompt_config_dict = controller.prompt_config.to_dict() if hasattr(controller, 'prompt_config') else None
-        persistence.save_controller_state(
+        game_repo.save_controller_state(
             game_id,
             current_player.name,
             psychology=psychology_dict,

@@ -15,14 +15,14 @@ logger = logging.getLogger(__name__)
 class AuthorizationService:
     """Service for checking user permissions and authorization."""
 
-    def __init__(self, persistence, auth_manager):
+    def __init__(self, user_repo, auth_manager):
         """Initialize the authorization service.
 
         Args:
-            persistence: GamePersistence instance for database access
+            user_repo: UserRepository instance for database access
             auth_manager: AuthManager instance for getting current user
         """
-        self.persistence = persistence
+        self.user_repo = user_repo
         self.auth_manager = auth_manager
 
     def get_current_user_id(self) -> Optional[str]:
@@ -43,7 +43,7 @@ class AuthorizationService:
         Returns:
             Set of permission names the user has
         """
-        permissions = self.persistence.get_user_permissions(user_id)
+        permissions = self.user_repo.get_user_permissions(user_id)
         return set(permissions)
 
     def has_permission(self, user_id: str, permission: str) -> bool:
@@ -118,18 +118,18 @@ class AuthorizationService:
 authorization_service: Optional[AuthorizationService] = None
 
 
-def init_authorization(persistence, auth_manager) -> AuthorizationService:
+def init_authorization(user_repo, auth_manager) -> AuthorizationService:
     """Initialize the global authorization service.
 
     Args:
-        persistence: GamePersistence instance
+        user_repo: UserRepository instance
         auth_manager: AuthManager instance
 
     Returns:
         The initialized AuthorizationService
     """
     global authorization_service
-    authorization_service = AuthorizationService(persistence, auth_manager)
+    authorization_service = AuthorizationService(user_repo, auth_manager)
     return authorization_service
 
 
