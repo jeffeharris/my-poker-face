@@ -8,9 +8,10 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from .coach_models import PlayerSkillState, SkillState
-from .coach_models import SKILL_STATE_ORDER
-from .skill_definitions import build_poker_context, get_skills_for_gate
+from poker.coach_models import PlayerSkillState, SkillState
+from poker.coach_models import SKILL_STATE_ORDER
+from .context_builder import build_poker_context
+from .skill_definitions import get_skills_for_gate
 
 logger = logging.getLogger(__name__)
 

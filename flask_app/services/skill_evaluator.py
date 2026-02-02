@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, Optional
 
-from .skill_definitions import build_poker_context
+from .context_builder import build_poker_context
 
 logger = logging.getLogger(__name__)
 

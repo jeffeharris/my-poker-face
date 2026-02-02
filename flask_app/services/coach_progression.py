@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from .coach_models import (
+from poker.coach_models import (
     CoachingDecision, CoachingMode, GateProgress, PlayerSkillState,
     SKILL_STATE_ORDER, SkillState,
 )

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from poker.repositories import create_repos
-from flask_app.services.coach_models import GateProgress, PlayerSkillState, SkillState
+from poker.coach_models import GateProgress, PlayerSkillState, SkillState
 from flask_app.services.skill_definitions import ALL_SKILLS
 from flask_app.services.coach_progression import CoachProgressionService, SessionMemory
 from flask_app.services.situation_classifier import SituationClassification
@@ -778,7 +778,7 @@ class TestGateUnlockChain(unittest.TestCase):
         """Gate 3 skills should be initialized as INTRODUCED when Gate 3 unlocks."""
         self._set_skills_reliable(['flop_connection', 'bet_when_strong'])
         # Must also unlock gate 2 first
-        from flask_app.services.coach_models import GateProgress
+        from poker.coach_models import GateProgress
         self.coach_repo.save_gate_progress(
             self.user_id, GateProgress(gate_number=2, unlocked=True, unlocked_at='now')
         )
@@ -818,7 +818,7 @@ class TestSkillVersioning(unittest.TestCase):
         # Actually, test the versioning by adding a gate 3 unlock without skills
         user2 = 'test_versioning_user2'
         self.coach_repo.save_coach_profile(user2, 'experienced', 'experienced')
-        from flask_app.services.coach_models import GateProgress
+        from poker.coach_models import GateProgress
         self.coach_repo.save_gate_progress(
             user2, GateProgress(gate_number=1, unlocked=True, unlocked_at='now')
         )
@@ -839,7 +839,7 @@ class TestSkillVersioning(unittest.TestCase):
         """Skills in passed gates should start at Practicing."""
         user = 'test_passed_gate_user'
         self.coach_repo.save_coach_profile(user, 'experienced', 'experienced')
-        from flask_app.services.coach_models import GateProgress
+        from poker.coach_models import GateProgress
         # Gates 1, 2, 3 unlocked; gate 3 is "passed" because gate 4 is also unlocked
         for g in (1, 2, 3, 4):
             self.coach_repo.save_gate_progress(
@@ -881,7 +881,7 @@ class TestPracticingModeSplit(unittest.TestCase):
         )
         self.coach_repo.save_skill_state(self.user_id, ss)
 
-        from flask_app.services.coach_models import CoachingMode
+        from poker.coach_models import CoachingMode
         mode = self.service._determine_mode(ss)
         self.assertEqual(mode, CoachingMode.LEARN)
 
@@ -892,7 +892,7 @@ class TestPracticingModeSplit(unittest.TestCase):
             window_opportunities=10,
             window_correct=6,  # 60% accuracy
         )
-        from flask_app.services.coach_models import CoachingMode
+        from poker.coach_models import CoachingMode
         mode = self.service._determine_mode(ss)
         self.assertEqual(mode, CoachingMode.COMPETE)
 
@@ -903,7 +903,7 @@ class TestPracticingModeSplit(unittest.TestCase):
             window_opportunities=10,
             window_correct=8,  # 80% accuracy
         )
-        from flask_app.services.coach_models import CoachingMode
+        from poker.coach_models import CoachingMode
         mode = self.service._determine_mode(ss)
         self.assertEqual(mode, CoachingMode.COMPETE)
 
@@ -912,7 +912,7 @@ class TestPracticingModeSplit(unittest.TestCase):
             skill_id='fold_trash_hands',
             state=SkillState.INTRODUCED,
         )
-        from flask_app.services.coach_models import CoachingMode
+        from poker.coach_models import CoachingMode
         mode = self.service._determine_mode(ss)
         self.assertEqual(mode, CoachingMode.LEARN)
 

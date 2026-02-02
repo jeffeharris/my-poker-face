@@ -2,13 +2,14 @@
 
 import unittest
 
-from flask_app.services.coach_models import (
+from poker.coach_models import (
     CoachingDecision, CoachingMode, EvidenceRules,
     GateProgress, PlayerSkillState, SkillState,
 )
+from flask_app.services.context_builder import build_poker_context
 from flask_app.services.skill_definitions import (
     ALL_GATES, ALL_SKILLS, GateDefinition, SkillDefinition,
-    get_skill_by_id, get_skills_for_gate, build_poker_context,
+    get_skill_by_id, get_skills_for_gate,
 )
 
 
