@@ -12,14 +12,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from poker.poker_player import AIPokerPlayer
 from poker.controllers import AIPlayerController
 from poker.prompt_manager import PromptManager
+from tests.conftest import load_personality_from_json
 
 
 class TestGoldenPath(unittest.TestCase):
     """Golden path test for the complete prompt management system."""
-    
+
     def setUp(self):
         if not os.getenv('OPENAI_API_KEY'):
             self.skipTest("OPENAI_API_KEY not set")
+        # Patch personality loading to use JSON file directly (no DB/LLM needed)
+        patcher = patch.object(
+            AIPokerPlayer, '_load_personality_config',
+            lambda self: load_personality_from_json(self.name)
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
     
     def test_golden_path_ai_decision_flow(self):
         """Test the complete flow from game state to AI decision."""
