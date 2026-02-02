@@ -101,7 +101,7 @@ jobs:
 
   deploy:
     name: Deploy to Production
-    needs: [test-backend, test-frontend]
+    needs: [test-backend, test-frontend, test-e2e]
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
 
