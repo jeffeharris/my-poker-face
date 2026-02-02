@@ -13,7 +13,6 @@ from poker.hand_ranges import OpponentInfo
 from poker.decision_analyzer import DecisionAnalyzer
 from poker.controllers import classify_preflop_hand
 from poker.card_utils import card_to_string
-from poker.memory.hand_history import RecordedAction
 
 from ..services import game_state_service
 
