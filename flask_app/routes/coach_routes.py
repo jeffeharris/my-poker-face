@@ -12,6 +12,7 @@ from ..services.coach_assistant import get_or_create_coach_with_mode
 from ..services.coach_progression import CoachProgressionService
 from .stats_routes import build_hand_context_from_recorded_hand, format_hand_context_for_prompt
 from poker.authorization import require_permission
+from ..services.skill_definitions import ALL_SKILLS, ALL_GATES
 
 logger = logging.getLogger(__name__)
 
@@ -233,8 +234,6 @@ def coach_progression(game_id: str):
     user_id = _get_current_user_id()
 
     try:
-        from ..services.skill_definitions import ALL_SKILLS, ALL_GATES
-
         service = CoachProgressionService(coach_repo)
         state = service.get_or_initialize_player(user_id)
 

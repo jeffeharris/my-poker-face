@@ -18,6 +18,7 @@ from poker.controllers import classify_preflop_hand
 from poker.card_utils import card_to_string
 
 from ..services import game_state_service
+from .skill_definitions import ALL_SKILLS
 
 logger = logging.getLogger(__name__)
 
@@ -390,7 +391,6 @@ def compute_coaching_data_with_progression(
 
     try:
         from .coach_progression import CoachProgressionService
-        from .skill_definitions import ALL_SKILLS
 
         service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
