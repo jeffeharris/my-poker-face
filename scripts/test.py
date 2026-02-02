@@ -39,14 +39,19 @@ import subprocess
 import sys
 import os
 
-# Slow test files to skip in quick mode
+# Slow test files to skip in quick mode (use --ignore for instant skip at collection)
 SLOW_TESTS = [
-    "test_ai_memory",
-    "test_ai_resilience",
-    "test_personality_responses",
-    "test_reflection_system",
-    "test_message_history_impact",
-    "test_tournament_flow",
+    "tests/test_ai_memory.py",
+    "tests/test_ai_resilience.py",
+    "tests/test_chat_persistence.py",
+    "tests/test_experiment_routes.py",
+    "tests/test_experiment_variants.py",
+    "tests/test_message_history_impact.py",
+    "tests/test_personality_responses.py",
+    "tests/test_reflection_system.py",
+    "tests/test_tournament_flow.py",
+    "tests/test_core/llm/test_assistant.py",
+    "tests/test_core/llm/test_client.py",
 ]
 
 
@@ -118,10 +123,10 @@ def run(pattern: str = "", verbose: bool = False, quick_mode: bool = False) -> i
         cmd.append("-v")
 
     if quick_mode:
-        # Use pytest to exclude slow tests
-        excludes = " and ".join(f"not {t}" for t in SLOW_TESTS)
-        cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest",
-               "tests/", "-k", excludes]
+        # Use --ignore to skip slow test files entirely (faster than -k)
+        cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest", "tests/"]
+        for slow_file in SLOW_TESTS:
+            cmd += ["--ignore", slow_file]
         if verbose:
             cmd.append("-v")
 
