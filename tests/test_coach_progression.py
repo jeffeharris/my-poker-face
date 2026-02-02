@@ -56,6 +56,7 @@ class TestCoachProgressionWithDB(unittest.TestCase):
             situation_tags=('trash_hand',),
         )
         coaching_data = {
+            'phase': 'PRE_FLOP',
             'hand_strength': '72o - Unconnected cards, Bottom 10%',
             'position': 'Button',
             'cost_to_call': 0,
@@ -82,6 +83,7 @@ class TestCoachProgressionWithDB(unittest.TestCase):
             situation_tags=('trash_hand',),
         )
         coaching_data = {
+            'phase': 'PRE_FLOP',
             'hand_strength': '72o - Unconnected cards, Bottom 10%',
             'position': 'Button',
             'cost_to_call': 0,
@@ -109,6 +111,7 @@ class TestCoachProgressionWithDB(unittest.TestCase):
             situation_tags=('trash_hand',),
         )
         coaching_data = {
+            'phase': 'PRE_FLOP',
             'hand_strength': '72o - Unconnected cards, Bottom 10%',
             'position': 'Button',
             'cost_to_call': 0,
@@ -256,10 +259,10 @@ class TestWindowTrimming(unittest.TestCase):
             window_opportunities=25,
             window_correct=20,
         )
-        self.service._trim_window(ss, 20)
-        self.assertEqual(ss.window_opportunities, 20)
+        trimmed = self.service._trim_window(ss, 20)
+        self.assertEqual(trimmed.window_opportunities, 20)
         # 20/25 = 0.8, so window_correct = round(0.8 * 20) = 16
-        self.assertEqual(ss.window_correct, 16)
+        self.assertEqual(trimmed.window_correct, 16)
 
     def test_window_no_trim_when_under_size(self):
         ss = PlayerSkillState(
@@ -267,9 +270,9 @@ class TestWindowTrimming(unittest.TestCase):
             window_opportunities=10,
             window_correct=8,
         )
-        self.service._trim_window(ss, 20)
-        self.assertEqual(ss.window_opportunities, 10)
-        self.assertEqual(ss.window_correct, 8)
+        result = self.service._trim_window(ss, 20)
+        self.assertEqual(result.window_opportunities, 10)
+        self.assertEqual(result.window_correct, 8)
 
 
 if __name__ == '__main__':

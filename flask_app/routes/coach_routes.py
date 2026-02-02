@@ -32,7 +32,9 @@ def _get_current_user_id() -> str:
     user = auth_manager.get_current_user()
     if not user:
         return ''
-    return getattr(user, 'id', '') or user.get('id', '') if isinstance(user, dict) else getattr(user, 'id', '')
+    if isinstance(user, dict):
+        return user.get('id', '')
+    return getattr(user, 'id', '')
 
 
 @coach_bp.route('/api/coach/<game_id>/stats')
@@ -202,10 +204,7 @@ def coach_progression(game_id: str):
     try:
         from ..services.coach_progression import CoachProgressionService
         service = CoachProgressionService(persistence)
-        state = service.get_player_state(user_id)
-
-        if not state['profile']:
-            state = service.initialize_player(user_id)
+        state = service.get_or_initialize_player(user_id)
 
         return jsonify({
             'skill_states': {
@@ -242,7 +241,7 @@ def coach_onboarding(game_id: str):
 
     body = request.get_json(silent=True) or {}
     level = body.get('level', 'beginner')
-    if level not in ('beginner', 'intermediate', 'advanced'):
+    if level not in ('beginner', 'intermediate', 'experienced'):
         return jsonify({'error': 'Invalid level'}), 400
 
     try:

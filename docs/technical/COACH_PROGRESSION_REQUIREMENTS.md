@@ -17,6 +17,7 @@ Requirements for evolving the existing AI poker coach into an adaptive progressi
 - Texas Hold'em, 6-max table
 - Single buy-in, no rebuys, winner-take-all
 - Strategy target: **cash-game fundamentals** (no ICM)
+- **Single human player per game** — one coachee, remaining seats are AI players
 
 ### 1.2 Target Audience
 
@@ -30,6 +31,8 @@ The coach is a **caddy**, not a tutor. A caddy gives you the yardage and the lie
 
 **Core principle**: The coach teaches a **thinking process**, not memorization or charts. It progressively makes itself unnecessary.
 
+**Pedagogical honesty**: The coach teaches a simplified, heuristic-based strategy — not GTO or solver-optimal play. Actions are evaluated against these heuristics (e.g., "don't limp" is always "correct" even though profitable open-limps exist). This is a deliberate choice: the target audience benefits more from consistent fundamentals than from understanding exceptions. Advanced players who have internalized these fundamentals will progress through to `Automatic` quickly and encounter less coaching interference.
+
 ### 1.4 Access Control
 
 The coach is a premium feature gated behind RBAC:
@@ -39,6 +42,8 @@ The coach is a premium feature gated behind RBAC:
 - **Admins**: Full access
 
 Implementation: `@require_permission('can_access_coach')` decorator on coach routes (currently ungated), following the existing pattern in `poker/authorization.py`. New permission added via DB migration and assigned to `user` and `admin` groups.
+
+**Pre-RBAC**: Until Milestone 5 ships, the coach is available to all users (including guests). This is intentional — progression tracking still requires a logged-in user, but the coach interaction itself is ungated during development.
 
 ---
 
@@ -289,7 +294,8 @@ class PlayerSkillState:
     total_correct: int            # Lifetime correct actions
     window_opportunities: int     # Recent window situation count
     window_correct: int           # Recent window correct actions
-    window_size: int              # Configurable window size in hands
+    window_size: int              # Configurable window size
+    window_type: str              # "hands" | "opportunities"
     introduced_at: datetime
     last_evaluated_at: datetime
     last_state_change_at: datetime
@@ -327,14 +333,18 @@ Gate 4: Multi-Street Thinking (requires Gate 3)
 └── [Additional skills TBD]
 ```
 
-### 7.2 Design Constraints
+### 7.2 End-State: All Skills Mastered
+
+When a player reaches `Automatic` on all skills in the highest defined gate (currently Gate 4), the coach enters a **passive monitoring mode**: progression tracking continues (regression can still trigger), but proactive coaching stops entirely. The coach remains available for reactive questions and hand reviews. This is the intended graduation state — the coach has made itself unnecessary.
+
+### 7.3 Design Constraints
 
 - Skills within a gate **do not conflict**. If multiple skills trigger on the same action, they agree on what "correct" looks like.
 - The gate system scopes evaluation complexity: Gate 1 = preflop heuristics only, Gate 2 adds single-street postflop, etc.
 - All skills within a gate are tracked simultaneously. Coach focuses on the least-progressed skill.
 - Skills in future (locked) gates are not evaluated or coached. No premature teaching.
 
-### 7.3 Gate Persistence
+### 7.4 Gate Persistence
 
 Stored in `player_gate_progress` table, keyed by `user_id` + `gate`.
 
@@ -362,8 +372,8 @@ Stored in `player_gate_progress` table, keyed by `user_id` + `gate`.
 - **Trigger**: Preflop, unopened pot, player decides to enter
 - **Target**: Raise instead of limp when entering a pot
 - **Evidence**: Limp rate
-- **Advancement**: ≤1 limp per 20 hands over ≥20 hands
-- **Regression**: Limp rate exceeds 2 per 20 hands in window
+- **Advancement**: ≤1 limp per 15 pot entries over ≥15 entries (est. ~50 hands)
+- **Regression**: Limp rate exceeds 2 per 15 entries in window
 
 ### Gate 2: Post-Flop Basics
 
@@ -371,21 +381,21 @@ Stored in `player_gate_progress` table, keyed by `user_id` + `gate`.
 - **Trigger**: Flop, player's action, player has weak/no-pair hand
 - **Target**: Fold when the flop misses (no pair, no draw)
 - **Evidence**: Fold rate with air on flop
-- **Advancement**: ≥10 opportunities, ≥70% fold rate
+- **Advancement**: ≥8 opportunities, ≥70% fold rate (est. ~100 hands for 8 opps)
 - **Regression**: Windowed fold rate drops below 55%
 
 **Skill 5 — Bet When Strong**
 - **Trigger**: Any post-flop street, player has top pair or better
 - **Target**: Bet or raise for value
 - **Evidence**: Bet frequency with strong hands
-- **Advancement**: ≥70% bet frequency over ≥10 opportunities
+- **Advancement**: ≥70% bet frequency over ≥8 opportunities (est. ~100 hands)
 - **Regression**: Bet frequency drops below 55% in window
 
 **Skill 6 — Checking Is Allowed**
 - **Trigger**: Any post-flop street, player has weak or marginal hand, can check
 - **Target**: Check or fold rather than betting into strength with nothing
 - **Evidence**: Check rate with weak hands when checking is available
-- **Advancement**: ≥65% appropriate check/fold rate over ≥10 opportunities
+- **Advancement**: ≥65% appropriate check/fold rate over ≥8 opportunities (est. ~100 hands)
 - **Regression**: Drops below 50%
 
 ### Gate 3: Pressure Recognition
@@ -394,21 +404,21 @@ Stored in `player_gate_progress` table, keyed by `user_id` + `gate`.
 - **Trigger**: Facing a bet with a draw (flush draw, straight draw)
 - **Target**: Call only when pot odds justify it (using existing `required_equity`)
 - **Evidence**: Correct call/fold decision based on pot odds vs draw equity
-- **Advancement**: ≥70% correct over ≥8 opportunities
+- **Advancement**: ≥70% correct over ≥6 opportunities (est. ~150 hands for 6 opps)
 - **Regression**: Below 55% in window
 
 **Skill 8 — Respect Big Bets**
 - **Trigger**: Facing a bet ≥50% pot on turn or river with a medium-strength hand
 - **Target**: Fold medium hands against significant aggression
 - **Evidence**: Fold rate facing large bets with non-premium holdings
-- **Advancement**: ≥65% correct over ≥8 opportunities
+- **Advancement**: ≥65% correct over ≥6 opportunities (est. ~150 hands)
 - **Regression**: Below 50% in window
 
 **Skill 9 — Have a Plan for the Hand**
 - **Trigger**: Player bets or raises on the flop
 - **Target**: Consistent follow-through (don't bet flop then check-fold turn without reason)
 - **Evidence**: Bet-then-check-fold frequency across streets
-- **Advancement**: ≤25% bet-then-check-fold rate over ≥10 multi-street hands
+- **Advancement**: ≤25% bet-then-check-fold rate over ≥6 multi-street hands (est. ~150 hands)
 - **Regression**: Rate exceeds 40% in window
 
 ### Gate 4: Multi-Street Thinking
@@ -417,14 +427,14 @@ Stored in `player_gate_progress` table, keyed by `user_id` + `gate`.
 - **Trigger**: Facing bets on both flop and turn with marginal hand
 - **Target**: Recognize multi-street aggression as likely strength
 - **Evidence**: Call-call frequency with marginal hands against multi-street bets
-- **Advancement**: ≥60% correct fold rate over ≥8 opportunities
+- **Advancement**: ≥60% correct fold rate over ≥5 opportunities (est. ~200 hands for 5 opps)
 - **Regression**: Below 45% in window
 
 **Skill 11 — Size Your Bets With Purpose**
 - **Trigger**: Any voluntary bet or raise
 - **Target**: Bet sizing proportional to pot
 - **Evidence**: Bet size relative to pot, correlated with hand strength
-- **Advancement**: ≥65% appropriately sized bets over ≥15 opportunities
+- **Advancement**: ≥65% appropriately sized bets over ≥12 opportunities (est. ~50 hands)
 - **Regression**: Below 50% in window
 
 ---
@@ -461,7 +471,15 @@ Rule-based, deterministic, testable. Each skill's trigger conditions are evaluat
 - Across gates: current gate skills take priority over completed-gate skills
 - Future gate skills are never evaluated
 
-### 9.5 Future Extension: Elasticity Integration
+### 9.5 Minimum Sample Size for Opponent-Dependent Skills
+
+Some skills (e.g., "Respect Big Bets", "Position Matters") use opponent stats as classification inputs. These stats are unreliable early in a session when sample sizes are small. The classifier should require a **minimum of 10 observed hands** on an opponent before using their stats for skill evaluation. Below this threshold:
+
+- The coach can still provide coaching but should acknowledge limited reads (e.g., "We don't have enough hands on this player yet to know their tendencies")
+- Opponent-stat-dependent evaluations are labeled `marginal` (no progression effect) until the sample size is met
+- Skills that don't depend on opponent stats (e.g., "Fold Trash Hands") are unaffected
+
+### 9.6 Future Extension: Elasticity Integration
 
 The situation classifier produces context that could enhance the `PressureEventDetector` → `ElasticityManager` pipeline for AI opponent behavior. Design the classifier as a standalone module that both systems can consume. **Not in v1 scope** — flagged for future work.
 
@@ -495,9 +513,23 @@ class SkillEvaluation:
 | `incorrect` | Action clearly violates skill target | Counts against; may trigger coaching |
 | `marginal` | In the grey zone (~10% equity band) | Neutral — no progression effect |
 
-### 10.4 Player Explanation
+The ~10% marginal band absorbs the natural variance from 2000-iteration Monte Carlo equity calculations. Situations falling within the marginal band are **not counted as opportunities** — they don't affect advancement or regression in either direction. This threshold is tunable; playtesting may reveal it should be wider for post-flop skills where evaluation confidence is lower.
+
+### 10.4 Forced Action Exclusion
+
+All-in situations, forced blind posts, and other situations where the player has no meaningful choice are **excluded from evaluation**. Only voluntary decisions count as opportunities. The situation classifier must detect and filter these before passing to the skill evaluator.
+
+### 10.5 Hand Review Multi-Skill Prioritization
+
+When a hand touches multiple skills across streets (e.g., preflop raise → flop value bet → turn fold), the hand review covers **all evaluated skills for the hand**, ordered by: (1) incorrect evaluations first, (2) then by skill progression state (least-progressed first). The coach keeps each skill's review brief (1-2 sentences per skill) to avoid overwhelming the player.
+
+### 10.6 Player Explanation
 
 During hand review, the player can explain reasoning. The LLM considers the explanation alongside stats. This happens in the existing `/api/coach/<game_id>/hand-review` flow with enhanced context (skill focus, progression state).
+
+### 10.6 Skill Correlation
+
+Some skills have correlated evidence. For example, folding trash hands (Skill 1) mechanically improves position stats (Skill 2) because the player enters fewer pots from early position. This is **intentional and by design** — the gate structure is sequenced so that foundational discipline (fold trash) naturally reinforces positional awareness. Each skill still has independent opportunity thresholds, so a player can't advance a skill without enough direct observations, but correlated improvement across skills within a gate is expected and desirable.
 
 ---
 
@@ -518,6 +550,8 @@ During hand review, the player can explain reasoning. The LLM considers the expl
 - `user_id`, `self_reported_level`, `effective_level`
 - `created_at`, `updated_at`
 
+`effective_level` starts equal to `self_reported_level` and is adjusted downward silently if observed play contradicts the self-report (see §11.4). It is **never adjusted upward** through this mechanism — upward progression happens through the normal skill advancement / gate unlock flow. The field serves as a readable summary of the player's current coaching intensity tier.
+
 ### 11.2 Existing Data Consumed
 
 - **`player_decision_analysis`** table: Decision quality, equity, EV — primary evaluation input
@@ -526,7 +560,27 @@ During hand review, the player can explain reasoning. The LLM considers the expl
 
 ### 11.3 Windowed Stats
 
-Both lifetime and windowed stats tracked per skill. Window size configurable (default: last 50 hands). Used for advancement, regression detection, and coaching intensity.
+Both lifetime and windowed stats tracked per skill. Window size is **per-skill** and configurable. Used for advancement, regression detection, and coaching intensity.
+
+**Window sizing rationale**: The window must be large enough to contain the required number of opportunities for each skill. In a 6-max game, opportunity frequency varies dramatically by skill type:
+
+| Skill Type | Est. Opportunities per 50 Hands | Recommended Window |
+|-----------|--------------------------------|-------------------|
+| Preflop (Skills 1-3) | 10-35 | 50 hands |
+| Post-flop single street (Skills 4-6) | 4-7 | 100 hands |
+| Situational post-flop (Skills 7-9) | 2-5 | 150 hands |
+| Multi-street (Skills 10-11) | 2-5 | 200 hands |
+
+These estimates assume typical play patterns. The key constraint: the window must be large enough that the skill's advancement threshold (minimum opportunities) is reachable within a single window. Exact values will be tuned via playtesting.
+
+**Advancement uses opportunity-count thresholds, not hand-count thresholds.** A skill advances when the required number of opportunities have been observed with the required correctness rate, regardless of how many hands that spans.
+
+**Two windowing strategies** based on opportunity frequency:
+
+- **Frequent skills** (Gate 1, Skill 11): Use a hand-count window (e.g., last 50 hands). Opportunities are common enough that the window always contains sufficient samples.
+- **Rare skills** (Gate 2-4 situational skills): Use an **opportunity-count window** directly (e.g., last 8 opportunities). This avoids the problem of a 50-hand window expiring before enough opportunities accumulate. The trade-off is that a rare skill's window may span many sessions, but this accurately reflects the player's recent behavior for that specific situation.
+
+Each skill definition specifies which windowing strategy it uses. The `window_size` field in `PlayerSkillState` stores either a hand count or opportunity count depending on the skill's strategy, with a `window_type` discriminator (`"hands"` or `"opportunities"`).
 
 ### 11.4 Self-Reported Starting Level
 
@@ -539,6 +593,18 @@ At first coach interaction, player selects:
 | **Experienced** | Gate 1-3 | Gate 1 at `Reliable`, Gate 2 at `Practicing`, Gate 3 at `Introduced` |
 
 **Silent downgrade**: If observed play contradicts self-reported level, skills regress based on behavioral evidence. System never tells the player — just increases coaching intensity.
+
+### 11.5 Existing Player Data
+
+Existing players who have played before the progression system ships will start fresh — no backfill from historical `player_decision_analysis` data. Players who select "Experienced" at onboarding will have Gate 1 skills pre-set to `Reliable`, which effectively skips the early coaching they don't need. The self-reported level is the bootstrapping mechanism; historical data backfill is a possible future optimization but not worth the complexity for v1.
+
+### 11.6 Skill Definition Versioning
+
+When skill definitions change between deployments (e.g., threshold adjustments, new skills added):
+
+- **Threshold changes**: Apply immediately to all players. Existing windowed stats are re-evaluated against new thresholds on next opportunity.
+- **New skills added**: Appear in their gate at `Introduced` state for players who have that gate unlocked.
+- **Gate completion is preserved**: If a player has passed a gate, they remain passed regardless of new skills added to that gate. New skills in a passed gate start at `Practicing` to reflect assumed competence.
 
 ---
 
@@ -598,6 +664,8 @@ CoachProgression.update()            ← NEW: update skill states
     └─ Persist to player_skill_progress
 ```
 
+**Timing rule**: Gate unlock checks happen at **hand end**, not mid-hand. If a player's action advances a skill to `Reliable` (completing a gate), the newly unlocked gate's skills become active starting with the **next hand**. This avoids mid-hand coaching mode shifts and keeps the coaching experience consistent within a hand.
+
 ---
 
 ## 13. Coaching Output
@@ -629,6 +697,8 @@ Session memory (in-memory, per game session) tracks:
 - Repeat count per concept
 
 After 3+ explanations of the same concept in a session, coach shortens to stat-only.
+
+**Lifetime**: Session memory is tied to the game instance (created at game start, discarded at game end). It does not survive server restarts mid-game — if the server restarts, session memory resets but persisted skill state is unaffected. This is acceptable; the worst case is a repeated nudge.
 
 ---
 
@@ -714,10 +784,11 @@ Persist opponent models across games for coach to reference historical performan
 
 ## 19. Open Questions
 
-1. **Window size tuning**: Right balance for regression vs advancement detection. Needs playtesting.
+1. **Window size tuning**: Per-skill windows defined (§11.3) but exact values need playtesting validation. The opportunity-frequency estimates are rough — real gameplay data may differ.
 2. **Gate 4+ skills**: Multi-street skills need more design work and evaluation validation.
 3. **Coach personality**: Should the coach have a customizable tone, or stay neutral?
 4. **Evaluation edge cases**: Hero calls, semi-bluffs, stack-depth-dependent plays. Marginal band handles most, but may need refinement.
+5. **LLM unavailability**: If the LLM is slow or down, the coaching flow breaks since proactive tips require an LLM call. Fallback behavior (silent? canned message?) is undefined. The existing system has this same gap.
 
 ---
 

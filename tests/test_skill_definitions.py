@@ -129,7 +129,7 @@ class TestCoachingDecision(unittest.TestCase):
     def test_defaults(self):
         cd = CoachingDecision(mode=CoachingMode.LEARN)
         self.assertIsNone(cd.primary_skill_id)
-        self.assertEqual(cd.relevant_skill_ids, [])
+        self.assertEqual(cd.relevant_skill_ids, ())
         self.assertEqual(cd.coaching_prompt, '')
 
 

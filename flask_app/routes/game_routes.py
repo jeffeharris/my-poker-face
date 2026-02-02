@@ -207,15 +207,15 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
             return
 
         # Compute coaching data from the pre-action state for accurate evaluation
-        coaching_data = compute_coaching_data(game_id, player_name, game_data=game_data)
+        coaching_data = compute_coaching_data(
+            game_id, player_name, game_data=game_data,
+            game_state_override=pre_action_state,
+        )
         if not coaching_data:
             return
 
         service = CoachProgressionService(persistence)
-        player_state = service.get_player_state(user_id)
-
-        if not player_state['profile']:
-            player_state = service.initialize_player(user_id)
+        player_state = service.get_or_initialize_player(user_id)
 
         classifier = SituationClassifier()
         unlocked = [g for g, gp in player_state['gate_progress'].items() if gp.unlocked]
@@ -233,7 +233,10 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
                     f"primary={classification.primary_skill}"
                 )
     except Exception as e:
-        logger.warning(f"[COACH_PROGRESSION] Failed: {e}")
+        logger.error(
+            f"[COACH_PROGRESSION] Failed for game={game_id} player={player_name}: {e}",
+            exc_info=True,
+        )
 
 
 def generate_game_id() -> str:
@@ -1407,6 +1410,10 @@ def register_socket_events(sio):
         memory_manager = current_game_data.get('memory_manager')
         hand_number = memory_manager.hand_count if memory_manager else None
         analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
+
+        # Coach progression: evaluate human player actions against skill targets
+        if current_player.is_human:
+            _evaluate_coach_progression(game_id, current_player.name, action, current_game_data, pre_action_state)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")

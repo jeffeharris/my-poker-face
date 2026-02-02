@@ -8,9 +8,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, Optional
 
-from poker.controllers import (
-    PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS,
-)
+from .skill_definitions import build_poker_context
 
 logger = logging.getLogger(__name__)
 
@@ -69,33 +67,8 @@ class SkillEvaluator:
 
     def _build_eval_context(self, coaching_data: Dict) -> Dict:
         """Extract evaluation context from coaching data."""
-        # Parse canonical hand from hand_strength
-        canonical = ''
-        hand_strength = coaching_data.get('hand_strength', '')
-        if hand_strength and ' - ' in hand_strength:
-            canonical = hand_strength.split(' - ')[0].strip()
-
-        position = coaching_data.get('position', '').lower()
-        early_positions = {'under the gun', 'utg', 'utg+1', 'early position'}
-        late_positions = {'button', 'cutoff', 'btn', 'co', 'dealer'}
-        is_early = any(ep in position for ep in early_positions)
-        is_late = any(lp in position for lp in late_positions)
-        is_blind = 'blind' in position
-
-        return {
-            'canonical': canonical,
-            'position': position,
-            'is_early': is_early,
-            'is_late': is_late,
-            'is_blind': is_blind,
-            'is_trash': canonical and canonical not in TOP_35_HANDS,
-            'is_premium': canonical and canonical in PREMIUM_HANDS,
-            'is_top10': canonical and canonical in TOP_10_HANDS,
-            'is_top20': canonical and canonical in TOP_20_HANDS,
-            'is_playable': canonical and canonical in TOP_35_HANDS,
-            'cost_to_call': coaching_data.get('cost_to_call', 0),
-            'pot_total': coaching_data.get('pot_total', 0),
-        }
+        ctx = build_poker_context(coaching_data)
+        return ctx if ctx else {}
 
     def _eval_fold_trash(self, action: str, ctx: Dict) -> SkillEvaluation:
         """Evaluate fold_trash_hands: trash hand + fold = correct."""
@@ -253,8 +226,8 @@ class SkillEvaluator:
 
     def _eval_raise_or_fold(self, action: str, ctx: Dict) -> SkillEvaluation:
         """Evaluate raise_or_fold: when entering a pot, raise don't limp."""
-        # This skill only applies when the pot is unopened (cost_to_call == 0)
-        if ctx['cost_to_call'] > 0:
+        # This skill only applies when the pot is unopened (cost_to_call <= big blind)
+        if ctx['cost_to_call'] > ctx.get('big_blind', 0):
             return SkillEvaluation(
                 skill_id='raise_or_fold',
                 action_taken=action,

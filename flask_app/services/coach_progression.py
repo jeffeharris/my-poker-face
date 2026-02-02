@@ -5,6 +5,7 @@ and coaching mode selection for the progression system.
 """
 
 import logging
+from dataclasses import replace
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -41,6 +42,13 @@ class CoachProgressionService:
             'gate_progress': gate_progress,
             'profile': profile,
         }
+
+    def get_or_initialize_player(self, user_id: str) -> Dict:
+        """Load player state, auto-initializing if no profile exists."""
+        state = self.get_player_state(user_id)
+        if not state['profile']:
+            state = self.initialize_player(user_id)
+        return state
 
     def initialize_player(self, user_id: str, level: str = 'beginner') -> Dict:
         """Auto-initialize a beginner coaching profile.
@@ -101,9 +109,9 @@ class CoachProgressionService:
         return CoachingDecision(
             mode=mode,
             primary_skill_id=classification.primary_skill,
-            relevant_skill_ids=list(classification.relevant_skills),
+            relevant_skill_ids=tuple(classification.relevant_skills),
             coaching_prompt=prompt,
-            situation_tags=list(classification.situation_tags),
+            situation_tags=tuple(classification.situation_tags),
         )
 
     # ------------------------------------------------------------------
@@ -152,100 +160,108 @@ class CoachProgressionService:
             )
 
         is_correct = evaluation.evaluation == 'correct'
-        # Marginal counts as half-correct for window tracking
         is_marginal = evaluation.evaluation == 'marginal'
 
-        # Update totals
-        skill_state.total_opportunities += 1
-        if is_correct:
-            skill_state.total_correct += 1
+        # Compute new totals
+        new_total_opps = skill_state.total_opportunities + 1
+        new_total_correct = skill_state.total_correct + (1 if is_correct else 0)
 
-        # Update window
-        skill_def = ALL_SKILLS.get(skill_id)
-        window_size = skill_def.evidence_rules.window_size if skill_def else 20
+        # Compute new window values
+        new_window_opps = skill_state.window_opportunities + 1
+        new_window_correct = skill_state.window_correct + (1 if is_correct else 0)
+        # Marginal doesn't count as correct for window tracking
 
-        skill_state.window_opportunities += 1
+        # Compute new streaks
         if is_correct:
-            skill_state.window_correct += 1
-        elif is_marginal:
-            # Marginal counts as 0.5 — but since we track integers,
-            # only count it every other time (simpler: don't count marginal)
-            pass
+            new_streak_correct = skill_state.streak_correct + 1
+            new_streak_incorrect = 0
+        elif evaluation.evaluation == 'incorrect':
+            new_streak_correct = 0
+            new_streak_incorrect = skill_state.streak_incorrect + 1
+        else:
+            # Marginal doesn't reset streaks
+            new_streak_correct = skill_state.streak_correct
+            new_streak_incorrect = skill_state.streak_incorrect
+
+        skill_state = replace(
+            skill_state,
+            total_opportunities=new_total_opps,
+            total_correct=new_total_correct,
+            window_opportunities=new_window_opps,
+            window_correct=new_window_correct,
+            streak_correct=new_streak_correct,
+            streak_incorrect=new_streak_incorrect,
+            last_evaluated_at=now,
+        )
 
         # Trim window if it exceeds window_size
+        skill_def = ALL_SKILLS.get(skill_id)
+        window_size = skill_def.evidence_rules.window_size if skill_def else 20
         if skill_state.window_opportunities > window_size:
-            self._trim_window(skill_state, window_size)
-
-        # Update streaks
-        if is_correct:
-            skill_state.streak_correct += 1
-            skill_state.streak_incorrect = 0
-        elif evaluation.evaluation == 'incorrect':
-            skill_state.streak_incorrect += 1
-            skill_state.streak_correct = 0
-        # Marginal doesn't reset streaks
-
-        skill_state.last_evaluated_at = now
+            skill_state = self._trim_window(skill_state, window_size)
 
         # Check state transitions
-        self._check_state_transitions(skill_state, skill_def)
+        skill_state = self._check_state_transitions(skill_state, skill_def)
 
         # Persist
         self._persistence.save_skill_state(user_id, skill_state)
         return skill_state
 
-    def _trim_window(self, skill_state: PlayerSkillState, window_size: int) -> None:
+    def _trim_window(self, skill_state: PlayerSkillState, window_size: int) -> PlayerSkillState:
         """Proportionally trim window to window_size."""
         if skill_state.window_opportunities <= window_size:
-            return
+            return skill_state
         ratio = skill_state.window_correct / skill_state.window_opportunities
-        skill_state.window_opportunities = window_size
-        skill_state.window_correct = round(ratio * window_size)
+        return replace(
+            skill_state,
+            window_opportunities=window_size,
+            window_correct=round(ratio * window_size),
+        )
 
     def _check_state_transitions(
         self, skill_state: PlayerSkillState, skill_def
-    ) -> None:
+    ) -> PlayerSkillState:
         """Check and apply state transitions based on evidence rules."""
         if not skill_def:
-            return
+            return skill_state
 
         rules = skill_def.evidence_rules
         acc = skill_state.window_accuracy
         opps = skill_state.window_opportunities
 
         current = skill_state.state
+        new_state = current
 
         if current == SkillState.INTRODUCED:
-            # Advance to practicing after minimum opportunities
             if skill_state.total_opportunities >= rules.introduced_min_opps:
-                skill_state.state = SkillState.PRACTICING
+                new_state = SkillState.PRACTICING
                 logger.info(f"Skill {skill_state.skill_id}: introduced -> practicing")
 
         elif current == SkillState.PRACTICING:
-            # Advance to reliable
             if opps >= rules.min_opportunities and acc >= rules.advancement_threshold:
-                skill_state.state = SkillState.RELIABLE
+                new_state = SkillState.RELIABLE
                 logger.info(f"Skill {skill_state.skill_id}: practicing -> reliable "
                             f"(accuracy={acc:.2f}, opps={opps})")
 
         elif current == SkillState.RELIABLE:
-            # Advance to automatic
             if opps >= rules.automatic_min_opps and acc >= rules.automatic_threshold:
-                skill_state.state = SkillState.AUTOMATIC
+                new_state = SkillState.AUTOMATIC
                 logger.info(f"Skill {skill_state.skill_id}: reliable -> automatic "
                             f"(accuracy={acc:.2f}, opps={opps})")
-            # Regress to practicing
             elif opps >= rules.min_opportunities and acc < rules.regression_threshold:
-                skill_state.state = SkillState.PRACTICING
+                new_state = SkillState.PRACTICING
                 logger.info(f"Skill {skill_state.skill_id}: reliable -> practicing "
                             f"(regression, accuracy={acc:.2f})")
 
         elif current == SkillState.AUTOMATIC:
-            # Regress to reliable
             if opps >= rules.min_opportunities and acc < rules.automatic_regression:
-                skill_state.state = SkillState.RELIABLE
+                new_state = SkillState.RELIABLE
                 logger.info(f"Skill {skill_state.skill_id}: automatic -> reliable "
                             f"(regression, accuracy={acc:.2f})")
+
+        if new_state != current:
+            return replace(skill_state, state=new_state)
+        return skill_state
 
     def _check_gate_unlocks(self, user_id: str) -> None:
         """Check if any new gates should be unlocked."""
@@ -272,6 +288,7 @@ class CoachProgressionService:
                     unlocked_at=datetime.now().isoformat(),
                 )
                 self._persistence.save_gate_progress(user_id, new_gp)
+                gate_progress[gate_num] = new_gp
                 logger.info(f"Gate {gate_num} ({gate_def.name}) unlocked for user {user_id}")
 
                 # Also check if next gate needs unlocking/initializing

@@ -5,16 +5,12 @@ to the current game situation, selecting a primary skill to coach on.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from poker.controllers import (
-    PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS,
-    _get_canonical_hand,
-)
-
 from .skill_definitions import (
-    ALL_SKILLS, PlayerSkillState, SkillState, get_skills_for_gate,
+    ALL_SKILLS, PlayerSkillState, SkillState, build_poker_context,
+    get_skills_for_gate,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,56 +79,7 @@ class SituationClassifier:
 
     def _build_trigger_context(self, coaching_data: Dict) -> Optional[Dict]:
         """Extract context needed for trigger evaluation."""
-        phase = coaching_data.get('phase', '')
-        if not phase:
-            return None
-
-        # Parse canonical hand from hand_strength string
-        # Format: "AKs - Suited broadway, Top 10% of starting hands"
-        canonical = ''
-        hand_strength = coaching_data.get('hand_strength', '')
-        if hand_strength and ' - ' in hand_strength:
-            canonical = hand_strength.split(' - ')[0].strip()
-
-        position = coaching_data.get('position', '').lower()
-        cost_to_call = coaching_data.get('cost_to_call', 0)
-        pot_total = coaching_data.get('pot_total', 0)
-
-        # Determine position category
-        early_positions = {'under the gun', 'utg', 'utg+1', 'early position'}
-        late_positions = {'button', 'cutoff', 'btn', 'co', 'dealer'}
-        is_early = any(ep in position for ep in early_positions)
-        is_late = any(lp in position for lp in late_positions)
-
-        # Hand tier
-        is_trash = canonical and canonical not in TOP_35_HANDS
-        is_premium = canonical and canonical in PREMIUM_HANDS
-        is_playable = canonical and canonical in TOP_35_HANDS
-
-        # Build tags
-        tags = []
-        if is_trash:
-            tags.append('trash_hand')
-        if is_premium:
-            tags.append('premium_hand')
-        if is_early:
-            tags.append('early_position')
-        if is_late:
-            tags.append('late_position')
-
-        return {
-            'phase': phase,
-            'canonical': canonical,
-            'position': position,
-            'is_early': is_early,
-            'is_late': is_late,
-            'is_trash': is_trash,
-            'is_premium': is_premium,
-            'is_playable': is_playable,
-            'cost_to_call': cost_to_call,
-            'pot_total': pot_total,
-            'tags': tags,
-        }
+        return build_poker_context(coaching_data)
 
     def _check_skill_trigger(self, skill_id: str, ctx: Dict) -> bool:
         """Check if a specific skill's trigger conditions are met."""
@@ -157,16 +104,12 @@ class SituationClassifier:
     def _check_raise_or_fold_trigger(self, ctx: Dict) -> bool:
         """Trigger when facing an unopened pot preflop.
 
-        An 'unopened' pot means no raise yet — cost_to_call is 0 or
-        just the big blind (the minimum forced bet).
+        An 'unopened' pot means no raise yet — cost_to_call is at most
+        the big blind (the minimum forced bet).
         """
         if ctx['phase'] != 'PRE_FLOP':
             return False
-        # Unopened pot: cost_to_call == 0 means no one has raised yet
-        # (player is in the blinds or it limped around)
-        # We trigger when cost_to_call <= big blind essentially
-        # but we don't have BB here, so use cost_to_call == 0 as proxy
-        return ctx['cost_to_call'] == 0
+        return ctx['cost_to_call'] <= ctx.get('big_blind', 0)
 
     def _select_primary(
         self,

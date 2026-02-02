@@ -4,8 +4,7 @@ Defines the skill tree (Gate 1 preflop skills), state machine enums,
 and frozen dataclasses used throughout the progression system.
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
@@ -81,9 +80,9 @@ class GateDefinition:
 # Player state dataclasses
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(frozen=True)
 class PlayerSkillState:
-    """Mutable tracking of a player's progress on a single skill."""
+    """Immutable tracking of a player's progress on a single skill."""
     skill_id: str
     state: SkillState = SkillState.INTRODUCED
     total_opportunities: int = 0
@@ -116,14 +115,14 @@ class GateProgress:
     unlocked_at: Optional[str] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class CoachingDecision:
     """Outcome of the coaching engine deciding what to coach on."""
     mode: CoachingMode
     primary_skill_id: Optional[str] = None
-    relevant_skill_ids: List[str] = field(default_factory=list)
+    relevant_skill_ids: tuple = ()
     coaching_prompt: str = ''
-    situation_tags: List[str] = field(default_factory=list)
+    situation_tags: tuple = ()
 
 
 # ---------------------------------------------------------------------------
@@ -208,3 +207,75 @@ def get_skills_for_gate(gate_number: int) -> List[SkillDefinition]:
 def get_skill_by_id(skill_id: str) -> Optional[SkillDefinition]:
     """Look up a skill definition by its ID."""
     return ALL_SKILLS.get(skill_id)
+
+
+def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
+    """Build a standardised context dict from coaching_data.
+
+    Used by both SituationClassifier and SkillEvaluator so the
+    hand-parsing / position / tier logic lives in one place.
+
+    Returns None when there is no phase (nothing to evaluate).
+    """
+    from poker.controllers import (
+        PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS,
+    )
+
+    phase = coaching_data.get('phase', '')
+    if not phase:
+        return None
+
+    # Parse canonical hand from hand_strength string
+    # Format: "AKs - Suited broadway, Top 10% of starting hands"
+    canonical = ''
+    hand_strength = coaching_data.get('hand_strength', '')
+    if hand_strength and ' - ' in hand_strength:
+        canonical = hand_strength.split(' - ')[0].strip()
+
+    position = coaching_data.get('position', '').lower()
+    cost_to_call = coaching_data.get('cost_to_call', 0)
+    pot_total = coaching_data.get('pot_total', 0)
+    big_blind = coaching_data.get('big_blind', 0)
+
+    # Position categories
+    early_positions = {'under the gun', 'utg', 'utg+1', 'early position'}
+    late_positions = {'button', 'cutoff', 'btn', 'co', 'dealer'}
+    is_early = any(ep in position for ep in early_positions)
+    is_late = any(lp in position for lp in late_positions)
+    is_blind = 'blind' in position
+
+    # Hand tiers
+    is_trash = canonical and canonical not in TOP_35_HANDS
+    is_premium = canonical and canonical in PREMIUM_HANDS
+    is_top10 = canonical and canonical in TOP_10_HANDS
+    is_top20 = canonical and canonical in TOP_20_HANDS
+    is_playable = canonical and canonical in TOP_35_HANDS
+
+    # Situation tags
+    tags: List[str] = []
+    if is_trash:
+        tags.append('trash_hand')
+    if is_premium:
+        tags.append('premium_hand')
+    if is_early:
+        tags.append('early_position')
+    if is_late:
+        tags.append('late_position')
+
+    return {
+        'phase': phase,
+        'canonical': canonical,
+        'position': position,
+        'is_early': is_early,
+        'is_late': is_late,
+        'is_blind': is_blind,
+        'is_trash': is_trash,
+        'is_premium': is_premium,
+        'is_top10': is_top10,
+        'is_top20': is_top20,
+        'is_playable': is_playable,
+        'cost_to_call': cost_to_call,
+        'pot_total': pot_total,
+        'big_blind': big_blind,
+        'tags': tags,
+    }

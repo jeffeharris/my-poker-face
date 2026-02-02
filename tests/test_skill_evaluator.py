@@ -12,8 +12,10 @@ class TestSkillEvaluator(unittest.TestCase):
         self.evaluator = SkillEvaluator()
 
     def _make_data(self, hand_strength='72o - Unconnected cards, Bottom 10%',
-                   position='Under The Gun', cost_to_call=0, pot_total=30):
+                   position='Under The Gun', cost_to_call=0, pot_total=30,
+                   phase='PRE_FLOP'):
         return {
+            'phase': phase,
             'hand_strength': hand_strength,
             'position': position,
             'cost_to_call': cost_to_call,
