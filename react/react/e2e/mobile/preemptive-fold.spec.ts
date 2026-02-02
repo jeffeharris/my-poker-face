@@ -15,8 +15,8 @@ function buildWaitingGameState(extraOverrides: Record<string, unknown> = {}) {
 test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
 
   test('shows waiting text when it is not the human player\'s turn', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const waitingText = page.locator('.waiting-text');
     await expect(waitingText).toBeVisible({ timeout: 5000 });
@@ -24,8 +24,8 @@ test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
   });
 
   test('preemptive fold button is available during wait', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const preemptiveBtn = page.locator('.action-btn.preemptive-btn');
     await expect(preemptiveBtn).toBeVisible({ timeout: 5000 });
@@ -33,8 +33,8 @@ test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
   });
 
   test('tapping preemptive fold queues the action and shows queued state', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const preemptiveBtn = page.locator('.action-btn.preemptive-btn');
     await expect(preemptiveBtn).toBeVisible({ timeout: 5000 });
@@ -46,8 +46,8 @@ test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
   });
 
   test('tapping queued preemptive fold again dequeues the action', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const preemptiveBtn = page.locator('.action-btn.preemptive-btn');
     await expect(preemptiveBtn).toBeVisible({ timeout: 5000 });
@@ -61,16 +61,16 @@ test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
   });
 
   test('chat button remains available during waiting state', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const chatBtn = page.locator('.action-btn.chat-btn');
     await expect(chatBtn).toBeVisible({ timeout: 5000 });
   });
 
   test('standard action buttons are not visible when waiting for opponent', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await expect(page.locator('.waiting-text')).toBeVisible({ timeout: 5000 });
 

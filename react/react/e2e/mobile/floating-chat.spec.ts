@@ -47,13 +47,13 @@ async function setupFloatingChat(
 ) {
   const gameStateForSocket = socketGameState || buildGameStateWithAiMessages();
 
-  await mockGamePageRoutes(page, {
+  const ctx = await mockGamePageRoutes(page, {
     gameState: initialGameState,
     socketEvents: [
       ['update_game_state', { game_state: gameStateForSocket }],
     ],
   });
-  await navigateToGamePage(page);
+  await navigateToGamePage(page, { mockContext: ctx });
 }
 
 test.describe('PW-10: Floating chat bubbles appear and auto-dismiss', () => {

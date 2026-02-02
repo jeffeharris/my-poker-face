@@ -4,8 +4,8 @@ import { mockGamePageRoutes, navigateToGamePage, buildGameState } from '../helpe
 test.describe('PW-06: Mobile action buttons display correct options per game state', () => {
 
   test('pre-flop with fold/call/raise shows Fold, Call, Raise buttons', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'call', 'raise']) });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'call', 'raise']) });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const actionButtons = page.locator('.mobile-action-buttons');
     await expect(actionButtons).toBeVisible();
@@ -25,8 +25,8 @@ test.describe('PW-06: Mobile action buttons display correct options per game sta
   });
 
   test('big blind option: fold/check/raise shows Fold, Check, Raise buttons', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'check', 'raise']) });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'check', 'raise']) });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const actionButtons = page.locator('.mobile-action-buttons');
     await expect(actionButtons).toBeVisible();
@@ -45,8 +45,8 @@ test.describe('PW-06: Mobile action buttons display correct options per game sta
   });
 
   test('only all-in available: fold/all_in shows Fold and All-In buttons', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'all_in']) });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'all_in']) });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const actionButtons = page.locator('.mobile-action-buttons');
     await expect(actionButtons).toBeVisible();
@@ -62,8 +62,8 @@ test.describe('PW-06: Mobile action buttons display correct options per game sta
   });
 
   test('chat button is always present when onQuickChat provided', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'call', 'raise']) });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'call', 'raise']) });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const actionButtons = page.locator('.mobile-action-buttons');
     await expect(actionButtons).toBeVisible();

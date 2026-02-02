@@ -75,7 +75,7 @@ async function setupWithWinner(
     { text: 'Got lucky there.', tone: 'humble' },
   ];
 
-  await mockGamePageRoutes(page, {
+  const ctx = await mockGamePageRoutes(page, {
     gameState: initialGameState,
     socketEvents: [
       ['update_game_state', { game_state: initialGameState }],
@@ -88,7 +88,7 @@ async function setupWithWinner(
     route.fulfill({ json: { suggestions: postRoundSuggestions } })
   );
 
-  await navigateToGamePage(page);
+  await navigateToGamePage(page, { mockContext: ctx });
 }
 
 test.describe('PW-12: Post-round chat — tone selection and suggestion sending', () => {

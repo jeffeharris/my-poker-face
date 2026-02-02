@@ -67,7 +67,7 @@ async function setupWithWinner(
   winnerPayload: Record<string, unknown>,
   opts: { isGuest?: boolean } = {}
 ) {
-  await mockGamePageRoutes(page, {
+  const ctx = await mockGamePageRoutes(page, {
     isGuest: opts.isGuest,
     gameState: initialGameState,
     socketEvents: [
@@ -75,7 +75,7 @@ async function setupWithWinner(
       ['winner_announcement', winnerPayload],
     ],
   });
-  await navigateToGamePage(page, { isGuest: opts.isGuest });
+  await navigateToGamePage(page, { isGuest: opts.isGuest, mockContext: ctx });
 }
 
 test.describe('PW-11: Winner announcement shows after hand and auto-dismisses', () => {

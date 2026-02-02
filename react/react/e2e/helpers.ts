@@ -22,9 +22,33 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000';
 export const TEST_MODE = process.env.TEST_MODE || 'mock';
 export const isRealMode = () => TEST_MODE === 'real';
 
-// Pending socket events for real-mode delivery after navigation
-let _pendingSocketEvents: Array<[string, unknown]> = [];
-let _pendingGameId = '';
+// ─── Mock context returned by mockGamePageRoutes ───
+
+export interface MockContext {
+  pendingSocketEvents: Array<[string, unknown]>;
+  pendingGameId: string;
+}
+
+/**
+ * Set localStorage for an authenticated user (guest or registered).
+ * Use this instead of inline page.evaluate() blocks for auth setup.
+ */
+export async function setAuthLocalStorage(
+  page: Page,
+  opts: { isGuest?: boolean; name?: string } = {}
+) {
+  const isGuest = opts.isGuest !== false;
+  const name = opts.name || 'TestPlayer';
+  await page.evaluate(({ guest, playerName }) => {
+    localStorage.setItem('currentUser', JSON.stringify({
+      id: guest ? 'guest-123' : 'user-456',
+      name: playerName,
+      is_guest: guest,
+      created_at: '2024-01-01',
+      permissions: guest ? ['play'] : ['play', 'custom_game', 'themed_game']
+    }));
+  }, { guest: isGuest, playerName: name });
+}
 
 // ─── Shared game-state builder ───
 
@@ -289,10 +313,8 @@ export async function mockGamePageRoutes(
       await loadGameSnapshot(page, gameId, gameState as Record<string, unknown>);
     }
 
-    // Store pending socket events for delivery after navigation
-    _pendingSocketEvents = socketEvents;
-    _pendingGameId = gameId;
-    return;
+    // Return mock context for delivery after navigation
+    return { pendingSocketEvents: socketEvents, pendingGameId: gameId } as MockContext;
   }
 
   // ── Mock mode (default): intercept all routes ──
@@ -428,6 +450,8 @@ export async function mockGamePageRoutes(
       route.fulfill({ body: '' });
     }
   });
+
+  return { pendingSocketEvents: [], pendingGameId: gameId } as MockContext;
 }
 
 /**
@@ -438,6 +462,7 @@ export async function navigateToGamePage(
   opts: {
     isGuest?: boolean;
     gameId?: string;
+    mockContext?: MockContext;
   } = {}
 ) {
   const isGuest = opts.isGuest !== false;
@@ -451,27 +476,19 @@ export async function navigateToGamePage(
     await expect(page.locator('.mobile-poker-table')).toBeVisible({ timeout: 15000 });
 
     // Deliver any pending socket events via backend API
-    if (_pendingSocketEvents.length > 0) {
+    const ctx = opts.mockContext;
+    if (ctx && ctx.pendingSocketEvents.length > 0) {
       await page.waitForTimeout(500); // ensure socket connection established
-      for (const [event, data] of _pendingSocketEvents) {
-        await emitSocketEvent(page, _pendingGameId, event, data as Record<string, unknown>);
+      for (const [event, data] of ctx.pendingSocketEvents) {
+        await emitSocketEvent(page, ctx.pendingGameId, event, data as Record<string, unknown>);
       }
-      _pendingSocketEvents = [];
     }
     return;
   }
 
   // Mock mode: set localStorage directly
   await page.goto('/menu', { waitUntil: 'commit' });
-  await page.evaluate((guest) => {
-    localStorage.setItem('currentUser', JSON.stringify({
-      id: guest ? 'guest-123' : 'user-456',
-      name: 'TestPlayer',
-      is_guest: guest,
-      created_at: '2024-01-01',
-      permissions: guest ? ['play'] : ['play', 'custom_game', 'themed_game']
-    }));
-  }, isGuest);
+  await setAuthLocalStorage(page, { isGuest });
   await page.goto(`/game/${gameId}`);
   await expect(page.locator('.mobile-poker-table')).toBeVisible({ timeout: 10000 });
 }
@@ -658,14 +675,6 @@ export async function navigateToMenuPage(
 
   // Mock mode: set localStorage directly
   await page.goto(path, { waitUntil: 'commit' });
-  await page.evaluate((guest) => {
-    localStorage.setItem('currentUser', JSON.stringify({
-      id: guest ? 'guest-123' : 'user-456',
-      name: 'TestPlayer',
-      is_guest: guest,
-      created_at: '2024-01-01',
-      permissions: guest ? ['play'] : ['play', 'custom_game', 'themed_game']
-    }));
-  }, isGuest);
+  await setAuthLocalStorage(page, { isGuest });
   await page.goto(path);
 }

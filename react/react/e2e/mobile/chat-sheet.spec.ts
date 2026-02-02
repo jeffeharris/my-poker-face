@@ -14,8 +14,8 @@ function buildGameStateWithMessages() {
 test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dismiss', () => {
 
   test('tapping chat button opens the MobileChatSheet', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const chatBtn = page.locator('.action-btn.chat-btn');
     await expect(chatBtn).toBeVisible({ timeout: 5000 });
@@ -29,8 +29,8 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('chat sheet has Quick Chat and Keyboard tabs', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.chat-btn').click();
 
@@ -48,8 +48,8 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('guest user has Quick Chat tab disabled', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.chat-btn').click();
 
@@ -64,8 +64,8 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('keyboard tab shows text input and send button', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.chat-btn').click();
 
@@ -80,8 +80,8 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('typing a message activates the send button', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.chat-btn').click();
 
@@ -96,8 +96,8 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('tapping send submits the message', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const chatRequests: string[] = [];
     await page.route('**/api/game/*/chat', route => {
@@ -120,8 +120,8 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('close button dismisses the chat sheet', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.chat-btn').click();
 
@@ -136,8 +136,8 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('shows "No messages yet" when message list is empty', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'call', 'raise'], { messages: [] }) });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'call', 'raise'], { messages: [] }) });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     await page.locator('.action-btn.chat-btn').click();
 
@@ -151,8 +151,8 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('messages area shows existing messages', async ({ page }) => {
-    await mockGamePageRoutes(page, { gameState: buildGameStateWithMessages() });
-    await navigateToGamePage(page);
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameStateWithMessages() });
+    await navigateToGamePage(page, { mockContext: ctx });
 
     const chatBtn = page.locator('.action-btn.chat-btn');
     await expect(chatBtn).toBeVisible({ timeout: 5000 });
