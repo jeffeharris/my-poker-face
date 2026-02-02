@@ -2,13 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ResponsiveGameLayout } from '../../components/shared/ResponsiveGameLayout';
 
-// Mock config to avoid import.meta.env issues
-vi.mock('../../config', () => ({
-  config: {
-    API_URL: 'http://localhost:5000',
-  },
-}));
-
 // Mock useViewport hook
 const mockUseViewport = vi.fn();
 vi.mock('../../hooks/useViewport', () => ({

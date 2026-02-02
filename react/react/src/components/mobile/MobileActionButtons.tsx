@@ -74,9 +74,9 @@ export function MobileActionButtons({
 
   if (showRaiseSheet) {
     return (
-      <div className="mobile-raise-sheet">
+      <div className="mobile-raise-sheet" data-testid="raise-sheet">
         <div className="raise-sheet-header">
-          <button className="cancel-btn" onClick={() => setShowRaiseSheet(false)}>
+          <button className="cancel-btn" data-testid="raise-cancel" onClick={() => setShowRaiseSheet(false)}>
             Cancel
           </button>
           <span className="raise-title">
@@ -84,6 +84,7 @@ export function MobileActionButtons({
           </span>
           <button
             className="confirm-btn"
+            data-testid="raise-confirm"
             onClick={submitRaise}
             disabled={!calc.isValidRaise(raiseAmount) && raiseAmount !== calc.safeMaxRaiseTo}
           >
@@ -133,6 +134,7 @@ export function MobileActionButtons({
             ) : (
               <span
                 className="amount-value"
+                data-testid="raise-amount"
                 onClick={() => setIsEditingAmount(true)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
@@ -178,6 +180,7 @@ export function MobileActionButtons({
             <button
               key={id}
               className={`quick-bet-btn ${raiseAmount === amount ? 'selected' : ''}`}
+              data-testid="quick-bet-btn"
               onClick={() => setRaiseAmount(amount)}
               disabled={amount > calc.safeMaxRaiseTo}
             >
@@ -193,6 +196,7 @@ export function MobileActionButtons({
             <button
               key={id}
               className={`quick-bet-btn ${isCover ? 'cover' : ''} ${raiseAmount === amount ? 'selected' : ''}`}
+              data-testid="quick-bet-btn"
               onClick={() => setRaiseAmount(amount)}
               disabled={amount > calc.safeMaxRaiseTo}
             >
@@ -206,6 +210,7 @@ export function MobileActionButtons({
           <input
             type="range"
             className="raise-slider"
+            data-testid="raise-slider"
             min={calc.safeMinRaiseTo}
             max={calc.safeMaxRaiseTo}
             value={raiseAmount}
@@ -223,7 +228,7 @@ export function MobileActionButtons({
           </div>
         </div>
 
-        <div className="stack-preview">
+        <div className="stack-preview" data-testid="stack-preview">
           Stack after: ${breakdown.stackAfter}
         </div>
       </div>
@@ -231,10 +236,11 @@ export function MobileActionButtons({
   }
 
   return (
-    <div className="mobile-action-buttons">
+    <div className="mobile-action-buttons" data-testid="action-buttons">
       {playerOptions.includes('fold') && (
         <button
           className={`action-btn fold-btn ${recommendedAction === 'fold' ? 'coach-recommended' : ''}`}
+          data-testid="action-btn-fold"
           onClick={() => onAction('fold')}
         >
           <span className="action-icon">✕</span>
@@ -245,6 +251,7 @@ export function MobileActionButtons({
       {playerOptions.includes('check') && (
         <button
           className={`action-btn check-btn ${recommendedAction === 'check' ? 'coach-recommended' : ''}`}
+          data-testid="action-btn-check"
           onClick={() => onAction('check')}
         >
           <span className="action-icon"><Check /></span>
@@ -255,6 +262,7 @@ export function MobileActionButtons({
       {playerOptions.includes('call') && (
         <button
           className={`action-btn call-btn ${recommendedAction === 'call' ? 'coach-recommended' : ''}`}
+          data-testid="action-btn-call"
           onClick={() => onAction('call')}
         >
           <span className="action-icon">→</span>
@@ -265,6 +273,7 @@ export function MobileActionButtons({
       {(playerOptions.includes('bet') || playerOptions.includes('raise')) && (
         <button
           className={`action-btn raise-btn ${recommendedAction === 'raise' ? 'coach-recommended' : ''}`}
+          data-testid="action-btn-raise"
           onClick={handleRaise}
         >
           <span className="action-icon">↑</span>
@@ -278,6 +287,7 @@ export function MobileActionButtons({
       {playerOptions.includes('all_in') && !playerOptions.includes('raise') && !playerOptions.includes('bet') && (
         <button
           className="action-btn allin-btn"
+          data-testid="action-btn-allin"
           onClick={handleRaise}
         >
           <span className="action-icon"><HandCoins /></span>
@@ -288,6 +298,7 @@ export function MobileActionButtons({
       {onQuickChat && (
         <button
           className="action-btn chat-btn"
+          data-testid="action-btn-chat"
           onClick={onQuickChat}
         >
           <span className="action-icon"><MessageCircle /></span>

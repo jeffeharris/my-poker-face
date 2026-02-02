@@ -248,7 +248,7 @@ export function MobilePokerTable({
   // If we have game state but are disconnected, we'll show a reconnecting overlay instead
   if (loading && !gameState) {
     return (
-      <div className="mobile-poker-table mobile-loading">
+      <div className="mobile-poker-table mobile-loading" data-testid="mobile-loading">
         <div className="mobile-loading-content">
           <div className="loading-cards">
             {['♠', '♥', '♦', '♣'].map((suit, i) => (
@@ -269,12 +269,12 @@ export function MobilePokerTable({
   const showReconnecting = !isConnected && gameState;
 
   return (
-    <div className="mobile-poker-table">
+    <div className="mobile-poker-table" data-testid="mobile-poker-table">
       {/* Reconnecting overlay - shows when socket is disconnected but we have game state */}
       {showReconnecting && (
-        <div className="mobile-reconnecting-overlay">
+        <div className="mobile-reconnecting-overlay" data-testid="reconnecting-overlay">
           <div className="mobile-reconnecting-indicator">
-            <div className="reconnecting-spinner"></div>
+            <div className="reconnecting-spinner" data-testid="reconnecting-spinner"></div>
             <span>Reconnecting...</span>
           </div>
         </div>
@@ -300,7 +300,7 @@ export function MobilePokerTable({
       <div className="menu-bar-spacer" />
 
       {/* Opponents Strip */}
-      <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`} ref={opponentsContainerRef}>
+      <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`} data-testid="mobile-opponents" ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
           const opponentIdx = gameState.players.findIndex(p => p.name === opponent.name);
           const isCurrentPlayer = opponentIdx === gameState.current_player_idx;
@@ -317,6 +317,7 @@ export function MobilePokerTable({
                 }
               }}
               className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''} ${isHeadsUp ? 'heads-up-avatar' : ''} ${isTwoOpponents ? 'two-opponents-avatar' : ''}`}
+              data-testid="mobile-opponent"
             >
               <div
                 className={`opponent-avatar ${config.ENABLE_AI_DEBUG && opponent.llm_debug ? 'debug-enabled' : ''}`}
@@ -348,8 +349,8 @@ export function MobilePokerTable({
                 )}
               </div>
               <div className="opponent-info">
-                <span className="opponent-name">{opponent.nickname || opponent.name}</span>
-                <span className="opponent-stack">${opponent.stack}</span>
+                <span className="opponent-name" data-testid="opponent-name">{opponent.nickname || opponent.name}</span>
+                <span className="opponent-stack" data-testid="opponent-stack">${opponent.stack}</span>
               </div>
               {opponent.bet > 0 && (
                 <div className="opponent-bet">${opponent.bet}</div>
@@ -382,12 +383,12 @@ export function MobilePokerTable({
       </div>
 
       {/* Floating Pot Display - between opponents and community cards */}
-      <div className="mobile-floating-pot">
+      <div className="mobile-floating-pot" data-testid="mobile-pot">
         <PotDisplay total={gameState.pot.total} />
       </div>
 
       {/* Community Cards - Always show 5 slots */}
-      <div className="mobile-community">
+      <div className="mobile-community" data-testid="mobile-community">
         <div className="community-cards-row">
           {Array.from({ length: 5 }).map((_, i) => {
             const card = gameState.community_cards[i];
@@ -425,7 +426,7 @@ export function MobilePokerTable({
       />
 
       {/* Hero Section - Your Cards */}
-      <div className={`mobile-hero ${currentPlayer?.is_human ? 'active-turn' : ''} ${humanPlayer?.is_folded ? 'folded' : ''}`}>
+      <div className={`mobile-hero ${currentPlayer?.is_human ? 'active-turn' : ''} ${humanPlayer?.is_folded ? 'folded' : ''}`} data-testid="mobile-hero">
         {/* Dealer chip - positioned in upper right */}
         {gameState.players.findIndex(p => p.is_human) === gameState.current_dealer_idx && (
           <span className="dealer-chip">D</span>
@@ -438,7 +439,7 @@ export function MobilePokerTable({
         {humanPlayer && humanPlayer.bet > 0 && (
           <div className="hero-bet">${humanPlayer.bet}</div>
         )}
-        <div className="hero-cards" style={{ gap: `${cardTransforms.gap}px`, transition: cardsNeat ? 'gap 0.2s ease-out' : 'none' }}>
+        <div className="hero-cards" data-testid="hero-cards" style={{ gap: `${cardTransforms.gap}px`, transition: cardsNeat ? 'gap 0.2s ease-out' : 'none' }}>
           {isExiting && displayCards?.[0] && displayCards?.[1] ? (
             /* Exit animation - cards sweep off, then onAnimationEnd triggers new cards */
             <>
@@ -537,17 +538,19 @@ export function MobilePokerTable({
              !currentPlayer.is_human && (
               <button
                 className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
+                data-testid="action-btn-preemptive"
                 onClick={() => setQueuedAction(queuedAction === 'check_fold' ? null : 'check_fold')}
               >
                 <span className="action-icon">{queuedAction === 'check_fold' ? <Check /> : <><Check /><X /></>}</span>
                 <span className="btn-label">{queuedAction === 'check_fold' ? 'Queued' : 'Chk/Fold'}</span>
               </button>
             )}
-            <span className="waiting-text">
+            <span className="waiting-text" data-testid="waiting-text">
               {aiThinking && currentPlayer ? `${currentPlayer.name} is thinking...` : 'Waiting...'}
             </span>
             <button
               className="action-btn chat-btn"
+              data-testid="action-btn-chat"
               onClick={() => setShowChatSheet(true)}
             >
               <span className="action-icon"><MessageCircle /></span>

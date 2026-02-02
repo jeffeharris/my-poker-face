@@ -4,12 +4,11 @@ These endpoints allow Playwright E2E tests to manipulate game state
 directly, bypassing the normal game flow for targeted scenario testing.
 """
 
-import json
 import logging
 
 from flask import Blueprint, jsonify, request
 
-from ..extensions import socketio, persistence
+from ..extensions import socketio
 from ..services import game_state_service
 
 logger = logging.getLogger(__name__)

@@ -14,23 +14,6 @@ vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: React.PropsWithChildren<Record<string, unknown>>) => <>{children}</>,
 }));
 
-// Mock config to avoid import.meta.env issues
-vi.mock('../../config', () => ({
-  config: {
-    API_URL: 'http://localhost:5000',
-  },
-}));
-
-// Mock logger
-vi.mock('../../utils/logger', () => ({
-  logger: {
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-  },
-}));
-
 function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
     id: 'msg-1',

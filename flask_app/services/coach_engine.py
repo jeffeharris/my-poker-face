@@ -215,6 +215,17 @@ def _get_opponent_stats(game_data: dict, human_name: str) -> List[Dict]:
     return stats
 
 
+def _get_current_hand_actions(game_data: dict) -> List[Dict]:
+    """Extract actions from the current in-progress hand."""
+    memory_manager = game_data.get('memory_manager')
+    if not memory_manager:
+        return []
+    recorder = getattr(memory_manager, 'hand_recorder', None)
+    if not recorder or not recorder.current_hand:
+        return []
+    return [a.to_dict() for a in recorder.current_hand.actions]
+
+
 def compute_coaching_data(game_id: str, player_name: str,
                           game_data: Optional[Dict] = None) -> Optional[Dict]:
     """Compute all coaching statistics for the given player.
@@ -345,6 +356,10 @@ def compute_coaching_data(game_id: str, player_name: str,
 
     # Opponent stats
     result['opponent_stats'] = _get_opponent_stats(game_data, player_name)
+
+    # Current hand action timeline
+    result['hand_actions'] = _get_current_hand_actions(game_data)
+    result['hand_community_cards'] = community_strs
 
     return result
 

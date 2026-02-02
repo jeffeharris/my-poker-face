@@ -1,17 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { mockMenuPageRoutes } from '../helpers';
 
 test.describe('PW-01: Landing page renders correctly on mobile', () => {
   test.beforeEach(async ({ page }) => {
-    // Mock auth/me to return 401 (unauthenticated) so landing page shows
-    await page.route('**/api/auth/me', route =>
-      route.fulfill({ status: 401, json: { error: 'Not authenticated' } })
-    );
-
-    // Mock health endpoint
-    await page.route('**/health', route =>
-      route.fulfill({ json: { status: 'ok' } })
-    );
-
+    await mockMenuPageRoutes(page, { authenticated: false });
     await page.goto('/');
   });
 

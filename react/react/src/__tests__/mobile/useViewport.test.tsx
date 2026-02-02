@@ -1,13 +1,6 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useViewport } from '../../hooks/useViewport';
-
-// Mock config to avoid import.meta.env issues
-vi.mock('../../config', () => ({
-  config: {
-    API_URL: 'http://localhost:5000',
-  },
-}));
 
 function setViewportSize(width: number, height: number) {
   Object.defineProperty(window, 'innerWidth', { value: width, writable: true, configurable: true });
