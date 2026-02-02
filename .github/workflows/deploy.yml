@@ -78,15 +78,15 @@ jobs:
 
       - name: Create test environment file
         run: |
-          cat > .env << 'EOF'
-          FLASK_ENV=development
-          FLASK_DEBUG=1
-          SECRET_KEY=test-secret-key-for-ci
-          OPENAI_API_KEY=test-key-for-ci
-          GOOGLE_CLIENT_ID=test
-          GOOGLE_CLIENT_SECRET=test
-          CORS_ORIGINS=*
-          EOF
+          printf '%s\n' \
+            'FLASK_ENV=development' \
+            'FLASK_DEBUG=1' \
+            'SECRET_KEY=test-secret-key-for-ci' \
+            'OPENAI_API_KEY=test-key-for-ci' \
+            'GOOGLE_CLIENT_ID=test' \
+            'GOOGLE_CLIENT_SECRET=test' \
+            'CORS_ORIGINS=*' \
+            > .env
 
       - name: Run E2E tests against real backend
         run: |
