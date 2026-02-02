@@ -390,6 +390,7 @@ def compute_coaching_data_with_progression(
 
     try:
         from .coach_progression import CoachProgressionService
+        from .skill_definitions import ALL_SKILLS
 
         service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
@@ -414,6 +415,9 @@ def compute_coaching_data_with_progression(
                     'state': ss.state.value,
                     'window_accuracy': round(ss.window_accuracy, 2),
                     'total_opportunities': ss.total_opportunities,
+                    'name': ALL_SKILLS[sid].name if sid in ALL_SKILLS else sid,
+                    'description': ALL_SKILLS[sid].description if sid in ALL_SKILLS else '',
+                    'gate': ALL_SKILLS[sid].gate if sid in ALL_SKILLS else 0,
                 }
                 for sid, ss in skill_states.items()
             },

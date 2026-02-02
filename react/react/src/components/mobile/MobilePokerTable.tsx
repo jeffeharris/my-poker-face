@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
 import { Check, X, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
@@ -244,6 +245,33 @@ export function MobilePokerTable({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCoachPanel, coach.clearUnreadReview]);
+
+  // Skill unlock toasts — process queue one at a time with stagger
+  useEffect(() => {
+    if (coach.skillUnlockQueue.length === 0) return;
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    coach.skillUnlockQueue.forEach((skillId, i) => {
+      const skillName = coach.progression?.skill_states[skillId]?.name ?? skillId.replace(/_/g, ' ');
+      timers.push(setTimeout(() => {
+        toast(`New skill unlocked: ${skillName}`, {
+          duration: 4000,
+          style: {
+            background: 'rgba(20, 22, 30, 0.95)',
+            color: '#eee',
+            border: '1px solid rgba(52, 211, 153, 0.3)',
+            borderRadius: '12px',
+            fontSize: '13px',
+          },
+        });
+        coach.dismissSkillUnlock(skillId);
+      }, i * 600));
+    });
+
+    return () => timers.forEach(clearTimeout);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coach.skillUnlockQueue]);
+
   // Only show full loading screen on initial load (no game state yet)
   // If we have game state but are disconnected, we'll show a reconnecting overlay instead
   if (loading && !gameState) {
@@ -616,6 +644,7 @@ export function MobilePokerTable({
             stats={coach.stats}
             onTap={() => setShowCoachPanel(true)}
             onDismiss={coach.clearProactiveTip}
+            coachingMode={coach.progression?.coaching_mode}
           />
 
           <CoachPanel
@@ -627,6 +656,10 @@ export function MobilePokerTable({
             isThinking={coach.isThinking}
             mode={coach.mode}
             onModeChange={coach.setMode}
+            progression={coach.progression}
+            progressionFull={coach.progressionFull}
+            onFetchProgression={coach.fetchProgression}
+            onSkipAhead={coach.skipAhead}
           />
         </>
       )}

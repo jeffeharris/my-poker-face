@@ -225,6 +225,8 @@ def coach_progression(game_id: str):
         return jsonify({'error': 'Authentication required'}), 401
 
     try:
+        from ..services.skill_definitions import ALL_SKILLS, ALL_GATES
+
         service = CoachProgressionService(coach_repo)
         state = service.get_or_initialize_player(user_id)
 
@@ -236,6 +238,9 @@ def coach_progression(game_id: str):
                     'total_correct': ss.total_correct,
                     'window_accuracy': round(ss.window_accuracy, 2),
                     'streak_correct': ss.streak_correct,
+                    'name': ALL_SKILLS[sid].name if sid in ALL_SKILLS else sid,
+                    'description': ALL_SKILLS[sid].description if sid in ALL_SKILLS else '',
+                    'gate': ALL_SKILLS[sid].gate if sid in ALL_SKILLS else 0,
                 }
                 for sid, ss in state['skill_states'].items()
             },
@@ -243,6 +248,8 @@ def coach_progression(game_id: str):
                 str(gn): {
                     'unlocked': gp.unlocked,
                     'unlocked_at': gp.unlocked_at,
+                    'name': ALL_GATES[gn].name if gn in ALL_GATES else f'Gate {gn}',
+                    'description': ALL_GATES[gn].description if gn in ALL_GATES else '',
                 }
                 for gn, gp in state['gate_progress'].items()
             },
