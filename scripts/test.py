@@ -89,6 +89,13 @@ def run(pattern: str = "", verbose: bool = False, quick_mode: bool = False) -> i
     Returns:
         Exit code (0 = success)
     """
+    # Coverage flags only for full suite runs (no pattern, not quick mode)
+    cov_flags = [
+        "--cov=poker", "--cov=flask_app", "--cov=core",
+        "--cov-report=term-missing:skip-covered",
+        "--cov-fail-under=40",
+    ]
+
     cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest", "tests/"]
 
     if pattern:
@@ -103,6 +110,9 @@ def run(pattern: str = "", verbose: bool = False, quick_mode: bool = False) -> i
         else:
             # Pattern match: use pytest -k
             cmd += ["-k", pattern]
+    else:
+        # Full suite: add coverage
+        cmd += cov_flags
 
     if verbose:
         cmd.append("-v")

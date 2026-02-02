@@ -174,7 +174,7 @@ Issues to address once live, during ongoing development.
 | T3-31 | No rate limiting on expensive AI endpoints | `personality_routes.py:346`, `image_routes.py:286` | `/api/generate-theme` makes LLM calls with no rate limit. Could drain API credits. | |
 | T3-32 | Prompt injection risk | `poker/prompt_manager.py:43-87` | User-provided names/messages go into LLM prompts with minimal sanitization. | |
 | T3-33 | CORS wildcard with credentials in dev | `flask_app/extensions.py:54-72` | `CORS(app, supports_credentials=True, origins=re.compile(r'.*'))` in dev mode. | |
-| T3-34 | Missing content-type validation on uploads | `admin_dashboard_routes.py:452-525` | Image upload trusts `file.content_type` from client. No magic byte validation. | |
+| T3-34 | Missing content-type validation on uploads | `admin_dashboard_routes.py:452-525` | Image upload trusts `file.content_type` from client. No magic byte validation. | **FIXED** — validates magic bytes (PNG/JPEG/GIF/WebP), overrides client content_type |
 
 ---
 
@@ -184,8 +184,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
 | **Tier 2: Should-Fix** | 34 | 18 | 1 | 15 |
-| **Tier 3: Post-Release** | 34 | 14 | 1 | 19 |
-| **Total** | **89** | **45** | **9** | **34** |
+| **Tier 3: Post-Release** | 34 | 15 | 1 | 18 |
+| **Total** | **89** | **46** | **9** | **33** |
 
 ## Key Architectural Insight
 
