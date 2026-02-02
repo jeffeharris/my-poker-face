@@ -379,7 +379,6 @@ class TestBuildPokerContextMultiStreet(unittest.TestCase):
         ])
         ctx = build_poker_context(data)
         self.assertTrue(ctx['player_bet_flop'])
-        self.assertFalse(ctx['player_bet_turn'])
 
     def test_opponent_double_barrel_detected(self):
         data = self._make_data(hand_actions=[
@@ -388,7 +387,6 @@ class TestBuildPokerContextMultiStreet(unittest.TestCase):
         ])
         ctx = build_poker_context(data)
         self.assertTrue(ctx['opponent_double_barrel'])
-        self.assertTrue(ctx['opponent_bet_flop'])
         self.assertTrue(ctx['opponent_bet_turn'])
 
     def test_no_double_barrel_when_only_flop(self):

@@ -44,7 +44,7 @@ class SkillEvaluator:
         Returns:
             SkillEvaluation with the result.
         """
-        ctx = self._build_eval_context(coaching_data)
+        ctx = build_poker_context(coaching_data) or {}
         if not ctx:
             return SkillEvaluation(
                 skill_id=skill_id,
@@ -86,6 +86,7 @@ class SkillEvaluator:
 
         evaluator = evaluators.get(skill_id)
         if not evaluator:
+            logger.warning("No evaluator for skill %s", skill_id)
             return SkillEvaluation(
                 skill_id=skill_id,
                 action_taken=action,
@@ -95,11 +96,6 @@ class SkillEvaluator:
             )
 
         return evaluator(action, ctx)
-
-    def _build_eval_context(self, coaching_data: Dict) -> Dict:
-        """Extract evaluation context from coaching data."""
-        ctx = build_poker_context(coaching_data)
-        return ctx if ctx else {}
 
     def _eval_fold_trash(self, action: str, ctx: Dict) -> SkillEvaluation:
         """Evaluate fold_trash_hands: trash hand + fold = correct."""
@@ -441,7 +437,7 @@ class SkillEvaluator:
 
     def _eval_draws_need_price(self, action: str, ctx: Dict) -> SkillEvaluation:
         """Draw + facing bet: call when pot odds are good, fold when bad."""
-        if not ctx.get('has_draw') or ctx['cost_to_call'] <= 0:
+        if not ctx.get('has_draw', False) or ctx['cost_to_call'] <= 0:
             return SkillEvaluation(
                 skill_id='draws_need_price', action_taken=action,
                 evaluation='not_applicable', confidence=1.0,

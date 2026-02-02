@@ -56,7 +56,9 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
         const statsResponse = await fetch(`${config.API_URL}/api/game/${gameId}/pressure-stats`);
         if (statsResponse.status === 429) {
           rateLimited = true;
-        } else if (statsResponse.ok && mounted) {
+        } else if (!statsResponse.ok) {
+          logger.error(`Pressure stats returned ${statsResponse.status}`);
+        } else if (mounted) {
           const data = await statsResponse.json();
           const stats = data.player_summaries?.[opponent.name];
           if (stats) {
@@ -68,7 +70,9 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
         const memoryResponse = await fetch(`${config.API_URL}/api/game/${gameId}/memory-debug`);
         if (memoryResponse.status === 429) {
           rateLimited = true;
-        } else if (memoryResponse.ok && mounted) {
+        } else if (!memoryResponse.ok) {
+          logger.error(`Memory debug returned ${memoryResponse.status}`);
+        } else if (mounted) {
           const memoryData = await memoryResponse.json();
           const opponentModels = memoryData.opponent_models || {};
 

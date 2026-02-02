@@ -9,6 +9,7 @@ from ..extensions import limiter, game_repo, coach_repo, auth_manager
 from ..services import game_state_service
 from ..services.coach_engine import compute_coaching_data, compute_coaching_data_with_progression
 from ..services.coach_assistant import get_or_create_coach_with_mode
+from ..services.coach_progression import CoachProgressionService
 from .stats_routes import build_hand_context_from_recorded_hand, format_hand_context_for_prompt
 
 logger = logging.getLogger(__name__)
@@ -224,7 +225,6 @@ def coach_progression(game_id: str):
         return jsonify({'error': 'Authentication required'}), 401
 
     try:
-        from ..services.coach_progression import CoachProgressionService
         service = CoachProgressionService(coach_repo)
         state = service.get_or_initialize_player(user_id)
 
@@ -267,7 +267,6 @@ def coach_onboarding(game_id: str):
         return jsonify({'error': 'Invalid level'}), 400
 
     try:
-        from ..services.coach_progression import CoachProgressionService
         service = CoachProgressionService(coach_repo)
         state = service.initialize_player(user_id, level=level)
 

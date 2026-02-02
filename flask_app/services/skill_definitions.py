@@ -413,10 +413,7 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
         ),
         'tags': tags,
         # Multi-street context
-        'player_actions_by_phase': dict(player_actions_by_phase),
         'player_bet_flop': player_bet_flop,
-        'player_bet_turn': player_bet_turn,
-        'opponent_bet_flop': opponent_bet_flop,
         'opponent_bet_turn': opponent_bet_turn,
         'opponent_double_barrel': opponent_double_barrel,
         # Equity fields

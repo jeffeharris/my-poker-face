@@ -44,7 +44,7 @@ class SituationClassifier:
         Returns:
             SituationClassification with relevant skills and primary skill.
         """
-        ctx = self._build_trigger_context(coaching_data)
+        ctx = build_poker_context(coaching_data)
         if not ctx:
             return SituationClassification(
                 relevant_skills=(), primary_skill=None, situation_tags=()
@@ -76,10 +76,6 @@ class SituationClassifier:
             situation_tags=tuple(tags),
         )
 
-    def _build_trigger_context(self, coaching_data: Dict) -> Optional[Dict]:
-        """Extract context needed for trigger evaluation."""
-        return build_poker_context(coaching_data)
-
     def _check_skill_trigger(self, skill_id: str, ctx: Dict) -> bool:
         """Check if a specific skill's trigger conditions are met."""
         checkers = {
@@ -99,6 +95,7 @@ class SituationClassifier:
         }
         checker = checkers.get(skill_id)
         if not checker:
+            logger.warning("No trigger checker for skill %s", skill_id)
             return False
         return checker(ctx)
 
