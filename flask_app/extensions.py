@@ -7,7 +7,7 @@ They get initialized in the app factory via init_app().
 import logging
 import re
 
-from flask import Flask
+from flask import Flask, request
 from flask_socketio import SocketIO
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -49,6 +49,11 @@ personality_generator = None
 def get_rate_limit_key():
     """Get IP address for rate limiting."""
     return get_remote_address() or "127.0.0.1"
+
+
+def _skip_options_requests() -> bool:
+    """Exempt CORS preflight (OPTIONS) requests from rate limiting."""
+    return request.method == "OPTIONS"
 
 
 def init_cors(app: Flask) -> None:
@@ -95,7 +100,8 @@ def init_limiter(app: Flask) -> Limiter:
                 app=app,
                 key_func=get_rate_limit_key,
                 default_limits=default_limits,
-                storage_uri=redis_url
+                storage_uri=redis_url,
+                default_limits_exempt_when=_skip_options_requests
             )
             logger.info("Rate limiter initialized with Redis")
         except Exception as e:
@@ -103,13 +109,15 @@ def init_limiter(app: Flask) -> Limiter:
             limiter = Limiter(
                 app=app,
                 key_func=get_rate_limit_key,
-                default_limits=default_limits
+                default_limits=default_limits,
+                default_limits_exempt_when=_skip_options_requests
             )
     else:
         limiter = Limiter(
             app=app,
             key_func=get_rate_limit_key,
-            default_limits=default_limits
+            default_limits=default_limits,
+            request_filter=_skip_options_requests
         )
         logger.info("Rate limiter initialized with in-memory storage")
 
