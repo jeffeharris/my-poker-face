@@ -156,6 +156,37 @@ class PersonalityRepository(BaseRepository):
             logger.error(f"Error deleting personality {name}: {e}")
             return False
 
+    def update_personality_config(self, name: str, config: Dict[str, Any], source: str = 'user_edited') -> bool:
+        """Update only the config for an existing personality, preserving ownership fields.
+
+        Unlike save_personality (which uses INSERT OR REPLACE and can wipe owner_id/visibility),
+        this method uses UPDATE to modify only config_json, elasticity_config, and source.
+
+        Returns:
+            True if the personality was found and updated, False otherwise.
+        """
+        elasticity_config = config.get('elasticity_config', {})
+        config_without_elasticity = {k: v for k, v in config.items() if k != 'elasticity_config'}
+
+        with self._get_connection() as conn:
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
+            has_elasticity = 'elasticity_config' in columns
+
+            if has_elasticity:
+                cursor = conn.execute("""
+                    UPDATE personalities
+                    SET config_json = ?, elasticity_config = ?, source = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE name = ?
+                """, (json.dumps(config_without_elasticity), json.dumps(elasticity_config), source, name))
+            else:
+                cursor = conn.execute("""
+                    UPDATE personalities
+                    SET config_json = ?, source = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE name = ?
+                """, (json.dumps(config_without_elasticity), source, name))
+
+            return cursor.rowcount > 0
+
     def set_visibility(self, name: str, visibility: str) -> bool:
         """Set visibility for a personality. Returns True if updated."""
         with self._get_connection() as conn:
@@ -238,11 +269,12 @@ class PersonalityRepository(BaseRepository):
                 continue
 
             if existing:
+                # Use config-only update to preserve ownership fields
+                self.update_personality_config(name, config, source='personalities.json')
                 updated += 1
             else:
+                self.save_personality(name, config, source='personalities.json')
                 added += 1
-
-            self.save_personality(name, config, source='personalities.json')
 
         logger.info(f"Seeded personalities from JSON: {added} added, {updated} updated, {skipped} skipped")
         return {'added': added, 'skipped': skipped, 'updated': updated}

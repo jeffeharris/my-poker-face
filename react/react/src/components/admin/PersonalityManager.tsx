@@ -1282,6 +1282,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   const [categories, setCategories] = useState<Record<string, string[]>>({ standard: [], mine: [] });
   const [personalityMeta, setPersonalityMeta] = useState<Record<string, { visibility?: string; owner_id?: string }>>({});
   const [isAdmin, setIsAdmin] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -1318,13 +1319,14 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   const loadPersonalities = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${config.API_URL}/api/personalities`);
+      const response = await fetch(`${config.API_URL}/api/personalities`, { credentials: 'include' });
       const data = await response.json();
       if (data.success) {
         setPersonalities(data.personalities);
         if (data.categories) setCategories(data.categories);
         if (data.metadata) setPersonalityMeta(data.metadata);
         if (data.is_admin !== undefined) setIsAdmin(data.is_admin);
+        if (data.user_id) setCurrentUserId(data.user_id);
       } else {
         showAlert('error', 'Failed to load personalities: ' + data.error);
       }
@@ -1448,6 +1450,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
       const response = await fetch(`${config.API_URL}/api/personality/${selectedName}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(formData)
       });
       const data = await response.json();
@@ -1472,7 +1475,8 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     setSaving(true);
     try {
       const response = await fetch(`${config.API_URL}/api/personality/${selectedName}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       });
       const data = await response.json();
 
@@ -1507,6 +1511,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
       const response = await fetch(`${config.API_URL}/api/generate_personality`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ name: selectedName, force: true })
       });
       const data = await response.json();
@@ -1554,6 +1559,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
       const response = await fetch(`${config.API_URL}/api/generate_personality`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ name })
       });
       const data = await response.json();
@@ -1584,6 +1590,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
       const response = await fetch(`${config.API_URL}/api/personality/${selectedName}/avatar-description`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ avatar_description: formData.avatar_description || '' })
       });
       const data = await response.json();
@@ -1927,8 +1934,8 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
             {selectedName && formData && (() => {
               const meta = personalityMeta[selectedName];
               const currentVis = meta?.visibility || 'public';
-              const isOwner = !!meta?.owner_id;
-              const canChangeVisibility = isAdmin || (isOwner && meta?.owner_id === undefined) || isOwner;
+              const isOwner = !!currentUserId && meta?.owner_id === currentUserId;
+              const canChangeVisibility = isAdmin || isOwner;
               const visibilityOptions = isAdmin
                 ? ['public', 'private', 'disabled'] as const
                 : ['public', 'private'] as const;

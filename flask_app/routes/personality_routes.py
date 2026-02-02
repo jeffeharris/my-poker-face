@@ -76,9 +76,10 @@ def get_personalities():
             'categories': categories,
             'metadata': metadata,
             'is_admin': bool(is_admin),
+            'user_id': user_id,
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @personality_bp.route('/api/personality/<name>', methods=['GET'])
@@ -154,7 +155,7 @@ def create_personality():
             'message': f'Personality {name} created successfully'
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @personality_bp.route('/api/personality/<name>', methods=['PUT'])
@@ -178,14 +179,17 @@ def update_personality(name):
 
         personality_config = request.json
 
-        personality_repo.save_personality(name, personality_config, source='user_edited')
+        # Use update method that preserves owner_id and visibility
+        updated = personality_repo.update_personality_config(name, personality_config, source='user_edited')
+        if not updated:
+            return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
 
         return jsonify({
             'success': True,
             'message': f'Personality {name} updated successfully'
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @personality_bp.route('/api/personality/<name>/avatar-description', methods=['PUT'])
@@ -268,7 +272,7 @@ def delete_personality(name):
             'message': f'Personality {name} deleted successfully'
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @personality_bp.route('/api/personality/<name>/reference-image', methods=['GET'])
@@ -653,4 +657,4 @@ def update_personality_visibility(name):
             'message': f'Personality {name} visibility set to {visibility}'
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'success': False, 'error': str(e)}), 500
