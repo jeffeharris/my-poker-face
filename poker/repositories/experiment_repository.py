@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 import numpy as np
 
 from poker.repositories.base_repository import BaseRepository
-from poker.repositories.repository_utils import parse_json_fields, build_where_clause
 
 logger = logging.getLogger(__name__)
 
