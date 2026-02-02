@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { memo, useEffect } from 'react';
 import type { Player } from '../../types/player';
 
 export interface ActionBadgeProps {
@@ -11,7 +11,7 @@ export interface ActionBadgeProps {
  * Renders a colored pill badge for a player's last action (CHECK, CALL, RAISE, etc.)
  * with a fade-out animation when the action is cleared between betting rounds.
  */
-export function ActionBadge({ player, lastKnownActions, onFadeComplete }: ActionBadgeProps) {
+export const ActionBadge = memo(function ActionBadge({ player, lastKnownActions, onFadeComplete }: ActionBadgeProps) {
   // Track last known action in a ref via useEffect (not during render) to keep renders pure
   useEffect(() => {
     if (player.is_folded || player.is_all_in) {
@@ -46,4 +46,4 @@ export function ActionBadge({ player, lastKnownActions, onFadeComplete }: Action
       {displayAction.toUpperCase()}
     </div>
   );
-}
+});

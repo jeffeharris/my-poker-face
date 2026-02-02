@@ -47,6 +47,17 @@ class AuthManager:
         # Add auth endpoints
         self._register_routes()
     
+    @staticmethod
+    def _exempt_from_rate_limit(f):
+        """Mark a route as exempt from rate limiting."""
+        try:
+            from flask_app.extensions import limiter
+            if limiter:
+                return limiter.exempt(f)
+        except ImportError:
+            pass
+        return f
+
     def _register_routes(self):
         """Register authentication routes."""
         @self.app.route('/api/auth/login', methods=['POST'])
@@ -139,6 +150,7 @@ class AuthManager:
             return response
         
         @self.app.route('/api/auth/me', methods=['GET'])
+        @self._exempt_from_rate_limit
         def get_current_user_route():
             """Get the current authenticated user with permissions."""
             user = self.get_current_user()
