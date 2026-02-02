@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 
@@ -43,7 +43,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: false,
   });
 
+  // Prevent duplicate requests from React strict mode double-invoking effects
+  const checkInProgressRef = useRef(false);
+
   const checkAuth = useCallback(async () => {
+    if (checkInProgressRef.current) return;
+    checkInProgressRef.current = true;
     try {
       // Use localStorage for initial state while loading, but always verify with backend
       const storedUser = localStorage.getItem('currentUser');
@@ -109,6 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading: false,
         isAuthenticated: false,
       });
+    } finally {
+      checkInProgressRef.current = false;
     }
   }, []);
 
