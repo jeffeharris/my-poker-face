@@ -228,6 +228,8 @@ export function useCoach({
         };
         setMessages(prev => [...prev, reviewMsg].slice(-MAX_MESSAGES));
         setHasUnreadReview(true);
+        // Refresh stats after hand review so progression bar reflects post-action evaluation
+        refreshStats();
       }
     } catch {
       /* non-critical */
@@ -235,7 +237,7 @@ export function useCoach({
       handReviewInFlightRef.current = false;
       setHandReviewPending(false);
     }
-  }, [gameId, playerName]);
+  }, [gameId, playerName, refreshStats]);
 
   const clearUnreadReview = useCallback(() => {
     setHasUnreadReview(false);
