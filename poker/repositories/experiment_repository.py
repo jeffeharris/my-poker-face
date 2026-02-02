@@ -3,10 +3,15 @@
 Covers prompt_captures, player_decision_analysis, prompt_presets, capture_labels,
 experiment lifecycle, chat sessions, live stats/analytics, and replay experiments.
 """
+from __future__ import annotations
+
 import sqlite3
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from poker.repositories.game_repository import GameRepository
 
 import numpy as np
 
@@ -18,7 +23,7 @@ logger = logging.getLogger(__name__)
 class ExperimentRepository(BaseRepository):
     """Handles prompt captures, decision analysis, prompt presets, and capture labels."""
 
-    def __init__(self, db_path: str, game_repo=None):
+    def __init__(self, db_path: str, game_repo: GameRepository):
         super().__init__(db_path)
         self._game_repo = game_repo
 
