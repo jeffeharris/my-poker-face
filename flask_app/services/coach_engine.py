@@ -364,6 +364,7 @@ def compute_coaching_data(game_id: str, player_name: str,
     # Current hand action timeline
     result['hand_actions'] = _get_current_hand_actions(game_data)
     result['hand_community_cards'] = community_strs
+    result['hand_hole_cards'] = hand_strs
 
     # Player name for multi-street context filtering
     result['player_name'] = player_name
