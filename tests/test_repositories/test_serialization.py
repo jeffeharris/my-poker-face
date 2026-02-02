@@ -6,7 +6,7 @@ import unittest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from core.card import Card
-from poker.poker_game import initialize_game_state, Player
+from poker.poker_game import initialize_game_state
 from poker.repositories.serialization import (
     serialize_card, deserialize_card,
     serialize_cards, deserialize_cards,

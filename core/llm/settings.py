@@ -8,6 +8,7 @@ The repository imports are lazy (inside function body) so that core/
 has no import-time dependency on poker/.
 """
 
+import logging
 from functools import lru_cache
 
 from .config import (
@@ -43,14 +44,21 @@ def _get_config_persistence():
     return SettingsRepository(db_path)
 
 
+_logger = logging.getLogger(__name__)
+
+
 def _get_setting(key: str, default: str) -> str:
     """Get a setting value from DB, falling back to the provided default.
 
     Priority: 1. Database (app_settings), 2. default (from core.llm.config / env)
     """
-    p = _get_config_persistence()
-    db_value = p.get_setting(key, '')
-    return db_value if db_value else default
+    try:
+        p = _get_config_persistence()
+        db_value = p.get_setting(key, '')
+        return db_value if db_value else default
+    except Exception:
+        _logger.debug("DB unavailable for setting %s, using default", key)
+        return default
 
 
 def get_default_provider() -> str:

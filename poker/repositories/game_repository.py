@@ -5,7 +5,6 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
-from poker.poker_game import PokerGameState, Player
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.repositories.base_repository import BaseRepository
 from poker.repositories.serialization import restore_state_from_dict

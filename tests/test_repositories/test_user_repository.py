@@ -1,5 +1,4 @@
 """Tests for UserRepository."""
-import os
 import pytest
 from poker.repositories.user_repository import UserRepository
 

@@ -2,7 +2,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 from .base_repository import BaseRepository
 

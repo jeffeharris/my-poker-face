@@ -11,7 +11,7 @@ from datetime import datetime
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from poker.repositories import create_repos, SavedGame
+from poker.repositories import create_repos
 from poker.poker_game import initialize_game_state, Player
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities

@@ -308,7 +308,7 @@ class TestPersistenceExperimentMethods(unittest.TestCase):
         """Test listing experiments with status filter."""
         # Create experiments with different statuses
         # Note: Default status in DB schema is 'running'
-        exp1_id = self.experiment_repo.create_experiment({
+        self.experiment_repo.create_experiment({
             'name': 'running_exp',
             'description': 'A running experiment'
         })

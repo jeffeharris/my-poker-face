@@ -1,5 +1,4 @@
 """Tests for HandHistoryRepository."""
-import json
 import pytest
 from poker.repositories.hand_history_repository import HandHistoryRepository
 

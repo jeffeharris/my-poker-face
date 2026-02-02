@@ -1,5 +1,4 @@
 """Tests for LLMRepository."""
-import sqlite3
 import pytest
 from poker.repositories.llm_repository import LLMRepository
 

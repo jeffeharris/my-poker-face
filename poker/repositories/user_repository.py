@@ -3,7 +3,6 @@
 Manages the users, groups, user_groups, permissions, and group_permissions tables.
 """
 import os
-import sqlite3
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
