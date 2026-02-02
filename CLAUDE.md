@@ -24,7 +24,7 @@ Web-based tools for testing and managing AI personalities:
 python -m venv my_poker_face_venv
 source my_poker_face_venv/bin/activate
 pip install -r requirements.txt
-echo "OPENAI_API_KEY=your_key_here" > .env
+cp .env.example .env  # then fill in API keys
 ```
 
 ### Run Applications

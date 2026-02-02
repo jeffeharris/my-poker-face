@@ -344,6 +344,7 @@ def _validate_theme_personalities(personalities_list: list, personality_sample: 
 
 
 @personality_bp.route('/api/generate-theme', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_GENERATE_THEME)
 def generate_theme():
     """Generate a themed game with appropriate personalities and game settings."""
     try:

@@ -62,32 +62,6 @@ class TestPokerGameMutations(unittest.TestCase):
         self.assertEqual(deck2, deck3, "Same seed should produce same deck")
 
 
-class TestPropertyMutationPatterns(unittest.TestCase):
-    """Test the patterns we need to fix."""
-    
-    def test_list_remove_pattern(self):
-        """Document the list.remove() pattern."""
-        # Current pattern in current_player_options:
-        player_options = ['fold', 'check', 'call', 'raise', 'all_in']
-        player_options.remove('fold')  # Mutates the list!
-        
-        # What we should do instead:
-        player_options = ['fold', 'check', 'call', 'raise', 'all_in']
-        player_options = [opt for opt in player_options if opt != 'fold']
-        
-        # Or build the list correctly from the start
-        
-    def test_list_append_pattern(self):
-        """Document the list.append() pattern."""
-        # Current pattern in table_positions:
-        positions = ["button", "small_blind_player", "big_blind_player"]
-        # positions.append("under_the_gun")  # Would mutate!
-        
-        # What we should do:
-        positions = ["button", "small_blind_player", "big_blind_player"]
-        positions = positions + ["under_the_gun"]  # Creates new list
-
-
 class TestPlaceBetPlayerIdx(unittest.TestCase):
     """Test that place_bet correctly handles player_idx=0."""
 

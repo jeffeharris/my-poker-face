@@ -28,6 +28,7 @@ from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
 
 from ..game_adapter import StateMachineAdapter
 from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, experiment_repo, coach_repo, persistence_db_path
+from ..socket_rate_limit import socket_rate_limit
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..handlers.game_handler import (
@@ -102,21 +103,7 @@ def analyze_player_decision(
                 return
 
         # Get cards in format equity calculator understands
-        def card_to_string(c):
-            """Convert card (dict or Card object) to short string like '8h'."""
-            if isinstance(c, dict):
-                rank = c.get('rank', '')
-                suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
-                if rank == '10':
-                    rank = 'T'
-                return f"{rank}{suit}"
-            else:
-                s = str(c)
-                suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
-                for symbol, letter in suit_map.items():
-                    s = s.replace(symbol, letter)
-                s = s.replace('10', 'T')
-                return s
+        from poker.card_utils import card_to_string
 
         community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
         player_hand = [card_to_string(c) for c in player.hand] if player.hand else []
@@ -272,8 +259,16 @@ def list_games():
     """List games for the current user."""
     current_user = auth_manager.get_current_user()
 
+    try:
+        limit = int(request.args.get('limit', 20))
+        offset = int(request.args.get('offset', 0))
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid pagination parameters'}), 400
+    limit = max(0, min(limit, config.GAME_LIST_MAX_LIMIT))
+    offset = max(0, offset)
+
     if current_user:
-        saved_games = game_repo.list_games(owner_id=current_user.get('id'), limit=10)
+        saved_games = game_repo.list_games(owner_id=current_user.get('id'), limit=limit, offset=offset)
     else:
         saved_games = []
 
@@ -1215,6 +1210,7 @@ def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""
 
     @sio.on('join_game')
+    @socket_rate_limit(max_calls=5, window_seconds=10)
     def on_join(game_id):
         game_id_str = str(game_id)
         game_data = game_state_service.get_game(game_id_str)
@@ -1237,6 +1233,7 @@ def register_socket_events(sio):
             progress_game(game_id_str)
 
     @sio.on('player_action')
+    @socket_rate_limit(max_calls=10, window_seconds=10)
     def handle_player_action(data):
         try:
             game_id = data['game_id']
@@ -1315,6 +1312,7 @@ def register_socket_events(sio):
         progress_game(game_id)
 
     @sio.on('send_message')
+    @socket_rate_limit(max_calls=5, window_seconds=10)
     def handle_send_message(data):
         game_id = data.get('game_id')
         content = data.get('message')
@@ -1340,5 +1338,6 @@ def register_socket_events(sio):
                                 controller.tilt_state.apply_pressure_event(event_name, sender)
 
     @sio.on('progress_game')
+    @socket_rate_limit(max_calls=5, window_seconds=10)
     def on_progress_game(game_id):
         progress_game(game_id)

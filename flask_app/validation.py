@@ -10,6 +10,12 @@ def validate_player_action(game_state, action, amount):
     Returns:
         (is_valid, error_message) tuple. error_message is empty string when valid.
     """
+    if not game_state.awaiting_action:
+        return False, "Not awaiting player action"
+
+    if game_state.run_it_out:
+        return False, "Game is in run-it-out mode"
+
     if not game_state.current_player.is_human:
         return False, "Not human player's turn"
 

@@ -407,6 +407,26 @@ def api_upload_reference_image():
         if not image_data:
             return jsonify({'success': False, 'error': 'No image provided'}), 400
 
+        # Validate image magic bytes
+        IMAGE_SIGNATURES = {
+            b'\x89PNG\r\n\x1a\n': 'image/png',
+            b'\xff\xd8\xff': 'image/jpeg',
+            b'GIF87a': 'image/gif',
+            b'GIF89a': 'image/gif',
+        }
+        detected_type = None
+        for signature, mime_type in IMAGE_SIGNATURES.items():
+            if image_data[:len(signature)] == signature:
+                detected_type = mime_type
+                break
+        # WebP uses RIFF container — verify both RIFF header and WEBP marker
+        if detected_type is None and len(image_data) >= 12:
+            if image_data[:4] == b'RIFF' and image_data[8:12] == b'WEBP':
+                detected_type = 'image/webp'
+        if detected_type is None:
+            return jsonify({'success': False, 'error': 'Invalid image format. Supported: PNG, JPEG, GIF, WebP'}), 400
+        content_type = detected_type
+
         # Try to get image dimensions
         try:
             from PIL import Image
