@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 
 from ..services import game_state_service
-from ..extensions import llm_repo, personality_repo, settings_repo, experiment_repo, game_repo
+from ..extensions import llm_repo, personality_repo, settings_repo, prompt_capture_repo, game_repo
 from core.llm import UsageTracker
 from poker.authorization import require_permission
 
@@ -191,7 +191,7 @@ def api_playground_captures():
         date_to: Filter by end date (ISO format)
     """
     try:
-        result = experiment_repo.list_playground_captures(
+        result = prompt_capture_repo.list_playground_captures(
             call_type=request.args.get('call_type'),
             provider=request.args.get('provider'),
             limit=int(request.args.get('limit', 50)),
@@ -200,7 +200,7 @@ def api_playground_captures():
             date_to=request.args.get('date_to'),
         )
 
-        stats = experiment_repo.get_playground_capture_stats()
+        stats = prompt_capture_repo.get_playground_capture_stats()
 
         return jsonify({
             'success': True,
@@ -219,7 +219,7 @@ def api_playground_captures():
 def api_playground_capture(capture_id):
     """Get a single playground capture by ID."""
     try:
-        capture = experiment_repo.get_prompt_capture(capture_id)
+        capture = prompt_capture_repo.get_prompt_capture(capture_id)
 
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
@@ -251,7 +251,7 @@ def api_playground_replay(capture_id):
     from core.llm import LLMClient, CallType
 
     try:
-        capture = experiment_repo.get_prompt_capture(capture_id)
+        capture = prompt_capture_repo.get_prompt_capture(capture_id)
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
@@ -319,7 +319,7 @@ def api_playground_replay(capture_id):
 def api_playground_stats():
     """Get aggregate statistics for playground captures."""
     try:
-        stats = experiment_repo.get_playground_capture_stats()
+        stats = prompt_capture_repo.get_playground_capture_stats()
         return jsonify({'success': True, 'stats': stats})
 
     except Exception as e:
@@ -348,7 +348,7 @@ def api_playground_cleanup():
                 'deleted': 0,
             })
 
-        deleted = experiment_repo.cleanup_old_captures(retention_days)
+        deleted = prompt_capture_repo.cleanup_old_captures(retention_days)
 
         return jsonify({
             'success': True,
@@ -507,7 +507,7 @@ def api_playground_replay_image(capture_id: int):
     import base64
 
     try:
-        capture = experiment_repo.get_prompt_capture(capture_id)
+        capture = prompt_capture_repo.get_prompt_capture(capture_id)
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
@@ -614,7 +614,7 @@ def api_assign_avatar_from_capture(capture_id: int):
     import base64
 
     try:
-        capture = experiment_repo.get_prompt_capture(capture_id)
+        capture = prompt_capture_repo.get_prompt_capture(capture_id)
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 

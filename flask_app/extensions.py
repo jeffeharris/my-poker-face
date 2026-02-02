@@ -40,6 +40,11 @@ user_repo = None
 settings_repo = None
 personality_repo = None
 experiment_repo = None
+prompt_capture_repo = None
+decision_analysis_repo = None
+prompt_preset_repo = None
+capture_label_repo = None
+replay_experiment_repo = None
 llm_repo = None
 guest_tracking_repo = None
 hand_history_repo = None
@@ -143,6 +148,8 @@ def init_persistence() -> None:
     global game_repo, user_repo, settings_repo, personality_repo
     global experiment_repo, llm_repo, guest_tracking_repo
     global hand_history_repo, tournament_repo, coach_repo, persistence_db_path
+    global prompt_capture_repo, decision_analysis_repo, prompt_preset_repo
+    global capture_label_repo, replay_experiment_repo
     global event_repository
 
     db_path = config.DB_PATH
@@ -153,6 +160,11 @@ def init_persistence() -> None:
     settings_repo = repos['settings_repo']
     personality_repo = repos['personality_repo']
     experiment_repo = repos['experiment_repo']
+    prompt_capture_repo = repos['prompt_capture_repo']
+    decision_analysis_repo = repos['decision_analysis_repo']
+    prompt_preset_repo = repos['prompt_preset_repo']
+    capture_label_repo = repos['capture_label_repo']
+    replay_experiment_repo = repos['replay_experiment_repo']
     llm_repo = repos['llm_repo']
     guest_tracking_repo = repos['guest_tracking_repo']
     hand_history_repo = repos['hand_history_repo']

@@ -27,7 +27,7 @@ from poker.tournament_tracker import TournamentTracker
 from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
 
 from ..game_adapter import StateMachineAdapter
-from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, experiment_repo, coach_repo, persistence_db_path
+from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, prompt_preset_repo, decision_analysis_repo, capture_label_repo, coach_repo, persistence_db_path
 from ..socket_rate_limit import socket_rate_limit
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
@@ -64,7 +64,7 @@ def load_game_mode_preset(game_mode: str) -> PromptConfig:
     Returns:
         PromptConfig with the preset's settings applied
     """
-    preset = experiment_repo.get_prompt_preset_by_name(game_mode)
+    preset = prompt_preset_repo.get_prompt_preset_by_name(game_mode)
     if preset:
         prompt_config = preset.get('prompt_config')
         if prompt_config:
@@ -168,7 +168,7 @@ def analyze_player_decision(
             opponent_infos=opponent_infos,
         )
 
-        experiment_repo.save_decision_analysis(analysis)
+        decision_analysis_repo.save_decision_analysis(analysis)
         equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
         logger.debug(
             f"[DECISION_ANALYSIS] {player_name}: {analysis.decision_quality} "
@@ -390,7 +390,7 @@ def api_game_state(game_id):
                     owner_id=owner_id,
                     player_llm_configs=llm_configs.get('player_llm_configs'),
                     default_llm_config=llm_configs.get('default_llm_config'),
-                    experiment_repo=experiment_repo
+                    capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo
                 )
                 db_messages = game_repo.load_messages(game_id)
 
@@ -905,7 +905,7 @@ def api_new_game():
                 prompt_config=player_prompt_config,
                 game_id=game_id,
                 owner_id=owner_id,
-                experiment_repo=experiment_repo
+                capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo
             )
             ai_controllers[player.name] = new_controller
             elasticity_manager.add_player(

@@ -161,7 +161,7 @@ Issues to address once live, during ongoing development.
 | T3-19 | Inconsistent error response format | 15 files in `flask_app/routes/` | 219 error responses split 50/50: `{'error': ...}` (109, used by global error handlers) vs `{'success': False, 'error': ...}` (107, mostly admin routes). Standardizing to `{'error': ...}` requires ~107 changes across 7 files (admin_dashboard_routes.py alone has 61). Frontend may check `success: false`. | |
 | T3-35 | God Object: `GamePersistence` was 9,000 lines | `poker/persistence.py` → `poker/repositories/` | Split into 10 domain repositories. Facade removed, all callers updated. | **FIXED** |
 | T3-36 | Remove `GamePersistence` facade after repo extraction | `poker/persistence.py`, 40+ caller files | After repo extraction, update all callers to import repos directly and remove the facade class. | **FIXED** |
-| T3-37 | `ExperimentRepository` is a replacement god class | `poker/repositories/experiment_repository.py` | At 3,630 lines with 58 methods across 7 concerns (prompt captures, playground captures, decision analysis, presets, labels, experiment lifecycle/chat, replay). Split into at least 3 repositories: `CaptureRepository`, `ExperimentLifecycleRepository`, `ReplayRepository`. Also contains 4 methods duplicated from `GameRepository` and 6 raw `sqlite3.connect()` calls bypassing `BaseRepository`. | |
+| T3-37 | `ExperimentRepository` is a replacement god class | `poker/repositories/experiment_repository.py` | At 3,630 lines with 58 methods across 7 concerns (prompt captures, playground captures, decision analysis, presets, labels, experiment lifecycle/chat, replay). Split into at least 3 repositories: `CaptureRepository`, `ExperimentLifecycleRepository`, `ReplayRepository`. Also contains 4 methods duplicated from `GameRepository` and 6 raw `sqlite3.connect()` calls bypassing `BaseRepository`. | **FIXED** — split into 6 focused repositories (#131) |
 | T3-20 | `GET` allowed on destructive endpoint | `flask_app/routes/game_routes.py:1114` | `/api/end_game/<game_id>` accepts both GET and POST. GET should never mutate. | **FIXED** — POST only |
 | T3-35 | Dual API on state machine wrapper | `poker/poker_state_machine.py:336-539` | Outer `PokerStateMachine` exposes both mutable (`advance_state()`, `game_state` setter) and immutable (`advance()`, `with_game_state()`) APIs. Inner `ImmutableStateMachine` core is genuinely pure — mutable setters just reassign `self._state` with new frozen instances. Cleanup: remove duplicate immutable methods from outer class, keep mutable wrapper only. *(Demoted from T2-01)* | |
 | T3-36 | Config naming & documentation | 6 config locations | Config spread across `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` is intentional (avoids circular imports), but naming is inconsistent (e.g., `.env` uses `OPENAI_MODEL`, DB uses `DEFAULT_MODEL`). Improvements: unify setting names in `.env.example`, document priority hierarchy (DB > env > hardcoded). *(Demoted from T2-04)* | **FIXED** — renamed `OPENAI_MODEL` → `DEFAULT_MODEL` in `.env.example` and `config.py` (with legacy fallback), removed undocumented `OPENAI_FAST_MODEL`, added priority hierarchy docs, documented all model tier env vars |
@@ -215,8 +215,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 15 | 6 | 0 |
 | **Tier 2: Should-Fix** | 26 | 20 | 6 | 0 |
-| **Tier 3: Post-Release** | 52 | 25 | 1 | 26 |
-| **Total** | **99** | **60** | **13** | **26** |
+| **Tier 3: Post-Release** | 52 | 26 | 1 | 25 |
+| **Total** | **99** | **61** | **13** | **25** |
 
 ## Key Architectural Insight
 

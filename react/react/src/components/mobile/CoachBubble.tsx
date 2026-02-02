@@ -15,7 +15,7 @@ interface CoachBubbleProps {
 const AUTO_DISMISS_MS = 8000;
 
 export function CoachBubble({ isVisible, tip, stats, onTap, onDismiss }: CoachBubbleProps) {
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     if (isVisible && tip) {

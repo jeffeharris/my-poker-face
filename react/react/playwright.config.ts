@@ -6,12 +6,13 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 4 : undefined,
+  retries: 0,
+  workers: 8,
   reporter: 'list',
   use: {
     baseURL,
     trace: 'on-first-retry',
+    reducedMotion: 'reduce',
   },
   // Skip webServer when BASE_URL is externally provided (e.g. Docker compose)
   ...(process.env.BASE_URL

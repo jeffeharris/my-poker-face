@@ -445,9 +445,17 @@ export async function navigateToGamePage(
     return;
   }
 
-  // Mock mode: set localStorage directly
-  await page.goto('/menu', { waitUntil: 'commit' });
-  await setAuthLocalStorage(page, { isGuest });
+  // Mock mode: set localStorage via addInitScript so it's available before React mounts
+  const user = JSON.stringify({
+    id: isGuest ? 'guest-123' : 'user-456',
+    name: 'TestPlayer',
+    is_guest: isGuest,
+    created_at: '2024-01-01',
+    permissions: isGuest ? ['play'] : ['play', 'custom_game', 'themed_game']
+  });
+  await page.addInitScript((u) => {
+    localStorage.setItem('currentUser', u);
+  }, user);
   await page.goto(`/game/${gameId}`);
   await expect(page.locator('.mobile-poker-table')).toBeVisible({ timeout: 10000 });
 }
@@ -616,8 +624,16 @@ export async function navigateToMenuPage(
     return;
   }
 
-  // Mock mode: set localStorage directly
-  await page.goto(path, { waitUntil: 'commit' });
-  await setAuthLocalStorage(page, { isGuest });
+  // Mock mode: set localStorage via addInitScript so it's available before React mounts
+  const user = JSON.stringify({
+    id: isGuest ? 'guest-123' : 'user-456',
+    name: 'TestPlayer',
+    is_guest: isGuest,
+    created_at: '2024-01-01',
+    permissions: isGuest ? ['play'] : ['play', 'custom_game', 'themed_game']
+  });
+  await page.addInitScript((u) => {
+    localStorage.setItem('currentUser', u);
+  }, user);
   await page.goto(path);
 }

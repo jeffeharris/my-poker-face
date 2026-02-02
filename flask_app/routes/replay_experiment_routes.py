@@ -10,7 +10,7 @@ from typing import Dict, Any
 
 from flask import Blueprint, jsonify, request
 
-from ..extensions import experiment_repo
+from ..extensions import replay_experiment_repo, capture_label_repo, prompt_capture_repo
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def list_replay_experiments():
         limit = request.args.get('limit', 50, type=int)
         offset = request.args.get('offset', 0, type=int)
 
-        result = experiment_repo.list_replay_experiments(
+        result = replay_experiment_repo.list_replay_experiments(
             status=status,
             limit=limit,
             offset=offset
@@ -109,7 +109,7 @@ def create_replay_experiment():
             }), 400
 
         # Create the experiment
-        experiment_id = experiment_repo.create_replay_experiment(
+        experiment_id = replay_experiment_repo.create_replay_experiment(
             name=name,
             capture_ids=capture_ids,
             variants=variants,
@@ -147,7 +147,7 @@ def get_replay_experiment(experiment_id: int):
         }
     """
     try:
-        experiment = experiment_repo.get_replay_experiment(experiment_id)
+        experiment = replay_experiment_repo.get_replay_experiment(experiment_id)
         if not experiment:
             return jsonify({'success': False, 'error': 'Experiment not found'}), 404
 
@@ -187,7 +187,7 @@ def launch_replay_experiment(experiment_id: int):
         }
     """
     try:
-        experiment = experiment_repo.get_replay_experiment(experiment_id)
+        experiment = replay_experiment_repo.get_replay_experiment(experiment_id)
         if not experiment:
             return jsonify({'success': False, 'error': 'Experiment not found'}), 404
 
@@ -204,7 +204,7 @@ def launch_replay_experiment(experiment_id: int):
         # Start the experiment
         thread = run_replay_experiment_async(
             experiment_id=experiment_id,
-            persistence=experiment_repo,
+            persistence=replay_experiment_repo,
             parallel=parallel,
             max_workers=max_workers
         )
@@ -243,7 +243,7 @@ def get_replay_results(experiment_id: int):
         limit = request.args.get('limit', 100, type=int)
         offset = request.args.get('offset', 0, type=int)
 
-        result = experiment_repo.get_replay_results(
+        result = replay_experiment_repo.get_replay_results(
             experiment_id=experiment_id,
             variant=variant,
             quality_change=quality_change,
@@ -275,7 +275,7 @@ def get_replay_summary(experiment_id: int):
         }
     """
     try:
-        summary = experiment_repo.get_replay_results_summary(experiment_id)
+        summary = replay_experiment_repo.get_replay_results_summary(experiment_id)
 
         return jsonify({
             'success': True,
@@ -297,7 +297,7 @@ def get_replay_captures(experiment_id: int):
         }
     """
     try:
-        captures = experiment_repo.get_replay_experiment_captures(experiment_id)
+        captures = replay_experiment_repo.get_replay_experiment_captures(experiment_id)
 
         return jsonify({
             'success': True,
@@ -321,7 +321,7 @@ def get_capture_replay_comparison(experiment_id: int, capture_id: int):
     """
     try:
         # Get original capture info
-        captures = experiment_repo.get_replay_experiment_captures(experiment_id)
+        captures = replay_experiment_repo.get_replay_experiment_captures(experiment_id)
         original = None
         for c in captures:
             if c['capture_id'] == capture_id:
@@ -332,7 +332,7 @@ def get_capture_replay_comparison(experiment_id: int, capture_id: int):
             return jsonify({'success': False, 'error': 'Capture not found in this experiment'}), 404
 
         # Get variant results for this capture
-        results = experiment_repo.get_replay_results(
+        results = replay_experiment_repo.get_replay_results(
             experiment_id=experiment_id,
             limit=100,
             offset=0
@@ -374,7 +374,7 @@ def _resolve_capture_ids(capture_selection: Dict[str, Any]) -> list:
         if not labels:
             return []
 
-        result = experiment_repo.search_captures_with_labels(
+        result = capture_label_repo.search_captures_with_labels(
             labels=labels,
             match_all=capture_selection.get('match_all', False),
             phase=filters.get('phase'),
@@ -389,7 +389,7 @@ def _resolve_capture_ids(capture_selection: Dict[str, Any]) -> list:
         # Search by filters only
         filters = capture_selection.get('filters', {})
 
-        result = experiment_repo.list_prompt_captures(
+        result = prompt_capture_repo.list_prompt_captures(
             phase=filters.get('phase'),
             action=filters.get('action'),
             min_pot_odds=filters.get('min_pot_odds'),
