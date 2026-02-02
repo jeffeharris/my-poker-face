@@ -93,9 +93,9 @@ Issues that won't crash but indicate quality problems that could bite early user
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T2-23 | No frontend tests at all | `react/react/` | Zero `.test.tsx` files. No unit, integration, or E2E tests. Regressions undetected. | |
-| T2-24 | Missing ARIA labels | All interactive elements | Only 49 ARIA attributes across 21 files vs 1275+ interactive elements. Screen reader users blocked. | |
-| T2-25 | No keyboard navigation for poker actions | PokerTable components | Mouse/touch only. Keyboard-only users can't play. | |
+| T2-23 | ~~No frontend tests at all~~ | `react/react/` | Zero `.test.tsx` files. No unit, integration, or E2E tests. Regressions undetected. | **Demoted to Tier 3** — see T3-37. Some test coverage now exists; remaining gaps are post-release work. |
+| T2-24 | ~~Missing ARIA labels~~ | All interactive elements | Only 49 ARIA attributes across 21 files vs 1275+ interactive elements. Screen reader users blocked. | **Demoted to Tier 3** — see T3-38. Accessibility improvements are ongoing post-release work. |
+| T2-25 | ~~No keyboard navigation for poker actions~~ | PokerTable components | Mouse/touch only. Keyboard-only users can't play. | **Demoted to Tier 3** — see T3-39. Accessibility improvements are ongoing post-release work. |
 | T2-26 | No code splitting | `react/src/App.tsx:286-371` | All routes imported synchronously. Admin panel code loaded for all users (~500KB+ unnecessary). | **FIXED** — React.lazy for 11 route components; core path (GamePage, GameMenu, LoginForm) stays eager |
 | T2-27 | `GameContext` violates SoC | `react/src/contexts/GameContext.tsx` | WebSocket, HTTP API, state management, message dedup all in one file. Hard to test or debug. | **DISMISSED** — file deleted in T2-28; SoC concern for `usePokerGame` tracked by T2-11 |
 | T2-28 | Duplicate socket event handling | `GameContext.tsx` + `usePokerGame.ts` | Both handle socket events independently. Confusing ownership, potential conflicts. | **FIXED** — deleted unused `GameContext.tsx`; `usePokerGame` is the sole socket handler |
@@ -104,7 +104,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T2-29 | Multi-worker scaling (consolidates T2-03, T2-21) | `docker-compose.prod.yml:39`, `flask_app/extensions.py:30`, `flask_app/services/game_state_service.py`, `flask_app/handlers/game_handler.py` | Single gevent worker handles current load fine via green threads. **When ready to scale (30+ concurrent games or tournaments + live users):** (1) Add `message_queue=REDIS_URL` to `SocketIO()` init — Redis already running in prod. (2) Fix `async_mode='threading'` → auto-detect. (3) Bump to `-w 2`. (4) Audit `get_game()`/`set_game()` thread safety under real multi-worker load — per-game locks exist but dict-level ops rely on GIL. (5) Review `progress_game()` locking under concurrent workers. ~3-5 files, main risk is integration testing. | |
+| T2-29 | ~~Multi-worker scaling~~ (consolidates T2-03, T2-21) | `docker-compose.prod.yml:39`, `flask_app/extensions.py:30`, `flask_app/services/game_state_service.py`, `flask_app/handlers/game_handler.py` | **Demoted to Tier 3** — see T3-40. Single worker handles current load fine. Only matters at 30+ concurrent games. | |
 | T2-30 | No frontend health check | `docker-compose.prod.yml:51-57` | Frontend service has no healthcheck. Docker can't auto-recover if nginx crashes. | **FIXED** — added curl health check on nginx |
 | T2-31 | No deploy rollback mechanism | `deploy.sh:29-30` | Previous containers destroyed before testing new ones. Failed deploy = downtime. | **FIXED** — tag images before build, auto-rollback on failed health check |
 | T2-32 | Migration runs after health check | `.github/workflows/deploy.yml:100-107` | App goes live, THEN migration runs. If migration fails, app has wrong schema. | **FIXED** — reordered: migrations run before health check |
@@ -129,6 +129,14 @@ Issues to address once live, during ongoing development.
 | T3-06 | No test coverage reporting | CI/CD pipeline | No `pytest-cov`, no coverage enforcement. Don't know what's tested. | **FIXED** — added `pytest-cov` with 40% floor (`--cov-fail-under=40`) |
 | T3-07 | DB connection leaks in tests | `test_persistence.py:26-32` | `tearDown` unlinks file without closing DB connection first. | **DISMISSED** — `GamePersistence` uses `with sqlite3.connect()` per operation; no persistent connection to leak |
 | T3-08 | No experiment integration tests | `experiments/` | 11 files, 0 integration tests. Tournament runner untested end-to-end. | |
+| T3-37 | Expand frontend test coverage | `react/react/` | Some test coverage now exists but gaps remain. Add unit tests for hooks, components, and game logic utilities. *(Demoted from T2-23)* | |
+
+### Accessibility
+
+| ID | Issue | Location | Description | Status |
+|----|-------|----------|-------------|--------|
+| T3-38 | Missing ARIA labels | All interactive elements | Only 49 ARIA attributes across 21 files vs 1275+ interactive elements. Screen reader users blocked. *(Demoted from T2-24)* | |
+| T3-39 | No keyboard navigation for poker actions | PokerTable components | Mouse/touch only. Keyboard-only users can't play. *(Demoted from T2-25)* | |
 
 ### Performance & Scalability
 
@@ -139,6 +147,7 @@ Issues to address once live, during ongoing development.
 | T3-11 | Frontend re-renders on every socket event | React components | Full game state replacement triggers unnecessary re-renders. No `React.memo`. | |
 | T3-12 | No pagination on game list | `flask_app/routes/game_routes.py:194` | Hardcoded `limit=10`, no offset support. | **FIXED** — added `limit` and `offset` query params (max 100), persistence layer supports offset |
 | T3-13 | Hardcoded 600s HTTP timeout | `core/llm/providers/http_client.py:16` | 10-minute timeout for all operations. Can't configure per-request. | **FIXED** — configurable via `LLM_HTTP_TIMEOUT` env var |
+| T3-40 | Multi-worker scaling | `docker-compose.prod.yml`, `flask_app/extensions.py`, `game_state_service.py`, `game_handler.py` | Single worker handles current load. When scaling to 30+ concurrent games: (1) add `message_queue=REDIS_URL` to SocketIO init, (2) fix `async_mode`, (3) bump workers, (4) audit thread safety, (5) review `progress_game()` locking. Consolidates T2-03, T2-21. *(Demoted from T2-29)* | |
 
 ### Code Organization
 
@@ -185,8 +194,8 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 32 | 20 | 4 | 8 |
-| **Tier 3: Post-Release** | 36 | 19 | 1 | 16 |
+| **Tier 2: Should-Fix** | 28 | 20 | 4 | 4 |
+| **Tier 3: Post-Release** | 40 | 19 | 1 | 20 |
 | **Total** | **89** | **52** | **12** | **24** |
 
 ## Key Architectural Insight
