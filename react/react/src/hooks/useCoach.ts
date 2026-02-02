@@ -285,7 +285,9 @@ export function useCoach({
     setSkillUnlockQueue(prev => prev.filter(id => id !== skillId));
   }, []);
 
-  // When player's turn starts, auto-fetch stats (and proactive tip if enabled)
+  // When player's turn starts, auto-fetch stats (and proactive tip if enabled).
+  // Debounce to avoid duplicate fetches from rapid game-state socket updates
+  // that can briefly toggle isPlayerTurn multiple times.
   useEffect(() => {
     if (isPlayerTurn && !prevIsPlayerTurn.current) {
       // Turn just started
@@ -294,13 +296,19 @@ export function useCoach({
     prevIsPlayerTurn.current = isPlayerTurn;
 
     if (!isPlayerTurn || mode === 'off' || fetchedForTurn.current) return;
-    fetchedForTurn.current = true;
 
-    refreshStats();
+    const timer = setTimeout(() => {
+      if (fetchedForTurn.current) return; // already fetched during debounce window
+      fetchedForTurn.current = true;
 
-    if (mode === 'proactive') {
-      fetchProactiveTip();
-    }
+      refreshStats();
+
+      if (mode === 'proactive') {
+        fetchProactiveTip();
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
   }, [isPlayerTurn, mode, refreshStats, fetchProactiveTip]);
 
   // Clear proactive tip when turn ends
