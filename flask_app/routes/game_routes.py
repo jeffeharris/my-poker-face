@@ -194,6 +194,51 @@ def analyze_player_decision(
         logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision for {player_name}: {e}")
 
 
+def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
+                                 game_data: dict, pre_action_state) -> None:
+    """Post-action hook: evaluate the human player's action against skill targets."""
+    try:
+        from flask_app.services.coach_engine import compute_coaching_data
+        from flask_app.services.coach_progression import CoachProgressionService
+        from flask_app.services.situation_classifier import SituationClassifier
+
+        user_id = game_data.get('owner_id', '')
+        if not user_id:
+            return
+
+        # Compute coaching data from the pre-action state for accurate evaluation
+        coaching_data = compute_coaching_data(
+            game_id, player_name, game_data=game_data,
+            game_state_override=pre_action_state,
+        )
+        if not coaching_data:
+            return
+
+        service = CoachProgressionService(persistence)
+        player_state = service.get_or_initialize_player(user_id)
+
+        classifier = SituationClassifier()
+        unlocked = [g for g, gp in player_state['gate_progress'].items() if gp.unlocked]
+        classification = classifier.classify(
+            coaching_data, unlocked, player_state['skill_states']
+        )
+
+        if classification.relevant_skills:
+            evaluations = service.evaluate_and_update(
+                user_id, action, coaching_data, classification
+            )
+            if evaluations:
+                logger.debug(
+                    f"[COACH_PROGRESSION] {player_name}: evaluated {len(evaluations)} skills, "
+                    f"primary={classification.primary_skill}"
+                )
+    except Exception as e:
+        logger.error(
+            f"[COACH_PROGRESSION] Failed for game={game_id} player={player_name}: {e}",
+            exc_info=True,
+        )
+
+
 def generate_game_id() -> str:
     """Generate a unique, unpredictable game ID."""
     return secrets.token_urlsafe(16)
@@ -1073,6 +1118,10 @@ def api_player_action(game_id):
         hand_number = memory_manager.hand_count if memory_manager else None
         analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
 
+        # Coach progression: evaluate human player actions against skill targets
+        if current_player.is_human:
+            _evaluate_coach_progression(game_id, current_player.name, action, current_game_data, pre_action_state)
+
         record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
@@ -1361,6 +1410,10 @@ def register_socket_events(sio):
         memory_manager = current_game_data.get('memory_manager')
         hand_number = memory_manager.hand_count if memory_manager else None
         analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
+
+        # Coach progression: evaluate human player actions against skill targets
+        if current_player.is_human:
+            _evaluate_coach_progression(game_id, current_player.name, action, current_game_data, pre_action_state)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")
