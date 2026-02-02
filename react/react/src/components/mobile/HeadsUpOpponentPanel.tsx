@@ -46,12 +46,17 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
     if (!gameId) return;
 
     let mounted = true;
+    let timerId: ReturnType<typeof setTimeout>;
+    let delayMs = 5000;
 
     const fetchData = async () => {
+      let rateLimited = false;
       try {
         // Fetch pressure stats
         const statsResponse = await fetch(`${config.API_URL}/api/game/${gameId}/pressure-stats`);
-        if (statsResponse.ok && mounted) {
+        if (statsResponse.status === 429) {
+          rateLimited = true;
+        } else if (statsResponse.ok && mounted) {
           const data = await statsResponse.json();
           const stats = data.player_summaries?.[opponent.name];
           if (stats) {
@@ -61,7 +66,9 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
 
         // Fetch opponent observations from memory debug
         const memoryResponse = await fetch(`${config.API_URL}/api/game/${gameId}/memory-debug`);
-        if (memoryResponse.ok && mounted) {
+        if (memoryResponse.status === 429) {
+          rateLimited = true;
+        } else if (memoryResponse.ok && mounted) {
           const memoryData = await memoryResponse.json();
           const opponentModels = memoryData.opponent_models || {};
 
@@ -70,30 +77,35 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
             const obs = opponentModels[humanPlayerName][opponent.name];
             if (obs.hands_observed > 0) {
               setObservation(obs);
-              return;
             }
-          }
-
-          // Fallback: find observations about our opponent from any observer
-          for (const observer of Object.keys(opponentModels)) {
-            const obs = opponentModels[observer]?.[opponent.name];
-            if (obs && obs.hands_observed > 0) {
-              setObservation(obs);
-              break;
+          } else {
+            // Fallback: find observations about our opponent from any observer
+            for (const observer of Object.keys(opponentModels)) {
+              const obs = opponentModels[observer]?.[opponent.name];
+              if (obs && obs.hands_observed > 0) {
+                setObservation(obs);
+                break;
+              }
             }
           }
         }
+
+        delayMs = rateLimited ? Math.min(delayMs * 2, 60000) : 5000;
       } catch (error) {
         logger.error('Failed to fetch opponent data:', error);
+        delayMs = Math.min(delayMs * 2, 60000);
+      }
+
+      if (mounted) {
+        timerId = setTimeout(fetchData, delayMs);
       }
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 5000);
 
     return () => {
       mounted = false;
-      clearInterval(interval);
+      clearTimeout(timerId);
     };
   }, [gameId, opponent.name, humanPlayerName]);
 
