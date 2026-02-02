@@ -4,9 +4,7 @@ import time
 import json
 import logging
 import secrets
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Dict
 
 from flask import Blueprint, jsonify, request, redirect, send_from_directory
@@ -40,7 +38,6 @@ from ..handlers.message_handler import (
 )
 from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
-from ..config import get_db_path
 from ..validation import validate_player_action
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 from poker.guest_limits import (
@@ -509,54 +506,7 @@ def get_model_cost_tiers() -> Dict[str, Dict[str, str]]:
     Returns:
         Dict mapping provider -> model -> tier string
     """
-    tiers: Dict[str, Dict[str, str]] = {}
-
-    # Model aliases: UI name -> pricing table name(s)
-    # Used when UI model names differ from actual API model names
-    model_aliases = {
-        'xai': {
-            'grok-4-fast': 'grok-4-fast-reasoning',  # Maps to same price as non-reasoning
-        }
-    }
-
-    try:
-        with sqlite3.connect(get_db_path()) as conn:
-            cursor = conn.execute("""
-                SELECT provider, model, cost FROM model_pricing
-                WHERE unit = 'output_tokens_1m'
-                  AND (valid_from IS NULL OR valid_from <= datetime('now'))
-                  AND (valid_until IS NULL OR valid_until > datetime('now'))
-            """)
-
-            for provider, model, cost in cursor:
-                if provider not in tiers:
-                    tiers[provider] = {}
-
-                # Calculate tier based on output cost thresholds
-                if cost <= 0.10:
-                    tier = "free"
-                elif cost < 1.00:
-                    tier = "$"
-                elif cost <= 5.00:
-                    tier = "$$"
-                elif cost <= 20.00:
-                    tier = "$$$"
-                else:
-                    tier = "$$$$"
-
-                tiers[provider][model] = tier
-
-            # Apply model aliases: copy tier from pricing model to UI model name
-            for provider, aliases in model_aliases.items():
-                if provider in tiers:
-                    for ui_model, pricing_model in aliases.items():
-                        if pricing_model in tiers[provider]:
-                            tiers[provider][ui_model] = tiers[provider][pricing_model]
-
-    except (sqlite3.OperationalError, sqlite3.DatabaseError) as e:
-        logger.warning(f"Failed to load model pricing for tiers: {e}")
-
-    return tiers
+    return persistence._llm_repo.get_model_cost_tiers()
 
 
 @game_bp.route('/api/user-models', methods=['GET'])
@@ -704,29 +654,7 @@ def _get_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    db_path = get_db_path()
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            # Check if table exists
-            cursor = conn.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='enabled_models'
-            """)
-            if not cursor.fetchone():
-                return {}
-
-            # Only include models where BOTH enabled and user_enabled are true
-            cursor = conn.execute("""
-                SELECT provider, model, enabled, user_enabled FROM enabled_models
-            """)
-            return {
-                (row[0], row[1]): bool(row[2]) and bool(row[3] if row[3] is not None else True)
-                for row in cursor.fetchall()
-            }
-    except sqlite3.Error as e:
-        logger.warning(f"Database error in _get_enabled_models_map: {e}")
-        return {}
+    return persistence._llm_repo.get_enabled_models_map()
 
 
 def _get_system_enabled_models_map():
@@ -740,29 +668,7 @@ def _get_system_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    db_path = get_db_path()
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            # Check if table exists
-            cursor = conn.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='enabled_models'
-            """)
-            if not cursor.fetchone():
-                return {}
-
-            # Only check system enabled status (ignore user_enabled)
-            cursor = conn.execute("""
-                SELECT provider, model, enabled FROM enabled_models
-            """)
-            return {
-                (row[0], row[1]): bool(row[2])
-                for row in cursor.fetchall()
-            }
-    except sqlite3.Error as e:
-        logger.warning(f"Database error in _get_system_enabled_models_map: {e}")
-        return {}
+    return persistence._llm_repo.get_system_enabled_models_map()
 
 
 def _get_model_capabilities_map():
@@ -774,33 +680,7 @@ def _get_model_capabilities_map():
     Returns:
         Dict mapping (provider, model) to dict of capability flags
     """
-    db_path = get_db_path()
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            # Check if table and column exist
-            cursor = conn.execute("PRAGMA table_info(enabled_models)")
-            columns = [row[1] for row in cursor.fetchall()]
-            if 'supports_img2img' not in columns:
-                return {}
-
-            cursor = conn.execute("""
-                SELECT provider, model, supports_reasoning, supports_json_mode,
-                       supports_image_gen, supports_img2img
-                FROM enabled_models
-            """)
-            return {
-                (row[0], row[1]): {
-                    'supports_reasoning': bool(row[2]),
-                    'supports_json_mode': bool(row[3]),
-                    'supports_image_generation': bool(row[4]),
-                    'supports_img2img': bool(row[5]) if row[5] is not None else False,
-                }
-                for row in cursor.fetchall()
-            }
-    except sqlite3.Error as e:
-        logger.warning(f"Database error in _get_model_capabilities_map: {e}")
-        return {}
+    return persistence._llm_repo.get_model_capabilities_map()
 
 
 @game_bp.route('/api/new-game', methods=['POST'])
@@ -1189,11 +1069,6 @@ def delete_game(game_id):
     try:
         game_state_service.delete_game(game_id)
         persistence.delete_game(game_id)
-
-        import sqlite3
-        with sqlite3.connect(persistence.db_path) as conn:
-            conn.execute("DELETE FROM ai_player_state WHERE game_id = ?", (game_id,))
-            conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
 
         return jsonify({'message': 'Game deleted successfully'}), 200
     except Exception as e:

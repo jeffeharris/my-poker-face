@@ -34,8 +34,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
-
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -1597,35 +1595,10 @@ class AITournamentRunner:
     def _get_decision_stats(self, game_id: str) -> Dict:
         """Get decision quality stats from the database."""
         try:
-            import sqlite3
-            with sqlite3.connect(self.persistence.db_path) as conn:
-                cursor = conn.cursor()
-
-                cursor.execute('''
-                    SELECT
-                        COUNT(*) as total,
-                        SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
-                        SUM(CASE WHEN decision_quality = 'marginal' THEN 1 ELSE 0 END) as marginal,
-                        SUM(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake,
-                        AVG(COALESCE(ev_lost, 0)) as avg_ev_lost
-                    FROM player_decision_analysis
-                    WHERE game_id = ?
-                ''', (game_id,))
-
-                row = cursor.fetchone()
-                if row and row[0]:
-                    return {
-                        "total": row[0],
-                        "correct": row[1] or 0,
-                        "marginal": row[2] or 0,
-                        "mistake": row[3] or 0,
-                        "correct_pct": round((row[1] or 0) * 100 / row[0], 1) if row[0] else 0,
-                        "avg_ev_lost": round(row[4] or 0, 2),
-                    }
+            return self.persistence._experiment_repo.get_decision_stats(game_id)
         except Exception as e:
             logger.warning(f"Could not get decision stats: {e}")
-
-        return {}
+            return {}
 
     def _get_player_outcomes(self, game_id: str) -> Dict[str, Dict[str, int]]:
         """Get per-player outcome metrics from hand_history table.
@@ -1637,54 +1610,7 @@ class AITournamentRunner:
             Dict mapping player name to {hands_played, hands_won}
         """
         try:
-            import sqlite3
-
-            with sqlite3.connect(self.persistence.db_path) as conn:
-                cursor = conn.cursor()
-
-                cursor.execute('''
-                    SELECT players_json, winners_json
-                    FROM hand_history
-                    WHERE game_id = ?
-                ''', (game_id,))
-
-                rows = cursor.fetchall()
-
-                # Aggregate per-player stats
-                player_stats: Dict[str, Dict[str, int]] = {}
-
-                for players_json, winners_json in rows:
-                    # Parse players
-                    try:
-                        players = json.loads(players_json) if players_json else []
-                    except json.JSONDecodeError:
-                        continue
-
-                    # Parse winners
-                    try:
-                        winners = json.loads(winners_json) if winners_json else []
-                    except json.JSONDecodeError:
-                        winners = []
-
-                    # Track hands played
-                    for player in players:
-                        name = player.get('name') if isinstance(player, dict) else str(player)
-                        if name not in player_stats:
-                            player_stats[name] = {'hands_played': 0, 'hands_won': 0}
-                        player_stats[name]['hands_played'] += 1
-
-                    # Track hands won
-                    winner_names = set()
-                    for winner in winners:
-                        name = winner.get('name') if isinstance(winner, dict) else str(winner)
-                        winner_names.add(name)
-
-                    for name in winner_names:
-                        if name in player_stats:
-                            player_stats[name]['hands_won'] += 1
-
-                return player_stats
-
+            return self.persistence._experiment_repo.get_player_outcomes(game_id)
         except Exception as e:
             logger.warning(f"Could not get player outcomes: {e}")
             return {}
@@ -2191,30 +2117,11 @@ class AITournamentRunner:
         """
         if not game_ids:
             return None
-
         try:
-            import sqlite3
-
-            with sqlite3.connect(self.persistence.db_path) as conn:
-                placeholders = ','.join('?' * len(game_ids))
-                cursor = conn.execute(f"""
-                    SELECT latency_ms FROM api_usage
-                    WHERE game_id IN ({placeholders}) AND latency_ms IS NOT NULL
-                """, game_ids)
-                latencies = [row[0] for row in cursor.fetchall()]
-
-                if latencies:
-                    return {
-                        'avg_ms': round(float(np.mean(latencies)), 2),
-                        'p50_ms': round(float(np.percentile(latencies, 50)), 2),
-                        'p95_ms': round(float(np.percentile(latencies, 95)), 2),
-                        'p99_ms': round(float(np.percentile(latencies, 99)), 2),
-                        'count': len(latencies),
-                    }
+            return self.persistence._experiment_repo.get_latency_metrics(game_ids)
         except Exception as e:
             logger.warning(f"Could not get latency metrics: {e}")
-
-        return None
+            return None
 
     def _get_error_stats_for_games(self, game_ids: List[str]) -> Optional[Dict]:
         """Get aggregated error stats for a list of games.
@@ -2227,46 +2134,11 @@ class AITournamentRunner:
         """
         if not game_ids:
             return None
-
         try:
-            import sqlite3
-
-            with sqlite3.connect(self.persistence.db_path) as conn:
-                placeholders = ','.join('?' * len(game_ids))
-
-                # Get total calls and error counts
-                cursor = conn.execute(f"""
-                    SELECT
-                        COUNT(*) as total,
-                        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
-                    FROM api_usage
-                    WHERE game_id IN ({placeholders})
-                """, game_ids)
-                row = cursor.fetchone()
-
-                if row and row[0] > 0:
-                    total, errors = row[0], row[1] or 0
-
-                    # Get error breakdown by error_code
-                    cursor = conn.execute(f"""
-                        SELECT error_code, COUNT(*) as count
-                        FROM api_usage
-                        WHERE game_id IN ({placeholders}) AND status = 'error'
-                        GROUP BY error_code
-                        ORDER BY count DESC
-                    """, game_ids)
-                    by_code = {row[0]: row[1] for row in cursor.fetchall()}
-
-                    return {
-                        'total_calls': total,
-                        'errors': errors,
-                        'error_rate': round(errors * 100 / total, 2) if total > 0 else 0,
-                        'by_error_code': by_code,
-                    }
+            return self.persistence._experiment_repo.get_error_stats(game_ids)
         except Exception as e:
             logger.warning(f"Could not get error stats: {e}")
-
-        return None
+            return None
 
     def _compute_quality_indicators(self, experiment_id: str) -> Optional[Dict]:
         """Compute quality indicators from player_decision_analysis + prompt_captures.
@@ -2287,67 +2159,9 @@ class AITournamentRunner:
             Dictionary with quality indicators, or None if no data
         """
         try:
-            import sqlite3
-            from poker.quality_metrics import compute_allin_categorizations, build_quality_indicators
-
-            with sqlite3.connect(self.persistence.db_path) as conn:
-                # Get basic quality metrics
-                cursor = conn.execute("""
-                    SELECT
-                        SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
-                        SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
-                        SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
-                        COUNT(*) as total_decisions
-                    FROM player_decision_analysis pda
-                    JOIN experiment_games eg ON pda.game_id = eg.game_id
-                    WHERE eg.experiment_id = ?
-                """, (experiment_id,))
-
-                row = cursor.fetchone()
-
-                if not row or row[3] == 0:  # total_decisions == 0 (now at index 3)
-                    logger.debug(f"No decision analysis records found for experiment {experiment_id}")
-                    return None
-
-                fold_mistakes = row[0] or 0
-                total_all_ins = row[1] or 0
-                total_folds = row[2] or 0
-                total_decisions = row[3]
-
-                # Query all-ins with AI response data for smarter categorization
-                cursor = conn.execute("""
-                    SELECT
-                        pc.stack_bb,
-                        pc.ai_response,
-                        pda.equity
-                    FROM prompt_captures pc
-                    JOIN experiment_games eg ON pc.game_id = eg.game_id
-                    LEFT JOIN player_decision_analysis pda
-                        ON pc.game_id = pda.game_id
-                        AND pc.hand_number = pda.hand_number
-                        AND pc.player_name = pda.player_name
-                        AND pc.phase = pda.phase
-                    WHERE eg.experiment_id = ?
-                      AND pc.action_taken = 'all_in'
-                """, (experiment_id,))
-
-                # Use shared categorization logic
-                suspicious_allins, marginal_allins = compute_allin_categorizations(cursor.fetchall())
-
-                result = build_quality_indicators(
-                    fold_mistakes=fold_mistakes,
-                    total_all_ins=total_all_ins,
-                    total_folds=total_folds,
-                    total_decisions=total_decisions,
-                    suspicious_allins=suspicious_allins,
-                    marginal_allins=marginal_allins,
-                )
-
-                logger.info(f"Computed quality indicators: {suspicious_allins} suspicious all-ins, {marginal_allins} marginal all-ins, {fold_mistakes} fold mistakes")
-                return result
-
+            return self.persistence._experiment_repo.get_quality_metrics(experiment_id)
         except Exception as e:
-            logger.warning(f"Could not compute quality indicators: {e}", exc_info=True)
+            logger.warning(f"Could not compute quality indicators: {e}")
             return None
 
     def _generate_ai_interpretation(

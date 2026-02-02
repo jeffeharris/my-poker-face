@@ -17,7 +17,6 @@ Usage:
 """
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -105,19 +104,14 @@ def resume_variant(
     logger.info(f"Attempting to resume variant {game_id}")
 
     # Get experiment game record
-    import sqlite3
-    with sqlite3.connect(persistence.db_path) as conn:
-        cursor = conn.execute("""
-            SELECT id, variant, variant_config_json, tournament_number
-            FROM experiment_games WHERE game_id = ? AND experiment_id = ?
-        """, (game_id, experiment_id))
-        row = cursor.fetchone()
-        if not row:
-            logger.error(f"Variant {game_id} not found in experiment {experiment_id}")
-            return False
+    record = persistence._experiment_repo.get_experiment_game(game_id, experiment_id)
+    if not record:
+        logger.error(f"Variant {game_id} not found in experiment {experiment_id}")
+        return False
 
-        experiment_game_id, variant, variant_config_json, tournament_number = row
-        variant_config = json.loads(variant_config_json) if variant_config_json else None
+    experiment_game_id = record['id']
+    variant = record['variant']
+    variant_config = record.get('variant_config')  # Already parsed from JSON by the repo method
 
     # Acquire resume lock
     lock_acquired = persistence.acquire_resume_lock(experiment_game_id)

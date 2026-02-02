@@ -3,13 +3,11 @@
 import logging
 import os
 import re
-import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
 from flask import Blueprint, jsonify, request
 
 from ..services import game_state_service
-from ..config import get_db_path
+from ..extensions import persistence
 from core.llm import UsageTracker
 from poker.authorization import require_permission
 
@@ -66,22 +64,8 @@ def api_summary():
     date_modifier = _get_date_modifier(range_param)
 
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-
-            cursor = conn.execute("""
-                SELECT
-                    COUNT(*) as total_calls,
-                    COALESCE(SUM(estimated_cost), 0) as total_cost,
-                    COALESCE(AVG(latency_ms), 0) as avg_latency,
-                    COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0) as error_rate
-                FROM api_usage
-                WHERE created_at >= datetime('now', ?)
-            """, (date_modifier,))
-            summary = dict(cursor.fetchone())
-
-            return jsonify({'success': True, 'summary': summary})
-
+        summary = persistence._llm_repo.get_usage_summary(date_modifier)
+        return jsonify({'success': True, 'summary': summary})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -164,44 +148,11 @@ def api_toggle_model(model_id):
         return jsonify({'success': False, 'error': 'Invalid field. Must be "enabled" or "user_enabled"'}), 400
 
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Get current state for cascade logic
-            current = conn.execute(
-                "SELECT enabled, user_enabled FROM enabled_models WHERE id = ?",
-                (model_id,)
-            ).fetchone()
-
-            if not current:
-                return jsonify({'success': False, 'error': 'Model not found'}), 404
-
-            new_enabled = current['enabled']
-            new_user_enabled = current['user_enabled']
-
-            if field == 'enabled':
-                new_enabled = 1 if enabled else 0
-                # Cascade: if turning system OFF, also turn user OFF
-                if not enabled:
-                    new_user_enabled = 0
-            else:  # field == 'user_enabled'
-                new_user_enabled = 1 if enabled else 0
-                # Cascade: if turning user ON, also turn system ON
-                if enabled:
-                    new_enabled = 1
-
-            conn.execute("""
-                UPDATE enabled_models
-                SET enabled = ?, user_enabled = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (new_enabled, new_user_enabled, model_id))
-
-            return jsonify({
-                'success': True,
-                'enabled': bool(new_enabled),
-                'user_enabled': bool(new_user_enabled)
-            })
-
+        result = persistence._llm_repo.toggle_model(model_id, field, enabled)
+        return jsonify({'success': True, **result})
+    except ValueError as e:
+        status = 404 if 'not found' in str(e).lower() else 400
+        return jsonify({'success': False, 'error': str(e)}), status
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -211,29 +162,8 @@ def api_toggle_model(model_id):
 def api_list_models():
     """List all models with their enabled status."""
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Check if table exists (migration may not have run)
-            cursor = conn.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='enabled_models'
-            """)
-            if not cursor.fetchone():
-                return jsonify({
-                    'success': False,
-                    'error': 'Migration required: enabled_models table does not exist'
-                }), 503
-
-            cursor = conn.execute("""
-                SELECT id, provider, model, enabled, user_enabled, display_name, notes,
-                       supports_reasoning, supports_json_mode, supports_image_gen,
-                       supports_img2img, sort_order, updated_at
-                FROM enabled_models
-                ORDER BY provider, sort_order
-            """)
-            models = [dict(row) for row in cursor.fetchall()]
-            return jsonify({'success': True, 'models': models})
+        models = persistence._llm_repo.list_all_models_full()
+        return jsonify({'success': True, 'models': models})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -260,8 +190,6 @@ def api_playground_captures():
         date_from: Filter by start date (ISO format)
         date_to: Filter by end date (ISO format)
     """
-    from ..extensions import persistence
-
     try:
         result = persistence.list_playground_captures(
             call_type=request.args.get('call_type'),
@@ -290,8 +218,6 @@ def api_playground_captures():
 @_dev_only
 def api_playground_capture(capture_id):
     """Get a single playground capture by ID."""
-    from ..extensions import persistence
-
     try:
         capture = persistence.get_prompt_capture(capture_id)
 
@@ -322,7 +248,6 @@ def api_playground_replay(capture_id):
         model: Model to use (optional)
         reasoning_effort: Reasoning effort (optional)
     """
-    from ..extensions import persistence
     from core.llm import LLMClient, CallType
 
     try:
@@ -393,8 +318,6 @@ def api_playground_replay(capture_id):
 @_dev_only
 def api_playground_stats():
     """Get aggregate statistics for playground captures."""
-    from ..extensions import persistence
-
     try:
         stats = persistence.get_playground_capture_stats()
         return jsonify({'success': True, 'stats': stats})
@@ -412,7 +335,6 @@ def api_playground_cleanup():
     Request body:
         retention_days: Delete captures older than this many days (default: from config)
     """
-    from ..extensions import persistence
     from core.llm.capture_config import get_retention_days
 
     try:
@@ -501,11 +423,9 @@ def api_upload_reference_image():
         reference_id = str(uuid.uuid4())
 
         # Store in database
-        with sqlite3.connect(get_db_path()) as conn:
-            conn.execute("""
-                INSERT INTO reference_images (id, image_data, width, height, content_type, source, original_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (reference_id, image_data, width, height, content_type, source, original_url))
+        persistence._personality_repo.save_reference_image(
+            reference_id, image_data, width, height, content_type, source, original_url
+        )
 
         return jsonify({
             'success': True,
@@ -529,23 +449,14 @@ def api_get_reference_image(reference_id: str):
     from flask import Response
 
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                "SELECT image_data, content_type FROM reference_images WHERE id = ?",
-                (reference_id,)
-            )
-            row = cursor.fetchone()
-
-            if not row:
-                return jsonify({'success': False, 'error': 'Reference image not found'}), 404
-
-            return Response(
-                row['image_data'],
-                mimetype=row['content_type'] or 'image/png',
-                headers={'Cache-Control': 'max-age=31536000'}  # Cache for 1 year
-            )
-
+        result = persistence._personality_repo.get_reference_image(reference_id)
+        if not result:
+            return jsonify({'success': False, 'error': 'Reference image not found'}), 404
+        return Response(
+            result['image_data'],
+            mimetype=result['content_type'] or 'image/png',
+            headers={'Cache-Control': 'max-age=31536000'}
+        )
     except Exception as e:
         logger.error(f"Reference image fetch error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -572,7 +483,6 @@ def api_playground_replay_image(capture_id: int):
         estimated_cost
     }
     """
-    from ..extensions import persistence
     from core.llm import LLMClient, CallType
     import base64
 
@@ -597,35 +507,21 @@ def api_playground_replay_image(capture_id: int):
         # Check if model supports img2img when reference image is provided
         seed_image_url = None
         if reference_image_id:
-            # Check model's img2img support
-            with sqlite3.connect(get_db_path()) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    "SELECT supports_img2img FROM enabled_models WHERE provider = ? AND model = ?",
-                    (provider, model)
-                )
-                model_row = cursor.fetchone()
-                supports_img2img = model_row['supports_img2img'] if model_row else False
+            supports_img2img = persistence._llm_repo.check_model_supports_img2img(provider, model)
+            if not supports_img2img:
+                return jsonify({
+                    'success': False,
+                    'error': f'Model "{model}" does not support image-to-image generation. Please select a model that supports img2img, or remove the reference image.',
+                }), 400
 
-                if not supports_img2img:
-                    return jsonify({
-                        'success': False,
-                        'error': f'Model "{model}" does not support image-to-image generation. Please select a model that supports img2img, or remove the reference image.',
-                    }), 400
-
-                # Fetch the reference image and convert to data URI
-                cursor = conn.execute(
-                    "SELECT image_data, content_type FROM reference_images WHERE id = ?",
-                    (reference_image_id,)
-                )
-                ref_row = cursor.fetchone()
-                if ref_row and ref_row['image_data']:
-                    content_type = ref_row['content_type'] or 'image/png'
-                    b64_data = base64.b64encode(ref_row['image_data']).decode('utf-8')
-                    seed_image_url = f"data:{content_type};base64,{b64_data}"
-                    logger.info(f"Using reference image for img2img: {reference_image_id} ({len(b64_data)} bytes base64)")
-                else:
-                    logger.warning(f"Reference image not found: {reference_image_id}")
+            ref_result = persistence._personality_repo.get_reference_image(reference_image_id)
+            if ref_result and ref_result['image_data']:
+                content_type = ref_result['content_type'] or 'image/png'
+                b64_data = base64.b64encode(ref_result['image_data']).decode('utf-8')
+                seed_image_url = f"data:{content_type};base64,{b64_data}"
+                logger.info(f"Using reference image for img2img: {reference_image_id} ({len(b64_data)} bytes base64)")
+            else:
+                logger.warning(f"Reference image not found: {reference_image_id}")
 
         # Create LLM client for the provider
         client = LLMClient(provider=provider, model=model)
@@ -695,7 +591,6 @@ def api_assign_avatar_from_capture(capture_id: int):
         use_replayed: True to use replayed image, False for original
         replayed_image_data: Base64 image data (if use_replayed)
     """
-    from ..extensions import persistence
     import base64
 
     try:
@@ -730,27 +625,7 @@ def api_assign_avatar_from_capture(capture_id: int):
             return jsonify({'success': False, 'error': 'No image data available'}), 400
 
         # Save to avatar_images table
-        with sqlite3.connect(get_db_path()) as conn:
-            # Check if avatar exists for this personality/emotion
-            cursor = conn.execute(
-                "SELECT id FROM avatar_images WHERE personality_name = ? AND emotion = ?",
-                (personality_name, emotion)
-            )
-            existing = cursor.fetchone()
-
-            if existing:
-                # Update existing
-                conn.execute("""
-                    UPDATE avatar_images
-                    SET image_data = ?, content_type = 'image/png', updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (image_data, existing[0]))
-            else:
-                # Insert new
-                conn.execute("""
-                    INSERT INTO avatar_images (personality_name, emotion, image_data, content_type)
-                    VALUES (?, ?, ?, 'image/png')
-                """, (personality_name, emotion, image_data))
+        persistence._personality_repo.assign_avatar(personality_name, emotion, image_data)
 
         return jsonify({
             'success': True,
@@ -772,39 +647,28 @@ def api_get_image_providers():
     Returns providers that support image generation (supports_image_gen=1).
     """
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
+        image_models = persistence._llm_repo.get_enabled_image_models()
 
-            # Get enabled image generation models
-            cursor = conn.execute("""
-                SELECT provider, model, display_name, supports_img2img
-                FROM enabled_models
-                WHERE enabled = 1 AND supports_image_gen = 1
-                ORDER BY provider, sort_order
-            """)
-
-            # Group by provider
-            providers = {}
-            for row in cursor.fetchall():
-                provider = row['provider']
-                if provider not in providers:
-                    providers[provider] = {
-                        'id': provider,
-                        'name': provider.title(),
-                        'models': [],
-                        'size_presets': _get_size_presets(provider),
-                    }
-                providers[provider]['models'].append({
-                    'id': row['model'],
-                    'name': row['display_name'] or row['model'],
-                    'supports_img2img': bool(row['supports_img2img']),
-                })
-
-            return jsonify({
-                'success': True,
-                'providers': list(providers.values()),
+        providers = {}
+        for row in image_models:
+            provider = row['provider']
+            if provider not in providers:
+                providers[provider] = {
+                    'id': provider,
+                    'name': provider.title(),
+                    'models': [],
+                    'size_presets': _get_size_presets(provider),
+                }
+            providers[provider]['models'].append({
+                'id': row['model'],
+                'name': row['display_name'] or row['model'],
+                'supports_img2img': bool(row['supports_img2img']),
             })
 
+        return jsonify({
+            'success': True,
+            'providers': list(providers.values()),
+        })
     except Exception as e:
         logger.error(f"Image providers error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1092,28 +956,8 @@ def list_pricing():
     current_only = request.args.get('current_only', 'false').lower() == 'true'
 
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-
-            query = "SELECT * FROM model_pricing WHERE 1=1"
-            params = []
-
-            if provider:
-                query += " AND provider = ?"
-                params.append(provider)
-            if model:
-                query += " AND model = ?"
-                params.append(model)
-            if current_only:
-                query += " AND (valid_from IS NULL OR valid_from <= datetime('now'))"
-                query += " AND (valid_until IS NULL OR valid_until > datetime('now'))"
-
-            query += " ORDER BY provider, model, unit, valid_from DESC"
-
-            cursor = conn.execute(query, params)
-            rows = [dict(row) for row in cursor.fetchall()]
-
-            return jsonify({'success': True, 'count': len(rows), 'pricing': rows})
+        rows = persistence._llm_repo.list_pricing(provider, model, current_only)
+        return jsonify({'success': True, 'count': len(rows), 'pricing': rows})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1148,28 +992,12 @@ def add_pricing():
     notes = data.get('notes')
 
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            # Expire any current pricing for this SKU
-            conn.execute("""
-                UPDATE model_pricing
-                SET valid_until = ?
-                WHERE provider = ? AND model = ? AND unit = ?
-                  AND valid_until IS NULL
-            """, (valid_from, provider, model, unit))
-
-            # Insert new pricing
-            conn.execute("""
-                INSERT INTO model_pricing (provider, model, unit, cost, valid_from, notes)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (provider, model, unit, cost, valid_from, notes))
-
-            # Invalidate pricing cache so future cost calculations use fresh data
-            UsageTracker.get_default().invalidate_pricing_cache()
-
-            return jsonify({
-                'success': True,
-                'message': f'Added pricing for {provider}/{model}/{unit}: ${cost}'
-            })
+        persistence._llm_repo.add_pricing(provider, model, unit, cost, valid_from, notes)
+        UsageTracker.get_default().invalidate_pricing_cache()
+        return jsonify({
+            'success': True,
+            'message': f'Added pricing for {provider}/{model}/{unit}: ${cost}'
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1189,42 +1017,11 @@ def bulk_add_pricing():
     if not entries:
         return jsonify({'success': False, 'error': 'No entries provided'}), 400
 
-    now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-    added = 0
-    errors = []
-
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            for entry in entries:
-                try:
-                    provider = entry['provider']
-                    model = entry['model']
-                    unit = entry['unit']
-                    try:
-                        cost = float(entry['cost'])
-                    except (TypeError, ValueError):
-                        raise ValueError(f"Invalid cost value '{entry.get('cost')}': must be a number")
-                    valid_from = entry.get('valid_from') or now
-                    notes = entry.get('notes')
-
-                    if expire_existing:
-                        conn.execute("""
-                            UPDATE model_pricing SET valid_until = ?
-                            WHERE provider = ? AND model = ? AND unit = ? AND valid_until IS NULL
-                        """, (valid_from, provider, model, unit))
-
-                    conn.execute("""
-                        INSERT INTO model_pricing (provider, model, unit, cost, valid_from, notes)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (provider, model, unit, cost, valid_from, notes))
-                    added += 1
-                except Exception as e:
-                    errors.append({'entry': entry, 'error': str(e)})
-
-            # Invalidate pricing cache so future cost calculations use fresh data
-            if added > 0:
-                UsageTracker.get_default().invalidate_pricing_cache()
-            return jsonify({'success': True, 'added': added, 'errors': errors})
+        added, errors = persistence._llm_repo.bulk_add_pricing(entries, expire_existing)
+        if added > 0:
+            UsageTracker.get_default().invalidate_pricing_cache()
+        return jsonify({'success': True, 'added': added, 'errors': errors})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1233,13 +1030,11 @@ def bulk_add_pricing():
 def delete_pricing(pricing_id: int):
     """Delete a pricing entry by ID."""
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            cursor = conn.execute("DELETE FROM model_pricing WHERE id = ?", (pricing_id,))
-            if cursor.rowcount == 0:
-                return jsonify({'success': False, 'error': 'Not found'}), 404
-            # Invalidate pricing cache so future cost calculations use fresh data
-            UsageTracker.get_default().invalidate_pricing_cache()
-            return jsonify({'success': True, 'message': f'Deleted pricing entry {pricing_id}'})
+        deleted = persistence._llm_repo.delete_pricing(pricing_id)
+        if not deleted:
+            return jsonify({'success': False, 'error': 'Not found'}), 404
+        UsageTracker.get_default().invalidate_pricing_cache()
+        return jsonify({'success': True, 'message': f'Deleted pricing entry {pricing_id}'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1248,16 +1043,8 @@ def delete_pricing(pricing_id: int):
 def list_providers():
     """List all providers with model/SKU counts."""
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT provider, COUNT(DISTINCT model) as model_count, COUNT(*) as sku_count
-                FROM model_pricing
-                WHERE valid_until IS NULL OR valid_until > datetime('now')
-                GROUP BY provider
-                ORDER BY provider
-            """)
-            return jsonify({'success': True, 'providers': [dict(r) for r in cursor.fetchall()]})
+        providers = persistence._llm_repo.list_providers_with_counts()
+        return jsonify({'success': True, 'providers': providers})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1270,18 +1057,12 @@ def list_models_for_provider(provider: str):
         return jsonify({'success': False, 'error': 'Invalid provider format'}), 400
 
     try:
-        with sqlite3.connect(get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT DISTINCT model FROM model_pricing
-                WHERE provider = ? AND (valid_until IS NULL OR valid_until > datetime('now'))
-                ORDER BY model
-            """, (provider,))
-            return jsonify({
-                'success': True,
-                'provider': provider,
-                'models': [r['model'] for r in cursor.fetchall()]
-            })
+        models = persistence._llm_repo.list_models_for_provider(provider)
+        return jsonify({
+            'success': True,
+            'provider': provider,
+            'models': models
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1324,7 +1105,6 @@ def api_get_settings():
     - IMAGE_PROVIDER/IMAGE_MODEL: Model for avatar generation
     - ASSISTANT_PROVIDER/ASSISTANT_MODEL: Reasoning model for experiment assistant
     """
-    from ..extensions import persistence
     from core.llm.capture_config import (
         get_capture_mode, get_retention_days, get_env_defaults,
         CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS
@@ -1440,7 +1220,6 @@ def api_update_setting():
         key: Setting key (e.g., 'LLM_PROMPT_CAPTURE')
         value: New value
     """
-    from ..extensions import persistence
     from core.llm.capture_config import CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS
 
     try:
@@ -1516,8 +1295,6 @@ def api_reset_settings():
     Request body (optional):
         key: Specific setting to reset (if not provided, resets all)
     """
-    from ..extensions import persistence
-
     try:
         data = request.get_json() or {}
         key = data.get('key')
@@ -1560,7 +1337,6 @@ def api_active_games():
         List of games with game_id, owner_name, player names, phase, etc.
         Active games are marked with is_active=True
     """
-    from ..extensions import persistence
     import json as json_module
 
     try:
@@ -1669,14 +1445,7 @@ def api_storage_stats():
     - ai_state: ai_player_state, controller_state, opponent_models, etc.
     - config: personalities, enabled_models, model_pricing, etc.
     """
-    from pathlib import Path
-
     try:
-        db_path = get_db_path()
-
-        # Get total DB size
-        total_bytes = Path(db_path).stat().st_size
-
         # Define table categories
         categories = {
             'captures': ['prompt_captures', 'player_decision_analysis'],
@@ -1697,103 +1466,8 @@ def api_storage_stats():
             'assets': ['avatar_images'],
         }
 
-        # Build whitelist from known categories for defensive SQL
-        allowed_tables = set()
-        for table_list in categories.values():
-            allowed_tables.update(table_list)
-        # Also allow experiments table which may not be in categories
-        allowed_tables.add('experiments')
-
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Get row counts and estimate sizes for each table
-            table_stats = {}
-            cursor = conn.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name NOT LIKE 'sqlite_%'
-            """)
-            tables = [row['name'] for row in cursor.fetchall()]
-
-            for table in tables:
-                # Skip tables not in whitelist to prevent SQL injection
-                if table not in allowed_tables:
-                    continue
-
-                try:
-                    # Get row count - table name is validated against whitelist
-                    cursor = conn.execute(f'SELECT COUNT(*) as cnt FROM "{table}"')
-                    count = cursor.fetchone()['cnt']
-
-                    # Estimate table size using page_count from dbstat if available
-                    # Fallback to rough estimate based on row count
-                    try:
-                        cursor = conn.execute(f"""
-                            SELECT SUM(pgsize) as size FROM dbstat WHERE name=?
-                        """, (table,))
-                        size_row = cursor.fetchone()
-                        size = size_row['size'] if size_row and size_row['size'] else 0
-                    except sqlite3.OperationalError:
-                        # dbstat not available, use rough estimate
-                        size = 0
-
-                    table_stats[table] = {'rows': count, 'bytes': size}
-                except sqlite3.OperationalError:
-                    table_stats[table] = {'rows': 0, 'bytes': 0}
-
-            # Aggregate by category
-            category_stats = {}
-            categorized_tables = set()
-
-            for category, table_list in categories.items():
-                rows = 0
-                bytes_est = 0
-                for table in table_list:
-                    if table in table_stats:
-                        rows += table_stats[table]['rows']
-                        bytes_est += table_stats[table]['bytes']
-                        categorized_tables.add(table)
-                category_stats[category] = {'rows': rows, 'bytes': bytes_est}
-
-            # Add 'other' category for uncategorized tables
-            other_rows = 0
-            other_bytes = 0
-            for table, stats in table_stats.items():
-                if table not in categorized_tables:
-                    other_rows += stats['rows']
-                    other_bytes += stats['bytes']
-            if other_rows > 0 or other_bytes > 0:
-                category_stats['other'] = {'rows': other_rows, 'bytes': other_bytes}
-
-            # Calculate percentages based on total bytes
-            # If dbstat not available, estimate from row proportions
-            total_tracked_bytes = sum(cat['bytes'] for cat in category_stats.values())
-            if total_tracked_bytes == 0:
-                # Estimate percentages from row counts
-                total_rows = sum(cat['rows'] for cat in category_stats.values())
-                for category in category_stats:
-                    if total_rows > 0:
-                        pct = (category_stats[category]['rows'] / total_rows) * 100
-                        category_stats[category]['bytes'] = int(total_bytes * pct / 100)
-                    category_stats[category]['percentage'] = round(
-                        (category_stats[category]['rows'] / total_rows * 100) if total_rows > 0 else 0, 1
-                    )
-            else:
-                for category in category_stats:
-                    category_stats[category]['percentage'] = round(
-                        (category_stats[category]['bytes'] / total_bytes * 100), 1
-                    )
-
-            return jsonify({
-                'success': True,
-                'storage': {
-                    'total_bytes': total_bytes,
-                    'total_mb': round(total_bytes / 1024 / 1024, 2),
-                    'categories': category_stats,
-                    'tables': table_stats,
-                }
-            })
-
+        storage = persistence._llm_repo.get_storage_stats(categories)
+        return jsonify({'success': True, 'storage': storage})
     except Exception as e:
         logger.error(f"Error getting storage stats: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
