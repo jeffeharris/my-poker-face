@@ -149,10 +149,7 @@ class SituationClassifier:
         """Trigger when facing a big bet (>=50% pot) on turn/river with medium hand."""
         if ctx['phase'] not in ('TURN', 'RIVER'):
             return False
-        pot_before_bet = ctx['pot_total'] - ctx['cost_to_call']
-        is_big_bet = pot_before_bet > 0 and ctx['cost_to_call'] >= pot_before_bet * 0.5
-        is_medium = ctx.get('has_pair', False) and not ctx.get('is_strong_hand', False)
-        return is_big_bet and is_medium
+        return ctx.get('is_big_bet', False) and ctx.get('is_marginal_hand', False)
 
     def _check_have_a_plan_trigger(self, ctx: Dict) -> bool:
         """Trigger on turn when player bet the flop."""

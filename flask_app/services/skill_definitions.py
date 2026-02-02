@@ -406,6 +406,11 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
         'has_draw': has_draw,
         'is_air': is_air,
         'can_check': can_check,
+        'is_marginal_hand': has_pair and not is_strong_hand,
+        'is_big_bet': (
+            (pot_total - cost_to_call > 0 and cost_to_call >= (pot_total - cost_to_call) * 0.5)
+            or cost_to_call > pot_total  # overbets always count as big
+        ),
         'tags': tags,
         # Multi-street context
         'player_actions_by_phase': dict(player_actions_by_phase),

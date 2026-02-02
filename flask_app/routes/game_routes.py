@@ -189,6 +189,7 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
 
         user_id = game_data.get('owner_id', '')
         if not user_id:
+            logger.debug("[COACH_PROGRESSION] Skipped: no owner_id for game=%s", game_id)
             return
 
         # Compute coaching data from the pre-action state for accurate evaluation
@@ -197,13 +198,16 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
             game_state_override=pre_action_state,
         )
         if not coaching_data:
+            logger.debug("[COACH_PROGRESSION] Skipped: no coaching_data for game=%s player=%s",
+                         game_id, player_name)
             return
 
         # Inject current action's bet sizing (not available from hand_actions
         # because the current action hasn't been recorded yet)
         if action in ('raise', 'bet', 'all_in') and amount > 0:
             pot_total = coaching_data.get('pot_total', 0)
-            coaching_data['bet_to_pot_ratio'] = amount / pot_total if pot_total > 0 else 0
+            ratio = amount / pot_total if pot_total > 0 else 0
+            coaching_data = {**coaching_data, 'bet_to_pot_ratio': ratio}
 
         service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
@@ -231,9 +235,11 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
                     game_data['coach_session_memory'] = session_memory
 
                 memory_manager = game_data.get('memory_manager')
-                hand_number = 0
                 if memory_manager and hasattr(memory_manager, 'hand_recorder'):
                     hand_number = getattr(memory_manager.hand_recorder, 'hand_count', 0)
+                else:
+                    hand_number = 0
+                    logger.debug("[COACH_PROGRESSION] No memory_manager; recording under hand_number=0")
 
                 for ev in evaluations:
                     session_memory.record_hand_evaluation(hand_number, ev)

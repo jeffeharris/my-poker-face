@@ -45,6 +45,14 @@ class SkillEvaluator:
             SkillEvaluation with the result.
         """
         ctx = self._build_eval_context(coaching_data)
+        if not ctx:
+            return SkillEvaluation(
+                skill_id=skill_id,
+                action_taken=action_taken,
+                evaluation='not_applicable',
+                confidence=0.0,
+                reasoning='No game context available for evaluation',
+            )
         action = action_taken.lower()
 
         # Forced all-in: stack <= cost_to_call means no meaningful decision
@@ -479,10 +487,7 @@ class SkillEvaluator:
 
     def _eval_respect_big_bets(self, action: str, ctx: Dict) -> SkillEvaluation:
         """Medium hand + big bet on turn/river: fold is correct."""
-        pot_before_bet = ctx['pot_total'] - ctx['cost_to_call']
-        is_big_bet = pot_before_bet > 0 and ctx['cost_to_call'] >= pot_before_bet * 0.5
-        is_medium = ctx.get('has_pair') and not ctx.get('is_strong_hand')
-        if not (is_big_bet and is_medium):
+        if not (ctx.get('is_big_bet') and ctx.get('is_marginal_hand')):
             return SkillEvaluation(
                 skill_id='respect_big_bets', action_taken=action,
                 evaluation='not_applicable', confidence=1.0,
@@ -563,8 +568,7 @@ class SkillEvaluator:
                 reasoning='Not facing double barrel',
             )
 
-        is_marginal = ctx.get('has_pair') and not ctx.get('is_strong_hand')
-        if not is_marginal:
+        if not ctx.get('is_marginal_hand'):
             return SkillEvaluation(
                 skill_id='dont_pay_double_barrels', action_taken=action,
                 evaluation='not_applicable', confidence=1.0,

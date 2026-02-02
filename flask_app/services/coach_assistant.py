@@ -267,15 +267,6 @@ def _format_hand_timeline(actions: List[Dict], community_cards: List[str]) -> st
     return '\n'.join(parts)
 
 
-def get_or_create_coach(game_data: dict, game_id: str,
-                        player_name: str = '') -> CoachAssistant:
-    """Get or lazily create the CoachAssistant for a game."""
-    if 'coach_assistant' not in game_data:
-        owner_id = game_data.get('owner_id', '')
-        game_data['coach_assistant'] = CoachAssistant(game_id, owner_id, player_name=player_name)
-    return game_data['coach_assistant']
-
-
 def get_or_create_coach_with_mode(
     game_data: dict,
     game_id: str,
