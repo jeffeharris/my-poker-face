@@ -171,7 +171,7 @@ Issues to address once live, during ongoing development.
 |----|-------|----------|-------------|--------|
 | T3-21 | Outdated React CLAUDE.md | `react/CLAUDE.md` | Describes future architecture (FastAPI, Zustand) not current (Flask, hooks). | **FIXED** — rewritten to reflect actual stack, structure, and patterns |
 | T3-22 | No API documentation | Flask routes | No OpenAPI/Swagger spec. Frontend devs must read Python code. | |
-| T3-23 | Env var docs spread across 3 files | `.env.example`, `CLAUDE.md`, `DEVOPS.md` | Inconsistent and potentially conflicting. | |
+| T3-23 | Env var docs spread across 3 files | `.env.example`, `CLAUDE.md`, `DEVOPS.md` | Inconsistent and potentially conflicting. | **FIXED** — CLAUDE.md and DEVOPS.md now point to `.env.example` as canonical reference |
 | T3-24 | No `.editorconfig` | Project root | No editor settings for tabs/spaces, line endings. | **FIXED** — added `.editorconfig` |
 | T3-25 | No dependabot or renovate | Missing `.github/dependabot.yml` | Dependency updates manual. Security patches could be missed. | **FIXED** — added `.github/dependabot.yml` |
 | T3-26 | `__pycache__` files committed | `tests/` | `.gitignore` incomplete. Merge conflicts on cache files. | **FIXED** — `.gitignore` already covers `__pycache__/`, no cached files in repo |
@@ -197,8 +197,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
 | **Tier 2: Should-Fix** | 26 | 20 | 4 | 0 |
-| **Tier 3: Post-Release** | 42 | 19 | 1 | 22 |
-| **Total** | **89** | **52** | **12** | **22** |
+| **Tier 3: Post-Release** | 42 | 20 | 1 | 21 |
+| **Total** | **89** | **53** | **12** | **21** |
 
 ## Key Architectural Insight
 
