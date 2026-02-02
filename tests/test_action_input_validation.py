@@ -88,6 +88,18 @@ class TestValidatePlayerAction:
         is_valid, error = validate_player_action(game_state, 'all_in', 0)
         assert is_valid is True
 
+    def test_not_awaiting_action_rejected(self):
+        game_state = _make_game_state(awaiting_action=False)
+        is_valid, error = validate_player_action(game_state, 'call', 0)
+        assert is_valid is False
+        assert "awaiting" in error.lower()
+
+    def test_run_it_out_rejected(self):
+        game_state = _make_game_state(run_it_out=True)
+        is_valid, error = validate_player_action(game_state, 'call', 0)
+        assert is_valid is False
+        assert "run-it-out" in error.lower()
+
     def test_valid_actions_constant_contains_expected(self):
         expected = {'fold', 'check', 'call', 'raise', 'all_in'}
         assert VALID_ACTIONS == expected

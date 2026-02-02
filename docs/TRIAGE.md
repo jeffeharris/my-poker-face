@@ -58,7 +58,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 |----|-------|----------|-------------|--------|
 | T2-01 | ~~Immutable/mutable confusion~~ | `poker/poker_state_machine.py` | **Demoted to Tier 3** — see T3-35. Inner core is genuinely immutable; mutable wrapper is a thin convenience layer. Cognitive overhead only, no bug risk. | |
 | T2-02 | Adapter reimplements core logic | `flask_app/game_adapter.py:20-44` | `current_player_options` duplicated with incomplete version (missing raise caps, heads-up rules, BB special case). Should delegate to core. | **FIXED** — adapter already delegated; moved `awaiting_action`/`run_it_out` guards to `validation.py` where they belong |
-| T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locks already in place. Remaining gaps only matter with multiple workers. | |
+| T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locks already in place. Remaining gaps only matter with multiple workers. | **DISMISSED** — consolidated into T2-29 (now T3-40) |
 | T2-04 | ~~Config scattered across 6+ locations~~ | `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` | **Demoted to Tier 3** — see T3-36. On investigation: each file has a distinct role (game constants, LLM defaults, Flask settings, frontend, env vars, runtime overrides). Clear priority hierarchy (DB > env > hardcoded). Separation is intentional to avoid circular imports. No bugs from conflicts. | |
 | T2-05 | DB connection created per config lookup | `flask_app/config.py:44-94` | Config getter functions like `get_default_provider()` instantiate `GamePersistence()` on every call. New DB connection per lookup. | **FIXED** — @lru_cache shared instance |
 | T2-06 | Three layers of caching, no invalidation | localStorage + in-memory dict + SQLite | Game state cached at three levels with no clear invalidation strategy. Stale data bugs likely. | **DISMISSED** — layers serve distinct purposes and are properly synchronized: localStorage is optimistic UI (always refetched from API on mount), in-memory has 2h TTL (T2-19), SQLite is source of truth written after every action. No stale-state bugs observed. |
@@ -86,7 +86,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-18 | UsageTracker singleton not thread-safe | `core/llm/tracking.py:84-110` | `_instance` check-and-set has race condition. Multiple threads can create multiple instances. | **FIXED** — added threading.Lock for singleton |
 | T2-19 | Unbounded game state memory growth | `flask_app/services/game_state_service.py:14-16` | `games` dict stores all active games. Abandoned games never evicted. No TTL or LRU. | **FIXED** — added 2-hour TTL with auto-cleanup |
 | T2-20 | Unbounded message list growth | `flask_app/handlers/message_handler.py:82-126` | Messages appended without limit. Long games accumulate unbounded messages in memory. | **FIXED** — capped at 200 entries, trim on append |
-| T2-21 | Race condition in game state updates | `flask_app/handlers/game_handler.py:1005-1098` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locking already in place. Remaining gaps only matter with multiple workers. | |
+| T2-21 | Race condition in game state updates | `flask_app/handlers/game_handler.py:1005-1098` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locking already in place. Remaining gaps only matter with multiple workers. | **DISMISSED** — consolidated into T2-29 (now T3-40) |
 | T2-22 | Conversation memory trims by count, not tokens | `core/llm/conversation.py:58-61` | Trims at 15 messages regardless of token count. Long system prompts + 15 messages can exceed context limits. | **DISMISSED** — memory cleared each turn, usage is only 6.6% of 128k context |
 
 ### Frontend Quality
@@ -195,10 +195,10 @@ Issues to address once live, during ongoing development.
 
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
-| **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 26 | 20 | 4 | 0 |
+| **Tier 1: Must-Fix** | 21 | 15 | 6 | 0 |
+| **Tier 2: Should-Fix** | 26 | 20 | 6 | 0 |
 | **Tier 3: Post-Release** | 42 | 21 | 1 | 20 |
-| **Total** | **89** | **54** | **12** | **20** |
+| **Total** | **89** | **56** | **13** | **20** |
 
 ## Key Architectural Insight
 

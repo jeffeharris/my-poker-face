@@ -262,8 +262,13 @@ def list_games():
     """List games for the current user."""
     current_user = auth_manager.get_current_user()
 
-    limit = min(int(request.args.get('limit', 20)), 100)
-    offset = max(int(request.args.get('offset', 0)), 0)
+    try:
+        limit = int(request.args.get('limit', 20))
+        offset = int(request.args.get('offset', 0))
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid pagination parameters'}), 400
+    limit = max(0, min(limit, config.GAME_LIST_MAX_LIMIT))
+    offset = max(0, offset)
 
     if current_user:
         saved_games = persistence.list_games(owner_id=current_user.get('id'), limit=limit, offset=offset)

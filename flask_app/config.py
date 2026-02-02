@@ -58,6 +58,9 @@ RATE_LIMIT_GENERATE_THEME = os.environ.get('RATE_LIMIT_GENERATE_THEME', '10 per 
 RATE_LIMIT_REGENERATE_AVATAR = os.environ.get('RATE_LIMIT_REGENERATE_AVATAR', '10 per hour')
 RATE_LIMIT_GENERATE_IMAGES = os.environ.get('RATE_LIMIT_GENERATE_IMAGES', '5 per hour')
 
+# Pagination
+GAME_LIST_MAX_LIMIT = int(os.environ.get('GAME_LIST_MAX_LIMIT', '100'))
+
 # Redis configuration
 REDIS_URL = os.environ.get('REDIS_URL')
 
