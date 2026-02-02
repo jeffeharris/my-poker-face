@@ -14,8 +14,10 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from authlib.integrations.flask_client import OAuth
 
-from poker.persistence import GamePersistence
-from poker.repositories.sqlite_repositories import PressureEventRepository
+from poker.repositories import (
+    create_repos,
+    PressureEventRepository,
+)
 from poker.personality_generator import PersonalityGenerator
 from poker.character_images import init_character_image_service
 from poker.pricing_loader import sync_pricing_from_yaml, sync_enabled_models
@@ -32,8 +34,20 @@ socketio = SocketIO(cors_allowed_origins="*", async_mode='threading')
 # Limiter instance - will be initialized with app
 limiter = None
 
-# Persistence instances
-persistence = None
+# Individual repository globals (replace former `persistence` facade)
+game_repo = None
+user_repo = None
+settings_repo = None
+personality_repo = None
+experiment_repo = None
+llm_repo = None
+guest_tracking_repo = None
+hand_history_repo = None
+tournament_repo = None
+coach_repo = None
+persistence_db_path = None  # for callers that need the raw path
+
+# Pressure event repository (separate, not part of create_repos)
 event_repository = None
 
 # Auth manager - will be set after app creation
@@ -124,23 +138,37 @@ def init_limiter(app: Flask) -> Limiter:
     return limiter
 
 
-def init_persistence() -> tuple:
-    """Initialize persistence layer."""
-    global persistence, event_repository
+def init_persistence() -> None:
+    """Initialize persistence layer with individual repositories."""
+    global game_repo, user_repo, settings_repo, personality_repo
+    global experiment_repo, llm_repo, guest_tracking_repo
+    global hand_history_repo, tournament_repo, coach_repo, persistence_db_path
+    global event_repository
 
     db_path = config.DB_PATH
-    persistence = GamePersistence(db_path)
-    event_repository = PressureEventRepository(db_path)
+    repos = create_repos(db_path)
 
-    return persistence, event_repository
+    game_repo = repos['game_repo']
+    user_repo = repos['user_repo']
+    settings_repo = repos['settings_repo']
+    personality_repo = repos['personality_repo']
+    experiment_repo = repos['experiment_repo']
+    llm_repo = repos['llm_repo']
+    guest_tracking_repo = repos['guest_tracking_repo']
+    hand_history_repo = repos['hand_history_repo']
+    tournament_repo = repos['tournament_repo']
+    coach_repo = repos['coach_repo']
+    persistence_db_path = repos['db_path']
+
+    event_repository = PressureEventRepository(db_path)
 
 
 def init_personality_generator() -> PersonalityGenerator:
     """Initialize personality generator and character image service."""
     global personality_generator
 
-    personality_generator = PersonalityGenerator(persistence=persistence)
-    init_character_image_service(personality_generator)
+    personality_generator = PersonalityGenerator(personality_repo=personality_repo)
+    init_character_image_service(personality_generator, personality_repo=personality_repo)
 
     return personality_generator
 
@@ -172,10 +200,10 @@ def init_auth(app: Flask) -> None:
     global auth_manager
 
     from poker.auth import AuthManager
-    auth_manager = AuthManager(app, persistence, oauth)
+    auth_manager = AuthManager(app, user_repo, oauth)
 
     # Initialize authorization service
-    init_authorization(persistence, auth_manager)
+    init_authorization(user_repo, auth_manager)
 
 
 def init_extensions(app: Flask) -> None:
@@ -208,8 +236,8 @@ def init_extensions(app: Flask) -> None:
     init_auth(app)
 
     # Initialize admin from environment variable
-    if persistence:
-        admin_user_id = persistence.initialize_admin_from_env()
+    if user_repo:
+        admin_user_id = user_repo.initialize_admin_from_env()
         if admin_user_id:
             logger.info(f"Initial admin configured: {admin_user_id}")
 

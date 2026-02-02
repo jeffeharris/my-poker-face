@@ -137,17 +137,17 @@ class SessionMemory:
         self._persistence = None
         self._game_id: str = None
 
-    def set_persistence(self, persistence, game_id: str) -> None:
+    def set_hand_history_repo(self, hand_history_repo, game_id: str) -> None:
         """Enable DB-backed mode for session stats.
 
         When enabled, get_context_for_prompt() will query hand_history
         instead of using in-memory tracking.
 
         Args:
-            persistence: GamePersistence instance
+            hand_history_repo: HandHistoryRepository instance
             game_id: The game identifier
         """
-        self._persistence = persistence
+        self._persistence = hand_history_repo
         self._game_id = game_id
 
     def record_hand_outcome(self, hand_number: int, outcome: str, pot_size: int,

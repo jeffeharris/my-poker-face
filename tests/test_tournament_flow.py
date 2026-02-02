@@ -10,7 +10,9 @@ using controlled game states to catch bugs in:
 - Side pot distributions
 - Mid-tournament eliminations
 """
-import pytest
+import unittest
+import tempfile
+import os
 from typing import List, Dict, Any, Tuple
 
 from poker.poker_game import (
@@ -22,7 +24,7 @@ from poker.poker_state_machine import (
     run_betting_round_transition
 )
 from poker.tournament_tracker import TournamentTracker, EliminationEvent
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 from core.card import Card
 
 
@@ -99,12 +101,21 @@ def create_state_machine(
 # Test Classes
 # =============================================================================
 
-class TestRunItOutPersistence:
+class TestRunItOutPersistence(unittest.TestCase):
     """Tests for run_it_out flag persistence across save/reload."""
 
-    def test_run_it_out_true_survives_reload(self, persistence):
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        repos = create_repos(self.test_db.name)
+        self.game_repo = repos['game_repo']
+        self.tournament_repo = repos['tournament_repo']
+        self.game_id = 'test_game_123'
+
+    def tearDown(self):
+        os.unlink(self.test_db.name)
+
+    def test_run_it_out_true_survives_reload(self):
         """Game state with run_it_out=True should persist."""
-        game_id = 'test_game_123'
         # Create state with run_it_out=True
         players = [
             create_player('Human', stack=0, bet=500, is_human=True, is_all_in=True),
@@ -114,18 +125,17 @@ class TestRunItOutPersistence:
         state_machine = create_state_machine(game_state, PokerPhase.RIVER)
 
         # Save
-        persistence.save_game(game_id, state_machine, 'owner1', 'Owner')
+        self.game_repo.save_game(self.game_id, state_machine, 'owner1', 'Owner')
 
         # Load
-        loaded = persistence.load_game(game_id)
+        loaded = self.game_repo.load_game(self.game_id)
 
         # Assert
-        assert loaded is not None
-        assert loaded.game_state.run_it_out is True
+        self.assertIsNotNone(loaded)
+        self.assertTrue(loaded.game_state.run_it_out)
 
-    def test_run_it_out_false_survives_reload(self, persistence):
+    def test_run_it_out_false_survives_reload(self):
         """Game state with run_it_out=False should persist."""
-        game_id = 'test_game_123'
         players = [
             create_player('Human', stack=500, bet=100, is_human=True),
             create_player('AI', stack=500, bet=100),
@@ -133,18 +143,26 @@ class TestRunItOutPersistence:
         game_state = create_game_state(players, run_it_out=False)
         state_machine = create_state_machine(game_state, PokerPhase.FLOP)
 
-        persistence.save_game(game_id, state_machine, 'owner1', 'Owner')
-        loaded = persistence.load_game(game_id)
+        self.game_repo.save_game(self.game_id, state_machine, 'owner1', 'Owner')
+        loaded = self.game_repo.load_game(self.game_id)
 
-        assert loaded.game_state.run_it_out is False
+        self.assertFalse(loaded.game_state.run_it_out)
 
 
-class TestTournamentTrackerPersistence:
+class TestTournamentTrackerPersistence(unittest.TestCase):
     """Tests for tournament tracker persistence."""
 
-    def test_tracker_with_eliminations_survives_reload(self, persistence):
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        repos = create_repos(self.test_db.name)
+        self.game_repo = repos['game_repo']
+        self.game_id = 'test_tournament_123'
+
+    def tearDown(self):
+        os.unlink(self.test_db.name)
+
+    def test_tracker_with_eliminations_survives_reload(self):
         """Tournament tracker with eliminations should persist."""
-        game_id = 'test_tournament_123'
         # Create tracker with eliminations
         starting_players = [
             {'name': 'Human', 'is_human': True},
@@ -153,7 +171,7 @@ class TestTournamentTrackerPersistence:
             {'name': 'AI3', 'is_human': False},
         ]
         tracker = TournamentTracker(
-            game_id=game_id,
+            game_id=self.game_id,
             starting_players=starting_players
         )
 
@@ -164,43 +182,42 @@ class TestTournamentTrackerPersistence:
         tracker.biggest_pot = 1200
 
         # Save
-        persistence.save_tournament_tracker(game_id, tracker)
+        self.game_repo.save_tournament_tracker(self.game_id, tracker)
 
         # Load
-        tracker_data = persistence.load_tournament_tracker(game_id)
+        tracker_data = self.game_repo.load_tournament_tracker(self.game_id)
         loaded_tracker = TournamentTracker.from_dict(tracker_data)
 
         # Assert
-        assert len(loaded_tracker.eliminations) == 2
-        assert len(loaded_tracker.starting_players) == 4
-        assert loaded_tracker.hand_count == 15
-        assert loaded_tracker.biggest_pot == 1200
-        assert loaded_tracker.active_player_count == 2
+        self.assertEqual(len(loaded_tracker.eliminations), 2)
+        self.assertEqual(len(loaded_tracker.starting_players), 4)
+        self.assertEqual(loaded_tracker.hand_count, 15)
+        self.assertEqual(loaded_tracker.biggest_pot, 1200)
+        self.assertEqual(loaded_tracker.active_player_count, 2)
 
         # Check elimination details
-        assert loaded_tracker.eliminations[0].eliminated_player == 'AI3'
-        assert loaded_tracker.eliminations[0].finishing_position == 4
-        assert loaded_tracker.eliminations[1].eliminated_player == 'AI2'
-        assert loaded_tracker.eliminations[1].finishing_position == 3
+        self.assertEqual(loaded_tracker.eliminations[0].eliminated_player, 'AI3')
+        self.assertEqual(loaded_tracker.eliminations[0].finishing_position, 4)
+        self.assertEqual(loaded_tracker.eliminations[1].eliminated_player, 'AI2')
+        self.assertEqual(loaded_tracker.eliminations[1].finishing_position, 3)
 
-    def test_empty_tracker_survives_reload(self, persistence):
+    def test_empty_tracker_survives_reload(self):
         """New tournament tracker with no eliminations should persist."""
-        game_id = 'test_tournament_123'
         starting_players = [
             {'name': 'Human', 'is_human': True},
             {'name': 'AI1', 'is_human': False},
         ]
         tracker = TournamentTracker(
-            game_id=game_id,
+            game_id=self.game_id,
             starting_players=starting_players
         )
 
-        persistence.save_tournament_tracker(game_id, tracker)
-        tracker_data = persistence.load_tournament_tracker(game_id)
+        self.game_repo.save_tournament_tracker(self.game_id, tracker)
+        tracker_data = self.game_repo.load_tournament_tracker(self.game_id)
         loaded_tracker = TournamentTracker.from_dict(tracker_data)
 
-        assert len(loaded_tracker.eliminations) == 0
-        assert loaded_tracker.active_player_count == 2
+        self.assertEqual(len(loaded_tracker.eliminations), 0)
+        self.assertEqual(loaded_tracker.active_player_count, 2)
 
 
 def get_winners_from_pot_breakdown(winner_info: Dict) -> List[str]:
@@ -212,7 +229,7 @@ def get_winners_from_pot_breakdown(winner_info: Dict) -> List[str]:
     return list(winners)
 
 
-class TestFinalHandPosition:
+class TestFinalHandPosition(unittest.TestCase):
     """Tests for final hand position calculations."""
 
     def test_human_loses_headsup_gets_second_place(self):
@@ -237,8 +254,8 @@ class TestFinalHandPosition:
         winners = get_winners_from_pot_breakdown(winner_info)
 
         # AI should win with pair of Aces
-        assert 'AI' in winners
-        assert 'Human' not in winners
+        self.assertIn('AI', winners)
+        self.assertNotIn('Human', winners)
 
         # Award pot and check stacks
         updated_state = award_pot_winnings(game_state, winner_info)
@@ -246,8 +263,11 @@ class TestFinalHandPosition:
         # AI should have all the chips
         ai_player = next(p for p in updated_state.players if p.name == 'AI')
         human_player = next(p for p in updated_state.players if p.name == 'Human')
-        assert ai_player.stack == 2000
-        assert human_player.stack == 0
+        self.assertEqual(ai_player.stack, 2000)
+        self.assertEqual(human_player.stack, 0)
+
+        # Human position should be 2 (this is what we fixed)
+        # The actual position calculation happens in game_handler, but we verify the winner detection
 
     def test_human_wins_headsup_gets_first_place(self):
         """Human winning heads-up should finish 1st."""
@@ -268,11 +288,11 @@ class TestFinalHandPosition:
         winner_info = determine_winner(game_state)
         winners = get_winners_from_pot_breakdown(winner_info)
 
-        assert 'Human' in winners
-        assert 'AI' not in winners
+        self.assertIn('Human', winners)
+        self.assertNotIn('AI', winners)
 
 
-class TestMultiWayAllIn:
+class TestMultiWayAllIn(unittest.TestCase):
     """Tests for multi-way all-in showdowns."""
 
     def test_three_way_all_in_triggers_run_it_out(self):
@@ -287,10 +307,15 @@ class TestMultiWayAllIn:
 
         result = run_betting_round_transition(state)
 
-        assert result.game_state.run_it_out is True
+        self.assertTrue(result.game_state.run_it_out)
 
     def test_three_way_all_in_different_stacks_pot_distribution(self):
         """Three players all-in with different stacks should create side pots."""
+        # P1: 300 (smallest), P2: 500, P3: 1000 (biggest)
+        # Main pot = 900 (300 x 3)
+        # Side pot 1 = 400 ((500-300) x 2)
+        # Side pot 2 = 500 (1000-500)
+
         p1_hand = create_hand(('A', 'spades'), ('A', 'hearts'))  # Best hand
         p2_hand = create_hand(('K', 'spades'), ('K', 'hearts'))
         p3_hand = create_hand(('Q', 'spades'), ('Q', 'hearts'))
@@ -309,19 +334,21 @@ class TestMultiWayAllIn:
         winner_info = determine_winner(game_state)
         updated_state = award_pot_winnings(game_state, winner_info)
 
+        # P1 wins main pot (900) + side pot 1 (400) = 1300
+        # P3 gets side pot 2 back (500) since no one can contest it
         p1 = next(p for p in updated_state.players if p.name == 'P1')
         p2 = next(p for p in updated_state.players if p.name == 'P2')
         p3 = next(p for p in updated_state.players if p.name == 'P3')
 
         # Total chips should be conserved
         total_chips = p1.stack + p2.stack + p3.stack
-        assert total_chips == 1800  # 300 + 500 + 1000
+        self.assertEqual(total_chips, 1800)  # 300 + 500 + 1000
 
         # P1 should win the most (has best hand)
-        assert p1.stack > 0
+        self.assertGreater(p1.stack, 0)
 
 
-class TestMidTournamentElimination:
+class TestMidTournamentElimination(unittest.TestCase):
     """Tests for eliminations during tournament (not final hand)."""
 
     def test_elimination_records_correct_position(self):
@@ -339,13 +366,13 @@ class TestMidTournamentElimination:
 
         # First elimination - should be 4th place
         event1 = tracker.on_player_eliminated('AI3', 'AI1', pot_size=500)
-        assert event1.finishing_position == 4
-        assert tracker.active_player_count == 3
+        self.assertEqual(event1.finishing_position, 4)
+        self.assertEqual(tracker.active_player_count, 3)
 
         # Second elimination - should be 3rd place
         event2 = tracker.on_player_eliminated('AI2', 'Human', pot_size=800)
-        assert event2.finishing_position == 3
-        assert tracker.active_player_count == 2
+        self.assertEqual(event2.finishing_position, 3)
+        self.assertEqual(tracker.active_player_count, 2)
 
     def test_elimination_updates_active_players(self):
         """Eliminating a player should update active players set."""
@@ -359,13 +386,13 @@ class TestMidTournamentElimination:
             starting_players=starting_players
         )
 
-        assert 'AI2' in tracker._active_players
-        assert tracker.active_player_count == 3
+        self.assertIn('AI2', tracker._active_players)
+        self.assertEqual(tracker.active_player_count, 3)
 
         tracker.on_player_eliminated('AI2', 'Human')
 
-        assert 'AI2' not in tracker._active_players
-        assert tracker.active_player_count == 2
+        self.assertNotIn('AI2', tracker._active_players)
+        self.assertEqual(tracker.active_player_count, 2)
 
     def test_cannot_eliminate_same_player_twice(self):
         """Eliminating an already eliminated player should raise error."""
@@ -379,11 +406,11 @@ class TestMidTournamentElimination:
 
         tracker.on_player_eliminated('P2', 'P1')
 
-        with pytest.raises(ValueError):
+        with self.assertRaises(ValueError):
             tracker.on_player_eliminated('P2', 'P1')
 
 
-class TestTournamentStandings:
+class TestTournamentStandings(unittest.TestCase):
     """Tests for tournament standings generation."""
 
     def test_standings_ordered_by_position(self):
@@ -405,15 +432,15 @@ class TestTournamentStandings:
 
         standings = tracker.get_standings()
 
-        assert len(standings) == 4
-        assert standings[0].player_name == 'P1'  # Winner
-        assert standings[0].finishing_position == 1
-        assert standings[1].player_name == 'P2'
-        assert standings[1].finishing_position == 2
-        assert standings[2].player_name == 'P3'
-        assert standings[2].finishing_position == 3
-        assert standings[3].player_name == 'P4'
-        assert standings[3].finishing_position == 4
+        self.assertEqual(len(standings), 4)
+        self.assertEqual(standings[0].player_name, 'P1')  # Winner
+        self.assertEqual(standings[0].finishing_position, 1)
+        self.assertEqual(standings[1].player_name, 'P2')
+        self.assertEqual(standings[1].finishing_position, 2)
+        self.assertEqual(standings[2].player_name, 'P3')
+        self.assertEqual(standings[2].finishing_position, 3)
+        self.assertEqual(standings[3].player_name, 'P4')
+        self.assertEqual(standings[3].finishing_position, 4)
 
     def test_human_player_identified_in_standings(self):
         """Human player should be correctly identified in standings."""
@@ -432,11 +459,11 @@ class TestTournamentStandings:
         standings = tracker.get_standings()
 
         human_standing = next(s for s in standings if s.player_name == 'Human')
-        assert human_standing.is_human is True
-        assert human_standing.finishing_position == 1
+        self.assertTrue(human_standing.is_human)
+        self.assertEqual(human_standing.finishing_position, 1)
 
 
-class TestWinnerInfoStructure:
+class TestWinnerInfoStructure(unittest.TestCase):
     """Tests for winner info data structure."""
 
     def test_determine_winner_returns_required_fields(self):
@@ -457,19 +484,19 @@ class TestWinnerInfoStructure:
         winner_info = determine_winner(game_state)
 
         # Required fields for pot distribution
-        assert 'pot_breakdown' in winner_info
-        assert 'hand_name' in winner_info
-        assert isinstance(winner_info['pot_breakdown'], list)
+        self.assertIn('pot_breakdown', winner_info)
+        self.assertIn('hand_name', winner_info)
+        self.assertIsInstance(winner_info['pot_breakdown'], list)
 
         # pot_breakdown structure - this is what frontend uses
         for pot in winner_info['pot_breakdown']:
-            assert 'pot_name' in pot
-            assert 'total_amount' in pot
-            assert 'winners' in pot
+            self.assertIn('pot_name', pot)
+            self.assertIn('total_amount', pot)
+            self.assertIn('winners', pot)
             # Each winner in pot has name and amount
             for winner in pot['winners']:
-                assert 'name' in winner
-                assert 'amount' in winner
+                self.assertIn('name', winner)
+                self.assertIn('amount', winner)
 
     def test_pot_breakdown_amounts_sum_to_total(self):
         """Pot breakdown amounts should sum to total pot."""
@@ -494,4 +521,8 @@ class TestWinnerInfoStructure:
         )
         expected_total = 300 + 500 + 500  # 1300
 
-        assert total_from_breakdown == expected_total
+        self.assertEqual(total_from_breakdown, expected_total)
+
+
+if __name__ == '__main__':
+    unittest.main()

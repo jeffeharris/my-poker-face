@@ -29,9 +29,9 @@ OAUTH_STATE_EXPIRATION = timedelta(minutes=10)
 class AuthManager:
     """Manages authentication for the poker application."""
 
-    def __init__(self, app=None, persistence=None, oauth=None):
+    def __init__(self, app=None, user_repo=None, oauth=None):
         self.app = app
-        self.persistence = persistence
+        self.user_repo = user_repo
         self.oauth = oauth
         if app:
             self.init_app(app)
@@ -145,8 +145,8 @@ class AuthManager:
             if user:
                 # Enrich user with permissions from database
                 user_id = user.get('id')
-                if user_id and self.persistence:
-                    permissions = self.persistence.get_user_permissions(user_id)
+                if user_id and self.user_repo:
+                    permissions = self.user_repo.get_user_permissions(user_id)
                     user['permissions'] = list(permissions)
                 else:
                     user['permissions'] = []
@@ -228,7 +228,7 @@ class AuthManager:
                     return redirect(f"{config.FRONTEND_URL}/?auth=error&message=missing_user_info")
 
                 # Check if user already exists by email
-                existing_user = self.persistence.get_user_by_email(email)
+                existing_user = self.user_repo.get_user_by_email(email)
 
                 # Get guest_id if this was a linking attempt
                 guest_id = session.pop('oauth_guest_id', None)
@@ -238,20 +238,20 @@ class AuthManager:
                     if guest_id and not existing_user.get('linked_guest_id'):
                         # Guest trying to link to existing Google account
                         # Check if guest has games to transfer
-                        games_transferred = self.persistence.transfer_game_ownership(
+                        games_transferred = self.user_repo.transfer_game_ownership(
                             guest_id, existing_user['id'], existing_user['name']
                         )
                         if games_transferred > 0:
                             logger.info(f"Transferred {games_transferred} games from {guest_id} to {existing_user['id']}")
 
                     # Update last login
-                    self.persistence.update_user_last_login(existing_user['id'])
+                    self.user_repo.update_user_last_login(existing_user['id'])
                     user_data = existing_user
 
                 else:
                     # Create new user
                     try:
-                        user_data = self.persistence.create_google_user(
+                        user_data = self.user_repo.create_google_user(
                             google_sub=google_sub,
                             email=email,
                             name=name,
@@ -261,7 +261,7 @@ class AuthManager:
 
                         # Transfer games from guest if linking
                         if guest_id:
-                            games_transferred = self.persistence.transfer_game_ownership(
+                            games_transferred = self.user_repo.transfer_game_ownership(
                                 guest_id, user_data['id'], user_data['name']
                             )
                             if games_transferred > 0:
@@ -270,7 +270,7 @@ class AuthManager:
                     except sqlite3.IntegrityError as e:
                         # Email already exists (race condition)
                         logger.warning(f"Race condition creating user: {e}")
-                        existing_user = self.persistence.get_user_by_email(email)
+                        existing_user = self.user_repo.get_user_by_email(email)
                         if existing_user:
                             user_data = existing_user
                         else:

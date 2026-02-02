@@ -4,9 +4,7 @@ import time
 import json
 import logging
 import secrets
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Dict
 
 from flask import Blueprint, jsonify, request, redirect, send_from_directory
@@ -29,7 +27,7 @@ from poker.tournament_tracker import TournamentTracker
 from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
 
 from ..game_adapter import StateMachineAdapter
-from ..extensions import socketio, persistence, auth_manager, limiter
+from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, experiment_repo, coach_repo, persistence_db_path
 from ..socket_rate_limit import socket_rate_limit
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
@@ -41,7 +39,6 @@ from ..handlers.message_handler import (
 )
 from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
-from ..config import get_db_path
 from ..validation import validate_player_action
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 from poker.guest_limits import (
@@ -67,7 +64,7 @@ def load_game_mode_preset(game_mode: str) -> PromptConfig:
     Returns:
         PromptConfig with the preset's settings applied
     """
-    preset = persistence.get_prompt_preset_by_name(game_mode)
+    preset = experiment_repo.get_prompt_preset_by_name(game_mode)
     if preset:
         prompt_config = preset.get('prompt_config')
         if prompt_config:
@@ -171,7 +168,7 @@ def analyze_player_decision(
             opponent_infos=opponent_infos,
         )
 
-        persistence.save_decision_analysis(analysis)
+        experiment_repo.save_decision_analysis(analysis)
         equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
         logger.debug(
             f"[DECISION_ANALYSIS] {player_name}: {analysis.decision_quality} "
@@ -201,7 +198,7 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
         if not coaching_data:
             return
 
-        service = CoachProgressionService(persistence)
+        service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
 
         classifier = SituationClassifier()
@@ -241,7 +238,7 @@ def get_usage_stats():
     if guest:
         tracking_id = request.cookies.get('guest_tracking_id')
         if tracking_id:
-            hands_played = persistence.get_hands_played(tracking_id)
+            hands_played = guest_tracking_repo.get_hands_played(tracking_id)
 
     hands_limit_reached = (
         guest and GUEST_LIMITS_ENABLED and hands_played >= GUEST_MAX_HANDS
@@ -271,7 +268,7 @@ def list_games():
     offset = max(0, offset)
 
     if current_user:
-        saved_games = persistence.list_games(owner_id=current_user.get('id'), limit=limit, offset=offset)
+        saved_games = game_repo.list_games(owner_id=current_user.get('id'), limit=limit, offset=offset)
     else:
         saved_games = []
 
@@ -341,7 +338,7 @@ def api_game_state(game_id):
         # Try to load from database
         try:
             current_user = auth_manager.get_current_user()
-            saved_games = persistence.list_games(owner_id=current_user.get('id') if current_user else None, limit=50)
+            saved_games = game_repo.list_games(owner_id=current_user.get('id') if current_user else None, limit=50)
 
             game_found = False
             owner_id = None
@@ -356,18 +353,19 @@ def api_game_state(game_id):
             if not game_found:
                 return jsonify({'error': 'Game not found or access denied'}), 404
 
-            base_state_machine = persistence.load_game(game_id)
+            base_state_machine = game_repo.load_game(game_id)
             if base_state_machine:
                 state_machine = StateMachineAdapter(base_state_machine)
                 # Load per-player LLM configs for proper provider restoration
-                llm_configs = persistence.load_llm_configs(game_id) or {}
+                llm_configs = game_repo.load_llm_configs(game_id) or {}
                 ai_controllers = restore_ai_controllers(
-                    game_id, state_machine, persistence,
+                    game_id, state_machine, game_repo,
                     owner_id=owner_id,
                     player_llm_configs=llm_configs.get('player_llm_configs'),
-                    default_llm_config=llm_configs.get('default_llm_config')
+                    default_llm_config=llm_configs.get('default_llm_config'),
+                    experiment_repo=experiment_repo
                 )
-                db_messages = persistence.load_messages(game_id)
+                db_messages = game_repo.load_messages(game_id)
 
                 elasticity_manager = ElasticityManager()
                 for player in state_machine.game_state.players:
@@ -381,17 +379,17 @@ def api_game_state(game_id):
                 pressure_detector = PressureEventDetector(elasticity_manager)
                 pressure_stats = PressureStatsTracker()
 
-                memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
-                memory_manager.set_persistence(persistence)  # Enable hand history saving
+                memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
+                memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
 
                 # Restore hand count from database
-                restored_hand_count = persistence.get_hand_count(game_id)
+                restored_hand_count = hand_history_repo.get_hand_count(game_id)
                 if restored_hand_count > 0:
                     memory_manager.hand_count = restored_hand_count
                     logger.info(f"[LOAD] Restored hand count: {restored_hand_count} for game {game_id}")
 
                 # Restore opponent models from database
-                saved_opponent_models = persistence.load_opponent_models(game_id)
+                saved_opponent_models = game_repo.load_opponent_models(game_id)
                 if saved_opponent_models:
                     memory_manager.opponent_model_manager = OpponentModelManager.from_dict(saved_opponent_models)
                     logger.info(f"[LOAD] Restored opponent models for game {game_id}")
@@ -409,7 +407,7 @@ def api_game_state(game_id):
                 memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
 
                 # Try to load tournament tracker from database, or create new one
-                tracker_data = persistence.load_tournament_tracker(game_id)
+                tracker_data = game_repo.load_tournament_tracker(game_id)
                 if tracker_data:
                     tournament_tracker = TournamentTracker.from_dict(tracker_data)
                     logger.info(f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations")
@@ -549,54 +547,7 @@ def get_model_cost_tiers() -> Dict[str, Dict[str, str]]:
     Returns:
         Dict mapping provider -> model -> tier string
     """
-    tiers: Dict[str, Dict[str, str]] = {}
-
-    # Model aliases: UI name -> pricing table name(s)
-    # Used when UI model names differ from actual API model names
-    model_aliases = {
-        'xai': {
-            'grok-4-fast': 'grok-4-fast-reasoning',  # Maps to same price as non-reasoning
-        }
-    }
-
-    try:
-        with sqlite3.connect(get_db_path()) as conn:
-            cursor = conn.execute("""
-                SELECT provider, model, cost FROM model_pricing
-                WHERE unit = 'output_tokens_1m'
-                  AND (valid_from IS NULL OR valid_from <= datetime('now'))
-                  AND (valid_until IS NULL OR valid_until > datetime('now'))
-            """)
-
-            for provider, model, cost in cursor:
-                if provider not in tiers:
-                    tiers[provider] = {}
-
-                # Calculate tier based on output cost thresholds
-                if cost <= 0.10:
-                    tier = "free"
-                elif cost < 1.00:
-                    tier = "$"
-                elif cost <= 5.00:
-                    tier = "$$"
-                elif cost <= 20.00:
-                    tier = "$$$"
-                else:
-                    tier = "$$$$"
-
-                tiers[provider][model] = tier
-
-            # Apply model aliases: copy tier from pricing model to UI model name
-            for provider, aliases in model_aliases.items():
-                if provider in tiers:
-                    for ui_model, pricing_model in aliases.items():
-                        if pricing_model in tiers[provider]:
-                            tiers[provider][ui_model] = tiers[provider][pricing_model]
-
-    except (sqlite3.OperationalError, sqlite3.DatabaseError) as e:
-        logger.warning(f"Failed to load model pricing for tiers: {e}")
-
-    return tiers
+    return llm_repo.get_model_cost_tiers()
 
 
 @game_bp.route('/api/user-models', methods=['GET'])
@@ -744,29 +695,7 @@ def _get_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    db_path = get_db_path()
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            # Check if table exists
-            cursor = conn.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='enabled_models'
-            """)
-            if not cursor.fetchone():
-                return {}
-
-            # Only include models where BOTH enabled and user_enabled are true
-            cursor = conn.execute("""
-                SELECT provider, model, enabled, user_enabled FROM enabled_models
-            """)
-            return {
-                (row[0], row[1]): bool(row[2]) and bool(row[3] if row[3] is not None else True)
-                for row in cursor.fetchall()
-            }
-    except sqlite3.Error as e:
-        logger.warning(f"Database error in _get_enabled_models_map: {e}")
-        return {}
+    return llm_repo.get_enabled_models_map()
 
 
 def _get_system_enabled_models_map():
@@ -780,29 +709,7 @@ def _get_system_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    db_path = get_db_path()
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            # Check if table exists
-            cursor = conn.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='enabled_models'
-            """)
-            if not cursor.fetchone():
-                return {}
-
-            # Only check system enabled status (ignore user_enabled)
-            cursor = conn.execute("""
-                SELECT provider, model, enabled FROM enabled_models
-            """)
-            return {
-                (row[0], row[1]): bool(row[2])
-                for row in cursor.fetchall()
-            }
-    except sqlite3.Error as e:
-        logger.warning(f"Database error in _get_system_enabled_models_map: {e}")
-        return {}
+    return llm_repo.get_system_enabled_models_map()
 
 
 def _get_model_capabilities_map():
@@ -814,33 +721,7 @@ def _get_model_capabilities_map():
     Returns:
         Dict mapping (provider, model) to dict of capability flags
     """
-    db_path = get_db_path()
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            # Check if table and column exist
-            cursor = conn.execute("PRAGMA table_info(enabled_models)")
-            columns = [row[1] for row in cursor.fetchall()]
-            if 'supports_img2img' not in columns:
-                return {}
-
-            cursor = conn.execute("""
-                SELECT provider, model, supports_reasoning, supports_json_mode,
-                       supports_image_gen, supports_img2img
-                FROM enabled_models
-            """)
-            return {
-                (row[0], row[1]): {
-                    'supports_reasoning': bool(row[2]),
-                    'supports_json_mode': bool(row[3]),
-                    'supports_image_generation': bool(row[4]),
-                    'supports_img2img': bool(row[5]) if row[5] is not None else False,
-                }
-                for row in cursor.fetchall()
-            }
-    except sqlite3.Error as e:
-        logger.warning(f"Database error in _get_model_capabilities_map: {e}")
-        return {}
+    return llm_repo.get_model_capabilities_map()
 
 
 @game_bp.route('/api/new-game', methods=['POST'])
@@ -855,7 +736,7 @@ def api_new_game():
         owner_id = current_user.get('id')
         owner_name = current_user.get('name')
 
-        game_count = persistence.count_user_games(owner_id)
+        game_count = user_repo.count_user_games(owner_id)
 
         # Use guest-specific limits if applicable
         if is_guest(current_user):
@@ -873,7 +754,7 @@ def api_new_game():
                 }), 400
 
         # Prevent duplicate game creation from rapid clicks
-        last_created = persistence.get_last_game_creation_time(owner_id)
+        last_created = user_repo.get_last_game_creation_time(owner_id)
         if last_created is not None and (time.time() - last_created) < 3:
             return jsonify({
                 'error': 'Please wait a moment before creating another game.'
@@ -997,7 +878,7 @@ def api_new_game():
                 prompt_config=player_prompt_config,
                 game_id=game_id,
                 owner_id=owner_id,
-                persistence=persistence
+                experiment_repo=experiment_repo
             )
             ai_controllers[player.name] = new_controller
             elasticity_manager.add_player(
@@ -1009,8 +890,8 @@ def api_new_game():
     pressure_detector = PressureEventDetector(elasticity_manager)
     pressure_stats = PressureStatsTracker(game_id, event_repository)
 
-    memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
-    memory_manager.set_persistence(persistence)  # Enable hand history saving
+    memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
+    memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
     for player in state_machine.game_state.players:
         if not player.is_human:
             memory_manager.initialize_for_player(player.name)
@@ -1063,18 +944,18 @@ def api_new_game():
     }
     game_state_service.set_game(game_id, game_data)
 
-    persistence.save_game(
+    game_repo.save_game(
         game_id, state_machine._state_machine, owner_id, owner_name,
         llm_configs={'player_llm_configs': player_llm_configs, 'default_llm_config': default_llm_config}
     )
-    persistence.save_tournament_tracker(game_id, tournament_tracker)
-    persistence.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
+    game_repo.save_tournament_tracker(game_id, tournament_tracker)
+    game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
     if config.ENABLE_AVATAR_GENERATION:
         start_background_avatar_generation(game_id, ai_player_names)
 
     # Record game creation timestamp to prevent rapid duplicate creation
     if owner_id:
-        persistence.update_last_game_creation_time(owner_id, time.time())
+        user_repo.update_last_game_creation_time(owner_id, time.time())
 
     return jsonify({'game_id': game_id})
 
@@ -1101,7 +982,7 @@ def api_player_action(game_id):
     if current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED:
         tracking_id = current_game_data.get('guest_tracking_id')
         if tracking_id:
-            hands_played = persistence.get_hands_played(tracking_id)
+            hands_played = guest_tracking_repo.get_hands_played(tracking_id)
             allowed, error_msg = check_guest_hands_limit(current_user, hands_played)
             if not allowed:
                 return jsonify({'error': error_msg, 'code': 'GUEST_LIMIT_HANDS'}), 403
@@ -1137,9 +1018,9 @@ def api_player_action(game_id):
         game_state_service.set_game(game_id, current_game_data)
 
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
-            persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
+            game_repo.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
 
         progress_game(game_id)
 
@@ -1237,12 +1118,7 @@ def delete_game(game_id):
     """Delete a saved game."""
     try:
         game_state_service.delete_game(game_id)
-        persistence.delete_game(game_id)
-
-        import sqlite3
-        with sqlite3.connect(persistence.db_path) as conn:
-            conn.execute("DELETE FROM ai_player_state WHERE game_id = ?", (game_id,))
-            conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
+        game_repo.delete_game(game_id)
 
         return jsonify({'message': 'Game deleted successfully'}), 200
     except Exception as e:
@@ -1256,7 +1132,7 @@ def end_game(game_id):
     game_state_service.delete_game(game_id)
 
     try:
-        persistence.delete_game(game_id)
+        game_repo.delete_game(game_id)
     except Exception as e:
         logger.warning(f"[DELETE] Error deleting game {game_id} from database: {e}")
 
@@ -1292,7 +1168,7 @@ def api_game_llm_configs(game_id):
     if not current_game_data:
         # Try to load from database
         try:
-            llm_configs = persistence.load_llm_configs(game_id)
+            llm_configs = game_repo.load_llm_configs(game_id)
             if llm_configs:
                 return jsonify(llm_configs)
             return jsonify({'error': 'Game not found'}), 404
@@ -1386,7 +1262,7 @@ def register_socket_events(sio):
         if user and is_guest(user) and GUEST_LIMITS_ENABLED:
             tracking_id = current_game_data.get('guest_tracking_id')
             if tracking_id:
-                hands_played = persistence.get_hands_played(tracking_id)
+                hands_played = guest_tracking_repo.get_hands_played(tracking_id)
                 allowed, _ = check_guest_hands_limit(user, hands_played)
                 if not allowed:
                     socketio.emit('guest_limit_reached', {
@@ -1432,9 +1308,9 @@ def register_socket_events(sio):
         game_state_service.set_game(game_id, current_game_data)
 
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
-            persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
+            game_repo.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
 
         update_and_emit_game_state(game_id)
         progress_game(game_id)

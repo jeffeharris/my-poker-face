@@ -56,8 +56,8 @@ class SessionMemory:
 class CoachProgressionService:
     """Manages player skill progression and coaching decisions."""
 
-    def __init__(self, persistence):
-        self._persistence = persistence
+    def __init__(self, coach_repo):
+        self._coach_repo = coach_repo
         self._classifier = SituationClassifier()
         self._evaluator = SkillEvaluator()
 
@@ -67,9 +67,9 @@ class CoachProgressionService:
 
     def get_player_state(self, user_id: str) -> Dict:
         """Load all progression state for a player."""
-        skill_states = self._persistence.load_all_skill_states(user_id)
-        gate_progress = self._persistence.load_gate_progress(user_id)
-        profile = self._persistence.load_coach_profile(user_id)
+        skill_states = self._coach_repo.load_all_skill_states(user_id)
+        gate_progress = self._coach_repo.load_gate_progress(user_id)
+        profile = self._coach_repo.load_coach_profile(user_id)
         return {
             'skill_states': skill_states,
             'gate_progress': gate_progress,
@@ -91,14 +91,14 @@ class CoachProgressionService:
         - intermediate: Gate 1 Practicing, Gate 2 unlocked + Introduced
         - experienced: Gate 1 Reliable, Gate 2 Practicing
         """
-        self._persistence.save_coach_profile(
+        self._coach_repo.save_coach_profile(
             user_id, self_reported_level=level, effective_level=level
         )
 
         now = datetime.now().isoformat()
 
         # Gate 1 is always unlocked
-        self._persistence.save_gate_progress(
+        self._coach_repo.save_gate_progress(
             user_id, GateProgress(gate_number=1, unlocked=True, unlocked_at=now)
         )
 
@@ -116,11 +116,11 @@ class CoachProgressionService:
                 state=gate1_state,
                 first_seen_at=now,
             )
-            self._persistence.save_skill_state(user_id, ss)
+            self._coach_repo.save_skill_state(user_id, ss)
 
         # Intermediate and experienced: unlock Gate 2
         if level in ('intermediate', 'experienced'):
-            self._persistence.save_gate_progress(
+            self._coach_repo.save_gate_progress(
                 user_id, GateProgress(gate_number=2, unlocked=True, unlocked_at=now)
             )
             gate2_state = (SkillState.PRACTICING if level == 'experienced'
@@ -131,7 +131,7 @@ class CoachProgressionService:
                     state=gate2_state,
                     first_seen_at=now,
                 )
-                self._persistence.save_skill_state(user_id, ss)
+                self._coach_repo.save_skill_state(user_id, ss)
 
         return self.get_player_state(user_id)
 
@@ -243,7 +243,7 @@ class CoachProgressionService:
         self, user_id: str, skill_id: str, evaluation: SkillEvaluation
     ) -> PlayerSkillState:
         """Update a player's skill progress based on an evaluation."""
-        skill_state = self._persistence.load_skill_state(user_id, skill_id)
+        skill_state = self._coach_repo.load_skill_state(user_id, skill_id)
         now = datetime.now().isoformat()
 
         if not skill_state:
@@ -259,7 +259,7 @@ class CoachProgressionService:
         # Only update the timestamp so we know when we last looked at this skill.
         if is_marginal:
             skill_state = replace(skill_state, last_evaluated_at=now)
-            self._persistence.save_skill_state(user_id, skill_state)
+            self._coach_repo.save_skill_state(user_id, skill_state)
             return skill_state
 
         # Compute new totals (correct and incorrect only)
@@ -299,7 +299,7 @@ class CoachProgressionService:
         skill_state = self._check_state_transitions(skill_state, skill_def)
 
         # Persist
-        self._persistence.save_skill_state(user_id, skill_state)
+        self._coach_repo.save_skill_state(user_id, skill_state)
         return skill_state
 
     def _trim_window(self, skill_state: PlayerSkillState, window_size: int) -> PlayerSkillState:
@@ -366,8 +366,8 @@ class CoachProgressionService:
         A gate N unlocks when gate N-1's required_reliable threshold is met
         by gate N-1's skills reaching Reliable or Automatic.
         """
-        skill_states = self._persistence.load_all_skill_states(user_id)
-        gate_progress = self._persistence.load_gate_progress(user_id)
+        skill_states = self._coach_repo.load_all_skill_states(user_id)
+        gate_progress = self._coach_repo.load_gate_progress(user_id)
 
         for gate_num in sorted(ALL_GATES.keys()):
             gp = gate_progress.get(gate_num)
@@ -394,7 +394,7 @@ class CoachProgressionService:
                     unlocked=True,
                     unlocked_at=datetime.now().isoformat(),
                 )
-                self._persistence.save_gate_progress(user_id, new_gp)
+                self._coach_repo.save_gate_progress(user_id, new_gp)
                 logger.info(f"Gate {gate_num} unlocked for user {user_id} "
                             f"(gate {prev_gate_num} has {reliable_count} reliable skills)")
 
@@ -407,11 +407,11 @@ class CoachProgressionService:
                             state=SkillState.INTRODUCED,
                             first_seen_at=now,
                         )
-                        self._persistence.save_skill_state(user_id, ss)
+                        self._coach_repo.save_skill_state(user_id, ss)
 
                 # Reload after mutations so subsequent iterations see fresh data
-                skill_states = self._persistence.load_all_skill_states(user_id)
-                gate_progress = self._persistence.load_gate_progress(user_id)
+                skill_states = self._coach_repo.load_all_skill_states(user_id)
+                gate_progress = self._coach_repo.load_gate_progress(user_id)
 
     def _check_silent_downgrade(self, user_id: str) -> None:
         """Downgrade effective_level if observed play contradicts self-reported level.
@@ -419,11 +419,11 @@ class CoachProgressionService:
         Only downgrades — never upgrades. Requires sufficient data (min_opportunities
         on at least 2 skills) before triggering.
         """
-        profile = self._persistence.load_coach_profile(user_id)
+        profile = self._coach_repo.load_coach_profile(user_id)
         if not profile or profile['effective_level'] == 'beginner':
             return
 
-        skill_states = self._persistence.load_all_skill_states(user_id)
+        skill_states = self._coach_repo.load_all_skill_states(user_id)
         gate1_skills = get_skills_for_gate(1)
         gate2_skills = get_skills_for_gate(2)
 
@@ -442,7 +442,7 @@ class CoachProgressionService:
         if current_level == 'experienced':
             # If gate 1 skills are all at practicing or below → beginner
             if all_at_or_below(gate1_skills, SkillState.PRACTICING):
-                self._persistence.save_coach_profile(
+                self._coach_repo.save_coach_profile(
                     user_id, self_reported_level=profile['self_reported_level'],
                     effective_level='beginner',
                 )
@@ -450,7 +450,7 @@ class CoachProgressionService:
                 return
             # If gate 2 skills are all at practicing or below → intermediate
             if all_at_or_below(gate2_skills, SkillState.PRACTICING):
-                self._persistence.save_coach_profile(
+                self._coach_repo.save_coach_profile(
                     user_id, self_reported_level=profile['self_reported_level'],
                     effective_level='intermediate',
                 )
@@ -460,7 +460,7 @@ class CoachProgressionService:
         elif current_level == 'intermediate':
             # If gate 1 skills are all at practicing or below → beginner
             if all_at_or_below(gate1_skills, SkillState.PRACTICING):
-                self._persistence.save_coach_profile(
+                self._coach_repo.save_coach_profile(
                     user_id, self_reported_level=profile['self_reported_level'],
                     effective_level='beginner',
                 )

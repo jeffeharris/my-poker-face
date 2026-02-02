@@ -21,7 +21,7 @@ from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
 from core.llm.settings import get_default_model, get_default_provider, get_image_model, get_image_provider
 
 if TYPE_CHECKING:
-    from .persistence import GamePersistence
+    from .repositories import PersonalityRepository
 
 logger = logging.getLogger(__name__)
 
@@ -86,21 +86,22 @@ class CharacterImageService:
     Filesystem storage is only used as a fallback for migration of existing images.
     """
 
-    def __init__(self, personality_generator=None, persistence: Optional["GamePersistence"] = None):
+    def __init__(self, personality_generator=None, personality_repo: Optional["PersonalityRepository"] = None):
         """Initialize the service.
 
         Args:
             personality_generator: Optional PersonalityGenerator instance for managing descriptions
-            persistence: Optional GamePersistence instance for database access
+            personality_repo: Optional PersonalityRepository instance for database access
         """
         self._personality_generator = personality_generator
-        self._persistence = persistence
+        self._persistence = personality_repo
 
         # Initialize persistence if not provided
         if self._persistence is None:
-            from .persistence import GamePersistence
+            from .repositories import SchemaManager, PersonalityRepository as PR
             db_path = self._get_default_db_path()
-            self._persistence = GamePersistence(db_path)
+            SchemaManager(db_path).ensure_schema()
+            self._persistence = PR(db_path)
 
     def _get_default_db_path(self) -> str:
         """Get the default database path based on environment."""
@@ -636,27 +637,27 @@ _service_lock = threading.Lock()
 
 def get_character_image_service(
     personality_generator=None,
-    persistence: Optional["GamePersistence"] = None
+    personality_repo: Optional["PersonalityRepository"] = None
 ) -> CharacterImageService:
     """Get the singleton CharacterImageService instance.
 
     Args:
         personality_generator: Optional PersonalityGenerator to use for descriptions.
                               Only used on first initialization.
-        persistence: Optional GamePersistence instance for database access.
-                    Only used on first initialization.
+        personality_repo: Optional PersonalityRepository instance for database access.
+                         Only used on first initialization.
     """
     global _service
     if _service is None:
         with _service_lock:
             if _service is None:
-                _service = CharacterImageService(personality_generator, persistence)
+                _service = CharacterImageService(personality_generator, personality_repo)
     return _service
 
 
 def init_character_image_service(
     personality_generator=None,
-    persistence: Optional["GamePersistence"] = None
+    personality_repo: Optional["PersonalityRepository"] = None
 ) -> CharacterImageService:
     """Initialize the CharacterImageService with dependencies.
 
@@ -664,10 +665,10 @@ def init_character_image_service(
 
     Args:
         personality_generator: Optional PersonalityGenerator for descriptions
-        persistence: Optional GamePersistence for database access
+        personality_repo: Optional PersonalityRepository for database access
     """
     global _service
-    _service = CharacterImageService(personality_generator, persistence)
+    _service = CharacterImageService(personality_generator, personality_repo)
     return _service
 
 

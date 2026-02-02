@@ -17,7 +17,6 @@ Usage:
 """
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -28,7 +27,7 @@ from typing import Dict, List
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,21 +37,21 @@ logger = logging.getLogger(__name__)
 
 
 def list_stalled_variants(
-    persistence: GamePersistence,
+    experiment_repo,
     experiment_id: int,
     threshold_minutes: int = 5
 ) -> List[Dict]:
     """List stalled variants for an experiment.
 
     Args:
-        persistence: Database persistence layer
+        experiment_repo: ExperimentRepository instance
         experiment_id: The experiment ID
         threshold_minutes: Minutes of inactivity before considered stalled
 
     Returns:
         List of stalled variant records
     """
-    stalled = persistence.get_stalled_variants(experiment_id, threshold_minutes)
+    stalled = experiment_repo.get_stalled_variants(experiment_id, threshold_minutes)
 
     if not stalled:
         print(f"No stalled variants found for experiment {experiment_id} "
@@ -80,7 +79,8 @@ def list_stalled_variants(
 
 
 def resume_variant(
-    persistence: GamePersistence,
+    experiment_repo,
+    db_path: str,
     experiment_id: int,
     game_id: str,
     config_dict: Dict
@@ -88,7 +88,8 @@ def resume_variant(
     """Resume a specific stalled variant.
 
     Args:
-        persistence: Database persistence layer
+        experiment_repo: ExperimentRepository instance
+        db_path: Database path
         experiment_id: The experiment ID
         game_id: The game_id to resume
         config_dict: Experiment configuration
@@ -105,29 +106,24 @@ def resume_variant(
     logger.info(f"Attempting to resume variant {game_id}")
 
     # Get experiment game record
-    import sqlite3
-    with sqlite3.connect(persistence.db_path) as conn:
-        cursor = conn.execute("""
-            SELECT id, variant, variant_config_json, tournament_number
-            FROM experiment_games WHERE game_id = ? AND experiment_id = ?
-        """, (game_id, experiment_id))
-        row = cursor.fetchone()
-        if not row:
-            logger.error(f"Variant {game_id} not found in experiment {experiment_id}")
-            return False
+    record = experiment_repo.get_experiment_game(game_id, experiment_id)
+    if not record:
+        logger.error(f"Variant {game_id} not found in experiment {experiment_id}")
+        return False
 
-        experiment_game_id, variant, variant_config_json, tournament_number = row
-        variant_config = json.loads(variant_config_json) if variant_config_json else None
+    experiment_game_id = record['id']
+    variant = record['variant']
+    variant_config = record.get('variant_config')  # Already parsed from JSON by the repo method
 
     # Acquire resume lock
-    lock_acquired = persistence.acquire_resume_lock(experiment_game_id)
+    lock_acquired = experiment_repo.acquire_resume_lock(experiment_game_id)
     if not lock_acquired:
         logger.error(f"Could not acquire resume lock for {game_id} - may already be resuming")
         return False
 
     try:
         result = resume_variant_impl(
-            persistence=persistence,
+            db_path=db_path,
             experiment_id=experiment_id,
             game_id=game_id,
             variant=variant,
@@ -138,7 +134,7 @@ def resume_variant(
         if result:
             # Save the result
             exp_config = build_experiment_config(config_dict)
-            runner = AITournamentRunner(exp_config, db_path=persistence.db_path)
+            runner = AITournamentRunner(exp_config, db_path=db_path)
             runner.experiment_id = experiment_id
             runner._save_result(result)
             logger.info(f"Variant {game_id} completed successfully: {result.winner} won in {result.hands_played} hands")
@@ -156,11 +152,11 @@ def resume_variant(
 
     except Exception as e:
         logger.error(f"Error resuming variant {game_id}: {e}", exc_info=True)
-        persistence.update_experiment_game_heartbeat(game_id, 'idle')
+        experiment_repo.update_experiment_game_heartbeat(game_id, 'idle')
         return False
 
     finally:
-        persistence.release_resume_lock(game_id)
+        experiment_repo.release_resume_lock(game_id)
 
 
 def main():
@@ -210,10 +206,11 @@ def main():
     else:
         db_path = str(project_root / 'poker_games.db')
 
-    persistence = GamePersistence(db_path)
+    repos = create_repos(db_path)
+    experiment_repo = repos['experiment_repo']
 
     # Get experiment config
-    experiment = persistence.get_experiment(args.experiment_id)
+    experiment = experiment_repo.get_experiment(args.experiment_id)
     if not experiment:
         print(f"Experiment {args.experiment_id} not found")
         sys.exit(1)
@@ -222,10 +219,10 @@ def main():
 
     if args.list or (not args.resume_all and not args.game_id):
         # Default to list if no action specified
-        list_stalled_variants(persistence, args.experiment_id, args.threshold)
+        list_stalled_variants(experiment_repo, args.experiment_id, args.threshold)
 
     elif args.resume_all:
-        stalled = persistence.get_stalled_variants(args.experiment_id, args.threshold)
+        stalled = experiment_repo.get_stalled_variants(args.experiment_id, args.threshold)
         if not stalled:
             print(f"No stalled variants to resume")
             sys.exit(0)
@@ -233,13 +230,13 @@ def main():
         print(f"Resuming {len(stalled)} stalled variant(s)...")
         success_count = 0
         for variant in stalled:
-            if resume_variant(persistence, args.experiment_id, variant['game_id'], config_dict):
+            if resume_variant(experiment_repo, db_path, args.experiment_id, variant['game_id'], config_dict):
                 success_count += 1
 
         print(f"\nResumed {success_count}/{len(stalled)} variants successfully")
 
     elif args.game_id:
-        if resume_variant(persistence, args.experiment_id, args.game_id, config_dict):
+        if resume_variant(experiment_repo, db_path, args.experiment_id, args.game_id, config_dict):
             print(f"Successfully resumed variant {args.game_id}")
         else:
             print(f"Failed to resume variant {args.game_id}")

@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import Mock, patch
 
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 from poker.poker_game import initialize_game_state
 
 
@@ -73,7 +73,7 @@ def load_personality_from_json(name):
 
 
 # ---------------------------------------------------------------------------
-# Temporary database + GamePersistence
+# Temporary database + repositories
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
@@ -86,9 +86,9 @@ def db_path(tmp_path):
 
 
 @pytest.fixture
-def persistence(db_path):
-    """Yield a GamePersistence instance backed by a temporary database."""
-    return GamePersistence(db_path)
+def repos(db_path):
+    """Yield a dict of all repository instances backed by a temporary database."""
+    return create_repos(db_path)
 
 
 # ---------------------------------------------------------------------------
@@ -129,8 +129,8 @@ def usage_tracker(db_path):
     """
     from core.llm import UsageTracker
 
-    # GamePersistence must be created first to initialize tables
-    GamePersistence(db_path)
+    # create_repos ensures schema is initialized
+    create_repos(db_path)
 
     UsageTracker._instance = None
     tracker = UsageTracker(db_path=db_path)

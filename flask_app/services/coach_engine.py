@@ -371,7 +371,7 @@ def compute_coaching_data_with_progression(
     player_name: str,
     user_id: str,
     game_data: Optional[Dict] = None,
-    persistence=None,
+    coach_repo=None,
 ) -> Optional[Dict]:
     """Compute coaching data enriched with skill progression context.
 
@@ -382,13 +382,13 @@ def compute_coaching_data_with_progression(
     if data is None:
         return None
 
-    if not user_id or not persistence:
+    if not user_id or not coach_repo:
         return data
 
     try:
         from .coach_progression import CoachProgressionService
 
-        service = CoachProgressionService(persistence)
+        service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
 
         skill_states = player_state['skill_states']

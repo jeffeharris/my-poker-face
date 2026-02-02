@@ -20,7 +20,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 
 
 def get_db_path() -> str:
@@ -66,11 +66,12 @@ def seed_personalities(force: bool = False) -> dict:
     personalities = json_data.get('personalities', {})
     print(f"Found {len(personalities)} personalities in JSON file")
 
-    # Initialize persistence
-    persistence = GamePersistence(db_path)
+    # Initialize repositories
+    repos = create_repos(db_path)
+    personality_repo = repos['personality_repo']
 
     # Check current count
-    existing = persistence.list_personalities(limit=200)
+    existing = personality_repo.list_personalities(limit=200)
     existing_names = {p['name'] for p in existing}
     print(f"Found {len(existing_names)} personalities in database")
     print()
@@ -83,19 +84,19 @@ def seed_personalities(force: bool = False) -> dict:
         if name in existing_names:
             if force:
                 # Update existing personality
-                persistence.save_personality(name, config, source='json_import')
+                personality_repo.save_personality(name, config, source='json_import')
                 updated += 1
                 print(f"  Updated: {name}")
             else:
                 skipped += 1
         else:
             # Add new personality
-            persistence.save_personality(name, config, source='json_import')
+            personality_repo.save_personality(name, config, source='json_import')
             added += 1
             print(f"  Added: {name}")
 
     # Final count
-    final = persistence.list_personalities(limit=200)
+    final = personality_repo.list_personalities(limit=200)
 
     print()
     print("=" * 50)
@@ -141,8 +142,9 @@ def main():
             json_data = json.load(f)
         json_count = len(json_data.get('personalities', {}))
 
-        persistence = GamePersistence(db_path)
-        db_count = len(persistence.list_personalities(limit=200))
+        repos = create_repos(db_path)
+        personality_repo = repos['personality_repo']
+        db_count = len(personality_repo.list_personalities(limit=200))
 
         print(f"JSON file: {json_count} personalities")
         print(f"Database:  {db_count} personalities")

@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from ..extensions import socketio, persistence
+from ..extensions import socketio, game_repo
 from ..services import game_state_service
 
 logger = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
     game_state_service.set_game(game_id, game_data)
 
     # Save message to database
-    persistence.save_message(game_id, message_type, f"{sender}: {content}")
+    game_repo.save_message(game_id, message_type, f"{sender}: {content}")
 
     # Emit only the new message to reduce payload size
     socketio.emit('new_message', {'message': new_message}, to=game_id)

@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from poker.memory.commentary_generator import DecisionPlan, HandCommentary
 from poker.memory.session_memory import SessionMemory
 from poker.memory.opponent_model import OpponentModel
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 from poker.prompt_config import PromptConfig
 
 
@@ -284,7 +284,8 @@ class TestCommentaryPersistence(unittest.TestCase):
         """Create temporary database."""
         fd, self.db_path = tempfile.mkstemp(suffix='.db')
         os.close(fd)
-        self.persistence = GamePersistence(self.db_path)
+        repos = create_repos(self.db_path)
+        self.hand_history_repo = repos['hand_history_repo']
 
     def tearDown(self):
         """Clean up temporary database."""
@@ -302,7 +303,7 @@ class TestCommentaryPersistence(unittest.TestCase):
             hand_number=1
         )
 
-        self.persistence.save_hand_commentary('test_game', 1, 'TestPlayer', commentary)
+        self.hand_history_repo.save_hand_commentary('test_game', 1, 'TestPlayer', commentary)
 
         # Verify saved
         with sqlite3.connect(self.db_path) as conn:
@@ -339,7 +340,7 @@ class TestCommentaryPersistence(unittest.TestCase):
             hand_number=1
         )
 
-        self.persistence.save_hand_commentary('test_game', 1, 'TestPlayer', commentary)
+        self.hand_history_repo.save_hand_commentary('test_game', 1, 'TestPlayer', commentary)
 
         # Verify decision plans saved as JSON
         with sqlite3.connect(self.db_path) as conn:
@@ -364,9 +365,9 @@ class TestCommentaryPersistence(unittest.TestCase):
                 key_insight=f'Insight {i}',
                 hand_number=i + 1
             )
-            self.persistence.save_hand_commentary('test_game', i + 1, 'TestPlayer', commentary)
+            self.hand_history_repo.save_hand_commentary('test_game', i + 1, 'TestPlayer', commentary)
 
-        reflections = self.persistence.get_recent_reflections('test_game', 'TestPlayer', limit=5)
+        reflections = self.hand_history_repo.get_recent_reflections('test_game', 'TestPlayer', limit=5)
 
         self.assertEqual(len(reflections), 3)
         # Should be ordered by hand_number DESC
@@ -382,7 +383,7 @@ class TestCommentaryPersistence(unittest.TestCase):
             table_comment=None,
             hand_number=1
         )
-        self.persistence.save_hand_commentary('test_game', 1, 'TestPlayer', commentary1)
+        self.hand_history_repo.save_hand_commentary('test_game', 1, 'TestPlayer', commentary1)
 
         commentary2 = HandCommentary(
             player_name='TestPlayer',
@@ -392,7 +393,7 @@ class TestCommentaryPersistence(unittest.TestCase):
             table_comment=None,
             hand_number=1
         )
-        self.persistence.save_hand_commentary('test_game', 1, 'TestPlayer', commentary2)
+        self.hand_history_repo.save_hand_commentary('test_game', 1, 'TestPlayer', commentary2)
 
         # Should only have one record
         with sqlite3.connect(self.db_path) as conn:
