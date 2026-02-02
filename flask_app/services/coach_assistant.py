@@ -5,7 +5,8 @@ with a poker-coaching system prompt and stat formatting.
 """
 
 import logging
-from typing import Dict
+from collections import defaultdict
+from typing import Dict, List
 
 from core.llm.assistant import Assistant
 from core.llm.tracking import CallType
@@ -132,7 +133,66 @@ def _format_stats_for_prompt(data: Dict) -> str:
                 parts.append(f"{opp['hands_observed']} hands")
             lines.append(f"  - {', '.join(parts)}")
 
+    # Hand timeline (actions so far this hand)
+    timeline = _format_hand_timeline(
+        data.get('hand_actions', []),
+        data.get('hand_community_cards', []),
+    )
+    if timeline:
+        lines.append(f"\nHand timeline:\n{timeline}")
+
     return '\n'.join(lines)
+
+
+def _format_hand_timeline(actions: List[Dict], community_cards: List[str]) -> str:
+    """Format in-progress hand actions into a readable timeline.
+
+    Args:
+        actions: List of action dicts (from RecordedAction.to_dict()).
+        community_cards: Community card strings dealt so far.
+    """
+    if not actions:
+        return ''
+
+    phases = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER']
+    actions_by_phase: Dict[str, list] = defaultdict(list)
+    for a in actions:
+        actions_by_phase[a['phase']].append(a)
+
+    phase_cards = {
+        'FLOP': community_cards[0:3] if len(community_cards) >= 3 else [],
+        'TURN': [community_cards[3]] if len(community_cards) >= 4 else [],
+        'RIVER': [community_cards[4]] if len(community_cards) >= 5 else [],
+    }
+
+    parts = []
+    for phase in phases:
+        phase_actions = actions_by_phase.get(phase, [])
+        if not phase_actions:
+            continue
+
+        cards = phase_cards.get(phase, [])
+        header = f"{phase} [{' '.join(cards)}]" if cards else phase
+
+        action_strs = []
+        for a in phase_actions:
+            name = a['player_name']
+            act = a['action']
+            amount = a['amount']
+            if act in ('fold', 'check'):
+                action_strs.append(f"{name} {'folded' if act == 'fold' else 'checked'}")
+            elif act == 'call':
+                action_strs.append(f"{name} called" + (f" ${amount}" if amount > 0 else ""))
+            elif act in ('raise', 'bet'):
+                action_strs.append(f"{name} {'raised' if act == 'raise' else 'bet'} ${amount}")
+            elif act == 'all_in':
+                action_strs.append(f"{name} went all-in (${amount})")
+            else:
+                action_strs.append(f"{name} {act}")
+
+        parts.append(f"  {header}: {', '.join(action_strs)}")
+
+    return '\n'.join(parts)
 
 
 def get_or_create_coach(game_data: dict, game_id: str,
