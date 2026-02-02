@@ -187,7 +187,7 @@ class TestHandlePlayerActionAuth:
 
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.update_and_emit_game_state')
-    @patch('flask_app.routes.game_routes.persistence')
+    @patch('flask_app.routes.game_routes.game_repo')
     @patch('flask_app.routes.game_routes.send_message')
     @patch('flask_app.routes.game_routes.format_action_message')
     @patch('flask_app.routes.game_routes.analyze_player_decision')
@@ -201,7 +201,7 @@ class TestHandlePlayerActionAuth:
                                           mock_validate, mock_advance,
                                           mock_record, mock_analyze,
                                           mock_format, mock_send_msg,
-                                          mock_persistence, mock_update,
+                                          mock_game_repo, mock_update,
                                           mock_progress):
         """Owner can submit actions when it's a human player's turn."""
         mock_auth.get_current_user.return_value = {'id': 'owner-123'}

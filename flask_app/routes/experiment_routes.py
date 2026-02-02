@@ -14,7 +14,7 @@ from flask import Blueprint, jsonify, request, session
 
 from core.llm import LLMClient, CallType
 from poker.prompt_config import PromptConfig
-from ..extensions import limiter, experiment_repo, game_repo, persistence_db_path, hand_history_repo
+from ..extensions import limiter, experiment_repo, game_repo, personality_repo, persistence_db_path, hand_history_repo
 from .. import config
 from experiments.pause_coordinator import pause_coordinator
 from datetime import datetime, timedelta
@@ -2026,7 +2026,7 @@ def get_personalities():
     """Get available AI personalities for experiments."""
     try:
         # Get personalities from database
-        personality_list = experiment_repo.list_personalities(limit=200)
+        personality_list = personality_repo.list_personalities(limit=200)
         personalities = [p['name'] for p in personality_list]
         return jsonify({
             'success': True,
@@ -2111,7 +2111,7 @@ def validate_experiment_config():
         # Validate personalities if specified (check against database)
         personalities = config_data.get('personalities')
         if personalities:
-            available_list = experiment_repo.list_personalities(limit=200)
+            available_list = personality_repo.list_personalities(limit=200)
             available_names = {p['name'] for p in available_list}
             for p in personalities:
                 if p not in available_names:

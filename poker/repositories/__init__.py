@@ -18,6 +18,7 @@ from .game_repository import GameRepository, SavedGame
 from .hand_history_repository import HandHistoryRepository
 from .tournament_repository import TournamentRepository
 from .llm_repository import LLMRepository
+from .coach_repository import CoachRepository
 
 
 def create_repos(db_path: str) -> dict:
@@ -40,12 +41,14 @@ def create_repos(db_path: str) -> dict:
         'tournament_repo': TournamentRepository(db_path),
         'llm_repo': LLMRepository(db_path),
         'guest_tracking_repo': GuestTrackingRepository(db_path),
+        'coach_repo': CoachRepository(db_path),
         'db_path': db_path,
     }
 
 
 __all__ = [
     'BaseRepository',
+    'CoachRepository',
     'ExperimentRepository',
     'GameRepository',
     'GuestTrackingRepository',

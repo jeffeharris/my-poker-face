@@ -44,6 +44,7 @@ llm_repo = None
 guest_tracking_repo = None
 hand_history_repo = None
 tournament_repo = None
+coach_repo = None
 persistence_db_path = None  # for callers that need the raw path
 
 # Pressure event repository (separate, not part of create_repos)
@@ -126,7 +127,7 @@ def init_persistence() -> None:
     """Initialize persistence layer with individual repositories."""
     global game_repo, user_repo, settings_repo, personality_repo
     global experiment_repo, llm_repo, guest_tracking_repo
-    global hand_history_repo, tournament_repo, persistence_db_path
+    global hand_history_repo, tournament_repo, coach_repo, persistence_db_path
     global event_repository
 
     db_path = config.DB_PATH
@@ -141,6 +142,7 @@ def init_persistence() -> None:
     guest_tracking_repo = repos['guest_tracking_repo']
     hand_history_repo = repos['hand_history_repo']
     tournament_repo = repos['tournament_repo']
+    coach_repo = repos['coach_repo']
     persistence_db_path = repos['db_path']
 
     event_repository = PressureEventRepository(db_path)

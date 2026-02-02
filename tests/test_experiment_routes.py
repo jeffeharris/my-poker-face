@@ -12,7 +12,7 @@ from unittest.mock import patch, MagicMock
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from flask_app import create_app
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 
 
 class TestExperimentRoutes(unittest.TestCase):
@@ -23,15 +23,16 @@ class TestExperimentRoutes(unittest.TestCase):
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.test_db.close()
 
-        # Patch the persistence to use our test database
-        self.persistence = GamePersistence(self.test_db.name)
+        # Create repos using our test database
+        repos = create_repos(self.test_db.name)
+        self.experiment_repo = repos['experiment_repo']
 
         # Create the Flask app
         self.app = create_app()
         self.app.testing = True
 
-        # Patch the persistence in extensions
-        with patch('flask_app.extensions.persistence', self.persistence):
+        # Patch the experiment_repo in extensions
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             self.client = self.app.test_client()
 
     def tearDown(self):
@@ -40,7 +41,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_list_experiments_empty(self):
         """Test listing experiments when none exist."""
-        with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
+        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.get('/api/experiments')
             data = response.get_json()
 
@@ -92,7 +93,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_validate_config_missing_name(self):
         """Test validation fails without experiment name."""
-        with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
+        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={'config': {'num_tournaments': 5}}
@@ -105,7 +106,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_validate_config_invalid_name_format(self):
         """Test validation fails with invalid name format."""
-        with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
+        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={'config': {'name': 'Invalid Name With Spaces'}}
@@ -118,7 +119,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_validate_config_valid(self):
         """Test validation passes with valid config."""
-        with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
+        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={'config': {
@@ -136,7 +137,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_validate_config_invalid_range(self):
         """Test validation fails with out-of-range values."""
-        with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
+        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={'config': {
@@ -153,7 +154,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_validate_config_warning_for_large_experiment(self):
         """Test validation warns for large experiments."""
-        with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
+        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={'config': {
@@ -239,7 +240,7 @@ This will compare model performance over 5 tournaments.'''
 
     def test_get_nonexistent_experiment(self):
         """Test getting a non-existent experiment returns 404."""
-        with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
+        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.get('/api/experiments/99999')
             data = response.get_json()
 
@@ -249,7 +250,7 @@ This will compare model performance over 5 tournaments.'''
     @patch('flask_app.routes.experiment_routes.run_experiment_background')
     def test_create_experiment(self, mock_run):
         """Test creating and launching an experiment."""
-        with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
+        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments',
                 json={'config': {
@@ -267,9 +268,9 @@ This will compare model performance over 5 tournaments.'''
 
     def test_create_experiment_duplicate_name(self):
         """Test creating experiment with duplicate name fails."""
-        with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
+        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             # Create first experiment directly in DB
-            self.persistence.create_experiment({
+            self.experiment_repo.create_experiment({
                 'name': 'duplicate_name',
                 'description': 'First experiment'
             })
@@ -296,7 +297,8 @@ class TestPersistenceExperimentMethods(unittest.TestCase):
         """Create a temporary database for each test."""
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.test_db.close()
-        self.persistence = GamePersistence(self.test_db.name)
+        repos = create_repos(self.test_db.name)
+        self.experiment_repo = repos['experiment_repo']
 
     def tearDown(self):
         """Clean up temporary database."""
@@ -306,63 +308,63 @@ class TestPersistenceExperimentMethods(unittest.TestCase):
         """Test listing experiments with status filter."""
         # Create experiments with different statuses
         # Note: Default status in DB schema is 'running'
-        exp1_id = self.persistence.create_experiment({
+        exp1_id = self.experiment_repo.create_experiment({
             'name': 'running_exp',
             'description': 'A running experiment'
         })
-        exp2_id = self.persistence.create_experiment({
+        exp2_id = self.experiment_repo.create_experiment({
             'name': 'completed_exp',
             'description': 'A completed experiment'
         })
 
         # Complete one experiment
-        self.persistence.complete_experiment(exp2_id, {'winners': {'Batman': 1}})
+        self.experiment_repo.complete_experiment(exp2_id, {'winners': {'Batman': 1}})
 
         # List all experiments
-        all_exps = self.persistence.list_experiments()
+        all_exps = self.experiment_repo.list_experiments()
         self.assertEqual(len(all_exps), 2)
 
         # List only completed
-        completed_exps = self.persistence.list_experiments(status='completed')
+        completed_exps = self.experiment_repo.list_experiments(status='completed')
         self.assertEqual(len(completed_exps), 1)
         self.assertEqual(completed_exps[0]['name'], 'completed_exp')
 
         # List only running (default status)
-        running_exps = self.persistence.list_experiments(status='running')
+        running_exps = self.experiment_repo.list_experiments(status='running')
         self.assertEqual(len(running_exps), 1)
         self.assertEqual(running_exps[0]['name'], 'running_exp')
 
     def test_update_experiment_status(self):
         """Test updating experiment status."""
-        exp_id = self.persistence.create_experiment({
+        exp_id = self.experiment_repo.create_experiment({
             'name': 'status_test',
         })
 
         # Initially 'running' (DB schema default)
-        exp = self.persistence.get_experiment(exp_id)
+        exp = self.experiment_repo.get_experiment(exp_id)
         self.assertEqual(exp['status'], 'running')
 
         # Update to completed
-        self.persistence.update_experiment_status(exp_id, 'completed')
-        exp = self.persistence.get_experiment(exp_id)
+        self.experiment_repo.update_experiment_status(exp_id, 'completed')
+        exp = self.experiment_repo.get_experiment(exp_id)
         self.assertEqual(exp['status'], 'completed')
         self.assertIsNotNone(exp['completed_at'])
 
         # Create another experiment and update to failed with error message
-        exp2_id = self.persistence.create_experiment({'name': 'status_test_2'})
-        self.persistence.update_experiment_status(exp2_id, 'failed', 'Something went wrong')
-        exp2 = self.persistence.get_experiment(exp2_id)
+        exp2_id = self.experiment_repo.create_experiment({'name': 'status_test_2'})
+        self.experiment_repo.update_experiment_status(exp2_id, 'failed', 'Something went wrong')
+        exp2 = self.experiment_repo.get_experiment(exp2_id)
         self.assertEqual(exp2['status'], 'failed')
         self.assertIn('Something went wrong', exp2['notes'] or '')
 
     def test_update_experiment_status_invalid(self):
         """Test updating experiment status with invalid value."""
-        exp_id = self.persistence.create_experiment({
+        exp_id = self.experiment_repo.create_experiment({
             'name': 'invalid_status_test',
         })
 
         with self.assertRaises(ValueError):
-            self.persistence.update_experiment_status(exp_id, 'invalid_status')
+            self.experiment_repo.update_experiment_status(exp_id, 'invalid_status')
 
 
 if __name__ == '__main__':

@@ -16,9 +16,9 @@ class TestLLMClient(unittest.TestCase):
         self.temp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.temp_db.close()
 
-        # Initialize persistence to create tables
-        from poker.persistence import GamePersistence
-        GamePersistence(self.temp_db.name)
+        # Initialize database schema
+        from poker.repositories import create_repos
+        create_repos(self.temp_db.name)
 
         self.tracker = UsageTracker(db_path=self.temp_db.name)
 

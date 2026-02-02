@@ -11,7 +11,7 @@ from datetime import datetime
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from poker.persistence import GamePersistence, SavedGame
+from poker.repositories import create_repos, SavedGame
 from poker.poker_game import initialize_game_state, Player
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
@@ -41,12 +41,13 @@ class TestGamePersistence(unittest.TestCase):
         """Create a temporary database for each test."""
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.test_db.close()
-        self.persistence = GamePersistence(self.test_db.name)
-        
+        repos = create_repos(self.test_db.name)
+        self.game_repo = repos['game_repo']
+
     def tearDown(self):
         """Clean up temporary database."""
         _cleanup_test_db(self.test_db.name)
-    
+
     def test_save_and_load_game(self):
         """Test saving and loading a game preserves all state."""
         # Create a game
@@ -54,16 +55,16 @@ class TestGamePersistence(unittest.TestCase):
         game_state = initialize_game_state(player_names=player_names)
         state_machine = PokerStateMachine(game_state=game_state)
         game_id = "test_game_001"
-        
+
         # Advance the game a bit
         state_machine.advance_state()  # Move past INITIALIZING_GAME
         state_machine.advance_state()  # Move past INITIALIZING_HAND
-        
+
         # Save the game
-        self.persistence.save_game(game_id, state_machine)
-        
+        self.game_repo.save_game(game_id, state_machine)
+
         # Load it back
-        loaded_machine = self.persistence.load_game(game_id)
+        loaded_machine = self.game_repo.load_game(game_id)
         
         self.assertIsNotNone(loaded_machine)
         self.assertEqual(loaded_machine.current_phase, state_machine.current_phase)
@@ -82,7 +83,7 @@ class TestGamePersistence(unittest.TestCase):
     def test_save_and_load_messages(self):
         """Test message persistence."""
         game_id = "test_game_002"
-        
+
         # Save some messages
         messages = [
             ("table", "Game started!"),
@@ -90,12 +91,12 @@ class TestGamePersistence(unittest.TestCase):
             ("ai", "AI1: Let's play!"),
             ("table", "Dealing cards...")
         ]
-        
+
         for msg_type, msg_text in messages:
-            self.persistence.save_message(game_id, msg_type, msg_text)
-        
+            self.game_repo.save_message(game_id, msg_type, msg_text)
+
         # Load messages back
-        loaded_messages = self.persistence.load_messages(game_id)
+        loaded_messages = self.game_repo.load_messages(game_id)
         
         self.assertEqual(len(loaded_messages), len(messages))
         
@@ -121,10 +122,10 @@ class TestGamePersistence(unittest.TestCase):
             game_state = initialize_game_state(player_names=player_names)
             state_machine = PokerStateMachine(game_state=game_state)
             
-            self.persistence.save_game(game_id, state_machine)
-        
+            self.game_repo.save_game(game_id, state_machine)
+
         # List games
-        games = self.persistence.list_games(limit=10)
+        games = self.game_repo.list_games(limit=10)
         
         self.assertEqual(len(games), 5)
         
@@ -170,8 +171,8 @@ class TestGamePersistence(unittest.TestCase):
         
         # Save and load
         game_id = "test_cards"
-        self.persistence.save_game(game_id, state_machine)
-        loaded_machine = self.persistence.load_game(game_id)
+        self.game_repo.save_game(game_id, state_machine)
+        loaded_machine = self.game_repo.load_game(game_id)
         
         # Check cards were preserved
         loaded_player = loaded_machine.game_state.players[0]
@@ -189,37 +190,37 @@ class TestGamePersistence(unittest.TestCase):
         # Create and save a game
         game_state = initialize_game_state(player_names=['Jeff', 'AI1'])
         state_machine = PokerStateMachine(game_state=game_state)
-        self.persistence.save_game(game_id, state_machine)
-        
+        self.game_repo.save_game(game_id, state_machine)
+
         # Add some messages
-        self.persistence.save_message(game_id, "table", "Test message 1")
-        self.persistence.save_message(game_id, "table", "Test message 2")
-        
+        self.game_repo.save_message(game_id, "table", "Test message 1")
+        self.game_repo.save_message(game_id, "table", "Test message 2")
+
         # Verify it exists
-        loaded = self.persistence.load_game(game_id)
+        loaded = self.game_repo.load_game(game_id)
         self.assertIsNotNone(loaded)
-        
-        messages = self.persistence.load_messages(game_id)
+
+        messages = self.game_repo.load_messages(game_id)
         self.assertEqual(len(messages), 2)
-        
+
         # Delete it
-        self.persistence.delete_game(game_id)
-        
+        self.game_repo.delete_game(game_id)
+
         # Verify it's gone
-        loaded = self.persistence.load_game(game_id)
+        loaded = self.game_repo.load_game(game_id)
         self.assertIsNone(loaded)
-        
-        messages = self.persistence.load_messages(game_id)
+
+        messages = self.game_repo.load_messages(game_id)
         self.assertEqual(len(messages), 0)
     
     def test_nonexistent_game(self):
         """Test loading a game that doesn't exist."""
-        loaded = self.persistence.load_game("nonexistent_game_id")
+        loaded = self.game_repo.load_game("nonexistent_game_id")
         self.assertIsNone(loaded)
-    
+
     def test_empty_game_list(self):
         """Test listing games when none exist."""
-        games = self.persistence.list_games()
+        games = self.game_repo.list_games()
         self.assertEqual(len(games), 0)
 
 
@@ -229,9 +230,10 @@ class TestAIStatePersistence(unittest.TestCase):
     def setUp(self):
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.test_db.close()
-        self.persistence = GamePersistence(self.test_db.name)
+        repos = create_repos(self.test_db.name)
+        self.game_repo = repos['game_repo']
         self.game_id = "test_game_123"
-    
+
     def tearDown(self):
         # Close any open connections before unlinking (T3-07)
         try:
@@ -247,7 +249,7 @@ class TestAIStatePersistence(unittest.TestCase):
             path = self.test_db.name + suffix
             if os.path.exists(path):
                 os.unlink(path)
-    
+
     def test_save_ai_player_state(self):
         """Test saving AI player state."""
         messages = [
@@ -255,7 +257,7 @@ class TestAIStatePersistence(unittest.TestCase):
             {"role": "user", "content": "What's your move?"},
             {"role": "assistant", "content": "I'll call... I suppose."}
         ]
-        
+
         personality_state = {
             "traits": {
                 "bluff_tendency": 0.2,
@@ -265,17 +267,17 @@ class TestAIStatePersistence(unittest.TestCase):
             "confidence": "Low",
             "attitude": "Pessimistic"
         }
-        
+
         # Save AI state
-        self.persistence.save_ai_player_state(
+        self.game_repo.save_ai_player_state(
             self.game_id,
             "Eeyore",
             messages,
             personality_state
         )
-        
+
         # Load and verify
-        ai_states = self.persistence.load_ai_player_states(self.game_id)
+        ai_states = self.game_repo.load_ai_player_states(self.game_id)
         self.assertIn("Eeyore", ai_states)
         
         eeyore_state = ai_states["Eeyore"]
@@ -290,12 +292,12 @@ class TestAIStatePersistence(unittest.TestCase):
         for player in players:
             messages = [{"role": "system", "content": f"You are {player}"}]
             personality = {"traits": {"aggression": 0.5}}
-            self.persistence.save_ai_player_state(
+            self.game_repo.save_ai_player_state(
                 self.game_id, player, messages, personality
             )
-        
+
         # Load all states
-        ai_states = self.persistence.load_ai_player_states(self.game_id)
+        ai_states = self.game_repo.load_ai_player_states(self.game_id)
         self.assertEqual(len(ai_states), 3)
         for player in players:
             self.assertIn(player, ai_states)
@@ -306,42 +308,43 @@ class TestAIStatePersistence(unittest.TestCase):
         initial_messages = [{"role": "system", "content": "You are Eeyore"}]
         initial_personality = {"traits": {"aggression": 0.3}}
         
-        self.persistence.save_ai_player_state(
+        self.game_repo.save_ai_player_state(
             self.game_id, "Eeyore", initial_messages, initial_personality
         )
-        
+
         # Update with more messages
         updated_messages = initial_messages + [
             {"role": "user", "content": "Nice hand!"},
             {"role": "assistant", "content": "Thanks... I guess."}
         ]
         updated_personality = {"traits": {"aggression": 0.25}}
-        
-        self.persistence.save_ai_player_state(
+
+        self.game_repo.save_ai_player_state(
             self.game_id, "Eeyore", updated_messages, updated_personality
         )
-        
+
         # Verify update
-        ai_states = self.persistence.load_ai_player_states(self.game_id)
+        ai_states = self.game_repo.load_ai_player_states(self.game_id)
         eeyore_state = ai_states["Eeyore"]
         self.assertEqual(len(eeyore_state["messages"]), 3)
         self.assertEqual(eeyore_state["personality_state"]["traits"]["aggression"], 0.25)
     
     def test_load_nonexistent_ai_states(self):
         """Test loading AI states for non-existent game."""
-        ai_states = self.persistence.load_ai_player_states("nonexistent_game")
+        ai_states = self.game_repo.load_ai_player_states("nonexistent_game")
         self.assertEqual(ai_states, {})
 
 
 class TestPersonalitySnapshots(unittest.TestCase):
     """Test personality snapshot functionality."""
-    
+
     def setUp(self):
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.test_db.close()
-        self.persistence = GamePersistence(self.test_db.name)
+        repos = create_repos(self.test_db.name)
+        self.game_repo = repos['game_repo']
         self.game_id = "test_game_123"
-    
+
     def tearDown(self):
         # Close any open connections before unlinking (T3-07)
         try:
@@ -357,7 +360,7 @@ class TestPersonalitySnapshots(unittest.TestCase):
             path = self.test_db.name + suffix
             if os.path.exists(path):
                 os.unlink(path)
-    
+
     def test_save_personality_snapshot(self):
         """Test saving personality snapshot."""
         traits = {
@@ -366,16 +369,16 @@ class TestPersonalitySnapshots(unittest.TestCase):
             "chattiness": 0.9,
             "emoji_usage": 0.6
         }
-        
+
         pressure_levels = {
             "bluff_tendency": 0.2,
             "aggression": 0.1,
             "chattiness": 0.0,
             "emoji_usage": 0.0
         }
-        
+
         # Save snapshot
-        self.persistence.save_personality_snapshot(
+        self.game_repo.save_personality_snapshot(
             self.game_id,
             "Kanye West",
             hand_number=5,
@@ -394,7 +397,7 @@ class TestPersonalitySnapshots(unittest.TestCase):
         }
         
         # Should not crash when pressure_levels is None
-        self.persistence.save_personality_snapshot(
+        self.game_repo.save_personality_snapshot(
             self.game_id,
             "Test Player",
             hand_number=1,
@@ -404,11 +407,11 @@ class TestPersonalitySnapshots(unittest.TestCase):
 
 class TestDatabaseSchema(unittest.TestCase):
     """Test database schema creation and indices."""
-    
+
     def setUp(self):
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.test_db.close()
-        self.persistence = GamePersistence(self.test_db.name)
+        create_repos(self.test_db.name)  # ensures schema is created
     
     def tearDown(self):
         # Close any open connections before unlinking (T3-07)
@@ -469,7 +472,8 @@ class TestAvatarPersistence(unittest.TestCase):
     def setUp(self):
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.test_db.close()
-        self.persistence = GamePersistence(self.test_db.name)
+        repos = create_repos(self.test_db.name)
+        self.personality_repo = repos['personality_repo']
 
     def tearDown(self):
         # Close any open connections before unlinking (T3-07)
@@ -507,7 +511,7 @@ class TestAvatarPersistence(unittest.TestCase):
         image_data = self._create_test_image_bytes()
 
         # Save
-        self.persistence.save_avatar_image(
+        self.personality_repo.save_avatar_image(
             personality_name="Bob Ross",
             emotion="confident",
             image_data=image_data,
@@ -516,7 +520,7 @@ class TestAvatarPersistence(unittest.TestCase):
         )
 
         # Load
-        loaded_data = self.persistence.load_avatar_image("Bob Ross", "confident")
+        loaded_data = self.personality_repo.load_avatar_image("Bob Ross", "confident")
 
         self.assertIsNotNone(loaded_data)
         self.assertEqual(loaded_data, image_data)
@@ -526,28 +530,28 @@ class TestAvatarPersistence(unittest.TestCase):
         image_data = self._create_test_image_bytes()
 
         # Should not exist initially
-        self.assertFalse(self.persistence.has_avatar_image("Bob Ross", "happy"))
+        self.assertFalse(self.personality_repo.has_avatar_image("Bob Ross", "happy"))
 
         # Save it
-        self.persistence.save_avatar_image("Bob Ross", "happy", image_data)
+        self.personality_repo.save_avatar_image("Bob Ross", "happy", image_data)
 
         # Should exist now
-        self.assertTrue(self.persistence.has_avatar_image("Bob Ross", "happy"))
+        self.assertTrue(self.personality_repo.has_avatar_image("Bob Ross", "happy"))
 
         # Other emotions should not exist
-        self.assertFalse(self.persistence.has_avatar_image("Bob Ross", "angry"))
+        self.assertFalse(self.personality_repo.has_avatar_image("Bob Ross", "angry"))
 
     def test_get_available_emotions(self):
         """Test listing available emotions for personality."""
         image_data = self._create_test_image_bytes()
 
         # Save multiple emotions
-        self.persistence.save_avatar_image("Batman", "confident", image_data)
-        self.persistence.save_avatar_image("Batman", "angry", image_data)
-        self.persistence.save_avatar_image("Batman", "thinking", image_data)
+        self.personality_repo.save_avatar_image("Batman", "confident", image_data)
+        self.personality_repo.save_avatar_image("Batman", "angry", image_data)
+        self.personality_repo.save_avatar_image("Batman", "thinking", image_data)
 
         # Get available
-        emotions = self.persistence.get_available_avatar_emotions("Batman")
+        emotions = self.personality_repo.get_available_avatar_emotions("Batman")
 
         self.assertEqual(len(emotions), 3)
         self.assertIn("confident", emotions)
@@ -560,15 +564,15 @@ class TestAvatarPersistence(unittest.TestCase):
 
         # Add only 3 emotions
         for emotion in ["confident", "happy", "thinking"]:
-            self.persistence.save_avatar_image("Joker", emotion, image_data)
+            self.personality_repo.save_avatar_image("Joker", emotion, image_data)
 
-        self.assertFalse(self.persistence.has_all_avatar_emotions("Joker"))
+        self.assertFalse(self.personality_repo.has_all_avatar_emotions("Joker"))
 
         # Add remaining 3 emotions
         for emotion in ["nervous", "angry", "shocked"]:
-            self.persistence.save_avatar_image("Joker", emotion, image_data)
+            self.personality_repo.save_avatar_image("Joker", emotion, image_data)
 
-        self.assertTrue(self.persistence.has_all_avatar_emotions("Joker"))
+        self.assertTrue(self.personality_repo.has_all_avatar_emotions("Joker"))
 
     def test_delete_avatar_images(self):
         """Test deleting all avatars for a personality."""
@@ -576,22 +580,22 @@ class TestAvatarPersistence(unittest.TestCase):
 
         # Save multiple emotions
         for emotion in ["confident", "happy", "angry"]:
-            self.persistence.save_avatar_image("Villain", emotion, image_data)
+            self.personality_repo.save_avatar_image("Villain", emotion, image_data)
 
         # Verify they exist
-        self.assertEqual(len(self.persistence.get_available_avatar_emotions("Villain")), 3)
+        self.assertEqual(len(self.personality_repo.get_available_avatar_emotions("Villain")), 3)
 
         # Delete
-        count = self.persistence.delete_avatar_images("Villain")
+        count = self.personality_repo.delete_avatar_images("Villain")
 
         self.assertEqual(count, 3)
-        self.assertEqual(len(self.persistence.get_available_avatar_emotions("Villain")), 0)
+        self.assertEqual(len(self.personality_repo.get_available_avatar_emotions("Villain")), 0)
 
     def test_load_avatar_with_metadata(self):
         """Test loading avatar image with metadata."""
         image_data = self._create_test_image_bytes()
 
-        self.persistence.save_avatar_image(
+        self.personality_repo.save_avatar_image(
             personality_name="Hero",
             emotion="confident",
             image_data=image_data,
@@ -599,7 +603,7 @@ class TestAvatarPersistence(unittest.TestCase):
             height=256
         )
 
-        result = self.persistence.load_avatar_image_with_metadata("Hero", "confident")
+        result = self.personality_repo.load_avatar_image_with_metadata("Hero", "confident")
 
         self.assertIsNotNone(result)
         self.assertEqual(result['image_data'], image_data)
@@ -614,12 +618,12 @@ class TestAvatarPersistence(unittest.TestCase):
 
         # Add some avatars
         for emotion in EMOTIONS:
-            self.persistence.save_avatar_image("Complete Player", emotion, image_data)
+            self.personality_repo.save_avatar_image("Complete Player", emotion, image_data)
 
-        self.persistence.save_avatar_image("Incomplete Player", "confident", image_data)
-        self.persistence.save_avatar_image("Incomplete Player", "happy", image_data)
+        self.personality_repo.save_avatar_image("Incomplete Player", "confident", image_data)
+        self.personality_repo.save_avatar_image("Incomplete Player", "happy", image_data)
 
-        stats = self.persistence.get_avatar_stats()
+        stats = self.personality_repo.get_avatar_stats()
 
         self.assertEqual(stats['total_images'], 8)  # 6 + 2
         self.assertEqual(stats['personality_count'], 2)
@@ -630,11 +634,11 @@ class TestAvatarPersistence(unittest.TestCase):
         """Test listing personalities that have avatars."""
         image_data = self._create_test_image_bytes()
 
-        self.persistence.save_avatar_image("Alice", "confident", image_data)
-        self.persistence.save_avatar_image("Alice", "happy", image_data)
-        self.persistence.save_avatar_image("Bob", "confident", image_data)
+        self.personality_repo.save_avatar_image("Alice", "confident", image_data)
+        self.personality_repo.save_avatar_image("Alice", "happy", image_data)
+        self.personality_repo.save_avatar_image("Bob", "confident", image_data)
 
-        result = self.persistence.list_personalities_with_avatars()
+        result = self.personality_repo.list_personalities_with_avatars()
 
         self.assertEqual(len(result), 2)
         names = [p['personality_name'] for p in result]
@@ -663,7 +667,8 @@ class TestPersonalitySeed(unittest.TestCase):
     def setUp(self):
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.test_db.close()
-        self.persistence = GamePersistence(self.test_db.name)
+        repos = create_repos(self.test_db.name)
+        self.personality_repo = repos['personality_repo']
 
     def tearDown(self):
         # Close any open connections before unlinking (T3-07)
@@ -683,7 +688,7 @@ class TestPersonalitySeed(unittest.TestCase):
 
     def test_seed_from_nonexistent_file(self):
         """Test seeding from non-existent file returns error."""
-        result = self.persistence.seed_personalities_from_json("/nonexistent/path.json")
+        result = self.personality_repo.seed_personalities_from_json("/nonexistent/path.json")
 
         self.assertEqual(result['added'], 0)
         self.assertIn('error', result)
@@ -699,9 +704,9 @@ class TestPersonalitySeed(unittest.TestCase):
             }
         }
 
-        self.persistence.save_personality("Test Player", config, source='test')
+        self.personality_repo.save_personality("Test Player", config, source='test')
 
-        loaded = self.persistence.load_personality("Test Player")
+        loaded = self.personality_repo.load_personality("Test Player")
 
         self.assertIsNotNone(loaded)
         self.assertEqual(loaded['play_style'], "aggressive")

@@ -24,7 +24,7 @@ from poker.poker_state_machine import (
     run_betting_round_transition
 )
 from poker.tournament_tracker import TournamentTracker, EliminationEvent
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 from core.card import Card
 
 
@@ -106,7 +106,9 @@ class TestRunItOutPersistence(unittest.TestCase):
 
     def setUp(self):
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.persistence = GamePersistence(self.test_db.name)
+        repos = create_repos(self.test_db.name)
+        self.game_repo = repos['game_repo']
+        self.tournament_repo = repos['tournament_repo']
         self.game_id = 'test_game_123'
 
     def tearDown(self):
@@ -123,10 +125,10 @@ class TestRunItOutPersistence(unittest.TestCase):
         state_machine = create_state_machine(game_state, PokerPhase.RIVER)
 
         # Save
-        self.persistence.save_game(self.game_id, state_machine, 'owner1', 'Owner')
+        self.game_repo.save_game(self.game_id, state_machine, 'owner1', 'Owner')
 
         # Load
-        loaded = self.persistence.load_game(self.game_id)
+        loaded = self.game_repo.load_game(self.game_id)
 
         # Assert
         self.assertIsNotNone(loaded)
@@ -141,8 +143,8 @@ class TestRunItOutPersistence(unittest.TestCase):
         game_state = create_game_state(players, run_it_out=False)
         state_machine = create_state_machine(game_state, PokerPhase.FLOP)
 
-        self.persistence.save_game(self.game_id, state_machine, 'owner1', 'Owner')
-        loaded = self.persistence.load_game(self.game_id)
+        self.game_repo.save_game(self.game_id, state_machine, 'owner1', 'Owner')
+        loaded = self.game_repo.load_game(self.game_id)
 
         self.assertFalse(loaded.game_state.run_it_out)
 
@@ -152,7 +154,8 @@ class TestTournamentTrackerPersistence(unittest.TestCase):
 
     def setUp(self):
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.persistence = GamePersistence(self.test_db.name)
+        repos = create_repos(self.test_db.name)
+        self.tournament_repo = repos['tournament_repo']
         self.game_id = 'test_tournament_123'
 
     def tearDown(self):
@@ -179,10 +182,10 @@ class TestTournamentTrackerPersistence(unittest.TestCase):
         tracker.biggest_pot = 1200
 
         # Save
-        self.persistence.save_tournament_tracker(self.game_id, tracker)
+        self.tournament_repo.save_tournament_tracker(self.game_id, tracker)
 
         # Load
-        tracker_data = self.persistence.load_tournament_tracker(self.game_id)
+        tracker_data = self.tournament_repo.load_tournament_tracker(self.game_id)
         loaded_tracker = TournamentTracker.from_dict(tracker_data)
 
         # Assert
@@ -209,8 +212,8 @@ class TestTournamentTrackerPersistence(unittest.TestCase):
             starting_players=starting_players
         )
 
-        self.persistence.save_tournament_tracker(self.game_id, tracker)
-        tracker_data = self.persistence.load_tournament_tracker(self.game_id)
+        self.tournament_repo.save_tournament_tracker(self.game_id, tracker)
+        tracker_data = self.tournament_repo.load_tournament_tracker(self.game_id)
         loaded_tracker = TournamentTracker.from_dict(tracker_data)
 
         self.assertEqual(len(loaded_tracker.eliminations), 0)

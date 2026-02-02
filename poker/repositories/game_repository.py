@@ -54,6 +54,8 @@ class GameRepository(BaseRepository):
             row = cursor.fetchone()
             return row[0] if row and row[0] else 'off'
 
+    # --- Game CRUD ---
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:

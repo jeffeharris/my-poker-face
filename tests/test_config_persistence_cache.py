@@ -1,4 +1,4 @@
-"""Tests for T2-05: Cached GamePersistence in config getters.
+"""Tests for T2-05: Cached SettingsRepository in config getters.
 
 The canonical source of these getters is now core.llm.settings.
 flask_app.config re-exports them for backwards compatibility.
@@ -8,17 +8,18 @@ from unittest.mock import patch, MagicMock
 
 
 class TestConfigPersistenceCaching:
-    """Verify core.llm.settings config getters share a single GamePersistence instance."""
+    """Verify core.llm.settings config getters share a single SettingsRepository instance."""
 
-    def test_config_getters_construct_persistence_once(self):
-        """Calling multiple config getters should only construct GamePersistence once."""
+    def test_config_getters_construct_settings_repo_once(self):
+        """Calling multiple config getters should only construct SettingsRepository once."""
         from core.llm.settings import _get_config_persistence
         _get_config_persistence.cache_clear()
 
-        mock_persistence = MagicMock()
-        mock_persistence.get_setting.return_value = ''
+        mock_settings_repo = MagicMock()
+        mock_settings_repo.get_setting.return_value = ''
 
-        with patch('poker.persistence.GamePersistence', return_value=mock_persistence) as mock_cls:
+        with patch('poker.repositories.SchemaManager'), \
+             patch('poker.repositories.SettingsRepository', return_value=mock_settings_repo) as mock_cls:
             _get_config_persistence.cache_clear()
 
             from core.llm.settings import (
@@ -34,20 +35,21 @@ class TestConfigPersistenceCaching:
             get_assistant_provider()
             get_assistant_model()
 
-            # GamePersistence should be constructed exactly once
+            # SettingsRepository should be constructed exactly once
             assert mock_cls.call_count == 1
 
         _get_config_persistence.cache_clear()
 
     def test_config_getters_share_same_instance(self):
-        """All config getters should use the exact same persistence object."""
+        """All config getters should use the exact same SettingsRepository object."""
         from core.llm.settings import _get_config_persistence
         _get_config_persistence.cache_clear()
 
-        mock_persistence = MagicMock()
-        mock_persistence.get_setting.return_value = ''
+        mock_settings_repo = MagicMock()
+        mock_settings_repo.get_setting.return_value = ''
 
-        with patch('poker.persistence.GamePersistence', return_value=mock_persistence):
+        with patch('poker.repositories.SchemaManager'), \
+             patch('poker.repositories.SettingsRepository', return_value=mock_settings_repo):
             _get_config_persistence.cache_clear()
 
             instance1 = _get_config_persistence()
@@ -64,17 +66,18 @@ class TestConfigPersistenceCaching:
 
 
 class TestImageConfigPersistenceCaching:
-    """Verify image config getters in core.llm.settings share the same cached GamePersistence instance."""
+    """Verify image config getters in core.llm.settings share the same cached SettingsRepository instance."""
 
-    def test_image_config_getters_construct_persistence_once(self):
-        """Calling image config getters multiple times should only construct GamePersistence once."""
+    def test_image_config_getters_construct_settings_repo_once(self):
+        """Calling image config getters multiple times should only construct SettingsRepository once."""
         from core.llm.settings import _get_config_persistence
         _get_config_persistence.cache_clear()
 
-        mock_persistence = MagicMock()
-        mock_persistence.get_setting.return_value = ''
+        mock_settings_repo = MagicMock()
+        mock_settings_repo.get_setting.return_value = ''
 
-        with patch('poker.persistence.GamePersistence', return_value=mock_persistence) as mock_cls:
+        with patch('poker.repositories.SchemaManager'), \
+             patch('poker.repositories.SettingsRepository', return_value=mock_settings_repo) as mock_cls:
             _get_config_persistence.cache_clear()
 
             from core.llm.settings import get_image_provider, get_image_model
@@ -84,20 +87,21 @@ class TestImageConfigPersistenceCaching:
             get_image_provider()  # call again to prove caching
             get_image_model()
 
-            # GamePersistence should be constructed exactly once
+            # SettingsRepository should be constructed exactly once
             assert mock_cls.call_count == 1
 
         _get_config_persistence.cache_clear()
 
     def test_image_config_getters_share_same_instance_with_other_getters(self):
-        """Image config getters should use the same persistence as other config getters."""
+        """Image config getters should use the same SettingsRepository as other config getters."""
         from core.llm.settings import _get_config_persistence
         _get_config_persistence.cache_clear()
 
-        mock_persistence = MagicMock()
-        mock_persistence.get_setting.return_value = ''
+        mock_settings_repo = MagicMock()
+        mock_settings_repo.get_setting.return_value = ''
 
-        with patch('poker.persistence.GamePersistence', return_value=mock_persistence) as mock_cls:
+        with patch('poker.repositories.SchemaManager'), \
+             patch('poker.repositories.SettingsRepository', return_value=mock_settings_repo) as mock_cls:
             _get_config_persistence.cache_clear()
 
             from core.llm.settings import get_default_model, get_image_provider
@@ -105,7 +109,7 @@ class TestImageConfigPersistenceCaching:
             get_default_model()
             get_image_provider()
 
-            # Still only one GamePersistence instance
+            # Still only one SettingsRepository instance
             assert mock_cls.call_count == 1
 
         _get_config_persistence.cache_clear()

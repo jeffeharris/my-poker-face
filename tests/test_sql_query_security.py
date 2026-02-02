@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from poker.persistence import GamePersistence
+from poker.repositories import create_repos
 
 
 # Copy the security logic from experiment_routes for standalone testing

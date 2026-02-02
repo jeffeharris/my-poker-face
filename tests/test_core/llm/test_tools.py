@@ -16,8 +16,8 @@ class TestToolCalling(unittest.TestCase):
         self.temp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.temp_db.close()
 
-        from poker.persistence import GamePersistence
-        GamePersistence(self.temp_db.name)
+        from poker.repositories import create_repos
+        create_repos(self.temp_db.name)
 
         self.tracker = UsageTracker(db_path=self.temp_db.name)
 

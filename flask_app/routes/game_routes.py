@@ -27,7 +27,7 @@ from poker.tournament_tracker import TournamentTracker
 from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
 
 from ..game_adapter import StateMachineAdapter
-from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, experiment_repo, persistence_db_path
+from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, experiment_repo, coach_repo, persistence_db_path
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..handlers.game_handler import (
@@ -211,7 +211,7 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
         if not coaching_data:
             return
 
-        service = CoachProgressionService(persistence)
+        service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
 
         classifier = SituationClassifier()

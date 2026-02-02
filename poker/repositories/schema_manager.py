@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 # v60: Add psychology snapshot columns to player_decision_analysis
 # v61: Add guest_usage_tracking table, owner_id to career stats/tournament tables
 # v62: Add coach_mode column to games table for per-game coaching config
-SCHEMA_VERSION = 62
+# v63: Add coach progression tables (player_skill_progress, player_gate_progress, player_coach_profile)
+SCHEMA_VERSION = 63
 
 
 
@@ -861,6 +862,44 @@ class SchemaManager:
                 )
             """)
 
+            # Coach progression tables
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS player_skill_progress (
+                    user_id TEXT NOT NULL,
+                    skill_id TEXT NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'introduced',
+                    total_opportunities INTEGER NOT NULL DEFAULT 0,
+                    total_correct INTEGER NOT NULL DEFAULT 0,
+                    window_opportunities INTEGER NOT NULL DEFAULT 0,
+                    window_correct INTEGER NOT NULL DEFAULT 0,
+                    streak_correct INTEGER NOT NULL DEFAULT 0,
+                    streak_incorrect INTEGER NOT NULL DEFAULT 0,
+                    last_evaluated_at TEXT,
+                    first_seen_at TEXT,
+                    PRIMARY KEY (user_id, skill_id)
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS player_gate_progress (
+                    user_id TEXT NOT NULL,
+                    gate INTEGER NOT NULL,
+                    unlocked BOOLEAN NOT NULL DEFAULT 0,
+                    unlocked_at TEXT,
+                    PRIMARY KEY (user_id, gate)
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS player_coach_profile (
+                    user_id TEXT PRIMARY KEY,
+                    self_reported_level TEXT,
+                    effective_level TEXT NOT NULL DEFAULT 'beginner',
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+            """)
+
     def _get_current_schema_version(self) -> int:
         """Get the current schema version from the database."""
         with self._get_connection() as conn:
@@ -944,6 +983,7 @@ class SchemaManager:
             60: (self._migrate_v60_add_psychology_snapshot, "Add psychology snapshot columns to player_decision_analysis"),
             61: (self._migrate_v61_guest_tracking_and_owner_id, "Add guest_usage_tracking table, owner_id to career stats/tournament tables"),
             62: (self._migrate_v62_add_coach_mode, "Add coach_mode column to games table"),
+            63: (self._migrate_v63_coach_progression, "Add coach progression tables"),
         }
 
         with self._get_connection() as conn:
@@ -2868,4 +2908,42 @@ class SchemaManager:
             conn.execute("ALTER TABLE games ADD COLUMN coach_mode TEXT DEFAULT 'off'")
             logger.info("Added coach_mode column to games table")
         logger.info("Migration v62 complete: coach_mode column added to games")
+
+    def _migrate_v63_coach_progression(self, conn: sqlite3.Connection) -> None:
+        """Migration v63: Add coach progression tables."""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_skill_progress (
+                user_id TEXT NOT NULL,
+                skill_id TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'introduced',
+                total_opportunities INTEGER NOT NULL DEFAULT 0,
+                total_correct INTEGER NOT NULL DEFAULT 0,
+                window_opportunities INTEGER NOT NULL DEFAULT 0,
+                window_correct INTEGER NOT NULL DEFAULT 0,
+                streak_correct INTEGER NOT NULL DEFAULT 0,
+                streak_incorrect INTEGER NOT NULL DEFAULT 0,
+                last_evaluated_at TEXT,
+                first_seen_at TEXT,
+                PRIMARY KEY (user_id, skill_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_gate_progress (
+                user_id TEXT NOT NULL,
+                gate INTEGER NOT NULL,
+                unlocked BOOLEAN NOT NULL DEFAULT 0,
+                unlocked_at TEXT,
+                PRIMARY KEY (user_id, gate)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_coach_profile (
+                user_id TEXT PRIMARY KEY,
+                self_reported_level TEXT,
+                effective_level TEXT NOT NULL DEFAULT 'beginner',
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        logger.info("Migration v63 complete: coach progression tables added")
 

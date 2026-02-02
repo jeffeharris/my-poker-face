@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 class CoachProgressionService:
     """Manages player skill progression and coaching decisions."""
 
-    def __init__(self, persistence):
-        self._persistence = persistence
+    def __init__(self, coach_repo):
+        self._coach_repo = coach_repo
         self._classifier = SituationClassifier()
         self._evaluator = SkillEvaluator()
 
@@ -34,9 +34,9 @@ class CoachProgressionService:
 
     def get_player_state(self, user_id: str) -> Dict:
         """Load all progression state for a player."""
-        skill_states = self._persistence.load_all_skill_states(user_id)
-        gate_progress = self._persistence.load_gate_progress(user_id)
-        profile = self._persistence.load_coach_profile(user_id)
+        skill_states = self._coach_repo.load_all_skill_states(user_id)
+        gate_progress = self._coach_repo.load_gate_progress(user_id)
+        profile = self._coach_repo.load_coach_profile(user_id)
         return {
             'skill_states': skill_states,
             'gate_progress': gate_progress,
@@ -56,14 +56,14 @@ class CoachProgressionService:
         Creates the profile, unlocks gate 1, and initializes all gate-1
         skills as 'introduced'.
         """
-        self._persistence.save_coach_profile(
+        self._coach_repo.save_coach_profile(
             user_id, self_reported_level=level, effective_level=level
         )
 
         # Unlock gate 1
         gate1 = GateProgress(gate_number=1, unlocked=True,
                              unlocked_at=datetime.now().isoformat())
-        self._persistence.save_gate_progress(user_id, gate1)
+        self._coach_repo.save_gate_progress(user_id, gate1)
 
         # Initialize gate 1 skills
         now = datetime.now().isoformat()
@@ -73,7 +73,7 @@ class CoachProgressionService:
                 state=SkillState.INTRODUCED,
                 first_seen_at=now,
             )
-            self._persistence.save_skill_state(user_id, ss)
+            self._coach_repo.save_skill_state(user_id, ss)
 
         return self.get_player_state(user_id)
 
@@ -150,7 +150,7 @@ class CoachProgressionService:
         self, user_id: str, skill_id: str, evaluation: SkillEvaluation
     ) -> PlayerSkillState:
         """Update a player's skill progress based on an evaluation."""
-        skill_state = self._persistence.load_skill_state(user_id, skill_id)
+        skill_state = self._coach_repo.load_skill_state(user_id, skill_id)
         now = datetime.now().isoformat()
 
         if not skill_state:
@@ -204,7 +204,7 @@ class CoachProgressionService:
         skill_state = self._check_state_transitions(skill_state, skill_def)
 
         # Persist
-        self._persistence.save_skill_state(user_id, skill_state)
+        self._coach_repo.save_skill_state(user_id, skill_state)
         return skill_state
 
     def _trim_window(self, skill_state: PlayerSkillState, window_size: int) -> PlayerSkillState:
@@ -265,8 +265,8 @@ class CoachProgressionService:
 
     def _check_gate_unlocks(self, user_id: str) -> None:
         """Check if any new gates should be unlocked."""
-        skill_states = self._persistence.load_all_skill_states(user_id)
-        gate_progress = self._persistence.load_gate_progress(user_id)
+        skill_states = self._coach_repo.load_all_skill_states(user_id)
+        gate_progress = self._coach_repo.load_gate_progress(user_id)
 
         for gate_num, gate_def in sorted(ALL_GATES.items()):
             gp = gate_progress.get(gate_num)
@@ -287,7 +287,7 @@ class CoachProgressionService:
                     unlocked=True,
                     unlocked_at=datetime.now().isoformat(),
                 )
-                self._persistence.save_gate_progress(user_id, new_gp)
+                self._coach_repo.save_gate_progress(user_id, new_gp)
                 logger.info(f"Gate {gate_num} ({gate_def.name}) unlocked for user {user_id}")
 
                 # Also check if next gate needs unlocking/initializing
@@ -304,7 +304,7 @@ class CoachProgressionService:
                                     state=SkillState.INTRODUCED,
                                     first_seen_at=now,
                                 )
-                                self._persistence.save_skill_state(user_id, ss)
+                                self._coach_repo.save_skill_state(user_id, ss)
 
     # ------------------------------------------------------------------
     # Helpers
