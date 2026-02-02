@@ -53,28 +53,100 @@ const initialState = {
   awaitingAction: undefined as boolean | undefined,
 };
 
+/** Compare two Player objects field-by-field, including nested objects. */
+function arePlayersEqual(a: Player, b: Player): boolean {
+  if (a === b) return true;
+
+  // Primitive fields
+  if (
+    a.name !== b.name ||
+    a.nickname !== b.nickname ||
+    a.stack !== b.stack ||
+    a.bet !== b.bet ||
+    a.is_folded !== b.is_folded ||
+    a.is_all_in !== b.is_all_in ||
+    a.is_human !== b.is_human ||
+    a.avatar_url !== b.avatar_url ||
+    a.avatar_emotion !== b.avatar_emotion ||
+    a.last_action !== b.last_action
+  ) {
+    return false;
+  }
+
+  // Hand array
+  if (a.hand !== b.hand) {
+    if (!a.hand || !b.hand || a.hand.length !== b.hand.length) return false;
+    for (let i = 0; i < a.hand.length; i++) {
+      if (a.hand[i].rank !== b.hand[i].rank || a.hand[i].suit !== b.hand[i].suit) return false;
+    }
+  }
+
+  // Psychology
+  if (a.psychology !== b.psychology) {
+    if (!a.psychology || !b.psychology) return false;
+    if (
+      a.psychology.narrative !== b.psychology.narrative ||
+      a.psychology.inner_voice !== b.psychology.inner_voice ||
+      a.psychology.tilt_level !== b.psychology.tilt_level ||
+      a.psychology.tilt_category !== b.psychology.tilt_category ||
+      a.psychology.tilt_source !== b.psychology.tilt_source ||
+      a.psychology.losing_streak !== b.psychology.losing_streak
+    ) {
+      return false;
+    }
+  }
+
+  // LLM debug
+  if (a.llm_debug !== b.llm_debug) {
+    if (!a.llm_debug || !b.llm_debug) return false;
+    if (
+      a.llm_debug.provider !== b.llm_debug.provider ||
+      a.llm_debug.model !== b.llm_debug.model ||
+      a.llm_debug.reasoning_effort !== b.llm_debug.reasoning_effort ||
+      a.llm_debug.total_calls !== b.llm_debug.total_calls ||
+      a.llm_debug.avg_latency_ms !== b.llm_debug.avg_latency_ms ||
+      a.llm_debug.avg_cost_per_call !== b.llm_debug.avg_cost_per_call
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export const useGameStore = create<GameStore>((set) => ({
   ...initialState,
 
   applyGameState: (state: GameState) => {
-    set({
-      players: state.players,
-      phase: state.phase,
-      pot: state.pot,
-      communityCards: state.community_cards,
-      currentPlayerIdx: state.current_player_idx,
-      dealerIdx: state.current_dealer_idx,
-      smallBlindIdx: state.small_blind_idx,
-      bigBlindIdx: state.big_blind_idx,
-      highestBet: state.highest_bet,
-      playerOptions: state.player_options,
-      minRaise: state.min_raise,
-      bigBlind: state.big_blind,
-      smallBlind: state.small_blind,
-      handNumber: state.hand_number,
-      bettingContext: state.betting_context ?? null,
-      newlyDealtCount: state.newly_dealt_count,
-      awaitingAction: state.awaiting_action,
+    set((prev) => {
+      // Structural sharing: reuse Player references when data hasn't changed
+      let players = state.players;
+      if (prev.players && state.players) {
+        players = state.players.map(incoming => {
+          const existing = prev.players!.find(p => p.name === incoming.name);
+          return existing && arePlayersEqual(existing, incoming) ? existing : incoming;
+        });
+      }
+
+      return {
+        players,
+        phase: state.phase,
+        pot: state.pot,
+        communityCards: state.community_cards,
+        currentPlayerIdx: state.current_player_idx,
+        dealerIdx: state.current_dealer_idx,
+        smallBlindIdx: state.small_blind_idx,
+        bigBlindIdx: state.big_blind_idx,
+        highestBet: state.highest_bet,
+        playerOptions: state.player_options,
+        minRaise: state.min_raise,
+        bigBlind: state.big_blind,
+        smallBlind: state.small_blind,
+        handNumber: state.hand_number,
+        bettingContext: state.betting_context ?? null,
+        newlyDealtCount: state.newly_dealt_count,
+        awaitingAction: state.awaiting_action,
+      };
     });
   },
 

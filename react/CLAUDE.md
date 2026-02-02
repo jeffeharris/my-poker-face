@@ -48,11 +48,7 @@ Leaf components are wrapped with `React.memo` to prevent unnecessary re-renders.
 - **Primitives**: strings, numbers, booleans are always stable — no action needed.
 
 **Known gaps** (components where memo is partially defeated by unstable props):
-- `ActionBadge` — receives `player` object and inline `onFadeComplete` callback
-- `MenuBar` — receives inline JSX via `centerContent`
-- `HeadsUpOpponentPanel` — receives `opponent` object from array access
-- `FloatingChat` — receives `players` array
-- `CoachBubble` — receives `stats` object
+- `CoachBubble` — receives `stats` object from `useCoach`
 
 Pure utility functions with no dependency on props or state (e.g., parsers, formatters) should be defined at module level, not wrapped in `useCallback`.
 

@@ -74,6 +74,7 @@ export function MobilePokerTable({
   const closeCoachPanel = useCallback(() => setShowCoachPanel(false), []);
   const closeDebugModal = useCallback(() => setDebugModalPlayer(null), []);
   const navigateToAdmin = useCallback(() => { window.location.href = '/admin'; }, []);
+  const handleFadeComplete = useCallback(() => setFadeKey(k => k + 1), []);
 
   // Game state from Zustand store (granular selectors for fewer re-renders)
   const storePlayers = useGameStore(state => state.players);
@@ -218,6 +219,16 @@ export function MobilePokerTable({
       });
   }, [players]);
 
+  // Stable map of player name → avatar URL for FloatingChat
+  const playerAvatars = useMemo(() => {
+    if (!storePlayers) return new Map<string, string>();
+    const map = new Map<string, string>();
+    for (const p of storePlayers) {
+      if (p.avatar_url) map.set(p.name, `${config.API_URL}${p.avatar_url}`);
+    }
+    return map;
+  }, [storePlayers]);
+
   // Heads-up mode: only 1 AI opponent remains
   const isHeadsUp = opponents.length === 1;
   const headsUpOpponent = isHeadsUp ? opponents[0] : null;
@@ -233,6 +244,15 @@ export function MobilePokerTable({
   });
 
   const coachEnabled = !isGuest && coach.mode !== 'off';
+
+  const menuBarCenter = useMemo(() => (
+    <GameInfoDisplay
+      phase={phase}
+      smallBlind={smallBlind}
+      bigBlind={bigBlind}
+      handNumber={handNumber}
+    />
+  ), [phase, smallBlind, bigBlind, handNumber]);
 
   const handleCoachToggle = useCallback(() => {
     try {
@@ -309,14 +329,7 @@ export function MobilePokerTable({
       {/* Header with MenuBar - matches menu screens */}
       <MenuBar
         onBack={onBack}
-        centerContent={
-          <GameInfoDisplay
-            phase={phase}
-            smallBlind={smallBlind}
-            bigBlind={bigBlind}
-            handNumber={handNumber}
-          />
-        }
+        centerContent={menuBarCenter}
         showUserInfo
         onAdminTools={navigateToAdmin}
         coachEnabled={coachEnabled}
@@ -392,7 +405,7 @@ export function MobilePokerTable({
               <ActionBadge
                 player={opponent}
                 lastKnownActions={lastKnownActions}
-                onFadeComplete={() => setFadeKey(k => k + 1)}
+                onFadeComplete={handleFadeComplete}
               />
             </div>
           );
@@ -448,7 +461,7 @@ export function MobilePokerTable({
       <FloatingChat
         message={recentAiMessage}
         onDismiss={dismissRecentAiMessage}
-        players={storePlayers}
+        playerAvatars={playerAvatars}
       />
 
       {/* Hero Section - Your Cards */}

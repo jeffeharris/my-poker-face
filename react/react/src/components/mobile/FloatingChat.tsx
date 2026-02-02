@@ -1,6 +1,6 @@
 import { memo, useEffect, useState, useRef, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { ChatMessage, Player } from '../../types';
+import type { ChatMessage } from '../../types';
 import { config } from '../../config';
 import {
   TYPING_SPEED_MS,
@@ -23,7 +23,7 @@ interface MessageWithMeta extends ChatMessage {
 interface FloatingChatProps {
   message: ChatMessage | null;
   onDismiss: () => void;
-  players?: Player[];
+  playerAvatars?: Map<string, string>;
 }
 
 // Parse a beat to determine if it's an action or speech
@@ -228,7 +228,7 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
 // How many messages can have active timers (visible zone)
 const ACTIVE_MESSAGE_LIMIT = 2;
 
-export const FloatingChat = memo(function FloatingChat({ message, onDismiss, players = [] }: Omit<FloatingChatProps, 'duration'>) {
+export const FloatingChat = memo(function FloatingChat({ message, onDismiss, playerAvatars }: FloatingChatProps) {
   const [messages, setMessages] = useState<MessageWithMeta[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
   // Keep a ref to current messages for timer callbacks (avoids stale closures)
@@ -236,8 +236,7 @@ export const FloatingChat = memo(function FloatingChat({ message, onDismiss, pla
   messagesRef.current = messages;
 
   const getPlayerAvatar = (senderName: string): string | null => {
-    const player = players.find(p => p.name === senderName);
-    return player?.avatar_url ? `${config.API_URL}${player.avatar_url}` : null;
+    return playerAvatars?.get(senderName) ?? null;
   };
 
   // Add new message to stack
