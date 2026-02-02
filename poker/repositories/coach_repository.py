@@ -166,3 +166,122 @@ class CoachRepository(BaseRepository):
                 'created_at': row[3],
                 'updated_at': row[4],
             }
+
+    # --- Metrics queries (admin) ---
+
+    def get_profile_stats(self) -> Dict:
+        """Aggregate overview of coaching profiles and gate progress."""
+        with self._get_connection() as conn:
+            # Total and by-level counts
+            total = conn.execute(
+                "SELECT COUNT(*) FROM player_coach_profile"
+            ).fetchone()[0]
+
+            level_rows = conn.execute(
+                "SELECT self_reported_level, COUNT(*) as cnt "
+                "FROM player_coach_profile GROUP BY self_reported_level"
+            ).fetchall()
+            by_level = {row[0]: row[1] for row in level_rows}
+
+            # Active players (skill progress updated in last 7 days)
+            active = conn.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM player_skill_progress "
+                "WHERE last_evaluated_at >= datetime('now', '-7 days')"
+            ).fetchone()[0]
+
+            # Gate funnel
+            gate_rows = conn.execute(
+                "SELECT gate, COUNT(*) as cnt "
+                "FROM player_gate_progress WHERE unlocked = 1 "
+                "GROUP BY gate ORDER BY gate"
+            ).fetchall()
+            gates_unlocked = {row[0]: row[1] for row in gate_rows}
+
+            return {
+                'total_players': total,
+                'active_last_7d': active,
+                'by_level': by_level,
+                'gates_unlocked': gates_unlocked,
+            }
+
+    def get_skill_distribution(self) -> Dict:
+        """Per-skill player counts by state and accuracy stats."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT skill_id, state, "
+                "COUNT(*) as player_count, "
+                "ROUND(AVG(CASE WHEN total_opportunities > 0 "
+                "  THEN CAST(total_correct AS REAL) / total_opportunities ELSE 0 END), 3) as avg_accuracy, "
+                "ROUND(AVG(total_opportunities), 1) as avg_opportunities "
+                "FROM player_skill_progress "
+                "GROUP BY skill_id, state "
+                "ORDER BY skill_id, state"
+            ).fetchall()
+
+            skills = {}
+            for row in rows:
+                sid = row[0]
+                if sid not in skills:
+                    skills[sid] = {'states': {}, 'total_players': 0}
+                skills[sid]['states'][row[1]] = {
+                    'count': row[2],
+                    'avg_accuracy': row[3],
+                    'avg_opportunities': row[4],
+                }
+                skills[sid]['total_players'] += row[2]
+
+            return {'skills': skills}
+
+    def get_skill_advancement_stats(self) -> Dict:
+        """Advancement timing: avg opportunities to reach each state."""
+        with self._get_connection() as conn:
+            # For each skill+state, what's the average total_opportunities?
+            # This shows how many opportunities it typically takes to reach each state.
+            rows = conn.execute(
+                "SELECT skill_id, state, "
+                "COUNT(*) as player_count, "
+                "ROUND(AVG(total_opportunities), 1) as avg_total_opps, "
+                "MIN(total_opportunities) as min_opps, "
+                "MAX(total_opportunities) as max_opps "
+                "FROM player_skill_progress "
+                "WHERE state IN ('reliable', 'automatic') "
+                "GROUP BY skill_id, state "
+                "ORDER BY skill_id, state"
+            ).fetchall()
+
+            advancement = []
+            for row in rows:
+                advancement.append({
+                    'skill_id': row[0],
+                    'state': row[1],
+                    'player_count': row[2],
+                    'avg_total_opportunities': row[3],
+                    'min_opportunities': row[4],
+                    'max_opportunities': row[5],
+                })
+
+            # Regression indicator: skills where players are in a lower state
+            # despite having many opportunities (potential threshold issue)
+            regression_rows = conn.execute(
+                "SELECT skill_id, COUNT(*) as player_count, "
+                "ROUND(AVG(total_opportunities), 1) as avg_opps "
+                "FROM player_skill_progress "
+                "WHERE state IN ('introduced', 'practicing') "
+                "AND total_opportunities > 20 "
+                "GROUP BY skill_id "
+                "ORDER BY avg_opps DESC"
+            ).fetchall()
+
+            stuck_players = [
+                {
+                    'skill_id': row[0],
+                    'player_count': row[1],
+                    'avg_opportunities': row[2],
+                }
+                for row in regression_rows
+            ]
+
+            return {
+                'advancement': advancement,
+                'stuck_players': stuck_players,
+            }

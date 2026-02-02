@@ -7,14 +7,18 @@ from flask import Blueprint, jsonify, request
 
 from ..extensions import limiter, game_repo, coach_repo, auth_manager
 from ..services import game_state_service
-from ..services.coach_engine import compute_coaching_data, compute_coaching_data_with_progression
+from ..services.coach_engine import compute_coaching_data_with_progression
 from ..services.coach_assistant import get_or_create_coach_with_mode
 from ..services.coach_progression import CoachProgressionService
 from .stats_routes import build_hand_context_from_recorded_hand, format_hand_context_for_prompt
+from poker.authorization import require_permission
 
 logger = logging.getLogger(__name__)
 
 coach_bp = Blueprint('coach', __name__)
+
+# RBAC decorator — requires 'can_access_coach' permission (user + admin groups)
+_coach_required = require_permission('can_access_coach')
 
 
 def _get_human_player_name(game_data: dict) -> Optional[str]:
@@ -40,6 +44,7 @@ def _get_current_user_id() -> str:
 
 @coach_bp.route('/api/coach/<game_id>/stats')
 @limiter.limit("30/minute")
+@_coach_required
 def coach_stats(game_id: str):
     """Return pre-computed coaching statistics for the human player."""
     game_data = game_state_service.get_game(game_id)
@@ -63,6 +68,7 @@ def coach_stats(game_id: str):
 
 @coach_bp.route('/api/coach/<game_id>/ask', methods=['POST'])
 @limiter.limit("10/minute")
+@_coach_required
 def coach_ask(game_id: str):
     """Answer a coaching question (or generate a proactive tip)."""
     game_data = game_state_service.get_game(game_id)
@@ -117,6 +123,7 @@ def coach_ask(game_id: str):
 
 @coach_bp.route('/api/coach/<game_id>/config', methods=['GET'])
 @limiter.limit("30/minute")
+@_coach_required
 def coach_config_get(game_id: str):
     """Load coach mode preference for the game."""
     game_data = game_state_service.get_game(game_id)
@@ -132,6 +139,7 @@ def coach_config_get(game_id: str):
 
 @coach_bp.route('/api/coach/<game_id>/config', methods=['POST'])
 @limiter.limit("30/minute")
+@_coach_required
 def coach_config(game_id: str):
     """Store coach mode preference for the game."""
     game_data = game_state_service.get_game(game_id)
@@ -150,6 +158,7 @@ def coach_config(game_id: str):
 
 @coach_bp.route('/api/coach/<game_id>/hand-review', methods=['POST'])
 @limiter.limit("10/minute")
+@_coach_required
 def coach_hand_review(game_id: str):
     """Generate a post-hand review of the most recently completed hand."""
     game_data = game_state_service.get_game(game_id)
@@ -218,11 +227,10 @@ def coach_hand_review(game_id: str):
 
 @coach_bp.route('/api/coach/<game_id>/progression')
 @limiter.limit("30/minute")
+@_coach_required
 def coach_progression(game_id: str):
     """Return the player's skill progression state."""
     user_id = _get_current_user_id()
-    if not user_id:
-        return jsonify({'error': 'Authentication required'}), 401
 
     try:
         from ..services.skill_definitions import ALL_SKILLS, ALL_GATES
@@ -262,11 +270,10 @@ def coach_progression(game_id: str):
 
 @coach_bp.route('/api/coach/<game_id>/onboarding', methods=['POST'])
 @limiter.limit("5/minute")
+@_coach_required
 def coach_onboarding(game_id: str):
     """Initialize or update the player's coaching profile."""
     user_id = _get_current_user_id()
-    if not user_id:
-        return jsonify({'error': 'Authentication required'}), 401
 
     body = request.get_json(silent=True) or {}
     level = body.get('level', 'beginner')
@@ -284,3 +291,47 @@ def coach_onboarding(game_id: str):
     except Exception as e:
         logger.error(f"Coach onboarding failed: {e}", exc_info=True)
         return jsonify({'error': 'Onboarding failed'}), 500
+
+
+# --- Admin-only metrics endpoints ---
+
+_admin_required = require_permission('can_access_admin_tools')
+
+
+@coach_bp.route('/api/coach/metrics/overview')
+@limiter.limit("30/minute")
+@_admin_required
+def coach_metrics_overview():
+    """Aggregate overview of coach progression usage."""
+    try:
+        stats = coach_repo.get_profile_stats()
+        return jsonify(stats)
+    except Exception as e:
+        logger.error(f"Coach metrics overview failed: {e}", exc_info=True)
+        return jsonify({'error': 'Could not load metrics'}), 500
+
+
+@coach_bp.route('/api/coach/metrics/skills')
+@limiter.limit("30/minute")
+@_admin_required
+def coach_metrics_skills():
+    """Per-skill distribution and advancement stats."""
+    try:
+        stats = coach_repo.get_skill_distribution()
+        return jsonify(stats)
+    except Exception as e:
+        logger.error(f"Coach metrics skills failed: {e}", exc_info=True)
+        return jsonify({'error': 'Could not load skill metrics'}), 500
+
+
+@coach_bp.route('/api/coach/metrics/advancement')
+@limiter.limit("30/minute")
+@_admin_required
+def coach_metrics_advancement():
+    """Skill advancement timing and difficulty analysis."""
+    try:
+        stats = coach_repo.get_skill_advancement_stats()
+        return jsonify(stats)
+    except Exception as e:
+        logger.error(f"Coach metrics advancement failed: {e}", exc_info=True)
+        return jsonify({'error': 'Could not load advancement metrics'}), 500

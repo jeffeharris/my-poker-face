@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 # v61: Add guest_usage_tracking table, owner_id to career stats/tournament tables
 # v62: Add coach_mode column to games table for per-game coaching config
 # v63: Add coach progression tables (player_skill_progress, player_gate_progress, player_coach_profile)
-SCHEMA_VERSION = 63
+# v64: Add can_access_coach permission for RBAC gating
+SCHEMA_VERSION = 64
 
 
 
@@ -984,6 +985,7 @@ class SchemaManager:
             61: (self._migrate_v61_guest_tracking_and_owner_id, "Add guest_usage_tracking table, owner_id to career stats/tournament tables"),
             62: (self._migrate_v62_add_coach_mode, "Add coach_mode column to games table"),
             63: (self._migrate_v63_coach_progression, "Add coach progression tables"),
+            64: (self._migrate_v64_add_coach_permission, "Add can_access_coach permission"),
         }
 
         with self._get_connection() as conn:
@@ -2946,4 +2948,23 @@ class SchemaManager:
             )
         """)
         logger.info("Migration v63 complete: coach progression tables added")
+
+    def _migrate_v64_add_coach_permission(self, conn: sqlite3.Connection) -> None:
+        """Migration v64: Add can_access_coach permission for RBAC gating.
+
+        Grants the permission to both 'admin' and 'user' groups so
+        authenticated users can access the coach. Guests (no group
+        membership) are denied.
+        """
+        conn.execute("""
+            INSERT OR IGNORE INTO permissions (name, description, category)
+            VALUES ('can_access_coach', 'Access to the poker coaching feature', 'coach')
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO group_permissions (group_id, permission_id)
+            SELECT g.id, p.id
+            FROM groups g, permissions p
+            WHERE g.name IN ('admin', 'user') AND p.name = 'can_access_coach'
+        """)
+        logger.info("Migration v64 complete: can_access_coach permission added")
 

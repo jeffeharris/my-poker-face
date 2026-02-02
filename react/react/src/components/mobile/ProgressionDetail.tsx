@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { ProgressionState, CoachProgression, SkillProgress, FullSkillProgress, SkillStateValue } from '../../types/coach';
 import './ProgressionDetail.css';
 
@@ -5,30 +6,6 @@ interface ProgressionDetailProps {
   progressionFull: ProgressionState | null;
   progressionLite: CoachProgression | null;
 }
-
-// All 4 gates in order with their skill IDs
-const GATE_CONFIG: { gate: number; name: string; skillIds: string[] }[] = [
-  {
-    gate: 1,
-    name: 'Preflop Fundamentals',
-    skillIds: ['fold_trash_hands', 'position_matters', 'raise_or_fold'],
-  },
-  {
-    gate: 2,
-    name: 'Post-Flop Basics',
-    skillIds: ['flop_connection', 'bet_when_strong', 'checking_is_allowed'],
-  },
-  {
-    gate: 3,
-    name: 'Pressure Recognition',
-    skillIds: ['draws_need_price', 'respect_big_bets', 'have_a_plan'],
-  },
-  {
-    gate: 4,
-    name: 'Multi-Street Thinking',
-    skillIds: ['dont_pay_double_barrels', 'size_bets_with_purpose'],
-  },
-];
 
 function stateColorClass(state: SkillStateValue): string {
   switch (state) {
@@ -50,16 +27,38 @@ export function ProgressionDetail({ progressionFull, progressionLite }: Progress
     progressionFull?.skill_states ?? progressionLite?.skill_states ?? {};
   const gateProgress = progressionFull?.gate_progress ?? {};
 
+  // Derive gate structure from API data (single source of truth)
+  const gates = useMemo(() => {
+    const gateMap = new Map<number, { gate: number; name: string; skillIds: string[] }>();
+
+    // Seed gates from gate_progress (includes name metadata)
+    for (const [gateNum, info] of Object.entries(gateProgress)) {
+      const g = Number(gateNum);
+      gateMap.set(g, { gate: g, name: info.name, skillIds: [] });
+    }
+
+    // Group skills by their gate field
+    for (const [sid, skill] of Object.entries(skillStates)) {
+      const g = skill.gate;
+      if (!gateMap.has(g)) {
+        gateMap.set(g, { gate: g, name: `Gate ${g}`, skillIds: [] });
+      }
+      gateMap.get(g)!.skillIds.push(sid);
+    }
+
+    // Sort gates by number, skills alphabetically within each gate
+    return Array.from(gateMap.values())
+      .sort((a, b) => a.gate - b.gate)
+      .map(g => ({ ...g, skillIds: g.skillIds.sort() }));
+  }, [gateProgress, skillStates]);
+
+  if (gates.length === 0) return null;
+
   return (
     <div className="progression-detail">
-      {GATE_CONFIG.map(({ gate, name, skillIds }) => {
+      {gates.map(({ gate, name, skillIds }) => {
         const gateInfo = gateProgress[String(gate)];
         const isLocked = gateInfo ? !gateInfo.unlocked : gate > 1;
-
-        // Summary dots for gate header
-        const gateSkills = skillIds
-          .map(sid => skillStates[sid])
-          .filter(Boolean);
 
         return (
           <div
