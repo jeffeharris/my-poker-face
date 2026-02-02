@@ -11,10 +11,10 @@ test.describe('PW-16: Reconnecting overlay appears when socket drops', () => {
     await setAuthLocalStorage(page);
     await page.goto('/game/test-game-123');
 
-    const table = page.locator('.mobile-poker-table');
+    const table = page.getByTestId('mobile-poker-table');
     await expect(table).toBeVisible({ timeout: 10000 });
 
-    const overlay = page.locator('.mobile-reconnecting-overlay');
+    const overlay = page.getByTestId('reconnecting-overlay');
     await expect(overlay).toBeVisible({ timeout: 5000 });
     await expect(overlay).toContainText('Reconnecting');
   });
@@ -26,10 +26,10 @@ test.describe('PW-16: Reconnecting overlay appears when socket drops', () => {
     await setAuthLocalStorage(page);
     await page.goto('/game/test-game-123');
 
-    const table = page.locator('.mobile-poker-table');
+    const table = page.getByTestId('mobile-poker-table');
     await expect(table).toBeVisible({ timeout: 10000 });
 
-    const spinner = page.locator('.reconnecting-spinner');
+    const spinner = page.getByTestId('reconnecting-spinner');
     await expect(spinner).toBeVisible({ timeout: 5000 });
   });
 
@@ -40,12 +40,12 @@ test.describe('PW-16: Reconnecting overlay appears when socket drops', () => {
     await setAuthLocalStorage(page);
     await page.goto('/game/test-game-123');
 
-    const table = page.locator('.mobile-poker-table');
+    const table = page.getByTestId('mobile-poker-table');
     await expect(table).toBeVisible({ timeout: 10000 });
 
     await page.waitForTimeout(1000);
 
-    const overlay = page.locator('.mobile-reconnecting-overlay');
+    const overlay = page.getByTestId('reconnecting-overlay');
     await expect(overlay).not.toBeVisible();
   });
 

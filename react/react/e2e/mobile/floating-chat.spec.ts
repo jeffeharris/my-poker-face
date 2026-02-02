@@ -61,25 +61,25 @@ test.describe('PW-10: Floating chat bubbles appear and auto-dismiss', () => {
   test('AI message triggers a floating chat bubble with sender name and message', async ({ page }) => {
     await setupFloatingChat(page);
 
-    const bubble = page.locator('.floating-chat').first();
+    const bubble = page.getByTestId('floating-chat').first();
     await expect(bubble).toBeVisible({ timeout: 10000 });
 
-    const sender = bubble.locator('.floating-chat-sender');
+    const sender = bubble.getByTestId('floating-chat-sender');
     await expect(sender).toBeVisible();
     const senderText = await sender.textContent();
     expect(senderText).toBeTruthy();
 
-    const avatar = bubble.locator('.floating-chat-avatar');
+    const avatar = bubble.getByTestId('floating-chat-avatar');
     await expect(avatar).toBeVisible();
   });
 
   test('floating chat bubble shows message text (typed out)', async ({ page }) => {
     await setupFloatingChat(page);
 
-    const bubble = page.locator('.floating-chat').first();
+    const bubble = page.getByTestId('floating-chat').first();
     await expect(bubble).toBeVisible({ timeout: 10000 });
 
-    const messageContent = bubble.locator('.floating-chat-message');
+    const messageContent = bubble.getByTestId('floating-chat-message');
     await expect(messageContent).toBeVisible({ timeout: 5000 });
 
     await expect(messageContent).toContainText('night', { timeout: 10000 });
@@ -88,23 +88,23 @@ test.describe('PW-10: Floating chat bubbles appear and auto-dismiss', () => {
   test('dismiss button removes bubble immediately', async ({ page }) => {
     await setupFloatingChat(page);
 
-    const bubble = page.locator('.floating-chat').first();
+    const bubble = page.getByTestId('floating-chat').first();
     await expect(bubble).toBeVisible({ timeout: 10000 });
 
-    const dismissBtn = bubble.locator('.floating-chat-dismiss');
+    const dismissBtn = bubble.getByTestId('floating-chat-dismiss');
     await expect(dismissBtn).toBeVisible();
     await dismissBtn.click({ force: true });
 
-    await expect(page.locator('.floating-chat')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('floating-chat')).not.toBeVisible({ timeout: 5000 });
   });
 
   test('bubble has avatar with image or initial', async ({ page }) => {
     await setupFloatingChat(page);
 
-    const bubble = page.locator('.floating-chat').first();
+    const bubble = page.getByTestId('floating-chat').first();
     await expect(bubble).toBeVisible({ timeout: 10000 });
 
-    const avatar = bubble.locator('.floating-chat-avatar');
+    const avatar = bubble.getByTestId('floating-chat-avatar');
     await expect(avatar).toBeVisible();
 
     const avatarText = await avatar.textContent();
@@ -115,10 +115,10 @@ test.describe('PW-10: Floating chat bubbles appear and auto-dismiss', () => {
   test('maximum 2 active bubbles at once when multiple AI messages arrive', async ({ page }) => {
     await setupFloatingChat(page, buildGameStateWithTwoAiMessages());
 
-    const bubbles = page.locator('.floating-chat');
+    const bubbles = page.getByTestId('floating-chat');
     await expect(bubbles.first()).toBeVisible({ timeout: 10000 });
 
-    const stack = page.locator('.floating-chat-stack');
+    const stack = page.getByTestId('floating-chat-stack');
     await expect(stack).toBeVisible();
 
     const count = await bubbles.count();

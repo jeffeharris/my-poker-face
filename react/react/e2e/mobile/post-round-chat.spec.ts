@@ -96,7 +96,7 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
   test('loser sees Salty and Gracious tone buttons after winner announcement', async ({ page }) => {
     await setupWithWinner(page, { winnerPayload: showdownWinnerInfo });
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
     const postRoundChat = overlay.locator('.post-round-chat');
@@ -119,7 +119,7 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
   test('winner sees Gloat and Humble tone buttons', async ({ page }) => {
     await setupWithWinner(page, { winnerPayload: foldWinnerInfo });
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
     const postRoundChat = overlay.locator('.post-round-chat');
@@ -145,7 +145,7 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
       ],
     });
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
     const graciousBtn = overlay.locator('.tone-gracious');
@@ -173,7 +173,7 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
       ],
     });
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
     const graciousBtn = overlay.locator('.tone-gracious');
@@ -200,7 +200,7 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
       ],
     });
 
-    const overlay = page.locator('.mobile-winner-overlay');
+    const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
     const graciousBtn = overlay.locator('.tone-gracious');

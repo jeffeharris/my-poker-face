@@ -17,7 +17,7 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
     const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    const chatBtn = page.locator('.action-btn.chat-btn');
+    const chatBtn = page.getByTestId('action-btn-chat');
     await expect(chatBtn).toBeVisible({ timeout: 5000 });
     await chatBtn.click();
 
@@ -32,7 +32,7 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
     const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    await page.locator('.action-btn.chat-btn').click();
+    await page.getByTestId('action-btn-chat').click();
 
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
@@ -51,7 +51,7 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
     const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    await page.locator('.action-btn.chat-btn').click();
+    await page.getByTestId('action-btn-chat').click();
 
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
@@ -67,7 +67,7 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
     const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    await page.locator('.action-btn.chat-btn').click();
+    await page.getByTestId('action-btn-chat').click();
 
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
@@ -83,7 +83,7 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
     const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    await page.locator('.action-btn.chat-btn').click();
+    await page.getByTestId('action-btn-chat').click();
 
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
@@ -105,7 +105,7 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
       route.fulfill({ json: { success: true } });
     });
 
-    await page.locator('.action-btn.chat-btn').click();
+    await page.getByTestId('action-btn-chat').click();
 
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
@@ -123,7 +123,7 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
     const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    await page.locator('.action-btn.chat-btn').click();
+    await page.getByTestId('action-btn-chat').click();
 
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
@@ -139,7 +139,7 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
     const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(['fold', 'call', 'raise'], { messages: [] }) });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    await page.locator('.action-btn.chat-btn').click();
+    await page.getByTestId('action-btn-chat').click();
 
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
@@ -154,7 +154,7 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
     const ctx = await mockGamePageRoutes(page, { gameState: buildGameStateWithMessages() });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    const chatBtn = page.locator('.action-btn.chat-btn');
+    const chatBtn = page.getByTestId('action-btn-chat');
     await expect(chatBtn).toBeVisible({ timeout: 5000 });
     await chatBtn.click();
 

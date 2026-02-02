@@ -18,7 +18,7 @@ test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
     const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    const waitingText = page.locator('.waiting-text');
+    const waitingText = page.getByTestId('waiting-text');
     await expect(waitingText).toBeVisible({ timeout: 5000 });
     await expect(waitingText).toContainText(/thinking|waiting/i);
   });
@@ -27,7 +27,7 @@ test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
     const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    const preemptiveBtn = page.locator('.action-btn.preemptive-btn');
+    const preemptiveBtn = page.getByTestId('action-btn-preemptive');
     await expect(preemptiveBtn).toBeVisible({ timeout: 5000 });
     await expect(preemptiveBtn).toContainText(/chk\/fold/i);
   });
@@ -36,7 +36,7 @@ test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
     const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    const preemptiveBtn = page.locator('.action-btn.preemptive-btn');
+    const preemptiveBtn = page.getByTestId('action-btn-preemptive');
     await expect(preemptiveBtn).toBeVisible({ timeout: 5000 });
 
     await preemptiveBtn.click();
@@ -49,7 +49,7 @@ test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
     const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    const preemptiveBtn = page.locator('.action-btn.preemptive-btn');
+    const preemptiveBtn = page.getByTestId('action-btn-preemptive');
     await expect(preemptiveBtn).toBeVisible({ timeout: 5000 });
 
     await preemptiveBtn.click();
@@ -64,7 +64,7 @@ test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
     const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    const chatBtn = page.locator('.action-btn.chat-btn');
+    const chatBtn = page.getByTestId('action-btn-chat');
     await expect(chatBtn).toBeVisible({ timeout: 5000 });
   });
 
@@ -72,11 +72,11 @@ test.describe('PW-08: Preemptive fold while waiting for opponent', () => {
     const ctx = await mockGamePageRoutes(page, { gameState: buildWaitingGameState() });
     await navigateToGamePage(page, { mockContext: ctx });
 
-    await expect(page.locator('.waiting-text')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('waiting-text')).toBeVisible({ timeout: 5000 });
 
-    await expect(page.locator('.action-btn.fold-btn')).not.toBeVisible();
-    await expect(page.locator('.action-btn.call-btn')).not.toBeVisible();
-    await expect(page.locator('.action-btn.raise-btn')).not.toBeVisible();
+    await expect(page.getByTestId('action-btn-fold')).not.toBeVisible();
+    await expect(page.getByTestId('action-btn-call')).not.toBeVisible();
+    await expect(page.getByTestId('action-btn-raise')).not.toBeVisible();
   });
 
 });

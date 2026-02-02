@@ -145,7 +145,7 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
   const playStyle = observation ? getPlayStyleLabel(observation.play_style) : null;
 
   return (
-    <div className="heads-up-opponent-panel">
+    <div className="heads-up-opponent-panel" data-testid="heads-up-panel">
       {/* Reading Header */}
       <div className="panel-header">
         Reading {opponent.nickname || opponent.name}...
