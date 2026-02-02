@@ -63,11 +63,6 @@ from core.llm.settings import (           # noqa: F401
 )
 
 # Database path
-def get_db_path():
-    """Get the database path based on environment."""
-    if os.path.exists('/app/data'):
-        return '/app/data/poker_games.db'
-    else:
-        return os.path.join(os.path.dirname(__file__), '..', 'poker_games.db')
+from poker.db_utils import get_default_db_path as get_db_path  # noqa: F401 — re-exported for route imports
 
 DB_PATH = get_db_path()

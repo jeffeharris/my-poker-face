@@ -48,12 +48,8 @@ def get_capture_db_path() -> str:
         return env_path
 
     # Auto-detect based on environment
-    if Path('/app/data').exists():
-        return '/app/data/poker_games.db'
-    
-    # Default to data directory in project root
-    project_root = Path(__file__).parent.parent.parent
-    return str(project_root / 'data' / 'poker_games.db')
+    from poker.db_utils import get_default_db_path
+    return get_default_db_path()
 
 
 @dataclass
@@ -121,14 +117,9 @@ class UsageTracker:
         cls._instance = tracker
 
     def _get_default_db_path(self) -> str:
-        """Get the default database path based on environment.
-
-        Note: This duplicates flask_app.config.get_db_path() to avoid circular imports.
-        The canonical version is in flask_app/config.py.
-        """
-        if Path('/app/data').exists():
-            return '/app/data/poker_games.db'
-        return str(Path(__file__).parent.parent.parent / 'poker_games.db')
+        """Get the default database path based on environment."""
+        from poker.db_utils import get_default_db_path
+        return get_default_db_path()
 
     def _ensure_table(self) -> None:
         """Ensure the api_usage table exists."""
