@@ -1,0 +1,7 @@
+FROM node:20-slim
+
+# Install Playwright system dependencies (Chromium + WebKit)
+RUN npx playwright install-deps chromium webkit
+
+# Install Playwright browsers
+RUN npx playwright install chromium webkit

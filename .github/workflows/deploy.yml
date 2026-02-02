@@ -28,7 +28,7 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest tests/ -v --tb=short --cov=poker --cov=flask_app --cov=core --cov-report=term-missing:skip-covered --cov-fail-under=40
+          python -m pytest tests/ -n auto -v --tb=short --cov=poker --cov=flask_app --cov=core --cov-report=term-missing:skip-covered --cov-fail-under=40
         env:
           PYTHONPATH: ${{ github.workspace }}
           FLASK_ENV: 'development'
@@ -71,8 +71,6 @@ jobs:
   test-e2e:
     name: Test E2E (Playwright)
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-
     steps:
       - uses: actions/checkout@v6
 
@@ -103,7 +101,7 @@ jobs:
 
   deploy:
     name: Deploy to Production
-    needs: [test-backend, test-frontend]
+    needs: [test-backend, test-frontend, test-e2e]
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
 

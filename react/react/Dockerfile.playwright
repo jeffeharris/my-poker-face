@@ -1,7 +1,4 @@
-FROM node:20-slim
-
-# Install Playwright system dependencies (Chromium + WebKit)
-RUN npx playwright install-deps chromium webkit
+FROM ghcr.io/jeffeharris/my-poker-face/playwright-base:latest
 
 # Set up working directory
 WORKDIR /app
@@ -9,9 +6,6 @@ WORKDIR /app
 # Copy package files and install
 COPY package.json package-lock.json ./
 RUN npm ci
-
-# Install Playwright browsers after npm install
-RUN npx playwright install chromium webkit
 
 # Copy the rest of the app
 COPY . .
