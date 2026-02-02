@@ -3,7 +3,7 @@
 import unittest
 
 from flask_app.services.situation_classifier import SituationClassifier, SituationClassification
-from flask_app.services.coach_models import PlayerSkillState, SkillState
+from poker.coach_models import PlayerSkillState, SkillState
 
 
 class TestSituationClassifier(unittest.TestCase):
@@ -250,6 +250,196 @@ class TestGate2SituationClassifier(unittest.TestCase):
         result = self.classifier.classify(data, unlocked, self.skill_states)
         self.assertNotIn('flop_connection', result.relevant_skills)
         self.assertNotIn('checking_is_allowed', result.relevant_skills)
+
+
+class TestGate3SituationClassifier(unittest.TestCase):
+    """Test Gate 3 situation classification."""
+
+    def setUp(self):
+        self.classifier = SituationClassifier()
+        self.unlocked_gates = [1, 2, 3]
+        self.skill_states = {}
+
+    def _make_data(self, phase='TURN', hand_rank=9, cost_to_call=0,
+                   outs=0, hand_strength='One Pair', pot_total=100,
+                   big_blind=10, **kwargs):
+        data = {
+            'phase': phase,
+            'hand_strength': hand_strength,
+            'hand_rank': hand_rank,
+            'position': 'Button',
+            'cost_to_call': cost_to_call,
+            'pot_total': pot_total,
+            'big_blind': big_blind,
+            'outs': outs,
+            'hand_actions': [],
+            'player_name': 'Hero',
+        }
+        data.update(kwargs)
+        return data
+
+    # ---- draws_need_price triggers ----
+
+    def test_draw_facing_bet_triggers(self):
+        data = self._make_data(phase='FLOP', hand_rank=10, outs=8, cost_to_call=20)
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertIn('draws_need_price', result.relevant_skills)
+
+    def test_draw_no_bet_does_not_trigger(self):
+        data = self._make_data(phase='FLOP', hand_rank=10, outs=8, cost_to_call=0)
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('draws_need_price', result.relevant_skills)
+
+    def test_no_draw_does_not_trigger(self):
+        data = self._make_data(phase='FLOP', hand_rank=10, outs=2, cost_to_call=20)
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('draws_need_price', result.relevant_skills)
+
+    def test_draws_need_price_wrong_phase(self):
+        data = self._make_data(phase='RIVER', hand_rank=10, outs=8, cost_to_call=20)
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('draws_need_price', result.relevant_skills)
+
+    # ---- respect_big_bets triggers ----
+
+    def test_big_bet_medium_hand_triggers(self):
+        # pot_total=150, cost_to_call=100 => pot_before_bet=50, bet=100 >= 50*0.5
+        data = self._make_data(phase='TURN', hand_rank=9, cost_to_call=100, pot_total=150)
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertIn('respect_big_bets', result.relevant_skills)
+
+    def test_small_bet_does_not_trigger(self):
+        # pot_total=200, cost_to_call=10 => pot_before_bet=190, bet=10 < 190*0.5
+        data = self._make_data(phase='TURN', hand_rank=9, cost_to_call=10, pot_total=200)
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('respect_big_bets', result.relevant_skills)
+
+    def test_strong_hand_does_not_trigger(self):
+        data = self._make_data(phase='TURN', hand_rank=8, cost_to_call=100, pot_total=150)
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('respect_big_bets', result.relevant_skills)
+
+    def test_respect_big_bets_wrong_phase(self):
+        data = self._make_data(phase='FLOP', hand_rank=9, cost_to_call=100, pot_total=150)
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('respect_big_bets', result.relevant_skills)
+
+    # ---- have_a_plan triggers ----
+
+    def test_turn_after_flop_bet_triggers(self):
+        data = self._make_data(
+            phase='TURN',
+            hand_actions=[{'player_name': 'Hero', 'action': 'bet', 'phase': 'FLOP', 'amount': 20}],
+        )
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertIn('have_a_plan', result.relevant_skills)
+
+    def test_turn_without_flop_bet_does_not_trigger(self):
+        data = self._make_data(phase='TURN', hand_actions=[])
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('have_a_plan', result.relevant_skills)
+
+    def test_have_a_plan_wrong_phase(self):
+        data = self._make_data(
+            phase='RIVER',
+            hand_actions=[{'player_name': 'Hero', 'action': 'bet', 'phase': 'FLOP', 'amount': 20}],
+        )
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('have_a_plan', result.relevant_skills)
+
+    # ---- gate gating ----
+
+    def test_gate3_skills_not_triggered_when_gate3_locked(self):
+        unlocked = [1, 2]
+        data = self._make_data(
+            phase='FLOP', hand_rank=10, outs=8, cost_to_call=20,
+        )
+        result = self.classifier.classify(data, unlocked, self.skill_states)
+        self.assertNotIn('draws_need_price', result.relevant_skills)
+
+
+class TestGate4SituationClassifier(unittest.TestCase):
+    """Test Gate 4 situation classification."""
+
+    def setUp(self):
+        self.classifier = SituationClassifier()
+        self.unlocked_gates = [1, 2, 3, 4]
+        self.skill_states = {}
+
+    def _make_data(self, phase='TURN', hand_rank=9, cost_to_call=20,
+                   pot_total=100, big_blind=10, **kwargs):
+        data = {
+            'phase': phase,
+            'hand_strength': 'One Pair',
+            'hand_rank': hand_rank,
+            'position': 'Button',
+            'cost_to_call': cost_to_call,
+            'pot_total': pot_total,
+            'big_blind': big_blind,
+            'outs': 0,
+            'hand_actions': [],
+            'player_name': 'Hero',
+        }
+        data.update(kwargs)
+        return data
+
+    # ---- dont_pay_double_barrels triggers ----
+
+    def test_double_barrel_marginal_hand_triggers(self):
+        data = self._make_data(
+            hand_actions=[
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'TURN', 'amount': 40},
+            ],
+        )
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertIn('dont_pay_double_barrels', result.relevant_skills)
+
+    def test_single_barrel_does_not_trigger(self):
+        data = self._make_data(
+            hand_actions=[
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+            ],
+        )
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('dont_pay_double_barrels', result.relevant_skills)
+
+    def test_strong_hand_does_not_trigger_double_barrel(self):
+        data = self._make_data(
+            hand_rank=8,  # Two pair = strong
+            hand_actions=[
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'TURN', 'amount': 40},
+            ],
+        )
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('dont_pay_double_barrels', result.relevant_skills)
+
+    # ---- size_bets_with_purpose triggers ----
+
+    def test_postflop_triggers_size_bets(self):
+        data = self._make_data(phase='FLOP')
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertIn('size_bets_with_purpose', result.relevant_skills)
+
+    def test_preflop_does_not_trigger_size_bets(self):
+        data = self._make_data(phase='PRE_FLOP')
+        result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
+        self.assertNotIn('size_bets_with_purpose', result.relevant_skills)
+
+    # ---- gate gating ----
+
+    def test_gate4_skills_not_triggered_when_gate4_locked(self):
+        unlocked = [1, 2, 3]
+        data = self._make_data(
+            hand_actions=[
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'TURN', 'amount': 40},
+            ],
+        )
+        result = self.classifier.classify(data, unlocked, self.skill_states)
+        self.assertNotIn('dont_pay_double_barrels', result.relevant_skills)
+        self.assertNotIn('size_bets_with_purpose', result.relevant_skills)
 
 
 if __name__ == '__main__':

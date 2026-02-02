@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, Optional
 
-from .skill_definitions import build_poker_context
+from .context_builder import build_poker_context
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,15 @@ class SkillEvaluator:
         Returns:
             SkillEvaluation with the result.
         """
-        ctx = self._build_eval_context(coaching_data)
+        ctx = build_poker_context(coaching_data) or {}
+        if not ctx:
+            return SkillEvaluation(
+                skill_id=skill_id,
+                action_taken=action_taken,
+                evaluation='not_applicable',
+                confidence=0.0,
+                reasoning='No game context available for evaluation',
+            )
         action = action_taken.lower()
 
         # Forced all-in: stack <= cost_to_call means no meaningful decision
@@ -67,10 +75,18 @@ class SkillEvaluator:
             'flop_connection': self._eval_flop_connection,
             'bet_when_strong': self._eval_bet_when_strong,
             'checking_is_allowed': self._eval_checking_is_allowed,
+            # Gate 3
+            'draws_need_price': self._eval_draws_need_price,
+            'respect_big_bets': self._eval_respect_big_bets,
+            'have_a_plan': self._eval_have_a_plan,
+            # Gate 4
+            'dont_pay_double_barrels': self._eval_dont_pay_double_barrels,
+            'size_bets_with_purpose': self._eval_size_bets_with_purpose,
         }
 
         evaluator = evaluators.get(skill_id)
         if not evaluator:
+            logger.warning("No evaluator for skill %s", skill_id)
             return SkillEvaluation(
                 skill_id=skill_id,
                 action_taken=action,
@@ -80,11 +96,6 @@ class SkillEvaluator:
             )
 
         return evaluator(action, ctx)
-
-    def _build_eval_context(self, coaching_data: Dict) -> Dict:
-        """Extract evaluation context from coaching data."""
-        ctx = build_poker_context(coaching_data)
-        return ctx if ctx else {}
 
     def _eval_fold_trash(self, action: str, ctx: Dict) -> SkillEvaluation:
         """Evaluate fold_trash_hands: trash hand + fold = correct."""
@@ -262,7 +273,7 @@ class SkillEvaluator:
                 reasoning='Chose not to enter the pot (fold is acceptable).',
             )
 
-        if action == 'raise' or action.startswith('raise'):
+        if action.startswith('raise'):
             return SkillEvaluation(
                 skill_id='raise_or_fold',
                 action_taken=action,
@@ -420,4 +431,208 @@ class SkillEvaluator:
             evaluation='incorrect',
             confidence=0.8,
             reasoning=f'Bluffed ({action}) with a weak hand when checking was available.',
+        )
+
+    # ---- Gate 3 evaluators (pressure recognition) ----
+
+    def _eval_draws_need_price(self, action: str, ctx: Dict) -> SkillEvaluation:
+        """Draw + facing bet: call when pot odds are good, fold when bad."""
+        if not ctx.get('has_draw', False) or ctx['cost_to_call'] <= 0:
+            return SkillEvaluation(
+                skill_id='draws_need_price', action_taken=action,
+                evaluation='not_applicable', confidence=1.0,
+                reasoning='Not facing bet with draw',
+            )
+
+        required_equity = ctx.get('required_equity') or 0
+        equity = ctx.get('equity') or 0
+
+        if required_equity > 0 and equity > 0:
+            if equity >= required_equity:
+                if action == 'call' or action.startswith('raise'):
+                    return SkillEvaluation(
+                        skill_id='draws_need_price', action_taken=action,
+                        evaluation='correct', confidence=0.9,
+                        reasoning='Called/raised with good pot odds on draw',
+                    )
+                if action == 'fold':
+                    return SkillEvaluation(
+                        skill_id='draws_need_price', action_taken=action,
+                        evaluation='incorrect', confidence=0.8,
+                        reasoning='Folded a profitable draw',
+                    )
+            else:
+                if action == 'fold':
+                    return SkillEvaluation(
+                        skill_id='draws_need_price', action_taken=action,
+                        evaluation='correct', confidence=0.9,
+                        reasoning='Folded draw without proper pot odds',
+                    )
+                if action == 'call':
+                    return SkillEvaluation(
+                        skill_id='draws_need_price', action_taken=action,
+                        evaluation='incorrect', confidence=0.8,
+                        reasoning='Called draw without pot odds to justify it',
+                    )
+
+        return SkillEvaluation(
+            skill_id='draws_need_price', action_taken=action,
+            evaluation='marginal', confidence=0.3,
+            reasoning='Insufficient equity data to evaluate pot odds',
+        )
+
+    def _eval_respect_big_bets(self, action: str, ctx: Dict) -> SkillEvaluation:
+        """Medium hand + big bet on turn/river: fold is correct."""
+        if not (ctx.get('is_big_bet') and ctx.get('is_marginal_hand')):
+            return SkillEvaluation(
+                skill_id='respect_big_bets', action_taken=action,
+                evaluation='not_applicable', confidence=1.0,
+                reasoning='Not a big bet with medium hand',
+            )
+
+        if action == 'fold':
+            return SkillEvaluation(
+                skill_id='respect_big_bets', action_taken=action,
+                evaluation='correct', confidence=0.9,
+                reasoning='Folded medium hand facing big bet — good discipline',
+            )
+        if action == 'call':
+            return SkillEvaluation(
+                skill_id='respect_big_bets', action_taken=action,
+                evaluation='incorrect', confidence=0.8,
+                reasoning='Called big bet with medium hand — likely dominated',
+            )
+        if action.startswith('raise'):
+            return SkillEvaluation(
+                skill_id='respect_big_bets', action_taken=action,
+                evaluation='incorrect', confidence=0.8,
+                reasoning='Raised into big bet with medium hand',
+            )
+        return SkillEvaluation(
+            skill_id='respect_big_bets', action_taken=action,
+            evaluation='marginal', confidence=0.5,
+            reasoning='Ambiguous action facing big bet',
+        )
+
+    def _eval_have_a_plan(self, action: str, ctx: Dict) -> SkillEvaluation:
+        """Turn after betting flop: check-fold = incorrect, follow through = correct."""
+        if not ctx.get('player_bet_flop'):
+            return SkillEvaluation(
+                skill_id='have_a_plan', action_taken=action,
+                evaluation='not_applicable', confidence=1.0,
+                reasoning='Player did not bet the flop',
+            )
+
+        if action in ('raise', 'bet') or action.startswith('raise'):
+            return SkillEvaluation(
+                skill_id='have_a_plan', action_taken=action,
+                evaluation='correct', confidence=0.9,
+                reasoning='Followed through on flop aggression',
+            )
+        if action == 'call':
+            return SkillEvaluation(
+                skill_id='have_a_plan', action_taken=action,
+                evaluation='marginal', confidence=0.6,
+                reasoning='Called on turn after flop bet — passive but not a collapse',
+            )
+        if action == 'check':
+            return SkillEvaluation(
+                skill_id='have_a_plan', action_taken=action,
+                evaluation='marginal', confidence=0.5,
+                reasoning='Checked turn after flop bet — lost initiative',
+            )
+        if action == 'fold':
+            return SkillEvaluation(
+                skill_id='have_a_plan', action_taken=action,
+                evaluation='incorrect', confidence=0.8,
+                reasoning='Bet flop then folded turn — no plan',
+            )
+        return SkillEvaluation(
+            skill_id='have_a_plan', action_taken=action,
+            evaluation='marginal', confidence=0.4,
+            reasoning='Ambiguous action on turn after flop bet',
+        )
+
+    # ---- Gate 4 evaluators (multi-street thinking) ----
+
+    def _eval_dont_pay_double_barrels(self, action: str, ctx: Dict) -> SkillEvaluation:
+        """Facing double barrel with marginal hand: fold is correct."""
+        if not ctx.get('opponent_double_barrel') or ctx['cost_to_call'] <= 0:
+            return SkillEvaluation(
+                skill_id='dont_pay_double_barrels', action_taken=action,
+                evaluation='not_applicable', confidence=1.0,
+                reasoning='Not facing double barrel',
+            )
+
+        if not ctx.get('is_marginal_hand'):
+            return SkillEvaluation(
+                skill_id='dont_pay_double_barrels', action_taken=action,
+                evaluation='not_applicable', confidence=1.0,
+                reasoning='Hand is not marginal',
+            )
+
+        if action == 'fold':
+            return SkillEvaluation(
+                skill_id='dont_pay_double_barrels', action_taken=action,
+                evaluation='correct', confidence=0.9,
+                reasoning='Folded marginal hand vs double barrel',
+            )
+        if action == 'call':
+            return SkillEvaluation(
+                skill_id='dont_pay_double_barrels', action_taken=action,
+                evaluation='incorrect', confidence=0.8,
+                reasoning='Called double barrel with marginal hand',
+            )
+        if action.startswith('raise'):
+            return SkillEvaluation(
+                skill_id='dont_pay_double_barrels', action_taken=action,
+                evaluation='marginal', confidence=0.5,
+                reasoning='Raised vs double barrel — could be a bluff raise',
+            )
+        return SkillEvaluation(
+            skill_id='dont_pay_double_barrels', action_taken=action,
+            evaluation='marginal', confidence=0.4,
+            reasoning='Ambiguous action vs double barrel',
+        )
+
+    def _eval_size_bets_with_purpose(self, action: str, ctx: Dict) -> SkillEvaluation:
+        """When player bets/raises: check bet-to-pot ratio is in 33%-100% range."""
+        if action not in ('bet', 'all_in') and not action.startswith('raise'):
+            return SkillEvaluation(
+                skill_id='size_bets_with_purpose', action_taken=action,
+                evaluation='not_applicable', confidence=1.0,
+                reasoning='Player did not bet or raise',
+            )
+
+        ratio = ctx.get('bet_to_pot_ratio', 0)
+        if ratio <= 0:
+            return SkillEvaluation(
+                skill_id='size_bets_with_purpose', action_taken=action,
+                evaluation='not_applicable', confidence=1.0,
+                reasoning='No bet sizing data',
+            )
+
+        if 0.33 <= ratio <= 1.0:
+            return SkillEvaluation(
+                skill_id='size_bets_with_purpose', action_taken=action,
+                evaluation='correct', confidence=0.9,
+                reasoning=f'Good bet sizing ({ratio:.0%} of pot)',
+            )
+        if 0.25 <= ratio < 0.33 or 1.0 < ratio <= 1.5:
+            return SkillEvaluation(
+                skill_id='size_bets_with_purpose', action_taken=action,
+                evaluation='marginal', confidence=0.6,
+                reasoning=f'Borderline bet sizing ({ratio:.0%} of pot)',
+            )
+        if ratio < 0.25:
+            return SkillEvaluation(
+                skill_id='size_bets_with_purpose', action_taken=action,
+                evaluation='incorrect', confidence=0.8,
+                reasoning=f'Bet too small ({ratio:.0%} of pot) — gives cheap draws',
+            )
+        # ratio > 1.5
+        return SkillEvaluation(
+            skill_id='size_bets_with_purpose', action_taken=action,
+            evaluation='incorrect', confidence=0.7,
+            reasoning=f'Bet too large ({ratio:.0%} of pot) — overcommitting',
         )
