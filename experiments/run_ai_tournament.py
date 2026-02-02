@@ -561,6 +561,9 @@ class AITournamentRunner:
         repos = create_repos(self.db_path)
         self.game_repo = repos['game_repo']
         self.experiment_repo = repos['experiment_repo']
+        self.prompt_preset_repo = repos['prompt_preset_repo']
+        self.decision_analysis_repo = repos['decision_analysis_repo']
+        self.capture_label_repo = repos['capture_label_repo']
         self.tournament_repo = repos['tournament_repo']
         self.hand_history_repo = repos['hand_history_repo']
         self.all_personalities = get_celebrities()
@@ -618,7 +621,7 @@ class AITournamentRunner:
         Returns:
             PromptConfig with the preset's settings applied
         """
-        preset = self.experiment_repo.get_prompt_preset_by_name(game_mode)
+        preset = self.prompt_preset_repo.get_prompt_preset_by_name(game_mode)
         if preset and preset.get('prompt_config'):
             return PromptConfig.from_dict(preset['prompt_config'])
         else:
@@ -762,7 +765,7 @@ class AITournamentRunner:
             prompt_config = base_config.copy(**prompt_config_dict)
         elif prompt_preset_id is not None:
             # Load from preset and merge with base
-            preset = self.experiment_repo.get_prompt_preset(prompt_preset_id)
+            preset = self.prompt_preset_repo.get_prompt_preset(prompt_preset_id)
             if preset and preset.get('prompt_config'):
                 prompt_config = base_config.copy(**preset['prompt_config'])
                 # Use preset's guidance_injection if not overridden by variant
@@ -822,7 +825,8 @@ class AITournamentRunner:
                 owner_id=self._owner_id,
                 debug_capture=self.config.capture_prompts,
                 prompt_config=player_prompt_config,
-                experiment_repo=self.experiment_repo,
+                capture_label_repo=self.capture_label_repo,
+                decision_analysis_repo=self.decision_analysis_repo,
             )
             controllers[player.name] = controller
             # Initialize memory manager for this player

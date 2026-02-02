@@ -24,7 +24,7 @@ from poker.emotional_state import EmotionalState
 from poker.runout_reactions import compute_runout_reactions
 from core.card import Card
 
-from ..extensions import socketio, game_repo, guest_tracking_repo, tournament_repo, hand_history_repo, personality_repo, experiment_repo, coach_repo
+from ..extensions import socketio, game_repo, guest_tracking_repo, tournament_repo, hand_history_repo, personality_repo, capture_label_repo, decision_analysis_repo, coach_repo
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..services.ai_debug_service import get_all_players_llm_stats
@@ -156,7 +156,8 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
                            owner_id: str = None,
                            player_llm_configs: Dict[str, Dict] = None,
                            default_llm_config: Dict = None,
-                           experiment_repo=None) -> Dict[str, AIPlayerController]:
+                           capture_label_repo=None,
+                           decision_analysis_repo=None) -> Dict[str, AIPlayerController]:
     """Restore AI controllers with their saved state.
 
     Args:
@@ -166,7 +167,8 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
         owner_id: The owner/user ID for tracking
         player_llm_configs: Per-player LLM configs (provider, model, etc.)
         default_llm_config: Default LLM config for players without specific config
-        experiment_repo: ExperimentRepository for AI decision tracking
+        capture_label_repo: CaptureLabelRepository for auto-labeling
+        decision_analysis_repo: DecisionAnalysisRepository for decision tracking
 
     Returns:
         Dictionary mapping player names to their AI controllers
@@ -194,7 +196,8 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
                 llm_config=llm_config,
                 game_id=game_id,
                 owner_id=owner_id,
-                experiment_repo=experiment_repo
+                capture_label_repo=capture_label_repo,
+                decision_analysis_repo=decision_analysis_repo
             )
 
             if player.name in ai_states:
