@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 # v62: Add coach_mode column to games table for per-game coaching config
 # v63: Add coach progression tables (player_skill_progress, player_gate_progress, player_coach_profile)
 # v64: Add can_access_coach permission for RBAC gating
-SCHEMA_VERSION = 64
+# v65: Add window_decisions column for true sliding window (fixes proportional trim bug)
+SCHEMA_VERSION = 65
 
 
 
@@ -873,6 +874,7 @@ class SchemaManager:
                     total_correct INTEGER NOT NULL DEFAULT 0,
                     window_opportunities INTEGER NOT NULL DEFAULT 0,
                     window_correct INTEGER NOT NULL DEFAULT 0,
+                    window_decisions TEXT DEFAULT '[]',
                     streak_correct INTEGER NOT NULL DEFAULT 0,
                     streak_incorrect INTEGER NOT NULL DEFAULT 0,
                     last_evaluated_at TEXT,
@@ -986,6 +988,7 @@ class SchemaManager:
             62: (self._migrate_v62_add_coach_mode, "Add coach_mode column to games table"),
             63: (self._migrate_v63_coach_progression, "Add coach progression tables"),
             64: (self._migrate_v64_add_coach_permission, "Add can_access_coach permission"),
+            65: (self._migrate_v65_add_window_decisions, "Add window_decisions column for sliding window"),
         }
 
         with self._get_connection() as conn:
@@ -2967,4 +2970,33 @@ class SchemaManager:
             WHERE g.name IN ('admin', 'user') AND p.name = 'can_access_coach'
         """)
         logger.info("Migration v64 complete: can_access_coach permission added")
+
+    def _migrate_v65_add_window_decisions(self, conn: sqlite3.Connection) -> None:
+        """Migration v65: Add window_decisions column for true sliding window.
+
+        Replaces the broken proportional trim that used int(ratio * window_size),
+        which caused windows to get permanently stuck at certain ratios.
+        """
+        columns = [row[1] for row in conn.execute(
+            "PRAGMA table_info(player_skill_progress)"
+        ).fetchall()]
+        if 'window_decisions' not in columns:
+            conn.execute(
+                "ALTER TABLE player_skill_progress "
+                "ADD COLUMN window_decisions TEXT DEFAULT '[]'"
+            )
+        # Backfill existing rows: approximate from aggregate counters
+        rows = conn.execute(
+            "SELECT user_id, skill_id, window_opportunities, window_correct "
+            "FROM player_skill_progress WHERE window_opportunities > 0"
+        ).fetchall()
+        for user_id, skill_id, opps, correct in rows:
+            incorrect = opps - correct
+            decisions = [True] * correct + [False] * incorrect
+            conn.execute(
+                "UPDATE player_skill_progress SET window_decisions = ? "
+                "WHERE user_id = ? AND skill_id = ?",
+                (json.dumps(decisions), user_id, skill_id),
+            )
+        logger.info("Migration v65 complete: window_decisions column added")
 
