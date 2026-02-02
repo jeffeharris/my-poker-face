@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, redirect
 
 from poker.utils import get_celebrities
+from poker.authorization import require_permission, get_authorization_service
 from core.llm import LLMClient, CallType
 
 from ..extensions import personality_repo, limiter, auth_manager, personality_generator
@@ -26,30 +27,47 @@ def personalities_page():
 
 @personality_bp.route('/api/personalities', methods=['GET'])
 def get_personalities():
-    """Get all personalities."""
+    """Get all personalities visible to the current user."""
     try:
-        db_personalities = personality_repo.list_personalities(limit=200)
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+
+        db_personalities = personality_repo.list_personalities(
+            limit=200,
+            user_id=user_id,
+            include_disabled=is_admin,
+        )
 
         personalities = {}
+        categories = {'standard': [], 'mine': []}
+        if is_admin:
+            categories['disabled'] = []
+
         for p in db_personalities:
             name = p['name']
             config_data = personality_repo.load_personality(name)
             if config_data:
                 personalities[name] = config_data
 
-        try:
-            personalities_file = Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
-            with open(personalities_file, 'r') as f:
-                data = json.load(f)
-                for name, config_data in data.get('personalities', {}).items():
-                    if name not in personalities:
-                        personalities[name] = config_data
-        except:
-            pass
+                visibility = p.get('visibility', 'public')
+                owner_id = p.get('owner_id')
+
+                if visibility == 'disabled':
+                    categories.get('disabled', []).append(name)
+                elif owner_id == user_id and visibility == 'private':
+                    categories['mine'].append(name)
+                else:
+                    categories['standard'].append(name)
 
         return jsonify({
             'success': True,
-            'personalities': personalities
+            'personalities': personalities,
+            'categories': categories,
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -88,11 +106,15 @@ def get_personality(name):
 
 @personality_bp.route('/api/personality', methods=['POST'])
 def create_personality():
-    """Create a new personality.
+    """Create a new personality owned by the current user.
 
     Saves to database only (database is the source of truth).
     """
     try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
         data = request.json
         name = data.get('name')
 
@@ -109,7 +131,10 @@ def create_personality():
                 "emoji_usage": 0.3
             }
 
-        personality_repo.save_personality(name, personality_config, source='user_created')
+        personality_repo.save_personality(
+            name, personality_config, source='user_created',
+            owner_id=current_user['id'], visibility='private',
+        )
 
         return jsonify({
             'success': True,
@@ -121,11 +146,23 @@ def create_personality():
 
 @personality_bp.route('/api/personality/<name>', methods=['PUT'])
 def update_personality(name):
-    """Update a personality.
+    """Update a personality. Only the owner or admin can edit.
 
     Saves to database only (database is the source of truth).
     """
     try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user['id']
+        owner_id = personality_repo.get_personality_owner(name)
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+
+        if owner_id and owner_id != user_id and not is_admin:
+            return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
         personality_config = request.json
 
         personality_repo.save_personality(name, personality_config, source='user_edited')
@@ -183,12 +220,24 @@ def update_avatar_description(name):
 
 @personality_bp.route('/api/personality/<name>', methods=['DELETE'])
 def delete_personality(name):
-    """Delete a personality.
+    """Delete a personality. Only the owner or admin can delete.
 
     Deletes from database only (database is the source of truth).
     Note: Also deletes associated avatar images from database.
     """
     try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user['id']
+        owner_id = personality_repo.get_personality_owner(name)
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+
+        if owner_id and owner_id != user_id and not is_admin:
+            return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
         # Delete associated avatar images
         personality_repo.delete_avatar_images(name)
 
@@ -356,8 +405,10 @@ def generate_theme():
         if not theme:
             return jsonify({'error': 'Theme is required'}), 400
 
-        # Load personality names from database (source of truth), fall back to hardcoded list
-        db_personalities = personality_repo.list_personalities(limit=200)
+        # Load personality names from database filtered by user visibility
+        current_user = auth_manager.get_current_user()
+        user_id = current_user.get('id') if current_user else None
+        db_personalities = personality_repo.list_personalities(limit=200, user_id=user_id)
         if db_personalities:
             all_personalities = [p['name'] for p in db_personalities]
         else:
@@ -501,12 +552,16 @@ Return ONLY the JSON object, no other text."""
 @personality_bp.route('/api/generate_personality', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_GENERATE_PERSONALITY)
 def generate_personality():
-    """Generate a new personality using AI.
+    """Generate a new personality using AI, owned by the current user.
 
     Generated personalities are saved to the database (source of truth).
     """
     try:
         from poker.personality_generator import PersonalityGenerator
+
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
 
         data = request.json
         name = data.get('name', '').strip()
@@ -521,7 +576,8 @@ def generate_personality():
         # This generates and saves to database automatically
         personality_config = generator.get_personality(
             name=name,
-            force_generate=force_generate
+            force_generate=force_generate,
+            owner_id=current_user['id'],
         )
 
         return jsonify({
@@ -537,3 +593,26 @@ def generate_personality():
             'error': str(e),
             'message': 'Failed to generate personality. Please check your OpenAI API key.'
         })
+
+
+@personality_bp.route('/api/personality/<name>/visibility', methods=['PUT'])
+@require_permission('can_access_admin_tools')
+def update_personality_visibility(name):
+    """Set visibility for a personality. Admin only."""
+    try:
+        data = request.json
+        visibility = data.get('visibility')
+
+        if visibility not in ('public', 'private', 'disabled'):
+            return jsonify({'success': False, 'error': 'Invalid visibility. Must be public, private, or disabled.'}), 400
+
+        updated = personality_repo.set_visibility(name, visibility)
+        if not updated:
+            return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'message': f'Personality {name} visibility set to {visibility}'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})

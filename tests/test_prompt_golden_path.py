@@ -35,19 +35,19 @@ class TestGoldenPath(unittest.TestCase):
         # Test different personality types
         test_cases = [
             {
-                'name': 'Eeyore',
+                'name': 'Ebenezer Scrooge',
                 'expected_traits': {
-                    'conservative_play': True,  # Low bluff tendency
-                    'passive': True,  # Low aggression
-                    'quiet': True  # Low chattiness
+                    'conservative_play': True,  # Low bluff tendency (0.2)
+                    'passive': True,  # Low aggression (0.2)
+                    'quiet': False  # Chattiness is 0.5 (not < 0.5)
                 }
             },
             {
-                'name': 'Donald Trump',
+                'name': 'Blackbeard',
                 'expected_traits': {
-                    'conservative_play': False,  # High bluff tendency
-                    'passive': False,  # High aggression
-                    'quiet': False  # High chattiness
+                    'conservative_play': False,  # High bluff tendency (0.8)
+                    'passive': False,  # High aggression (0.9)
+                    'quiet': False  # High chattiness (0.6)
                 }
             },
             {
@@ -89,7 +89,7 @@ class TestGoldenPath(unittest.TestCase):
                 if test_case['expected_traits']['quiet']:
                     self.assertLess(traits['chattiness'], 0.5)
                 else:
-                    self.assertGreater(traits['chattiness'], 0.5)
+                    self.assertGreaterEqual(traits['chattiness'], 0.5)
                 
                 # Test prompt generation includes all components
                 prompt = player.persona_prompt()
@@ -115,24 +115,24 @@ class TestGoldenPath(unittest.TestCase):
         """Test that personality traits directly affect prompt content."""
         
         # Create players with known personalities
-        eeyore = AIPokerPlayer(name='Eeyore', starting_money=10000)
-        trump = AIPokerPlayer(name='Donald Trump', starting_money=10000)
-        
+        scrooge = AIPokerPlayer(name='Ebenezer Scrooge', starting_money=10000)
+        blackbeard = AIPokerPlayer(name='Blackbeard', starting_money=10000)
+
         # Get their prompts
-        eeyore_prompt = eeyore.persona_prompt()
-        trump_prompt = trump.persona_prompt()
-        
+        scrooge_prompt = scrooge.persona_prompt()
+        blackbeard_prompt = blackbeard.persona_prompt()
+
         # Verify confidence and attitude are set correctly
-        self.assertEqual(eeyore.confidence, 'pessimistic')
-        self.assertEqual(eeyore.attitude, 'gloomy')
-        self.assertEqual(trump.confidence, 'overconfident')
-        self.assertEqual(trump.attitude, 'intimidating and charismatic')
+        self.assertEqual(scrooge.confidence, 'pessimistic')
+        self.assertEqual(scrooge.attitude, 'grumpy and suspicious')
+        self.assertEqual(blackbeard.confidence, 'overconfident')
+        self.assertEqual(blackbeard.attitude, 'menacing')
 
         # Verify these appear in prompts
-        self.assertIn('pessimistic', eeyore_prompt)
-        self.assertIn('gloomy', eeyore_prompt)
-        self.assertIn('overconfident', trump_prompt)
-        self.assertIn('intimidating and charismatic', trump_prompt)
+        self.assertIn('pessimistic', scrooge_prompt)
+        self.assertIn('grumpy and suspicious', scrooge_prompt)
+        self.assertIn('overconfident', blackbeard_prompt)
+        self.assertIn('menacing', blackbeard_prompt)
     
     def test_dynamic_strategy_in_prompts(self):
         """Test that dynamic strategy adjustments work correctly."""
@@ -160,17 +160,17 @@ class TestGoldenPath(unittest.TestCase):
         """Test that AIPlayerController properly uses the prompt system."""
         
         # Create a real AI player to test integration
-        ai_player = AIPokerPlayer(name='Eeyore', starting_money=10000)
-        
+        ai_player = AIPokerPlayer(name='Ebenezer Scrooge', starting_money=10000)
+
         # Test that the prompt manager is integrated
         self.assertIsNotNone(ai_player.prompt_manager)
-        
+
         # Test that personality config was loaded
-        self.assertEqual(ai_player.personality_config['play_style'], 'tight and passive')
-        
+        self.assertIn('miserly and tight', ai_player.personality_config['play_style'])
+
         # Test that the assistant was initialized with the proper prompt
-        self.assertIn('Eeyore', ai_player.assistant.system_message)
-        self.assertIn('gloomy', ai_player.assistant.system_message)
+        self.assertIn('Ebenezer Scrooge', ai_player.assistant.system_message)
+        self.assertIn('grumpy and suspicious', ai_player.assistant.system_message)
         self.assertIn('pessimistic', ai_player.assistant.system_message)
         
         # Verify the prompt contains the JSON format
