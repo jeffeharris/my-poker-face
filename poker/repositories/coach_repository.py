@@ -43,7 +43,6 @@ class CoachRepository(BaseRepository):
                 skill_state.streak_correct, skill_state.streak_incorrect,
                 skill_state.last_evaluated_at, skill_state.first_seen_at,
             ))
-            conn.commit()
 
     def load_skill_state(self, user_id: str, skill_id: str):
         """Load a single PlayerSkillState. Returns None if not found."""
@@ -114,7 +113,6 @@ class CoachRepository(BaseRepository):
                 user_id, gate_progress.gate_number,
                 gate_progress.unlocked, gate_progress.unlocked_at,
             ))
-            conn.commit()
 
     def load_gate_progress(self, user_id: str):
         """Load all gate progress for a user. Returns dict keyed by gate_number."""
@@ -149,7 +147,6 @@ class CoachRepository(BaseRepository):
                     effective_level = excluded.effective_level,
                     updated_at = excluded.updated_at
             """, (user_id, self_reported_level, effective_level, now, now))
-            conn.commit()
 
     def load_coach_profile(self, user_id: str) -> Optional[Dict]:
         """Load coaching profile. Returns dict or None."""

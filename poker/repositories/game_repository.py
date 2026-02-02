@@ -235,7 +235,10 @@ class GameRepository(BaseRepository):
             return games
 
     def delete_game(self, game_id: str) -> None:
-        """Delete a game and all associated data."""
+        """Delete a game's active state (save data, snapshots, AI state, messages).
+
+        Historical data (hand_history, tournament_results, etc.) is intentionally preserved.
+        """
         with self._get_connection() as conn:
             # Delete all associated data (order matters for foreign keys)
             conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
