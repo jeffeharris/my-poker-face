@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
 import { Check, X, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
@@ -18,6 +18,7 @@ import { CoachPanel } from './CoachPanel';
 import { CoachBubble } from './CoachBubble';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
+import { useGameStore } from '../../stores/gameStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { useCoach } from '../../hooks/useCoach';
@@ -66,9 +67,34 @@ export function MobilePokerTable({
   // LLM Debug modal state
   const [debugModalPlayer, setDebugModalPlayer] = useState<Player | null>(null);
 
-  // Use the shared hook for all socket/state management
+  // Stable callbacks for child components to avoid re-renders
+  const openChatSheet = useCallback(() => setShowChatSheet(true), []);
+  const closeChatSheet = useCallback(() => setShowChatSheet(false), []);
+  const openCoachPanel = useCallback(() => setShowCoachPanel(true), []);
+  const closeCoachPanel = useCallback(() => setShowCoachPanel(false), []);
+  const closeDebugModal = useCallback(() => setDebugModalPlayer(null), []);
+  const navigateToAdmin = useCallback(() => { window.location.href = '/admin'; }, []);
+  const handleFadeComplete = useCallback(() => setFadeKey(k => k + 1), []);
+
+  // Game state from Zustand store (granular selectors for fewer re-renders)
+  const storePlayers = useGameStore(state => state.players);
+  const phase = useGameStore(state => state.phase);
+  const pot = useGameStore(state => state.pot);
+  const communityCards = useGameStore(state => state.communityCards);
+  const currentPlayerIdx = useGameStore(state => state.currentPlayerIdx);
+  const dealerIdx = useGameStore(state => state.dealerIdx);
+  const highestBet = useGameStore(state => state.highestBet);
+  const playerOptions = useGameStore(state => state.playerOptions);
+  const minRaise = useGameStore(state => state.minRaise);
+  const bigBlind = useGameStore(state => state.bigBlind);
+  const smallBlind = useGameStore(state => state.smallBlind);
+  const handNumber = useGameStore(state => state.handNumber);
+  const bettingContext = useGameStore(state => state.bettingContext);
+  const newlyDealtCount = useGameStore(state => state.newlyDealtCount);
+  const awaitingAction = useGameStore(state => state.awaitingAction);
+
+  // Non-game-state from the hook (socket, overlays, actions)
   const {
-    gameState,
     loading,
     gameId,
     messages,
@@ -93,7 +119,7 @@ export function MobilePokerTable({
   });
 
   const { wrappedSendMessage, guestChatDisabled, isGuest } = useGuestChatLimit(
-    gameState?.awaiting_action,
+    awaitingAction,
     handleSendMessage,
   );
 
@@ -121,9 +147,9 @@ export function MobilePokerTable({
     }
   }, [gameId, clearTournamentResult, onBack]);
 
-  const currentPlayer = gameState?.players[gameState.current_player_idx];
-  const humanPlayer = gameState?.players.find(p => p.is_human);
-  const isShowdown = gameState?.phase?.toLowerCase() === 'showdown';
+  const currentPlayer = storePlayers?.[currentPlayerIdx];
+  const humanPlayer = storePlayers?.find(p => p.is_human);
+  const isShowdown = phase?.toLowerCase() === 'showdown';
 
   // Card animation hook - handles dealing, exit animations, transforms
   const {
@@ -140,13 +166,13 @@ export function MobilePokerTable({
 
   // Community card animation hook - handles slide-in with cascade delays
   const communityCardAnimations = useCommunityCardAnimation(
-    gameState?.newly_dealt_count,
-    gameState?.community_cards?.length ?? 0,
+    newlyDealtCount,
+    communityCards?.length ?? 0,
   );
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
-    if (!gameState || !currentPlayer || currentPlayer.is_human) return;
+    if (!storePlayers || !currentPlayer || currentPlayer.is_human) return;
 
     const opponentEl = opponentRefs.current.get(currentPlayer.name);
     const containerEl = opponentsContainerRef.current;
@@ -170,19 +196,20 @@ export function MobilePokerTable({
     }
     // Only re-run when current player changes, not on every gameState update
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState?.current_player_idx, currentPlayer?.name]);
+  }, [currentPlayerIdx, currentPlayer?.name]);
 
   // Sort opponents by their position relative to the human player in turn order
-  const opponents = (() => {
-    if (!gameState?.players) return [];
-    const humanIndex = gameState.players.findIndex(p => p.is_human);
-    const totalPlayers = gameState.players.length;
+  const players = storePlayers;
+  const opponents = useMemo(() => {
+    if (!players) return [];
+    const humanIndex = players.findIndex(p => p.is_human);
+    const totalPlayers = players.length;
 
-    return gameState.players
+    return players
       .filter(p => !p.is_human)
       .sort((a, b) => {
-        const idxA = gameState.players.findIndex(p => p.name === a.name);
-        const idxB = gameState.players.findIndex(p => p.name === b.name);
+        const idxA = players.findIndex(p => p.name === a.name);
+        const idxB = players.findIndex(p => p.name === b.name);
 
         // Calculate clockwise distance from human (wrapping around)
         const distA = (idxA - humanIndex + totalPlayers) % totalPlayers;
@@ -190,7 +217,17 @@ export function MobilePokerTable({
 
         return distA - distB;
       });
-  })();
+  }, [players]);
+
+  // Stable map of player name → avatar URL for FloatingChat
+  const playerAvatars = useMemo(() => {
+    if (!storePlayers) return new Map<string, string>();
+    const map = new Map<string, string>();
+    for (const p of storePlayers) {
+      if (p.avatar_url) map.set(p.name, `${config.API_URL}${p.avatar_url}`);
+    }
+    return map;
+  }, [storePlayers]);
 
   // Heads-up mode: only 1 AI opponent remains
   const isHeadsUp = opponents.length === 1;
@@ -207,6 +244,15 @@ export function MobilePokerTable({
   });
 
   const coachEnabled = !isGuest && coach.mode !== 'off';
+
+  const menuBarCenter = useMemo(() => (
+    <GameInfoDisplay
+      phase={phase}
+      smallBlind={smallBlind}
+      bigBlind={bigBlind}
+      handNumber={handNumber}
+    />
+  ), [phase, smallBlind, bigBlind, handNumber]);
 
   const handleCoachToggle = useCallback(() => {
     try {
@@ -246,7 +292,7 @@ export function MobilePokerTable({
   }, [showCoachPanel, coach.clearUnreadReview]);
   // Only show full loading screen on initial load (no game state yet)
   // If we have game state but are disconnected, we'll show a reconnecting overlay instead
-  if (loading && !gameState) {
+  if (loading && !storePlayers) {
     return (
       <div className="mobile-poker-table mobile-loading" data-testid="mobile-loading">
         <div className="mobile-loading-content">
@@ -261,12 +307,12 @@ export function MobilePokerTable({
     );
   }
 
-  if (!gameState) {
+  if (!storePlayers || !pot) {
     return <div className="mobile-poker-table mobile-error">Failed to load game</div>;
   }
 
   // Show reconnecting indicator when disconnected but we still have game state
-  const showReconnecting = !isConnected && gameState;
+  const showReconnecting = !isConnected && storePlayers;
 
   return (
     <div className="mobile-poker-table" data-testid="mobile-poker-table">
@@ -283,16 +329,9 @@ export function MobilePokerTable({
       {/* Header with MenuBar - matches menu screens */}
       <MenuBar
         onBack={onBack}
-        centerContent={
-          <GameInfoDisplay
-            phase={gameState.phase}
-            smallBlind={gameState.small_blind}
-            bigBlind={gameState.big_blind}
-            handNumber={gameState.hand_number}
-          />
-        }
+        centerContent={menuBarCenter}
         showUserInfo
-        onAdminTools={() => { window.location.href = '/admin'; }}
+        onAdminTools={navigateToAdmin}
         coachEnabled={coachEnabled}
         onCoachToggle={isGuest ? undefined : handleCoachToggle}
       />
@@ -302,9 +341,9 @@ export function MobilePokerTable({
       {/* Opponents Strip */}
       <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`} data-testid="mobile-opponents" ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
-          const opponentIdx = gameState.players.findIndex(p => p.name === opponent.name);
-          const isCurrentPlayer = opponentIdx === gameState.current_player_idx;
-          const isDealer = opponentIdx === gameState.current_dealer_idx;
+          const opponentIdx = storePlayers.findIndex(p => p.name === opponent.name);
+          const isCurrentPlayer = opponentIdx === currentPlayerIdx;
+          const isDealer = opponentIdx === dealerIdx;
 
           return (
             <div
@@ -366,7 +405,7 @@ export function MobilePokerTable({
               <ActionBadge
                 player={opponent}
                 lastKnownActions={lastKnownActions}
-                onFadeComplete={() => setFadeKey(k => k + 1)}
+                onFadeComplete={handleFadeComplete}
               />
             </div>
           );
@@ -384,14 +423,14 @@ export function MobilePokerTable({
 
       {/* Floating Pot Display - between opponents and community cards */}
       <div className="mobile-floating-pot" data-testid="mobile-pot">
-        <PotDisplay total={gameState.pot.total} />
+        <PotDisplay total={pot.total} />
       </div>
 
       {/* Community Cards - Always show 5 slots */}
       <div className="mobile-community" data-testid="mobile-community">
         <div className="community-cards-row">
           {Array.from({ length: 5 }).map((_, i) => {
-            const card = gameState.community_cards[i];
+            const card = communityCards[i];
             const anim = communityCardAnimations[i];
             const isDealt = !!card;
             const isAnimating = anim?.shouldAnimate;
@@ -422,13 +461,13 @@ export function MobilePokerTable({
       <FloatingChat
         message={recentAiMessage}
         onDismiss={dismissRecentAiMessage}
-        players={gameState.players}
+        playerAvatars={playerAvatars}
       />
 
       {/* Hero Section - Your Cards */}
       <div className={`mobile-hero ${currentPlayer?.is_human ? 'active-turn' : ''} ${humanPlayer?.is_folded ? 'folded' : ''}`} data-testid="mobile-hero">
         {/* Dealer chip - positioned in upper right */}
-        {gameState.players.findIndex(p => p.is_human) === gameState.current_dealer_idx && (
+        {storePlayers.findIndex(p => p.is_human) === dealerIdx && (
           <span className="dealer-chip">D</span>
         )}
         <div className="hero-info">
@@ -515,16 +554,16 @@ export function MobilePokerTable({
       <div className="mobile-action-area">
         {showActionButtons && currentPlayer ? (
           <MobileActionButtons
-            playerOptions={gameState.player_options}
+            playerOptions={playerOptions}
             currentPlayerStack={currentPlayer.stack}
-            highestBet={gameState.highest_bet}
+            highestBet={highestBet}
             currentPlayerBet={currentPlayer.bet}
-            minRaise={gameState.min_raise}
-            bigBlind={gameState.big_blind}
-            potSize={gameState.pot.total}
+            minRaise={minRaise}
+            bigBlind={bigBlind}
+            potSize={pot.total}
             onAction={handlePlayerAction}
-            onQuickChat={() => setShowChatSheet(true)}
-            bettingContext={gameState.betting_context}
+            onQuickChat={openChatSheet}
+            bettingContext={bettingContext ?? undefined}
             recommendedAction={coach.mode !== 'off' ? coach.stats?.recommendation : null}
           />
         ) : (
@@ -551,7 +590,7 @@ export function MobilePokerTable({
             <button
               className="action-btn chat-btn"
               data-testid="action-btn-chat"
-              onClick={() => setShowChatSheet(true)}
+              onClick={openChatSheet}
             >
               <span className="action-icon"><MessageCircle /></span>
               <span className="btn-label">Chat</span>
@@ -584,12 +623,12 @@ export function MobilePokerTable({
       {/* Chat Sheet - Redesigned with tabs for Quick Chat / Keyboard */}
       <MobileChatSheet
         isOpen={showChatSheet}
-        onClose={() => setShowChatSheet(false)}
+        onClose={closeChatSheet}
         messages={messages}
         onSendMessage={wrappedSendMessage}
         gameId={providedGameId || ''}
         playerName={playerName || 'Player'}
-        players={gameState?.players || []}
+        players={storePlayers || []}
         guestChatDisabled={guestChatDisabled}
         isGuest={isGuest}
       />
@@ -597,7 +636,7 @@ export function MobilePokerTable({
       {/* LLM Debug Modal */}
       <LLMDebugModal
         isOpen={!!debugModalPlayer}
-        onClose={() => setDebugModalPlayer(null)}
+        onClose={closeDebugModal}
         playerName={debugModalPlayer?.name || ''}
         debugInfo={debugModalPlayer?.llm_debug}
       />
@@ -606,7 +645,7 @@ export function MobilePokerTable({
       {coachEnabled && (
         <>
           <CoachButton
-            onClick={() => setShowCoachPanel(true)}
+            onClick={openCoachPanel}
             hasNewInsight={(!!coach.proactiveTip || coach.hasUnreadReview) && !showCoachPanel}
           />
 
@@ -614,13 +653,13 @@ export function MobilePokerTable({
             isVisible={coach.mode === 'proactive' && !!showActionButtons && !!coach.proactiveTip && !showCoachPanel}
             tip={coach.proactiveTip}
             stats={coach.stats}
-            onTap={() => setShowCoachPanel(true)}
+            onTap={openCoachPanel}
             onDismiss={coach.clearProactiveTip}
           />
 
           <CoachPanel
             isOpen={showCoachPanel}
-            onClose={() => setShowCoachPanel(false)}
+            onClose={closeCoachPanel}
             stats={coach.stats}
             messages={coach.messages}
             onSendQuestion={coach.sendQuestion}

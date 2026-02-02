@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GraduationCap, X } from 'lucide-react';
 import type { CoachStats } from '../../types/coach';
@@ -14,7 +14,7 @@ interface CoachBubbleProps {
 
 const AUTO_DISMISS_MS = 8000;
 
-export function CoachBubble({ isVisible, tip, stats, onTap, onDismiss }: CoachBubbleProps) {
+export const CoachBubble = memo(function CoachBubble({ isVisible, tip, stats, onTap, onDismiss }: CoachBubbleProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -64,4 +64,4 @@ export function CoachBubble({ isVisible, tip, stats, onTap, onDismiss }: CoachBu
       )}
     </AnimatePresence>
   );
-}
+});

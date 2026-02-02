@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { memo, useState, useRef, useCallback } from 'react';
 import { GraduationCap } from 'lucide-react';
 import './CoachButton.css';
 
@@ -18,7 +18,7 @@ function loadPosition(): { x: number; y: number } {
   return { x: 16, y: 120 };
 }
 
-export function CoachButton({ onClick, hasNewInsight }: CoachButtonProps) {
+export const CoachButton = memo(function CoachButton({ onClick, hasNewInsight }: CoachButtonProps) {
   const [pos, setPos] = useState(loadPosition);
   const touchStart = useRef({ x: 0, y: 0, btnX: 0, btnY: 0 });
   const totalMove = useRef(0);
@@ -103,4 +103,4 @@ export function CoachButton({ onClick, hasNewInsight }: CoachButtonProps) {
       {hasNewInsight && <span className="coach-fab-badge" />}
     </button>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import type { ChatMessage } from '../../../types';
 import { parseMessageInline } from '../../../utils/messages';
 import './ActivityFeed.css';
@@ -21,7 +21,7 @@ export function ActivityFeed({
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Parse action messages (e.g., "Batman chose to raise by $100")
-  const parseActionMessage = (message: string) => {
+  const parseActionMessage = useCallback((message: string) => {
     const match = message.match(/^(.+?) chose to (\w+)(?:\s+(?:by\s+)?\$(\d+))?\.?$/);
     if (match) {
       return {
@@ -31,10 +31,10 @@ export function ActivityFeed({
       };
     }
     return null;
-  };
+  }, []);
 
   // Format action for compact display
-  const formatAction = (action: string, amount: number | null): string => {
+  const formatAction = useCallback((action: string, amount: number | null): string => {
     const actionVerbs: Record<string, string> = {
       fold: 'folds',
       check: 'checks',
@@ -45,19 +45,22 @@ export function ActivityFeed({
     };
     const verb = actionVerbs[action.toLowerCase()] || action;
     return amount ? `${verb} $${amount}` : verb;
-  };
+  }, []);
 
   // Transform messages for activity feed (include all types)
-  const activityItems = messages
-    .slice(-50) // Keep last 50 for performance
-    .map(msg => {
-      // Try to parse action from table messages (e.g., "Batman chose to raise by $100")
-      const parsed = msg.type === 'table' ? parseActionMessage(msg.message) : null;
-      return {
-        ...msg,
-        parsed,
-      };
-    });
+  const activityItems = useMemo(() =>
+    messages
+      .slice(-50) // Keep last 50 for performance
+      .map(msg => {
+        // Try to parse action from table messages (e.g., "Batman chose to raise by $100")
+        const parsed = msg.type === 'table' ? parseActionMessage(msg.message) : null;
+        return {
+          ...msg,
+          parsed,
+        };
+      }),
+    [messages, parseActionMessage]
+  );
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

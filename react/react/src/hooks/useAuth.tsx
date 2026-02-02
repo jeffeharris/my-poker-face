@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 
@@ -28,14 +28,27 @@ interface AuthState {
   isAuthenticated: boolean;
 }
 
-export function useAuth() {
+interface AuthContextValue extends AuthState {
+  login: (name: string, isGuest?: boolean) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  checkAuth: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
     isLoading: true,
     isAuthenticated: false,
   });
 
+  // Prevent duplicate requests from React strict mode double-invoking effects
+  const checkInProgressRef = useRef(false);
+
   const checkAuth = useCallback(async () => {
+    if (checkInProgressRef.current) return;
+    checkInProgressRef.current = true;
     try {
       // Use localStorage for initial state while loading, but always verify with backend
       const storedUser = localStorage.getItem('currentUser');
@@ -101,6 +114,8 @@ export function useAuth() {
         isLoading: false,
         isAuthenticated: false,
       });
+    } finally {
+      checkInProgressRef.current = false;
     }
   }, []);
 
@@ -195,7 +210,7 @@ export function useAuth() {
     ? { ...authState.user, is_guest: false as const }
     : authState.user;
 
-  return {
+  const value: AuthContextValue = {
     user,
     isLoading: authState.isLoading,
     isAuthenticated: authState.isAuthenticated,
@@ -203,4 +218,18 @@ export function useAuth() {
     logout,
     checkAuth,
   };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 }
