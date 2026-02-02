@@ -24,8 +24,6 @@ class GameStateAdapter:
         Delegates to PokerGameState.current_player_options which has the
         correct logic for stack-vs-cost-to-call, raise caps, and all-in.
         """
-        if not self._game_state.awaiting_action or self._game_state.run_it_out:
-            return []
         return self._game_state.current_player_options
     
     @property 

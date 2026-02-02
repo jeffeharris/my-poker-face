@@ -57,7 +57,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T2-01 | ~~Immutable/mutable confusion~~ | `poker/poker_state_machine.py` | **Demoted to Tier 3** — see T3-35. Inner core is genuinely immutable; mutable wrapper is a thin convenience layer. Cognitive overhead only, no bug risk. | |
-| T2-02 | Adapter reimplements core logic | `flask_app/game_adapter.py:20-44` | `current_player_options` duplicated with incomplete version (missing raise caps, heads-up rules, BB special case). Should delegate to core. | |
+| T2-02 | Adapter reimplements core logic | `flask_app/game_adapter.py:20-44` | `current_player_options` duplicated with incomplete version (missing raise caps, heads-up rules, BB special case). Should delegate to core. | **FIXED** — adapter already delegated; moved `awaiting_action`/`run_it_out` guards to `validation.py` where they belong |
 | T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locks already in place. Remaining gaps only matter with multiple workers. | |
 | T2-04 | Config scattered across 6+ locations | `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` | No single source of truth. Settings can conflict. | |
 | T2-05 | DB connection created per config lookup | `flask_app/config.py:44-94` | Config getter functions like `get_default_provider()` instantiate `GamePersistence()` on every call. New DB connection per lookup. | **FIXED** — @lru_cache shared instance |
@@ -184,9 +184,9 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 33 | 18 | 1 | 14 |
+| **Tier 2: Should-Fix** | 33 | 19 | 1 | 13 |
 | **Tier 3: Post-Release** | 35 | 19 | 1 | 15 |
-| **Total** | **89** | **50** | **9** | **29** |
+| **Total** | **89** | **51** | **9** | **28** |
 
 ## Key Architectural Insight
 
