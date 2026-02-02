@@ -61,7 +61,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locks already in place. Remaining gaps only matter with multiple workers. | |
 | T2-04 | ~~Config scattered across 6+ locations~~ | `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` | **Demoted to Tier 3** — see T3-36. On investigation: each file has a distinct role (game constants, LLM defaults, Flask settings, frontend, env vars, runtime overrides). Clear priority hierarchy (DB > env > hardcoded). Separation is intentional to avoid circular imports. No bugs from conflicts. | |
 | T2-05 | DB connection created per config lookup | `flask_app/config.py:44-94` | Config getter functions like `get_default_provider()` instantiate `GamePersistence()` on every call. New DB connection per lookup. | **FIXED** — @lru_cache shared instance |
-| T2-06 | Three layers of caching, no invalidation | localStorage + in-memory dict + SQLite | Game state cached at three levels with no clear invalidation strategy. Stale data bugs likely. | |
+| T2-06 | Three layers of caching, no invalidation | localStorage + in-memory dict + SQLite | Game state cached at three levels with no clear invalidation strategy. Stale data bugs likely. | **DISMISSED** — layers serve distinct purposes and are properly synchronized: localStorage is optimistic UI (always refetched from API on mount), in-memory has 2h TTL (T2-19), SQLite is source of truth written after every action. No stale-state bugs observed. |
 | T2-07 | AI controller state can desync | `flask_app/handlers/game_handler.py:107-200` | AI conversation history, personality state, psychology stored separately from game state. Can desync. | |
 
 ### Code Quality
@@ -185,9 +185,9 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 32 | 20 | 2 | 10 |
+| **Tier 2: Should-Fix** | 32 | 20 | 3 | 9 |
 | **Tier 3: Post-Release** | 36 | 19 | 1 | 16 |
-| **Total** | **89** | **52** | **10** | **26** |
+| **Total** | **89** | **52** | **11** | **25** |
 
 ## Key Architectural Insight
 
