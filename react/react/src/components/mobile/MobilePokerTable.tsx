@@ -550,6 +550,7 @@ export function MobilePokerTable({
             </span>
             <button
               className="action-btn chat-btn"
+              data-testid="action-btn-chat"
               onClick={() => setShowChatSheet(true)}
             >
               <span className="action-icon"><MessageCircle /></span>

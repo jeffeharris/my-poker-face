@@ -196,6 +196,7 @@ export function MobileActionButtons({
             <button
               key={id}
               className={`quick-bet-btn ${isCover ? 'cover' : ''} ${raiseAmount === amount ? 'selected' : ''}`}
+              data-testid="quick-bet-btn"
               onClick={() => setRaiseAmount(amount)}
               disabled={amount > calc.safeMaxRaiseTo}
             >
