@@ -59,7 +59,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-01 | ~~Immutable/mutable confusion~~ | `poker/poker_state_machine.py` | **Demoted to Tier 3** — see T3-35. Inner core is genuinely immutable; mutable wrapper is a thin convenience layer. Cognitive overhead only, no bug risk. | |
 | T2-02 | Adapter reimplements core logic | `flask_app/game_adapter.py:20-44` | `current_player_options` duplicated with incomplete version (missing raise caps, heads-up rules, BB special case). Should delegate to core. | **FIXED** — adapter already delegated; moved `awaiting_action`/`run_it_out` guards to `validation.py` where they belong |
 | T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locks already in place. Remaining gaps only matter with multiple workers. | |
-| T2-04 | Config scattered across 6+ locations | `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` | No single source of truth. Settings can conflict. | |
+| T2-04 | ~~Config scattered across 6+ locations~~ | `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` | **Demoted to Tier 3** — see T3-36. On investigation: each file has a distinct role (game constants, LLM defaults, Flask settings, frontend, env vars, runtime overrides). Clear priority hierarchy (DB > env > hardcoded). Separation is intentional to avoid circular imports. No bugs from conflicts. | |
 | T2-05 | DB connection created per config lookup | `flask_app/config.py:44-94` | Config getter functions like `get_default_provider()` instantiate `GamePersistence()` on every call. New DB connection per lookup. | **FIXED** — @lru_cache shared instance |
 | T2-06 | Three layers of caching, no invalidation | localStorage + in-memory dict + SQLite | Game state cached at three levels with no clear invalidation strategy. Stale data bugs likely. | |
 | T2-07 | AI controller state can desync | `flask_app/handlers/game_handler.py:107-200` | AI conversation history, personality state, psychology stored separately from game state. Can desync. | |
@@ -97,7 +97,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-24 | Missing ARIA labels | All interactive elements | Only 49 ARIA attributes across 21 files vs 1275+ interactive elements. Screen reader users blocked. | |
 | T2-25 | No keyboard navigation for poker actions | PokerTable components | Mouse/touch only. Keyboard-only users can't play. | |
 | T2-26 | No code splitting | `react/src/App.tsx:286-371` | All routes imported synchronously. Admin panel code loaded for all users (~500KB+ unnecessary). | **FIXED** — React.lazy for 11 route components; core path (GamePage, GameMenu, LoginForm) stays eager |
-| T2-27 | `GameContext` violates SoC | `react/src/contexts/GameContext.tsx` | WebSocket, HTTP API, state management, message dedup all in one file. Hard to test or debug. | |
+| T2-27 | `GameContext` violates SoC | `react/src/contexts/GameContext.tsx` | WebSocket, HTTP API, state management, message dedup all in one file. Hard to test or debug. | **DISMISSED** — file deleted in T2-28; SoC concern for `usePokerGame` tracked by T2-11 |
 | T2-28 | Duplicate socket event handling | `GameContext.tsx` + `usePokerGame.ts` | Both handle socket events independently. Confusing ownership, potential conflicts. | **FIXED** — deleted unused `GameContext.tsx`; `usePokerGame` is the sole socket handler |
 
 ### DevOps
@@ -152,6 +152,7 @@ Issues to address once live, during ongoing development.
 | T3-19 | Inconsistent error response format | Flask routes | Mix of `{'error': str}`, `{'success': False}`, `{'message': str}`, `{'status': 'error'}`. | |
 | T3-20 | `GET` allowed on destructive endpoint | `flask_app/routes/game_routes.py:1114` | `/api/end_game/<game_id>` accepts both GET and POST. GET should never mutate. | **FIXED** — POST only |
 | T3-35 | Dual API on state machine wrapper | `poker/poker_state_machine.py:336-539` | Outer `PokerStateMachine` exposes both mutable (`advance_state()`, `game_state` setter) and immutable (`advance()`, `with_game_state()`) APIs. Inner `ImmutableStateMachine` core is genuinely pure — mutable setters just reassign `self._state` with new frozen instances. Cleanup: remove duplicate immutable methods from outer class, keep mutable wrapper only. *(Demoted from T2-01)* | |
+| T3-36 | Config naming & documentation | 6 config locations | Config spread across `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` is intentional (avoids circular imports), but naming is inconsistent (e.g., `.env` uses `OPENAI_MODEL`, DB uses `DEFAULT_MODEL`). Improvements: unify setting names in `.env.example`, document priority hierarchy (DB > env > hardcoded). *(Demoted from T2-04)* | |
 
 ### Documentation & DX
 
@@ -184,9 +185,9 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 33 | 20 | 1 | 12 |
-| **Tier 3: Post-Release** | 35 | 19 | 1 | 15 |
-| **Total** | **89** | **52** | **9** | **27** |
+| **Tier 2: Should-Fix** | 32 | 20 | 2 | 10 |
+| **Tier 3: Post-Release** | 36 | 19 | 1 | 16 |
+| **Total** | **89** | **52** | **10** | **26** |
 
 ## Key Architectural Insight
 
