@@ -158,10 +158,10 @@ Issues to address once live, during ongoing development.
 | T3-16 | DB path logic duplicated 3+ times | `core/llm/tracking.py:34-52`, `flask_app/config.py:98-101`, `scripts/dbq.py:27-31` | Each with different fallback paths. Include hardcoded absolute paths. | **FIXED** — consolidated to canonical version in `flask_app/config.py` |
 | T3-17 | Schema version hardcoded, no migrations | `poker/persistence.py:20-39` | `SCHEMA_VERSION = 58` with manual migration comments. No Alembic or equivalent. | |
 | T3-18 | Circular import workarounds | `flask_app/__init__.py:35-36`, `capture_config.py`, `persistence.py` | Lazy imports to avoid circular deps indicate architectural coupling. | |
-| T3-19 | Inconsistent error response format | Flask routes | Mix of `{'error': str}`, `{'success': False}`, `{'message': str}`, `{'status': 'error'}`. | |
+| T3-19 | Inconsistent error response format | 15 files in `flask_app/routes/` | 219 error responses split 50/50: `{'error': ...}` (109, used by global error handlers) vs `{'success': False, 'error': ...}` (107, mostly admin routes). Standardizing to `{'error': ...}` requires ~107 changes across 7 files (admin_dashboard_routes.py alone has 61). Frontend may check `success: false`. | |
 | T3-20 | `GET` allowed on destructive endpoint | `flask_app/routes/game_routes.py:1114` | `/api/end_game/<game_id>` accepts both GET and POST. GET should never mutate. | **FIXED** — POST only |
 | T3-35 | Dual API on state machine wrapper | `poker/poker_state_machine.py:336-539` | Outer `PokerStateMachine` exposes both mutable (`advance_state()`, `game_state` setter) and immutable (`advance()`, `with_game_state()`) APIs. Inner `ImmutableStateMachine` core is genuinely pure — mutable setters just reassign `self._state` with new frozen instances. Cleanup: remove duplicate immutable methods from outer class, keep mutable wrapper only. *(Demoted from T2-01)* | |
-| T3-36 | Config naming & documentation | 6 config locations | Config spread across `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` is intentional (avoids circular imports), but naming is inconsistent (e.g., `.env` uses `OPENAI_MODEL`, DB uses `DEFAULT_MODEL`). Improvements: unify setting names in `.env.example`, document priority hierarchy (DB > env > hardcoded). *(Demoted from T2-04)* | |
+| T3-36 | Config naming & documentation | 6 config locations | Config spread across `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` is intentional (avoids circular imports), but naming is inconsistent (e.g., `.env` uses `OPENAI_MODEL`, DB uses `DEFAULT_MODEL`). Improvements: unify setting names in `.env.example`, document priority hierarchy (DB > env > hardcoded). *(Demoted from T2-04)* | **FIXED** — renamed `OPENAI_MODEL` → `DEFAULT_MODEL` in `.env.example` and `config.py` (with legacy fallback), removed undocumented `OPENAI_FAST_MODEL`, added priority hierarchy docs, documented all model tier env vars |
 | T3-41 | Split `AIPlayerController` god object | `poker/controllers.py:554-1794` | 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Extract into focused service classes. *(Demoted from T2-10)* | |
 | T3-42 | Clean up `usePokerGame` hook | `react/src/hooks/usePokerGame.ts` | 661-line hook with tightly coupled concerns. Splitting into separate hooks creates ref sync issues. Better approach: extract pure functions (message dedup, avatar caching), organize socket handlers into named setup functions. *(Demoted from T2-11)* | |
 
@@ -197,8 +197,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
 | **Tier 2: Should-Fix** | 26 | 20 | 4 | 0 |
-| **Tier 3: Post-Release** | 42 | 20 | 1 | 21 |
-| **Total** | **89** | **53** | **12** | **21** |
+| **Tier 3: Post-Release** | 42 | 21 | 1 | 20 |
+| **Total** | **89** | **54** | **12** | **20** |
 
 ## Key Architectural Insight
 
