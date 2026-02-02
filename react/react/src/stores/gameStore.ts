@@ -1,7 +1,10 @@
 import { create } from 'zustand';
 import type { Player } from '../types/player';
 import type { GameState, BettingContext } from '../types/game';
-import type { ChatMessage } from '../types';
+
+// Stable references to avoid creating new objects on every selectGameState call
+const EMPTY_MESSAGES: never[] = [];
+const ZERO_POT = { total: 0 };
 
 interface GameStore {
   // Game state slices
@@ -99,7 +102,7 @@ export function selectGameState(state: GameStore): GameState | null {
   return {
     players: state.players,
     phase: state.phase,
-    pot: state.pot ?? { total: 0 },
+    pot: state.pot ?? ZERO_POT,
     community_cards: state.communityCards,
     current_player_idx: state.currentPlayerIdx,
     current_dealer_idx: state.dealerIdx,
@@ -111,7 +114,7 @@ export function selectGameState(state: GameStore): GameState | null {
     big_blind: state.bigBlind,
     small_blind: state.smallBlind,
     hand_number: state.handNumber,
-    messages: [] as ChatMessage[],
+    messages: EMPTY_MESSAGES,
     betting_context: state.bettingContext ?? undefined,
     newly_dealt_count: state.newlyDealtCount,
     awaiting_action: state.awaitingAction,

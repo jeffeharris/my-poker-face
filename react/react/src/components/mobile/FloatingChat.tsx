@@ -281,6 +281,14 @@ export const FloatingChat = memo(function FloatingChat({ message, onDismiss, pla
     });
   }, [messages.length]); // Re-check when message count changes
 
+  // When all messages are cleared, notify parent
+  useEffect(() => {
+    if (messages.length === 0 && processedIdsRef.current.size > 0) {
+      processedIdsRef.current.clear();
+      onDismiss();
+    }
+  }, [messages.length, onDismiss]);
+
   // Handle TTL expiration
   useEffect(() => {
     if (messages.length === 0) return;
@@ -294,11 +302,6 @@ export const FloatingChat = memo(function FloatingChat({ message, onDismiss, pla
           const elapsed = now - msg.timerStartedAt;
           return elapsed < msg.displayDuration;
         });
-
-        if (filtered.length === 0 && prev.length > 0) {
-          processedIdsRef.current.clear();
-          onDismiss();
-        }
 
         return filtered.length !== prev.length ? filtered : prev;
       });
@@ -321,7 +324,7 @@ export const FloatingChat = memo(function FloatingChat({ message, onDismiss, pla
 
     const timer = setTimeout(checkExpired, Math.max(0, nextDelay));
     return () => clearTimeout(timer);
-  }, [messages.length, onDismiss]);
+  }, [messages.length]);
 
   const handleDismiss = (id: string) => {
     setMessages(prev => prev.filter(msg => msg.id !== id));

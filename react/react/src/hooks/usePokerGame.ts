@@ -6,6 +6,7 @@ import type { TournamentResult, EliminationEvent, BackendCard } from '../types/t
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 
 interface UsePokerGameOptions {
   gameId: string | null;
@@ -72,7 +73,7 @@ export function usePokerGame({
   const applyGameState = useGameStore(state => state.applyGameState);
   const updateStorePlayers = useGameStore(state => state.updatePlayers);
   const updateStorePlayerOptions = useGameStore(state => state.updatePlayerOptions);
-  const gameState = useGameStore(selectGameState);
+  const gameState = useGameStore(useShallow(selectGameState));
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
