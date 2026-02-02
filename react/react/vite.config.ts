@@ -63,7 +63,7 @@ export default defineConfig({
     }),
   ],
   server: {
-    allowedHosts: ['homehub'],
+    allowedHosts: ['homehub', 'frontend'],
     // Proxy API and Socket.IO to backend when VITE_BACKEND_URL is set (Docker compose)
     ...(process.env.VITE_BACKEND_URL ? {
       proxy: {
