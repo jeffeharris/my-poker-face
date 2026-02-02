@@ -121,12 +121,12 @@ Issues to address once live, during ongoing development.
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T3-01 | No `conftest.py` | `tests/` | No shared fixtures. Each test duplicates DB setup, mock configs, test data. | |
+| T3-01 | No `conftest.py` | `tests/` | No shared fixtures. Each test duplicates DB setup, mock configs, test data. | **FIXED** — added `conftest.py` with shared fixtures and `pytest.ini` |
 | T3-02 | 19 poker modules with zero tests | `controllers.py`, `authorization.py`, `auth.py`, `response_validator.py`, + 15 more | Critical game logic completely untested. | |
 | T3-03 | Placeholder tests with no assertions | `test_poker_game_mutations.py:101-117` | Methods have `pass` or only comments. False coverage. | **FIXED** — removed `TestPropertyMutationPatterns` class (zero-assertion pattern demos) |
 | T3-04 | Skipped tests not tracked | `test_prompt_golden_path.py:192` | `@unittest.skip` with no GitHub issue. Tests forgotten. | **FIXED** — updated test to match current archetype system |
 | T3-05 | Mixed unittest and pytest patterns | All test files | No standardization. Can't use pytest features consistently. | |
-| T3-06 | No test coverage reporting | CI/CD pipeline | No `pytest-cov`, no coverage enforcement. Don't know what's tested. | |
+| T3-06 | No test coverage reporting | CI/CD pipeline | No `pytest-cov`, no coverage enforcement. Don't know what's tested. | **FIXED** — added `pytest-cov` with 40% floor (`--cov-fail-under=40`) |
 | T3-07 | DB connection leaks in tests | `test_persistence.py:26-32` | `tearDown` unlinks file without closing DB connection first. | **DISMISSED** — `GamePersistence` uses `with sqlite3.connect()` per operation; no persistent connection to leak |
 | T3-08 | No experiment integration tests | `experiments/` | 11 files, 0 integration tests. Tournament runner untested end-to-end. | |
 
@@ -137,7 +137,7 @@ Issues to address once live, during ongoing development.
 | T3-09 | No SQLite connection pooling | `poker/persistence.py` | New connection for every operation. Performance bottleneck under load. | |
 | T3-10 | Synchronous LLM calls block threads | `core/llm/client.py:145-211` | LLM API calls are synchronous. Block entire thread pool. | |
 | T3-11 | Frontend re-renders on every socket event | React components | Full game state replacement triggers unnecessary re-renders. No `React.memo`. | |
-| T3-12 | No pagination on game list | `flask_app/routes/game_routes.py:194` | Hardcoded `limit=10`, no offset support. | |
+| T3-12 | No pagination on game list | `flask_app/routes/game_routes.py:194` | Hardcoded `limit=10`, no offset support. | **FIXED** — added `limit` and `offset` query params (max 100), persistence layer supports offset |
 | T3-13 | Hardcoded 600s HTTP timeout | `core/llm/providers/http_client.py:16` | 10-minute timeout for all operations. Can't configure per-request. | **FIXED** — configurable via `LLM_HTTP_TIMEOUT` env var |
 
 ### Code Organization
@@ -156,7 +156,7 @@ Issues to address once live, during ongoing development.
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T3-21 | Outdated React CLAUDE.md | `react/CLAUDE.md` | Describes future architecture (FastAPI, Zustand) not current (Flask, hooks). | |
+| T3-21 | Outdated React CLAUDE.md | `react/CLAUDE.md` | Describes future architecture (FastAPI, Zustand) not current (Flask, hooks). | **FIXED** — rewritten to reflect actual stack, structure, and patterns |
 | T3-22 | No API documentation | Flask routes | No OpenAPI/Swagger spec. Frontend devs must read Python code. | |
 | T3-23 | Env var docs spread across 3 files | `.env.example`, `CLAUDE.md`, `DEVOPS.md` | Inconsistent and potentially conflicting. | |
 | T3-24 | No `.editorconfig` | Project root | No editor settings for tabs/spaces, line endings. | **FIXED** — added `.editorconfig` |
@@ -184,8 +184,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
 | **Tier 2: Should-Fix** | 34 | 18 | 1 | 15 |
-| **Tier 3: Post-Release** | 34 | 10 | 1 | 23 |
-| **Total** | **89** | **41** | **9** | **38** |
+| **Tier 3: Post-Release** | 34 | 14 | 1 | 19 |
+| **Total** | **89** | **45** | **9** | **34** |
 
 ## Key Architectural Insight
 

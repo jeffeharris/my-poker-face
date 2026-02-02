@@ -230,8 +230,11 @@ def list_games():
     """List games for the current user."""
     current_user = auth_manager.get_current_user()
 
+    limit = min(int(request.args.get('limit', 20)), 100)
+    offset = max(int(request.args.get('offset', 0)), 0)
+
     if current_user:
-        saved_games = persistence.list_games(owner_id=current_user.get('id'), limit=10)
+        saved_games = persistence.list_games(owner_id=current_user.get('id'), limit=limit, offset=offset)
     else:
         saved_games = []
 

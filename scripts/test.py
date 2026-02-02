@@ -89,30 +89,20 @@ def run(pattern: str = "", verbose: bool = False, quick_mode: bool = False) -> i
     Returns:
         Exit code (0 = success)
     """
-    cmd = ["docker", "compose", "exec", "backend", "python", "-m"]
+    cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest", "tests/"]
 
     if pattern:
-        # Determine if it's a file path, directory, or pattern
         if pattern.endswith(".py"):
-            # Specific file: use unittest
-            module = pattern.replace("/", ".").replace(".py", "")
-            if module.startswith("tests."):
-                module = module[6:]  # Remove 'tests.' prefix for discovery
-            cmd += ["unittest", f"tests.{module}"]
+            # Specific file
+            if not pattern.startswith("tests/"):
+                pattern = f"tests/{pattern}"
+            cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest", pattern]
         elif "/" in pattern:
             # Directory path
-            cmd += ["unittest", "discover", "-s", pattern, "-p", "test*.py"]
+            cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest", pattern]
         else:
-            # Pattern match: use pytest -k for flexibility
-            cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest",
-                   "tests/", "-k", pattern]
-            if verbose:
-                cmd.append("-v")
-            result = _run_cmd(cmd)
-            return result.returncode
-    else:
-        # Run all tests
-        cmd += ["unittest", "discover", "-s", "tests", "-p", "test*.py"]
+            # Pattern match: use pytest -k
+            cmd += ["-k", pattern]
 
     if verbose:
         cmd.append("-v")

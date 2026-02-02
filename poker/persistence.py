@@ -3099,24 +3099,24 @@ class GamePersistence:
 
             return json.loads(row[0])
 
-    def list_games(self, owner_id: Optional[str] = None, limit: int = 20) -> List[SavedGame]:
+    def list_games(self, owner_id: Optional[str] = None, limit: int = 20, offset: int = 0) -> List[SavedGame]:
         """List saved games, most recently updated first. Filter by owner_id if provided."""
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
-            
+
             if owner_id:
                 cursor = conn.execute("""
-                    SELECT * FROM games 
+                    SELECT * FROM games
                     WHERE owner_id = ?
-                    ORDER BY updated_at DESC 
-                    LIMIT ?
-                """, (owner_id, limit))
+                    ORDER BY updated_at DESC
+                    LIMIT ? OFFSET ?
+                """, (owner_id, limit, offset))
             else:
                 cursor = conn.execute("""
-                    SELECT * FROM games 
-                    ORDER BY updated_at DESC 
-                    LIMIT ?
-                """, (limit,))
+                    SELECT * FROM games
+                    ORDER BY updated_at DESC
+                    LIMIT ? OFFSET ?
+                """, (limit, offset))
             
             games = []
             for row in cursor:
