@@ -28,7 +28,7 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest tests/test_prompt_management.py tests/test_functional_poker.py tests/test_state_machine_pure.py -v --tb=short
+          python -m pytest tests/ -v --tb=short
         env:
           PYTHONPATH: ${{ github.workspace }}
           OPENAI_API_KEY: 'test-key-for-ci'
