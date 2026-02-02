@@ -56,13 +56,13 @@ Issues that won't crash but indicate quality problems that could bite early user
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T2-01 | Immutable/mutable confusion | `poker/poker_state_machine.py:458-485` | State machine provides BOTH immutable methods (`with_game_state()`) and mutable setters. Callers can't reason about behavior. Pick one paradigm. | |
-| T2-02 | Adapter reimplements core logic | `flask_app/game_adapter.py:20-44` | `current_player_options` duplicated with incomplete version (missing raise caps, heads-up rules, BB special case). Should delegate to core. | |
-| T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locks already in place. Remaining gaps only matter with multiple workers. | |
-| T2-04 | Config scattered across 6+ locations | `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` | No single source of truth. Settings can conflict. | |
+| T2-01 | ~~Immutable/mutable confusion~~ | `poker/poker_state_machine.py` | **Demoted to Tier 3** — see T3-35. Inner core is genuinely immutable; mutable wrapper is a thin convenience layer. Cognitive overhead only, no bug risk. | |
+| T2-02 | Adapter reimplements core logic | `flask_app/game_adapter.py:20-44` | `current_player_options` duplicated with incomplete version (missing raise caps, heads-up rules, BB special case). Should delegate to core. | **FIXED** — adapter already delegated; moved `awaiting_action`/`run_it_out` guards to `validation.py` where they belong |
+| T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locks already in place. Remaining gaps only matter with multiple workers. | **DISMISSED** — consolidated into T2-29 (now T3-40) |
+| T2-04 | ~~Config scattered across 6+ locations~~ | `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` | **Demoted to Tier 3** — see T3-36. On investigation: each file has a distinct role (game constants, LLM defaults, Flask settings, frontend, env vars, runtime overrides). Clear priority hierarchy (DB > env > hardcoded). Separation is intentional to avoid circular imports. No bugs from conflicts. | |
 | T2-05 | DB connection created per config lookup | `flask_app/config.py:44-94` | Config getter functions like `get_default_provider()` instantiate `GamePersistence()` on every call. New DB connection per lookup. | **FIXED** — @lru_cache shared instance |
-| T2-06 | Three layers of caching, no invalidation | localStorage + in-memory dict + SQLite | Game state cached at three levels with no clear invalidation strategy. Stale data bugs likely. | |
-| T2-07 | AI controller state can desync | `flask_app/handlers/game_handler.py:107-200` | AI conversation history, personality state, psychology stored separately from game state. Can desync. | |
+| T2-06 | Three layers of caching, no invalidation | localStorage + in-memory dict + SQLite | Game state cached at three levels with no clear invalidation strategy. Stale data bugs likely. | **DISMISSED** — layers serve distinct purposes and are properly synchronized: localStorage is optimistic UI (always refetched from API on mount), in-memory has 2h TTL (T2-19), SQLite is source of truth written after every action. No stale-state bugs observed. |
+| T2-07 | AI controller state can desync | `flask_app/handlers/game_handler.py:107-200` | AI conversation history, personality state, psychology stored separately from game state. Can desync. | **DISMISSED** — separation is intentional (immutable game state vs mutable AI learning). Both saved/loaded together per action with per-game locking. Psychology unified into single `PlayerPsychology` dict. No desync observed. |
 
 ### Code Quality
 
@@ -70,8 +70,8 @@ Issues that won't crash but indicate quality problems that could bite early user
 |----|-------|----------|-------------|--------|
 | T2-08 | `PokerAction` class entirely unused | `poker/poker_action.py` | Entire file is dead code (zero imports). Game uses plain dicts. Remove file. | **FIXED** — file deleted as part of T1-01 |
 | T2-09 | O(n²) player flag reset | `poker/poker_game.py:422-437` | Calls `update_player` per player in loop, each creating new tuple copy. Build new tuple in one pass. | **FIXED** — single-pass tuple comprehension |
-| T2-10 | `controllers.py` is 1794-line god object | `poker/controllers.py:554-1794` | `AIPlayerController` has 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Split into services. | |
-| T2-11 | `usePokerGame` hook is 588 lines | `react/src/hooks/usePokerGame.ts` | Socket management, state, messages, winners, tournaments all in one. Impossible to unit test. Split into focused hooks. | |
+| T2-10 | ~~`controllers.py` is 1794-line god object~~ | `poker/controllers.py:554-1794` | `AIPlayerController` has 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Split into services. | **Demoted to Tier 3** — see T3-41. Large refactor with limited pre-release ROI. |
+| T2-11 | ~~`usePokerGame` hook is 588 lines~~ | `react/src/hooks/usePokerGame.ts` | Socket management, state, messages, winners, tournaments all in one. Impossible to unit test. Split into focused hooks. | **Demoted to Tier 3** — see T3-42. Concerns are tightly coupled; splitting creates ref sync issues. Internal cleanup (extract pure functions) is better approach. |
 | T2-12 | 120 console.log statements in production | 38 React files | No logging levels. Sensitive data in browser console. Performance overhead. | **FIXED** — created logger utility, deleted ~25 debug statements, converted ~70 console calls |
 | T2-13 | `any` types erode TypeScript safety | 32 occurrences in 16 files | `community_cards?: any[]`, `winnerInfo: any`, `[key: string]: any`. Defeats purpose of TypeScript. | **FIXED** — zero `: any` type annotations remain in codebase |
 | T2-14 | Shuffle mutates module-level list | `poker/utils.py:86` | `random.shuffle(celebrities_list)` mutates in-place. Use `random.sample()` instead. | **FIXED** — uses `random.sample()` |
@@ -86,25 +86,25 @@ Issues that won't crash but indicate quality problems that could bite early user
 | T2-18 | UsageTracker singleton not thread-safe | `core/llm/tracking.py:84-110` | `_instance` check-and-set has race condition. Multiple threads can create multiple instances. | **FIXED** — added threading.Lock for singleton |
 | T2-19 | Unbounded game state memory growth | `flask_app/services/game_state_service.py:14-16` | `games` dict stores all active games. Abandoned games never evicted. No TTL or LRU. | **FIXED** — added 2-hour TTL with auto-cleanup |
 | T2-20 | Unbounded message list growth | `flask_app/handlers/message_handler.py:82-126` | Messages appended without limit. Long games accumulate unbounded messages in memory. | **FIXED** — capped at 200 entries, trim on append |
-| T2-21 | Race condition in game state updates | `flask_app/handlers/game_handler.py:1005-1098` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locking already in place. Remaining gaps only matter with multiple workers. | |
+| T2-21 | Race condition in game state updates | `flask_app/handlers/game_handler.py:1005-1098` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locking already in place. Remaining gaps only matter with multiple workers. | **DISMISSED** — consolidated into T2-29 (now T3-40) |
 | T2-22 | Conversation memory trims by count, not tokens | `core/llm/conversation.py:58-61` | Trims at 15 messages regardless of token count. Long system prompts + 15 messages can exceed context limits. | **DISMISSED** — memory cleared each turn, usage is only 6.6% of 128k context |
 
 ### Frontend Quality
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T2-23 | No frontend tests at all | `react/react/` | Zero `.test.tsx` files. No unit, integration, or E2E tests. Regressions undetected. | |
-| T2-24 | Missing ARIA labels | All interactive elements | Only 49 ARIA attributes across 21 files vs 1275+ interactive elements. Screen reader users blocked. | |
-| T2-25 | No keyboard navigation for poker actions | PokerTable components | Mouse/touch only. Keyboard-only users can't play. | |
+| T2-23 | ~~No frontend tests at all~~ | `react/react/` | Zero `.test.tsx` files. No unit, integration, or E2E tests. Regressions undetected. | **Demoted to Tier 3** — see T3-37. Some test coverage now exists; remaining gaps are post-release work. |
+| T2-24 | ~~Missing ARIA labels~~ | All interactive elements | Only 49 ARIA attributes across 21 files vs 1275+ interactive elements. Screen reader users blocked. | **Demoted to Tier 3** — see T3-38. Accessibility improvements are ongoing post-release work. |
+| T2-25 | ~~No keyboard navigation for poker actions~~ | PokerTable components | Mouse/touch only. Keyboard-only users can't play. | **Demoted to Tier 3** — see T3-39. Accessibility improvements are ongoing post-release work. |
 | T2-26 | No code splitting | `react/src/App.tsx:286-371` | All routes imported synchronously. Admin panel code loaded for all users (~500KB+ unnecessary). | **FIXED** — React.lazy for 11 route components; core path (GamePage, GameMenu, LoginForm) stays eager |
-| T2-27 | `GameContext` violates SoC | `react/src/contexts/GameContext.tsx` | WebSocket, HTTP API, state management, message dedup all in one file. Hard to test or debug. | |
-| T2-28 | Duplicate socket event handling | `GameContext.tsx` + `usePokerGame.ts` | Both handle socket events independently. Confusing ownership, potential conflicts. | |
+| T2-27 | `GameContext` violates SoC | `react/src/contexts/GameContext.tsx` | WebSocket, HTTP API, state management, message dedup all in one file. Hard to test or debug. | **DISMISSED** — file deleted in T2-28; SoC concern for `usePokerGame` tracked by T2-11 |
+| T2-28 | Duplicate socket event handling | `GameContext.tsx` + `usePokerGame.ts` | Both handle socket events independently. Confusing ownership, potential conflicts. | **FIXED** — deleted unused `GameContext.tsx`; `usePokerGame` is the sole socket handler |
 
 ### DevOps
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T2-29 | Multi-worker scaling (consolidates T2-03, T2-21) | `docker-compose.prod.yml:39`, `flask_app/extensions.py:30`, `flask_app/services/game_state_service.py`, `flask_app/handlers/game_handler.py` | Single gevent worker handles current load fine via green threads. **When ready to scale (30+ concurrent games or tournaments + live users):** (1) Add `message_queue=REDIS_URL` to `SocketIO()` init — Redis already running in prod. (2) Fix `async_mode='threading'` → auto-detect. (3) Bump to `-w 2`. (4) Audit `get_game()`/`set_game()` thread safety under real multi-worker load — per-game locks exist but dict-level ops rely on GIL. (5) Review `progress_game()` locking under concurrent workers. ~3-5 files, main risk is integration testing. | |
+| T2-29 | ~~Multi-worker scaling~~ (consolidates T2-03, T2-21) | `docker-compose.prod.yml:39`, `flask_app/extensions.py:30`, `flask_app/services/game_state_service.py`, `flask_app/handlers/game_handler.py` | **Demoted to Tier 3** — see T3-40. Single worker handles current load fine. Only matters at 30+ concurrent games. | |
 | T2-30 | No frontend health check | `docker-compose.prod.yml:51-57` | Frontend service has no healthcheck. Docker can't auto-recover if nginx crashes. | **FIXED** — added curl health check on nginx |
 | T2-31 | No deploy rollback mechanism | `deploy.sh:29-30` | Previous containers destroyed before testing new ones. Failed deploy = downtime. | **FIXED** — tag images before build, auto-rollback on failed health check |
 | T2-32 | Migration runs after health check | `.github/workflows/deploy.yml:100-107` | App goes live, THEN migration runs. If migration fails, app has wrong schema. | **FIXED** — reordered: migrations run before health check |
@@ -121,44 +121,57 @@ Issues to address once live, during ongoing development.
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T3-01 | No `conftest.py` | `tests/` | No shared fixtures. Each test duplicates DB setup, mock configs, test data. | |
+| T3-01 | No `conftest.py` | `tests/` | No shared fixtures. Each test duplicates DB setup, mock configs, test data. | **FIXED** — added `conftest.py` with shared fixtures and `pytest.ini` |
 | T3-02 | 19 poker modules with zero tests | `controllers.py`, `authorization.py`, `auth.py`, `response_validator.py`, + 15 more | Critical game logic completely untested. | |
-| T3-03 | Placeholder tests with no assertions | `test_poker_game_mutations.py:101-117` | Methods have `pass` or only comments. False coverage. | |
+| T3-03 | Placeholder tests with no assertions | `test_poker_game_mutations.py:101-117` | Methods have `pass` or only comments. False coverage. | **FIXED** — removed `TestPropertyMutationPatterns` class (zero-assertion pattern demos) |
 | T3-04 | Skipped tests not tracked | `test_prompt_golden_path.py:192` | `@unittest.skip` with no GitHub issue. Tests forgotten. | **FIXED** — updated test to match current archetype system |
 | T3-05 | Mixed unittest and pytest patterns | All test files | No standardization. Can't use pytest features consistently. | |
-| T3-06 | No test coverage reporting | CI/CD pipeline | No `pytest-cov`, no coverage enforcement. Don't know what's tested. | |
-| T3-07 | DB connection leaks in tests | `test_persistence.py:26-32` | `tearDown` unlinks file without closing DB connection first. | |
+| T3-06 | No test coverage reporting | CI/CD pipeline | No `pytest-cov`, no coverage enforcement. Don't know what's tested. | **FIXED** — added `pytest-cov` with 40% floor (`--cov-fail-under=40`) |
+| T3-07 | DB connection leaks in tests | `test_persistence.py:26-32` | `tearDown` unlinks file without closing DB connection first. | **DISMISSED** — `GamePersistence` uses `with sqlite3.connect()` per operation; no persistent connection to leak |
 | T3-08 | No experiment integration tests | `experiments/` | 11 files, 0 integration tests. Tournament runner untested end-to-end. | |
+| T3-37 | Expand frontend test coverage | `react/react/` | Some test coverage now exists but gaps remain. Add unit tests for hooks, components, and game logic utilities. *(Demoted from T2-23)* | |
+
+### Accessibility
+
+| ID | Issue | Location | Description | Status |
+|----|-------|----------|-------------|--------|
+| T3-38 | Missing ARIA labels | All interactive elements | Only 49 ARIA attributes across 21 files vs 1275+ interactive elements. Screen reader users blocked. *(Demoted from T2-24)* | |
+| T3-39 | No keyboard navigation for poker actions | PokerTable components | Mouse/touch only. Keyboard-only users can't play. *(Demoted from T2-25)* | |
 
 ### Performance & Scalability
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T3-09 | No SQLite connection pooling | `poker/persistence.py` | New connection for every operation. Performance bottleneck under load. | |
-| T3-10 | Synchronous LLM calls block threads | `core/llm/client.py:145-211` | LLM API calls are synchronous. Block entire thread pool. | |
-| T3-11 | Frontend re-renders on every socket event | React components | Full game state replacement triggers unnecessary re-renders. No `React.memo`. | |
-| T3-12 | No pagination on game list | `flask_app/routes/game_routes.py:194` | Hardcoded `limit=10`, no offset support. | |
+| T3-10 | Synchronous LLM calls block threads | `game_handler.py:1360`, `controllers.py:868/931`, `core/llm/client.py` | LLM calls are synchronous but concurrency works in practice: SocketIO uses `async_mode='threading'` (each connection gets its own thread), experiments spawn daemon threads, avatars run in background threads. Multiple games/tournaments run concurrently fine. Real risk is thread pool exhaustion under very high load (many concurrent AI decisions). Overlaps with T3-40 (multi-worker scaling). Low priority unless scaling significantly. | |
+| T3-11 | Frontend re-renders on every socket event | `usePokerGame.ts:126`, `PokerTable.tsx`, all game components | Zero `React.memo` in game components. Every socket event (5-10/sec during play) replaces entire `gameState` object, re-rendering all ~50+ components including cards, player seats, stats, messages. Fix in phases: (1) `React.memo` on leaf components — 30-50% reduction, (2) split `gameState` into multiple `useState` hooks — 70-80% reduction, (3) consider Zustand for selector-based subscriptions. | |
+| T3-12 | No pagination on game list | `flask_app/routes/game_routes.py:194` | Hardcoded `limit=10`, no offset support. | **FIXED** — added `limit` and `offset` query params (max 100), persistence layer supports offset |
 | T3-13 | Hardcoded 600s HTTP timeout | `core/llm/providers/http_client.py:16` | 10-minute timeout for all operations. Can't configure per-request. | **FIXED** — configurable via `LLM_HTTP_TIMEOUT` env var |
+| T3-40 | Multi-worker scaling | `docker-compose.prod.yml`, `flask_app/extensions.py`, `game_state_service.py`, `game_handler.py` | Single worker handles current load. When scaling to 30+ concurrent games: (1) add `message_queue=REDIS_URL` to SocketIO init, (2) fix `async_mode`, (3) bump workers, (4) audit thread safety, (5) review `progress_game()` locking. Consolidates T2-03, T2-21. *(Demoted from T2-29)* | |
 
 ### Code Organization
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T3-14 | Python/TypeScript types manually synced | `poker/poker_game.py` ↔ `react/src/types/game.ts` | No automated validation. `has_acted` exists in Python but is an internal game state flag — frontend doesn't need it. Types are currently in sync for all user-facing fields. Remains a maintenance risk long-term. | |
-| T3-15 | Card formatting duplicated across languages | `flask_app/routes/game_routes.py:100-114` + `react/src/utils/cards.ts` | Changes require updating both Python and TypeScript. | |
+| T3-15 | Card formatting duplicated across languages | `flask_app/routes/game_routes.py:100-114` + `react/src/utils/cards.ts` | Changes require updating both Python and TypeScript. | **FIXED** — replaced inline `card_to_string` in game_routes with import from shared `card_utils`. Cross-language duplication remains inherent to the architecture. |
 | T3-16 | DB path logic duplicated 3+ times | `core/llm/tracking.py:34-52`, `flask_app/config.py:98-101`, `scripts/dbq.py:27-31` | Each with different fallback paths. Include hardcoded absolute paths. | **FIXED** — consolidated to canonical version in `flask_app/config.py` |
 | T3-17 | Schema version hardcoded, no migrations | `poker/persistence.py:20-39` | `SCHEMA_VERSION = 58` with manual migration comments. No Alembic or equivalent. | |
 | T3-18 | Circular import workarounds | `flask_app/__init__.py:35-36`, `capture_config.py`, `persistence.py` | Lazy imports to avoid circular deps indicate architectural coupling. | |
-| T3-19 | Inconsistent error response format | Flask routes | Mix of `{'error': str}`, `{'success': False}`, `{'message': str}`, `{'status': 'error'}`. | |
+| T3-19 | Inconsistent error response format | 15 files in `flask_app/routes/` | 219 error responses split 50/50: `{'error': ...}` (109, used by global error handlers) vs `{'success': False, 'error': ...}` (107, mostly admin routes). Standardizing to `{'error': ...}` requires ~107 changes across 7 files (admin_dashboard_routes.py alone has 61). Frontend may check `success: false`. | |
 | T3-20 | `GET` allowed on destructive endpoint | `flask_app/routes/game_routes.py:1114` | `/api/end_game/<game_id>` accepts both GET and POST. GET should never mutate. | **FIXED** — POST only |
+| T3-35 | Dual API on state machine wrapper | `poker/poker_state_machine.py:336-539` | Outer `PokerStateMachine` exposes both mutable (`advance_state()`, `game_state` setter) and immutable (`advance()`, `with_game_state()`) APIs. Inner `ImmutableStateMachine` core is genuinely pure — mutable setters just reassign `self._state` with new frozen instances. Cleanup: remove duplicate immutable methods from outer class, keep mutable wrapper only. *(Demoted from T2-01)* | |
+| T3-36 | Config naming & documentation | 6 config locations | Config spread across `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` is intentional (avoids circular imports), but naming is inconsistent (e.g., `.env` uses `OPENAI_MODEL`, DB uses `DEFAULT_MODEL`). Improvements: unify setting names in `.env.example`, document priority hierarchy (DB > env > hardcoded). *(Demoted from T2-04)* | **FIXED** — renamed `OPENAI_MODEL` → `DEFAULT_MODEL` in `.env.example` and `config.py` (with legacy fallback), removed undocumented `OPENAI_FAST_MODEL`, added priority hierarchy docs, documented all model tier env vars |
+| T3-41 | Split `AIPlayerController` god object | `poker/controllers.py:554-1794` | 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Extract into focused service classes. *(Demoted from T2-10)* | |
+| T3-42 | Clean up `usePokerGame` hook | `react/src/hooks/usePokerGame.ts` | 661-line hook with tightly coupled concerns. Splitting into separate hooks creates ref sync issues. Better approach: extract pure functions (message dedup, avatar caching), organize socket handlers into named setup functions. *(Demoted from T2-11)* | |
 
 ### Documentation & DX
 
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
-| T3-21 | Outdated React CLAUDE.md | `react/CLAUDE.md` | Describes future architecture (FastAPI, Zustand) not current (Flask, hooks). | |
+| T3-21 | Outdated React CLAUDE.md | `react/CLAUDE.md` | Describes future architecture (FastAPI, Zustand) not current (Flask, hooks). | **FIXED** — rewritten to reflect actual stack, structure, and patterns |
 | T3-22 | No API documentation | Flask routes | No OpenAPI/Swagger spec. Frontend devs must read Python code. | |
-| T3-23 | Env var docs spread across 3 files | `.env.example`, `CLAUDE.md`, `DEVOPS.md` | Inconsistent and potentially conflicting. | |
+| T3-23 | Env var docs spread across 3 files | `.env.example`, `CLAUDE.md`, `DEVOPS.md` | Inconsistent and potentially conflicting. | **FIXED** — CLAUDE.md and DEVOPS.md now point to `.env.example` as canonical reference |
 | T3-24 | No `.editorconfig` | Project root | No editor settings for tabs/spaces, line endings. | **FIXED** — added `.editorconfig` |
 | T3-25 | No dependabot or renovate | Missing `.github/dependabot.yml` | Dependency updates manual. Security patches could be missed. | **FIXED** — added `.github/dependabot.yml` |
 | T3-26 | `__pycache__` files committed | `tests/` | `.gitignore` incomplete. Merge conflicts on cache files. | **FIXED** — `.gitignore` already covers `__pycache__/`, no cached files in repo |
@@ -170,11 +183,11 @@ Issues to address once live, during ongoing development.
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T3-29 | No CSRF protection | All POST endpoints | No CSRF tokens on state-changing endpoints. Combined with `cors_allowed_origins="*"` in dev. | |
-| T3-30 | No rate limiting on socket events | Socket handlers | HTTP routes have rate limiting but socket.io events don't. Client can spam actions. | |
-| T3-31 | No rate limiting on expensive AI endpoints | `personality_routes.py:346`, `image_routes.py:286` | `/api/generate-theme` makes LLM calls with no rate limit. Could drain API credits. | |
+| T3-30 | No rate limiting on socket events | Socket handlers | HTTP routes have rate limiting but socket.io events don't. Client can spam actions. | **FIXED** — added `@socket_rate_limit` decorator to all 4 socket handlers |
+| T3-31 | No rate limiting on expensive AI endpoints | `personality_routes.py:346`, `image_routes.py:286` | `/api/generate-theme` makes LLM calls with no rate limit. Could drain API credits. | **FIXED** — added `@limiter.limit()` to generate-theme, regenerate-avatar, generate-character-images |
 | T3-32 | Prompt injection risk | `poker/prompt_manager.py:43-87` | User-provided names/messages go into LLM prompts with minimal sanitization. | |
-| T3-33 | CORS wildcard with credentials in dev | `flask_app/extensions.py:54-72` | `CORS(app, supports_credentials=True, origins=re.compile(r'.*'))` in dev mode. | |
-| T3-34 | Missing content-type validation on uploads | `admin_dashboard_routes.py:452-525` | Image upload trusts `file.content_type` from client. No magic byte validation. | |
+| T3-33 | CORS wildcard with credentials in dev | `flask_app/extensions.py:54-72` | `CORS(app, supports_credentials=True, origins=re.compile(r'.*'))` in dev mode. | **FIXED** — dev CORS pinned to localhost:5173/5174 + homehub:* pattern |
+| T3-34 | Missing content-type validation on uploads | `admin_dashboard_routes.py:452-525` | Image upload trusts `file.content_type` from client. No magic byte validation. | **FIXED** — validates magic bytes (PNG/JPEG/GIF/WebP), overrides client content_type |
 
 ---
 
@@ -182,14 +195,14 @@ Issues to address once live, during ongoing development.
 
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
-| **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
-| **Tier 2: Should-Fix** | 34 | 18 | 1 | 15 |
-| **Tier 3: Post-Release** | 34 | 9 | 0 | 25 |
-| **Total** | **89** | **40** | **8** | **40** |
+| **Tier 1: Must-Fix** | 21 | 15 | 6 | 0 |
+| **Tier 2: Should-Fix** | 26 | 20 | 6 | 0 |
+| **Tier 3: Post-Release** | 42 | 21 | 1 | 20 |
+| **Total** | **89** | **56** | **13** | **20** |
 
 ## Key Architectural Insight
 
-The most pervasive issue is the **immutable/mutable hybrid** in the state machine. The codebase claims functional/immutable architecture but provides mutable compatibility layers (`game_state.setter`, `advance_state()`). This creates confusion about which API to use and makes reasoning about state changes difficult. The recommendation: fully commit to immutability by removing all mutable interfaces, or accept mutability and simplify. The current hybrid gets the downsides of both.
+The state machine uses an **immutable/mutable hybrid** pattern. On deeper investigation, this is more intentional than it first appears: the inner `ImmutableStateMachine` core is genuinely pure (frozen dataclass, pure transition functions), while the outer `PokerStateMachine` provides a mutable-style convenience API for Flask handlers. The mutable setters just reassign `self._state` with new frozen instances — no actual mutation of immutable objects. The main downside is cognitive overhead (two APIs on the same class), not correctness risk. A cleanup would remove the duplicate immutable methods from the outer class, but this is low priority.
 
 ---
 

@@ -219,15 +219,7 @@ ssh root@178.156.202.136 "grep public /root/.config/age/key.txt"
 
 ## Environment Variables
 
-Production environment variables are stored in `/opt/poker/.env` on the server (decrypted from `.env.prod.age` at deploy time):
-
-| Variable | Description |
-|----------|-------------|
-| OPENAI_API_KEY | OpenAI API key for AI players |
-| SECRET_KEY | Flask session secret |
-| CORS_ORIGINS | Allowed CORS origins |
-| FLASK_ENV | Set to production |
-| REDIS_URL | Redis connection URL |
+Production environment variables are stored in `/opt/poker/.env` on the server (decrypted from `.env.prod.age` at deploy time). See `.env.example` in the project root for the full list of available variables with descriptions.
 
 ## Troubleshooting
 

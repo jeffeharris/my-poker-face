@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
+import toast from 'react-hot-toast';
 import type { ChatMessage, GameState, WinnerInfo, BackendChatMessage } from '../types';
 import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
 import { config } from '../config';
@@ -244,6 +245,11 @@ export function usePokerGame({
 
     socket.on('guest_limit_reached', () => {
       setGuestLimitReached(true);
+    });
+
+    socket.on('rate_limited', (data: { event: string; message: string }) => {
+      logger.warn(`Rate limited: ${data.event}`);
+      toast.error(data.message);
     });
 
     // Listen for avatar updates (when background generation completes)
