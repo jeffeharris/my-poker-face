@@ -8,10 +8,9 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from .skill_definitions import (
-    ALL_SKILLS, PlayerSkillState, SkillState, build_poker_context,
-    get_skills_for_gate,
-)
+from .coach_models import PlayerSkillState, SkillState
+from .coach_models import SKILL_STATE_ORDER
+from .skill_definitions import build_poker_context, get_skills_for_gate
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +86,9 @@ class SituationClassifier:
             'fold_trash_hands': self._check_fold_trash_trigger,
             'position_matters': self._check_position_matters_trigger,
             'raise_or_fold': self._check_raise_or_fold_trigger,
+            'flop_connection': self._check_flop_connection_trigger,
+            'bet_when_strong': self._check_bet_when_strong_trigger,
+            'checking_is_allowed': self._check_checking_is_allowed_trigger,
         }
         checker = checkers.get(skill_id)
         if not checker:
@@ -111,6 +113,23 @@ class SituationClassifier:
             return False
         return ctx['cost_to_call'] <= ctx.get('big_blind', 0)
 
+    # ---- Gate 2 triggers (post-flop) ----
+
+    def _check_flop_connection_trigger(self, ctx: Dict) -> bool:
+        """Trigger on flop when player has air (no pair, no draw)."""
+        return ctx['phase'] == 'FLOP' and ctx.get('is_air', False)
+
+    def _check_bet_when_strong_trigger(self, ctx: Dict) -> bool:
+        """Trigger on any post-flop street when player has a strong hand."""
+        return (ctx['phase'] in ('FLOP', 'TURN', 'RIVER')
+                and ctx.get('is_strong_hand', False))
+
+    def _check_checking_is_allowed_trigger(self, ctx: Dict) -> bool:
+        """Trigger when player has a weak hand and can check."""
+        return (ctx['phase'] in ('FLOP', 'TURN', 'RIVER')
+                and not ctx.get('has_pair', False)
+                and ctx.get('can_check', False))
+
     def _select_primary(
         self,
         relevant: List[str],
@@ -120,17 +139,10 @@ class SituationClassifier:
         if not relevant:
             return None
 
-        state_order = {
-            SkillState.INTRODUCED: 0,
-            SkillState.PRACTICING: 1,
-            SkillState.RELIABLE: 2,
-            SkillState.AUTOMATIC: 3,
-        }
-
         def sort_key(skill_id: str):
             ss = skill_states.get(skill_id)
             if not ss:
                 return (0, 0)  # Not yet seen = highest priority
-            return (state_order.get(ss.state, 0), ss.total_opportunities)
+            return (SKILL_STATE_ORDER.get(ss.state, 0), ss.total_opportunities)
 
         return min(relevant, key=sort_key)

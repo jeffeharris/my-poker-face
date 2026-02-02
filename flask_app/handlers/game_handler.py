@@ -24,7 +24,7 @@ from poker.emotional_state import EmotionalState
 from poker.runout_reactions import compute_runout_reactions
 from core.card import Card
 
-from ..extensions import socketio, game_repo, guest_tracking_repo, tournament_repo, hand_history_repo, personality_repo, experiment_repo
+from ..extensions import socketio, game_repo, guest_tracking_repo, tournament_repo, hand_history_repo, personality_repo, experiment_repo, coach_repo
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..services.ai_debug_service import get_all_players_llm_stats
@@ -1018,6 +1018,16 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             )
         except Exception as e:
             logger.warning(f"Memory manager hand completion failed: {e}")
+
+    # Run end-of-hand coach progression checks (gate unlocks, silent downgrades)
+    try:
+        from flask_app.services.coach_progression import CoachProgressionService
+        user_id = game_data.get('owner_id', '')
+        if user_id:
+            coach_service = CoachProgressionService(coach_repo)
+            coach_service.check_hand_end(user_id)
+    except Exception as e:
+        logger.warning(f"Coach progression hand-end check failed: {e}")
 
     # Handle eliminations (needs updated game_state)
     # Pass winner_data so it can be included in tournament_complete event
