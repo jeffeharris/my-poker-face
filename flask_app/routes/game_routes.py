@@ -105,21 +105,7 @@ def analyze_player_decision(
                 return
 
         # Get cards in format equity calculator understands
-        def card_to_string(c):
-            """Convert card (dict or Card object) to short string like '8h'."""
-            if isinstance(c, dict):
-                rank = c.get('rank', '')
-                suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
-                if rank == '10':
-                    rank = 'T'
-                return f"{rank}{suit}"
-            else:
-                s = str(c)
-                suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
-                for symbol, letter in suit_map.items():
-                    s = s.replace(symbol, letter)
-                s = s.replace('10', 'T')
-                return s
+        from poker.card_utils import card_to_string
 
         community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
         player_hand = [card_to_string(c) for c in player.hand] if player.hand else []

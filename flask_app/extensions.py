@@ -57,8 +57,15 @@ def init_cors(app: Flask) -> None:
 
     if cors_origins_env == '*':
         if config.is_development:
-            # Development: Allow all origins WITH credentials using regex
-            CORS(app, supports_credentials=True, origins=re.compile(r'.*'))
+            # Development: Allow common local dev origins with credentials
+            dev_origins = [
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:5174",
+                re.compile(r'^http://homehub:\d+$'),
+            ]
+            CORS(app, supports_credentials=True, origins=dev_origins)
         else:
             # Production: Wildcard not allowed with credentials
             raise ValueError(

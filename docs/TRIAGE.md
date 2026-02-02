@@ -145,7 +145,7 @@ Issues to address once live, during ongoing development.
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T3-14 | Python/TypeScript types manually synced | `poker/poker_game.py` ↔ `react/src/types/game.ts` | No automated validation. `has_acted` exists in Python but is an internal game state flag — frontend doesn't need it. Types are currently in sync for all user-facing fields. Remains a maintenance risk long-term. | |
-| T3-15 | Card formatting duplicated across languages | `flask_app/routes/game_routes.py:100-114` + `react/src/utils/cards.ts` | Changes require updating both Python and TypeScript. | |
+| T3-15 | Card formatting duplicated across languages | `flask_app/routes/game_routes.py:100-114` + `react/src/utils/cards.ts` | Changes require updating both Python and TypeScript. | **FIXED** — replaced inline `card_to_string` in game_routes with import from shared `card_utils`. Cross-language duplication remains inherent to the architecture. |
 | T3-16 | DB path logic duplicated 3+ times | `core/llm/tracking.py:34-52`, `flask_app/config.py:98-101`, `scripts/dbq.py:27-31` | Each with different fallback paths. Include hardcoded absolute paths. | **FIXED** — consolidated to canonical version in `flask_app/config.py` |
 | T3-17 | Schema version hardcoded, no migrations | `poker/persistence.py:20-39` | `SCHEMA_VERSION = 58` with manual migration comments. No Alembic or equivalent. | |
 | T3-18 | Circular import workarounds | `flask_app/__init__.py:35-36`, `capture_config.py`, `persistence.py` | Lazy imports to avoid circular deps indicate architectural coupling. | |
@@ -173,7 +173,7 @@ Issues to address once live, during ongoing development.
 | T3-30 | No rate limiting on socket events | Socket handlers | HTTP routes have rate limiting but socket.io events don't. Client can spam actions. | |
 | T3-31 | No rate limiting on expensive AI endpoints | `personality_routes.py:346`, `image_routes.py:286` | `/api/generate-theme` makes LLM calls with no rate limit. Could drain API credits. | |
 | T3-32 | Prompt injection risk | `poker/prompt_manager.py:43-87` | User-provided names/messages go into LLM prompts with minimal sanitization. | |
-| T3-33 | CORS wildcard with credentials in dev | `flask_app/extensions.py:54-72` | `CORS(app, supports_credentials=True, origins=re.compile(r'.*'))` in dev mode. | |
+| T3-33 | CORS wildcard with credentials in dev | `flask_app/extensions.py:54-72` | `CORS(app, supports_credentials=True, origins=re.compile(r'.*'))` in dev mode. | **FIXED** — dev CORS pinned to localhost:5173/5174 + homehub:* pattern |
 | T3-34 | Missing content-type validation on uploads | `admin_dashboard_routes.py:452-525` | Image upload trusts `file.content_type` from client. No magic byte validation. | **FIXED** — validates magic bytes (PNG/JPEG/GIF/WebP), overrides client content_type |
 
 ---
@@ -184,8 +184,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
 | **Tier 2: Should-Fix** | 34 | 18 | 1 | 15 |
-| **Tier 3: Post-Release** | 34 | 15 | 1 | 18 |
-| **Total** | **89** | **46** | **9** | **33** |
+| **Tier 3: Post-Release** | 34 | 17 | 1 | 16 |
+| **Total** | **89** | **48** | **9** | **31** |
 
 ## Key Architectural Insight
 
