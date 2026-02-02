@@ -167,6 +167,21 @@ Issues to address once live, during ongoing development.
 | T3-36 | Config naming & documentation | 6 config locations | Config spread across `poker/config.py`, `core/llm/config.py`, `flask_app/config.py`, `react/src/config.ts`, `.env`, DB `app_settings` is intentional (avoids circular imports), but naming is inconsistent (e.g., `.env` uses `OPENAI_MODEL`, DB uses `DEFAULT_MODEL`). Improvements: unify setting names in `.env.example`, document priority hierarchy (DB > env > hardcoded). *(Demoted from T2-04)* | **FIXED** — renamed `OPENAI_MODEL` → `DEFAULT_MODEL` in `.env.example` and `config.py` (with legacy fallback), removed undocumented `OPENAI_FAST_MODEL`, added priority hierarchy docs, documented all model tier env vars |
 | T3-41 | Split `AIPlayerController` god object | `poker/controllers.py:554-1794` | 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Extract into focused service classes. *(Demoted from T2-10)* | |
 | T3-42 | Clean up `usePokerGame` hook | `react/src/hooks/usePokerGame.ts` | 661-line hook with tightly coupled concerns. Splitting into separate hooks creates ref sync issues. Better approach: extract pure functions (message dedup, avatar caching), organize socket handlers into named setup functions. *(Demoted from T2-11)* | |
+| T3-43 | `experiment_routes.py` god route file | `flask_app/routes/experiment_routes.py` | 3,044 lines, 25 endpoints, 42+ functions mixing 5+ concerns: experiment lifecycle, AI assistant chat, live monitoring, config validation, background thread management, SQL tool execution. Split into `experiment_routes.py` (CRUD), `experiment_lifecycle_routes.py`, `experiment_assistant_routes.py`, `experiment_monitoring_routes.py`. | |
+| T3-44 | `schema_manager.py` monolith | `poker/repositories/schema_manager.py` | 2,949 lines. Single `_init_db()` contains CREATE TABLE for all 25+ tables (~1,500 lines) plus 63 migration methods (most are no-ops). Schema and migrations tightly coupled. Extends T3-17. Split schema definitions by domain and archive historical migrations. | |
+| T3-45 | `run_ai_tournament.py` god script | `experiments/run_ai_tournament.py` | 2,513 lines, 13 classes. Single file contains dataclass definitions, rate limiting, worker thread management, game simulation loop, pause/resume coordination, AI interpretation, CLI parsing. `AITournamentRunner` alone is ~1,200 lines. Split into config, runner, worker, simulator, and CLI modules. | |
+| T3-46 | `admin_dashboard_routes.py` oversized | `flask_app/routes/admin_dashboard_routes.py` | 1,794 lines, 34 endpoints mixing admin UI redirects, analytics, model management, data export, and complex SQL query builders (~400 lines). Move analytics to dedicated service layer; extract model management to separate route file. | |
+| T3-47 | `game_handler.py` mixed responsibilities | `flask_app/handlers/game_handler.py` | 1,465 lines, 21 top-level functions. Named "handler" but contains game loop logic, avatar reactions, pressure detection, tournament completion, AI commentary generation. `progress_game()` is 200+ lines of nested conditionals. Split into game loop, commentary service, tournament completion, and pressure handler. | |
+
+### Frontend Code Organization
+
+| ID | Issue | Location | Description | Status |
+|----|-------|----------|-------------|--------|
+| T3-48 | `DecisionAnalyzer.tsx` oversized component | `react/react/src/components/admin/DecisionAnalyzer/DecisionAnalyzer.tsx` | 2,026 lines — largest React component. Single component handles list view, detail view, replay mode, interrogation mode, JSON export, pagination. 50+ useState hooks, 30+ useEffect hooks. Split into `DecisionList`, `DecisionDetail`, `ReplayMode`, `InterrogationMode` with extracted hooks. | |
+| T3-49 | `PersonalityManager.tsx` oversized component | `react/react/src/components/admin/PersonalityManager.tsx` | 1,989 lines with 16 inline sub-components. Mixes personality CRUD, trait editing with elasticity sliders, avatar image management, verbal/physical tics editor, collapsible section logic (duplicated 5+ times), mobile layouts. 20+ useState hooks. Extract sub-components into separate files. | |
+| T3-50 | `UnifiedSettings.tsx` settings overload | `react/react/src/components/admin/UnifiedSettings.tsx` | 1,252 lines managing 5 settings categories (models, capture, storage, pricing, appearance) in one component. Category switching intertwined with data fetching. Extract each category into its own component, keep `UnifiedSettings` as thin switcher (~200 lines). | |
+| T3-51 | `ConfigPreview.tsx` kitchen sink | `react/react/src/components/admin/ExperimentDesigner/ConfigPreview.tsx` | 1,148 lines handling form view, JSON view, config validation, version history, personality selection, prompt preset loading, seed word generation, launch logic. Split into `ConfigFormView`, `ConfigJsonView`, and extracted hooks for validation/versions/seeds. | |
+| T3-52 | Duplicated collapsible section pattern | `PersonalityManager.tsx`, `UnifiedSettings.tsx`, `ConfigPreview.tsx` | Same collapsible section UI logic repeated across 3+ admin components. Also duplicated mobile filter sheet boilerplate. Extract to shared `CollapsibleSection.tsx` and `MobileFilterSheet.tsx` components. | |
 
 ### Documentation & DX
 
@@ -200,8 +215,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 15 | 6 | 0 |
 | **Tier 2: Should-Fix** | 26 | 20 | 6 | 0 |
-| **Tier 3: Post-Release** | 42 | 25 | 1 | 16 |
-| **Total** | **89** | **60** | **13** | **16** |
+| **Tier 3: Post-Release** | 52 | 25 | 1 | 26 |
+| **Total** | **99** | **60** | **13** | **26** |
 
 ## Key Architectural Insight
 
