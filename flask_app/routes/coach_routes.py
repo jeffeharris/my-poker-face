@@ -5,7 +5,7 @@ from typing import Optional
 
 from flask import Blueprint, jsonify, request
 
-from ..extensions import limiter, persistence
+from ..extensions import limiter, game_repo
 from ..services import game_state_service
 from ..services.coach_engine import compute_coaching_data
 from ..services.coach_assistant import get_or_create_coach
@@ -95,7 +95,7 @@ def coach_config_get(game_id: str):
         if mode:
             return jsonify({'mode': mode})
 
-    mode = persistence.load_coach_mode(game_id)
+    mode = game_repo.load_coach_mode(game_id)
     return jsonify({'mode': mode})
 
 
@@ -113,7 +113,7 @@ def coach_config(game_id: str):
         return jsonify({'error': 'Invalid mode'}), 400
 
     game_data['coach_config'] = {'mode': mode}
-    persistence.save_coach_mode(game_id, mode)
+    game_repo.save_coach_mode(game_id, mode)
     return jsonify({'status': 'ok', 'mode': mode})
 
 

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 
 from ..services import game_state_service
-from ..extensions import persistence
+from ..extensions import llm_repo, personality_repo, settings_repo, experiment_repo, game_repo
 from core.llm import UsageTracker
 from poker.authorization import require_permission
 
@@ -64,7 +64,7 @@ def api_summary():
     date_modifier = _get_date_modifier(range_param)
 
     try:
-        summary = persistence._llm_repo.get_usage_summary(date_modifier)
+        summary = llm_repo.get_usage_summary(date_modifier)
         return jsonify({'success': True, 'summary': summary})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -148,7 +148,7 @@ def api_toggle_model(model_id):
         return jsonify({'success': False, 'error': 'Invalid field. Must be "enabled" or "user_enabled"'}), 400
 
     try:
-        result = persistence._llm_repo.toggle_model(model_id, field, enabled)
+        result = llm_repo.toggle_model(model_id, field, enabled)
         return jsonify({'success': True, **result})
     except ValueError as e:
         status = 404 if 'not found' in str(e).lower() else 400
@@ -162,7 +162,7 @@ def api_toggle_model(model_id):
 def api_list_models():
     """List all models with their enabled status."""
     try:
-        models = persistence._llm_repo.list_all_models_full()
+        models = llm_repo.list_all_models_full()
         return jsonify({'success': True, 'models': models})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -191,7 +191,7 @@ def api_playground_captures():
         date_to: Filter by end date (ISO format)
     """
     try:
-        result = persistence.list_playground_captures(
+        result = experiment_repo.list_playground_captures(
             call_type=request.args.get('call_type'),
             provider=request.args.get('provider'),
             limit=int(request.args.get('limit', 50)),
@@ -200,7 +200,7 @@ def api_playground_captures():
             date_to=request.args.get('date_to'),
         )
 
-        stats = persistence.get_playground_capture_stats()
+        stats = experiment_repo.get_playground_capture_stats()
 
         return jsonify({
             'success': True,
@@ -219,7 +219,7 @@ def api_playground_captures():
 def api_playground_capture(capture_id):
     """Get a single playground capture by ID."""
     try:
-        capture = persistence.get_prompt_capture(capture_id)
+        capture = experiment_repo.get_prompt_capture(capture_id)
 
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
@@ -251,7 +251,7 @@ def api_playground_replay(capture_id):
     from core.llm import LLMClient, CallType
 
     try:
-        capture = persistence.get_prompt_capture(capture_id)
+        capture = experiment_repo.get_prompt_capture(capture_id)
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
@@ -319,7 +319,7 @@ def api_playground_replay(capture_id):
 def api_playground_stats():
     """Get aggregate statistics for playground captures."""
     try:
-        stats = persistence.get_playground_capture_stats()
+        stats = experiment_repo.get_playground_capture_stats()
         return jsonify({'success': True, 'stats': stats})
 
     except Exception as e:
@@ -348,7 +348,7 @@ def api_playground_cleanup():
                 'deleted': 0,
             })
 
-        deleted = persistence.cleanup_old_captures(retention_days)
+        deleted = experiment_repo.cleanup_old_captures(retention_days)
 
         return jsonify({
             'success': True,
@@ -423,7 +423,7 @@ def api_upload_reference_image():
         reference_id = str(uuid.uuid4())
 
         # Store in database
-        persistence._personality_repo.save_reference_image(
+        personality_repo.save_reference_image(
             reference_id, image_data, width, height, content_type, source, original_url
         )
 
@@ -449,7 +449,7 @@ def api_get_reference_image(reference_id: str):
     from flask import Response
 
     try:
-        result = persistence._personality_repo.get_reference_image(reference_id)
+        result = personality_repo.get_reference_image(reference_id)
         if not result:
             return jsonify({'success': False, 'error': 'Reference image not found'}), 404
         return Response(
@@ -487,7 +487,7 @@ def api_playground_replay_image(capture_id: int):
     import base64
 
     try:
-        capture = persistence.get_prompt_capture(capture_id)
+        capture = experiment_repo.get_prompt_capture(capture_id)
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
@@ -507,14 +507,14 @@ def api_playground_replay_image(capture_id: int):
         # Check if model supports img2img when reference image is provided
         seed_image_url = None
         if reference_image_id:
-            supports_img2img = persistence._llm_repo.check_model_supports_img2img(provider, model)
+            supports_img2img = llm_repo.check_model_supports_img2img(provider, model)
             if not supports_img2img:
                 return jsonify({
                     'success': False,
                     'error': f'Model "{model}" does not support image-to-image generation. Please select a model that supports img2img, or remove the reference image.',
                 }), 400
 
-            ref_result = persistence._personality_repo.get_reference_image(reference_image_id)
+            ref_result = personality_repo.get_reference_image(reference_image_id)
             if ref_result and ref_result['image_data']:
                 content_type = ref_result['content_type'] or 'image/png'
                 b64_data = base64.b64encode(ref_result['image_data']).decode('utf-8')
@@ -594,7 +594,7 @@ def api_assign_avatar_from_capture(capture_id: int):
     import base64
 
     try:
-        capture = persistence.get_prompt_capture(capture_id)
+        capture = experiment_repo.get_prompt_capture(capture_id)
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
@@ -625,7 +625,7 @@ def api_assign_avatar_from_capture(capture_id: int):
             return jsonify({'success': False, 'error': 'No image data available'}), 400
 
         # Save to avatar_images table
-        persistence._personality_repo.assign_avatar(personality_name, emotion, image_data)
+        personality_repo.assign_avatar(personality_name, emotion, image_data)
 
         return jsonify({
             'success': True,
@@ -647,7 +647,7 @@ def api_get_image_providers():
     Returns providers that support image generation (supports_image_gen=1).
     """
     try:
-        image_models = persistence._llm_repo.get_enabled_image_models()
+        image_models = llm_repo.get_enabled_image_models()
 
         providers = {}
         for row in image_models:
@@ -956,7 +956,7 @@ def list_pricing():
     current_only = request.args.get('current_only', 'false').lower() == 'true'
 
     try:
-        rows = persistence._llm_repo.list_pricing(provider, model, current_only)
+        rows = llm_repo.list_pricing(provider, model, current_only)
         return jsonify({'success': True, 'count': len(rows), 'pricing': rows})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -992,7 +992,7 @@ def add_pricing():
     notes = data.get('notes')
 
     try:
-        persistence._llm_repo.add_pricing(provider, model, unit, cost, valid_from, notes)
+        llm_repo.add_pricing(provider, model, unit, cost, valid_from, notes)
         UsageTracker.get_default().invalidate_pricing_cache()
         return jsonify({
             'success': True,
@@ -1018,7 +1018,7 @@ def bulk_add_pricing():
         return jsonify({'success': False, 'error': 'No entries provided'}), 400
 
     try:
-        added, errors = persistence._llm_repo.bulk_add_pricing(entries, expire_existing)
+        added, errors = llm_repo.bulk_add_pricing(entries, expire_existing)
         if added > 0:
             UsageTracker.get_default().invalidate_pricing_cache()
         return jsonify({'success': True, 'added': added, 'errors': errors})
@@ -1030,7 +1030,7 @@ def bulk_add_pricing():
 def delete_pricing(pricing_id: int):
     """Delete a pricing entry by ID."""
     try:
-        deleted = persistence._llm_repo.delete_pricing(pricing_id)
+        deleted = llm_repo.delete_pricing(pricing_id)
         if not deleted:
             return jsonify({'success': False, 'error': 'Not found'}), 404
         UsageTracker.get_default().invalidate_pricing_cache()
@@ -1043,7 +1043,7 @@ def delete_pricing(pricing_id: int):
 def list_providers():
     """List all providers with model/SKU counts."""
     try:
-        providers = persistence._llm_repo.list_providers_with_counts()
+        providers = llm_repo.list_providers_with_counts()
         return jsonify({'success': True, 'providers': providers})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1057,7 +1057,7 @@ def list_models_for_provider(provider: str):
         return jsonify({'success': False, 'error': 'Invalid provider format'}), 400
 
     try:
-        models = persistence._llm_repo.list_models_for_provider(provider)
+        models = llm_repo.list_models_for_provider(provider)
         return jsonify({
             'success': True,
             'provider': provider,
@@ -1123,17 +1123,17 @@ def api_get_settings():
         current_retention_days = get_retention_days()
 
         # Get DB values directly to show if overridden
-        db_settings = persistence.get_all_settings()
+        db_settings = settings_repo.get_all_settings()
 
         # System model settings - get from DB or fall back to env/defaults
-        default_provider = persistence.get_setting('DEFAULT_PROVIDER', '') or 'openai'
-        default_model = persistence.get_setting('DEFAULT_MODEL', '') or DEFAULT_MODEL
-        image_provider = persistence.get_setting('IMAGE_PROVIDER', '') or os.environ.get('IMAGE_PROVIDER', 'openai')
-        image_model = persistence.get_setting('IMAGE_MODEL', '') or os.environ.get('IMAGE_MODEL', '')
-        fast_provider = persistence.get_setting('FAST_PROVIDER', '') or FAST_PROVIDER
-        fast_model = persistence.get_setting('FAST_MODEL', '') or FAST_MODEL
-        assistant_provider = persistence.get_setting('ASSISTANT_PROVIDER', '') or ASSISTANT_PROVIDER
-        assistant_model = persistence.get_setting('ASSISTANT_MODEL', '') or ASSISTANT_MODEL
+        default_provider = settings_repo.get_setting('DEFAULT_PROVIDER', '') or 'openai'
+        default_model = settings_repo.get_setting('DEFAULT_MODEL', '') or DEFAULT_MODEL
+        image_provider = settings_repo.get_setting('IMAGE_PROVIDER', '') or os.environ.get('IMAGE_PROVIDER', 'openai')
+        image_model = settings_repo.get_setting('IMAGE_MODEL', '') or os.environ.get('IMAGE_MODEL', '')
+        fast_provider = settings_repo.get_setting('FAST_PROVIDER', '') or FAST_PROVIDER
+        fast_model = settings_repo.get_setting('FAST_MODEL', '') or FAST_MODEL
+        assistant_provider = settings_repo.get_setting('ASSISTANT_PROVIDER', '') or ASSISTANT_PROVIDER
+        assistant_model = settings_repo.get_setting('ASSISTANT_MODEL', '') or ASSISTANT_MODEL
 
         settings = {
             'LLM_PROMPT_CAPTURE': {
@@ -1272,7 +1272,7 @@ def api_update_setting():
             'ASSISTANT_MODEL': 'Model for experiment design, analysis, theme generation',
         }
 
-        success = persistence.set_setting(key, value, descriptions.get(key))
+        success = settings_repo.set_setting(key, value, descriptions.get(key))
 
         if success:
             return jsonify({
@@ -1304,7 +1304,7 @@ def api_reset_settings():
             if key not in VALID_SETTING_KEYS:
                 return jsonify({'success': False, 'error': f'Unknown setting: {key}'}), 400
 
-            success = persistence.delete_setting(key)
+            success = settings_repo.delete_setting(key)
             return jsonify({
                 'success': True,
                 'message': f'Setting {key} reset to environment default',
@@ -1314,7 +1314,7 @@ def api_reset_settings():
             # Reset all settings
             deleted_count = 0
             for k in VALID_SETTING_KEYS:
-                if persistence.delete_setting(k):
+                if settings_repo.delete_setting(k):
                     deleted_count += 1
 
             return jsonify({
@@ -1383,7 +1383,7 @@ def api_active_games():
 
         # Then, add recent saved games from database (not already in memory)
         try:
-            saved_games = persistence.list_games(limit=20)
+            saved_games = game_repo.list_games(limit=20)
             for saved_game in saved_games:
                 if saved_game.game_id in seen_game_ids:
                     continue  # Already added from memory
@@ -1466,7 +1466,7 @@ def api_storage_stats():
             'assets': ['avatar_images'],
         }
 
-        storage = persistence._llm_repo.get_storage_stats(categories)
+        storage = llm_repo.get_storage_stats(categories)
         return jsonify({'success': True, 'storage': storage})
     except Exception as e:
         logger.error(f"Error getting storage stats: {e}")
