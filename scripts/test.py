@@ -116,7 +116,8 @@ def run(pattern: str = "", verbose: bool = False, quick_mode: bool = False) -> i
             # Pattern match: use pytest -k
             cmd += ["-k", pattern]
     else:
-        # Full suite: add coverage
+        # Full suite: add coverage and parallel execution
+        cmd += ["-n", "auto"]
         cmd += cov_flags
 
     if verbose:
@@ -124,7 +125,7 @@ def run(pattern: str = "", verbose: bool = False, quick_mode: bool = False) -> i
 
     if quick_mode:
         # Use --ignore to skip slow test files entirely (faster than -k)
-        cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest", "tests/"]
+        cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest", "tests/", "-n", "auto"]
         for slow_file in SLOW_TESTS:
             cmd += ["--ignore", slow_file]
         if verbose:

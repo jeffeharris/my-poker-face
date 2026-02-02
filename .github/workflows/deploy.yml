@@ -28,7 +28,7 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest tests/ -v --tb=short --cov=poker --cov=flask_app --cov=core --cov-report=term-missing:skip-covered --cov-fail-under=40
+          python -m pytest tests/ -n auto -v --tb=short --cov=poker --cov=flask_app --cov=core --cov-report=term-missing:skip-covered --cov-fail-under=40
         env:
           PYTHONPATH: ${{ github.workspace }}
           FLASK_ENV: 'development'
