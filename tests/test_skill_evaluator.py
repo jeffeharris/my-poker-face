@@ -533,7 +533,7 @@ class TestSizeBetsWithPurposeEvaluation(TestSkillEvaluator):
         self.assertEqual(result.evaluation, 'not_applicable')
 
     def test_zero_pot_not_applicable(self):
-        data = self._make_bet_data(ratio=0)
+        data = self._make_bet_data(ratio=0, pot_total=0)
         result = self.evaluator.evaluate('size_bets_with_purpose', 'bet', data)
         self.assertEqual(result.evaluation, 'not_applicable')
 

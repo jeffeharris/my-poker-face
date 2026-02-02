@@ -77,12 +77,16 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
           const opponentModels = memoryData.opponent_models || {};
 
           // First try to find human player's observations about this opponent
+          let found = false;
           if (humanPlayerName && opponentModels[humanPlayerName]?.[opponent.name]) {
             const obs = opponentModels[humanPlayerName][opponent.name];
             if (obs.hands_observed > 0) {
               setObservation(obs);
+              found = true;
             }
-          } else {
+          }
+
+          if (!found) {
             // Fallback: find observations about our opponent from any observer
             for (const observer of Object.keys(opponentModels)) {
               const obs = opponentModels[observer]?.[opponent.name];
