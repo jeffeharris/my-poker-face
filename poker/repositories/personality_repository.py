@@ -335,3 +335,55 @@ class PersonalityRepository(BaseRepository):
                 'personality_count': personality_count,
                 'complete_personality_count': complete_count
             }
+
+    # --- Reference Image CRUD ---
+
+    def save_reference_image(self, reference_id: str, image_data: bytes,
+                             width: int, height: int, content_type: str,
+                             source: str, original_url: Optional[str] = None) -> None:
+        """Save a reference image to the database."""
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO reference_images (id, image_data, width, height, content_type, source, original_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (reference_id, image_data, width, height, content_type, source, original_url))
+
+    def get_reference_image(self, reference_id: str) -> Optional[Dict[str, Any]]:
+        """Load a reference image by ID.
+
+        Returns:
+            Dict with image_data and content_type, or None if not found.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT image_data, content_type FROM reference_images WHERE id = ?
+            """, (reference_id,))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                'image_data': row['image_data'],
+                'content_type': row['content_type']
+            }
+
+    def assign_avatar(self, personality_name: str, emotion: str, image_data: bytes) -> None:
+        """Assign an avatar image to a personality, updating if one already exists."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT id FROM avatar_images WHERE personality_name = ? AND emotion = ?
+            """, (personality_name, emotion))
+
+            existing = cursor.fetchone()
+            if existing:
+                conn.execute("""
+                    UPDATE avatar_images
+                    SET image_data = ?, content_type = 'image/png', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (image_data, existing['id']))
+            else:
+                conn.execute("""
+                    INSERT INTO avatar_images (personality_name, emotion, image_data, content_type)
+                    VALUES (?, ?, ?, 'image/png')
+                """, (personality_name, emotion, image_data))

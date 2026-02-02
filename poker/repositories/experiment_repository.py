@@ -1709,6 +1709,27 @@ class ExperimentRepository(BaseRepository):
                 for row in cursor.fetchall()
             ]
 
+    def get_experiment_game(self, game_id: str, experiment_id: int) -> Optional[Dict]:
+        """Get a single experiment game record by game_id and experiment_id.
+
+        Returns:
+            Dict with id, variant, variant_config, tournament_number, or None.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT id, variant, variant_config_json, tournament_number
+                FROM experiment_games WHERE game_id = ? AND experiment_id = ?
+            """, (game_id, experiment_id))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                'id': row[0],
+                'variant': row[1],
+                'variant_config': json.loads(row[2]) if row[2] else None,
+                'tournament_number': row[3],
+            }
+
     def update_experiment_game_heartbeat(
         self,
         game_id: str,
@@ -3412,3 +3433,197 @@ class ExperimentRepository(BaseRepository):
                 'experiments': experiments,
                 'total': total
             }
+
+    # ========== Tournament / Experiment Analytics ==========
+
+    def get_decision_stats(self, game_id: str) -> dict:
+        """Get aggregated decision quality statistics for a game.
+
+        Returns:
+            Dict with total, correct, marginal, mistake counts and avg_ev_lost.
+            Empty dict if no data found.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*) as total,
+                    SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
+                    SUM(CASE WHEN decision_quality = 'marginal' THEN 1 ELSE 0 END) as marginal,
+                    SUM(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake,
+                    AVG(COALESCE(ev_lost, 0)) as avg_ev_lost
+                FROM player_decision_analysis WHERE game_id = ?
+            """, (game_id,))
+
+            row = cursor.fetchone()
+            if not row or row['total'] == 0:
+                return {}
+
+            return {
+                'total': row['total'],
+                'correct': row['correct'],
+                'marginal': row['marginal'],
+                'mistake': row['mistake'],
+                'avg_ev_lost': row['avg_ev_lost']
+            }
+
+    def get_player_outcomes(self, game_id: str) -> dict:
+        """Aggregate per-player outcomes from hand history.
+
+        Returns:
+            Dict mapping player_name to {hands_played: N, hands_won: N}.
+            Empty dict on error or if no data.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT players_json, winners_json FROM hand_history WHERE game_id = ?
+                """, (game_id,))
+
+                outcomes: Dict[str, Dict[str, int]] = {}
+                for row in cursor.fetchall():
+                    try:
+                        players = json.loads(row['players_json']) if row['players_json'] else []
+                        winners = json.loads(row['winners_json']) if row['winners_json'] else []
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+                    # Count hands played
+                    for player in players:
+                        name = player if isinstance(player, str) else player.get('name', str(player))
+                        if name not in outcomes:
+                            outcomes[name] = {'hands_played': 0, 'hands_won': 0}
+                        outcomes[name]['hands_played'] += 1
+
+                    # Count hands won
+                    for winner in winners:
+                        name = winner if isinstance(winner, str) else winner.get('name', str(winner))
+                        if name not in outcomes:
+                            outcomes[name] = {'hands_played': 0, 'hands_won': 0}
+                        outcomes[name]['hands_won'] += 1
+
+                return outcomes
+        except Exception as e:
+            logger.error(f"Error getting player outcomes for game {game_id}: {e}")
+            return {}
+
+    def get_latency_metrics(self, game_ids: list) -> Optional[dict]:
+        """Calculate latency percentile metrics across multiple games.
+
+        Args:
+            game_ids: List of game IDs to analyze.
+
+        Returns:
+            Dict with avg_ms, p50_ms, p95_ms, p99_ms, count. None if no data.
+        """
+        if not game_ids:
+            return None
+
+        try:
+            import numpy as np_local
+        except ImportError:
+            logger.warning("numpy not available for latency metrics calculation")
+            return None
+
+        placeholders = ','.join('?' for _ in game_ids)
+        with self._get_connection() as conn:
+            cursor = conn.execute(f"""
+                SELECT latency_ms FROM api_usage
+                WHERE game_id IN ({placeholders}) AND latency_ms IS NOT NULL
+            """, game_ids)
+
+            latencies = [row['latency_ms'] for row in cursor.fetchall()]
+            if not latencies:
+                return None
+
+            arr = np_local.array(latencies)
+            return {
+                'avg_ms': float(np_local.mean(arr)),
+                'p50_ms': float(np_local.percentile(arr, 50)),
+                'p95_ms': float(np_local.percentile(arr, 95)),
+                'p99_ms': float(np_local.percentile(arr, 99)),
+                'count': len(latencies)
+            }
+
+    def get_error_stats(self, game_ids: list) -> Optional[dict]:
+        """Get error statistics across multiple games.
+
+        Args:
+            game_ids: List of game IDs to analyze.
+
+        Returns:
+            Dict with total_calls, error_count, error_rate, error_types. None if empty.
+        """
+        if not game_ids:
+            return None
+
+        placeholders = ','.join('?' for _ in game_ids)
+        with self._get_connection() as conn:
+            cursor = conn.execute(f"""
+                SELECT COUNT(*) as total,
+                    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
+                FROM api_usage WHERE game_id IN ({placeholders})
+            """, game_ids)
+
+            row = cursor.fetchone()
+            if not row or row['total'] == 0:
+                return None
+
+            total_calls = row['total']
+            error_count = row['errors'] or 0
+
+            # Get error type breakdown
+            cursor = conn.execute(f"""
+                SELECT COALESCE(error_type, 'unknown') as error_type, COUNT(*) as cnt
+                FROM api_usage WHERE game_id IN ({placeholders}) AND status = 'error'
+                GROUP BY error_type ORDER BY cnt DESC
+            """, game_ids)
+
+            error_types = [
+                {'error_type': r['error_type'], 'count': r['cnt']}
+                for r in cursor.fetchall()
+            ]
+
+            return {
+                'total_calls': total_calls,
+                'error_count': error_count,
+                'error_rate': error_count / total_calls if total_calls > 0 else 0.0,
+                'error_types': error_types
+            }
+
+    def get_quality_metrics(self, experiment_id: str) -> Optional[dict]:
+        """Get decision quality metrics for an experiment.
+
+        Aggregates fold mistakes, all-in categorizations, and quality indicators.
+
+        Returns:
+            Dict with quality indicators, or None if no data.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT
+                    SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
+                    SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
+                    SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
+                    COUNT(*) as total_decisions
+                FROM player_decision_analysis pda
+                JOIN experiment_games eg ON pda.game_id = eg.game_id
+                WHERE eg.experiment_id = ?
+            """, (experiment_id,))
+
+            row = cursor.fetchone()
+            if not row or row['total_decisions'] == 0:
+                return None
+
+            # Get all-in rows for categorization
+            cursor = conn.execute("""
+                SELECT pda.action_taken, pda.hand_strength, pda.equity, pda.bluff_likelihood,
+                       pda.player_name, pda.game_id
+                FROM player_decision_analysis pda
+                JOIN experiment_games eg ON pda.game_id = eg.game_id
+                WHERE eg.experiment_id = ? AND pda.action_taken = 'all_in'
+            """, (experiment_id,))
+
+            allin_rows = [dict(r) for r in cursor.fetchall()]
+
+            from poker.quality_metrics import compute_allin_categorizations, build_quality_indicators
+            categorizations = compute_allin_categorizations(allin_rows)
+            return build_quality_indicators(row, categorizations)
