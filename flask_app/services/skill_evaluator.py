@@ -47,6 +47,19 @@ class SkillEvaluator:
         ctx = self._build_eval_context(coaching_data)
         action = action_taken.lower()
 
+        # Forced all-in: stack <= cost_to_call means no meaningful decision
+        if action == 'all_in':
+            stack = coaching_data.get('stack', float('inf'))
+            cost_to_call = coaching_data.get('cost_to_call', 0)
+            if stack <= cost_to_call:
+                return SkillEvaluation(
+                    skill_id=skill_id,
+                    action_taken=action,
+                    evaluation='not_applicable',
+                    confidence=1.0,
+                    reasoning='Forced all-in — no meaningful decision',
+                )
+
         evaluators = {
             'fold_trash_hands': self._eval_fold_trash,
             'position_matters': self._eval_position_matters,

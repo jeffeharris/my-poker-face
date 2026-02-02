@@ -268,6 +268,28 @@ class TestCheckingIsAllowedEvaluation(TestSkillEvaluator):
         self.assertEqual(result.evaluation, 'not_applicable')
 
 
+class TestForcedAllIn(TestSkillEvaluator):
+    """Test forced all-in exclusion."""
+
+    def test_forced_all_in_returns_not_applicable(self):
+        """When stack <= cost_to_call, all_in is forced — no meaningful decision."""
+        data = self._make_data(cost_to_call=100)
+        data['stack'] = 80  # Stack less than cost to call
+        result = self.evaluator.evaluate('fold_trash_hands', 'all_in', data)
+        self.assertEqual(result.evaluation, 'not_applicable')
+        self.assertIn('Forced all-in', result.reasoning)
+
+    def test_voluntary_all_in_is_evaluated(self):
+        """When stack > cost_to_call, all_in is voluntary and should be evaluated."""
+        data = self._make_data(
+            phase='FLOP', hand_rank=8, hand_strength='Two Pair',
+            position='Button', cost_to_call=20,
+        )
+        data['stack'] = 500  # Stack much larger than cost to call
+        result = self.evaluator.evaluate('bet_when_strong', 'all_in', data)
+        self.assertEqual(result.evaluation, 'correct')
+
+
 class TestUnknownSkill(TestSkillEvaluator):
     """Test handling of unknown skills."""
 

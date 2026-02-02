@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from .coach_models import PlayerSkillState, SkillState
-from .skill_definitions import ALL_SKILLS, build_poker_context, get_skills_for_gate
+from .coach_models import SKILL_STATE_ORDER
+from .skill_definitions import build_poker_context, get_skills_for_gate
 
 logger = logging.getLogger(__name__)
 
@@ -138,17 +139,10 @@ class SituationClassifier:
         if not relevant:
             return None
 
-        state_order = {
-            SkillState.INTRODUCED: 0,
-            SkillState.PRACTICING: 1,
-            SkillState.RELIABLE: 2,
-            SkillState.AUTOMATIC: 3,
-        }
-
         def sort_key(skill_id: str):
             ss = skill_states.get(skill_id)
             if not ss:
                 return (0, 0)  # Not yet seen = highest priority
-            return (state_order.get(ss.state, 0), ss.total_opportunities)
+            return (SKILL_STATE_ORDER.get(ss.state, 0), ss.total_opportunities)
 
         return min(relevant, key=sort_key)

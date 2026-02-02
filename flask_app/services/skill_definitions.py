@@ -10,11 +10,9 @@ coach_models.py to avoid circular imports with persistence.py.
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
-# Re-export shared data structures for backward compatibility
-from .coach_models import (  # noqa: F401
-    CoachingDecision, CoachingMode, EvidenceRules,
-    GateProgress, PlayerSkillState, SkillState,
-)
+from poker.controllers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
+
+from .coach_models import EvidenceRules
 
 
 # ---------------------------------------------------------------------------
@@ -200,10 +198,6 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
 
     Returns None when there is no phase (nothing to evaluate).
     """
-    from poker.controllers import (
-        PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS,
-    )
-
     phase = coaching_data.get('phase', '')
     if not phase:
         return None

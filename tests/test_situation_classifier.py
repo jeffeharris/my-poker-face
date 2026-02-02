@@ -3,7 +3,7 @@
 import unittest
 
 from flask_app.services.situation_classifier import SituationClassifier, SituationClassification
-from flask_app.services.skill_definitions import PlayerSkillState, SkillState
+from flask_app.services.coach_models import PlayerSkillState, SkillState
 
 
 class TestSituationClassifier(unittest.TestCase):

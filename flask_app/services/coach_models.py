@@ -7,7 +7,7 @@ poker/persistence.py without creating circular dependencies.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Dict, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -22,11 +22,18 @@ class SkillState(str, Enum):
     AUTOMATIC = 'automatic'
 
 
+SKILL_STATE_ORDER: Dict['SkillState', int] = {
+    SkillState.INTRODUCED: 0,
+    SkillState.PRACTICING: 1,
+    SkillState.RELIABLE: 2,
+    SkillState.AUTOMATIC: 3,
+}
+
+
 class CoachingMode(str, Enum):
     """Coaching delivery mode based on skill state and context."""
     LEARN = 'learn'       # Teach concepts, explain reasoning
     COMPETE = 'compete'   # Brief reminders, focus on execution
-    REVIEW = 'review'     # Post-hand analysis
     SILENT = 'silent'     # No coaching (skill is automatic)
 
 

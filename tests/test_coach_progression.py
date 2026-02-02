@@ -5,9 +5,8 @@ import tempfile
 import unittest
 
 from poker.persistence import GamePersistence
-from flask_app.services.skill_definitions import (
-    ALL_SKILLS, GateProgress, PlayerSkillState, SkillState,
-)
+from flask_app.services.coach_models import GateProgress, PlayerSkillState, SkillState
+from flask_app.services.skill_definitions import ALL_SKILLS
 from flask_app.services.coach_progression import CoachProgressionService, SessionMemory
 from flask_app.services.situation_classifier import SituationClassification
 from flask_app.services.skill_evaluator import SkillEvaluation
@@ -311,7 +310,7 @@ class TestGateUnlock(unittest.TestCase):
             )
             self.persistence.save_skill_state(self.user_id, ss)
 
-        self.service._check_gate_unlocks(self.user_id)
+        self.service.check_hand_end(self.user_id)
 
         gate_progress = self.persistence.load_gate_progress(self.user_id)
         self.assertIn(2, gate_progress)
@@ -335,10 +334,84 @@ class TestGateUnlock(unittest.TestCase):
         )
         self.persistence.save_skill_state(self.user_id, ss)
 
-        self.service._check_gate_unlocks(self.user_id)
+        self.service.check_hand_end(self.user_id)
 
         gate_progress = self.persistence.load_gate_progress(self.user_id)
         self.assertNotIn(2, gate_progress)
+
+    def test_gate_does_not_unlock_mid_hand(self):
+        """evaluate_and_update alone should NOT trigger gate unlocks."""
+        # Set 2 Gate 1 skills to just below reliable threshold
+        for skill_id in ('fold_trash_hands', 'raise_or_fold'):
+            ss = PlayerSkillState(
+                skill_id=skill_id,
+                state=SkillState.PRACTICING,
+                total_opportunities=11,
+                total_correct=11,
+                window_opportunities=11,
+                window_correct=11,
+            )
+            self.persistence.save_skill_state(self.user_id, ss)
+
+        classification = SituationClassification(
+            relevant_skills=('fold_trash_hands',),
+            primary_skill='fold_trash_hands',
+            situation_tags=('trash_hand',),
+        )
+        coaching_data = {
+            'phase': 'PRE_FLOP',
+            'hand_strength': '72o - Unconnected cards, Bottom 10%',
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 30,
+        }
+
+        # This 12th correct should advance fold_trash to reliable,
+        # but gate unlock should NOT happen yet
+        self.service.evaluate_and_update(
+            self.user_id, 'fold', coaching_data, classification
+        )
+
+        gate_progress = self.persistence.load_gate_progress(self.user_id)
+        self.assertNotIn(2, gate_progress)
+
+    def test_gate_unlocks_on_check_hand_end(self):
+        """Gate unlocks when check_hand_end() is called after sufficient evaluations."""
+        for skill_id in ('fold_trash_hands', 'raise_or_fold'):
+            ss = PlayerSkillState(
+                skill_id=skill_id,
+                state=SkillState.RELIABLE,
+                total_opportunities=20,
+                total_correct=18,
+                window_opportunities=20,
+                window_correct=18,
+            )
+            self.persistence.save_skill_state(self.user_id, ss)
+
+        # evaluate_and_update alone — no gate unlock
+        classification = SituationClassification(
+            relevant_skills=('fold_trash_hands',),
+            primary_skill='fold_trash_hands',
+            situation_tags=('trash_hand',),
+        )
+        coaching_data = {
+            'phase': 'PRE_FLOP',
+            'hand_strength': '72o - Unconnected cards, Bottom 10%',
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 30,
+        }
+        self.service.evaluate_and_update(
+            self.user_id, 'fold', coaching_data, classification
+        )
+        gate_progress = self.persistence.load_gate_progress(self.user_id)
+        self.assertNotIn(2, gate_progress)
+
+        # Now call check_hand_end — gate should unlock
+        self.service.check_hand_end(self.user_id)
+        gate_progress = self.persistence.load_gate_progress(self.user_id)
+        self.assertIn(2, gate_progress)
+        self.assertTrue(gate_progress[2].unlocked)
 
 
 class TestSessionMemory(unittest.TestCase):
@@ -566,7 +639,7 @@ class TestSilentDowngrade(unittest.TestCase):
             )
             self.persistence.save_skill_state(self.user_id, ss)
 
-        self.service._check_silent_downgrade(self.user_id)
+        self.service.check_hand_end(self.user_id)
 
         profile = self.persistence.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'beginner')
@@ -590,7 +663,7 @@ class TestSilentDowngrade(unittest.TestCase):
             )
             self.persistence.save_skill_state(self.user_id, ss)
 
-        self.service._check_silent_downgrade(self.user_id)
+        self.service.check_hand_end(self.user_id)
 
         profile = self.persistence.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'intermediate')
@@ -610,7 +683,7 @@ class TestSilentDowngrade(unittest.TestCase):
             )
             self.persistence.save_skill_state(self.user_id, ss)
 
-        self.service._check_silent_downgrade(self.user_id)
+        self.service.check_hand_end(self.user_id)
 
         profile = self.persistence.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'beginner')
@@ -618,7 +691,7 @@ class TestSilentDowngrade(unittest.TestCase):
     def test_beginner_never_downgrades(self):
         """Beginner level should never trigger downgrade."""
         self.service.initialize_player(self.user_id, level='beginner')
-        self.service._check_silent_downgrade(self.user_id)
+        self.service.check_hand_end(self.user_id)
         profile = self.persistence.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'beginner')
 
@@ -634,7 +707,7 @@ class TestSilentDowngrade(unittest.TestCase):
         )
         self.persistence.save_skill_state(self.user_id, ss)
 
-        self.service._check_silent_downgrade(self.user_id)
+        self.service.check_hand_end(self.user_id)
 
         profile = self.persistence.load_coach_profile(self.user_id)
         self.assertEqual(profile['effective_level'], 'experienced')

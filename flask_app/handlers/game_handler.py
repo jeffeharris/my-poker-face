@@ -1017,6 +1017,16 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         except Exception as e:
             logger.warning(f"Memory manager hand completion failed: {e}")
 
+    # Run end-of-hand coach progression checks (gate unlocks, silent downgrades)
+    try:
+        from flask_app.services.coach_progression import CoachProgressionService
+        user_id = game_data.get('owner_id', '')
+        if user_id:
+            coach_service = CoachProgressionService(persistence)
+            coach_service.check_hand_end(user_id)
+    except Exception as e:
+        logger.warning(f"Coach progression hand-end check failed: {e}")
+
     # Handle eliminations (needs updated game_state)
     # Pass winner_data so it can be included in tournament_complete event
     human_eliminated = handle_eliminations(game_id, game_data, game_state, winning_player_names,

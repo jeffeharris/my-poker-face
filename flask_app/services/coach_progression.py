@@ -11,7 +11,8 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from .coach_models import (
-    CoachingDecision, CoachingMode, GateProgress, PlayerSkillState, SkillState,
+    CoachingDecision, CoachingMode, GateProgress, PlayerSkillState,
+    SKILL_STATE_ORDER, SkillState,
 )
 from .skill_definitions import ALL_GATES, ALL_SKILLS, get_skills_for_gate
 from .situation_classifier import SituationClassifier, SituationClassification
@@ -177,7 +178,8 @@ class CoachProgressionService:
                 if session_memory.was_coached_this_hand(skill_id):
                     return CoachingDecision(mode=CoachingMode.SILENT)
             elif state == SkillState.RELIABLE:
-                # Reliable skills: only coach post-action (on deviation), skip pre-action
+                # Reliable skills: silent pre-action. Post-action feedback via
+                # evaluate_and_update() — not yet surfaced to player (planned M3).
                 return CoachingDecision(mode=CoachingMode.SILENT)
 
         skill_def = ALL_SKILLS.get(classification.primary_skill)
@@ -226,13 +228,16 @@ class CoachProgressionService:
             # Update skill progress
             self._update_skill_progress(user_id, skill_id, evaluation)
 
-        # Check for gate unlocks after all evaluations
-        self._check_gate_unlocks(user_id)
-
-        # Check if observed play contradicts self-reported level
-        self._check_silent_downgrade(user_id)
-
         return evaluations
+
+    def check_hand_end(self, user_id: str) -> None:
+        """Run end-of-hand checks: gate unlocks and silent downgrades.
+
+        Call this once per hand after all evaluate_and_update() calls are done,
+        so that gate transitions never occur mid-hand.
+        """
+        self._check_gate_unlocks(user_id)
+        self._check_silent_downgrade(user_id)
 
     def _update_skill_progress(
         self, user_id: str, skill_id: str, evaluation: SkillEvaluation
@@ -305,6 +310,8 @@ class CoachProgressionService:
         return replace(
             skill_state,
             window_opportunities=window_size,
+            # int() truncates deliberately — conservative bias prevents premature
+            # advancement near thresholds
             window_correct=int(ratio * window_size),
         )
 
@@ -422,17 +429,13 @@ class CoachProgressionService:
 
         def all_at_or_below(skills, max_state):
             """Check if all skills with sufficient data are at or below max_state."""
-            state_order = {
-                SkillState.INTRODUCED: 0, SkillState.PRACTICING: 1,
-                SkillState.RELIABLE: 2, SkillState.AUTOMATIC: 3,
-            }
             evaluated = [
                 skill_states[s.skill_id] for s in skills
                 if s.skill_id in skill_states and skill_states[s.skill_id].total_opportunities >= 5
             ]
             if len(evaluated) < 2:
                 return False  # Not enough data to judge
-            return all(state_order[ss.state] <= state_order[max_state] for ss in evaluated)
+            return all(SKILL_STATE_ORDER[ss.state] <= SKILL_STATE_ORDER[max_state] for ss in evaluated)
 
         current_level = profile['effective_level']
 
@@ -472,6 +475,8 @@ class CoachProgressionService:
         if not skill_state:
             return CoachingMode.LEARN
 
+        # TODO (M3): Split PRACTICING into LEARN (accuracy < 0.60) and COMPETE
+        # (accuracy >= 0.60) per §5.2 of requirements
         mode_map = {
             SkillState.INTRODUCED: CoachingMode.LEARN,
             SkillState.PRACTICING: CoachingMode.LEARN,

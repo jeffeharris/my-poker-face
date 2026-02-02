@@ -2,11 +2,13 @@
 
 import unittest
 
+from flask_app.services.coach_models import (
+    CoachingDecision, CoachingMode, EvidenceRules,
+    GateProgress, PlayerSkillState, SkillState,
+)
 from flask_app.services.skill_definitions import (
-    ALL_GATES, ALL_SKILLS, CoachingDecision, CoachingMode,
-    EvidenceRules, GateDefinition, GateProgress, PlayerSkillState,
-    SkillDefinition, SkillState, get_skill_by_id, get_skills_for_gate,
-    build_poker_context,
+    ALL_GATES, ALL_SKILLS, GateDefinition, SkillDefinition,
+    get_skill_by_id, get_skills_for_gate, build_poker_context,
 )
 
 
@@ -30,7 +32,6 @@ class TestCoachingMode(unittest.TestCase):
     def test_values(self):
         self.assertEqual(CoachingMode.LEARN.value, 'learn')
         self.assertEqual(CoachingMode.COMPETE.value, 'compete')
-        self.assertEqual(CoachingMode.REVIEW.value, 'review')
         self.assertEqual(CoachingMode.SILENT.value, 'silent')
 
 
