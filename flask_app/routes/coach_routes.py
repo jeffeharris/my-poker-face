@@ -253,12 +253,14 @@ def coach_progression(game_id: str):
             },
             'gate_progress': {
                 str(gn): {
-                    'unlocked': gp.unlocked,
-                    'unlocked_at': gp.unlocked_at,
-                    'name': ALL_GATES[gn].name if gn in ALL_GATES else f'Gate {gn}',
-                    'description': ALL_GATES[gn].description if gn in ALL_GATES else '',
+                    'unlocked': state['gate_progress'][gn].unlocked
+                    if gn in state['gate_progress'] else False,
+                    'unlocked_at': state['gate_progress'][gn].unlocked_at
+                    if gn in state['gate_progress'] else None,
+                    'name': gate_def.name,
+                    'description': gate_def.description,
                 }
-                for gn, gp in state['gate_progress'].items()
+                for gn, gate_def in ALL_GATES.items()
             },
             'profile': state['profile'],
         })
