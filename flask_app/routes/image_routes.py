@@ -9,6 +9,9 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_from_directory, Response
 
+from ..extensions import limiter
+from .. import config
+
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
 
 from poker.character_images import (
@@ -284,6 +287,7 @@ def list_emotions():
 
 
 @image_bp.route('/api/avatar/<personality_name>/regenerate', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_REGENERATE_AVATAR)
 def regenerate_avatar(personality_name: str):
     """Regenerate avatar images for specific emotions.
 
@@ -429,6 +433,7 @@ def get_avatar_stats():
 
 
 @image_bp.route('/api/generate-character-images/<personality_name>', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_GENERATE_IMAGES)
 def generate_character_images_endpoint(personality_name):
     """Generate images for a personality on-demand."""
     try:

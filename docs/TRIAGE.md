@@ -170,8 +170,8 @@ Issues to address once live, during ongoing development.
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T3-29 | No CSRF protection | All POST endpoints | No CSRF tokens on state-changing endpoints. Combined with `cors_allowed_origins="*"` in dev. | |
-| T3-30 | No rate limiting on socket events | Socket handlers | HTTP routes have rate limiting but socket.io events don't. Client can spam actions. | |
-| T3-31 | No rate limiting on expensive AI endpoints | `personality_routes.py:346`, `image_routes.py:286` | `/api/generate-theme` makes LLM calls with no rate limit. Could drain API credits. | |
+| T3-30 | No rate limiting on socket events | Socket handlers | HTTP routes have rate limiting but socket.io events don't. Client can spam actions. | **FIXED** — added `@socket_rate_limit` decorator to all 4 socket handlers |
+| T3-31 | No rate limiting on expensive AI endpoints | `personality_routes.py:346`, `image_routes.py:286` | `/api/generate-theme` makes LLM calls with no rate limit. Could drain API credits. | **FIXED** — added `@limiter.limit()` to generate-theme, regenerate-avatar, generate-character-images |
 | T3-32 | Prompt injection risk | `poker/prompt_manager.py:43-87` | User-provided names/messages go into LLM prompts with minimal sanitization. | |
 | T3-33 | CORS wildcard with credentials in dev | `flask_app/extensions.py:54-72` | `CORS(app, supports_credentials=True, origins=re.compile(r'.*'))` in dev mode. | **FIXED** — dev CORS pinned to localhost:5173/5174 + homehub:* pattern |
 | T3-34 | Missing content-type validation on uploads | `admin_dashboard_routes.py:452-525` | Image upload trusts `file.content_type` from client. No magic byte validation. | **FIXED** — validates magic bytes (PNG/JPEG/GIF/WebP), overrides client content_type |
@@ -184,8 +184,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 13 | 7 | 0 |
 | **Tier 2: Should-Fix** | 34 | 18 | 1 | 15 |
-| **Tier 3: Post-Release** | 34 | 17 | 1 | 16 |
-| **Total** | **89** | **48** | **9** | **31** |
+| **Tier 3: Post-Release** | 34 | 19 | 1 | 14 |
+| **Total** | **89** | **50** | **9** | **29** |
 
 ## Key Architectural Insight
 

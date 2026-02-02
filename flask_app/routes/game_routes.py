@@ -30,6 +30,7 @@ from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
 
 from ..game_adapter import StateMachineAdapter
 from ..extensions import socketio, persistence, auth_manager, limiter
+from ..socket_rate_limit import socket_rate_limit
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..handlers.game_handler import (
@@ -1328,6 +1329,7 @@ def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""
 
     @sio.on('join_game')
+    @socket_rate_limit(max_calls=5, window_seconds=10)
     def on_join(game_id):
         game_id_str = str(game_id)
         game_data = game_state_service.get_game(game_id_str)
@@ -1350,6 +1352,7 @@ def register_socket_events(sio):
             progress_game(game_id_str)
 
     @sio.on('player_action')
+    @socket_rate_limit(max_calls=10, window_seconds=10)
     def handle_player_action(data):
         try:
             game_id = data['game_id']
@@ -1428,6 +1431,7 @@ def register_socket_events(sio):
         progress_game(game_id)
 
     @sio.on('send_message')
+    @socket_rate_limit(max_calls=5, window_seconds=10)
     def handle_send_message(data):
         game_id = data.get('game_id')
         content = data.get('message')
@@ -1453,5 +1457,6 @@ def register_socket_events(sio):
                                 controller.tilt_state.apply_pressure_event(event_name, sender)
 
     @sio.on('progress_game')
+    @socket_rate_limit(max_calls=5, window_seconds=10)
     def on_progress_game(game_id):
         progress_game(game_id)
