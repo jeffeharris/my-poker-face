@@ -31,8 +31,9 @@ jobs:
           python -m pytest tests/ -v --tb=short
         env:
           PYTHONPATH: ${{ github.workspace }}
+          FLASK_ENV: 'development'
           OPENAI_API_KEY: 'test-key-for-ci'
-          SECRET_KEY: 'test-secret-key-for-ci'
+          DEEPSEEK_API_KEY: 'test-key-for-ci'
 
   test-frontend:
     name: Test Frontend (React)
