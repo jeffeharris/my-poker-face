@@ -1,32 +1,16 @@
 """Tests for tool calling support in LLMClient."""
 import json
-import unittest
+
 from unittest.mock import Mock, patch
-import tempfile
-import os
 
 from core.llm import LLMClient, UsageTracker
 
 
-class TestToolCalling(unittest.TestCase):
+class TestToolCalling:
     """Tests for tool calling functionality."""
 
-    def setUp(self):
-        """Set up test fixtures."""
-        self.temp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.temp_db.close()
-
-        from poker.repositories import create_repos
-        create_repos(self.temp_db.name)
-
-        self.tracker = UsageTracker(db_path=self.temp_db.name)
-
-    def tearDown(self):
-        """Clean up temp files."""
-        os.unlink(self.temp_db.name)
-
     @patch('core.llm.providers.openai.OpenAI')
-    def test_complete_without_tools(self, mock_openai_class):
+    def test_complete_without_tools(self, mock_openai_class, usage_tracker):
         """Test completion works normally without tools."""
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
@@ -45,17 +29,17 @@ class TestToolCalling(unittest.TestCase):
 
         mock_client.chat.completions.create.return_value = mock_response
 
-        client = LLMClient(tracker=self.tracker)
+        client = LLMClient(tracker=usage_tracker)
         response = client.complete(
             messages=[{"role": "user", "content": "Hi"}],
         )
 
-        self.assertEqual(response.content, "Hello!")
-        self.assertEqual(response.status, "ok")
-        self.assertIsNone(response.tool_calls)
+        assert response.content == "Hello!"
+        assert response.status == "ok"
+        assert response.tool_calls is None
 
     @patch('core.llm.providers.openai.OpenAI')
-    def test_complete_with_tool_call(self, mock_openai_class):
+    def test_complete_with_tool_call(self, mock_openai_class, usage_tracker):
         """Test completion with tool calls that get executed."""
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
@@ -117,21 +101,21 @@ class TestToolCalling(unittest.TestCase):
             }
         }]
 
-        client = LLMClient(tracker=self.tracker)
+        client = LLMClient(tracker=usage_tracker)
         response = client.complete(
             messages=[{"role": "user", "content": "What's the weather in NYC?"}],
             tools=tools,
             tool_executor=tool_executor,
         )
 
-        self.assertEqual(response.content, "The weather in NYC is sunny.")
-        self.assertEqual(response.status, "ok")
+        assert response.content == "The weather in NYC is sunny."
+        assert response.status == "ok"
         # Token usage should be aggregated
-        self.assertEqual(response.input_tokens, 30)  # 10 + 20
-        self.assertEqual(response.output_tokens, 15)  # 5 + 10
+        assert response.input_tokens == 30  # 10 + 20
+        assert response.output_tokens == 15  # 5 + 10
 
     @patch('core.llm.providers.openai.OpenAI')
-    def test_complete_with_tool_no_executor(self, mock_openai_class):
+    def test_complete_with_tool_no_executor(self, mock_openai_class, usage_tracker):
         """Test that tool calls without executor returns tool_calls in response."""
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
@@ -166,7 +150,7 @@ class TestToolCalling(unittest.TestCase):
             }
         }]
 
-        client = LLMClient(tracker=self.tracker)
+        client = LLMClient(tracker=usage_tracker)
         response = client.complete(
             messages=[{"role": "user", "content": "What's the weather?"}],
             tools=tools,
@@ -174,12 +158,12 @@ class TestToolCalling(unittest.TestCase):
         )
 
         # Should return the tool calls without executing them
-        self.assertIsNotNone(response.tool_calls)
-        self.assertEqual(len(response.tool_calls), 1)
-        self.assertEqual(response.tool_calls[0]["function"]["name"], "get_weather")
+        assert response.tool_calls is not None
+        assert len(response.tool_calls) == 1
+        assert response.tool_calls[0]["function"]["name"] == "get_weather"
 
     @patch('core.llm.providers.openai.OpenAI')
-    def test_tool_execution_error_handling(self, mock_openai_class):
+    def test_tool_execution_error_handling(self, mock_openai_class, usage_tracker):
         """Test that tool execution errors are handled gracefully."""
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
@@ -229,7 +213,7 @@ class TestToolCalling(unittest.TestCase):
             }
         }]
 
-        client = LLMClient(tracker=self.tracker)
+        client = LLMClient(tracker=usage_tracker)
         response = client.complete(
             messages=[{"role": "user", "content": "Run the failing tool"}],
             tools=tools,
@@ -237,12 +221,11 @@ class TestToolCalling(unittest.TestCase):
         )
 
         # Should still get a response (model sees the error and responds)
-        self.assertEqual(response.content, "Sorry, there was an error.")
-        self.assertEqual(response.status, "ok")
-
+        assert response.content == "Sorry, there was an error."
+        assert response.status == "ok"
 
     @patch('core.llm.providers.deepseek.OpenAI')
-    def test_reasoning_content_preserved_in_tool_loop(self, mock_openai_class):
+    def test_reasoning_content_preserved_in_tool_loop(self, mock_openai_class, usage_tracker):
         """Test that reasoning_content is preserved in assistant messages during tool loop.
 
         This is critical for DeepSeek thinking mode - the API requires reasoning_content
@@ -301,7 +284,7 @@ class TestToolCalling(unittest.TestCase):
         }]
 
         # Use DeepSeek provider which implements extract_reasoning_content
-        client = LLMClient(provider="deepseek", model="deepseek-chat", tracker=self.tracker)
+        client = LLMClient(provider="deepseek", model="deepseek-chat", tracker=usage_tracker)
         response = client.complete(
             messages=[{"role": "user", "content": "Weather in NYC?"}],
             tools=tools,
@@ -309,20 +292,16 @@ class TestToolCalling(unittest.TestCase):
         )
 
         # Verify response has reasoning_content from the final response
-        self.assertEqual(response.content, "It's sunny in NYC.")
-        self.assertEqual(response.reasoning_content, "Based on the weather data...")
+        assert response.content == "It's sunny in NYC."
+        assert response.reasoning_content == "Based on the weather data..."
 
         # Verify the second API call includes reasoning_content in the assistant message
         calls = mock_client.chat.completions.create.call_args_list
-        self.assertEqual(len(calls), 2)
+        assert len(calls) == 2
 
         # Check the messages sent in the second call
         second_call_messages = calls[1][1]["messages"]
         # Find the assistant message (should be before the tool result)
         assistant_msgs = [m for m in second_call_messages if m.get("role") == "assistant"]
-        self.assertEqual(len(assistant_msgs), 1)
-        self.assertEqual(assistant_msgs[0].get("reasoning_content"), "Let me think about this...")
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert len(assistant_msgs) == 1
+        assert assistant_msgs[0].get("reasoning_content") == "Let me think about this..."

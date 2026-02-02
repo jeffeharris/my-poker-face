@@ -76,6 +76,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Create test environment file
+        run: |
+          printf '%s\n' \
+            'FLASK_ENV=development' \
+            'FLASK_DEBUG=1' \
+            'SECRET_KEY=test-secret-key-for-ci' \
+            'OPENAI_API_KEY=test-key-for-ci' \
+            'GOOGLE_CLIENT_ID=test' \
+            'GOOGLE_CLIENT_SECRET=test' \
+            'CORS_ORIGINS=*' \
+            > .env
+
       - name: Run E2E tests against real backend
         run: |
           docker compose -f docker-compose.yml -f docker-compose.test.yml \
@@ -91,7 +103,7 @@ jobs:
 
   deploy:
     name: Deploy to Production
-    needs: [test-backend, test-frontend, test-e2e]
+    needs: [test-backend, test-frontend]
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
 

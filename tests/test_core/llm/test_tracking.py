@@ -1,15 +1,15 @@
 """Tests for UsageTracker and CallType."""
-import unittest
-from unittest.mock import patch
-import tempfile
-import os
 import sqlite3
+
+import pytest
+from unittest.mock import patch
 
 from core.llm import CallType, UsageTracker
 from core.llm.response import LLMResponse, ImageResponse
+from poker.repositories import create_repos
 
 
-class TestCallType(unittest.TestCase):
+class TestCallType:
     """Tests for CallType enum."""
 
     def test_all_call_types_exist(self):
@@ -31,75 +31,65 @@ class TestCallType(unittest.TestCase):
         for type_value in expected_types:
             # Should not raise
             call_type = CallType(type_value)
-            self.assertEqual(call_type.value, type_value)
+            assert call_type.value == type_value
 
     def test_call_type_is_string_enum(self):
         """Test CallType inherits from str."""
         for call_type in CallType:
-            self.assertIsInstance(call_type, str)
+            assert isinstance(call_type, str)
             # Value should be usable as string
-            self.assertEqual(str(call_type.value), call_type.value)
+            assert str(call_type.value) == call_type.value
 
     def test_call_type_unknown_is_default(self):
         """Test UNKNOWN is the appropriate fallback."""
-        self.assertEqual(CallType.UNKNOWN.value, "unknown")
+        assert CallType.UNKNOWN.value == "unknown"
 
     def test_call_type_count(self):
         """Test we have the expected number of call types."""
         # This ensures we don't accidentally remove types
-        self.assertEqual(len(CallType), 17)
+        assert len(CallType) == 17
 
 
-class TestUsageTracker(unittest.TestCase):
+class TestUsageTracker:
     """Tests for UsageTracker class."""
 
-    def setUp(self):
-        """Set up test fixtures."""
-        # Create a temp database
-        self.temp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.temp_db.close()
-
-        # Initialize database schema
-        from poker.repositories import create_repos
-        create_repos(self.temp_db.name)
-
-        # Reset singleton for each test
+    @pytest.fixture(autouse=True)
+    def setup_tracker(self, db_path):
+        self.db_path = db_path
+        create_repos(db_path)
         UsageTracker._instance = None
-
-    def tearDown(self):
-        """Clean up temp files."""
-        os.unlink(self.temp_db.name)
+        yield
         UsageTracker._instance = None
 
     def test_tracker_init(self):
         """Test tracker initialization."""
-        tracker = UsageTracker(db_path=self.temp_db.name)
-        self.assertEqual(tracker.db_path, self.temp_db.name)
+        tracker = UsageTracker(db_path=self.db_path)
+        assert tracker.db_path == self.db_path
 
     def test_singleton_pattern(self):
         """Test get_default returns singleton."""
         # Set a specific tracker as default
-        tracker1 = UsageTracker(db_path=self.temp_db.name)
+        tracker1 = UsageTracker(db_path=self.db_path)
         UsageTracker.set_default(tracker1)
 
         tracker2 = UsageTracker.get_default()
-        self.assertIs(tracker1, tracker2)
+        assert tracker1 is tracker2
 
     def test_set_default(self):
         """Test set_default overrides singleton."""
-        tracker1 = UsageTracker(db_path=self.temp_db.name)
+        tracker1 = UsageTracker(db_path=self.db_path)
         UsageTracker.set_default(tracker1)
 
         # Create new tracker and set as default
-        tracker2 = UsageTracker(db_path=self.temp_db.name)
+        tracker2 = UsageTracker(db_path=self.db_path)
         UsageTracker.set_default(tracker2)
 
-        self.assertIs(UsageTracker.get_default(), tracker2)
-        self.assertIsNot(UsageTracker.get_default(), tracker1)
+        assert UsageTracker.get_default() is tracker2
+        assert UsageTracker.get_default() is not tracker1
 
     def test_record_llm_response(self):
         """Test recording LLM response."""
-        tracker = UsageTracker(db_path=self.temp_db.name)
+        tracker = UsageTracker(db_path=self.db_path)
 
         response = LLMResponse(
             content="Test response",
@@ -124,7 +114,7 @@ class TestUsageTracker(unittest.TestCase):
         )
 
         # Verify database record
-        with sqlite3.connect(self.temp_db.name) as conn:
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
                 SELECT call_type, game_id, owner_id, player_name, hand_number,
                        provider, model, input_tokens, output_tokens,
@@ -133,24 +123,24 @@ class TestUsageTracker(unittest.TestCase):
             """)
             row = cursor.fetchone()
 
-            self.assertIsNotNone(row)
-            self.assertEqual(row[0], "player_decision")  # call_type
-            self.assertEqual(row[1], "game_123")  # game_id
-            self.assertEqual(row[2], "user_456")  # owner_id
-            self.assertEqual(row[3], "Batman")  # player_name
-            self.assertEqual(row[4], 5)  # hand_number
-            self.assertEqual(row[5], "openai")  # provider
-            self.assertEqual(row[6], "gpt-5-nano")  # model
-            self.assertEqual(row[7], 100)  # input_tokens
-            self.assertEqual(row[8], 50)  # output_tokens
-            self.assertEqual(row[9], 10)  # cached_tokens
-            self.assertEqual(row[10], 5)  # reasoning_tokens
-            self.assertEqual(row[11], 150)  # latency_ms (int)
-            self.assertEqual(row[12], "ok")  # status
+            assert row is not None
+            assert row[0] == "player_decision"  # call_type
+            assert row[1] == "game_123"  # game_id
+            assert row[2] == "user_456"  # owner_id
+            assert row[3] == "Batman"  # player_name
+            assert row[4] == 5  # hand_number
+            assert row[5] == "openai"  # provider
+            assert row[6] == "gpt-5-nano"  # model
+            assert row[7] == 100  # input_tokens
+            assert row[8] == 50  # output_tokens
+            assert row[9] == 10  # cached_tokens
+            assert row[10] == 5  # reasoning_tokens
+            assert row[11] == 150  # latency_ms (int)
+            assert row[12] == "ok"  # status
 
     def test_record_image_response(self):
         """Test recording image response."""
-        tracker = UsageTracker(db_path=self.temp_db.name)
+        tracker = UsageTracker(db_path=self.db_path)
 
         response = ImageResponse(
             url="https://example.com/image.png",
@@ -169,7 +159,7 @@ class TestUsageTracker(unittest.TestCase):
         )
 
         # Verify database record
-        with sqlite3.connect(self.temp_db.name) as conn:
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
                 SELECT call_type, game_id, provider, model,
                        image_count, image_size, latency_ms, status,
@@ -178,21 +168,21 @@ class TestUsageTracker(unittest.TestCase):
             """)
             row = cursor.fetchone()
 
-            self.assertIsNotNone(row)
-            self.assertEqual(row[0], "image_generation")
-            self.assertEqual(row[1], "game_456")
-            self.assertEqual(row[2], "openai")
-            self.assertEqual(row[3], "dall-e-3")
-            self.assertEqual(row[4], 1)  # image_count
-            self.assertEqual(row[5], "1024x1024")  # image_size
-            self.assertEqual(row[6], 2500)  # latency_ms
-            self.assertEqual(row[7], "ok")
-            self.assertEqual(row[8], 0)  # input_tokens (0 for images)
-            self.assertEqual(row[9], 0)  # output_tokens (0 for images)
+            assert row is not None
+            assert row[0] == "image_generation"
+            assert row[1] == "game_456"
+            assert row[2] == "openai"
+            assert row[3] == "dall-e-3"
+            assert row[4] == 1  # image_count
+            assert row[5] == "1024x1024"  # image_size
+            assert row[6] == 2500  # latency_ms
+            assert row[7] == "ok"
+            assert row[8] == 0  # input_tokens (0 for images)
+            assert row[9] == 0  # output_tokens (0 for images)
 
     def test_record_with_none_call_type(self):
         """Test recording with None call_type defaults to UNKNOWN."""
-        tracker = UsageTracker(db_path=self.temp_db.name)
+        tracker = UsageTracker(db_path=self.db_path)
 
         response = LLMResponse(
             content="Test",
@@ -204,14 +194,14 @@ class TestUsageTracker(unittest.TestCase):
 
         tracker.record(response=response, call_type=None)
 
-        with sqlite3.connect(self.temp_db.name) as conn:
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("SELECT call_type FROM api_usage")
             row = cursor.fetchone()
-            self.assertEqual(row[0], "unknown")
+            assert row[0] == "unknown"
 
     def test_record_error_response(self):
         """Test recording error response."""
-        tracker = UsageTracker(db_path=self.temp_db.name)
+        tracker = UsageTracker(db_path=self.db_path)
 
         response = LLMResponse(
             content="",
@@ -228,16 +218,16 @@ class TestUsageTracker(unittest.TestCase):
             call_type=CallType.PLAYER_DECISION,
         )
 
-        with sqlite3.connect(self.temp_db.name) as conn:
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("SELECT status, error_code FROM api_usage")
             row = cursor.fetchone()
-            self.assertEqual(row[0], "error")
-            self.assertEqual(row[1], "RateLimitError")
+            assert row[0] == "error"
+            assert row[1] == "RateLimitError"
 
     @patch('core.llm.tracking.logger')
     def test_record_logs_stats(self, mock_logger):
         """Test that recording logs stats."""
-        tracker = UsageTracker(db_path=self.temp_db.name)
+        tracker = UsageTracker(db_path=self.db_path)
 
         response = LLMResponse(
             content="Test",
@@ -257,14 +247,14 @@ class TestUsageTracker(unittest.TestCase):
         # Verify logger was called with info
         mock_logger.info.assert_called_once()
         log_message = mock_logger.info.call_args[0][0]
-        self.assertIn("[AI_STATS]", log_message)
-        self.assertIn("gpt-5-nano", log_message)
-        self.assertIn("chat_suggestion", log_message)
+        assert "[AI_STATS]" in log_message
+        assert "gpt-5-nano" in log_message
+        assert "chat_suggestion" in log_message
 
     @patch('core.llm.tracking.logger')
     def test_record_logs_error_on_error_response(self, mock_logger):
         """Test that error responses are logged at error level."""
-        tracker = UsageTracker(db_path=self.temp_db.name)
+        tracker = UsageTracker(db_path=self.db_path)
 
         response = LLMResponse(
             content="",
@@ -281,12 +271,12 @@ class TestUsageTracker(unittest.TestCase):
         # Verify logger.error was called
         mock_logger.error.assert_called_once()
         log_message = mock_logger.error.call_args[0][0]
-        self.assertIn("[AI_STATS]", log_message)
-        self.assertIn("status=error", log_message)
+        assert "[AI_STATS]" in log_message
+        assert "status=error" in log_message
 
     def test_record_multiple_entries(self):
         """Test recording multiple usage entries."""
-        tracker = UsageTracker(db_path=self.temp_db.name)
+        tracker = UsageTracker(db_path=self.db_path)
 
         for i in range(5):
             response = LLMResponse(
@@ -302,14 +292,14 @@ class TestUsageTracker(unittest.TestCase):
                 game_id=f"game_{i}",
             )
 
-        with sqlite3.connect(self.temp_db.name) as conn:
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM api_usage")
             count = cursor.fetchone()[0]
-            self.assertEqual(count, 5)
+            assert count == 5
 
     def test_record_with_prompt_template(self):
         """Test recording with prompt_template."""
-        tracker = UsageTracker(db_path=self.temp_db.name)
+        tracker = UsageTracker(db_path=self.db_path)
 
         response = LLMResponse(
             content="Test",
@@ -325,10 +315,10 @@ class TestUsageTracker(unittest.TestCase):
             prompt_template="player_action_v2",
         )
 
-        with sqlite3.connect(self.temp_db.name) as conn:
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("SELECT prompt_template FROM api_usage")
             row = cursor.fetchone()
-            self.assertEqual(row[0], "player_action_v2")
+            assert row[0] == "player_action_v2"
 
     @patch('core.llm.tracking.sqlite3.connect')
     @patch('core.llm.tracking.logger')
@@ -338,7 +328,7 @@ class TestUsageTracker(unittest.TestCase):
         mock_conn = mock_connect.return_value.__enter__.return_value
         mock_conn.execute.side_effect = [None, sqlite3.Error("DB Error")]
 
-        tracker = UsageTracker(db_path=self.temp_db.name)
+        tracker = UsageTracker(db_path=self.db_path)
         # Reset the mock for the actual test
         mock_connect.reset_mock()
         mock_connect.return_value.__enter__.return_value.execute.side_effect = sqlite3.Error("DB Error")
@@ -355,8 +345,4 @@ class TestUsageTracker(unittest.TestCase):
         tracker.record(response=response, call_type=CallType.UNKNOWN)
 
         # Verify error was logged (logger.info for stats, logger.error for db failure)
-        self.assertTrue(mock_logger.error.called or mock_logger.info.called)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert mock_logger.error.called or mock_logger.info.called
