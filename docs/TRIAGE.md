@@ -182,6 +182,7 @@ Issues to address once live, during ongoing development.
 | T3-50 | `UnifiedSettings.tsx` settings overload | `react/react/src/components/admin/UnifiedSettings.tsx` | 1,252 lines managing 5 settings categories (models, capture, storage, pricing, appearance) in one component. Category switching intertwined with data fetching. Extract each category into its own component, keep `UnifiedSettings` as thin switcher (~200 lines). | |
 | T3-51 | `ConfigPreview.tsx` kitchen sink | `react/react/src/components/admin/ExperimentDesigner/ConfigPreview.tsx` | 1,148 lines handling form view, JSON view, config validation, version history, personality selection, prompt preset loading, seed word generation, launch logic. Split into `ConfigFormView`, `ConfigJsonView`, and extracted hooks for validation/versions/seeds. | |
 | T3-52 | Duplicated collapsible section pattern | `PersonalityManager.tsx`, `UnifiedSettings.tsx`, `ConfigPreview.tsx` | Same collapsible section UI logic repeated across 3+ admin components. Also duplicated mobile filter sheet boilerplate. Extract to shared `CollapsibleSection.tsx` and `MobileFilterSheet.tsx` components. | |
+| T3-53 | Personality name collision — UUID primary keys | `poker/repositories/personality_repository.py`, `schema_manager.py` | `personalities` table uses `name TEXT UNIQUE` as the lookup key. Two users cannot independently create personalities with the same name — `INSERT OR REPLACE` overwrites silently. Full fix requires UUID primary keys with `UNIQUE(name, owner_id)`, migrating all FK references (`avatar_images.personality_name`), API routes, and frontend state. Current mitigation: reject creates if name already exists (409 error). | |
 
 ### Documentation & DX
 
@@ -215,8 +216,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 15 | 6 | 0 |
 | **Tier 2: Should-Fix** | 26 | 20 | 6 | 0 |
-| **Tier 3: Post-Release** | 52 | 26 | 1 | 25 |
-| **Total** | **99** | **61** | **13** | **25** |
+| **Tier 3: Post-Release** | 53 | 26 | 1 | 26 |
+| **Total** | **100** | **61** | **13** | **26** |
 
 ## Key Architectural Insight
 

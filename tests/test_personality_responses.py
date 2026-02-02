@@ -12,7 +12,7 @@ from tests.conftest import load_personality_from_json
 
 
 class TestPersonalityResponses(unittest.TestCase):
-    """Test how different personalities respond to identical game situations."""
+    """Test how different production personalities respond to identical game situations."""
 
     def setUp(self):
         # Patch personality loading to use JSON file directly (no DB/LLM needed)
@@ -71,90 +71,82 @@ class TestPersonalityResponses(unittest.TestCase):
     def _get_personality_responses(self, name, action):
         """Get personality-specific verbal and physical responses."""
         responses = {
-            "Eeyore": {
-                "raise": {
-                    "verbal": "I suppose I'll raise... though it probably won't help.",
-                    "physical": ["*sighs heavily*", "*looks down sadly*"],
-                    "thought": "Why bother? I'll probably lose anyway.",
-                    "strategy": "Might as well lose faster with a raise.",
-                    "confidence": "pessimistic",
-                    "attitude": "gloomy"
-                },
-                "check": {
-                    "verbal": "Oh bother, I'll just check. No point in losing more.",
-                    "physical": ["*slumps in chair*", "*stares at cards glumly*"],
-                    "thought": "Another terrible hand, as expected.",
-                    "strategy": "Checking to minimize losses, as usual.",
-                    "confidence": "abysmal",
-                    "attitude": "dejected"
-                },
+            "Ebenezer Scrooge": {
                 "fold": {
-                    "verbal": "Of course I fold. Story of my life. *sighs*",
-                    "physical": ["*pushes cards away slowly*", "*sighs deeply*"],
-                    "thought": "I knew this would happen.",
-                    "strategy": "Folding to avoid more disappointment.",
-                    "confidence": "hopeless",
-                    "attitude": "melancholy"
-                },
-                "call": {
-                    "verbal": "I'll call, but it won't end well...",
-                    "physical": ["*reluctantly pushes chips*", "*shakes head*"],
-                    "thought": "Here goes nothing... or rather, here goes everything.",
-                    "strategy": "Calling despite expecting to lose.",
-                    "confidence": "doubtful",
-                    "attitude": "resigned"
-                }
-            },
-            "Donald Trump": {
-                "raise": {
-                    "verbal": "I'm raising BIGLY! Nobody raises like me, believe me! This pot is gonna be YUGE!",
-                    "physical": ["*makes expansive hand gestures*", "*leans forward dominantly*"],
-                    "thought": "These losers don't stand a chance against me!",
-                    "strategy": "Dominate with huge raises. Show tremendous strength!",
-                    "confidence": "supreme",
-                    "attitude": "domineering"
-                },
-                "call": {
-                    "verbal": "I'll call, but only because this pot is already TREMENDOUS!",
-                    "physical": ["*adjusts tie*", "*points at opponents*"],
-                    "thought": "I'm the best poker player ever.",
-                    "strategy": "Call to stay in control of this tremendous pot.",
-                    "confidence": "unshakeable",
-                    "attitude": "boastful"
-                },
-                "check": {
-                    "verbal": "I'm checking, but I have the BEST cards, believe me!",
-                    "physical": ["*waves hand dismissively*", "*smirks*"],
-                    "thought": "Let them think they have a chance.",
-                    "strategy": "Check to trap these losers.",
-                    "confidence": "overconfident",
-                    "attitude": "condescending"
-                }
-            },
-            "Gordon Ramsay": {
-                "raise": {
-                    "verbal": "RAISE! This pot is RAW and I'm cooking you donkeys! Bloody hell!",
-                    "physical": ["*slams table*", "*points aggressively*"],
-                    "thought": "These amateurs don't know what hit them!",
-                    "strategy": "Aggressive raise to put pressure on these muppets.",
-                    "confidence": "intense",
-                    "attitude": "confrontational"
-                },
-                "call": {
-                    "verbal": "Fine, I'll call, but this hand better be worth it, you muppets!",
-                    "physical": ["*shakes head in disgust*", "*glares intensely*"],
-                    "thought": "This better not be a waste of my bloody time.",
-                    "strategy": "Calling to see if these idiots are bluffing.",
-                    "confidence": "irritated",
-                    "attitude": "critical"
-                },
-                "fold": {
-                    "verbal": "This hand is GARBAGE! I'm out! Bloody waste of time!",
-                    "physical": ["*throws cards down*", "*crosses arms*"],
-                    "thought": "Not worth my time with these donkeys.",
-                    "strategy": "Fold this rubbish hand immediately.",
-                    "confidence": "disgusted",
+                    "verbal": "Bah! I shan't waste another penny on this hand. Humbug!",
+                    "physical": ["*clutches chips protectively*", "*scowls at the table*"],
+                    "thought": "Every chip saved is a chip earned.",
+                    "strategy": "Folding to preserve my precious bankroll.",
+                    "confidence": "miserly",
                     "attitude": "dismissive"
+                },
+                "check": {
+                    "verbal": "I'll check. No sense throwing good money after bad.",
+                    "physical": ["*taps table reluctantly*", "*eyes chips nervously*"],
+                    "thought": "Not a single chip more than necessary.",
+                    "strategy": "Checking to avoid any unnecessary expenditure.",
+                    "confidence": "guarded",
+                    "attitude": "stingy"
+                },
+                "call": {
+                    "verbal": "Fine, I'll call... but this had better be worth every penny.",
+                    "physical": ["*painfully pushes chips forward*", "*winces*"],
+                    "thought": "This is practically highway robbery.",
+                    "strategy": "Calling under protest.",
+                    "confidence": "reluctant",
+                    "attitude": "begrudging"
+                }
+            },
+            "Blackbeard": {
+                "raise": {
+                    "verbal": "RAISE, ye scurvy dogs! I'll plunder every last chip from ye!",
+                    "physical": ["*slams fist on table*", "*grins menacingly*"],
+                    "thought": "These landlubbers don't stand a chance against a pirate king!",
+                    "strategy": "Aggressive raise to intimidate and plunder.",
+                    "confidence": "fearsome",
+                    "attitude": "ruthless"
+                },
+                "call": {
+                    "verbal": "Aye, I'll match yer bet. But mark me words, the treasure will be mine!",
+                    "physical": ["*strokes beard*", "*narrows eyes*"],
+                    "thought": "Let them think they have the upper hand.",
+                    "strategy": "Calling to set up a devastating attack.",
+                    "confidence": "cunning",
+                    "attitude": "threatening"
+                },
+                "check": {
+                    "verbal": "I'll bide me time... for now. The storm is coming.",
+                    "physical": ["*drums fingers on table*", "*surveys opponents*"],
+                    "thought": "Patience before the plunder.",
+                    "strategy": "Checking to lull them into false security.",
+                    "confidence": "calculating",
+                    "attitude": "ominous"
+                }
+            },
+            "Queen of Hearts": {
+                "raise": {
+                    "verbal": "RAISE! And if anyone dares challenge me — OFF WITH THEIR HEADS!",
+                    "physical": ["*stands up imperiously*", "*points at opponents*"],
+                    "thought": "I am the queen! No one defies me at this table!",
+                    "strategy": "Dominate with a royal raise. Crush all opposition!",
+                    "confidence": "absolute",
+                    "attitude": "tyrannical"
+                },
+                "call": {
+                    "verbal": "I shall call. But do NOT test my patience!",
+                    "physical": ["*adjusts crown*", "*glares regally*"],
+                    "thought": "They should be grateful I'm even playing with commoners.",
+                    "strategy": "Calling to maintain royal presence at the table.",
+                    "confidence": "imperious",
+                    "attitude": "haughty"
+                },
+                "check": {
+                    "verbal": "The queen checks. Do not mistake mercy for weakness!",
+                    "physical": ["*waves hand dismissively*", "*sniffs disdainfully*"],
+                    "thought": "Let the peasants think they have a chance.",
+                    "strategy": "Checking to trap these insolent fools.",
+                    "confidence": "regal",
+                    "attitude": "condescending"
                 }
             },
             "Bob Ross": {
@@ -206,23 +198,23 @@ class TestPersonalityResponses(unittest.TestCase):
         
         results = {}
         
-        for player_name in ["Eeyore", "Donald Trump", "Gordon Ramsay", "Bob Ross"]:
+        for player_name in ["Ebenezer Scrooge", "Blackbeard", "Queen of Hearts", "Bob Ross"]:
             # Create AI player
             ai_player = AIPokerPlayer(
                 name=player_name,
                 starting_money=10000
             )
-            
+
             # Mock the response based on personality
             mock_response = self.create_mock_response(player_name, "facing_bet")
             mock_assistant.return_value.chat.return_value = json.dumps(mock_response)
-            
+
             # Get response
             ai_player.assistant = mock_assistant.return_value
             response = ai_player.get_player_response("Test message")
-            
+
             results[player_name] = response
-            
+
             # Print results
             print(f"\n{player_name}:")
             print(f"  Personality Traits:")
@@ -236,12 +228,12 @@ class TestPersonalityResponses(unittest.TestCase):
             print(f"  Says: \"{'; '.join(speech)}\"")
             print(f"  Actions: {', '.join(actions)}")
             print(f"  Strategy: {response['hand_strategy']}")
-            
+
         # Verify personality-based decisions
-        self.assertEqual(results["Eeyore"]["action"], "fold")  # Low aggression = fold
-        self.assertIn(results["Donald Trump"]["action"], ["raise", "call"])  # High aggression
-        self.assertEqual(results["Gordon Ramsay"]["action"], "raise")  # Highest aggression
-        self.assertEqual(results["Bob Ross"]["action"], "fold")  # Lowest aggression
+        self.assertEqual(results["Ebenezer Scrooge"]["action"], "fold")  # Low aggression (0.2) = fold
+        self.assertIn(results["Blackbeard"]["action"], ["raise", "call"])  # High aggression (0.9)
+        self.assertEqual(results["Queen of Hearts"]["action"], "raise")  # Highest aggression (0.95)
+        self.assertEqual(results["Bob Ross"]["action"], "fold")  # Lowest aggression (0.1)
         
     @patch('poker.poker_player.Assistant')
     def test_no_bet_scenario(self, mock_assistant):
@@ -250,7 +242,7 @@ class TestPersonalityResponses(unittest.TestCase):
         print("SCENARIO: All players have A♥A♦, no bets yet (can check or raise)")
         print("="*80)
         
-        for player_name in ["Eeyore", "Donald Trump", "Gordon Ramsay", "Bob Ross"]:
+        for player_name in ["Ebenezer Scrooge", "Blackbeard", "Queen of Hearts", "Bob Ross"]:
             ai_player = AIPokerPlayer(
                 name=player_name,
                 starting_money=10000
