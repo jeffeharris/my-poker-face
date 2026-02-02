@@ -20,7 +20,7 @@ export function useCommunityCardAnimation(
   const [animatingIndices, setAnimatingIndices] = useState<Set<number>>(new Set());
   const prevCardCountRef = useRef(0);
   const isInitialMount = useRef(true);
-  const clearTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     const count = newlyDealtCount ?? 0;

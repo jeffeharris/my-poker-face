@@ -39,8 +39,8 @@ export function CoachPanel({
   const dragStartY = useRef(0);
   const dragCurrentY = useRef(0);
   const isDragging = useRef(false);
-  const dragTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const snapTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const dragTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const snapTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     return () => {
