@@ -331,7 +331,7 @@ class DecisionAnalyzer:
                                 opponent_ranges[opp_info.name] = sorted(list(opp_range))
                             analysis.opponent_ranges_json = json.dumps(opponent_ranges)
                         except Exception as e:
-                            logger.debug(f"Opponent range capture failed: {e}")
+                            logger.warning(f"Opponent range capture failed: {e}")
                 except Exception as e:
                     logger.debug(f"Equity vs ranges calculation failed: {e}")
 
@@ -342,7 +342,7 @@ class DecisionAnalyzer:
                 board_texture = analyze_board_texture(community_cards)
                 analysis.board_texture_json = json.dumps(board_texture)
             except Exception as e:
-                logger.debug(f"Board texture analysis failed: {e}")
+                logger.warning(f"Board texture analysis failed: {e}")
 
         # Player hand range analysis (is this hand in standard range for position?)
         if player_hand and len(player_hand) == 2 and player_position:
@@ -356,7 +356,7 @@ class DecisionAnalyzer:
                 analysis.player_hand_tier = range_analysis.get('hand_tier')
                 analysis.standard_range_pct = range_analysis.get('range_size_pct')
             except Exception as e:
-                logger.debug(f"Player hand range analysis failed: {e}")
+                logger.warning(f"Player hand range analysis failed: {e}")
 
         # Calculate max winnable considering side pots (for short stacks)
         if all_players_bets is not None:

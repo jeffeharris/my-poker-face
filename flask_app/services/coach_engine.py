@@ -172,7 +172,11 @@ def _position_label_to_key(position_label: str) -> str:
         'Middle Position 2': 'middle_position_2',
         'Middle Position 3': 'middle_position_3',
     }
-    return mapping.get(position_label, 'button')
+    result = mapping.get(position_label)
+    if result is None:
+        logger.warning(f"Unknown position label '{position_label}', defaulting to 'button'")
+        return 'button'
+    return result
 
 
 def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[OpponentInfo]:
