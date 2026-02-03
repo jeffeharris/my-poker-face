@@ -457,7 +457,12 @@ export async function navigateToGamePage(
     localStorage.setItem('currentUser', u);
   }, user);
   await page.goto(`/game/${gameId}`);
-  await expect(page.locator('.mobile-poker-table')).toBeVisible({ timeout: 10000 });
+  // Wait for main UI (not loading state) - use data-testid to avoid matching .mobile-poker-table during loading
+  await expect(page.getByTestId('mobile-poker-table')).toBeVisible({ timeout: 10000 });
+  // Wait for socket connection (reconnecting overlay should not be visible)
+  await expect(page.getByTestId('reconnecting-overlay')).not.toBeVisible({ timeout: 5000 });
+  // Wait for action area to be stable (Safari needs extra time for layout to settle after animations)
+  await expect(page.getByTestId('action-btn-chat')).toBeVisible({ timeout: 5000 });
 }
 
 // ─── Common mock setup for menu-page tests ───
