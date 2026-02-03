@@ -18,6 +18,18 @@ interface UsePokerGameOptions {
 
 type QueuedAction = 'check_fold' | null;
 
+// State buffer for card animation gating
+enum BufferState {
+  NORMAL = 'NORMAL',       // Apply updates immediately
+  GATED = 'GATED',         // Cards animating — queue incoming updates
+  REPLAYING = 'REPLAYING'  // Animation done — replay queued updates with delays
+}
+
+interface QueuedStateUpdate {
+  gameState: GameState;
+  timestamp: number;
+}
+
 // Type for revealed hole cards during run-it-out showdown
 interface RevealedCardsInfo {
   players_cards: Record<string, BackendCard[]>;
@@ -97,6 +109,14 @@ export function usePokerGame({
   const aiThinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gameIdRef = useRef<string | null>(null);
 
+  // State buffer for card animation gating
+  // Use ref for bufferState to avoid stale closures in socket callbacks
+  const bufferStateRef = useRef<BufferState>(BufferState.NORMAL);
+  const updateQueueRef = useRef<QueuedStateUpdate[]>([]);
+  const replayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevCommunityCardCountRef = useRef<number>(0);
+
   const clearWinnerInfo = useCallback(() => {
     setWinnerInfo(null);
     setRevealedCards(null);
@@ -119,12 +139,206 @@ export function usePokerGame({
     }
   }, []);
 
+  // ========================================================================
+  // State Buffer for Card Animation Gating
+  // ========================================================================
+
+  /**
+   * Calculate gate duration based on newly dealt card count.
+   * Matches frontend animation timing in useCommunityCardAnimation.ts
+   */
+  const calculateGateDuration = useCallback((newlyDealtCount: number): number => {
+    if (newlyDealtCount === 3) {
+      // Flop: 3 cards with 1s cascade (0s, 1s, 2s) + 0.825s animation = 2.825s
+      return 2825;
+    } else if (newlyDealtCount === 1) {
+      // Turn/River: single card 0.825s animation
+      return 825;
+    }
+    return 0;
+  }, []);
+
+  /**
+   * Clear gate and replay timeouts.
+   */
+  const clearBufferTimers = useCallback(() => {
+    if (gateTimeoutRef.current) {
+      clearTimeout(gateTimeoutRef.current);
+      gateTimeoutRef.current = null;
+    }
+    if (replayTimeoutRef.current) {
+      clearTimeout(replayTimeoutRef.current);
+      replayTimeoutRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Reset buffer to initial state (used on disconnect, refresh, etc.)
+   */
+  const resetBuffer = useCallback(() => {
+    clearBufferTimers();
+    updateQueueRef.current = [];
+    bufferStateRef.current = BufferState.NORMAL;
+    prevCommunityCardCountRef.current = 0;
+  }, [clearBufferTimers]);
+
+  /**
+   * Handle messages from a game state update.
+   */
+  const handleMessagesFromState = useCallback((state: GameState) => {
+    if (state.messages) {
+      const newMessages = state.messages.filter((msg: ChatMessage) => {
+        return !messageIdsRef.current.has(msg.id);
+      });
+
+      if (newMessages.length > 0) {
+        newMessages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
+        setMessages(prev => [...prev, ...newMessages].slice(-MAX_MESSAGES));
+
+        if (onNewAiMessage) {
+          const aiMessages = newMessages.filter((msg: ChatMessage) => msg.type === 'ai');
+          if (aiMessages.length > 0) {
+            onNewAiMessage(aiMessages[aiMessages.length - 1]);
+          }
+        }
+      }
+    }
+  }, [onNewAiMessage]);
+
+  /**
+   * Update AI thinking state based on current player.
+   */
+  const updateAiThinkingFromState = useCallback((state: GameState) => {
+    const currentPlayer = state.players[state.current_player_idx];
+    setAiThinking(!currentPlayer.is_human && !currentPlayer.is_folded);
+  }, []);
+
+  /**
+   * Apply a single state update (game state + messages + AI thinking).
+   */
+  const applyStateUpdate = useCallback((state: GameState) => {
+    applyGameState(state);
+    handleMessagesFromState(state);
+    updateAiThinkingFromState(state);
+  }, [applyGameState, handleMessagesFromState, updateAiThinkingFromState]);
+
+  /**
+   * Replay queued updates one by one with 1s delay between each.
+   */
+  const scheduleNextReplay = useCallback(() => {
+    if (updateQueueRef.current.length === 0) {
+      logger.debug('[BUFFER] Replay complete, returning to NORMAL');
+      bufferStateRef.current = BufferState.NORMAL;
+      replayTimeoutRef.current = null;
+      return;
+    }
+
+    const nextUpdate = updateQueueRef.current.shift()!;
+    logger.debug('[BUFFER] Replaying update', {
+      remaining: updateQueueRef.current.length,
+      queuedAt: nextUpdate.timestamp
+    });
+
+    applyStateUpdate(nextUpdate.gameState);
+
+    // Schedule next replay after 1s
+    replayTimeoutRef.current = setTimeout(() => {
+      scheduleNextReplay();
+    }, 1000);
+  }, [applyStateUpdate]);
+
+  /**
+   * Start replaying queued updates after gate expires.
+   */
+  const startReplay = useCallback(() => {
+    gateTimeoutRef.current = null;
+
+    if (updateQueueRef.current.length === 0) {
+      logger.debug('[BUFFER] No queued updates, returning to NORMAL');
+      bufferStateRef.current = BufferState.NORMAL;
+      return;
+    }
+
+    logger.debug('[BUFFER] Starting replay', {
+      queueLength: updateQueueRef.current.length
+    });
+    bufferStateRef.current = BufferState.REPLAYING;
+    scheduleNextReplay();
+  }, [scheduleNextReplay]);
+
+  /**
+   * Process an incoming game state update with buffering logic.
+   * - Detects newly dealt cards and opens a gate
+   * - Queues updates during gate/replay
+   * - Applies updates immediately in NORMAL state
+   */
+  const processStateUpdate = useCallback((data: { game_state: GameState }) => {
+    const transformedState: GameState = {
+      ...data.game_state,
+      messages: data.game_state.messages || []
+    };
+
+    // Detect newly dealt community cards
+    const currentCardCount = transformedState.community_cards?.length ?? 0;
+    const newlyDealtCount = transformedState.newly_dealt_count ?? 0;
+    const cardsJustDealt = newlyDealtCount > 0 && currentCardCount > prevCommunityCardCountRef.current;
+
+    // Update tracking ref
+    prevCommunityCardCountRef.current = currentCardCount;
+
+    if (cardsJustDealt) {
+      // Cards were just dealt - apply immediately (so animation starts) and open gate
+      logger.debug('[BUFFER] Cards dealt, opening gate', { newlyDealtCount, currentCardCount });
+
+      // If replaying when new cards arrive, interrupt replay and clear stale queue
+      if (bufferStateRef.current === BufferState.REPLAYING) {
+        clearBufferTimers();
+        updateQueueRef.current = [];  // Clear stale updates from interrupted replay
+      }
+
+      // Apply card-dealing state immediately
+      applyStateUpdate(transformedState);
+
+      // Enter GATED state
+      bufferStateRef.current = BufferState.GATED;
+
+      // Set timer to start replay after animation completes
+      const gateDuration = calculateGateDuration(newlyDealtCount);
+      gateTimeoutRef.current = setTimeout(() => {
+        startReplay();
+      }, gateDuration);
+
+      return;
+    }
+
+    // Handle based on current buffer state
+    if (bufferStateRef.current === BufferState.NORMAL) {
+      // Normal mode: apply immediately
+      applyStateUpdate(transformedState);
+    } else {
+      // GATED or REPLAYING: queue the update
+      logger.debug(`[BUFFER] Queuing update during ${bufferStateRef.current}`, {
+        queueLength: updateQueueRef.current.length + 1
+      });
+      updateQueueRef.current.push({
+        gameState: transformedState,
+        timestamp: Date.now()
+      });
+    }
+  }, [applyStateUpdate, calculateGateDuration, clearBufferTimers, startReplay]);
+
+  // ========================================================================
+  // Socket Listeners
+  // ========================================================================
+
   const setupSocketListeners = useCallback((socket: Socket) => {
     socket.on('disconnect', () => {
       setIsConnected(false);
       // Clear aiThinking so UI doesn't appear stuck while disconnected
       setAiThinking(false);
       clearAiThinkingTimeout();
+      // Reset state buffer on disconnect
+      resetBuffer();
     });
 
     socket.on('player_joined', (_data: { message: string }) => {
@@ -133,33 +347,8 @@ export function usePokerGame({
 
     socket.on('update_game_state', (data: { game_state: GameState }) => {
       clearAiThinkingTimeout();
-      const transformedState = {
-        ...data.game_state,
-        messages: data.game_state.messages || []
-      };
-      applyGameState(transformedState);
-
-      if (data.game_state.messages) {
-        const newMessages = data.game_state.messages.filter((msg: ChatMessage) => {
-          return !messageIdsRef.current.has(msg.id);
-        });
-
-        if (newMessages.length > 0) {
-          newMessages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-          setMessages(prev => [...prev, ...newMessages].slice(-MAX_MESSAGES));
-
-          // Notify about new AI messages (for mobile floating bubbles)
-          if (onNewAiMessage) {
-            const aiMessages = newMessages.filter((msg: ChatMessage) => msg.type === 'ai');
-            if (aiMessages.length > 0) {
-              onNewAiMessage(aiMessages[aiMessages.length - 1]);
-            }
-          }
-        }
-      }
-
-      const currentPlayer = transformedState.players[transformedState.current_player_idx];
-      setAiThinking(!currentPlayer.is_human && !currentPlayer.is_folded);
+      // Use buffer logic to handle card animation timing
+      processStateUpdate(data);
     });
 
     // Listen for new message (singular - desktop format)
@@ -286,12 +475,15 @@ export function usePokerGame({
         });
       });
     });
-  }, [onNewAiMessage, clearAiThinkingTimeout, applyGameState, updateStorePlayers, updateStorePlayerOptions]);
+  }, [onNewAiMessage, clearAiThinkingTimeout, applyGameState, updateStorePlayers, updateStorePlayerOptions, resetBuffer, processStateUpdate]);
 
   // refreshGameState: silent=true means don't touch loading state (for reconnections)
   const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
     try {
       clearAiThinkingTimeout();
+      // Reset buffer on full refresh to prevent stale queued state
+      resetBuffer();
+
       const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
       if (!res.ok) {
         logger.error(`Failed to fetch game state: HTTP ${res.status}`);
@@ -306,6 +498,9 @@ export function usePokerGame({
       const currentPlayer = data.players[data.current_player_idx];
 
       applyGameState(data);
+      // Update card count ref to match refreshed state (prevents false gate trigger)
+      prevCommunityCardCountRef.current = data.community_cards?.length ?? 0;
+
       if (!silent) {
         setLoading(false);
       }
@@ -325,7 +520,7 @@ export function usePokerGame({
       logger.error('Failed to refresh game state:', err);
       return false;
     }
-  }, [clearAiThinkingTimeout, applyGameState]);
+  }, [clearAiThinkingTimeout, applyGameState, resetBuffer]);
 
   const createSocket = useCallback((gId: string) => {
     const socket = io(config.SOCKET_URL, {
@@ -451,8 +646,10 @@ export function usePokerGame({
       if (aiThinkingTimeoutRef.current) {
         clearTimeout(aiThinkingTimeoutRef.current);
       }
+      // Clear buffer timers
+      clearBufferTimers();
     };
-  }, []);
+  }, [clearBufferTimers]);
 
   const handlePlayerAction = useCallback(async (action: string, amount?: number) => {
     if (!gameId) return;
