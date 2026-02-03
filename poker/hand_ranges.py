@@ -764,19 +764,40 @@ def get_opponent_range_og(
     return adjust_range_for_position(base_range, position)
 
 
+def _get_board_connection_weight(combo: Tuple[str, str], board_cards: List[str]) -> float:
+    """Return sampling weight based on how hand connects with board.
+
+    Args:
+        combo: Tuple of (card1, card2) strings
+        board_cards: List of board card strings
+
+    Returns:
+        Sampling weight: 2.0 for made hands, 1.5 for draws, 0.5 for air
+    """
+    from poker.hand_evaluator import HandEvaluator
+    connection = HandEvaluator.get_board_connection(list(combo), board_cards)
+    return connection['weight']
+
+
 def sample_hand_for_opponent(
     opponent: OpponentInfo,
     excluded_cards: Set[str],
     config: EquityConfig = None,
-    rng: Optional[random.Random] = None
+    rng: Optional[random.Random] = None,
+    board_cards: Optional[List[str]] = None
 ) -> Optional[Tuple[str, str]]:
     """Sample a hand from an opponent's estimated range.
+
+    When opponent has shown postflop aggression (bet/raise) and there are
+    board cards, uses weighted sampling to favor hands that connect with
+    the board (pairs, overpairs, draws).
 
     Args:
         opponent: OpponentInfo with available data
         excluded_cards: Cards already dealt
         config: EquityConfig for calculation options
         rng: Random number generator
+        board_cards: Community cards for board-connection weighting
 
     Returns:
         Tuple of (card1, card2) or None if no valid hand
@@ -801,6 +822,17 @@ def sample_hand_for_opponent(
         logger.debug(f"No valid combos for {opponent.name} with excluded {len(excluded_cards)} cards")
         return None
 
+    # Weighted sampling when opponent showed postflop aggression
+    use_weighted = (
+        board_cards and
+        len(board_cards) >= 3 and
+        opponent.postflop_aggression_this_hand in ('bet', 'raise')
+    )
+
+    if use_weighted:
+        weights = [_get_board_connection_weight(combo, board_cards) for combo in valid_combos]
+        return rng.choices(valid_combos, weights=weights)[0]
+
     return rng.choice(valid_combos)
 
 
@@ -808,7 +840,8 @@ def sample_hands_for_opponent_infos(
     opponents: List[OpponentInfo],
     excluded_cards: Set[str],
     config: EquityConfig = None,
-    rng: Optional[random.Random] = None
+    rng: Optional[random.Random] = None,
+    board_cards: Optional[List[str]] = None
 ) -> List[Optional[Tuple[str, str]]]:
     """Sample hands for multiple opponents using the fallback hierarchy.
 
@@ -817,6 +850,7 @@ def sample_hands_for_opponent_infos(
         excluded_cards: Initial excluded cards (hero's hand, board)
         config: EquityConfig for calculation options
         rng: Random number generator
+        board_cards: Community cards for board-connection weighting
 
     Returns:
         List of (card1, card2) tuples, one per opponent
@@ -830,7 +864,9 @@ def sample_hands_for_opponent_infos(
     current_excluded = set(excluded_cards)
 
     for opponent in opponents:
-        hand = sample_hand_for_opponent(opponent, current_excluded, config, rng)
+        hand = sample_hand_for_opponent(
+            opponent, current_excluded, config, rng, board_cards
+        )
         hands.append(hand)
 
         if hand:
@@ -925,9 +961,9 @@ def calculate_equity_vs_ranges(
         rng = random.Random()
 
         for _ in range(iterations):
-            # Sample opponent hands from ranges
+            # Sample opponent hands from ranges (with board-connection weighting)
             opponent_hands_raw = sample_hands_for_opponent_infos(
-                opponent_infos, excluded_cards, config, rng
+                opponent_infos, excluded_cards, config, rng, community_cards
             )
 
             # Skip iteration if we couldn't sample valid hands

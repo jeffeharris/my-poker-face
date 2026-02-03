@@ -18,6 +18,7 @@ from poker.controllers import (
     classify_preflop_hand,
     _parse_game_messages,
     _get_preflop_lines,
+    _get_street_lines,
     _process_preflop_lines,
 )
 from poker.card_utils import card_to_string
@@ -220,6 +221,60 @@ def _extract_preflop_action(
     )
 
 
+def _extract_postflop_aggression(
+    opponent_name: str,
+    game_messages: list,
+    current_phase: str
+) -> Optional[str]:
+    """
+    Extract what postflop aggression an opponent showed this hand.
+
+    Checks for betting/raising actions on the current street (flop/turn/river).
+    Used to weight opponent hand sampling toward hands that connect with the board.
+
+    Args:
+        opponent_name: Name of opponent to check
+        game_messages: List of game message strings
+        current_phase: Current game phase ('FLOP', 'TURN', 'RIVER')
+
+    Returns:
+        Aggression type: 'bet', 'raise', 'check_call', 'check', or None
+    """
+    if current_phase == 'PRE_FLOP':
+        return None
+
+    lines = _parse_game_messages(game_messages)
+    if lines is None:
+        return None
+
+    opponent_lower = opponent_name.lower()
+
+    # Get lines from current street only
+    street_lines = _get_street_lines(lines, current_phase)
+
+    # Track opponent's most aggressive action on this street
+    most_aggressive_action = None
+
+    for line in street_lines:
+        line_lower = line.lower()
+
+        # Check if this line is about our opponent
+        if opponent_lower not in line_lower:
+            continue
+
+        # Determine their action (most aggressive wins)
+        if 'raise' in line_lower or ('all' in line_lower and 'in' in line_lower):
+            most_aggressive_action = 'raise'  # Raise is most aggressive
+        elif 'bet' in line_lower and most_aggressive_action != 'raise':
+            most_aggressive_action = 'bet'
+        elif 'call' in line_lower and most_aggressive_action not in ('raise', 'bet'):
+            most_aggressive_action = 'check_call'
+        elif 'check' in line_lower and most_aggressive_action is None:
+            most_aggressive_action = 'check'
+
+    return most_aggressive_action
+
+
 def _build_opponent_infos(
     game_data: dict,
     game_state,
@@ -243,8 +298,12 @@ def _build_opponent_infos(
     memory_manager = game_data.get('memory_manager')
     omm = getattr(memory_manager, 'opponent_model_manager', None) if memory_manager else None
 
-    # Get game messages for preflop action extraction
+    # Get game messages for action extraction
     game_messages = game_data.get('messages', [])
+
+    # Get current phase for postflop aggression detection
+    state_machine = game_data.get('state_machine')
+    current_phase = state_machine.phase.name if state_machine else 'PRE_FLOP'
 
     # Load cross-session historic stats if user_id provided
     # AI personalities have deterministic behavior, so historic stats are reliable
@@ -268,6 +327,12 @@ def _build_opponent_infos(
         if game_messages:
             info.preflop_action = _extract_preflop_action(
                 player.name, game_messages, game_state
+            )
+
+        # Extract postflop aggression for board-connection weighted sampling
+        if game_messages and current_phase != 'PRE_FLOP':
+            info.postflop_aggression_this_hand = _extract_postflop_aggression(
+                player.name, game_messages, current_phase
             )
 
         # Add observed stats from opponent model (current session)

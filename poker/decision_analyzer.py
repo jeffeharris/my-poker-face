@@ -513,10 +513,10 @@ class DecisionAnalyzer:
             )
 
             for _ in range(iterations):
-                # Sample opponent hands using appropriate method
+                # Sample opponent hands using appropriate method (with board-connection weighting)
                 if use_opponent_infos:
                     opponent_hands_raw = sample_hands_for_opponent_infos(
-                        opponent_infos, excluded_cards, config, rng
+                        opponent_infos, excluded_cards, config, rng, community_cards
                     )
                 else:
                     # Backward compatibility: treat as position strings
