@@ -92,12 +92,12 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
     }
   }, [location.pathname]);
 
-  // Fetch saved games count when authenticated
+  // Fetch saved games count when authenticated or navigating to menu
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && location.pathname === '/menu') {
       fetchSavedGamesCount();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, location.pathname]);
 
   // Redirect to menu after login if on login page
   useEffect(() => {
