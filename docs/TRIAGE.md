@@ -140,6 +140,8 @@ Issues to address once live, during ongoing development.
 
 ### Performance & Scalability
 
+> **See also**: [SCALING.md](/docs/technical/SCALING.md) for comprehensive scaling thresholds, migration paths, and horizontal scaling guidance.
+
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T3-09 | No SQLite connection pooling | `poker/persistence.py` | New connection for every operation. Performance bottleneck under load. | **FIXED** — BaseRepository uses thread-local connection reuse with WAL mode |
@@ -171,7 +173,7 @@ Issues to address once live, during ongoing development.
 | T3-44 | `schema_manager.py` monolith | `poker/repositories/schema_manager.py` | 2,949 lines. Single `_init_db()` contains CREATE TABLE for all 25+ tables (~1,500 lines) plus 63 migration methods (most are no-ops). Schema and migrations tightly coupled. Extends T3-17. Split schema definitions by domain and archive historical migrations. | |
 | T3-45 | `run_ai_tournament.py` god script | `experiments/run_ai_tournament.py` | 2,513 lines, 13 classes. Single file contains dataclass definitions, rate limiting, worker thread management, game simulation loop, pause/resume coordination, AI interpretation, CLI parsing. `AITournamentRunner` alone is ~1,200 lines. Split into config, runner, worker, simulator, and CLI modules. | |
 | T3-46 | `admin_dashboard_routes.py` oversized | `flask_app/routes/admin_dashboard_routes.py` | 1,794 lines, 34 endpoints mixing admin UI redirects, analytics, model management, data export, and complex SQL query builders (~400 lines). Move analytics to dedicated service layer; extract model management to separate route file. | |
-| T3-47 | `game_handler.py` mixed responsibilities | `flask_app/handlers/game_handler.py` | 1,465 lines, 21 top-level functions. Named "handler" but contains game loop logic, avatar reactions, pressure detection, tournament completion, AI commentary generation. `progress_game()` is 200+ lines of nested conditionals. Split into game loop, commentary service, tournament completion, and pressure handler. | |
+| T3-47 | `game_handler.py` mixed responsibilities | `flask_app/handlers/game_handler.py` | 1,465 lines, 21 top-level functions. Named "handler" but contains game loop logic, avatar reactions, pressure detection, tournament completion, AI commentary generation. **Hotspot**: `handle_evaluating_hand_phase()` is 215 lines doing 14+ operations (winner determination, pot award, showdown prep, async commentary spawn, pressure events, memory update, coaching progression, eliminations, tournament check, psychology recovery, new hand setup, guest tracking). `progress_game()` is 165 lines with ~100 lines of run-it-out logic (nested conditionals, sleep delays, reaction scheduling). **Split into**: `game_loop.py` (progress_game, phase transitions), `hand_completion.py` (handle_evaluating_hand_phase, showdown, winners), `ai_action_handler.py` (handle_ai_action, decision execution), `tournament_handler.py` (eliminations, completion), `runout_handler.py` (run-it-out reveals, reaction scheduling), `commentary_handler.py` (generate_ai_commentary, memory feeding). | |
 
 ### Frontend Code Organization
 
