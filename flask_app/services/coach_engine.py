@@ -18,6 +18,7 @@ from poker.controllers import classify_preflop_hand
 from poker.card_utils import card_to_string
 
 from ..services import game_state_service
+from ..extensions import game_repo
 from .skill_definitions import ALL_SKILLS
 from .coach_progression import CoachProgressionService
 
@@ -148,6 +149,37 @@ def _get_raw_position(game_state, player_idx: int) -> str:
     return "unknown"
 
 
+def _position_label_to_key(position_label: str) -> str:
+    """Convert display label to position key for range lookup.
+
+    Examples:
+        'Button' -> 'button'
+        'Under The Gun' -> 'under_the_gun'
+        'Small Blind' -> 'small_blind_player'
+
+    Args:
+        position_label: Human-readable position label from _get_position_label()
+
+    Returns:
+        Position key for use with hand_ranges module
+    """
+    mapping = {
+        'Button': 'button',
+        'Cutoff': 'cutoff',
+        'Under The Gun': 'under_the_gun',
+        'Small Blind': 'small_blind_player',
+        'Big Blind': 'big_blind_player',
+        'Middle Position 1': 'middle_position_1',
+        'Middle Position 2': 'middle_position_2',
+        'Middle Position 3': 'middle_position_3',
+    }
+    result = mapping.get(position_label)
+    if result is None:
+        logger.warning(f"Unknown position label '{position_label}', defaulting to 'button'")
+        return 'button'
+    return result
+
+
 def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[OpponentInfo]:
     """Build OpponentInfo objects for active opponents (for range-based equity)."""
     infos = []
@@ -173,11 +205,38 @@ def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[
     return infos
 
 
-def _get_opponent_stats(game_data: dict, human_name: str) -> List[Dict]:
+def _get_style_label(vpip: float, aggression: float) -> str:
+    """Derive play style label from VPIP and aggression stats.
+
+    Uses same thresholds as OpponentTendencies.get_play_style_label().
+    """
+    from poker.config import VPIP_TIGHT_THRESHOLD, AGGRESSION_FACTOR_HIGH
+
+    is_tight = vpip < VPIP_TIGHT_THRESHOLD
+    is_aggressive = aggression > AGGRESSION_FACTOR_HIGH
+
+    if is_tight and is_aggressive:
+        return 'tight-aggressive'
+    elif not is_tight and is_aggressive:
+        return 'loose-aggressive'
+    elif is_tight and not is_aggressive:
+        return 'tight-passive'
+    else:
+        return 'loose-passive'
+
+
+def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -> List[Dict]:
     """Extract opponent stats from memory manager, including stack and all-in status.
 
-    Returns a list of opponent stat dicts. On error, logs and returns partial results
-    collected so far (may be empty list).
+    Args:
+        game_data: The current game data dict
+        human_name: The human player's name (observer)
+        user_id: Optional user ID for fetching cross-session historical data
+
+    Returns:
+        List of opponent stat dicts, each containing current game stats
+        (including stack, bet, is_all_in) and optionally a nested 'historical'
+        block with cross-session data.
     """
     stats = []
 
@@ -192,6 +251,14 @@ def _get_opponent_stats(game_data: dict, human_name: str) -> List[Dict]:
     except AttributeError as e:
         logger.error(f"_get_opponent_stats: cannot access game_state: {e}")
         return stats
+
+    # Load historical data if user_id provided
+    historical_data = {}
+    if user_id:
+        try:
+            historical_data = game_repo.load_cross_session_opponent_models(human_name, user_id)
+        except Exception as e:
+            logger.warning(f"Failed to load historical opponent data: {e}")
 
     memory_manager = game_data.get('memory_manager')
     omm = None
@@ -232,6 +299,19 @@ def _get_opponent_stats(game_data: dict, human_name: str) -> List[Dict]:
                     })
                 except (AttributeError, KeyError) as e:
                     logger.warning(f"_get_opponent_stats: failed to get tendencies for {player.name}: {e}")
+
+            # Add historical data if available
+            if player.name in historical_data:
+                hist = historical_data[player.name]
+                opp_data['historical'] = {
+                    'session_count': hist['session_count'],
+                    'total_hands': hist['total_hands'],
+                    'vpip': hist['vpip'],
+                    'pfr': hist['pfr'],
+                    'aggression': hist['aggression_factor'],
+                    'style': _get_style_label(hist['vpip'], hist['aggression_factor']),
+                    'notes': hist['notes'][-5:],  # Most recent 5 notes
+                }
 
             stats.append(opp_data)
     except (AttributeError, TypeError) as e:
@@ -360,8 +440,16 @@ def _get_position_context(position: str, phase: str) -> str:
 
 def compute_coaching_data(game_id: str, player_name: str,
                           game_data: Optional[Dict] = None,
-                          game_state_override=None) -> Optional[Dict]:
+                          game_state_override=None,
+                          user_id: str = None) -> Optional[Dict]:
     """Compute all coaching statistics for the given player.
+
+    Args:
+        game_id: The game identifier
+        player_name: The human player's name
+        game_data: Optional pre-loaded game data dict
+        game_state_override: Optional game state to use instead of current
+        user_id: Optional user ID for cross-session opponent history
 
     Returns a dict with equity, pot odds, hand strength, outs,
     recommendation, opponent stats, etc. Returns None if game not found.
@@ -488,8 +576,8 @@ def compute_coaching_data(game_id: str, player_name: str,
         except Exception as e:
             logger.warning(f"Recommendation calculation failed: {e}")
 
-    # Opponent stats (with stack and all-in info)
-    result['opponent_stats'] = _get_opponent_stats(game_data, player_name)
+    # Opponent stats (with stack, all-in info, and historical data if user_id provided)
+    result['opponent_stats'] = _get_opponent_stats(game_data, player_name, user_id=user_id)
 
     # Available actions (what the player can actually do)
     result['available_actions'] = _get_available_actions(game_state, player, cost_to_call)
@@ -508,6 +596,42 @@ def compute_coaching_data(game_id: str, player_name: str,
     # Player name for multi-street context filtering
     result['player_name'] = player_name
 
+    # Board texture analysis (for coach to comment on wet/dry boards)
+    if community_strs:
+        try:
+            from poker.board_analyzer import analyze_board_texture
+            board_texture = analyze_board_texture(community_strs)
+            result['board_texture'] = board_texture
+        except Exception as e:
+            logger.warning(f"Board texture analysis failed: {e}")
+
+    # Opponent ranges summary (for coach to explain equity vs ranges)
+    if opponent_infos:
+        try:
+            from poker.hand_ranges import get_opponent_range, EquityConfig
+            config = EquityConfig()
+            opponent_ranges = {}
+            for opp_info in opponent_infos:
+                opp_range = get_opponent_range(opp_info, config)
+                opponent_ranges[opp_info.name] = {
+                    'range_size': len(opp_range),
+                    'range_pct': round(len(opp_range) / 169 * 100, 1),
+                    'sample_hands': sorted(list(opp_range))[:10],
+                }
+            result['opponent_ranges'] = opponent_ranges
+        except Exception as e:
+            logger.warning(f"Opponent range calculation failed: {e}")
+
+    # Player hand range analysis (is player playing outside standard range?)
+    if hand_strs and len(hand_strs) == 2:
+        try:
+            from poker.hand_ranges import is_hand_in_standard_range
+            position_key = _position_label_to_key(position)
+            range_analysis = is_hand_in_standard_range(hand_strs[0], hand_strs[1], position_key)
+            result['player_range_analysis'] = range_analysis
+        except Exception as e:
+            logger.warning(f"Player range analysis failed: {e}")
+
     return result
 
 
@@ -523,7 +647,7 @@ def compute_coaching_data_with_progression(
     Wraps compute_coaching_data() and adds classification, coaching
     decision, and skill states from the progression system.
     """
-    data = compute_coaching_data(game_id, player_name, game_data=game_data)
+    data = compute_coaching_data(game_id, player_name, game_data=game_data, user_id=user_id)
     if data is None:
         return None
 

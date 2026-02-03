@@ -35,7 +35,8 @@ logger = logging.getLogger(__name__)
 # v64: Add owner_id and visibility to personalities for user-scoped access
 # v65: Add can_access_coach permission for RBAC gating
 # v66: Add window_decisions column for true sliding window (fixes proportional trim bug)
-SCHEMA_VERSION = 66
+# v67: Add range tracking columns to player_decision_analysis for coach integration
+SCHEMA_VERSION = 67
 
 
 
@@ -583,7 +584,7 @@ class SchemaManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
 
-            # 22. Player decision analysis (v20, v22, v23)
+            # 22. Player decision analysis (v20, v22, v23, v67)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS player_decision_analysis (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -623,6 +624,12 @@ class SchemaManager:
                     display_emotion TEXT,
                     elastic_aggression REAL,
                     elastic_bluff_tendency REAL,
+                    opponent_ranges_json TEXT,
+                    board_texture_json TEXT,
+                    player_hand_canonical TEXT,
+                    player_hand_in_range BOOLEAN,
+                    player_hand_tier TEXT,
+                    standard_range_pct REAL,
                     analyzer_version TEXT,
                     processing_time_ms INTEGER,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
@@ -992,6 +999,7 @@ class SchemaManager:
             64: (self._migrate_v64_add_personality_ownership, "Add owner_id and visibility to personalities"),
             65: (self._migrate_v65_add_coach_permission, "Add can_access_coach permission"),
             66: (self._migrate_v66_add_window_decisions, "Add window_decisions column for sliding window"),
+            67: (self._migrate_v67_add_range_tracking, "Add range tracking columns to player_decision_analysis"),
         }
 
         with self._get_connection() as conn:
@@ -3026,11 +3034,45 @@ class SchemaManager:
         for user_id, skill_id, opps, correct in rows:
             incorrect = opps - correct
             decisions = [True] * correct + [False] * incorrect
-            random.shuffle(decisions)
+            # Use local Random instance to avoid modifying global state
+            rng = random.Random(hash((user_id, skill_id)))
+            rng.shuffle(decisions)
             conn.execute(
                 "UPDATE player_skill_progress SET window_decisions = ? "
                 "WHERE user_id = ? AND skill_id = ?",
                 (json.dumps(decisions), user_id, skill_id),
             )
         logger.info("Migration v66 complete: window_decisions column added")
+
+    def _migrate_v67_add_range_tracking(self, conn: sqlite3.Connection) -> None:
+        """Migration v67: Add range tracking columns to player_decision_analysis.
+
+        Adds columns for:
+        - opponent_ranges_json: Captured opponent ranges at decision time
+        - board_texture_json: Board texture analysis
+        - player_hand_canonical: Player's hand in canonical notation (AKs, Q7o)
+        - player_hand_in_range: Whether hand is in standard range for position
+        - player_hand_tier: Hand tier (premium, strong, playable, marginal, trash)
+        - standard_range_pct: Expected range % for position
+        """
+        columns = [row[1] for row in conn.execute(
+            "PRAGMA table_info(player_decision_analysis)"
+        ).fetchall()]
+
+        new_columns = [
+            ("opponent_ranges_json", "TEXT"),
+            ("board_texture_json", "TEXT"),
+            ("player_hand_canonical", "TEXT"),
+            ("player_hand_in_range", "BOOLEAN"),
+            ("player_hand_tier", "TEXT"),
+            ("standard_range_pct", "REAL"),
+        ]
+
+        for col_name, col_type in new_columns:
+            if col_name not in columns:
+                conn.execute(
+                    f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}"
+                )
+
+        logger.info("Migration v67 complete: range tracking columns added to player_decision_analysis")
 

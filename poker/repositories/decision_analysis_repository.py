@@ -5,7 +5,7 @@ Covers the player_decision_analysis table.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from poker.repositories.base_repository import BaseRepository
 from poker.repositories.repository_utils import build_where_clause
@@ -46,8 +46,10 @@ class DecisionAnalysisRepository(BaseRepository):
                     tilt_level, tilt_source,
                     valence, arousal, control, focus,
                     display_emotion, elastic_aggression, elastic_bluff_tendency,
+                    opponent_ranges_json, board_texture_json,
+                    player_hand_canonical, player_hand_in_range, player_hand_tier, standard_range_pct,
                     analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -84,6 +86,12 @@ class DecisionAnalysisRepository(BaseRepository):
                 data.get('display_emotion'),
                 data.get('elastic_aggression'),
                 data.get('elastic_bluff_tendency'),
+                data.get('opponent_ranges_json'),
+                data.get('board_texture_json'),
+                data.get('player_hand_canonical'),
+                data.get('player_hand_in_range'),
+                data.get('player_hand_tier'),
+                data.get('standard_range_pct'),
                 data.get('analyzer_version'),
                 data.get('processing_time_ms'),
             ))
@@ -269,3 +277,40 @@ class DecisionAnalysisRepository(BaseRepository):
                 'by_quality': by_quality,
                 'by_action': by_action,
             }
+
+    def get_range_timeline(self, game_id: str, hand_number: int) -> List[Dict[str, Any]]:
+        """Get range evolution for a hand across all streets.
+
+        Returns list of decisions ordered by time with range and texture data.
+        Useful for analyzing how opponent ranges narrowed through the hand.
+
+        Args:
+            game_id: Game identifier
+            hand_number: Hand number within the game
+
+        Returns:
+            List of dicts with:
+            - phase, player_name, opponent_ranges_json, board_texture_json,
+              equity_vs_ranges, community_cards, action_taken,
+              player_hand_canonical, player_hand_in_range, player_hand_tier
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT
+                    phase,
+                    player_name,
+                    opponent_ranges_json,
+                    board_texture_json,
+                    equity_vs_ranges,
+                    community_cards,
+                    action_taken,
+                    player_hand_canonical,
+                    player_hand_in_range,
+                    player_hand_tier,
+                    created_at
+                FROM player_decision_analysis
+                WHERE game_id = ? AND hand_number = ?
+                ORDER BY created_at ASC
+            """, (game_id, hand_number))
+
+            return [dict(row) for row in cursor.fetchall()]
