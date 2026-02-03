@@ -18,6 +18,7 @@ from poker.controllers import classify_preflop_hand
 from poker.card_utils import card_to_string
 
 from ..services import game_state_service
+from ..extensions import game_repo
 from .skill_definitions import ALL_SKILLS
 from .coach_progression import CoachProgressionService
 
@@ -204,44 +205,95 @@ def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[
     return infos
 
 
-def _get_opponent_stats(game_data: dict, human_name: str) -> List[Dict]:
-    """Extract opponent stats from memory manager."""
+def _get_style_label(vpip: float, aggression: float) -> str:
+    """Derive play style label from VPIP and aggression stats.
+
+    Uses same thresholds as OpponentTendencies.get_play_style_label().
+    """
+    from poker.config import VPIP_TIGHT_THRESHOLD, AGGRESSION_FACTOR_HIGH
+
+    is_tight = vpip < VPIP_TIGHT_THRESHOLD
+    is_aggressive = aggression > AGGRESSION_FACTOR_HIGH
+
+    if is_tight and is_aggressive:
+        return 'tight-aggressive'
+    elif not is_tight and is_aggressive:
+        return 'loose-aggressive'
+    elif is_tight and not is_aggressive:
+        return 'tight-passive'
+    else:
+        return 'loose-passive'
+
+
+def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -> List[Dict]:
+    """Extract opponent stats from memory manager with optional historical context.
+
+    Args:
+        game_data: The current game data dict
+        human_name: The human player's name (observer)
+        user_id: Optional user ID for fetching cross-session historical data
+
+    Returns:
+        List of opponent stat dicts, each containing current game stats
+        and optionally a nested 'historical' block with cross-session data.
+    """
     stats = []
+
+    # Load historical data if user_id provided
+    historical_data = {}
+    if user_id:
+        try:
+            historical_data = game_repo.load_cross_session_opponent_models(human_name, user_id)
+        except Exception as e:
+            logger.warning(f"Failed to load historical opponent data: {e}")
+
     try:
         memory_manager = game_data.get('memory_manager')
-        if not memory_manager:
-            return stats
-
-        omm = getattr(memory_manager, 'opponent_model_manager', None)
-        if not omm:
-            return stats
-
         game_state = game_data['state_machine'].game_state
+
+        omm = getattr(memory_manager, 'opponent_model_manager', None) if memory_manager else None
+
         for player in game_state.players:
             if player.name == human_name or player.is_folded:
                 continue
 
-            # Get model from human's perspective
-            if human_name in omm.models and player.name in omm.models[human_name]:
+            # Build current game stats
+            if omm and human_name in omm.models and player.name in omm.models[human_name]:
                 model = omm.models[human_name][player.name]
                 tendencies = model.tendencies
-                stats.append({
+                stat_entry = {
                     'name': player.name,
                     'vpip': round(tendencies.vpip, 2),
                     'pfr': round(tendencies.pfr, 2),
                     'aggression': round(tendencies.aggression_factor, 1),
                     'style': tendencies.get_play_style_label(),
                     'hands_observed': tendencies.hands_observed,
-                })
+                }
             else:
-                stats.append({
+                stat_entry = {
                     'name': player.name,
                     'vpip': None,
                     'pfr': None,
                     'aggression': None,
                     'style': 'unknown',
                     'hands_observed': 0,
-                })
+                }
+
+            # Add historical data if available
+            if player.name in historical_data:
+                hist = historical_data[player.name]
+                stat_entry['historical'] = {
+                    'session_count': hist['session_count'],
+                    'total_hands': hist['total_hands'],
+                    'vpip': hist['vpip'],
+                    'pfr': hist['pfr'],
+                    'aggression': hist['aggression_factor'],
+                    'style': _get_style_label(hist['vpip'], hist['aggression_factor']),
+                    'notes': hist['notes'][-5:],  # Most recent 5 notes
+                }
+
+            stats.append(stat_entry)
+
     except Exception as e:
         logger.warning(f"Opponent stats extraction failed: {e}")
 
@@ -261,8 +313,16 @@ def _get_current_hand_actions(game_data: dict) -> List[Dict]:
 
 def compute_coaching_data(game_id: str, player_name: str,
                           game_data: Optional[Dict] = None,
-                          game_state_override=None) -> Optional[Dict]:
+                          game_state_override=None,
+                          user_id: str = None) -> Optional[Dict]:
     """Compute all coaching statistics for the given player.
+
+    Args:
+        game_id: The game identifier
+        player_name: The human player's name
+        game_data: Optional pre-loaded game data dict
+        game_state_override: Optional game state to use instead of current
+        user_id: Optional user ID for cross-session opponent history
 
     Returns a dict with equity, pot odds, hand strength, outs,
     recommendation, opponent stats, etc. Returns None if game not found.
@@ -389,8 +449,8 @@ def compute_coaching_data(game_id: str, player_name: str,
         except Exception as e:
             logger.warning(f"Recommendation calculation failed: {e}")
 
-    # Opponent stats
-    result['opponent_stats'] = _get_opponent_stats(game_data, player_name)
+    # Opponent stats (with historical data if user_id provided)
+    result['opponent_stats'] = _get_opponent_stats(game_data, player_name, user_id=user_id)
 
     # Current hand action timeline
     result['hand_actions'] = _get_current_hand_actions(game_data)
@@ -451,7 +511,7 @@ def compute_coaching_data_with_progression(
     Wraps compute_coaching_data() and adds classification, coaching
     decision, and skill states from the progression system.
     """
-    data = compute_coaching_data(game_id, player_name, game_data=game_data)
+    data = compute_coaching_data(game_id, player_name, game_data=game_data, user_id=user_id)
     if data is None:
         return None
 
