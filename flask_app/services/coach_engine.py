@@ -220,17 +220,42 @@ def _extract_preflop_action(
     )
 
 
-def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[OpponentInfo]:
+def _build_opponent_infos(
+    game_data: dict,
+    game_state,
+    human_name: str,
+    user_id: Optional[str] = None
+) -> List[OpponentInfo]:
     """Build OpponentInfo objects for active opponents (for range-based equity).
 
     Includes preflop action context for more accurate range narrowing.
+    Uses cross-session historic stats when current session data is insufficient.
+
+    Args:
+        game_data: Current game data dict
+        game_state: Current poker game state
+        human_name: The human player's name (observer)
+        user_id: Optional user ID for fetching cross-session historical data
     """
+    from poker.hand_ranges import EquityConfig
+
     infos = []
     memory_manager = game_data.get('memory_manager')
     omm = getattr(memory_manager, 'opponent_model_manager', None) if memory_manager else None
 
     # Get game messages for preflop action extraction
     game_messages = game_data.get('messages', [])
+
+    # Load cross-session historic stats if user_id provided
+    # AI personalities have deterministic behavior, so historic stats are reliable
+    historical_data = {}
+    if user_id:
+        try:
+            historical_data = game_repo.load_cross_session_opponent_models(human_name, user_id)
+        except Exception as e:
+            logger.debug(f"Failed to load historic stats: {e}")
+
+    min_hands = EquityConfig().min_hands_for_stats
 
     for i, player in enumerate(game_state.players):
         if player.name == human_name or player.is_folded:
@@ -245,14 +270,30 @@ def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[
                 player.name, game_messages, game_state
             )
 
-        # Add observed stats from opponent model
+        # Add observed stats from opponent model (current session)
+        current_hands = 0
         if omm and human_name in omm.models and player.name in omm.models[human_name]:
             model = omm.models[human_name][player.name]
             t = model.tendencies
+            current_hands = t.hands_observed
             info.hands_observed = t.hands_observed
             info.vpip = t.vpip
             info.pfr = t.pfr
             info.aggression = t.aggression_factor
+
+        # Use historic stats as fallback when current session has insufficient data
+        # AI personalities have consistent behavior, so historic data is reliable
+        if current_hands < min_hands and player.name in historical_data:
+            hist = historical_data[player.name]
+            if hist['total_hands'] >= min_hands:
+                info.hands_observed = hist['total_hands']
+                info.vpip = hist['vpip']
+                info.pfr = hist['pfr']
+                info.aggression = hist['aggression_factor']
+                logger.debug(
+                    f"Using historic stats for {player.name}: "
+                    f"{hist['total_hands']} hands across {hist['session_count']} sessions"
+                )
 
         infos.append(info)
     return infos
@@ -556,8 +597,8 @@ def compute_coaching_data(game_id: str, player_name: str,
         'opponent_stats': [],
     }
 
-    # Equity calculations
-    opponent_infos = _build_opponent_infos(game_data, game_state, player_name)
+    # Equity calculations (pass user_id for cross-session historic stats)
+    opponent_infos = _build_opponent_infos(game_data, game_state, player_name, user_id)
     num_opponents = len(opponent_infos) or 1
 
     # Primary: equity vs opponent ranges (used for coaching guidance)
