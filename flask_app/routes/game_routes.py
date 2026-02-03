@@ -16,7 +16,6 @@ from poker.prompt_config import PromptConfig
 from poker.betting_context import BettingContext
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
-from poker.elasticity_manager import ElasticityManager
 from poker.tilt_modifier import TiltState
 from poker.emotional_state import EmotionalState
 from poker.pressure_detector import PressureEventDetector
@@ -394,16 +393,7 @@ def api_game_state(game_id):
                 )
                 db_messages = game_repo.load_messages(game_id)
 
-                elasticity_manager = ElasticityManager()
-                for player in state_machine.game_state.players:
-                    if not player.is_human and player.name in ai_controllers:
-                        controller = ai_controllers[player.name]
-                        elasticity_manager.add_player(
-                            player.name,
-                            controller.ai_player.personality_config
-                        )
-
-                pressure_detector = PressureEventDetector(elasticity_manager)
+                pressure_detector = PressureEventDetector()
                 pressure_stats = PressureStatsTracker()
 
                 memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
@@ -453,7 +443,6 @@ def api_game_state(game_id):
                 current_game_data = {
                     'state_machine': state_machine,
                     'ai_controllers': ai_controllers,
-                    'elasticity_manager': elasticity_manager,
                     'pressure_detector': pressure_detector,
                     'pressure_stats': pressure_stats,
                     'memory_manager': memory_manager,
@@ -891,7 +880,6 @@ def api_new_game():
     default_prompt_config = load_game_mode_preset(game_mode)
 
     ai_controllers = {}
-    elasticity_manager = ElasticityManager()
 
     for player in state_machine.game_state.players:
         if not player.is_human:
@@ -908,13 +896,10 @@ def api_new_game():
                 capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo
             )
             ai_controllers[player.name] = new_controller
-            elasticity_manager.add_player(
-                player.name,
-                new_controller.ai_player.personality_config
-            )
+
     from poker.repositories.sqlite_repositories import PressureEventRepository
     event_repository = PressureEventRepository(config.DB_PATH)
-    pressure_detector = PressureEventDetector(elasticity_manager)
+    pressure_detector = PressureEventDetector()
     pressure_stats = PressureStatsTracker(game_id, event_repository)
 
     memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
@@ -947,7 +932,6 @@ def api_new_game():
     game_data = {
         'state_machine': state_machine,
         'ai_controllers': ai_controllers,
-        'elasticity_manager': elasticity_manager,
         'pressure_detector': pressure_detector,
         'pressure_stats': pressure_stats,
         'memory_manager': memory_manager,

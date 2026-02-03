@@ -66,11 +66,10 @@ def api_game_diagnostic(game_id):
 def get_elasticity_data(game_id):
     """Get current elasticity data for all AI players."""
     game_data = game_state_service.get_game(game_id)
-    if not game_data or 'elasticity_manager' not in game_data:
-        return jsonify({'error': 'Game not found or elasticity not enabled'}), 404
+    if not game_data or 'ai_controllers' not in game_data:
+        return jsonify({'error': 'Game not found or no AI controllers'}), 404
 
-    elasticity_manager = game_data['elasticity_manager']
-    elasticity_data = format_elasticity_data(elasticity_manager)
+    elasticity_data = format_elasticity_data(game_data['ai_controllers'])
 
     return jsonify(elasticity_data)
 

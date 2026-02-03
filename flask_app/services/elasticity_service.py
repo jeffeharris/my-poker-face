@@ -7,18 +7,22 @@ for API responses and WebSocket emissions.
 from typing import Dict, Any
 
 
-def format_elasticity_data(elasticity_manager) -> Dict[str, Any]:
-    """Format elasticity data from an ElasticityManager for API/WebSocket emission.
+def format_elasticity_data(ai_controllers: Dict[str, Any]) -> Dict[str, Any]:
+    """Format elasticity data from AI controllers for API/WebSocket emission.
 
     Args:
-        elasticity_manager: The ElasticityManager instance
+        ai_controllers: Dictionary mapping player names to AIPlayerController instances
 
     Returns:
         Dictionary with player names as keys, containing traits and mood data
     """
     elasticity_data = {}
 
-    for name, personality in elasticity_manager.personalities.items():
+    for name, controller in ai_controllers.items():
+        if not hasattr(controller, 'psychology'):
+            continue
+
+        personality = controller.psychology.elastic
         traits_data = {}
         for trait_name, trait in personality.traits.items():
             traits_data[trait_name] = {
@@ -32,7 +36,7 @@ def format_elasticity_data(elasticity_manager) -> Dict[str, Any]:
 
         elasticity_data[name] = {
             'traits': traits_data,
-            'mood': personality.get_current_mood()
+            'mood': controller.psychology.mood
         }
 
     return elasticity_data

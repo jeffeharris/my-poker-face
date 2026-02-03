@@ -6,19 +6,17 @@ import unittest
 from datetime import datetime
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker, PressureEvent
-from poker.elasticity_manager import ElasticityManager
 from poker.poker_game import PokerGameState, Player, initialize_game_state
 from core.card import Card
 
 
 class TestPressureSystem(unittest.TestCase):
-    
+
     def setUp(self):
         """Set up test components."""
-        self.elasticity_manager = ElasticityManager()
-        self.pressure_detector = PressureEventDetector(self.elasticity_manager)
+        self.pressure_detector = PressureEventDetector()
         self.stats_tracker = PressureStatsTracker()
-        
+
         # Create a test game state with 3 players
         self.game_state = initialize_game_state(
             player_names=["Gordon Ramsay", "Donald Trump", "Bob Ross"],

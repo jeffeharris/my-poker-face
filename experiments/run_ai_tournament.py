@@ -53,8 +53,6 @@ from poker.repositories import create_repos
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
-from poker.pressure_detector import PressureEventDetector
-from poker.elasticity_manager import ElasticityManager
 from experiments.pause_coordinator import PauseCoordinator
 from core.llm import LLMClient, CallType
 from flask_app.config import get_assistant_model, get_assistant_provider

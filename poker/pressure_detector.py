@@ -7,16 +7,19 @@ in AI player personalities.
 
 from typing import Dict, List, Optional, Tuple, Any
 from .poker_game import PokerGameState, Player
-from .elasticity_manager import ElasticityManager
 from .hand_evaluator import HandEvaluator
 from .moment_analyzer import MomentAnalyzer
 
 
 class PressureEventDetector:
-    """Detects and triggers pressure events based on game outcomes."""
-    
-    def __init__(self, elasticity_manager: ElasticityManager):
-        self.elasticity_manager = elasticity_manager
+    """Detects pressure events based on game outcomes.
+
+    This class is detection-only. It returns events but does not apply them.
+    Callers are responsible for routing events to the appropriate systems
+    (e.g., controller.psychology.apply_pressure_event()).
+    """
+
+    def __init__(self):
         self.last_pot_size = 0
         self.player_hand_history: Dict[str, List[int]] = {}  # Track hand strengths
         
@@ -191,29 +194,3 @@ class PressureEventDetector:
         
         return events
     
-    def apply_detected_events(self, events: List[Tuple[str, List[str]]]) -> None:
-        """Apply all detected pressure events to affected players."""
-        for event_name, affected_players in events:
-            self.elasticity_manager.apply_game_event(event_name, affected_players)
-    
-    def apply_recovery(self) -> None:
-        """Apply trait recovery to all players."""
-        self.elasticity_manager.recover_all()
-    
-    def get_pressure_summary(self) -> Dict[str, Dict[str, float]]:
-        """Get current pressure levels for all players."""
-        summary = {}
-        for name, personality in self.elasticity_manager.personalities.items():
-            summary[name] = {
-                'avg_pressure': sum(t.pressure for t in personality.traits.values()) / len(personality.traits),
-                'mood': personality.get_current_mood(),
-                'traits': {
-                    trait_name: {
-                        'value': trait.value,
-                        'pressure': trait.pressure,
-                        'deviation': abs(trait.value - trait.anchor)
-                    }
-                    for trait_name, trait in personality.traits.items()
-                }
-            }
-        return summary

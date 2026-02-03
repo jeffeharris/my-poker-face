@@ -400,7 +400,6 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
 
     pressure_detector = game_data['pressure_detector']
     events = pressure_detector.detect_showdown_events(game_state, winner_info)
-    pressure_detector.apply_detected_events(events)
 
     if not events:
         return
@@ -431,12 +430,7 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
 
     # Emit elasticity update from psychology state
     if ai_controllers:
-        elasticity_data = {}
-        for name, controller in ai_controllers.items():
-            elasticity_data[name] = {
-                'traits': controller.psychology.elastic.to_dict().get('traits', {}),
-                'mood': controller.psychology.mood
-            }
+        elasticity_data = format_elasticity_data(ai_controllers)
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 
@@ -1124,8 +1118,8 @@ def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
     socketio.emit('player_turn_start', {'current_player_options': player_options, 'cost_to_call': cost_to_call}, to=game_id)
 
     # Emit elasticity update for UI display
-    if 'elasticity_manager' in game_data:
-        elasticity_data = format_elasticity_data(game_data['elasticity_manager'])
+    if 'ai_controllers' in game_data:
+        elasticity_data = format_elasticity_data(game_data['ai_controllers'])
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 
@@ -1297,14 +1291,16 @@ def progress_game(game_id: str) -> None:
 
 
 def detect_and_apply_pressure(game_id: str, event_type: str, **kwargs) -> None:
-    """Helper function to detect and apply pressure events."""
+    """Helper function to detect and apply pressure events.
+
+    Routes events through PlayerPsychology for unified tilt + elastic handling.
+    """
     current_game_data = game_state_service.get_game(game_id)
-    if not current_game_data or 'pressure_detector' not in current_game_data:
+    if not current_game_data:
         return
 
-    pressure_detector = current_game_data['pressure_detector']
-    elasticity_manager = current_game_data['elasticity_manager']
     game_state = current_game_data['state_machine'].game_state
+    ai_controllers = current_game_data.get('ai_controllers', {})
 
     events = []
 
@@ -1321,16 +1317,27 @@ def detect_and_apply_pressure(game_id: str, event_type: str, **kwargs) -> None:
         if bet_size > pot_size * 0.75:
             events.append(('aggressive_bet', [betting_player]))
 
-    if events:
-        pressure_detector.apply_detected_events(events)
+    if not events:
+        return
 
-        if 'pressure_stats' in current_game_data:
-            pressure_stats = current_game_data['pressure_stats']
-            for event_name, affected_players in events:
-                details = kwargs.copy()
-                pressure_stats.record_event(event_name, affected_players, details)
+    # Record stats
+    if 'pressure_stats' in current_game_data:
+        pressure_stats = current_game_data['pressure_stats']
+        for event_name, affected_players in events:
+            details = kwargs.copy()
+            pressure_stats.record_event(event_name, affected_players, details)
 
-        elasticity_data = format_elasticity_data(elasticity_manager)
+    # Route through PlayerPsychology for unified tilt + elastic handling
+    for event_name, affected_players in events:
+        for player_name in affected_players:
+            if player_name in ai_controllers:
+                controller = ai_controllers[player_name]
+                # No specific opponent for mid-game events
+                controller.psychology.apply_pressure_event(event_name, opponent=None)
+
+    # Emit elasticity update from psychology state
+    if ai_controllers:
+        elasticity_data = format_elasticity_data(ai_controllers)
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 

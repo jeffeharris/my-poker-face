@@ -103,8 +103,7 @@ Manages dynamic personality traits that shift under game pressure while maintain
 
 **Key Components:**
 - `ElasticTrait`: Individual trait with anchor (base value), current value, elasticity (range), and pressure
-- `ElasticPersonality`: Collection of elastic traits
-- `ElasticityManager`: Orchestrator for all players' elastic traits
+- `ElasticPersonality`: Collection of elastic traits (owned by `PlayerPsychology`)
 
 **Traits Managed:**
 | Trait | Description | Typical Elasticity |
@@ -190,7 +189,8 @@ Tracks tilt state and modifies AI behavior/prompts under tilt.
 ### 5. PressureEventDetector
 **File:** `poker/pressure_detector.py`
 
-Detects game outcomes and emits events that trigger psychological reactions.
+Detects game outcomes and returns events that trigger psychological reactions. This class is
+**detection-only** - it does not apply events. Callers route events through `PlayerPsychology`.
 
 **Detectable Events:**
 | Event | Trigger |
@@ -203,12 +203,16 @@ Detects game outcomes and emits events that trigger psychological reactions.
 
 **Key Methods:**
 ```python
-detector.detect_showdown_events(game_state, winner_info)
-detector.detect_fold_events(game_state, folder)
-detector.detect_elimination_events(game_state, eliminated)
-detector.detect_chat_events(sender, message, recipients)
-detector.apply_detected_events(events)
-detector.apply_recovery()
+detector = PressureEventDetector()  # Stateless, no dependencies
+events = detector.detect_showdown_events(game_state, winner_info)
+events = detector.detect_fold_events(game_state, folder)
+events = detector.detect_elimination_events(game_state, eliminated)
+events = detector.detect_chat_events(sender, message, recipients)
+
+# Caller applies events through PlayerPsychology:
+for event_name, affected_players in events:
+    for player_name in affected_players:
+        controller.psychology.apply_pressure_event(event_name, opponent)
 ```
 
 ---
@@ -318,11 +322,11 @@ PlayerPsychology (Orchestrator)
     ├─ imports ElasticPersonality (from elasticity_manager.py)
     ├─ imports EmotionalState (from emotional_state.py)
     ├─ imports TiltState, TiltPromptModifier (from tilt_modifier.py)
+    ├─ owns ElasticPersonality instance directly
     └─ uses compute_baseline_mood(), compute_reactive_spike(), blend_emotional_state()
 
-ElasticityManager
-    └─ owns ElasticPersonality instances
-       └─ own ElasticTrait instances
+ElasticPersonality
+    └─ owns ElasticTrait instances
 
 EmotionalStateGenerator
     ├─ imports StructuredLLMCategorizer (from core module)
@@ -332,15 +336,15 @@ TiltPromptModifier
     └─ takes TiltState and modifies prompts
 
 PressureEventDetector
-    ├─ imports ElasticityManager (owns reference)
     ├─ imports MomentAnalyzer (uses static methods)
-    └─ imports HandEvaluator (to detect bad beats)
+    ├─ imports HandEvaluator (to detect bad beats)
+    └─ stateless - returns events, does not apply them
 
 MomentAnalyzer
     └─ pure utility (static methods, no imports of psychology systems)
 
 AIPlayerController
-    ├─ creates PlayerPsychology
+    ├─ creates PlayerPsychology (which owns ElasticPersonality)
     ├─ uses MomentAnalyzer (static methods)
     └─ calls psychology methods for prompt building
 ```
@@ -360,10 +364,10 @@ AIPlayerController
 
 ### Critical Issues
 
-#### 1. PressureEventDetector Partially Unused
-**Problem:** `PressureEventDetector` exists but event detection is done inline in `game_handler.py`.
+#### ~~1. PressureEventDetector Partially Unused~~ (Fixed 2026-02-03)
+**Problem:** `PressureEventDetector` existed with unused `apply_detected_events()` and `apply_recovery()` methods that updated a parallel `ElasticityManager` not used for AI decisions.
 
-**Impact:** Dead code, duplicated detection logic, no single source of truth.
+**Resolution:** Removed `ElasticityManager` class entirely. Made `PressureEventDetector` detection-only (returns events, doesn't apply them). All pressure events now route through `controller.psychology.apply_pressure_event()` for unified handling of both elastic traits and tilt state.
 
 ### Moderate Issues
 
@@ -376,10 +380,10 @@ Multiple systems can affect the same traits without clear precedence:
 
 #### 4. Redundant Mood Tracking
 Both systems track mood:
-- `ElasticityManager.get_current_mood()` → strings like "hopeless", "intense"
+- `ElasticPersonality.get_current_mood()` → strings like "hopeless", "intense"
 - `EmotionalState.get_display_emotion()` → "nervous", "happy", etc.
 
-Unclear which is authoritative for frontend display.
+`PlayerPsychology.mood` delegates to elastic personality. Frontend should use `controller.psychology.mood`.
 
 #### 5. Hardcoded Configuration
 Pressure events and intrusive thoughts are hardcoded in Python, not configurable.
@@ -392,7 +396,7 @@ Pressure events and intrusive thoughts are hardcoded in Python, not configurable
 
 1. ~~**Consolidate update paths**~~ - Done (2026-02-03)
 
-2. **Activate or deprecate PressureEventDetector** - Either use it in main flow or remove it
+2. ~~**Activate or deprecate PressureEventDetector**~~ - Done (2026-02-03). Made detection-only, removed ElasticityManager.
 
 3. **Document trait mutation precedence** - Establish clear rules (e.g., tilt > elasticity > learning)
 

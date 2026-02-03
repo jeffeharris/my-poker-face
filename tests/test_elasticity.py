@@ -3,7 +3,7 @@ Unit tests for the personality elasticity system.
 """
 
 import unittest
-from poker.elasticity_manager import ElasticTrait, ElasticPersonality, ElasticityManager
+from poker.elasticity_manager import ElasticTrait, ElasticPersonality
 from poker.pressure_detector import PressureEventDetector
 from poker.poker_game import PokerGameState, Player, initialize_game_state
 
@@ -135,22 +135,10 @@ class TestElasticPersonality(unittest.TestCase):
 
 class TestPressureEventDetector(unittest.TestCase):
     """Test the PressureEventDetector class."""
-    
+
     def setUp(self):
         """Set up test fixtures."""
-        self.elasticity_manager = ElasticityManager()
-        self.detector = PressureEventDetector(self.elasticity_manager)
-        
-        # Add test players
-        for name in ["Player1", "Player2", "Player3"]:
-            self.elasticity_manager.add_player(name, {
-                'personality_traits': {
-                    'bluff_tendency': 0.5,
-                    'aggression': 0.5,
-                    'chattiness': 0.5,
-                    'emoji_usage': 0.5
-                }
-            })
+        self.detector = PressureEventDetector()
     
     def test_detect_showdown_events(self):
         """Test detecting events from showdown."""
@@ -217,42 +205,43 @@ class TestPressureEventDetector(unittest.TestCase):
 
 
 class TestElasticityIntegration(unittest.TestCase):
-    """Test the full elasticity system integration."""
-    
+    """Test the full elasticity system integration using ElasticPersonality directly."""
+
     def test_full_pressure_cycle(self):
         """Test a complete pressure application and recovery cycle."""
-        manager = ElasticityManager()
-        
-        # Add a player
-        manager.add_player("Gordon Ramsay", {
-            'personality_traits': {
-                'bluff_tendency': 0.6,
-                'aggression': 0.95,
-                'chattiness': 0.9,
-                'emoji_usage': 0.2
+        # Create an ElasticPersonality directly (how it's used in the actual codebase)
+        personality = ElasticPersonality.from_base_personality(
+            "Gordon Ramsay",
+            {
+                'personality_traits': {
+                    'bluff_tendency': 0.6,
+                    'aggression': 0.95,
+                    'chattiness': 0.9,
+                    'emoji_usage': 0.2
+                }
             }
-        })
-        
+        )
+
         # Get initial trait values
-        initial_traits = manager.get_player_traits("Gordon Ramsay")
-        
+        initial_aggression = personality.get_trait_value('aggression')
+
         # Apply a big loss event
-        manager.apply_game_event("big_loss", ["Gordon Ramsay"])
-        
+        personality.apply_pressure_event("big_loss")
+
         # Check traits changed
-        new_traits = manager.get_player_traits("Gordon Ramsay")
-        self.assertLess(new_traits['aggression'], initial_traits['aggression'])
-        
+        new_aggression = personality.get_trait_value('aggression')
+        self.assertLess(new_aggression, initial_aggression)
+
         # Apply recovery several times
         for _ in range(10):
-            manager.recover_all()
-        
+            personality.recover_traits()
+
         # Check traits moved back toward anchor
-        recovered_traits = manager.get_player_traits("Gordon Ramsay")
-        self.assertGreater(recovered_traits['aggression'], new_traits['aggression'])
+        recovered_aggression = personality.get_trait_value('aggression')
+        self.assertGreater(recovered_aggression, new_aggression)
         # After 10 recoveries, should be closer but not exactly at anchor
         # due to exponential decay
-        diff = abs(recovered_traits['aggression'] - initial_traits['aggression'])
+        diff = abs(recovered_aggression - initial_aggression)
         self.assertLess(diff, 0.1)  # Within 0.1 of original
 
 

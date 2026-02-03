@@ -1,11 +1,17 @@
 # Personality Elasticity System
 
-## Recent Updates (2025-01-06)
+## Recent Updates
 
-### Personality-Specific Elasticity
+### 2026-02-03: Removed ElasticityManager
+- **Removed** `ElasticityManager` class - was a redundant wrapper
+- `ElasticPersonality` is now owned directly by `PlayerPsychology`
+- `PressureEventDetector` is now detection-only (returns events, doesn't apply them)
+- All pressure events route through `controller.psychology.apply_pressure_event()`
+
+### 2025-01-06: Personality-Specific Elasticity
 The elasticity system now supports personality-specific elasticity configurations:
 
-1. **Database Integration**: 
+1. **Database Integration**:
    - Added `elasticity_config` column to personalities table
    - Each personality can have custom elasticity values for traits
 
@@ -19,8 +25,8 @@ The elasticity system now supports personality-specific elasticity configuration
    - Script to generate elasticity for existing personalities
    - Smart defaults based on trait extremeness
 
-4. **ElasticityManager Updates**:
-   - Now reads elasticity from personality config
+4. **PlayerPsychology Integration**:
+   - Psychology reads elasticity from personality config
    - No more hardcoded values for all personalities
    - Proper integration with persistence layer
 
@@ -49,7 +55,7 @@ Key properties:
 - `max`: Maximum possible value (anchor + elasticity, clamped to 1.0)
 
 #### 2. **ElasticPersonality** (`poker/elasticity_manager.py`)
-Manages all elastic traits for a single AI personality.
+Manages all elastic traits for a single AI personality. Owned by `PlayerPsychology`.
 
 Features:
 - Tracks multiple traits (bluff_tendency, aggression, chattiness, emoji_usage)
@@ -57,18 +63,19 @@ Features:
 - Manages mood vocabulary based on pressure levels
 - Supports trait recovery toward anchor values
 
-#### 3. **ElasticityManager** (`poker/elasticity_manager.py`)
-Coordinates elasticity for all AI players in a game.
-
 ```python
-manager = ElasticityManager()
-manager.add_player(name, personality_config)
-manager.apply_game_event("big_win", ["PlayerName"])
-manager.recover_all()
+# Create from personality config
+personality = ElasticPersonality.from_base_personality(name, personality_config)
+
+# Apply pressure events
+personality.apply_pressure_event("big_win")
+
+# Recovery between hands
+personality.recover_traits(rate=0.1)
 ```
 
-#### 4. **PressureEventDetector** (`poker/pressure_detector.py`)
-Detects game events and triggers appropriate pressure changes.
+#### 3. **PressureEventDetector** (`poker/pressure_detector.py`)
+Detects game events and returns pressure events. Detection-only - does not apply events.
 
 Detectable events:
 - `big_win` / `big_loss`: Significant pot wins or losses
@@ -140,85 +147,92 @@ Each personality has mood ranges based on their elasticity:
 
 ### 1. During Hand Evaluation
 ```python
-# In evaluating_hand_transition
-winner_info = determine_winner(game_state)
+# In game_handler.handle_pressure_events()
 events = pressure_detector.detect_showdown_events(game_state, winner_info)
-pressure_detector.apply_detected_events(events)
+
+# Route events through PlayerPsychology
+for event_name, affected_players in events:
+    for player_name in affected_players:
+        if player_name in ai_controllers:
+            controller = ai_controllers[player_name]
+            opponent = winner if player_name != winner else None
+            controller.psychology.apply_pressure_event(event_name, opponent)
 ```
 
 ### 2. During Player Actions
 ```python
 # In AIPlayerController
-controller.ai_player.update_mood_from_elasticity()
-current_traits = controller.get_current_personality_traits()
+current_traits = controller.psychology.traits  # From elastic personality
+mood = controller.psychology.mood
 ```
 
 ### 3. Between Hands
 ```python
-# Apply recovery
-elasticity_manager.recover_all()
+# Apply recovery through PlayerPsychology
+controller.psychology.recover()  # Recovers elastic traits + tilt + emotional state
 ```
 
 ## Usage Examples
 
 ### Basic Setup
 ```python
-from poker.elasticity_manager import ElasticityManager
 from poker.pressure_detector import PressureEventDetector
+from poker.controllers import AIPlayerController
 
-# Initialize
-elasticity_manager = ElasticityManager()
-pressure_detector = PressureEventDetector(elasticity_manager)
+# Initialize detector (stateless, no dependencies)
+pressure_detector = PressureEventDetector()
 
-# Add players
-for player in game_state.players:
-    elasticity_manager.add_player(
-        player.name,
-        personality_config
-    )
+# Players get elastic personality through AIPlayerController
+# which creates PlayerPsychology (which owns ElasticPersonality)
+controller = AIPlayerController(player_name, state_machine, ...)
+# controller.psychology.elastic is the ElasticPersonality instance
 ```
 
-### Detecting Events
+### Detecting and Applying Events
 ```python
-# After showdown
+# After showdown - detect events
 events = pressure_detector.detect_showdown_events(game_state, winner_info)
-pressure_detector.apply_detected_events(events)
+
+# Apply events through PlayerPsychology
+for event_name, affected_players in events:
+    for player_name in affected_players:
+        if player_name in ai_controllers:
+            controller = ai_controllers[player_name]
+            controller.psychology.apply_pressure_event(event_name, opponent=None)
 
 # After chat
 events = pressure_detector.detect_chat_events(sender, message, recipients)
-pressure_detector.apply_detected_events(events)
+for event_name, affected_players in events:
+    for player_name in affected_players:
+        if player_name in ai_controllers:
+            controller.psychology.apply_pressure_event(event_name, opponent=None)
 ```
 
 ### Accessing Current State
 ```python
-# Get current trait values
-traits = elasticity_manager.get_player_traits("Gordon Ramsay")
-mood = elasticity_manager.get_player_mood("Gordon Ramsay")
+# Get current trait values from PlayerPsychology
+traits = controller.psychology.traits  # {'aggression': 0.7, 'bluff_tendency': 0.5, ...}
+mood = controller.psychology.mood      # "intense", "hopeless", etc.
 
-# Get pressure summary
-summary = pressure_detector.get_pressure_summary()
+# Direct access to elastic personality
+elastic = controller.psychology.elastic
+trait_value = elastic.get_trait_value('aggression')
 ```
 
 ## Persistence
 
-The elasticity system fully supports serialization:
+The elasticity system fully supports serialization through PlayerPsychology:
 
 ```python
-# Save state
-elasticity_data = elasticity_manager.to_dict()
+# Save state (through controller)
+elastic_data = controller.psychology.elastic.to_dict()
 
 # Restore state
-elasticity_manager = ElasticityManager.from_dict(elasticity_data)
+from poker.elasticity_manager import ElasticPersonality
+controller.psychology.elastic = ElasticPersonality.from_dict(elastic_data)
 ```
 
-AI players automatically save/restore their elastic personality:
-```python
-# In AIPokerPlayer.to_dict()
-"elastic_personality": self.elastic_personality.to_dict()
-
-# In AIPokerPlayer.from_dict()
-instance.elastic_personality = ElasticPersonality.from_dict(data['elastic_personality'])
-```
+AI controllers automatically save/restore their elastic personality through PlayerPsychology.
 
 ## Configuration
 
