@@ -1,3 +1,11 @@
+export interface PlayerStats {
+  vpip: number;
+  pfr: number;
+  aggression: number;
+  style: string;
+  hands_observed: number;
+}
+
 export interface CoachStats {
   equity: number | null;
   equity_vs_random: number | null;
@@ -16,6 +24,7 @@ export interface CoachStats {
   cost_to_call: number;
   stack: number;
   opponent_stats: OpponentStat[];
+  player_stats: PlayerStats | null;
   progression?: CoachProgression;
 }
 

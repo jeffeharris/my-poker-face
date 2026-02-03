@@ -217,6 +217,43 @@ def _get_opponent_stats(game_data: dict, human_name: str) -> List[Dict]:
     return stats
 
 
+def _get_player_self_stats(game_data: dict, human_name: str) -> Optional[Dict]:
+    """Get the human player's own stats from the AI observer with the most data."""
+    try:
+        memory_manager = game_data.get('memory_manager')
+        if not memory_manager:
+            return None
+
+        omm = getattr(memory_manager, 'opponent_model_manager', None)
+        if not omm:
+            return None
+
+        # Pick the observer with the most hands observed for the most accurate stats
+        best = None
+        best_hands = 0
+        for observer_name, opponents in omm.models.items():
+            if observer_name == human_name:
+                continue
+            if human_name in opponents:
+                t = opponents[human_name].tendencies
+                if t.hands_observed > best_hands:
+                    best = t
+                    best_hands = t.hands_observed
+
+        if best and best_hands >= 1:
+            return {
+                'vpip': round(best.vpip, 2),
+                'pfr': round(best.pfr, 2),
+                'aggression': round(best.aggression_factor, 1),
+                'style': best.get_play_style_label(),
+                'hands_observed': best.hands_observed,
+            }
+    except Exception as e:
+        logger.warning(f"Player self-stats extraction failed: {e}")
+
+    return None
+
+
 def _get_current_hand_actions(game_data: dict) -> List[Dict]:
     """Extract actions from the current in-progress hand."""
     memory_manager = game_data.get('memory_manager')
@@ -360,6 +397,9 @@ def compute_coaching_data(game_id: str, player_name: str,
 
     # Opponent stats
     result['opponent_stats'] = _get_opponent_stats(game_data, player_name)
+
+    # Player's own stats (from any AI observer's model)
+    result['player_stats'] = _get_player_self_stats(game_data, player_name)
 
     # Current hand action timeline
     result['hand_actions'] = _get_current_hand_actions(game_data)

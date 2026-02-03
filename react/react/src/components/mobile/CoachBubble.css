@@ -1,6 +1,6 @@
 .coach-bubble {
   position: fixed;
-  bottom: calc(12dvh + 12px);
+  bottom: calc(12dvh + 29dvh + 12px);
   left: 12px;
   right: 12px;
   z-index: 160;

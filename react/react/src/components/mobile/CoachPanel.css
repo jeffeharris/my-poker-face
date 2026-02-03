@@ -222,6 +222,7 @@
   line-height: 1.45;
   padding: 8px 12px;
   border-radius: var(--radius-lg, 12px);
+  white-space: pre-wrap;
 }
 
 .coach-msg-user .coach-msg-text {

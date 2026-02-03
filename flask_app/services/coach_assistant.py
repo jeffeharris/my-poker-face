@@ -52,6 +52,7 @@ You are in REVIEW mode. Analyze what just happened.
 PROACTIVE_TIP_PROMPT = """\
 Given these stats, provide a brief 1-2 sentence coaching tip for the player's current situation. \
 If a SKILL FOCUS is listed, your tip MUST teach or reinforce that specific concept using the current hand as an example. \
+Start with the key action or insight — no preamble, no filler words, no greeting. \
 Be direct and actionable.\
 """
 
@@ -89,7 +90,7 @@ class CoachAssistant:
         self.mode = mode
         system_prompt = COACH_SYSTEM_PROMPT
         if player_name:
-            system_prompt += f"\nThe player's name is {player_name}. Address them by name occasionally."
+            system_prompt += f"\nThe player's name is {player_name}. Use their name sparingly — at most once every few messages, never in proactive tips."
         if mode and mode in _MODE_PROMPTS:
             system_prompt += f"\n\n{_MODE_PROMPTS[mode]}"
         if skill_context:
