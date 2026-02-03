@@ -28,6 +28,7 @@ enum BufferState {
 interface QueuedStateUpdate {
   gameState: GameState;
   timestamp: number;
+  handNumber: number;  // For staleness detection - ignore updates from previous hands
 }
 
 // Type for revealed hole cards during run-it-out showdown
@@ -66,6 +67,9 @@ interface UsePokerGameResult {
 
 // Cap message arrays to prevent unbounded memory growth in long games
 const MAX_MESSAGES = 200;
+
+// Delay between replaying queued state updates (allows UI to show each action separately)
+const REPLAY_DELAY_MS = 1000;
 
 const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
   return fetch(url, {
@@ -110,7 +114,8 @@ export function usePokerGame({
   const gameIdRef = useRef<string | null>(null);
 
   // State buffer for card animation gating
-  // Use ref for bufferState to avoid stale closures in socket callbacks
+  // Use refs (not useState) because socket callbacks capture values at registration time,
+  // and we need to read the current buffer state when updates arrive
   const bufferStateRef = useRef<BufferState>(BufferState.NORMAL);
   const updateQueueRef = useRef<QueuedStateUpdate[]>([]);
   const replayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -149,10 +154,11 @@ export function usePokerGame({
    */
   const calculateGateDuration = useCallback((newlyDealtCount: number): number => {
     if (newlyDealtCount === 3) {
-      // Flop: 3 cards with 1s cascade (0s, 1s, 2s) + 0.825s animation = 2.825s
+      // Flop: 3 cards with 1s cascade delays (0s, 1s, 2s) + 0.825s animation each
+      // Last card starts at 2s delay + 0.825s duration = 2.825s when last card lands
       return 2825;
     } else if (newlyDealtCount === 1) {
-      // Turn/River: single card 0.825s animation
+      // Turn/River: single card with 0.825s animation duration
       return 825;
     }
     return 0;
@@ -261,7 +267,7 @@ export function usePokerGame({
 
     applyStateUpdate(nextUpdate.gameState);
 
-    // Schedule next replay after 1s
+    // Schedule next replay after delay
     replayTimeoutRef.current = setTimeout(() => {
       try {
         scheduleNextReplay();
@@ -269,7 +275,7 @@ export function usePokerGame({
         logger.error('[BUFFER] Replay failed, resetting to NORMAL:', error);
         resetBuffer();
       }
-    }, 1000);
+    }, REPLAY_DELAY_MS);
   }, [applyStateUpdate, resetBuffer]);
 
   /**
@@ -360,7 +366,8 @@ export function usePokerGame({
         });
         updateQueueRef.current.push({
           gameState: transformedState,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          handNumber: transformedState.hand_number ?? 0
         });
       }
     } catch (error) {
