@@ -173,44 +173,49 @@ def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[
     return infos
 
 
-def _get_opponent_stats(game_data: dict, human_name: str) -> List[Dict]:
-    """Extract opponent stats from memory manager."""
+def _get_opponent_stats(game_data: dict, human_name: str, highest_bet: int = 0) -> List[Dict]:
+    """Extract opponent stats from memory manager, including stack and all-in status."""
     stats = []
     try:
         memory_manager = game_data.get('memory_manager')
-        if not memory_manager:
-            return stats
-
-        omm = getattr(memory_manager, 'opponent_model_manager', None)
-        if not omm:
-            return stats
-
         game_state = game_data['state_machine'].game_state
+
+        omm = None
+        if memory_manager:
+            omm = getattr(memory_manager, 'opponent_model_manager', None)
+
         for player in game_state.players:
             if player.name == human_name or player.is_folded:
                 continue
 
-            # Get model from human's perspective
-            if human_name in omm.models and player.name in omm.models[human_name]:
+            # Determine if player is all-in (stack is 0 or bet equals stack + bet)
+            is_all_in = player.stack == 0
+
+            opp_data = {
+                'name': player.name,
+                'stack': player.stack,
+                'bet': player.bet,
+                'is_all_in': is_all_in,
+                'vpip': None,
+                'pfr': None,
+                'aggression': None,
+                'style': 'unknown',
+                'hands_observed': 0,
+            }
+
+            # Get model from human's perspective if available
+            if omm and human_name in omm.models and player.name in omm.models[human_name]:
                 model = omm.models[human_name][player.name]
                 tendencies = model.tendencies
-                stats.append({
-                    'name': player.name,
+                opp_data.update({
                     'vpip': round(tendencies.vpip, 2),
                     'pfr': round(tendencies.pfr, 2),
                     'aggression': round(tendencies.aggression_factor, 1),
                     'style': tendencies.get_play_style_label(),
                     'hands_observed': tendencies.hands_observed,
                 })
-            else:
-                stats.append({
-                    'name': player.name,
-                    'vpip': None,
-                    'pfr': None,
-                    'aggression': None,
-                    'style': 'unknown',
-                    'hands_observed': 0,
-                })
+
+            stats.append(opp_data)
     except Exception as e:
         logger.warning(f"Opponent stats extraction failed: {e}")
 
@@ -263,6 +268,76 @@ def _get_current_hand_actions(game_data: dict) -> List[Dict]:
     if not recorder or not recorder.current_hand:
         return []
     return [a.to_dict() for a in recorder.current_hand.actions]
+
+
+def _get_available_actions(game_state, player, cost_to_call: int) -> List[str]:
+    """Determine which actions are available to the player."""
+    actions = []
+
+    # Count active opponents (not folded, not the player)
+    active_opponents = [
+        p for p in game_state.players
+        if not p.is_folded and p.name != player.name
+    ]
+
+    # Check if all opponents are all-in
+    all_opponents_all_in = all(p.stack == 0 for p in active_opponents)
+
+    if cost_to_call == 0:
+        actions.append('check')
+        # Can only bet if there are opponents with chips left
+        if not all_opponents_all_in and player.stack > 0:
+            actions.append('bet')
+    else:
+        actions.append('fold')
+        if player.stack > 0:
+            if player.stack <= cost_to_call:
+                actions.append('all-in')
+            else:
+                actions.append('call')
+                # Can only raise if there are opponents with chips left
+                if not all_opponents_all_in:
+                    actions.append('raise')
+
+    return actions
+
+
+def _get_position_context(position: str, phase: str) -> str:
+    """Get actionable context for the player's position.
+
+    Position names from game: button, small_blind_player, big_blind_player,
+    under_the_gun, cutoff, middle_position_1/2/3
+    After _get_position_label: "Button", "Small Blind Player", etc.
+    """
+    pos_lower = position.lower()
+
+    if phase == 'PRE_FLOP':
+        if 'button' in pos_lower:
+            return "Best position - act last post-flop, can open wide"
+        elif 'cutoff' in pos_lower:
+            return "Late position - can open fairly wide"
+        elif 'under' in pos_lower:
+            return "Early position - play tight, premium hands only"
+        elif 'small' in pos_lower and 'blind' in pos_lower:
+            return "Small blind - worst position, act first post-flop"
+        elif 'big' in pos_lower and 'blind' in pos_lower:
+            return "Big blind - defend wider since you have money invested"
+        elif 'middle' in pos_lower:
+            return "Middle position - moderate opening range"
+    else:
+        # Post-flop position matters for acting order
+        if 'button' in pos_lower:
+            return "In position - act last, big advantage"
+        elif 'cutoff' in pos_lower:
+            return "In position vs blinds"
+        elif ('small' in pos_lower or 'big' in pos_lower) and 'blind' in pos_lower:
+            return "Out of position - act early, disadvantage"
+        elif 'under' in pos_lower:
+            return "Out of position vs later seats"
+        elif 'middle' in pos_lower:
+            return "Middle position - depends on remaining players"
+
+    return ""
 
 
 def compute_coaching_data(game_id: str, player_name: str,
@@ -395,8 +470,16 @@ def compute_coaching_data(game_id: str, player_name: str,
         except Exception as e:
             logger.warning(f"Recommendation calculation failed: {e}")
 
-    # Opponent stats
-    result['opponent_stats'] = _get_opponent_stats(game_data, player_name)
+    # Opponent stats (with stack and all-in info)
+    result['opponent_stats'] = _get_opponent_stats(
+        game_data, player_name, highest_bet=game_state.highest_bet
+    )
+
+    # Available actions (what the player can actually do)
+    result['available_actions'] = _get_available_actions(game_state, player, cost_to_call)
+
+    # Position context (actionable guidance)
+    result['position_context'] = _get_position_context(position, phase)
 
     # Player's own stats (from any AI observer's model)
     result['player_stats'] = _get_player_self_stats(game_data, player_name)

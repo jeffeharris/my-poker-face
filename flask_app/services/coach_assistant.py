@@ -20,6 +20,9 @@ You are a professional poker coach helping a player in real-time during a game.
 
 Rules:
 - I will provide pre-calculated statistics. Reference them directly - do not recalculate.
+- CRITICAL: Only recommend actions from the "Available actions" list. If raise/bet is not listed, don't suggest it (e.g., when all opponents are all-in, you can only call or fold).
+- Consider position when giving advice: early position requires tighter ranges, late position allows wider opening ranges.
+- Note opponent stack sizes and all-in status — this affects what actions make sense.
 - Be concise and actionable. For proactive tips: 1-2 sentences max. For questions: 2-3 short paragraphs.
 - Explain the math simply (e.g., "You need 22% equity to call, and you have 45% — easy call")
 - Mention opponent tendencies when relevant
@@ -127,10 +130,26 @@ def _format_stats_for_prompt(data: Dict) -> str:
     lines = []
 
     lines.append(f"Phase: {data.get('phase', '?')}")
-    lines.append(f"Position: {data.get('position', '?')}")
-    lines.append(f"Stack: ${data.get('stack', 0)}")
+
+    # Position with context
+    position = data.get('position', '?')
+    position_context = data.get('position_context', '')
+    if position_context:
+        lines.append(f"Position: {position} ({position_context})")
+    else:
+        lines.append(f"Position: {position}")
+
+    big_blind = data.get('big_blind', 0)
+    stack = data.get('stack', 0)
+    lines.append(f"Blinds: ${big_blind // 2}/${big_blind}")
+    lines.append(f"Stack: ${stack}" + (f" ({stack // big_blind} BB)" if big_blind > 0 else ""))
     lines.append(f"Pot: ${data.get('pot_total', 0)}")
     lines.append(f"Cost to call: ${data.get('cost_to_call', 0)}")
+
+    # Available actions - critical for valid recommendations
+    available = data.get('available_actions', [])
+    if available:
+        lines.append(f"Available actions: {', '.join(available)}")
 
     equity = data.get('equity')
     if equity is not None:
@@ -170,6 +189,15 @@ def _format_stats_for_prompt(data: Dict) -> str:
         lines.append("Opponents:")
         for opp in opponents:
             parts = [opp['name']]
+
+            # Stack and all-in status (critical for valid recommendations)
+            stack = opp.get('stack')
+            is_all_in = opp.get('is_all_in', False)
+            if is_all_in:
+                parts.append("ALL-IN")
+            elif stack is not None:
+                parts.append(f"${stack}")
+
             if opp.get('style') and opp['style'] != 'unknown':
                 parts.append(opp['style'])
             if opp.get('vpip') is not None:
