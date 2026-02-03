@@ -383,6 +383,33 @@ def test_opponent_models_narrative_observations_roundtrip(repo):
     ]
 
 
+def test_load_opponent_models_json_decode_error(repo):
+    """Invalid JSON in notes column should not crash, returns legacy text."""
+    sm = _make_state_machine()
+    repo.save_game("game1", sm, owner_id="user1")
+
+    # Manually insert a row with invalid JSON in notes
+    import sqlite3
+    conn = sqlite3.connect(repo.db_path)
+    conn.execute("""
+        INSERT INTO opponent_models
+        (game_id, observer_name, opponent_name, hands_observed, vpip, pfr,
+         aggression_factor, fold_to_cbet, bluff_frequency, showdown_win_rate,
+         recent_trend, notes, last_updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    """, ("game1", "Alice", "Bob", 10, 0.5, 0.3, 1.5, 0.5, 0.3, 0.5, "stable",
+          "not valid json"))
+    conn.commit()
+    conn.close()
+
+    # Should not raise, should return the raw text as a legacy note
+    loaded = repo.load_opponent_models("game1")
+    assert "Alice" in loaded
+    assert "Bob" in loaded["Alice"]
+    # With the fix, this returns ["not valid json"] as legacy format
+    assert loaded["Alice"]["Bob"]["narrative_observations"] == ["not valid json"]
+
+
 # --- Cross-Session Opponent Models ---
 
 def test_cross_session_opponent_models_aggregation(repo):

@@ -258,7 +258,7 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
                     'pfr': hist['pfr'],
                     'aggression': hist['aggression_factor'],
                     'style': _get_style_label(hist['vpip'], hist['aggression_factor']),
-                    'notes': hist['notes'][:5],  # Most recent 5 notes
+                    'notes': hist['notes'][-5:],  # Most recent 5 notes
                 }
 
             stats.append(stat_entry)

@@ -640,7 +640,13 @@ class GameRepository(BaseRepository):
 
                 # Restore narrative_observations from JSON-serialized notes column
                 notes_json = row['notes'] if 'notes' in row.keys() else None
-                narrative_observations = json.loads(notes_json) if notes_json else []
+                narrative_observations = []
+                if notes_json:
+                    try:
+                        narrative_observations = json.loads(notes_json)
+                    except json.JSONDecodeError:
+                        # Legacy format: plain text note
+                        narrative_observations = [notes_json]
 
                 models_dict[observer_name][opponent_name] = {
                     'observer': observer_name,
