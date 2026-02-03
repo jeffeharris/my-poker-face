@@ -1,7 +1,6 @@
 import { memo, useEffect, useState, useRef, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatMessage } from '../../types';
-import { config } from '../../config';
 import {
   TYPING_SPEED_MS,
   READING_BUFFER_MS,

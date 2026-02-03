@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { CoachProgression } from '../../types/coach';
 import './ProgressionStrip.css';
@@ -14,7 +15,7 @@ function accuracyColor(accuracy: number): string {
   return 'ruby';
 }
 
-export function ProgressionStrip({ progression, isExpanded, onToggle }: ProgressionStripProps) {
+export const ProgressionStrip = memo(function ProgressionStrip({ progression, isExpanded, onToggle }: ProgressionStripProps) {
   const primarySkillId = progression.primary_skill;
   const primarySkill = primarySkillId ? progression.skill_states[primarySkillId] : null;
 
@@ -48,4 +49,4 @@ export function ProgressionStrip({ progression, isExpanded, onToggle }: Progress
       )}
     </button>
   );
-}
+});

@@ -4,6 +4,7 @@ Handles table creation and schema migrations.
 """
 import sqlite3
 import json
+import random
 import logging
 
 logger = logging.getLogger(__name__)
@@ -3025,6 +3026,7 @@ class SchemaManager:
         for user_id, skill_id, opps, correct in rows:
             incorrect = opps - correct
             decisions = [True] * correct + [False] * incorrect
+            random.shuffle(decisions)
             conn.execute(
                 "UPDATE player_skill_progress SET window_decisions = ? "
                 "WHERE user_id = ? AND skill_id = ?",

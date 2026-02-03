@@ -51,6 +51,8 @@ export function CoachPanel({
   const wasOpenRef = useRef(false);
   const hasFetchedProgressionRef = useRef(false);
 
+  const handleToggleDetail = useCallback(() => setShowDetail(d => !d), []);
+
   // Drag-to-dismiss
   const dragStartY = useRef(0);
   const dragCurrentY = useRef(0);
@@ -201,7 +203,7 @@ export function CoachPanel({
           <ProgressionStrip
             progression={progression}
             isExpanded={showDetail}
-            onToggle={() => setShowDetail(d => !d)}
+            onToggle={handleToggleDetail}
           />
         )}
 

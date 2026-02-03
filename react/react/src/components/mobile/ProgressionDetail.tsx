@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import type { ProgressionState, CoachProgression, SkillProgress, FullSkillProgress, SkillStateValue } from '../../types/coach';
 import './ProgressionDetail.css';
 
@@ -21,11 +21,16 @@ function stateLabel(state: SkillStateValue): string {
   return state.charAt(0).toUpperCase() + state.slice(1);
 }
 
-export function ProgressionDetail({ progressionFull, progressionLite }: ProgressionDetailProps) {
+export const ProgressionDetail = memo(function ProgressionDetail({ progressionFull, progressionLite }: ProgressionDetailProps) {
   // Prefer full data, fall back to lite skill_states
-  const skillStates: Record<string, SkillProgress | FullSkillProgress> =
-    progressionFull?.skill_states ?? progressionLite?.skill_states ?? {};
-  const gateProgress = progressionFull?.gate_progress ?? {};
+  const skillStates = useMemo<Record<string, SkillProgress | FullSkillProgress>>(
+    () => progressionFull?.skill_states ?? progressionLite?.skill_states ?? {},
+    [progressionFull?.skill_states, progressionLite?.skill_states],
+  );
+  const gateProgress = useMemo(
+    () => progressionFull?.gate_progress ?? {},
+    [progressionFull?.gate_progress],
+  );
 
   // Derive gate structure from API data (single source of truth)
   const gates = useMemo(() => {
@@ -117,4 +122,4 @@ export function ProgressionDetail({ progressionFull, progressionLite }: Progress
       })}
     </div>
   );
-}
+});

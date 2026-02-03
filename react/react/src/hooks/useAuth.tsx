@@ -18,6 +18,7 @@ interface User {
  * @param permission - The permission name to check
  * @returns true if the user has the permission, false otherwise
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function hasPermission(user: User | null, permission: string): boolean {
   return user?.permissions?.includes(permission) ?? false;
 }
@@ -226,6 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
