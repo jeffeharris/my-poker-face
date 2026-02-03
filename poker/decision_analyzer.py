@@ -130,6 +130,14 @@ class DecisionAnalysis:
     elastic_aggression: Optional[float] = None
     elastic_bluff_tendency: Optional[float] = None
 
+    # Range tracking (v67)
+    opponent_ranges_json: Optional[str] = None    # {"Batman": ["AA", "AKs", ...], ...}
+    board_texture_json: Optional[str] = None      # Board texture dict from analyze_board_texture()
+    player_hand_canonical: Optional[str] = None   # "AKo", "Q7o", etc.
+    player_hand_in_range: Optional[bool] = None   # Is hand in standard range for position?
+    player_hand_tier: Optional[str] = None        # "premium", "strong", ..., "trash"
+    standard_range_pct: Optional[float] = None    # Expected range % for position (e.g., 15)
+
     # Metadata
     analyzer_version: str = "1.0"
     processing_time_ms: Optional[int] = None
@@ -310,8 +318,45 @@ class DecisionAnalyzer:
                         # Extract positions from opponent_infos
                         positions = [getattr(o, 'position', 'unknown') for o in opponent_infos]
                         analysis.opponent_positions = json.dumps(positions)
+
+                    # Capture opponent ranges for timeline tracking
+                    if opponent_infos:
+                        try:
+                            from .hand_ranges import get_opponent_range, EquityConfig
+                            config = EquityConfig()
+                            opponent_ranges = {}
+                            for opp_info in opponent_infos:
+                                opp_range = get_opponent_range(opp_info, config)
+                                # Store sorted list of canonical hands
+                                opponent_ranges[opp_info.name] = sorted(list(opp_range))
+                            analysis.opponent_ranges_json = json.dumps(opponent_ranges)
+                        except Exception as e:
+                            logger.debug(f"Opponent range capture failed: {e}")
                 except Exception as e:
                     logger.debug(f"Equity vs ranges calculation failed: {e}")
+
+        # Board texture analysis
+        if community_cards:
+            try:
+                from .board_analyzer import analyze_board_texture
+                board_texture = analyze_board_texture(community_cards)
+                analysis.board_texture_json = json.dumps(board_texture)
+            except Exception as e:
+                logger.debug(f"Board texture analysis failed: {e}")
+
+        # Player hand range analysis (is this hand in standard range for position?)
+        if player_hand and len(player_hand) == 2 and player_position:
+            try:
+                from .hand_ranges import is_hand_in_standard_range
+                range_analysis = is_hand_in_standard_range(
+                    player_hand[0], player_hand[1], player_position
+                )
+                analysis.player_hand_canonical = range_analysis.get('canonical_hand')
+                analysis.player_hand_in_range = range_analysis.get('in_range')
+                analysis.player_hand_tier = range_analysis.get('hand_tier')
+                analysis.standard_range_pct = range_analysis.get('range_size_pct')
+            except Exception as e:
+                logger.debug(f"Player hand range analysis failed: {e}")
 
         # Calculate max winnable considering side pots (for short stacks)
         if all_players_bets is not None:

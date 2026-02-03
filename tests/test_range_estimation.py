@@ -417,5 +417,116 @@ class TestMathematicalBenchmarks(unittest.TestCase):
         self.assertLessEqual(calling_pct, 0.40)
 
 
+class TestIsHandInStandardRange(unittest.TestCase):
+    """Test the is_hand_in_standard_range function for player hand evaluation."""
+
+    def setUp(self):
+        """Import the function for testing."""
+        from poker.hand_ranges import is_hand_in_standard_range
+        self.is_hand_in_range = is_hand_in_standard_range
+
+    def test_premium_hand_in_all_ranges(self):
+        """AA is in range for all positions."""
+        # UTG (early)
+        result = self.is_hand_in_range("Ah", "Ad", "under_the_gun")
+        self.assertTrue(result['in_range'])
+        self.assertEqual(result['canonical_hand'], 'AA')
+        self.assertEqual(result['hand_tier'], 'premium')
+        self.assertEqual(result['position_group'], 'early')
+
+        # Button (late)
+        result = self.is_hand_in_range("Ah", "Ad", "button")
+        self.assertTrue(result['in_range'])
+        self.assertEqual(result['hand_tier'], 'premium')
+
+    def test_marginal_hand_position_dependent(self):
+        """87s is playable on button but not UTG."""
+        # UTG - 87s should be outside early range
+        result = self.is_hand_in_range("8h", "7h", "under_the_gun")
+        self.assertFalse(result['in_range'])
+        self.assertEqual(result['canonical_hand'], '87s')
+        self.assertIn(result['hand_tier'], ('marginal', 'playable'))
+
+        # Button - 87s should be in late position range
+        result = self.is_hand_in_range("8h", "7h", "button")
+        self.assertTrue(result['in_range'])
+        self.assertEqual(result['hand_tier'], 'playable')
+
+    def test_trash_hand_never_in_range(self):
+        """72o is never in standard range."""
+        for position in ['under_the_gun', 'button', 'big_blind_player']:
+            result = self.is_hand_in_range("7h", "2d", position)
+            self.assertFalse(result['in_range'])
+            self.assertEqual(result['canonical_hand'], '72o')
+            self.assertEqual(result['hand_tier'], 'trash')
+
+    def test_range_size_pct_varies_by_position(self):
+        """Range percentage should differ by position."""
+        utg_result = self.is_hand_in_range("Ah", "Kh", "under_the_gun")
+        btn_result = self.is_hand_in_range("Ah", "Kh", "button")
+
+        # UTG has tighter range (~9%) than button (~30%)
+        self.assertLess(utg_result['range_size_pct'], btn_result['range_size_pct'])
+        self.assertAlmostEqual(utg_result['range_size_pct'], 9, delta=3)
+        self.assertAlmostEqual(btn_result['range_size_pct'], 30, delta=5)
+
+    def test_canonical_hand_format(self):
+        """Verify canonical hand notation is correct."""
+        # Suited
+        result = self.is_hand_in_range("Ah", "Kh", "button")
+        self.assertEqual(result['canonical_hand'], 'AKs')
+
+        # Offsuit
+        result = self.is_hand_in_range("Ah", "Kd", "button")
+        self.assertEqual(result['canonical_hand'], 'AKo')
+
+        # Pair
+        result = self.is_hand_in_range("Qh", "Qd", "button")
+        self.assertEqual(result['canonical_hand'], 'QQ')
+
+    def test_hand_tier_classification(self):
+        """Verify hand tier classification is correct."""
+        # Premium
+        result = self.is_hand_in_range("Ah", "Ad", "button")
+        self.assertEqual(result['hand_tier'], 'premium')
+
+        result = self.is_hand_in_range("Ah", "Kh", "button")
+        self.assertEqual(result['hand_tier'], 'premium')
+
+        # Strong
+        result = self.is_hand_in_range("Jh", "Jd", "button")
+        self.assertEqual(result['hand_tier'], 'strong')
+
+        result = self.is_hand_in_range("Ah", "Qh", "button")
+        self.assertEqual(result['hand_tier'], 'strong')
+
+        # Playable
+        result = self.is_hand_in_range("Th", "9h", "button")
+        self.assertEqual(result['hand_tier'], 'playable')
+
+        # Marginal
+        result = self.is_hand_in_range("5h", "4h", "under_the_gun")
+        # 54s is outside UTG range but is a speculative hand
+        self.assertIn(result['hand_tier'], ('marginal', 'playable'))
+
+    def test_position_group_mapping(self):
+        """Verify position maps to correct group."""
+        positions_to_groups = {
+            'under_the_gun': 'early',
+            'middle_position_1': 'middle',
+            'cutoff': 'late',
+            'button': 'late',
+            'small_blind_player': 'blind',
+            'big_blind_player': 'blind',
+        }
+
+        for position, expected_group in positions_to_groups.items():
+            result = self.is_hand_in_range("Ah", "Kh", position)
+            self.assertEqual(
+                result['position_group'], expected_group,
+                f"Position {position} should map to {expected_group}"
+            )
+
+
 if __name__ == '__main__':
     unittest.main()

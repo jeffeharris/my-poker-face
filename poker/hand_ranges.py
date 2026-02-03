@@ -974,6 +974,129 @@ def calculate_equity_vs_ranges(
         return None
 
 
+# ============================================================================
+# Standard Range Analysis (for player hand evaluation)
+# ============================================================================
+
+# Hand tier definitions - premium hands that are always playable
+PREMIUM_HANDS = {'AA', 'KK', 'QQ', 'AKs', 'AKo'}
+STRONG_HANDS = {'JJ', 'TT', '99', 'AQs', 'AQo', 'AJs'}
+
+
+def is_hand_in_standard_range(card1: str, card2: str, position: str) -> dict:
+    """Check if a hand is within the standard opening range for a position.
+
+    Used by the coach to identify when the player is playing outside
+    standard positional ranges, which can indicate a speculative or
+    loose play style.
+
+    Args:
+        card1: First card as string (e.g., 'Ah', 'Kd')
+        card2: Second card as string
+        position: Position key (e.g., 'button', 'under_the_gun')
+
+    Returns:
+        Dict with:
+        - canonical_hand: str (e.g., "Q7o", "AKs")
+        - position_group: str ("early", "middle", "late", "blind")
+        - in_range: bool (whether hand is in standard range)
+        - range_size_pct: float (standard range % for position)
+        - hand_tier: str ("premium", "strong", "playable", "marginal", "trash")
+    """
+    # Get canonical hand notation
+    canonical = hand_to_canonical(card1, card2)
+
+    # Get position group
+    position_enum = get_position_group(position)
+    position_group = position_enum.value
+
+    # Get the standard range for this position
+    standard_range = get_range_for_position(position_enum)
+    in_range = canonical in standard_range
+
+    # Calculate range size as percentage of 169 unique hands
+    range_size_pct = round(len(standard_range) / 169 * 100, 1)
+
+    # Determine hand tier
+    hand_tier = _classify_hand_tier(canonical, position_enum)
+
+    return {
+        "canonical_hand": canonical,
+        "position_group": position_group,
+        "in_range": in_range,
+        "range_size_pct": range_size_pct,
+        "hand_tier": hand_tier,
+    }
+
+
+def _classify_hand_tier(canonical: str, position: Position) -> str:
+    """Classify a hand into tiers based on absolute strength.
+
+    Tiers:
+    - premium: AA-QQ, AK (always raise, never fold pre)
+    - strong: JJ-99, AQ, AJ suited (solid raising hands)
+    - playable: Within late position range but not strong
+    - marginal: Suited connectors, small pairs outside standard ranges
+    - trash: Everything else
+
+    Args:
+        canonical: Canonical hand notation (e.g., "AKs", "Q7o")
+        position: Position enum for context
+
+    Returns:
+        Hand tier string
+    """
+    # Premium hands
+    if canonical in PREMIUM_HANDS:
+        return "premium"
+
+    # Strong hands
+    if canonical in STRONG_HANDS:
+        return "strong"
+
+    # Playable: in late position range
+    if canonical in LATE_POSITION_RANGE:
+        return "playable"
+
+    # Marginal: speculative hands that aren't complete trash
+    marginal_hands = _get_marginal_hands()
+    if canonical in marginal_hands:
+        return "marginal"
+
+    return "trash"
+
+
+def _get_marginal_hands() -> Set[str]:
+    """Get set of marginal hands (speculative but not trash).
+
+    These are hands that can be played in specific situations:
+    - Small pairs (22-55 when not in standard ranges)
+    - Suited connectors (87s, 76s, etc.)
+    - Suited aces not in standard ranges
+    - Suited one-gappers
+    """
+    marginal = set()
+
+    # Small pairs not in standard ranges
+    marginal.update({'55', '44', '33', '22'})
+
+    # Suited connectors
+    marginal.update({'87s', '76s', '65s', '54s', '43s', '32s'})
+
+    # Suited aces
+    for r in ['9', '8', '7', '6', '5', '4', '3', '2']:
+        marginal.add(f'A{r}s')
+
+    # Suited kings
+    for r in ['9', '8', '7', '6', '5', '4', '3', '2']:
+        marginal.add(f'K{r}s')
+
+    # Suited one-gappers
+    marginal.update({'T8s', '97s', '86s', '75s', '64s', '53s'})
+
+    return marginal
+
+
 def format_opponent_stats(opponent_infos: List[OpponentInfo]) -> str:
     """Format opponent stats for display in prompt.
 
