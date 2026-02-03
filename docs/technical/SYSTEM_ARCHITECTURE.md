@@ -538,4 +538,5 @@ src/
 - [Game Vision](/docs/vision/GAME_VISION.md)
 - [Feature Ideas](/docs/vision/FEATURE_IDEAS.md)
 - [Personality Elasticity](/docs/technical/PERSONALITY_ELASTICITY.md)
+- [Scaling Guide](/docs/technical/SCALING.md)
 - [DevOps & Deployment](/docs/DEVOPS.md)

@@ -140,6 +140,8 @@ Issues to address once live, during ongoing development.
 
 ### Performance & Scalability
 
+> **See also**: [SCALING.md](/docs/technical/SCALING.md) for comprehensive scaling thresholds, migration paths, and horizontal scaling guidance.
+
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T3-09 | No SQLite connection pooling | `poker/persistence.py` | New connection for every operation. Performance bottleneck under load. | **FIXED** — BaseRepository uses thread-local connection reuse with WAL mode |
