@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class EquityConfig:
     """Configuration for equity calculation behavior."""
     use_in_game_stats: bool = True       # Use observed stats from current game
-    min_hands_for_stats: int = 5         # Minimum hands before using observed stats
+    min_hands_for_stats: int = 15        # Minimum hands before using observed stats (sync with poker/config.py)
     use_enhanced_ranges: bool = True     # Use new range function with PFR/action context
 
 

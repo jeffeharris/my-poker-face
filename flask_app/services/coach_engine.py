@@ -14,7 +14,12 @@ from typing import Any, Dict, List, Optional
 from poker.hand_evaluator import HandEvaluator
 from poker.hand_ranges import OpponentInfo
 from poker.decision_analyzer import DecisionAnalyzer
-from poker.controllers import classify_preflop_hand
+from poker.controllers import (
+    classify_preflop_hand,
+    _parse_game_messages,
+    _get_preflop_lines,
+    _process_preflop_lines,
+)
 from poker.card_utils import card_to_string
 
 from ..services import game_state_service
@@ -180,11 +185,52 @@ def _position_label_to_key(position_label: str) -> str:
     return result
 
 
+def _extract_preflop_action(
+    opponent_name: str,
+    game_messages: list,
+    game_state
+) -> Optional[str]:
+    """
+    Extract what preflop action an opponent took this hand.
+
+    Args:
+        opponent_name: Name of opponent to check
+        game_messages: List of game message strings
+        game_state: Current game state for position info
+
+    Returns:
+        Action string ('open_raise', 'call', '3bet', '4bet+', 'limp') or None
+    """
+    lines = _parse_game_messages(game_messages)
+    if lines is None:
+        return None
+
+    # Get BB player name to ignore forced BB
+    bb_player = game_state.table_positions.get('big_blind_player')
+    opponent_lower = opponent_name.lower()
+
+    # Filter to preflop lines only
+    preflop_lines = _get_preflop_lines(lines)
+
+    return _process_preflop_lines(
+        preflop_lines,
+        opponent_lower,
+        opponent_name,
+        bb_player
+    )
+
+
 def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[OpponentInfo]:
-    """Build OpponentInfo objects for active opponents (for range-based equity)."""
+    """Build OpponentInfo objects for active opponents (for range-based equity).
+
+    Includes preflop action context for more accurate range narrowing.
+    """
     infos = []
     memory_manager = game_data.get('memory_manager')
     omm = getattr(memory_manager, 'opponent_model_manager', None) if memory_manager else None
+
+    # Get game messages for preflop action extraction
+    game_messages = game_data.get('messages', [])
 
     for i, player in enumerate(game_state.players):
         if player.name == human_name or player.is_folded:
@@ -193,6 +239,13 @@ def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[
         position = _get_raw_position(game_state, i)
         info = OpponentInfo(name=player.name, position=position)
 
+        # Extract preflop action for range narrowing
+        if game_messages:
+            info.preflop_action = _extract_preflop_action(
+                player.name, game_messages, game_state
+            )
+
+        # Add observed stats from opponent model
         if omm and human_name in omm.models and player.name in omm.models[human_name]:
             model = omm.models[human_name][player.name]
             t = model.tendencies

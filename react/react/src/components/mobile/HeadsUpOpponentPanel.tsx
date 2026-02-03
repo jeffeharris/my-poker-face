@@ -170,8 +170,8 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
         Reading {opponent.nickname || opponent.name}...
       </div>
 
-      {/* Play Style - Primary observation */}
-      {observation && observation.hands_observed >= 3 ? (
+      {/* Play Style - Primary observation (threshold synced with poker/config.py MIN_HANDS_FOR_SUMMARY) */}
+      {observation && observation.hands_observed >= 10 ? (
         <div className="psychology-section playstyle-section">
           <div className="playstyle-main">
             {playStyle && <playStyle.icon className="playstyle-icon" size={18} />}

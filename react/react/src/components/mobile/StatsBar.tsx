@@ -100,8 +100,8 @@ export function StatsBar({ stats }: StatsBarProps) {
         </div>
       </div>
 
-      {/* Player Stats */}
-      {stats.player_stats && stats.player_stats.hands_observed >= 5 && (
+      {/* Player Stats - threshold synced with poker/config.py MIN_HANDS_FOR_STYLE_LABEL */}
+      {stats.player_stats && stats.player_stats.hands_observed >= 15 && (
         <div className="stats-player-row">
           <span className="stats-player-label">Your Play</span>
           <div className="stats-player-values">
