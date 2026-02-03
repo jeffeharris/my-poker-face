@@ -146,18 +146,15 @@ def get_tilt_debug(game_id):
 
     tilt_info = {}
     for player_name, controller in ai_controllers.items():
-        if hasattr(controller, 'tilt_state'):
-            state = controller.tilt_state
-            tilt_info[player_name] = {
-                'tilt_level': round(state.tilt_level, 2),
-                'tilt_category': state.get_tilt_category(),
-                'tilt_source': state.tilt_source or 'none',
-                'nemesis': state.nemesis,
-                'losing_streak': state.losing_streak,
-                'recent_losses': state.recent_losses[-3:] if state.recent_losses else []
-            }
-        else:
-            tilt_info[player_name] = {'error': 'No tilt state (old controller?)'}
+        tilt = controller.psychology.tilt
+        tilt_info[player_name] = {
+            'tilt_level': round(tilt.tilt_level, 2),
+            'tilt_category': tilt.get_tilt_category(),
+            'tilt_source': tilt.tilt_source or 'none',
+            'nemesis': tilt.nemesis,
+            'losing_streak': tilt.losing_streak,
+            'recent_losses': tilt.recent_losses[-3:] if tilt.recent_losses else []
+        }
 
     return jsonify({
         'game_id': game_id,
@@ -180,30 +177,27 @@ def set_tilt_debug(game_id, player_name):
         }), 404
 
     controller = ai_controllers[player_name]
-    if not hasattr(controller, 'tilt_state'):
-        return jsonify({'error': 'Controller has no tilt state'}), 500
-
     data = request.get_json() or {}
-    state = controller.tilt_state
+    tilt = controller.psychology.tilt
 
     if 'tilt_level' in data:
-        state.tilt_level = max(0.0, min(1.0, float(data['tilt_level'])))
+        tilt.tilt_level = max(0.0, min(1.0, float(data['tilt_level'])))
     if 'tilt_source' in data:
-        state.tilt_source = data['tilt_source']
+        tilt.tilt_source = data['tilt_source']
     if 'nemesis' in data:
-        state.nemesis = data['nemesis']
+        tilt.nemesis = data['nemesis']
     if 'losing_streak' in data:
-        state.losing_streak = int(data['losing_streak'])
+        tilt.losing_streak = int(data['losing_streak'])
 
     return jsonify({
         'success': True,
         'player': player_name,
         'new_state': {
-            'tilt_level': round(state.tilt_level, 2),
-            'tilt_category': state.get_tilt_category(),
-            'tilt_source': state.tilt_source,
-            'nemesis': state.nemesis,
-            'losing_streak': state.losing_streak
+            'tilt_level': round(tilt.tilt_level, 2),
+            'tilt_category': tilt.get_tilt_category(),
+            'tilt_source': tilt.tilt_source,
+            'nemesis': tilt.nemesis,
+            'losing_streak': tilt.losing_streak
         }
     })
 

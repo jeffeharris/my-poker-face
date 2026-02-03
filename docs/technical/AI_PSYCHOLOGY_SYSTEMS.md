@@ -351,26 +351,16 @@ AIPlayerController
 
 ## Known Issues & Technical Debt
 
+### Resolved Issues
+
+#### ~~1. Dual Psychology Update Paths~~ (Fixed 2026-02-03)
+**Problem:** Code referenced non-existent `controller.tilt_state` instead of `controller.psychology`.
+
+**Resolution:** Updated all references to use `controller.psychology.apply_pressure_event()` and `controller.psychology.tilt` consistently. Chat events and hand events now both flow through `PlayerPsychology`.
+
 ### Critical Issues
 
-#### 1. Dual Psychology Update Paths
-**Problem:** Two separate code paths exist for updating psychology.
-
-**Old Path** (`flask_app/routes/game_routes.py`):
-```python
-controller.tilt_state.apply_pressure_event(event_name, sender)
-# Direct TiltState manipulation, bypasses PlayerPsychology
-```
-
-**New Path** (`flask_app/handlers/game_handler.py`):
-```python
-controller.psychology.apply_pressure_event(event_name, opponent)
-# Uses PlayerPsychology orchestrator
-```
-
-**Impact:** Chat events use old path, hand events use new path - inconsistent state.
-
-#### 2. PressureEventDetector Partially Unused
+#### 1. PressureEventDetector Partially Unused
 **Problem:** `PressureEventDetector` exists but event detection is done inline in `game_handler.py`.
 
 **Impact:** Dead code, duplicated detection logic, no single source of truth.
@@ -400,11 +390,7 @@ Pressure events and intrusive thoughts are hardcoded in Python, not configurable
 
 ### Immediate (Critical)
 
-1. **Consolidate update paths** - Route all psychology updates through `PlayerPsychology`
-   ```python
-   # Replace: controller.tilt_state.apply_pressure_event()
-   # With:    controller.psychology.apply_pressure_event()
-   ```
+1. ~~**Consolidate update paths**~~ - Done (2026-02-03)
 
 2. **Activate or deprecate PressureEventDetector** - Either use it in main flow or remove it
 
