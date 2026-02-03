@@ -63,6 +63,13 @@ export function useCoach({
   const prevIsPlayerTurn = useRef(false);
   const handReviewInFlightRef = useRef(false);
   const prevSkillStatesRef = useRef<Record<string, SkillProgress>>({});
+  // Track if coach endpoint is unavailable (404) to avoid repeated failed requests
+  const coachUnavailableRef = useRef(false);
+
+  // Reset coach unavailable flag when gameId changes
+  useEffect(() => {
+    coachUnavailableRef.current = false;
+  }, [gameId]);
 
   // Load coach mode from server when gameId is set
   useEffect(() => {
@@ -113,11 +120,16 @@ export function useCoach({
   }, [gameId]);
 
   const refreshStats = useCallback(async () => {
-    if (!gameId || mode === 'off') return;
+    if (!gameId || mode === 'off' || coachUnavailableRef.current) return;
     try {
       const res = await fetch(`${config.API_URL}/api/coach/${gameId}/stats`, {
         credentials: 'include',
       });
+      if (res.status === 404) {
+        // Coach endpoint not available for this game - stop polling
+        coachUnavailableRef.current = true;
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setStats(data);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ArrowLeft,
   RefreshCw,
@@ -216,13 +216,31 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
     fetchExperiment();
   }, [fetchExperiment]);
 
-  // Auto-refresh for running experiments
+  // Auto-refresh for running experiments with adaptive interval
+  // Base interval is 15s, backs off to 30s on errors
+  const [pollInterval, setPollInterval] = useState(15000);
+  const consecutiveErrorsRef = useRef(0);
+
+  const fetchWithBackoff = useCallback(async () => {
+    try {
+      await fetchExperiment();
+      // Reset on success
+      consecutiveErrorsRef.current = 0;
+      setPollInterval(15000);
+    } catch {
+      // Back off on error (max 60s)
+      consecutiveErrorsRef.current += 1;
+      const backoff = Math.min(60000, 15000 * Math.pow(1.5, consecutiveErrorsRef.current));
+      setPollInterval(backoff);
+    }
+  }, [fetchExperiment]);
+
   useEffect(() => {
     if (experiment?.status !== 'running') return;
 
-    const interval = setInterval(fetchExperiment, 5000);
+    const interval = setInterval(fetchWithBackoff, pollInterval);
     return () => clearInterval(interval);
-  }, [experiment?.status, fetchExperiment]);
+  }, [experiment?.status, fetchWithBackoff, pollInterval]);
 
   // Check for stalled variants periodically while running
   useEffect(() => {
