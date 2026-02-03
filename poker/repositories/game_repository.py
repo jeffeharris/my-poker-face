@@ -548,6 +548,10 @@ class GameRepository(BaseRepository):
                 for opponent_name, model_data in opponents.items():
                     tendencies = model_data.get('tendencies', {})
 
+                    # OpponentModel.to_dict() uses 'narrative_observations' key
+                    narrative_obs = model_data.get('narrative_observations', [])
+                    notes = json.dumps(narrative_obs) if narrative_obs else None
+
                     conn.execute("""
                         INSERT OR REPLACE INTO opponent_models
                         (game_id, observer_name, opponent_name, hands_observed,
@@ -566,7 +570,7 @@ class GameRepository(BaseRepository):
                         tendencies.get('bluff_frequency', 0.3),
                         tendencies.get('showdown_win_rate', 0.5),
                         tendencies.get('recent_trend', 'stable'),
-                        model_data.get('notes')
+                        notes
                     ))
 
                     # Save memorable hands
@@ -634,12 +638,16 @@ class GameRepository(BaseRepository):
                     '_showdowns_won': 0,  # Can't restore
                 }
 
+                # Restore narrative_observations from JSON-serialized notes column
+                notes_json = row['notes'] if 'notes' in row.keys() else None
+                narrative_observations = json.loads(notes_json) if notes_json else []
+
                 models_dict[observer_name][opponent_name] = {
                     'observer': observer_name,
                     'opponent': opponent_name,
                     'tendencies': tendencies,
                     'memorable_hands': [],
-                    'notes': row['notes'] if 'notes' in row.keys() else None
+                    'narrative_observations': narrative_observations
                 }
 
             # Load memorable hands
@@ -666,6 +674,99 @@ class GameRepository(BaseRepository):
             logger.debug(f"Loaded opponent models for game {game_id}: {len(models_dict)} observers")
 
         return models_dict
+
+    def load_cross_session_opponent_models(
+        self,
+        observer_name: str,
+        user_id: str
+    ) -> Dict[str, dict]:
+        """Aggregate opponent stats across all games for this user.
+
+        Combines data from all games where the observer has tracked opponents,
+        using weighted averages based on hands_observed for numeric stats.
+
+        Args:
+            observer_name: The name of the player observing opponents (typically the human player)
+            user_id: The owner ID to filter games by
+
+        Returns:
+            Dict mapping opponent_name -> {
+                'session_count': int,       # Number of distinct games
+                'total_hands': int,         # Sum of hands_observed across games
+                'vpip': float,              # Weighted average
+                'pfr': float,               # Weighted average
+                'aggression_factor': float, # Weighted average
+                'style': str,               # Style label based on aggregated stats
+                'notes': List[str],         # Collected narrative observations
+            }
+        """
+        if not user_id:
+            return {}
+
+        result: Dict[str, dict] = {}
+
+        with self._get_connection() as conn:
+            # Aggregate stats across all games for this user
+            cursor = conn.execute("""
+                SELECT
+                    om.opponent_name,
+                    COUNT(DISTINCT om.game_id) as session_count,
+                    SUM(om.hands_observed) as total_hands,
+                    SUM(om.vpip * om.hands_observed) as weighted_vpip,
+                    SUM(om.pfr * om.hands_observed) as weighted_pfr,
+                    SUM(om.aggression_factor * om.hands_observed) as weighted_aggression,
+                    GROUP_CONCAT(om.notes, '|||') as all_notes
+                FROM opponent_models om
+                JOIN games g ON om.game_id = g.game_id
+                WHERE om.observer_name = ?
+                  AND g.owner_id = ?
+                  AND om.hands_observed > 0
+                GROUP BY om.opponent_name
+            """, (observer_name, user_id))
+
+            for row in cursor.fetchall():
+                opponent_name = row['opponent_name']
+                total_hands = row['total_hands'] or 0
+                session_count = row['session_count'] or 0
+
+                if total_hands == 0:
+                    continue
+
+                # Calculate weighted averages
+                vpip = (row['weighted_vpip'] or 0) / total_hands
+                pfr = (row['weighted_pfr'] or 0) / total_hands
+                aggression = (row['weighted_aggression'] or 0) / total_hands
+
+                # Parse and deduplicate notes from all sessions
+                all_notes_str = row['all_notes'] or ''
+                notes = []
+                if all_notes_str:
+                    for notes_json in all_notes_str.split('|||'):
+                        if notes_json and notes_json.strip():
+                            try:
+                                parsed = json.loads(notes_json)
+                                if isinstance(parsed, list):
+                                    for note in parsed:
+                                        if note and note not in notes:
+                                            notes.append(note)
+                            except json.JSONDecodeError:
+                                # Legacy format: plain text note
+                                if notes_json not in notes:
+                                    notes.append(notes_json)
+
+                result[opponent_name] = {
+                    'session_count': session_count,
+                    'total_hands': total_hands,
+                    'vpip': round(vpip, 3),
+                    'pfr': round(pfr, 3),
+                    'aggression_factor': round(aggression, 2),
+                    'notes': notes[-10:],  # Keep most recent 10 notes
+                }
+
+        if result:
+            logger.debug(f"Loaded cross-session opponent models for {observer_name}: {len(result)} opponents")
+
+        return result
 
     def delete_opponent_models_for_game(self, game_id: str) -> None:
         """Delete all opponent models for a game."""

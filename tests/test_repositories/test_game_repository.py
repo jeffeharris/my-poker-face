@@ -308,7 +308,7 @@ def test_opponent_models_save_load(repo):
                         "timestamp": "2024-01-01T00:00:00",
                     }
                 ],
-                "notes": "Aggressive player",
+                "narrative_observations": ["Aggressive player"],
             }
         }
     }
@@ -321,7 +321,7 @@ def test_opponent_models_save_load(repo):
     bob_model = loaded["Alice"]["Bob"]
     assert bob_model["tendencies"]["hands_observed"] == 10
     assert bob_model["tendencies"]["vpip"] == 0.6
-    assert bob_model["notes"] == "Aggressive player"
+    assert bob_model["narrative_observations"] == ["Aggressive player"]
     assert len(bob_model["memorable_hands"]) == 1
     assert bob_model["memorable_hands"][0]["memory_type"] == "big_bluff"
 
@@ -347,3 +347,170 @@ def test_delete_opponent_models(repo):
     repo.save_opponent_models("game1", models)
     repo.delete_opponent_models_for_game("game1")
     assert repo.load_opponent_models("game1") == {}
+
+
+def test_opponent_models_narrative_observations_roundtrip(repo):
+    """Narrative observations survive save/load cycle via notes column."""
+    models = {
+        "Alice": {
+            "Bob": {
+                "observer": "Alice",
+                "opponent": "Bob",
+                "tendencies": {
+                    "hands_observed": 10,
+                    "vpip": 0.6,
+                    "pfr": 0.3,
+                    "aggression_factor": 1.5,
+                },
+                "memorable_hands": [],
+                "narrative_observations": [
+                    "Overvalues top pair",
+                    "Bluffs missed draws",
+                ],
+            }
+        }
+    }
+
+    repo.save_opponent_models("game1", models)
+    loaded = repo.load_opponent_models("game1")
+
+    assert "Alice" in loaded
+    assert "Bob" in loaded["Alice"]
+    bob_model = loaded["Alice"]["Bob"]
+    assert bob_model["narrative_observations"] == [
+        "Overvalues top pair",
+        "Bluffs missed draws",
+    ]
+
+
+# --- Cross-Session Opponent Models ---
+
+def test_cross_session_opponent_models_aggregation(repo):
+    """Stats are aggregated across games with weighted averages."""
+    sm = _make_state_machine()
+
+    # Game 1: Alice observes Bob for 10 hands, VPIP=0.6
+    repo.save_game("game1", sm, owner_id="user1", owner_name="Alice")
+    repo.save_opponent_models("game1", {
+        "Alice": {
+            "Bob": {
+                "tendencies": {
+                    "hands_observed": 10,
+                    "vpip": 0.6,
+                    "pfr": 0.3,
+                    "aggression_factor": 2.0,
+                },
+                "memorable_hands": [],
+                "narrative_observations": ["Plays loose"],
+            }
+        }
+    })
+
+    # Game 2: Alice observes Bob for 30 hands, VPIP=0.4
+    repo.save_game("game2", sm, owner_id="user1", owner_name="Alice")
+    repo.save_opponent_models("game2", {
+        "Alice": {
+            "Bob": {
+                "tendencies": {
+                    "hands_observed": 30,
+                    "vpip": 0.4,
+                    "pfr": 0.2,
+                    "aggression_factor": 1.0,
+                },
+                "memorable_hands": [],
+                "narrative_observations": ["Tightened up"],
+            }
+        }
+    })
+
+    # Load cross-session data
+    result = repo.load_cross_session_opponent_models("Alice", "user1")
+
+    assert "Bob" in result
+    bob = result["Bob"]
+
+    # Session count should be 2
+    assert bob["session_count"] == 2
+
+    # Total hands = 10 + 30 = 40
+    assert bob["total_hands"] == 40
+
+    # Weighted VPIP = (0.6*10 + 0.4*30) / 40 = 18/40 = 0.45
+    assert bob["vpip"] == 0.45
+
+    # Weighted PFR = (0.3*10 + 0.2*30) / 40 = 9/40 = 0.225
+    assert bob["pfr"] == 0.225
+
+    # Weighted aggression = (2.0*10 + 1.0*30) / 40 = 50/40 = 1.25
+    assert bob["aggression_factor"] == 1.25
+
+    # Notes from both sessions
+    assert "Plays loose" in bob["notes"]
+    assert "Tightened up" in bob["notes"]
+
+
+def test_cross_session_distinct_session_count(repo):
+    """session_count is the count of distinct game_ids."""
+    sm = _make_state_machine()
+
+    # Save 3 games but only 2 with Bob data
+    repo.save_game("game1", sm, owner_id="user1", owner_name="Alice")
+    repo.save_opponent_models("game1", {
+        "Alice": {"Bob": {"tendencies": {"hands_observed": 5, "vpip": 0.5}, "memorable_hands": []}}
+    })
+
+    repo.save_game("game2", sm, owner_id="user1", owner_name="Alice")
+    repo.save_opponent_models("game2", {
+        "Alice": {"Bob": {"tendencies": {"hands_observed": 5, "vpip": 0.5}, "memorable_hands": []}}
+    })
+
+    repo.save_game("game3", sm, owner_id="user1", owner_name="Alice")
+    # game3 has no opponent models for Bob
+
+    result = repo.load_cross_session_opponent_models("Alice", "user1")
+    assert result["Bob"]["session_count"] == 2
+
+
+def test_cross_session_no_data_for_guest(repo):
+    """Guest users (no user_id) get no historical data."""
+    result = repo.load_cross_session_opponent_models("Alice", None)
+    assert result == {}
+
+    result = repo.load_cross_session_opponent_models("Alice", "")
+    assert result == {}
+
+
+def test_cross_session_filters_by_owner_id(repo):
+    """Only aggregates games owned by the specified user."""
+    sm = _make_state_machine()
+
+    # User1's game
+    repo.save_game("game1", sm, owner_id="user1", owner_name="Alice")
+    repo.save_opponent_models("game1", {
+        "Alice": {"Bob": {"tendencies": {"hands_observed": 10, "vpip": 0.6}, "memorable_hands": []}}
+    })
+
+    # User2's game - should not be included
+    repo.save_game("game2", sm, owner_id="user2", owner_name="Other")
+    repo.save_opponent_models("game2", {
+        "Alice": {"Bob": {"tendencies": {"hands_observed": 10, "vpip": 0.2}, "memorable_hands": []}}
+    })
+
+    result = repo.load_cross_session_opponent_models("Alice", "user1")
+
+    assert "Bob" in result
+    assert result["Bob"]["session_count"] == 1
+    assert result["Bob"]["vpip"] == 0.6  # Only user1's data
+
+
+def test_cross_session_excludes_zero_hand_observations(repo):
+    """Opponent models with hands_observed=0 are excluded from aggregation."""
+    sm = _make_state_machine()
+
+    repo.save_game("game1", sm, owner_id="user1", owner_name="Alice")
+    repo.save_opponent_models("game1", {
+        "Alice": {"Bob": {"tendencies": {"hands_observed": 0, "vpip": 0.9}, "memorable_hands": []}}
+    })
+
+    result = repo.load_cross_session_opponent_models("Alice", "user1")
+    assert "Bob" not in result
