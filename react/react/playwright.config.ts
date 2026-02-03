@@ -7,7 +7,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  workers: 8,
+  // Safari runs serially in CI (fullyParallel: false), so workers only affects Chrome
+  workers: process.env.CI ? 4 : 8,
   reporter: 'list',
   use: {
     baseURL,
@@ -31,6 +32,9 @@ export default defineConfig({
       use: {
         ...devices['iPhone 13'],
       },
+      // WebKit is more sensitive to timing under parallel load; run serially in CI
+      fullyParallel: !process.env.CI,
+      retries: process.env.CI ? 1 : 0,
     },
     {
       name: 'Mobile Chrome',

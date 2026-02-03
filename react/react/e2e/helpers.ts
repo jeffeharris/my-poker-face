@@ -463,6 +463,8 @@ export async function navigateToGamePage(
   await expect(page.getByTestId('reconnecting-overlay')).not.toBeVisible({ timeout: 5000 });
   // Wait for action area to be stable (Safari needs extra time for layout to settle after animations)
   await expect(page.getByTestId('action-btn-chat')).toBeVisible({ timeout: 5000 });
+  // Small delay to let any CSS transitions/animations complete - WebKit needs this for stability
+  await page.waitForTimeout(500);
 }
 
 // ─── Common mock setup for menu-page tests ───

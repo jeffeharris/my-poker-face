@@ -14,5 +14,6 @@ COPY . .
 EXPOSE 5173
 
 # Run Playwright tests (Vite dev server auto-starts via webServer config)
-# Default: run all projects (Mobile Chrome + Mobile Safari)
-CMD ["npx", "playwright", "test", "--reporter=list"]
+# Safari runs with --workers=1 to avoid WebKit timing issues under parallel load
+# Chrome runs with default parallelism for speed
+CMD ["sh", "-c", "npx playwright test --project='Mobile Safari' --workers=1 --reporter=list && npx playwright test --project='Mobile Chrome' --workers=4 --reporter=list"]
