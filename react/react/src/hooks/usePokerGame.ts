@@ -525,7 +525,7 @@ export function usePokerGame({
         });
       });
     });
-  }, [onNewAiMessage, clearAiThinkingTimeout, applyGameState, updateStorePlayers, updateStorePlayerOptions, resetBuffer, processStateUpdate]);
+  }, [onNewAiMessage, clearAiThinkingTimeout, updateStorePlayers, updateStorePlayerOptions, resetBuffer, processStateUpdate]);
 
   // refreshGameState: silent=true means don't touch loading state (for reconnections)
   const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
