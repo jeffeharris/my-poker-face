@@ -209,7 +209,19 @@ export function usePokerGame({
    * Update AI thinking state based on current player.
    */
   const updateAiThinkingFromState = useCallback((state: GameState) => {
-    const currentPlayer = state.players[state.current_player_idx];
+    const players = state?.players;
+    const idx = state?.current_player_idx;
+
+    if (!players || idx === undefined || idx < 0 || idx >= players.length) {
+      logger.error('[BUFFER] Invalid player state for AI thinking check', {
+        playersLength: players?.length,
+        currentPlayerIdx: idx
+      });
+      setAiThinking(false);
+      return;
+    }
+
+    const currentPlayer = players[idx];
     setAiThinking(!currentPlayer.is_human && !currentPlayer.is_folded);
   }, []);
 
@@ -233,7 +245,15 @@ export function usePokerGame({
       return;
     }
 
-    const nextUpdate = updateQueueRef.current.shift()!;
+    const nextUpdate = updateQueueRef.current.shift();
+    if (!nextUpdate) {
+      // Defensive check - should not happen given length check above
+      logger.error('[BUFFER] Unexpected empty queue during replay');
+      bufferStateRef.current = BufferState.NORMAL;
+      replayTimeoutRef.current = null;
+      return;
+    }
+
     logger.debug('[BUFFER] Replaying update', {
       remaining: updateQueueRef.current.length,
       queuedAt: nextUpdate.timestamp
@@ -243,9 +263,14 @@ export function usePokerGame({
 
     // Schedule next replay after 1s
     replayTimeoutRef.current = setTimeout(() => {
-      scheduleNextReplay();
+      try {
+        scheduleNextReplay();
+      } catch (error) {
+        logger.error('[BUFFER] Replay failed, resetting to NORMAL:', error);
+        resetBuffer();
+      }
     }, 1000);
-  }, [applyStateUpdate]);
+  }, [applyStateUpdate, resetBuffer]);
 
   /**
    * Start replaying queued updates after gate expires.
@@ -271,61 +296,79 @@ export function usePokerGame({
    * - Detects newly dealt cards and opens a gate
    * - Queues updates during gate/replay
    * - Applies updates immediately in NORMAL state
+   * - Interrupts replay and clears queue if new cards arrive during REPLAYING state
    */
   const processStateUpdate = useCallback((data: { game_state: GameState }) => {
-    const transformedState: GameState = {
-      ...data.game_state,
-      messages: data.game_state.messages || []
-    };
-
-    // Detect newly dealt community cards
-    const currentCardCount = transformedState.community_cards?.length ?? 0;
-    const newlyDealtCount = transformedState.newly_dealt_count ?? 0;
-    const cardsJustDealt = newlyDealtCount > 0 && currentCardCount > prevCommunityCardCountRef.current;
-
-    // Update tracking ref
-    prevCommunityCardCountRef.current = currentCardCount;
-
-    if (cardsJustDealt) {
-      // Cards were just dealt - apply immediately (so animation starts) and open gate
-      logger.debug('[BUFFER] Cards dealt, opening gate', { newlyDealtCount, currentCardCount });
-
-      // If replaying when new cards arrive, interrupt replay and clear stale queue
-      if (bufferStateRef.current === BufferState.REPLAYING) {
-        clearBufferTimers();
-        updateQueueRef.current = [];  // Clear stale updates from interrupted replay
+    try {
+      // Validate incoming data
+      if (!data?.game_state) {
+        logger.error('[BUFFER] Received invalid state update - missing game_state', { data });
+        return;
       }
 
-      // Apply card-dealing state immediately
-      applyStateUpdate(transformedState);
+      const transformedState: GameState = {
+        ...data.game_state,
+        messages: data.game_state.messages || []
+      };
 
-      // Enter GATED state
-      bufferStateRef.current = BufferState.GATED;
+      // Detect newly dealt community cards
+      const currentCardCount = transformedState.community_cards?.length ?? 0;
+      const newlyDealtCount = transformedState.newly_dealt_count ?? 0;
+      const cardsJustDealt = newlyDealtCount > 0 && currentCardCount > prevCommunityCardCountRef.current;
 
-      // Set timer to start replay after animation completes
-      const gateDuration = calculateGateDuration(newlyDealtCount);
-      gateTimeoutRef.current = setTimeout(() => {
-        startReplay();
-      }, gateDuration);
+      // Update tracking ref
+      prevCommunityCardCountRef.current = currentCardCount;
 
-      return;
+      if (cardsJustDealt) {
+        // Cards were just dealt - apply immediately (so animation starts) and open gate
+        logger.debug('[BUFFER] Cards dealt, opening gate', { newlyDealtCount, currentCardCount });
+
+        // If replaying when new cards arrive, interrupt replay and clear stale queue
+        if (bufferStateRef.current === BufferState.REPLAYING) {
+          clearBufferTimers();
+          updateQueueRef.current = [];  // Clear stale updates from interrupted replay
+        }
+
+        // Apply card-dealing state immediately
+        applyStateUpdate(transformedState);
+
+        // Enter GATED state
+        bufferStateRef.current = BufferState.GATED;
+
+        // Set timer to start replay after animation completes
+        const gateDuration = calculateGateDuration(newlyDealtCount);
+        gateTimeoutRef.current = setTimeout(() => {
+          try {
+            startReplay();
+          } catch (error) {
+            logger.error('[BUFFER] startReplay failed, resetting to NORMAL:', error);
+            resetBuffer();
+          }
+        }, gateDuration);
+
+        return;
+      }
+
+      // Handle based on current buffer state
+      if (bufferStateRef.current === BufferState.NORMAL) {
+        // Normal mode: apply immediately
+        applyStateUpdate(transformedState);
+      } else {
+        // GATED or REPLAYING: queue the update
+        logger.debug(`[BUFFER] Queuing update during ${bufferStateRef.current}`, {
+          queueLength: updateQueueRef.current.length + 1
+        });
+        updateQueueRef.current.push({
+          gameState: transformedState,
+          timestamp: Date.now()
+        });
+      }
+    } catch (error) {
+      logger.error('[BUFFER] Failed to process state update:', error);
+      // Attempt recovery: reset buffer to prevent stuck state
+      resetBuffer();
     }
-
-    // Handle based on current buffer state
-    if (bufferStateRef.current === BufferState.NORMAL) {
-      // Normal mode: apply immediately
-      applyStateUpdate(transformedState);
-    } else {
-      // GATED or REPLAYING: queue the update
-      logger.debug(`[BUFFER] Queuing update during ${bufferStateRef.current}`, {
-        queueLength: updateQueueRef.current.length + 1
-      });
-      updateQueueRef.current.push({
-        gameState: transformedState,
-        timestamp: Date.now()
-      });
-    }
-  }, [applyStateUpdate, calculateGateDuration, clearBufferTimers, startReplay]);
+  }, [applyStateUpdate, calculateGateDuration, clearBufferTimers, resetBuffer, startReplay]);
 
   // ========================================================================
   // Socket Listeners
