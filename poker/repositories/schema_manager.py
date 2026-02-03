@@ -3026,7 +3026,9 @@ class SchemaManager:
         for user_id, skill_id, opps, correct in rows:
             incorrect = opps - correct
             decisions = [True] * correct + [False] * incorrect
-            random.shuffle(decisions)
+            # Use local Random instance to avoid modifying global state
+            rng = random.Random(hash((user_id, skill_id)))
+            rng.shuffle(decisions)
             conn.execute(
                 "UPDATE player_skill_progress SET window_decisions = ? "
                 "WHERE user_id = ? AND skill_id = ?",

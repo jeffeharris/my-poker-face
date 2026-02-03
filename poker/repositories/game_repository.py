@@ -766,7 +766,7 @@ class GameRepository(BaseRepository):
                     'vpip': round(vpip, 3),
                     'pfr': round(pfr, 3),
                     'aggression_factor': round(aggression, 2),
-                    'notes': notes[-10:],  # Keep most recent 10 notes
+                    'notes': notes[-10:],  # Keep up to 10 notes
                 }
 
         if result:
