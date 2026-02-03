@@ -1,0 +1,98 @@
+.progression-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+}
+
+.progression-strip:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.progression-strip__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progression-strip__gate {
+  font-family: var(--font-display, sans-serif);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted, #777);
+  flex-shrink: 0;
+}
+
+.progression-strip__skill {
+  flex: 1;
+  font-family: var(--font-body, sans-serif);
+  font-size: 13px;
+  color: var(--color-text-primary, #eee);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progression-strip__accuracy {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold, 600);
+  flex-shrink: 0;
+}
+
+.progression-strip__accuracy--emerald {
+  color: var(--color-emerald, #34d399);
+}
+
+.progression-strip__accuracy--gold {
+  color: var(--color-gold, #d4a574);
+}
+
+.progression-strip__accuracy--ruby {
+  color: var(--color-ruby, #f43f5e);
+}
+
+.progression-strip__chevron {
+  flex-shrink: 0;
+  color: var(--color-text-muted, #777);
+  display: flex;
+  align-items: center;
+}
+
+/* 2px progress bar */
+.progression-strip__bar {
+  height: 2px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.progression-strip__bar-fill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 0.3s ease;
+}
+
+.progression-strip__bar--emerald .progression-strip__bar-fill {
+  background: var(--color-emerald, #34d399);
+}
+
+.progression-strip__bar--gold .progression-strip__bar-fill {
+  background: var(--color-gold, #d4a574);
+}
+
+.progression-strip__bar--ruby .progression-strip__bar-fill {
+  background: var(--color-ruby, #f43f5e);
+}

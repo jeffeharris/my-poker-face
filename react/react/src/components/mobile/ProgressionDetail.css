@@ -1,0 +1,188 @@
+.progression-detail {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Gate section */
+.progression-detail__gate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progression-detail__gate--locked {
+  opacity: 0.4;
+}
+
+.progression-detail__gate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progression-detail__gate-label {
+  font-family: var(--font-display, sans-serif);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted, #777);
+  flex-shrink: 0;
+}
+
+.progression-detail__gate-name {
+  font-family: var(--font-body, sans-serif);
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-primary, #eee);
+  flex: 1;
+}
+
+.progression-detail__gate-dots {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.progression-detail__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.progression-detail__dot.state-introduced {
+  background: var(--color-text-muted, #777);
+}
+
+.progression-detail__dot.state-practicing {
+  background: var(--color-gold, #d4a574);
+}
+
+.progression-detail__dot.state-reliable {
+  background: var(--color-emerald, #34d399);
+}
+
+.progression-detail__dot.state-automatic {
+  background: var(--color-sapphire, #3b82f6);
+}
+
+.progression-detail__dot.state-locked {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Skill cards */
+.progression-detail__skills {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progression-detail__skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.progression-detail__skill-card--locked {
+  border-color: transparent;
+}
+
+.progression-detail__skill-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.progression-detail__skill-name {
+  font-family: var(--font-body, sans-serif);
+  font-size: 12px;
+  color: var(--color-text-primary, #eee);
+}
+
+.progression-detail__skill-accuracy {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.progression-detail__skill-accuracy.state-introduced {
+  color: var(--color-text-muted, #777);
+}
+
+.progression-detail__skill-accuracy.state-practicing {
+  color: var(--color-gold, #d4a574);
+}
+
+.progression-detail__skill-accuracy.state-reliable {
+  color: var(--color-emerald, #34d399);
+}
+
+.progression-detail__skill-accuracy.state-automatic {
+  color: var(--color-sapphire, #3b82f6);
+}
+
+/* Mini progress bar */
+.progression-detail__skill-bar {
+  height: 2px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.progression-detail__skill-bar-fill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 0.3s ease;
+}
+
+.progression-detail__skill-bar-fill.state-introduced {
+  background: var(--color-text-muted, #777);
+}
+
+.progression-detail__skill-bar-fill.state-practicing {
+  background: var(--color-gold, #d4a574);
+}
+
+.progression-detail__skill-bar-fill.state-reliable {
+  background: var(--color-emerald, #34d399);
+}
+
+.progression-detail__skill-bar-fill.state-automatic {
+  background: var(--color-sapphire, #3b82f6);
+}
+
+/* State label */
+.progression-detail__skill-state {
+  font-family: var(--font-display, sans-serif);
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.progression-detail__skill-state.state-introduced {
+  color: var(--color-text-muted, #777);
+}
+
+.progression-detail__skill-state.state-practicing {
+  color: var(--color-gold, #d4a574);
+}
+
+.progression-detail__skill-state.state-reliable {
+  color: var(--color-emerald, #34d399);
+}
+
+.progression-detail__skill-state.state-automatic {
+  color: var(--color-sapphire, #3b82f6);
+}

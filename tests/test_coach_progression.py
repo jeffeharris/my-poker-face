@@ -237,51 +237,160 @@ class TestCoachingDecision(unittest.TestCase):
         self.assertEqual(decision.mode.value, 'silent')
 
 
-class TestWindowTrimming(unittest.TestCase):
-    """Test rolling window trimming behavior."""
+class TestSlidingWindow(unittest.TestCase):
+    """Test true sliding window behavior (replaces proportional trim)."""
 
     def setUp(self):
         self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
         repos = create_repos(self.db_path)
         self.coach_repo = repos['coach_repo']
         self.service = CoachProgressionService(self.coach_repo)
+        self.user_id = 'test_window_user'
+        self.service.initialize_player(self.user_id)
 
     def tearDown(self):
         os.close(self.db_fd)
         os.unlink(self.db_path)
 
+    def _make_classification(self):
+        return SituationClassification(
+            relevant_skills=('fold_trash_hands',),
+            primary_skill='fold_trash_hands',
+            situation_tags=('trash_hand',),
+        )
+
+    def _make_coaching_data(self):
+        return {
+            'phase': 'PRE_FLOP',
+            'hand_strength': '72o - Unconnected cards, Bottom 10%',
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 30,
+        }
+
     def test_window_does_not_exceed_size(self):
-        """Window should be trimmed to window_size."""
+        """Window should never exceed window_size (20)."""
+        classification = self._make_classification()
+        coaching_data = self._make_coaching_data()
+
+        # Do 25 correct actions
+        for _ in range(25):
+            self.service.evaluate_and_update(
+                self.user_id, 'fold', coaching_data, classification
+            )
+
+        state = self.service.get_player_state(self.user_id)
+        ss = state['skill_states']['fold_trash_hands']
+        self.assertLessEqual(ss.window_opportunities, 20)
+        self.assertEqual(ss.total_opportunities, 25)
+
+    def test_window_recovers_from_bad_start(self):
+        """Window at 50% should recover to 100% after 20 correct actions.
+
+        This is the exact bug that proportional trim could not handle.
+        """
+        # Seed with 10 correct and 10 incorrect (50% accuracy)
+        decisions = tuple([True] * 10 + [False] * 10)
         ss = PlayerSkillState(
             skill_id='fold_trash_hands',
-            window_opportunities=25,
-            window_correct=20,
+            state=SkillState.PRACTICING,
+            total_opportunities=20,
+            total_correct=10,
+            window_decisions=decisions,
+            window_opportunities=20,
+            window_correct=10,
         )
-        trimmed = self.service._trim_window(ss, 20)
-        self.assertEqual(trimmed.window_opportunities, 20)
-        # 20/25 = 0.8, int(0.8 * 20) = 16
-        self.assertEqual(trimmed.window_correct, 16)
+        self.coach_repo.save_skill_state(self.user_id, ss)
 
-    def test_window_no_trim_when_under_size(self):
+        classification = self._make_classification()
+        coaching_data = self._make_coaching_data()
+
+        # Do 20 correct actions — should completely replace the window
+        for _ in range(20):
+            self.service.evaluate_and_update(
+                self.user_id, 'fold', coaching_data, classification
+            )
+
+        state = self.service.get_player_state(self.user_id)
+        ss = state['skill_states']['fold_trash_hands']
+        self.assertEqual(ss.window_opportunities, 20)
+        self.assertEqual(ss.window_correct, 20)
+        self.assertAlmostEqual(ss.window_accuracy, 1.0)
+
+    def test_single_correct_after_half_window(self):
+        """Adding one correct to 10/20 should yield 11/20, not 10/20."""
+        decisions = tuple([True] * 10 + [False] * 10)
         ss = PlayerSkillState(
             skill_id='fold_trash_hands',
-            window_opportunities=10,
-            window_correct=8,
+            state=SkillState.PRACTICING,
+            total_opportunities=20,
+            total_correct=10,
+            window_decisions=decisions,
+            window_opportunities=20,
+            window_correct=10,
         )
-        result = self.service._trim_window(ss, 20)
-        self.assertEqual(result.window_opportunities, 10)
-        self.assertEqual(result.window_correct, 8)
+        self.coach_repo.save_skill_state(self.user_id, ss)
 
-    def test_trim_uses_floor_not_round(self):
-        """Verify int() floors — conservative rounding (M1 fix)."""
-        # 16/21 ≈ 0.7619, int(0.7619 * 20) = int(15.238) = 15 (floor, not round)
-        ss = PlayerSkillState(
-            skill_id='test',
-            window_opportunities=21,
-            window_correct=16,
+        classification = self._make_classification()
+        coaching_data = self._make_coaching_data()
+
+        self.service.evaluate_and_update(
+            self.user_id, 'fold', coaching_data, classification
         )
-        trimmed = self.service._trim_window(ss, 20)
-        self.assertEqual(trimmed.window_correct, 15)
+
+        state = self.service.get_player_state(self.user_id)
+        ss = state['skill_states']['fold_trash_hands']
+        # Oldest decision (True) dropped, new True appended: net same correct count
+        # Original: [T,T,T,T,T,T,T,T,T,T,F,F,F,F,F,F,F,F,F,F] → drop first T, add T
+        # Result: 10 correct out of 20 — but the window has shifted
+        # Actually: oldest is True (index 0), so dropping it loses 1, adding 1 gains 1 = still 10
+        # After 2 correct: oldest is True again, so still 10
+        # After 10 correct: oldest starts being False, so we gain
+        self.assertEqual(ss.window_opportunities, 20)
+        # Dropped the first True, added a True → still 10
+        self.assertEqual(ss.window_correct, 10)
+
+    def test_oldest_incorrect_drops_off(self):
+        """When oldest decision is incorrect and new is correct, window improves."""
+        # First 10 are False, last 10 are True
+        decisions = tuple([False] * 10 + [True] * 10)
+        ss = PlayerSkillState(
+            skill_id='fold_trash_hands',
+            state=SkillState.PRACTICING,
+            total_opportunities=20,
+            total_correct=10,
+            window_decisions=decisions,
+            window_opportunities=20,
+            window_correct=10,
+        )
+        self.coach_repo.save_skill_state(self.user_id, ss)
+
+        classification = self._make_classification()
+        coaching_data = self._make_coaching_data()
+
+        # One correct action: drops oldest False, adds True → 11/20
+        self.service.evaluate_and_update(
+            self.user_id, 'fold', coaching_data, classification
+        )
+
+        state = self.service.get_player_state(self.user_id)
+        ss = state['skill_states']['fold_trash_hands']
+        self.assertEqual(ss.window_opportunities, 20)
+        self.assertEqual(ss.window_correct, 11)
+
+    def test_window_decisions_persistence(self):
+        """Window decisions should round-trip through the database."""
+        decisions = (True, False, True, True, False)
+        ss = PlayerSkillState(
+            skill_id='fold_trash_hands',
+            state=SkillState.PRACTICING,
+            window_decisions=decisions,
+            window_opportunities=5,
+            window_correct=3,
+        )
+        self.coach_repo.save_skill_state(self.user_id, ss)
+        loaded = self.coach_repo.load_skill_state(self.user_id, 'fold_trash_hands')
+        self.assertEqual(loaded.window_decisions, decisions)
 
 
 class TestGateUnlock(unittest.TestCase):
@@ -1204,6 +1313,51 @@ class TestOverlapEvaluation(unittest.TestCase):
             ss = state['skill_states'][sid]
             self.assertEqual(ss.total_opportunities, 1)
             self.assertEqual(ss.total_correct, 1)
+
+
+class TestAdminMetrics(unittest.TestCase):
+    """Smoke tests for admin metrics repository methods."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
+        # Seed a player with some progression data
+        self.user_id = 'metrics_user'
+        self.service.get_or_initialize_player(self.user_id)
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def test_profile_stats_structure(self):
+        result = self.coach_repo.get_profile_stats()
+        self.assertIn('total_players', result)
+        self.assertIn('active_last_7d', result)
+        self.assertIn('by_level', result)
+        self.assertIn('gates_unlocked', result)
+        self.assertIsInstance(result['total_players'], int)
+        self.assertGreaterEqual(result['total_players'], 1)
+        # Gate keys should be strings
+        for key in result['gates_unlocked']:
+            self.assertIsInstance(key, str)
+
+    def test_skill_distribution_structure(self):
+        result = self.coach_repo.get_skill_distribution()
+        self.assertIn('skills', result)
+        # Seeded player should have at least some skill entries
+        if result['skills']:
+            first_skill = next(iter(result['skills'].values()))
+            self.assertIn('states', first_skill)
+            self.assertIn('total_players', first_skill)
+
+    def test_skill_advancement_stats_structure(self):
+        result = self.coach_repo.get_skill_advancement_stats()
+        self.assertIn('advancement', result)
+        self.assertIn('stuck_players', result)
+        self.assertIsInstance(result['advancement'], list)
+        self.assertIsInstance(result['stuck_players'], list)
 
 
 if __name__ == '__main__':

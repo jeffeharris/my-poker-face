@@ -1,4 +1,5 @@
 """Coach progression repository — skill states, gate progress, and coach profiles."""
+import json
 import logging
 from datetime import datetime
 from typing import Optional, Dict
@@ -18,19 +19,22 @@ class CoachRepository(BaseRepository):
 
     def save_skill_state(self, user_id: str, skill_state) -> None:
         """Persist a PlayerSkillState to the database."""
+        window_decisions_json = json.dumps(list(skill_state.window_decisions))
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO player_skill_progress
                     (user_id, skill_id, state, total_opportunities, total_correct,
-                     window_opportunities, window_correct, streak_correct, streak_incorrect,
+                     window_opportunities, window_correct, window_decisions,
+                     streak_correct, streak_incorrect,
                      last_evaluated_at, first_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, skill_id) DO UPDATE SET
                     state = excluded.state,
                     total_opportunities = excluded.total_opportunities,
                     total_correct = excluded.total_correct,
                     window_opportunities = excluded.window_opportunities,
                     window_correct = excluded.window_correct,
+                    window_decisions = excluded.window_decisions,
                     streak_correct = excluded.streak_correct,
                     streak_incorrect = excluded.streak_incorrect,
                     last_evaluated_at = excluded.last_evaluated_at,
@@ -40,6 +44,7 @@ class CoachRepository(BaseRepository):
                 if hasattr(skill_state.state, 'value') else skill_state.state,
                 skill_state.total_opportunities, skill_state.total_correct,
                 skill_state.window_opportunities, skill_state.window_correct,
+                window_decisions_json,
                 skill_state.streak_correct, skill_state.streak_incorrect,
                 skill_state.last_evaluated_at, skill_state.first_seen_at,
             ))
@@ -50,7 +55,8 @@ class CoachRepository(BaseRepository):
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT skill_id, state, total_opportunities, total_correct, "
-                "window_opportunities, window_correct, streak_correct, streak_incorrect, "
+                "window_opportunities, window_correct, window_decisions, "
+                "streak_correct, streak_incorrect, "
                 "last_evaluated_at, first_seen_at "
                 "FROM player_skill_progress WHERE user_id = ? AND skill_id = ?",
                 (user_id, skill_id),
@@ -65,10 +71,11 @@ class CoachRepository(BaseRepository):
                 total_correct=row[3],
                 window_opportunities=row[4],
                 window_correct=row[5],
-                streak_correct=row[6],
-                streak_incorrect=row[7],
-                last_evaluated_at=row[8],
-                first_seen_at=row[9],
+                window_decisions=tuple(json.loads(row[6] or '[]')),
+                streak_correct=row[7],
+                streak_incorrect=row[8],
+                last_evaluated_at=row[9],
+                first_seen_at=row[10],
             )
 
     def load_all_skill_states(self, user_id: str):
@@ -77,7 +84,8 @@ class CoachRepository(BaseRepository):
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT skill_id, state, total_opportunities, total_correct, "
-                "window_opportunities, window_correct, streak_correct, streak_incorrect, "
+                "window_opportunities, window_correct, window_decisions, "
+                "streak_correct, streak_incorrect, "
                 "last_evaluated_at, first_seen_at "
                 "FROM player_skill_progress WHERE user_id = ?",
                 (user_id,),
@@ -91,10 +99,11 @@ class CoachRepository(BaseRepository):
                     total_correct=row[3],
                     window_opportunities=row[4],
                     window_correct=row[5],
-                    streak_correct=row[6],
-                    streak_incorrect=row[7],
-                    last_evaluated_at=row[8],
-                    first_seen_at=row[9],
+                    window_decisions=tuple(json.loads(row[6] or '[]')),
+                    streak_correct=row[7],
+                    streak_incorrect=row[8],
+                    last_evaluated_at=row[9],
+                    first_seen_at=row[10],
                 )
             return result
 
@@ -165,4 +174,123 @@ class CoachRepository(BaseRepository):
                 'effective_level': row[2],
                 'created_at': row[3],
                 'updated_at': row[4],
+            }
+
+    # --- Metrics queries (admin) ---
+
+    def get_profile_stats(self) -> Dict:
+        """Aggregate overview of coaching profiles and gate progress."""
+        with self._get_connection() as conn:
+            # Total and by-level counts
+            total = conn.execute(
+                "SELECT COUNT(*) FROM player_coach_profile"
+            ).fetchone()[0]
+
+            level_rows = conn.execute(
+                "SELECT self_reported_level, COUNT(*) as cnt "
+                "FROM player_coach_profile GROUP BY self_reported_level"
+            ).fetchall()
+            by_level = {row[0]: row[1] for row in level_rows}
+
+            # Active players (skill progress updated in last 7 days)
+            active = conn.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM player_skill_progress "
+                "WHERE last_evaluated_at >= datetime('now', '-7 days')"
+            ).fetchone()[0]
+
+            # Gate funnel
+            gate_rows = conn.execute(
+                "SELECT gate, COUNT(*) as cnt "
+                "FROM player_gate_progress WHERE unlocked = 1 "
+                "GROUP BY gate ORDER BY gate"
+            ).fetchall()
+            gates_unlocked = {str(row[0]): row[1] for row in gate_rows}
+
+            return {
+                'total_players': total,
+                'active_last_7d': active,
+                'by_level': by_level,
+                'gates_unlocked': gates_unlocked,
+            }
+
+    def get_skill_distribution(self) -> Dict:
+        """Per-skill player counts by state and accuracy stats."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT skill_id, state, "
+                "COUNT(*) as player_count, "
+                "ROUND(AVG(CASE WHEN total_opportunities > 0 "
+                "  THEN CAST(total_correct AS REAL) / total_opportunities ELSE 0 END), 3) as avg_accuracy, "
+                "ROUND(AVG(total_opportunities), 1) as avg_opportunities "
+                "FROM player_skill_progress "
+                "GROUP BY skill_id, state "
+                "ORDER BY skill_id, state"
+            ).fetchall()
+
+            skills = {}
+            for row in rows:
+                sid = row[0]
+                if sid not in skills:
+                    skills[sid] = {'states': {}, 'total_players': 0}
+                skills[sid]['states'][row[1]] = {
+                    'count': row[2],
+                    'avg_accuracy': row[3],
+                    'avg_opportunities': row[4],
+                }
+                skills[sid]['total_players'] += row[2]
+
+            return {'skills': skills}
+
+    def get_skill_advancement_stats(self) -> Dict:
+        """Advancement timing: avg opportunities to reach each state."""
+        with self._get_connection() as conn:
+            # For each skill+state, what's the average total_opportunities?
+            # This shows how many opportunities it typically takes to reach each state.
+            rows = conn.execute(
+                "SELECT skill_id, state, "
+                "COUNT(*) as player_count, "
+                "ROUND(AVG(total_opportunities), 1) as avg_total_opps, "
+                "MIN(total_opportunities) as min_opps, "
+                "MAX(total_opportunities) as max_opps "
+                "FROM player_skill_progress "
+                "WHERE state IN ('reliable', 'automatic') "
+                "GROUP BY skill_id, state "
+                "ORDER BY skill_id, state"
+            ).fetchall()
+
+            advancement = []
+            for row in rows:
+                advancement.append({
+                    'skill_id': row[0],
+                    'state': row[1],
+                    'player_count': row[2],
+                    'avg_total_opportunities': row[3],
+                    'min_opportunities': row[4],
+                    'max_opportunities': row[5],
+                })
+
+            # Regression indicator: skills where players are in a lower state
+            # despite having many opportunities (potential threshold issue)
+            regression_rows = conn.execute(
+                "SELECT skill_id, COUNT(*) as player_count, "
+                "ROUND(AVG(total_opportunities), 1) as avg_opps "
+                "FROM player_skill_progress "
+                "WHERE state IN ('introduced', 'practicing') "
+                "AND total_opportunities > 20 "
+                "GROUP BY skill_id "
+                "ORDER BY avg_opps DESC"
+            ).fetchall()
+
+            stuck_players = [
+                {
+                    'skill_id': row[0],
+                    'player_count': row[1],
+                    'avg_opportunities': row[2],
+                }
+                for row in regression_rows
+            ]
+
+            return {
+                'advancement': advancement,
+                'stuck_players': stuck_players,
             }

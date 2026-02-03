@@ -2,8 +2,11 @@
 // sheet pattern. Consider extracting a shared Sheet component.
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Send } from 'lucide-react';
-import type { CoachStats, CoachMessage, CoachMode } from '../../types/coach';
+import type { CoachStats, CoachMessage, CoachMode, CoachProgression, ProgressionState } from '../../types/coach';
 import { StatsBar } from './StatsBar';
+import { ProgressionStrip } from './ProgressionStrip';
+import { ProgressionDetail } from './ProgressionDetail';
+import { safeGetItem, safeSetItem } from '../../utils/storage';
 import './CoachPanel.css';
 
 const CLOSE_ANIMATION_MS = 250;
@@ -17,6 +20,10 @@ interface CoachPanelProps {
   isThinking: boolean;
   mode: CoachMode;
   onModeChange: (mode: CoachMode) => void;
+  progression?: CoachProgression | null;
+  progressionFull?: ProgressionState | null;
+  onFetchProgression?: () => Promise<void>;
+  onSkipAhead?: (level: string) => Promise<void>;
 }
 
 export function CoachPanel({
@@ -28,12 +35,23 @@ export function CoachPanel({
   isThinking,
   mode,
   onModeChange,
+  progression,
+  progressionFull,
+  onFetchProgression,
+  onSkipAhead,
 }: CoachPanelProps) {
   const [inputValue, setInputValue] = useState('');
   const [isClosing, setIsClosing] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(
+    () => safeGetItem('coach_onboarding_dismissed') === 'true',
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
+  const hasFetchedProgressionRef = useRef(false);
+
+  const handleToggleDetail = useCallback(() => setShowDetail(d => !d), []);
 
   // Drag-to-dismiss
   const dragStartY = useRef(0);
@@ -48,6 +66,14 @@ export function CoachPanel({
       clearTimeout(snapTimeoutRef.current);
     };
   }, []);
+
+  // Fetch full progression on first panel open
+  useEffect(() => {
+    if (isOpen && !hasFetchedProgressionRef.current && onFetchProgression) {
+      hasFetchedProgressionRef.current = true;
+      onFetchProgression();
+    }
+  }, [isOpen, onFetchProgression]);
 
   // Scroll to bottom: instant on open, smooth for new messages
   useEffect(() => {
@@ -173,6 +199,62 @@ export function CoachPanel({
 
         <StatsBar stats={stats} />
 
+        {progression && (
+          <ProgressionStrip
+            progression={progression}
+            isExpanded={showDetail}
+            onToggle={handleToggleDetail}
+          />
+        )}
+
+        {/* Onboarding prompt for beginners */}
+        {!onboardingDismissed &&
+          progressionFull &&
+          progressionFull.profile?.self_reported_level === 'beginner' && (
+          <div className="coach-onboarding">
+            <p className="coach-onboarding__text">
+              How much poker do you know?
+            </p>
+            <div className="coach-onboarding__actions">
+              <button
+                className="coach-onboarding__btn coach-onboarding__btn--dismiss"
+                onClick={() => {
+                  setOnboardingDismissed(true);
+                  safeSetItem('coach_onboarding_dismissed', 'true');
+                }}
+              >
+                New to poker
+              </button>
+              <button
+                className="coach-onboarding__btn coach-onboarding__btn--skip"
+                onClick={() => {
+                  onSkipAhead?.('intermediate');
+                  setOnboardingDismissed(true);
+                  safeSetItem('coach_onboarding_dismissed', 'true');
+                }}
+              >
+                I know the basics
+              </button>
+              <button
+                className="coach-onboarding__btn coach-onboarding__btn--skip"
+                onClick={() => {
+                  onSkipAhead?.('experienced');
+                  setOnboardingDismissed(true);
+                  safeSetItem('coach_onboarding_dismissed', 'true');
+                }}
+              >
+                Experienced
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showDetail ? (
+          <ProgressionDetail
+            progressionFull={progressionFull ?? null}
+            progressionLite={progression ?? null}
+          />
+        ) : (
         <div className="coach-messages">
           {messages.length === 0 ? (
             <div className="coach-empty">
@@ -201,6 +283,7 @@ export function CoachPanel({
           )}
           <div ref={messagesEndRef} />
         </div>
+        )}
 
         <form
           className="coach-input-area"

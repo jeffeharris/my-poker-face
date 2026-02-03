@@ -2,6 +2,7 @@ import { memo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GraduationCap, X } from 'lucide-react';
 import type { CoachStats } from '../../types/coach';
+import type { CoachingModeValue } from '../../types/coach';
 import './CoachBubble.css';
 
 interface CoachBubbleProps {
@@ -10,11 +11,12 @@ interface CoachBubbleProps {
   stats: CoachStats | null;
   onTap: () => void;
   onDismiss: () => void;
+  coachingMode?: CoachingModeValue;
 }
 
 const AUTO_DISMISS_MS = 8000;
 
-export const CoachBubble = memo(function CoachBubble({ isVisible, tip, stats, onTap, onDismiss }: CoachBubbleProps) {
+export const CoachBubble = memo(function CoachBubble({ isVisible, tip, stats, onTap, onDismiss, coachingMode }: CoachBubbleProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -30,11 +32,17 @@ export const CoachBubble = memo(function CoachBubble({ isVisible, tip, stats, on
       ? stats.hand_strength
       : null;
 
+  const modeClass = coachingMode === 'learn'
+    ? 'coach-bubble--learn'
+    : coachingMode === 'compete'
+      ? 'coach-bubble--compete'
+      : '';
+
   return (
     <AnimatePresence>
       {isVisible && tip && (
         <motion.div
-          className="coach-bubble"
+          className={`coach-bubble ${modeClass}`}
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -20, scale: 0.95 }}
@@ -45,6 +53,11 @@ export const CoachBubble = memo(function CoachBubble({ isVisible, tip, stats, on
             <GraduationCap size={18} />
           </div>
           <div className="coach-bubble-content">
+            {coachingMode && (
+              <span className="coach-bubble__mode-label">
+                {coachingMode === 'learn' ? 'Coach Tip' : 'Your Stats'}
+              </span>
+            )}
             <span className="coach-bubble-tip">{tip}</span>
             {keyStat && (
               <span className="coach-bubble-stat">{keyStat}</span>

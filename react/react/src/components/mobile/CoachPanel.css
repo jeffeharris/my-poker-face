@@ -341,3 +341,54 @@
   opacity: 0.3;
   cursor: default;
 }
+
+/* Onboarding prompt */
+.coach-onboarding {
+  padding: 10px 14px;
+  background: rgba(52, 211, 153, 0.06);
+  border-bottom: 1px solid rgba(52, 211, 153, 0.1);
+}
+
+.coach-onboarding__text {
+  font-family: var(--font-body, sans-serif);
+  font-size: 13px;
+  color: var(--color-text-secondary, #bbb);
+  line-height: 1.4;
+  margin: 0 0 8px;
+}
+
+.coach-onboarding__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.coach-onboarding__btn {
+  padding: 6px 12px;
+  border-radius: var(--radius-md, 8px);
+  font-family: var(--font-display, sans-serif);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold, 600);
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid;
+}
+
+.coach-onboarding__btn--skip {
+  background: var(--color-emerald-muted, rgba(52, 211, 153, 0.15));
+  border-color: rgba(52, 211, 153, 0.3);
+  color: var(--color-emerald, #34d399);
+}
+
+.coach-onboarding__btn--skip:active {
+  background: rgba(52, 211, 153, 0.25);
+}
+
+.coach-onboarding__btn--dismiss {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-secondary, #bbb);
+}
+
+.coach-onboarding__btn--dismiss:active {
+  background: rgba(255, 255, 255, 0.1);
+}

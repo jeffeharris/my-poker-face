@@ -67,6 +67,7 @@ class PlayerSkillState:
     total_correct: int = 0
     window_opportunities: int = 0
     window_correct: int = 0
+    window_decisions: tuple = ()
     streak_correct: int = 0
     streak_incorrect: int = 0
     last_evaluated_at: Optional[str] = None

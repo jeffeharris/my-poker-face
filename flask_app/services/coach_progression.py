@@ -300,9 +300,14 @@ class CoachProgressionService:
         new_total_opps = skill_state.total_opportunities + 1
         new_total_correct = skill_state.total_correct + (1 if is_correct else 0)
 
-        # Compute new window values
-        new_window_opps = skill_state.window_opportunities + 1
-        new_window_correct = skill_state.window_correct + (1 if is_correct else 0)
+        # Update sliding window — append new decision and keep last window_size
+        skill_def = ALL_SKILLS.get(skill_id)
+        window_size = skill_def.evidence_rules.window_size if skill_def else 20
+        new_decisions = skill_state.window_decisions + (is_correct,)
+        if len(new_decisions) > window_size:
+            new_decisions = new_decisions[-window_size:]
+        new_window_opps = len(new_decisions)
+        new_window_correct = sum(new_decisions)
 
         # Compute new streaks
         if is_correct:
@@ -316,6 +321,7 @@ class CoachProgressionService:
             skill_state,
             total_opportunities=new_total_opps,
             total_correct=new_total_correct,
+            window_decisions=new_decisions,
             window_opportunities=new_window_opps,
             window_correct=new_window_correct,
             streak_correct=new_streak_correct,
@@ -323,31 +329,12 @@ class CoachProgressionService:
             last_evaluated_at=now,
         )
 
-        # Trim window if it exceeds window_size
-        skill_def = ALL_SKILLS.get(skill_id)
-        window_size = skill_def.evidence_rules.window_size if skill_def else 20
-        if skill_state.window_opportunities > window_size:
-            skill_state = self._trim_window(skill_state, window_size)
-
         # Check state transitions
         skill_state = self._check_state_transitions(skill_state, skill_def)
 
         # Persist
         self._coach_repo.save_skill_state(user_id, skill_state)
         return skill_state
-
-    def _trim_window(self, skill_state: PlayerSkillState, window_size: int) -> PlayerSkillState:
-        """Proportionally trim window to window_size."""
-        if skill_state.window_opportunities <= window_size:
-            return skill_state
-        ratio = skill_state.window_correct / skill_state.window_opportunities
-        return replace(
-            skill_state,
-            window_opportunities=window_size,
-            # int() truncates deliberately — conservative bias prevents premature
-            # advancement near thresholds
-            window_correct=int(ratio * window_size),
-        )
 
     def _check_state_transitions(
         self, skill_state: PlayerSkillState, skill_def

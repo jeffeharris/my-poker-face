@@ -18,6 +18,8 @@ from poker.controllers import classify_preflop_hand
 from poker.card_utils import card_to_string
 
 from ..services import game_state_service
+from .skill_definitions import ALL_SKILLS
+from .coach_progression import CoachProgressionService
 
 logger = logging.getLogger(__name__)
 
@@ -362,6 +364,7 @@ def compute_coaching_data(game_id: str, player_name: str,
     # Current hand action timeline
     result['hand_actions'] = _get_current_hand_actions(game_data)
     result['hand_community_cards'] = community_strs
+    result['hand_hole_cards'] = hand_strs
 
     # Player name for multi-street context filtering
     result['player_name'] = player_name
@@ -389,8 +392,6 @@ def compute_coaching_data_with_progression(
         return data
 
     try:
-        from .coach_progression import CoachProgressionService
-
         service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
 
@@ -414,6 +415,9 @@ def compute_coaching_data_with_progression(
                     'state': ss.state.value,
                     'window_accuracy': round(ss.window_accuracy, 2),
                     'total_opportunities': ss.total_opportunities,
+                    'name': ALL_SKILLS[sid].name if sid in ALL_SKILLS else sid,
+                    'description': ALL_SKILLS[sid].description if sid in ALL_SKILLS else '',
+                    'gate': ALL_SKILLS[sid].gate if sid in ALL_SKILLS else 0,
                 }
                 for sid, ss in skill_states.items()
             },

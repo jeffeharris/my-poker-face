@@ -10,6 +10,52 @@ from typing import Dict, Optional
 from poker.hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 
 
+RANK_VALUES = {
+    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
+    '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14,
+}
+
+
+def _has_real_draw(coaching_data: Dict) -> bool:
+    """Check for flush draw or straight draw using actual cards.
+
+    Raw outs count is unreliable because it includes pair-outs (any card
+    that pairs a hole card), which makes every high-card hand look like
+    it has a draw.  Instead, check suit and rank patterns directly.
+    """
+    hole = coaching_data.get('hand_hole_cards') or []
+    community = coaching_data.get('hand_community_cards') or []
+    if not hole or not community:
+        # Pre-flop or missing data — fall back to outs count
+        return (coaching_data.get('outs') or 0) >= 8
+
+    all_cards = hole + community
+
+    # --- Flush draw: 4 cards of the same suit ---
+    suits: Dict[str, int] = defaultdict(int)
+    for card in all_cards:
+        if len(card) >= 2:
+            suits[card[-1]] += 1
+    has_flush_draw = any(count == 4 for count in suits.values())
+
+    # --- Straight draw: 4 unique ranks within a 5-rank window ---
+    ranks = sorted({RANK_VALUES.get(card[:-1], 0) for card in all_cards if len(card) >= 2})
+    has_straight_draw = False
+    # Also handle ace-low (A-2-3-4-5) by adding rank 1 if ace present
+    if 14 in ranks:
+        ranks = [1] + ranks
+    for i in range(len(ranks)):
+        # Count unique ranks in a 5-wide window starting at ranks[i]
+        window_start = ranks[i]
+        window_end = window_start + 4
+        count = sum(1 for r in ranks if window_start <= r <= window_end)
+        if count >= 4:
+            has_straight_draw = True
+            break
+
+    return has_flush_draw or has_straight_draw
+
+
 def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
     """Build a standardised context dict from coaching_data.
 
@@ -54,7 +100,7 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
 
     is_strong_hand = hand_rank is not None and hand_rank <= 8  # Two pair or better
     has_pair = hand_rank is not None and hand_rank <= 9        # One pair or better
-    has_draw = (coaching_data.get('outs') or 0) >= 4           # 4+ outs = meaningful draw
+    has_draw = _has_real_draw(coaching_data)                     # Flush draw or straight draw (not just pair-outs)
     is_air = hand_rank is not None and hand_rank >= 10 and not has_draw  # High card, no draw
     can_check = cost_to_call == 0
 

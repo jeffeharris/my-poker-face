@@ -16,6 +16,7 @@ export interface CoachStats {
   cost_to_call: number;
   stack: number;
   opponent_stats: OpponentStat[];
+  progression?: CoachProgression;
 }
 
 export interface OpponentStat {
@@ -36,3 +37,50 @@ export interface CoachMessage {
 }
 
 export type CoachMode = 'proactive' | 'reactive' | 'off';
+
+// --- Progression types ---
+
+export type SkillStateValue = 'introduced' | 'practicing' | 'reliable' | 'automatic';
+
+export type CoachingModeValue = 'learn' | 'compete' | 'silent';
+
+export interface SkillProgress {
+  state: SkillStateValue;
+  window_accuracy: number;
+  total_opportunities: number;
+  name: string;
+  description: string;
+  gate: number;
+}
+
+export interface FullSkillProgress extends SkillProgress {
+  total_correct: number;
+  streak_correct: number;
+}
+
+export interface CoachProgression {
+  coaching_mode: CoachingModeValue;
+  primary_skill: string | null;
+  relevant_skills: string[];
+  coaching_prompt: string;
+  situation_tags: string[];
+  skill_states: Record<string, SkillProgress>;
+}
+
+export interface GateProgressInfo {
+  unlocked: boolean;
+  unlocked_at: string | null;
+  name: string;
+  description: string;
+}
+
+export interface CoachProfile {
+  self_reported_level: string;
+  effective_level: string;
+}
+
+export interface ProgressionState {
+  skill_states: Record<string, FullSkillProgress>;
+  gate_progress: Record<string, GateProgressInfo>;
+  profile: CoachProfile;
+}

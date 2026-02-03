@@ -11,6 +11,7 @@ from typing import Dict, List
 from core.llm.assistant import Assistant
 from core.llm.tracking import CallType
 from core.llm.settings import get_default_provider, get_default_model
+from .skill_definitions import get_skill_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +187,6 @@ def _format_stats_for_prompt(data: Dict) -> str:
         accuracy = skill_info.get('window_accuracy', 0)
         opps = skill_info.get('total_opportunities', 0)
 
-        from .skill_definitions import get_skill_by_id
         skill_def = get_skill_by_id(primary_skill)
         skill_name = skill_def.name if skill_def else primary_skill
         skill_desc = skill_def.description if skill_def else ''
