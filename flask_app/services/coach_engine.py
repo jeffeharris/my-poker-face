@@ -148,6 +148,33 @@ def _get_raw_position(game_state, player_idx: int) -> str:
     return "unknown"
 
 
+def _position_label_to_key(position_label: str) -> str:
+    """Convert display label to position key for range lookup.
+
+    Examples:
+        'Button' -> 'button'
+        'Under The Gun' -> 'under_the_gun'
+        'Small Blind' -> 'small_blind_player'
+
+    Args:
+        position_label: Human-readable position label from _get_position_label()
+
+    Returns:
+        Position key for use with hand_ranges module
+    """
+    mapping = {
+        'Button': 'button',
+        'Cutoff': 'cutoff',
+        'Under The Gun': 'under_the_gun',
+        'Small Blind': 'small_blind_player',
+        'Big Blind': 'big_blind_player',
+        'Middle Position 1': 'middle_position_1',
+        'Middle Position 2': 'middle_position_2',
+        'Middle Position 3': 'middle_position_3',
+    }
+    return mapping.get(position_label, 'button')
+
+
 def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[OpponentInfo]:
     """Build OpponentInfo objects for active opponents (for range-based equity)."""
     infos = []
@@ -368,6 +395,42 @@ def compute_coaching_data(game_id: str, player_name: str,
 
     # Player name for multi-street context filtering
     result['player_name'] = player_name
+
+    # Board texture analysis (for coach to comment on wet/dry boards)
+    if community_strs:
+        try:
+            from poker.board_analyzer import analyze_board_texture
+            board_texture = analyze_board_texture(community_strs)
+            result['board_texture'] = board_texture
+        except Exception as e:
+            logger.warning(f"Board texture analysis failed: {e}")
+
+    # Opponent ranges summary (for coach to explain equity vs ranges)
+    if opponent_infos:
+        try:
+            from poker.hand_ranges import get_opponent_range, EquityConfig
+            config = EquityConfig()
+            opponent_ranges = {}
+            for opp_info in opponent_infos:
+                opp_range = get_opponent_range(opp_info, config)
+                opponent_ranges[opp_info.name] = {
+                    'range_size': len(opp_range),
+                    'range_pct': round(len(opp_range) / 169 * 100, 1),
+                    'sample_hands': sorted(list(opp_range))[:10],
+                }
+            result['opponent_ranges'] = opponent_ranges
+        except Exception as e:
+            logger.warning(f"Opponent range calculation failed: {e}")
+
+    # Player hand range analysis (is player playing outside standard range?)
+    if hand_strs and len(hand_strs) == 2:
+        try:
+            from poker.hand_ranges import is_hand_in_standard_range
+            position_key = _position_label_to_key(position)
+            range_analysis = is_hand_in_standard_range(hand_strs[0], hand_strs[1], position_key)
+            result['player_range_analysis'] = range_analysis
+        except Exception as e:
+            logger.warning(f"Player range analysis failed: {e}")
 
     return result
 
