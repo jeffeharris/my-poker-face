@@ -5,9 +5,9 @@
   right: 12px;
   z-index: 160;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
   padding: 10px 12px;
+  padding-top: 24px;
   background: linear-gradient(135deg, rgba(20, 22, 30, 0.95), rgba(30, 33, 44, 0.95));
   border: 1px solid rgba(212, 165, 116, 0.25);
   border-radius: var(--radius-xl, 16px);
@@ -16,6 +16,45 @@
     0 8px 24px rgba(0, 0, 0, 0.5),
     0 0 12px rgba(212, 165, 116, 0.1);
   cursor: pointer;
+}
+
+.coach-bubble-dismiss {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-secondary, #bbb);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.coach-bubble-dismiss svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 2.5;
+}
+
+.coach-bubble-dismiss:active {
+  background: transparent;
+  color: #fff;
+  transform: scale(0.92);
+}
+
+.coach-bubble-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .coach-bubble-icon {
@@ -49,6 +88,12 @@
   overflow: hidden;
 }
 
+.coach-bubble-tip--expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
 .coach-bubble-stat {
   font-family: var(--font-mono, monospace);
   font-size: 11px;
@@ -56,30 +101,21 @@
   opacity: 0.8;
 }
 
-.coach-bubble-dismiss {
+.coach-bubble-expand {
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  align-self: flex-end;
+  padding: 4px 0;
   border: none;
   background: transparent;
-  border-radius: 0;
-  color: var(--color-text-secondary, #bbb);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  color: var(--color-gold, #d4a574);
+  font-family: var(--font-body, sans-serif);
+  font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
-.coach-bubble-dismiss svg {
-  stroke-width: 2.5;
-}
-
-.coach-bubble-dismiss:active {
-  background: transparent;
-  color: #fff;
-  transform: scale(0.92);
+.coach-bubble-expand:active {
+  color: var(--color-gold-light, #e0b98a);
 }
 
 /* Mode-aware accents */
