@@ -456,6 +456,9 @@ export function usePokerGame({
       // Check for queued preemptive action
       if (queuedActionRef.current === 'check_fold') {
         const action = data.cost_to_call === 0 ? 'check' : 'fold';
+        // Clear ref IMMEDIATELY (synchronously) to prevent double-firing if another
+        // player_turn_start arrives before React re-renders and updates the ref via useEffect
+        queuedActionRef.current = null;
         setQueuedAction(null);
         handlePlayerActionRef.current(action);
         return; // Action will trigger new state update
@@ -467,7 +470,9 @@ export function usePokerGame({
     socket.on('winner_announcement', (data: WinnerInfo) => {
       clearAiThinkingTimeout();
       setWinnerInfo(data);
-      setQueuedAction(null); // Clear queue when hand ends
+      // Clear queue when hand ends (sync ref immediately for consistency)
+      queuedActionRef.current = null;
+      setQueuedAction(null);
     });
 
     // Listen for hole cards reveal during run-it-out showdown
@@ -705,6 +710,8 @@ export function usePokerGame({
     if (!gameId) return;
 
     // Clear any queued action since user is acting manually
+    // Sync ref immediately to prevent race conditions with socket events
+    queuedActionRef.current = null;
     setQueuedAction(null);
     setAiThinking(true);
 
