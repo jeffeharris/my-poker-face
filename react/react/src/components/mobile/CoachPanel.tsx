@@ -207,10 +207,13 @@ export function CoachPanel({
           />
         )}
 
-        {/* Onboarding prompt for beginners */}
+        {/* Onboarding prompt for beginners who haven't completed onboarding.
+            Check both localStorage (for immediate dismissal) and the database field
+            (for persistence across browser sessions). */}
         {!onboardingDismissed &&
           progressionFull &&
-          progressionFull.profile?.self_reported_level === 'beginner' && (
+          progressionFull.profile?.self_reported_level === 'beginner' &&
+          !progressionFull.profile?.onboarding_completed_at && (
           <div className="coach-onboarding">
             <p className="coach-onboarding__text">
               How much poker do you know?
@@ -219,6 +222,8 @@ export function CoachPanel({
               <button
                 className="coach-onboarding__btn coach-onboarding__btn--dismiss"
                 onClick={() => {
+                  // Also call API so onboarding_completed_at is set in the database
+                  onSkipAhead?.('beginner');
                   setOnboardingDismissed(true);
                   safeSetItem('coach_onboarding_dismissed', 'true');
                 }}

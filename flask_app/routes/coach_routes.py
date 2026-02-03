@@ -289,7 +289,12 @@ def coach_progression(game_id: str):
 @limiter.limit("5/minute")
 @_coach_required
 def coach_onboarding(game_id: str):
-    """Initialize or update the player's coaching profile."""
+    """Initialize or update the player's coaching profile.
+
+    If the player has no existing profile, initializes from scratch.
+    If the player already has a profile (with accumulated stats),
+    only updates the level and unlocks new gates without wiping stats.
+    """
     user_id = _get_current_user_id()
 
     body = request.get_json(silent=True) or {}
@@ -299,7 +304,17 @@ def coach_onboarding(game_id: str):
 
     try:
         service = CoachProgressionService(coach_repo)
-        state = service.initialize_player(user_id, level=level)
+
+        # Check if player already has a profile with accumulated stats
+        existing_state = service.get_player_state(user_id)
+        if existing_state['profile']:
+            # Player exists - update level without wiping stats
+            state = service.update_player_level(user_id, level=level)
+            logger.info(f"Updated existing player {user_id} to level {level}")
+        else:
+            # New player - full initialization
+            state = service.initialize_player(user_id, level=level)
+            logger.info(f"Initialized new player {user_id} at level {level}")
 
         return jsonify({
             'status': 'ok',

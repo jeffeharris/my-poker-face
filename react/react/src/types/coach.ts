@@ -92,6 +92,7 @@ export interface GateProgressInfo {
 export interface CoachProfile {
   self_reported_level: string;
   effective_level: string;
+  onboarding_completed_at: string | null;
 }
 
 export interface ProgressionState {
