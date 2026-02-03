@@ -17,43 +17,39 @@ RANK_CHAR_TO_VALUE = {
 }
 
 
-def _has_four_to_straight(sorted_ranks: List[int]) -> bool:
-    """Check if there are 4 cards to a straight in the given ranks.
+def _has_straight_draw(sorted_ranks: List[int]) -> bool:
+    """Check if there are 4 cards to a straight (OESD or gutshot).
+
+    Uses a sliding window approach: 4 unique ranks within any 5-rank window
+    is a straight draw (either open-ended or gutshot).
 
     Args:
         sorted_ranks: List of unique rank values, sorted ascending
 
     Returns:
-        True if any sequence of 4 consecutive ranks exists
+        True if any 5-rank window contains 4+ cards
 
     Examples:
-        [4, 5, 6, 7] -> True (4-7)
-        [2, 5, 6, 7, 8] -> True (5-8)
-        [14, 2, 3, 4] -> True (A-4 wheel draw)
-        [2, 4, 6, 8] -> False (no 4 consecutive)
+        [4, 5, 6, 7] -> True (OESD: 4-5-6-7)
+        [2, 5, 6, 7, 8] -> True (OESD: 5-6-7-8)
+        [7, 9, 10, 11] -> True (gutshot: J-T-9-7, needs 8)
+        [2, 3, 4, 14] -> True (wheel gutshot: A-4-3-2, needs 5)
+        [2, 4, 6, 8] -> False (no 4 in any 5-rank window)
     """
     if len(sorted_ranks) < 4:
         return False
 
-    # Check for regular 4-card sequences
-    for i in range(len(sorted_ranks) - 3):
-        if sorted_ranks[i + 3] - sorted_ranks[i] == 3:
-            # Check all 4 cards are consecutive
-            if (sorted_ranks[i + 1] == sorted_ranks[i] + 1 and
-                sorted_ranks[i + 2] == sorted_ranks[i] + 2):
-                return True
+    # Handle ace-low straight draws (A-2-3-4-5 wheel)
+    ranks = list(sorted_ranks)
+    if 14 in ranks:
+        ranks = [1] + ranks  # Add ace as 1 for wheel draws
 
-    # Check for A-2-3-4 (wheel draw) - Ace counts as low
-    if 14 in sorted_ranks:  # Ace present
-        low_ranks = [r for r in sorted_ranks if r <= 5]
-        # Need 4 of [A(as 1), 2, 3, 4, 5] for wheel draw
-        wheel_ranks = set(low_ranks)
-        if 14 in sorted_ranks:
-            wheel_ranks.add(1)  # Ace as 1
-        # Check if we have 4 in a row from 1-5
-        for start in range(1, 3):  # 1-4 or 2-5
-            if all(r in wheel_ranks for r in range(start, start + 4)):
-                return True
+    # Check each possible 5-rank window
+    for start_rank in ranks:
+        window_end = start_rank + 4
+        count = sum(1 for r in ranks if start_rank <= r <= window_end)
+        if count >= 4:
+            return True
 
     return False
 
@@ -238,18 +234,21 @@ class HandEvaluator:
 
         Returns:
             Dict with:
-            - connects: bool (has pair+, overpair, or draw)
+            - connects: bool (has pair+, overpair, underpair, or draw)
             - has_pair: bool (card rank matches board rank)
             - has_overpair: bool (pocket pair > all board ranks)
+            - has_underpair: bool (pocket pair < max board rank)
             - has_flush_draw: bool (suited hole cards + 2 of that suit on board)
-            - has_straight_draw: bool (4 to a straight)
-            - weight: float (sampling weight: 2.0 for hits, 1.5 for draws, 0.5 for air)
+            - has_straight_draw: bool (4 to a straight, OESD or gutshot)
+            - weight: float (2.0 for pair/overpair, 1.5 for draws/underpair, 0.5 for air)
 
         Examples:
             ['Ah', 'Kd'] + ['As', '7h', '2c'] -> has_pair=True, weight=2.0
             ['Qh', 'Qd'] + ['Js', '7h', '2c'] -> has_overpair=True, weight=2.0
+            ['2h', '2d'] + ['As', 'Kh', 'Qc'] -> has_underpair=True, weight=1.5
             ['Ah', 'Kh'] + ['Qh', '7h', '2c'] -> has_flush_draw=True, weight=1.5
             ['9h', '8d'] + ['7s', '6h', '2c'] -> has_straight_draw=True, weight=1.5
+            ['Jh', 'Td'] + ['Qs', '9h', '2c'] -> has_straight_draw=True (gutshot), weight=1.5
             ['Ah', 'Kd'] + ['7s', '5h', '2c'] -> connects=False, weight=0.5
         """
         if not board_cards:
@@ -276,6 +275,9 @@ class HandEvaluator:
         is_pocket_pair = hole_ranks[0] == hole_ranks[1]
         has_overpair = is_pocket_pair and hole_ranks[0] > max(board_ranks)
 
+        # Check underpair (pocket pair < max board rank, not hitting set)
+        has_underpair = is_pocket_pair and hole_ranks[0] < max(board_ranks) and not has_pair
+
         # Check flush draw (suited hole cards + 2 of that suit on board)
         is_suited = hole_suits[0] == hole_suits[1]
         suit_count = board_suits.count(hole_suits[0]) if is_suited else 0
@@ -283,15 +285,15 @@ class HandEvaluator:
 
         # Check straight draw (4 to a straight)
         all_ranks = sorted(set(hole_ranks + board_ranks))
-        has_straight_draw = _has_four_to_straight(all_ranks)
+        has_straight_draw = _has_straight_draw(all_ranks)
 
-        connects = has_pair or has_overpair or has_flush_draw or has_straight_draw
+        connects = has_pair or has_overpair or has_underpair or has_flush_draw or has_straight_draw
 
         # Calculate sampling weight
         if has_pair or has_overpair:
-            weight = 2.0  # Made hand
-        elif has_flush_draw or has_straight_draw:
-            weight = 1.5  # Draw
+            weight = 2.0  # Made hand (pair with board or overpair)
+        elif has_underpair or has_flush_draw or has_straight_draw:
+            weight = 1.5  # Draw or weak made hand (underpair)
         else:
             weight = 0.5  # Air
 
@@ -299,6 +301,7 @@ class HandEvaluator:
             'connects': connects,
             'has_pair': has_pair,
             'has_overpair': has_overpair,
+            'has_underpair': has_underpair,
             'has_flush_draw': has_flush_draw,
             'has_straight_draw': has_straight_draw,
             'weight': weight,
