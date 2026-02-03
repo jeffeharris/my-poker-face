@@ -101,7 +101,7 @@ export function StatsBar({ stats }: StatsBarProps) {
       </div>
 
       {/* Player Stats */}
-      {stats.player_stats && stats.player_stats.hands_observed >= 2 && (
+      {stats.player_stats && stats.player_stats.hands_observed >= 5 && (
         <div className="stats-player-row">
           <span className="stats-player-label">Your Play</span>
           <div className="stats-player-values">
