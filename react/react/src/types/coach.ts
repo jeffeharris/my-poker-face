@@ -25,11 +25,16 @@ export interface CoachStats {
   stack: number;
   opponent_stats: OpponentStat[];
   player_stats: PlayerStats | null;
+  available_actions: string[];
+  position_context: string | null;
   progression?: CoachProgression;
 }
 
 export interface OpponentStat {
   name: string;
+  stack: number;
+  bet: number;
+  is_all_in: boolean;
   vpip: number | null;
   pfr: number | null;
   aggression: number | null;

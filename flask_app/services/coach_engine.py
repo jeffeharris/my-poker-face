@@ -173,22 +173,37 @@ def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[
     return infos
 
 
-def _get_opponent_stats(game_data: dict, human_name: str, highest_bet: int = 0) -> List[Dict]:
-    """Extract opponent stats from memory manager, including stack and all-in status."""
+def _get_opponent_stats(game_data: dict, human_name: str) -> List[Dict]:
+    """Extract opponent stats from memory manager, including stack and all-in status.
+
+    Returns a list of opponent stat dicts. On error, logs and returns partial results
+    collected so far (may be empty list).
+    """
     stats = []
+
+    # Validate required game data
+    state_machine = game_data.get('state_machine')
+    if not state_machine:
+        logger.error("_get_opponent_stats: state_machine missing from game_data")
+        return stats
+
     try:
-        memory_manager = game_data.get('memory_manager')
-        game_state = game_data['state_machine'].game_state
+        game_state = state_machine.game_state
+    except AttributeError as e:
+        logger.error(f"_get_opponent_stats: cannot access game_state: {e}")
+        return stats
 
-        omm = None
-        if memory_manager:
-            omm = getattr(memory_manager, 'opponent_model_manager', None)
+    memory_manager = game_data.get('memory_manager')
+    omm = None
+    if memory_manager:
+        omm = getattr(memory_manager, 'opponent_model_manager', None)
 
+    try:
         for player in game_state.players:
             if player.name == human_name or player.is_folded:
                 continue
 
-            # Determine if player is all-in (stack is 0 or bet equals stack + bet)
+            # Determine if player is all-in (stack is 0)
             is_all_in = player.stack == 0
 
             opp_data = {
@@ -205,19 +220,22 @@ def _get_opponent_stats(game_data: dict, human_name: str, highest_bet: int = 0) 
 
             # Get model from human's perspective if available
             if omm and human_name in omm.models and player.name in omm.models[human_name]:
-                model = omm.models[human_name][player.name]
-                tendencies = model.tendencies
-                opp_data.update({
-                    'vpip': round(tendencies.vpip, 2),
-                    'pfr': round(tendencies.pfr, 2),
-                    'aggression': round(tendencies.aggression_factor, 1),
-                    'style': tendencies.get_play_style_label(),
-                    'hands_observed': tendencies.hands_observed,
-                })
+                try:
+                    model = omm.models[human_name][player.name]
+                    tendencies = model.tendencies
+                    opp_data.update({
+                        'vpip': round(tendencies.vpip, 2),
+                        'pfr': round(tendencies.pfr, 2),
+                        'aggression': round(tendencies.aggression_factor, 1),
+                        'style': tendencies.get_play_style_label(),
+                        'hands_observed': tendencies.hands_observed,
+                    })
+                except (AttributeError, KeyError) as e:
+                    logger.warning(f"_get_opponent_stats: failed to get tendencies for {player.name}: {e}")
 
             stats.append(opp_data)
-    except Exception as e:
-        logger.warning(f"Opponent stats extraction failed: {e}")
+    except (AttributeError, TypeError) as e:
+        logger.error(f"_get_opponent_stats: error iterating players: {e}")
 
     return stats
 
@@ -471,9 +489,7 @@ def compute_coaching_data(game_id: str, player_name: str,
             logger.warning(f"Recommendation calculation failed: {e}")
 
     # Opponent stats (with stack and all-in info)
-    result['opponent_stats'] = _get_opponent_stats(
-        game_data, player_name, highest_bet=game_state.highest_bet
-    )
+    result['opponent_stats'] = _get_opponent_stats(game_data, player_name)
 
     # Available actions (what the player can actually do)
     result['available_actions'] = _get_available_actions(game_state, player, cost_to_call)
