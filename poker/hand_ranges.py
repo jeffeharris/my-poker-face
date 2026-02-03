@@ -450,6 +450,14 @@ ULTRA_PREMIUM_RANGE = (
     {'AKs', 'AKo'}             # AK suited and offsuit
 )  # ~5% of hands
 
+# Standard 3-bet range when no player stats available
+# Based on typical 3-bet frequencies (~8-10% of hands)
+# Source: Modern Poker Theory, The Grinder's Manual
+STANDARD_3BET_RANGE = (
+    _expand_pairs('A', 'T') |  # AA-TT
+    {'AKs', 'AKo', 'AQs', 'AQo', 'AJs', 'KQs'}
+)  # ~8% of hands
+
 
 def estimate_range_from_pfr(pfr: float) -> Set[str]:
     """Estimate a raising range based on PFR (pre-flop raise percentage).
@@ -637,8 +645,32 @@ def get_opponent_range(
         opponent.hands_observed >= config.min_hands_for_stats
     )
 
-    # STEP 1: Action-based narrowing (most specific)
-    if opponent.preflop_action and has_enough_data:
+    # STEP 1a: Action-based narrowing that works WITHOUT observed stats
+    # These actions have strong enough signal that we don't need historical data
+    if opponent.preflop_action == '4bet+':
+        # 4-bet+ is always ultra-premium regardless of player history
+        base_range = ULTRA_PREMIUM_RANGE
+        logger.debug(
+            f"Using ultra-premium range for {opponent.name} (4bet+): "
+            f"range={len(base_range)} hands"
+        )
+    elif opponent.preflop_action == '3bet':
+        # 3-bet range: use PFR-based if stats available, otherwise standard
+        if has_enough_data and opponent.pfr is not None:
+            base_range = estimate_3bet_range(opponent.pfr)
+            logger.debug(
+                f"Using PFR-based 3-bet range for {opponent.name}: "
+                f"PFR={opponent.pfr:.2f}, range={len(base_range)} hands"
+            )
+        else:
+            base_range = STANDARD_3BET_RANGE
+            logger.debug(
+                f"Using standard 3-bet range for {opponent.name}: "
+                f"range={len(base_range)} hands (no stats available)"
+            )
+
+    # STEP 1b: Action-based narrowing that REQUIRES observed stats
+    elif opponent.preflop_action and has_enough_data:
         if opponent.preflop_action == 'open_raise':
             # Use PFR for open-raisers
             if opponent.pfr is not None:
@@ -647,21 +679,6 @@ def get_opponent_range(
                     f"Using PFR range for {opponent.name} (open_raise): "
                     f"PFR={opponent.pfr:.2f}, range={len(base_range)} hands"
                 )
-        elif opponent.preflop_action == '3bet':
-            # 3-bet range is much tighter
-            if opponent.pfr is not None:
-                base_range = estimate_3bet_range(opponent.pfr)
-                logger.debug(
-                    f"Using 3-bet range for {opponent.name}: "
-                    f"range={len(base_range)} hands"
-                )
-        elif opponent.preflop_action == '4bet+':
-            # 4-bet+ is typically premium only
-            base_range = ULTRA_PREMIUM_RANGE
-            logger.debug(
-                f"Using ultra-premium range for {opponent.name} (4bet+): "
-                f"range={len(base_range)} hands"
-            )
         elif opponent.preflop_action == 'call':
             # Calling range = VPIP - PFR
             if opponent.vpip is not None and opponent.pfr is not None:
