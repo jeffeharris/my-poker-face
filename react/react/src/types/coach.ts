@@ -18,6 +18,7 @@ export interface CoachStats {
   outs: number | null;
   outs_cards: string[] | null;
   recommendation: string | null; // 'fold' | 'check' | 'call' | 'raise'
+  raise_to: number | null; // Specific raise amount suggested by coach
   position: string | null;
   phase: string | null;
   pot_total: number;

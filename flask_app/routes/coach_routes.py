@@ -1,6 +1,7 @@
 """Coach routes — REST endpoints for the poker coaching feature."""
 
 import logging
+import os
 from typing import Optional
 
 from flask import Blueprint, jsonify, request
@@ -109,15 +110,30 @@ def coach_ask(game_id: str):
 
     try:
         if request_type == 'proactive_tip':
-            answer = coach.get_proactive_tip(stats or {})
+            result = coach.get_proactive_tip(stats or {})
         else:
-            answer = coach.ask(question, stats or {})
+            result = coach.ask(question, stats or {})
     except Exception as e:
         logger.error(f"Coach ask failed: {e}", exc_info=True)
         return jsonify({'error': 'Coach unavailable'}), 503
 
+    # Extract structured response fields
+    answer = result.get('advice', '')
+    coach_action = result.get('action')
+    coach_raise_to = result.get('raise_to')
+
+    # Check environment variable for highlight source
+    highlight_source = os.getenv('COACH_HIGHLIGHT_SOURCE', 'coach')
+
+    # When source is 'coach' and coach provided an action, use it for highlighting
+    if highlight_source == 'coach' and coach_action and stats:
+        stats['recommendation'] = coach_action
+        stats['raise_to'] = coach_raise_to
+
     return jsonify({
         'answer': answer,
+        'coach_action': coach_action,
+        'coach_raise_to': coach_raise_to,
         'stats': stats,
     })
 

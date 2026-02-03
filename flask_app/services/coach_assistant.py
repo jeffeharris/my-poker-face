@@ -4,9 +4,10 @@ Provides a CoachAssistant that wraps the core Assistant class
 with a poker-coaching system prompt and stat formatting.
 """
 
+import json
 import logging
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional, TypedDict
 
 from core.llm.assistant import Assistant
 from core.llm.tracking import CallType
@@ -28,6 +29,17 @@ Rules:
 - Mention opponent tendencies when relevant
 - Be encouraging but honest about mistakes
 - Use poker terminology naturally but explain concepts for beginners when asked
+
+RESPONSE FORMAT: Always respond with valid JSON in this exact format:
+{
+  "advice": "Your coaching message here (1-2 sentences for tips, 2-3 paragraphs for questions)",
+  "action": "fold" | "check" | "call" | "raise" | null,
+  "raise_to": <total chip amount if action is raise, omit otherwise>
+}
+
+- Set "action" to the action you recommend from Available actions, or null if you want the player to figure it out themselves.
+- For raises, include "raise_to" with the specific total chip amount (not the raise increment).
+- If no specific action recommendation, set "action" to null.
 """
 
 LEARN_MODE_PROMPT = """\
@@ -85,6 +97,80 @@ _MODE_PROMPTS = {
 }
 
 
+class CoachResponse(TypedDict, total=False):
+    """Structured coach response with advice and optional action recommendation."""
+    advice: str
+    action: Optional[str]  # 'fold', 'check', 'call', 'raise', or None
+    raise_to: Optional[int]
+
+
+def _normalize_action(action: Optional[str], available_actions: List[str]) -> Optional[str]:
+    """Normalize LLM action output to canonical form and validate against available actions."""
+    if not action:
+        return None
+
+    action_lower = action.lower().strip()
+
+    # Map variations to canonical actions
+    if action_lower in ('bet', 'raise', 'all-in', 'allin', 'all in', 'all_in'):
+        normalized = 'raise'
+    elif action_lower in ('check', 'pass'):
+        normalized = 'check'
+    elif action_lower in ('call', 'match'):
+        normalized = 'call'
+    elif action_lower in ('fold', 'muck'):
+        normalized = 'fold'
+    else:
+        normalized = action_lower
+
+    # Validate against available actions (bet/raise are interchangeable)
+    if normalized == 'raise' and ('raise' in available_actions or 'bet' in available_actions):
+        return 'raise'
+    if normalized in available_actions:
+        return normalized
+
+    # Action not available - return None to fall back to GTO
+    logger.warning(f"Coach suggested unavailable action '{action}' (normalized: '{normalized}'), ignoring")
+    return None
+
+
+def _parse_coach_response(response: str, coaching_data: Dict) -> CoachResponse:
+    """Parse JSON response from coach LLM, falling back gracefully on failure."""
+    available_actions = coaching_data.get('available_actions', [])
+    gto_recommendation = coaching_data.get('recommendation')
+
+    try:
+        data = json.loads(response)
+        advice = data.get('advice', response)
+        raw_action = data.get('action')
+        raise_to = data.get('raise_to')
+
+        # Normalize and validate action
+        action = _normalize_action(raw_action, available_actions)
+
+        # Validate raise_to is a reasonable number (round floats to nearest int)
+        if raise_to is not None:
+            try:
+                raise_to = int(round(float(raise_to)))
+                if raise_to <= 0:
+                    raise_to = None
+            except (ValueError, TypeError):
+                raise_to = None
+
+        return CoachResponse(
+            advice=advice,
+            action=action,
+            raise_to=raise_to if action == 'raise' else None,
+        )
+    except json.JSONDecodeError as e:
+        logger.warning(f"Coach response JSON parse failed: {e}, using raw text")
+        return CoachResponse(
+            advice=response,
+            action=None,
+            raise_to=None,
+        )
+
+
 class CoachAssistant:
     """LLM-powered poker coaching assistant."""
 
@@ -107,17 +193,25 @@ class CoachAssistant:
             owner_id=owner_id,
         )
 
-    def ask(self, question: str, coaching_data: Dict) -> str:
-        """Answer a coaching question with current game stats as context."""
+    def ask(self, question: str, coaching_data: Dict) -> CoachResponse:
+        """Answer a coaching question with current game stats as context.
+
+        Returns a CoachResponse dict with 'advice', 'action', and optional 'raise_to'.
+        """
         stats_text = _format_stats_for_prompt(coaching_data)
         message = f"Current stats:\n{stats_text}\n\nPlayer question: {question}"
-        return self._assistant.chat(message)
+        response = self._assistant.chat(message, json_format=True)
+        return _parse_coach_response(response, coaching_data)
 
-    def get_proactive_tip(self, coaching_data: Dict) -> str:
-        """Generate a brief proactive coaching tip."""
+    def get_proactive_tip(self, coaching_data: Dict) -> CoachResponse:
+        """Generate a brief proactive coaching tip.
+
+        Returns a CoachResponse dict with 'advice', 'action', and optional 'raise_to'.
+        """
         stats_text = _format_stats_for_prompt(coaching_data)
         message = f"Current stats:\n{stats_text}\n\n{PROACTIVE_TIP_PROMPT}"
-        return self._assistant.chat(message)
+        response = self._assistant.chat(message, json_format=True)
+        return _parse_coach_response(response, coaching_data)
 
     def review_hand(self, hand_context_text: str) -> str:
         """Generate a post-hand review."""

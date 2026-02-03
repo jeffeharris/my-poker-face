@@ -19,6 +19,7 @@ interface MobileActionButtonsProps {
   onQuickChat?: () => void;
   bettingContext?: BettingContext;  // Optional - use if provided by backend
   recommendedAction?: string | null;
+  raiseToAmount?: number | null;  // Coach-suggested raise amount to pre-fill slider
 }
 
 export const MobileActionButtons = memo(function MobileActionButtons({
@@ -33,6 +34,7 @@ export const MobileActionButtons = memo(function MobileActionButtons({
   onQuickChat,
   bettingContext: providedContext,
   recommendedAction,
+  raiseToAmount,
 }: MobileActionButtonsProps) {
   const [showRaiseSheet, setShowRaiseSheet] = useState(false);
   const [isEditingAmount, setIsEditingAmount] = useState(false);
@@ -54,7 +56,13 @@ export const MobileActionButtons = memo(function MobileActionButtons({
   const [raiseAmount, setRaiseAmount] = useState(calc.safeMinRaiseTo);
 
   const handleRaise = () => {
-    setRaiseAmount(calc.safeMinRaiseTo);
+    // Pre-fill with coach's suggested amount if valid, otherwise use minimum
+    const suggestedAmount = raiseToAmount &&
+      raiseToAmount >= calc.safeMinRaiseTo &&
+      raiseToAmount <= calc.safeMaxRaiseTo
+        ? raiseToAmount
+        : calc.safeMinRaiseTo;
+    setRaiseAmount(suggestedAmount);
     setShowRaiseSheet(true);
   };
 

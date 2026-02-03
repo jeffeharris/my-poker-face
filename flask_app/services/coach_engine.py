@@ -735,6 +735,9 @@ def compute_coaching_data(game_id: str, player_name: str,
         except Exception as e:
             logger.warning(f"Recommendation calculation failed: {e}")
 
+    # Coach raise amount - populated by coach_routes when coach provides specific amount
+    result['raise_to'] = None
+
     # Opponent stats (with stack, all-in info, and historical data if user_id provided)
     result['opponent_stats'] = _get_opponent_stats(game_data, player_name, user_id=user_id)
 
