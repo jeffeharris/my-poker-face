@@ -1,6 +1,5 @@
 """Tests for board texture analysis."""
 
-import pytest
 from poker.board_analyzer import (
     analyze_board_texture,
     get_texture_description,
