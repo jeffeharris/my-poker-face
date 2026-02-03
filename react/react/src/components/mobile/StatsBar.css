@@ -28,6 +28,9 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-text-muted, #777);
+  white-space: nowrap;
+  width: 100%;
+  text-align: center;
 }
 
 .stat-value {

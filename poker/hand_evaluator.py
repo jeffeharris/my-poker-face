@@ -94,7 +94,7 @@ class HandEvaluator:
             comparison_set = list(set(range(10, 15)))
             comparison_set.reverse()
             if straight_flush_values == comparison_set:
-                return True, comparison_set, [], straight_flush_suit, f"Royal Flush with {straight_flush_suit}"
+                return True, comparison_set, [], straight_flush_suit, "Royal Flush"
         return False, [], [], None, None
 
     def _check_straight_flush(self):
@@ -103,7 +103,7 @@ class HandEvaluator:
             flush_cards = [card for card in self.cards if card.suit == flush_suit]
             has_straight, straight_values, _, _, _ = HandEvaluator(flush_cards)._check_straight()
             if has_straight:
-                return True, straight_values, [], flush_suit, f"{rank_to_display(straight_values[0])} high Straight Flush with {flush_suit}"
+                return True, straight_values, [], flush_suit, "Straight Flush"
         return False, [], [], None, None
 
     def _check_four_of_a_kind(self):
@@ -122,7 +122,7 @@ class HandEvaluator:
             elif count >= 2 and two is None:
                 two = rank
         if three is not None and two is not None:
-            return True, [three]*3 + [two]*2, [], None, f"Full House {rank_to_display(three)}'s over {rank_to_display(two)}'s"
+            return True, [three]*3 + [two]*2, [], None, "Full House"
         return False, [], [], None, None
 
     def _check_flush(self):
@@ -131,7 +131,7 @@ class HandEvaluator:
                 flush_cards = sorted([card.value for card in self.cards if card.suit == suit], reverse=True)
                 # Only return the best 5 cards for the flush
                 best_five = flush_cards[:5]
-                return True, best_five, [], suit, f"Flush with {suit}"
+                return True, best_five, [], suit, "Flush"
         return False, [], [], None, None
 
     def _check_straight(self):
@@ -143,11 +143,11 @@ class HandEvaluator:
         for top in range(sorted_values[0], 4, -1):
             if set(range(top-4, top+1)).issubset(set(sorted_values)):
                 straight_values = list(range(top, top-5, -1))
-                return True, straight_values, [], None, f"{rank_to_display(top)} high Straight"
+                return True, straight_values, [], None, "Straight"
         
         # Check for Ace-low straight (A-2-3-4-5, also known as "wheel")
         if set([14, 2, 3, 4, 5]).issubset(set(sorted_values)):
-            return True, [5, 4, 3, 2, 1], [], None, "5 high Straight (Wheel)"
+            return True, [5, 4, 3, 2, 1], [], None, "Straight"
         
         return False, [], [], None, None
 
@@ -155,7 +155,7 @@ class HandEvaluator:
         for rank, count in self.rank_counts.items():
             if count == 3:
                 kickers = sorted([card for card in self.ranks if card != rank], reverse=True)[:2]
-                return True, [rank]*3, kickers, None, f"Three of a kind with {rank_to_display(rank)}'s"
+                return True, [rank]*3, kickers, None, "Three of a Kind"
         return False, [], [], None, None
 
     def _check_two_pair(self):
@@ -164,7 +164,7 @@ class HandEvaluator:
             pairs = sorted(pairs, reverse=True)[:2]
             kicker = sorted([card for card in self.ranks if card not in pairs], reverse=True)[0]
             kickers = [kicker]
-            return True, pairs*2, kickers, None, f"Two Pair, {rank_to_display(pairs[0])}'s and {rank_to_display(pairs[1])}'s"
+            return True, pairs*2, kickers, None, "Two Pair"
         return False, [], [], None, None
 
     def _check_one_pair(self):
@@ -172,5 +172,5 @@ class HandEvaluator:
         if pairs:
             pair = max(pairs)
             kickers = sorted([card for card in self.ranks if card != pair], reverse=True)[:3]
-            return True, [pair]*2, kickers, None, f"One Pair, {rank_to_display(pair)}'s"
+            return True, [pair]*2, kickers, None, "Pair"
         return False, [], [], None, None

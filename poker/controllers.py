@@ -424,13 +424,13 @@ def _get_hand_category(canonical: str) -> str:
 def _get_hand_percentile(canonical: str) -> str:
     """Get percentile ranking for a hand."""
     if canonical in PREMIUM_HANDS:
-        return "Top 3% of starting hands"
+        return "Top 3%"
     elif canonical in TOP_10_HANDS:
-        return "Top 10% of starting hands"
+        return "Top 10%"
     elif canonical in TOP_20_HANDS:
-        return "Top 20% of starting hands"
+        return "Top 20%"
     elif canonical in TOP_35_HANDS:
-        return "Top 35% of starting hands"
+        return "Top 35%"
     else:
         # Check for weak hands
         rank1 = canonical[0] if canonical else ''
@@ -438,11 +438,11 @@ def _get_hand_percentile(canonical: str) -> str:
         low_ranks = '23456'
 
         if rank1 in low_ranks and rank2 in low_ranks:
-            return "Bottom 10% of starting hands"
+            return "Bottom 10%"
         elif rank1 in '789' and rank2 in low_ranks:
-            return "Bottom 25% of starting hands"
+            return "Bottom 25%"
         else:
-            return "Below average starting hand"
+            return "Weak"
 
 
 def classify_preflop_hand(hole_cards: List[str]) -> Optional[str]:
@@ -457,10 +457,9 @@ def classify_preflop_hand(hole_cards: List[str]) -> Optional[str]:
         if not canonical:
             return None
 
-        category = _get_hand_category(canonical)
         percentile = _get_hand_percentile(canonical)
 
-        return f"{canonical} - {category}, {percentile}"
+        return f"{canonical} ({percentile})"
     except Exception as e:
         logger.debug(f"Preflop classification failed: {e}")
         return None
