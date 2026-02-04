@@ -100,6 +100,31 @@ export function StatsBar({ stats }: StatsBarProps) {
         </div>
       </div>
 
+      {/* Player Stats - threshold synced with poker/config.py MIN_HANDS_FOR_STYLE_LABEL */}
+      {stats.player_stats && stats.player_stats.hands_observed >= 15 && (
+        <div className="stats-player-row">
+          <span className="stats-player-label">Your Play</span>
+          <div className="stats-player-values">
+            <span className="stats-player-stat">
+              <span className="stats-player-key">VPIP</span>
+              <span className="stats-player-val">{Math.round(stats.player_stats.vpip * 100)}%</span>
+            </span>
+            <span className="stats-player-stat">
+              <span className="stats-player-key">PFR</span>
+              <span className="stats-player-val">{Math.round(stats.player_stats.pfr * 100)}%</span>
+            </span>
+            <span className="stats-player-stat">
+              <span className="stats-player-key">AGG</span>
+              <span className="stats-player-val">{stats.player_stats.aggression.toFixed(1)}</span>
+            </span>
+            <span className="stats-player-stat">
+              <span className="stats-player-key">Style</span>
+              <span className="stats-player-val stats-player-style">{stats.player_stats.style}</span>
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Recommendation */}
       {stats.recommendation && (
         <div className={`stats-recommendation ${recClass(stats.recommendation)}`}>

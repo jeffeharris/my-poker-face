@@ -52,3 +52,29 @@
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.7; transform: scale(1.2); }
 }
+
+/* Gold pulsing indicator when coach is generating/thinking */
+.coach-fab-thinking {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-gold, #d4a574);
+  border: 2px solid rgba(20, 22, 30, 0.9);
+  animation: coachThinkingPulse 1s ease-in-out infinite;
+}
+
+@keyframes coachThinkingPulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+    box-shadow: 0 0 4px rgba(212, 165, 116, 0.4);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+    box-shadow: 0 0 10px rgba(212, 165, 116, 0.7);
+  }
+}

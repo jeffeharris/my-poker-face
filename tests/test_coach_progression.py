@@ -1360,5 +1360,314 @@ class TestAdminMetrics(unittest.TestCase):
         self.assertIsInstance(result['stuck_players'], list)
 
 
+class TestUpdatePlayerLevel(unittest.TestCase):
+    """Tests for update_player_level preserving existing skill stats.
+
+    CRITICAL: update_player_level() must NEVER overwrite existing skill progress.
+    It only unlocks additional gates and creates new skill states for newly
+    unlocked gates.
+    """
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.service = CoachProgressionService(self.coach_repo)
+        self.user_id = 'test_update_level_user'
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    def _advance_skill(self, skill_id, num_correct):
+        """Helper to simulate skill progress via evaluations."""
+        classification = SituationClassification(
+            relevant_skills=(skill_id,),
+            primary_skill=skill_id,
+            situation_tags=('test',),
+        )
+        coaching_data = {
+            'phase': 'PRE_FLOP',
+            'hand_strength': '72o - Unconnected cards, Bottom 10%',
+            'position': 'Button',
+            'cost_to_call': 0,
+            'pot_total': 30,
+        }
+        for _ in range(num_correct):
+            self.service.evaluate_and_update(
+                self.user_id, 'fold', coaching_data, classification
+            )
+
+    def test_creates_skills_for_new_user(self):
+        """New user via update_player_level gets appropriate skills."""
+        # Don't initialize first - go straight to update
+        self.coach_repo.save_coach_profile(
+            self.user_id, self_reported_level='beginner', effective_level='beginner'
+        )
+
+        state = self.service.update_player_level(self.user_id, 'intermediate')
+
+        # Should have Gate 1 and Gate 2 skills
+        self.assertIn(1, state['gate_progress'])
+        self.assertIn(2, state['gate_progress'])
+        self.assertTrue(state['gate_progress'][1].unlocked)
+        self.assertTrue(state['gate_progress'][2].unlocked)
+
+    def test_preserves_existing_skill_stats(self):
+        """Upgrading level must NOT overwrite existing skill progress."""
+        # 1. Initialize as beginner
+        self.service.initialize_player(self.user_id, 'beginner')
+
+        # 2. Manually advance a skill with real progress
+        skill_id = 'fold_trash_hands'
+        self._advance_skill(skill_id, 10)
+
+        # 3. Capture state before upgrade
+        before = self.service.get_player_state(self.user_id)
+        before_skill = before['skill_states'][skill_id]
+        self.assertEqual(before_skill.total_opportunities, 10)
+        self.assertEqual(before_skill.total_correct, 10)
+
+        # 4. Upgrade to intermediate
+        self.service.update_player_level(self.user_id, 'intermediate')
+
+        # 5. Verify skill stats preserved
+        after = self.service.get_player_state(self.user_id)
+        after_skill = after['skill_states'][skill_id]
+
+        self.assertEqual(after_skill.total_opportunities, before_skill.total_opportunities)
+        self.assertEqual(after_skill.total_correct, before_skill.total_correct)
+
+    def test_preserves_window_decisions(self):
+        """Window decisions tuple must be preserved during level update."""
+        self.service.initialize_player(self.user_id, 'beginner')
+
+        # Create specific window decisions pattern
+        skill_id = 'fold_trash_hands'
+        ss = PlayerSkillState(
+            skill_id=skill_id,
+            state=SkillState.PRACTICING,
+            total_opportunities=15,
+            total_correct=12,
+            window_decisions=(True, True, True, False, True, True, True, False, True, True),
+            window_opportunities=10,
+            window_correct=8,
+        )
+        self.coach_repo.save_skill_state(self.user_id, ss)
+
+        # Upgrade
+        self.service.update_player_level(self.user_id, 'intermediate')
+
+        # Verify window preserved
+        after = self.coach_repo.load_skill_state(self.user_id, skill_id)
+        self.assertEqual(after.window_decisions, ss.window_decisions)
+        self.assertEqual(after.window_opportunities, 10)
+        self.assertEqual(after.window_correct, 8)
+
+    def test_preserves_streak_counts(self):
+        """Streak counts must be preserved during level update."""
+        self.service.initialize_player(self.user_id, 'beginner')
+
+        skill_id = 'fold_trash_hands'
+        ss = PlayerSkillState(
+            skill_id=skill_id,
+            state=SkillState.PRACTICING,
+            total_opportunities=20,
+            total_correct=15,
+            streak_correct=5,
+            streak_incorrect=0,
+        )
+        self.coach_repo.save_skill_state(self.user_id, ss)
+
+        self.service.update_player_level(self.user_id, 'experienced')
+
+        after = self.coach_repo.load_skill_state(self.user_id, skill_id)
+        self.assertEqual(after.streak_correct, 5)
+        self.assertEqual(after.streak_incorrect, 0)
+
+    def test_unlocks_additional_gates_only(self):
+        """Level upgrade only unlocks new gates, doesn't re-lock existing."""
+        self.service.initialize_player(self.user_id, 'beginner')
+
+        # Gate 1 should be unlocked
+        state = self.service.get_player_state(self.user_id)
+        self.assertTrue(state['gate_progress'][1].unlocked)
+        self.assertNotIn(2, state['gate_progress'])
+
+        # Upgrade to intermediate
+        self.service.update_player_level(self.user_id, 'intermediate')
+
+        # Both gates should now be unlocked
+        state = self.service.get_player_state(self.user_id)
+        self.assertTrue(state['gate_progress'][1].unlocked)
+        self.assertTrue(state['gate_progress'][2].unlocked)
+
+    def test_never_locks_existing_gates(self):
+        """Downgrading level must NOT lock already-unlocked gates."""
+        # Start as experienced (has gates 1, 2, 3)
+        self.service.initialize_player(self.user_id, 'experienced')
+        self.assertIn(3, self.service.get_player_state(self.user_id)['gate_progress'])
+
+        # "Downgrade" to beginner level
+        self.service.update_player_level(self.user_id, 'beginner')
+
+        # Gate 3 should still be unlocked!
+        state = self.service.get_player_state(self.user_id)
+        self.assertIn(3, state['gate_progress'])
+        self.assertTrue(state['gate_progress'][3].unlocked)
+
+    def test_beginner_to_intermediate_preserves_gate1(self):
+        """Upgrading beginner→intermediate preserves all Gate 1 progress."""
+        self.service.initialize_player(self.user_id, 'beginner')
+
+        # Advance all Gate 1 skills to different states
+        for skill_id, total in [('fold_trash_hands', 5), ('position_matters', 8), ('raise_or_fold', 12)]:
+            self._advance_skill(skill_id, total)
+
+        before = self.service.get_player_state(self.user_id)
+
+        # Upgrade
+        self.service.update_player_level(self.user_id, 'intermediate')
+
+        after = self.service.get_player_state(self.user_id)
+
+        # All Gate 1 skills should have same totals
+        for skill_id in ('fold_trash_hands', 'position_matters', 'raise_or_fold'):
+            self.assertEqual(
+                after['skill_states'][skill_id].total_opportunities,
+                before['skill_states'][skill_id].total_opportunities,
+                f"{skill_id} opportunities changed"
+            )
+
+    def test_intermediate_to_experienced_preserves_gates(self):
+        """Upgrading intermediate→experienced preserves Gate 1 & 2 progress."""
+        self.service.initialize_player(self.user_id, 'intermediate')
+
+        # Directly set a Gate 2 skill with progress
+        skill_id = 'flop_connection'
+        ss = PlayerSkillState(
+            skill_id=skill_id,
+            state=SkillState.PRACTICING,
+            total_opportunities=7,
+            total_correct=5,
+            window_opportunities=7,
+            window_correct=5,
+        )
+        self.coach_repo.save_skill_state(self.user_id, ss)
+
+        before = self.service.get_player_state(self.user_id)
+        self.assertEqual(before['skill_states'][skill_id].total_opportunities, 7)
+
+        # Upgrade to experienced
+        self.service.update_player_level(self.user_id, 'experienced')
+
+        after = self.service.get_player_state(self.user_id)
+        self.assertEqual(after['skill_states'][skill_id].total_opportunities, 7)
+        # Gate 3 should be added
+        self.assertIn(3, after['gate_progress'])
+
+    def test_downgrade_preserves_all_skills(self):
+        """Level downgrade preserves all skill data (doesn't remove skills)."""
+        self.service.initialize_player(self.user_id, 'experienced')
+
+        # Directly set a Gate 3 skill with progress
+        skill_id = 'draws_need_price'
+        ss = PlayerSkillState(
+            skill_id=skill_id,
+            state=SkillState.PRACTICING,
+            total_opportunities=5,
+            total_correct=4,
+            window_opportunities=5,
+            window_correct=4,
+        )
+        self.coach_repo.save_skill_state(self.user_id, ss)
+
+        before = self.service.get_player_state(self.user_id)
+        self.assertEqual(before['skill_states'][skill_id].total_opportunities, 5)
+
+        # "Downgrade" to beginner
+        self.service.update_player_level(self.user_id, 'beginner')
+
+        # Gate 3 skill should still exist with same data
+        after = self.service.get_player_state(self.user_id)
+        self.assertIn(skill_id, after['skill_states'])
+        self.assertEqual(after['skill_states'][skill_id].total_opportunities, 5)
+
+    def test_idempotent_same_level(self):
+        """Calling update_player_level with same level is idempotent."""
+        self.service.initialize_player(self.user_id, 'intermediate')
+
+        self._advance_skill('fold_trash_hands', 10)
+
+        before = self.service.get_player_state(self.user_id)
+
+        # Call update with same level
+        self.service.update_player_level(self.user_id, 'intermediate')
+
+        after = self.service.get_player_state(self.user_id)
+
+        self.assertEqual(
+            before['skill_states']['fold_trash_hands'].total_opportunities,
+            after['skill_states']['fold_trash_hands'].total_opportunities
+        )
+
+    def test_sets_onboarding_completed(self):
+        """update_player_level sets onboarding_completed_at."""
+        self.service.initialize_player(self.user_id, 'beginner')
+
+        profile = self.coach_repo.load_coach_profile(self.user_id)
+        # Initial profile may not have onboarding_completed_at set
+        initial_completed = profile.get('onboarding_completed_at')
+
+        self.service.update_player_level(self.user_id, 'intermediate')
+
+        profile = self.coach_repo.load_coach_profile(self.user_id)
+        self.assertIsNotNone(profile.get('onboarding_completed_at'))
+
+    def test_skill_at_reliable_not_reset(self):
+        """A skill already at Reliable must stay at Reliable after update."""
+        self.service.initialize_player(self.user_id, 'beginner')
+
+        # Set a skill to Reliable
+        skill_id = 'fold_trash_hands'
+        ss = PlayerSkillState(
+            skill_id=skill_id,
+            state=SkillState.RELIABLE,
+            total_opportunities=20,
+            total_correct=18,
+            window_opportunities=20,
+            window_correct=18,
+        )
+        self.coach_repo.save_skill_state(self.user_id, ss)
+
+        # Upgrade to experienced
+        self.service.update_player_level(self.user_id, 'experienced')
+
+        after = self.coach_repo.load_skill_state(self.user_id, skill_id)
+        self.assertEqual(after.state, SkillState.RELIABLE)
+
+    def test_skill_at_automatic_not_reset(self):
+        """A skill at Automatic must stay at Automatic after update."""
+        self.service.initialize_player(self.user_id, 'beginner')
+
+        # Set a skill to Automatic
+        skill_id = 'fold_trash_hands'
+        ss = PlayerSkillState(
+            skill_id=skill_id,
+            state=SkillState.AUTOMATIC,
+            total_opportunities=50,
+            total_correct=48,
+            window_opportunities=30,
+            window_correct=29,
+        )
+        self.coach_repo.save_skill_state(self.user_id, ss)
+
+        # Upgrade
+        self.service.update_player_level(self.user_id, 'experienced')
+
+        after = self.coach_repo.load_skill_state(self.user_id, skill_id)
+        self.assertEqual(after.state, SkillState.AUTOMATIC)
+
+
 if __name__ == '__main__':
     unittest.main()

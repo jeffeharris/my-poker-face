@@ -513,10 +513,10 @@ class DecisionAnalyzer:
             )
 
             for _ in range(iterations):
-                # Sample opponent hands using appropriate method
+                # Sample opponent hands using appropriate method (with board-connection weighting)
                 if use_opponent_infos:
                     opponent_hands_raw = sample_hands_for_opponent_infos(
-                        opponent_infos, excluded_cards, config, rng
+                        opponent_infos, excluded_cards, config, rng, community_cards
                     )
                 else:
                     # Backward compatibility: treat as position strings
@@ -611,6 +611,7 @@ class DecisionAnalyzer:
             pot_total=analysis.pot_total or 0,
             cost_to_call=analysis.cost_to_call or 0,
             player_stack=analysis.player_stack or 0,
+            player_position=analysis.player_position,
         )
 
         # Evaluate decision quality
@@ -648,6 +649,42 @@ class DecisionAnalyzer:
             analysis.decision_quality = "correct"
             analysis.ev_lost = 0
 
+    def _get_position_adjustment(self, player_position: Optional[str]) -> float:
+        """
+        Get equity threshold adjustment based on table position.
+
+        Position is one of the most important factors in poker strategy.
+        Acting last (late position) provides information advantage, allowing
+        looser play. Acting first (early position) requires tighter ranges.
+
+        Args:
+            player_position: Position name (e.g., 'button', 'under_the_gun')
+
+        Returns:
+            Adjustment to equity thresholds:
+            - Positive = need MORE equity (tighter)
+            - Negative = need LESS equity (looser)
+        """
+        if not player_position:
+            return 0.0
+
+        # Import here to avoid circular imports
+        from .hand_ranges import get_position_group, Position
+
+        position_group = get_position_group(player_position)
+
+        # Position adjustments based on standard poker theory
+        # Early position: information disadvantage, need stronger hands
+        # Late position: information advantage, can play more hands
+        adjustments = {
+            Position.EARLY: 0.08,    # Need 8% more equity from UTG
+            Position.MIDDLE: 0.03,   # Need 3% more equity from middle
+            Position.LATE: -0.05,    # Can play 5% looser from button/cutoff
+            Position.BLIND: -0.03,   # Already invested chips, slightly looser
+        }
+
+        return adjustments.get(position_group, 0.0)
+
     def determine_optimal_action(
         self,
         equity: float,
@@ -658,6 +695,7 @@ class DecisionAnalyzer:
         pot_total: int,
         cost_to_call: int,
         player_stack: int,
+        player_position: Optional[str] = None,
     ) -> str:
         """
         Determine the optimal action based on game theory considerations.
@@ -671,6 +709,7 @@ class DecisionAnalyzer:
             pot_total: Current pot size
             cost_to_call: Amount needed to call
             player_stack: Player's remaining chips
+            player_position: Hero's table position (e.g., 'button', 'under_the_gun')
 
         Returns:
             Optimal action: "fold", "check", "call", or "raise"
@@ -678,13 +717,20 @@ class DecisionAnalyzer:
         # Check if this is a check/bet situation (no cost to call)
         can_check = cost_to_call == 0
 
-        # Calculate value raise/bet threshold based on opponents
+        # Position adjustment: late position can play looser, early position tighter
+        # Acting last is a significant advantage in poker
+        position_adjustment = self._get_position_adjustment(player_position)
+
+        # Calculate value raise/bet threshold based on opponents and position
         # With more opponents, need higher equity to raise for value
         # Heads-up: ~55% equity is enough to value raise
         # Multi-way: Need ~60-70% equity
-        base_raise_threshold = 0.55
+        base_raise_threshold = 0.55 + position_adjustment
         opponent_adjustment = (num_opponents - 1) * 0.05  # +5% per extra opponent
         raise_threshold = min(0.75, base_raise_threshold + opponent_adjustment)
+
+        # Adjust required equity based on position (late position can call lighter)
+        adjusted_required_equity = max(0, required_equity + position_adjustment)
 
         # Stack-to-pot ratio affects decision
         # Deep stacks = more implied odds, can call lighter
@@ -715,10 +761,11 @@ class DecisionAnalyzer:
         if equity >= raise_threshold:
             # Strong hand - raise for value
             return "raise"
-        elif equity >= required_equity:
+        elif equity >= adjusted_required_equity:
             # Enough equity to continue but not to raise
-            # Consider semi-bluff potential
-            if is_preflop and equity > 0.45 and spr > 5:
+            # Consider semi-bluff potential (more viable in late position)
+            semi_bluff_equity_threshold = 0.45 - (position_adjustment * 0.5)  # Looser in position
+            if is_preflop and equity > semi_bluff_equity_threshold and spr > 5:
                 # Pre-flop with decent equity and deep stacks - can raise
                 return "raise"
             elif not is_preflop and equity > 0.50 and spr < 3:
@@ -729,7 +776,9 @@ class DecisionAnalyzer:
         else:
             # Below required equity - should fold
             # But if we have very good implied odds (deep SPR), might call
-            if spr > 10 and equity > required_equity * 0.7:
+            # Late position gets more implied odds value
+            implied_odds_threshold = (adjusted_required_equity * 0.7) if position_adjustment < 0 else (adjusted_required_equity * 0.8)
+            if spr > 10 and equity > implied_odds_threshold:
                 return "call"  # Implied odds play
             return "fold"
 

@@ -14,7 +14,13 @@ from typing import Any, Dict, List, Optional
 from poker.hand_evaluator import HandEvaluator
 from poker.hand_ranges import OpponentInfo
 from poker.decision_analyzer import DecisionAnalyzer
-from poker.controllers import classify_preflop_hand
+from poker.controllers import (
+    classify_preflop_hand,
+    _parse_game_messages,
+    _get_preflop_lines,
+    _get_street_lines,
+    _process_preflop_lines,
+)
 from poker.card_utils import card_to_string
 
 from ..services import game_state_service
@@ -67,7 +73,7 @@ def _compute_equity(player_hand: List[str], community: List[str],
         logger.error("Both equity calculations (ranges + random) failed")
         return None
     except Exception as e:
-        logger.error(f"Equity calculation failed: {e}")
+        logger.error(f"Equity calculation failed: {e}", exc_info=True)
         return None
 
 
@@ -110,7 +116,7 @@ def _compute_outs(player_hand: List[str], community: List[str]) -> Optional[Dict
                 'cards': outs[:15],  # Cap display at 15
             }
     except Exception as e:
-        logger.warning(f"Outs calculation failed: {e}")
+        logger.warning(f"Outs calculation failed: {e}", exc_info=True)
 
     return None
 
@@ -135,7 +141,7 @@ def _compute_hand_strength(player_hand_cards, community_cards) -> Optional[Dict]
             'rank': result.get('hand_rank'),
         }
     except Exception as e:
-        logger.warning(f"Hand strength evaluation failed: {e}")
+        logger.warning(f"Hand strength evaluation failed: {e}", exc_info=True)
         return None
 
 
@@ -175,16 +181,140 @@ def _position_label_to_key(position_label: str) -> str:
     }
     result = mapping.get(position_label)
     if result is None:
-        logger.warning(f"Unknown position label '{position_label}', defaulting to 'button'")
+        logger.warning(f"Unknown position label '{position_label}', defaulting to 'button'", exc_info=True)
         return 'button'
     return result
 
 
-def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[OpponentInfo]:
-    """Build OpponentInfo objects for active opponents (for range-based equity)."""
+def _extract_preflop_action(
+    opponent_name: str,
+    game_messages: list,
+    game_state
+) -> Optional[str]:
+    """
+    Extract what preflop action an opponent took this hand.
+
+    Args:
+        opponent_name: Name of opponent to check
+        game_messages: List of game message strings
+        game_state: Current game state for position info
+
+    Returns:
+        Action string ('open_raise', 'call', '3bet', '4bet+', 'limp') or None
+    """
+    lines = _parse_game_messages(game_messages)
+    if lines is None:
+        return None
+
+    # Get BB player name to ignore forced BB
+    bb_player = game_state.table_positions.get('big_blind_player')
+    opponent_lower = opponent_name.lower()
+
+    # Filter to preflop lines only
+    preflop_lines = _get_preflop_lines(lines)
+
+    return _process_preflop_lines(
+        preflop_lines,
+        opponent_lower,
+        opponent_name,
+        bb_player
+    )
+
+
+def _extract_postflop_aggression(
+    opponent_name: str,
+    game_messages: list,
+    current_phase: str
+) -> Optional[str]:
+    """
+    Extract what postflop aggression an opponent showed this hand.
+
+    Checks for betting/raising actions on the current street (flop/turn/river).
+    Used to weight opponent hand sampling toward hands that connect with the board.
+
+    Args:
+        opponent_name: Name of opponent to check
+        game_messages: List of game message strings
+        current_phase: Current game phase ('FLOP', 'TURN', 'RIVER')
+
+    Returns:
+        Aggression type: 'bet', 'raise', 'check_call', 'check', or None
+    """
+    if current_phase == 'PRE_FLOP':
+        return None
+
+    lines = _parse_game_messages(game_messages)
+    if lines is None:
+        return None
+
+    opponent_lower = opponent_name.lower()
+
+    # Get lines from current street only
+    street_lines = _get_street_lines(lines, current_phase)
+
+    # Track opponent's most aggressive action on this street
+    most_aggressive_action = None
+
+    for line in street_lines:
+        line_lower = line.lower()
+
+        # Check if this line is about our opponent
+        if opponent_lower not in line_lower:
+            continue
+
+        # Determine their action (most aggressive wins)
+        if 'raise' in line_lower or ('all' in line_lower and 'in' in line_lower):
+            most_aggressive_action = 'raise'  # Raise is most aggressive
+        elif 'bet' in line_lower and most_aggressive_action != 'raise':
+            most_aggressive_action = 'bet'
+        elif 'call' in line_lower and most_aggressive_action not in ('raise', 'bet'):
+            most_aggressive_action = 'check_call'
+        elif 'check' in line_lower and most_aggressive_action is None:
+            most_aggressive_action = 'check'
+
+    return most_aggressive_action
+
+
+def _build_opponent_infos(
+    game_data: dict,
+    game_state,
+    human_name: str,
+    user_id: Optional[str] = None
+) -> List[OpponentInfo]:
+    """Build OpponentInfo objects for active opponents (for range-based equity).
+
+    Includes preflop action context for more accurate range narrowing.
+    Uses cross-session historic stats when current session data is insufficient.
+
+    Args:
+        game_data: Current game data dict
+        game_state: Current poker game state
+        human_name: The human player's name (observer)
+        user_id: Optional user ID for fetching cross-session historical data
+    """
+    from poker.hand_ranges import EquityConfig
+
     infos = []
     memory_manager = game_data.get('memory_manager')
     omm = getattr(memory_manager, 'opponent_model_manager', None) if memory_manager else None
+
+    # Get game messages for action extraction
+    game_messages = game_data.get('messages', [])
+
+    # Get current phase for postflop aggression detection
+    state_machine = game_data.get('state_machine')
+    current_phase = state_machine.phase.name if state_machine else 'PRE_FLOP'
+
+    # Load cross-session historic stats if user_id provided
+    # AI personalities have deterministic behavior, so historic stats are reliable
+    historical_data = {}
+    if user_id:
+        try:
+            historical_data = game_repo.load_cross_session_opponent_models(human_name, user_id)
+        except Exception as e:
+            logger.warning(f"Failed to load historic stats: {e}")
+
+    min_hands = EquityConfig().min_hands_for_stats
 
     for i, player in enumerate(game_state.players):
         if player.name == human_name or player.is_folded:
@@ -193,13 +323,42 @@ def _build_opponent_infos(game_data: dict, game_state, human_name: str) -> List[
         position = _get_raw_position(game_state, i)
         info = OpponentInfo(name=player.name, position=position)
 
+        # Extract preflop action for range narrowing
+        if game_messages:
+            info.preflop_action = _extract_preflop_action(
+                player.name, game_messages, game_state
+            )
+
+        # Extract postflop aggression for board-connection weighted sampling
+        if game_messages and current_phase != 'PRE_FLOP':
+            info.postflop_aggression_this_hand = _extract_postflop_aggression(
+                player.name, game_messages, current_phase
+            )
+
+        # Add observed stats from opponent model (current session)
+        current_hands = 0
         if omm and human_name in omm.models and player.name in omm.models[human_name]:
             model = omm.models[human_name][player.name]
             t = model.tendencies
+            current_hands = t.hands_observed
             info.hands_observed = t.hands_observed
             info.vpip = t.vpip
             info.pfr = t.pfr
             info.aggression = t.aggression_factor
+
+        # Use historic stats as fallback when current session has insufficient data
+        # AI personalities have consistent behavior, so historic data is reliable
+        if current_hands < min_hands and player.name in historical_data:
+            hist = historical_data[player.name]
+            if hist['total_hands'] >= min_hands:
+                info.hands_observed = hist['total_hands']
+                info.vpip = hist['vpip']
+                info.pfr = hist['pfr']
+                info.aggression = hist['aggression_factor']
+                logger.debug(
+                    f"Using historic stats for {player.name}: "
+                    f"{hist['total_hands']} hands across {hist['session_count']} sessions"
+                )
 
         infos.append(info)
     return infos
@@ -226,7 +385,7 @@ def _get_style_label(vpip: float, aggression: float) -> str:
 
 
 def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -> List[Dict]:
-    """Extract opponent stats from memory manager with optional historical context.
+    """Extract opponent stats from memory manager, including stack and all-in status.
 
     Args:
         game_data: The current game data dict
@@ -235,9 +394,22 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
 
     Returns:
         List of opponent stat dicts, each containing current game stats
-        and optionally a nested 'historical' block with cross-session data.
+        (including stack, bet, is_all_in) and optionally a nested 'historical'
+        block with cross-session data.
     """
     stats = []
+
+    # Validate required game data
+    state_machine = game_data.get('state_machine')
+    if not state_machine:
+        logger.error("_get_opponent_stats: state_machine missing from game_data")
+        return stats
+
+    try:
+        game_state = state_machine.game_state
+    except AttributeError as e:
+        logger.error(f"_get_opponent_stats: cannot access game_state: {e}")
+        return stats
 
     # Load historical data if user_id provided
     historical_data = {}
@@ -247,42 +419,50 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
         except Exception as e:
             logger.warning(f"Failed to load historical opponent data: {e}")
 
+    memory_manager = game_data.get('memory_manager')
+    omm = None
+    if memory_manager:
+        omm = getattr(memory_manager, 'opponent_model_manager', None)
+
     try:
-        memory_manager = game_data.get('memory_manager')
-        game_state = game_data['state_machine'].game_state
-
-        omm = getattr(memory_manager, 'opponent_model_manager', None) if memory_manager else None
-
         for player in game_state.players:
             if player.name == human_name or player.is_folded:
                 continue
 
-            # Build current game stats
+            # Determine if player is all-in (stack is 0)
+            is_all_in = player.stack == 0
+
+            opp_data = {
+                'name': player.name,
+                'stack': player.stack,
+                'bet': player.bet,
+                'is_all_in': is_all_in,
+                'vpip': None,
+                'pfr': None,
+                'aggression': None,
+                'style': 'unknown',
+                'hands_observed': 0,
+            }
+
+            # Get model from human's perspective if available
             if omm and human_name in omm.models and player.name in omm.models[human_name]:
-                model = omm.models[human_name][player.name]
-                tendencies = model.tendencies
-                stat_entry = {
-                    'name': player.name,
-                    'vpip': round(tendencies.vpip, 2),
-                    'pfr': round(tendencies.pfr, 2),
-                    'aggression': round(tendencies.aggression_factor, 1),
-                    'style': tendencies.get_play_style_label(),
-                    'hands_observed': tendencies.hands_observed,
-                }
-            else:
-                stat_entry = {
-                    'name': player.name,
-                    'vpip': None,
-                    'pfr': None,
-                    'aggression': None,
-                    'style': 'unknown',
-                    'hands_observed': 0,
-                }
+                try:
+                    model = omm.models[human_name][player.name]
+                    tendencies = model.tendencies
+                    opp_data.update({
+                        'vpip': round(tendencies.vpip, 2),
+                        'pfr': round(tendencies.pfr, 2),
+                        'aggression': round(tendencies.aggression_factor, 1),
+                        'style': tendencies.get_play_style_label(),
+                        'hands_observed': tendencies.hands_observed,
+                    })
+                except (AttributeError, KeyError) as e:
+                    logger.warning(f"_get_opponent_stats: failed to get tendencies for {player.name}: {e}")
 
             # Add historical data if available
             if player.name in historical_data:
                 hist = historical_data[player.name]
-                stat_entry['historical'] = {
+                opp_data['historical'] = {
                     'session_count': hist['session_count'],
                     'total_hands': hist['total_hands'],
                     'vpip': hist['vpip'],
@@ -292,12 +472,48 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
                     'notes': hist['notes'][-5:],  # Most recent 5 notes
                 }
 
-            stats.append(stat_entry)
-
-    except Exception as e:
-        logger.warning(f"Opponent stats extraction failed: {e}")
+            stats.append(opp_data)
+    except (AttributeError, TypeError) as e:
+        logger.error(f"_get_opponent_stats: error iterating players: {e}")
 
     return stats
+
+
+def _get_player_self_stats(game_data: dict, human_name: str) -> Optional[Dict]:
+    """Get the human player's own stats from the AI observer with the most data."""
+    try:
+        memory_manager = game_data.get('memory_manager')
+        if not memory_manager:
+            return None
+
+        omm = getattr(memory_manager, 'opponent_model_manager', None)
+        if not omm:
+            return None
+
+        # Pick the observer with the most hands observed for the most accurate stats
+        best = None
+        best_hands = 0
+        for observer_name, opponents in omm.models.items():
+            if observer_name == human_name:
+                continue
+            if human_name in opponents:
+                t = opponents[human_name].tendencies
+                if t.hands_observed > best_hands:
+                    best = t
+                    best_hands = t.hands_observed
+
+        if best and best_hands >= 1:
+            return {
+                'vpip': round(best.vpip, 2),
+                'pfr': round(best.pfr, 2),
+                'aggression': round(best.aggression_factor, 1),
+                'style': best.get_play_style_label(),
+                'hands_observed': best.hands_observed,
+            }
+    except Exception as e:
+        logger.warning(f"Player self-stats extraction failed: {e}")
+
+    return None
 
 
 def _get_current_hand_actions(game_data: dict) -> List[Dict]:
@@ -309,6 +525,76 @@ def _get_current_hand_actions(game_data: dict) -> List[Dict]:
     if not recorder or not recorder.current_hand:
         return []
     return [a.to_dict() for a in recorder.current_hand.actions]
+
+
+def _get_available_actions(game_state, player, cost_to_call: int) -> List[str]:
+    """Determine which actions are available to the player."""
+    actions = []
+
+    # Count active opponents (not folded, not the player)
+    active_opponents = [
+        p for p in game_state.players
+        if not p.is_folded and p.name != player.name
+    ]
+
+    # Check if all opponents are all-in
+    all_opponents_all_in = all(p.stack == 0 for p in active_opponents)
+
+    if cost_to_call == 0:
+        actions.append('check')
+        # Can only bet if there are opponents with chips left
+        if not all_opponents_all_in and player.stack > 0:
+            actions.append('bet')
+    else:
+        actions.append('fold')
+        if player.stack > 0:
+            if player.stack <= cost_to_call:
+                actions.append('all-in')
+            else:
+                actions.append('call')
+                # Can only raise if there are opponents with chips left
+                if not all_opponents_all_in:
+                    actions.append('raise')
+
+    return actions
+
+
+def _get_position_context(position: str, phase: str) -> str:
+    """Get actionable context for the player's position.
+
+    Position names from game: button, small_blind_player, big_blind_player,
+    under_the_gun, cutoff, middle_position_1/2/3
+    After _get_position_label: "Button", "Small Blind Player", etc.
+    """
+    pos_lower = position.lower()
+
+    if phase == 'PRE_FLOP':
+        if 'button' in pos_lower:
+            return "Best position - act last post-flop, can open wide"
+        elif 'cutoff' in pos_lower:
+            return "Late position - can open fairly wide"
+        elif 'under' in pos_lower:
+            return "Early position - play tight, premium hands only"
+        elif 'small' in pos_lower and 'blind' in pos_lower:
+            return "Small blind - worst position, act first post-flop"
+        elif 'big' in pos_lower and 'blind' in pos_lower:
+            return "Big blind - defend wider since you have money invested"
+        elif 'middle' in pos_lower:
+            return "Middle position - moderate opening range"
+    else:
+        # Post-flop position matters for acting order
+        if 'button' in pos_lower:
+            return "In position - act last, big advantage"
+        elif 'cutoff' in pos_lower:
+            return "In position vs blinds"
+        elif ('small' in pos_lower or 'big' in pos_lower) and 'blind' in pos_lower:
+            return "Out of position - act early, disadvantage"
+        elif 'under' in pos_lower:
+            return "Out of position vs later seats"
+        elif 'middle' in pos_lower:
+            return "Middle position - depends on remaining players"
+
+    return ""
 
 
 def compute_coaching_data(game_id: str, player_name: str,
@@ -376,8 +662,8 @@ def compute_coaching_data(game_id: str, player_name: str,
         'opponent_stats': [],
     }
 
-    # Equity calculations
-    opponent_infos = _build_opponent_infos(game_data, game_state, player_name)
+    # Equity calculations (pass user_id for cross-session historic stats)
+    opponent_infos = _build_opponent_infos(game_data, game_state, player_name, user_id)
     num_opponents = len(opponent_infos) or 1
 
     # Primary: equity vs opponent ranges (used for coaching guidance)
@@ -449,8 +735,20 @@ def compute_coaching_data(game_id: str, player_name: str,
         except Exception as e:
             logger.warning(f"Recommendation calculation failed: {e}")
 
-    # Opponent stats (with historical data if user_id provided)
+    # Coach raise amount - populated by coach_routes when coach provides specific amount
+    result['raise_to'] = None
+
+    # Opponent stats (with stack, all-in info, and historical data if user_id provided)
     result['opponent_stats'] = _get_opponent_stats(game_data, player_name, user_id=user_id)
+
+    # Available actions (what the player can actually do)
+    result['available_actions'] = _get_available_actions(game_state, player, cost_to_call)
+
+    # Position context (actionable guidance)
+    result['position_context'] = _get_position_context(position, phase)
+
+    # Player's own stats (from any AI observer's model)
+    result['player_stats'] = _get_player_self_stats(game_data, player_name)
 
     # Current hand action timeline
     result['hand_actions'] = _get_current_hand_actions(game_data)

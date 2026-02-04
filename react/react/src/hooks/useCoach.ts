@@ -30,6 +30,8 @@ interface UseCoachResult {
   fetchProgression: () => Promise<void>;
   skipAhead: (level: string) => Promise<void>;
   dismissSkillUnlock: (skillId: string) => void;
+  coachAction: string | null;  // Coach's explicit recommendation (only from /ask endpoint)
+  coachRaiseTo: number | null;  // Coach's suggested raise amount
 }
 
 function loadLocalMode(): CoachMode {
@@ -52,6 +54,9 @@ export function useCoach({
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [proactiveTip, setProactiveTip] = useState<string | null>(null);
+  // Track coach's explicit recommendation (only set when coach provides advice via /ask)
+  const [coachAction, setCoachAction] = useState<string | null>(null);
+  const [coachRaiseTo, setCoachRaiseTo] = useState<number | null>(null);
   const [handReviewPending, setHandReviewPending] = useState(false);
   const [hasUnreadReview, setHasUnreadReview] = useState(false);
   const [progression, setProgression] = useState<CoachProgression | null>(null);
@@ -162,6 +167,7 @@ export function useCoach({
 
   const fetchProactiveTip = useCallback(async () => {
     if (!gameId) return;
+    setIsThinking(true);
     try {
       const res = await fetch(`${config.API_URL}/api/coach/${gameId}/ask`, {
         method: 'POST',
@@ -172,6 +178,9 @@ export function useCoach({
       if (res.ok) {
         const data = await res.json();
         setProactiveTip(data.answer);
+        // Store coach's explicit recommendation (separate from GTO stats)
+        setCoachAction(data.coach_action ?? null);
+        setCoachRaiseTo(data.coach_raise_to ?? null);
         const tipMsg: CoachMessage = {
           id: `tip-${Date.now()}`,
           role: 'coach',
@@ -184,6 +193,8 @@ export function useCoach({
       }
     } catch {
       /* non-critical */
+    } finally {
+      setIsThinking(false);
     }
   }, [gameId, playerName]);
 
@@ -210,6 +221,9 @@ export function useCoach({
 
       if (res.ok) {
         const data = await res.json();
+        // Store coach's explicit recommendation for reactive mode highlighting
+        setCoachAction(data.coach_action ?? null);
+        setCoachRaiseTo(data.coach_raise_to ?? null);
         const coachMsg: CoachMessage = {
           id: `coach-${Date.now()}`,
           role: 'coach',
@@ -323,10 +337,12 @@ export function useCoach({
     return () => clearTimeout(timer);
   }, [isPlayerTurn, mode, refreshStats, fetchProactiveTip]);
 
-  // Clear proactive tip when turn ends
+  // Clear proactive tip and coach recommendation when turn ends
   useEffect(() => {
     if (!isPlayerTurn) {
       setProactiveTip(null);
+      setCoachAction(null);
+      setCoachRaiseTo(null);
     }
   }, [isPlayerTurn]);
 
@@ -350,5 +366,7 @@ export function useCoach({
     fetchProgression,
     skipAhead,
     dismissSkillUnlock,
+    coachAction,
+    coachRaiseTo,
   };
 }

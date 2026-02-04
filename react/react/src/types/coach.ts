@@ -1,3 +1,13 @@
+export interface PlayerStats {
+  vpip: number;
+  pfr: number;
+  aggression: number;
+  style: string;
+  hands_observed: number;
+}
+
+export type ActionRecommendation = 'fold' | 'check' | 'call' | 'raise';
+
 export interface CoachStats {
   equity: number | null;
   equity_vs_random: number | null;
@@ -9,18 +19,25 @@ export interface CoachStats {
   hand_rank: number | null;
   outs: number | null;
   outs_cards: string[] | null;
-  recommendation: string | null; // 'fold' | 'check' | 'call' | 'raise'
+  recommendation: ActionRecommendation | null;
+  raise_to: number | null; // Specific raise amount suggested by coach
   position: string | null;
   phase: string | null;
   pot_total: number;
   cost_to_call: number;
   stack: number;
   opponent_stats: OpponentStat[];
+  player_stats: PlayerStats | null;
+  available_actions: string[];
+  position_context: string | null;
   progression?: CoachProgression;
 }
 
 export interface OpponentStat {
   name: string;
+  stack: number;
+  bet: number;
+  is_all_in: boolean;
   vpip: number | null;
   pfr: number | null;
   aggression: number | null;
@@ -77,6 +94,7 @@ export interface GateProgressInfo {
 export interface CoachProfile {
   self_reported_level: string;
   effective_level: string;
+  onboarding_completed_at: string | null;
 }
 
 export interface ProgressionState {

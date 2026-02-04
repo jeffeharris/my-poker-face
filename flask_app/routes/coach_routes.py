@@ -1,6 +1,7 @@
 """Coach routes — REST endpoints for the poker coaching feature."""
 
 import logging
+import os
 from typing import Optional
 
 from flask import Blueprint, jsonify, request
@@ -109,15 +110,36 @@ def coach_ask(game_id: str):
 
     try:
         if request_type == 'proactive_tip':
-            answer = coach.get_proactive_tip(stats or {})
+            result = coach.get_proactive_tip(stats or {})
         else:
-            answer = coach.ask(question, stats or {})
+            result = coach.ask(question, stats or {})
+    except json.JSONDecodeError as e:
+        logger.error(f"Coach response parse failed: {e}", exc_info=True)
+        return jsonify({'error': 'Coach response error'}), 500
+    except TimeoutError as e:
+        logger.error(f"Coach request timed out: {e}", exc_info=True)
+        return jsonify({'error': 'Coach is taking too long, please try again'}), 504
     except Exception as e:
         logger.error(f"Coach ask failed: {e}", exc_info=True)
         return jsonify({'error': 'Coach unavailable'}), 503
 
+    # Extract structured response fields
+    answer = result.get('advice', '')
+    coach_action = result.get('action')
+    coach_raise_to = result.get('raise_to')
+
+    # Check environment variable for highlight source
+    highlight_source = os.getenv('COACH_HIGHLIGHT_SOURCE', 'coach')
+
+    # When source is 'coach' and coach provided an action, use it for highlighting
+    if highlight_source == 'coach' and coach_action and stats:
+        stats['recommendation'] = coach_action
+        stats['raise_to'] = coach_raise_to
+
     return jsonify({
         'answer': answer,
+        'coach_action': coach_action,
+        'coach_raise_to': coach_raise_to,
         'stats': stats,
     })
 
@@ -273,7 +295,12 @@ def coach_progression(game_id: str):
 @limiter.limit("5/minute")
 @_coach_required
 def coach_onboarding(game_id: str):
-    """Initialize or update the player's coaching profile."""
+    """Initialize or update the player's coaching profile.
+
+    If the player has no existing profile, initializes from scratch.
+    If the player already has a profile (with accumulated stats),
+    only updates the level and unlocks new gates without wiping stats.
+    """
     user_id = _get_current_user_id()
 
     body = request.get_json(silent=True) or {}
@@ -283,7 +310,17 @@ def coach_onboarding(game_id: str):
 
     try:
         service = CoachProgressionService(coach_repo)
-        state = service.initialize_player(user_id, level=level)
+
+        # Check if player already has a profile with accumulated stats
+        existing_state = service.get_player_state(user_id)
+        if existing_state['profile']:
+            # Player exists - update level without wiping stats
+            state = service.update_player_level(user_id, level=level)
+            logger.info(f"Updated existing player {user_id} to level {level}")
+        else:
+            # New player - full initialization
+            state = service.initialize_player(user_id, level=level)
+            logger.info(f"Initialized new player {user_id} at level {level}")
 
         return jsonify({
             'status': 'ok',

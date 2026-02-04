@@ -66,7 +66,7 @@ function makeMemoryDebugResponse(
     opponent_models: {
       [observerName]: {
         [opponentName]: {
-          hands_observed: 8,
+          hands_observed: 10,
           vpip: 0.65,
           pfr: 0.3,
           aggression_factor: 2.1,
@@ -204,7 +204,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
 
       const handsObserved = document.querySelector('.hands-observed');
       expect(handsObserved).toBeTruthy();
-      expect(handsObserved!.textContent).toContain('8 hands observed');
+      expect(handsObserved!.textContent).toContain('10 hands observed');
     });
   });
 
@@ -486,7 +486,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
   });
 
   describe('Still reading state', () => {
-    it('shows "Still reading..." when fewer than 3 hands observed', async () => {
+    it('shows "Still reading..." when fewer than 10 hands observed', async () => {
       mockFetchResponses(
         makePressureStatsResponse('Batman'),
         makeMemoryDebugResponse('TestPlayer', 'Batman', { hands_observed: 2 })

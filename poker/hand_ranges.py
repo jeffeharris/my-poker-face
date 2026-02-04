@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class EquityConfig:
     """Configuration for equity calculation behavior."""
     use_in_game_stats: bool = True       # Use observed stats from current game
-    min_hands_for_stats: int = 5         # Minimum hands before using observed stats
+    min_hands_for_stats: int = 15        # Minimum hands before using observed stats (sync with poker/config.py)
     use_enhanced_ranges: bool = True     # Use new range function with PFR/action context
 
 
@@ -450,6 +450,14 @@ ULTRA_PREMIUM_RANGE = (
     {'AKs', 'AKo'}             # AK suited and offsuit
 )  # ~5% of hands
 
+# Standard 3-bet range when no player stats available
+# Based on typical 3-bet frequencies (~8-10% of hands)
+# Source: Modern Poker Theory, The Grinder's Manual
+STANDARD_3BET_RANGE = (
+    _expand_pairs('A', 'T') |  # AA-TT
+    {'AKs', 'AKo', 'AQs', 'AQo', 'AJs', 'KQs'}
+)  # ~8% of hands
+
 
 def estimate_range_from_pfr(pfr: float) -> Set[str]:
     """Estimate a raising range based on PFR (pre-flop raise percentage).
@@ -637,8 +645,32 @@ def get_opponent_range(
         opponent.hands_observed >= config.min_hands_for_stats
     )
 
-    # STEP 1: Action-based narrowing (most specific)
-    if opponent.preflop_action and has_enough_data:
+    # STEP 1a: Action-based narrowing that works WITHOUT observed stats
+    # These actions have strong enough signal that we don't need historical data
+    if opponent.preflop_action == '4bet+':
+        # 4-bet+ is always ultra-premium regardless of player history
+        base_range = ULTRA_PREMIUM_RANGE
+        logger.debug(
+            f"Using ultra-premium range for {opponent.name} (4bet+): "
+            f"range={len(base_range)} hands"
+        )
+    elif opponent.preflop_action == '3bet':
+        # 3-bet range: use PFR-based if stats available, otherwise standard
+        if has_enough_data and opponent.pfr is not None:
+            base_range = estimate_3bet_range(opponent.pfr)
+            logger.debug(
+                f"Using PFR-based 3-bet range for {opponent.name}: "
+                f"PFR={opponent.pfr:.2f}, range={len(base_range)} hands"
+            )
+        else:
+            base_range = STANDARD_3BET_RANGE
+            logger.debug(
+                f"Using standard 3-bet range for {opponent.name}: "
+                f"range={len(base_range)} hands (no stats available)"
+            )
+
+    # STEP 1b: Action-based narrowing that REQUIRES observed stats
+    elif opponent.preflop_action and has_enough_data:
         if opponent.preflop_action == 'open_raise':
             # Use PFR for open-raisers
             if opponent.pfr is not None:
@@ -647,21 +679,6 @@ def get_opponent_range(
                     f"Using PFR range for {opponent.name} (open_raise): "
                     f"PFR={opponent.pfr:.2f}, range={len(base_range)} hands"
                 )
-        elif opponent.preflop_action == '3bet':
-            # 3-bet range is much tighter
-            if opponent.pfr is not None:
-                base_range = estimate_3bet_range(opponent.pfr)
-                logger.debug(
-                    f"Using 3-bet range for {opponent.name}: "
-                    f"range={len(base_range)} hands"
-                )
-        elif opponent.preflop_action == '4bet+':
-            # 4-bet+ is typically premium only
-            base_range = ULTRA_PREMIUM_RANGE
-            logger.debug(
-                f"Using ultra-premium range for {opponent.name} (4bet+): "
-                f"range={len(base_range)} hands"
-            )
         elif opponent.preflop_action == 'call':
             # Calling range = VPIP - PFR
             if opponent.vpip is not None and opponent.pfr is not None:
@@ -764,19 +781,43 @@ def get_opponent_range_og(
     return adjust_range_for_position(base_range, position)
 
 
+def _get_board_connection_weight(combo: Tuple[str, str], board_cards: List[str]) -> float:
+    """Return sampling weight based on how hand connects with board.
+
+    Args:
+        combo: Tuple of (card1, card2) strings
+        board_cards: List of board card strings
+
+    Returns:
+        Sampling weight: 2.0 for made hands, 1.5 for draws, 0.5 for air
+    """
+    from poker.hand_evaluator import HandEvaluator
+    connection = HandEvaluator.get_board_connection(list(combo), board_cards)
+    return connection['weight']
+
+
 def sample_hand_for_opponent(
     opponent: OpponentInfo,
     excluded_cards: Set[str],
     config: EquityConfig = None,
-    rng: Optional[random.Random] = None
+    rng: Optional[random.Random] = None,
+    board_cards: Optional[List[str]] = None,
+    weight_cache: Optional[Dict[Tuple[str, str], float]] = None
 ) -> Optional[Tuple[str, str]]:
     """Sample a hand from an opponent's estimated range.
+
+    When opponent has shown postflop aggression (bet/raise) and there are
+    board cards, uses weighted sampling to favor hands that connect with
+    the board (pairs, overpairs, draws).
 
     Args:
         opponent: OpponentInfo with available data
         excluded_cards: Cards already dealt
         config: EquityConfig for calculation options
         rng: Random number generator
+        board_cards: Community cards for board-connection weighting
+        weight_cache: Optional cache mapping combo -> weight for board connection.
+            When provided, weights are looked up/stored here to avoid recomputation.
 
     Returns:
         Tuple of (card1, card2) or None if no valid hand
@@ -801,6 +842,25 @@ def sample_hand_for_opponent(
         logger.debug(f"No valid combos for {opponent.name} with excluded {len(excluded_cards)} cards")
         return None
 
+    # Weighted sampling when opponent showed postflop aggression
+    use_weighted = (
+        board_cards and
+        len(board_cards) >= 3 and
+        opponent.postflop_aggression_this_hand in ('bet', 'raise')
+    )
+
+    if use_weighted:
+        # Use cache to avoid recomputing board connection weights for same combo/board
+        if weight_cache is not None:
+            weights = []
+            for combo in valid_combos:
+                if combo not in weight_cache:
+                    weight_cache[combo] = _get_board_connection_weight(combo, board_cards)
+                weights.append(weight_cache[combo])
+        else:
+            weights = [_get_board_connection_weight(combo, board_cards) for combo in valid_combos]
+        return rng.choices(valid_combos, weights=weights)[0]
+
     return rng.choice(valid_combos)
 
 
@@ -808,7 +868,8 @@ def sample_hands_for_opponent_infos(
     opponents: List[OpponentInfo],
     excluded_cards: Set[str],
     config: EquityConfig = None,
-    rng: Optional[random.Random] = None
+    rng: Optional[random.Random] = None,
+    board_cards: Optional[List[str]] = None
 ) -> List[Optional[Tuple[str, str]]]:
     """Sample hands for multiple opponents using the fallback hierarchy.
 
@@ -817,6 +878,7 @@ def sample_hands_for_opponent_infos(
         excluded_cards: Initial excluded cards (hero's hand, board)
         config: EquityConfig for calculation options
         rng: Random number generator
+        board_cards: Community cards for board-connection weighting
 
     Returns:
         List of (card1, card2) tuples, one per opponent
@@ -828,9 +890,13 @@ def sample_hands_for_opponent_infos(
 
     hands = []
     current_excluded = set(excluded_cards)
+    # Shared cache for board connection weights - avoids recomputing for same combo/board
+    weight_cache: Dict[Tuple[str, str], float] = {}
 
     for opponent in opponents:
-        hand = sample_hand_for_opponent(opponent, current_excluded, config, rng)
+        hand = sample_hand_for_opponent(
+            opponent, current_excluded, config, rng, board_cards, weight_cache
+        )
         hands.append(hand)
 
         if hand:
@@ -925,9 +991,9 @@ def calculate_equity_vs_ranges(
         rng = random.Random()
 
         for _ in range(iterations):
-            # Sample opponent hands from ranges
+            # Sample opponent hands from ranges (with board-connection weighting)
             opponent_hands_raw = sample_hands_for_opponent_infos(
-                opponent_infos, excluded_cards, config, rng
+                opponent_infos, excluded_cards, config, rng, community_cards
             )
 
             # Skip iteration if we couldn't sample valid hands

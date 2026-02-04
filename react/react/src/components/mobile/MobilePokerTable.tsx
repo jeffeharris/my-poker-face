@@ -246,6 +246,22 @@ export function MobilePokerTable({
 
   const coachEnabled = !isGuest && coach.mode !== 'off';
 
+  // Memoize coach recommendation values to prevent unnecessary re-renders of MobileActionButtons
+  // - Proactive mode: Show coach's recommendation after proactive tip (coachAction)
+  // - Reactive mode: Only show recommendation after player asks a question (coachAction)
+  // - Off mode: No highlighting
+  const recommendedAction = useMemo(() => {
+    if (coach.mode === 'off') return null;
+    // Use coach's explicit recommendation (set when /ask returns)
+    // This ensures reactive mode doesn't show GTO recommendation proactively
+    return coach.coachAction;
+  }, [coach.mode, coach.coachAction]);
+
+  const raiseToAmount = useMemo(() => {
+    if (coach.mode === 'off') return null;
+    return coach.coachRaiseTo;
+  }, [coach.mode, coach.coachRaiseTo]);
+
   const menuBarCenter = useMemo(() => (
     <GameInfoDisplay
       phase={phase}
@@ -594,7 +610,8 @@ export function MobilePokerTable({
             onAction={handlePlayerAction}
             onQuickChat={openChatSheet}
             bettingContext={bettingContext ?? undefined}
-            recommendedAction={coach.mode !== 'off' ? coach.stats?.recommendation : null}
+            recommendedAction={recommendedAction}
+            raiseToAmount={raiseToAmount}
           />
         ) : (
           <div className="mobile-action-buttons">
@@ -677,6 +694,7 @@ export function MobilePokerTable({
           <CoachButton
             onClick={openCoachPanel}
             hasNewInsight={(!!coach.proactiveTip || coach.hasUnreadReview) && !showCoachPanel}
+            isThinking={coach.isThinking}
           />
 
           <CoachBubble

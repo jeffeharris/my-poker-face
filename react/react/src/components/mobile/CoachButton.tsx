@@ -5,6 +5,7 @@ import './CoachButton.css';
 interface CoachButtonProps {
   onClick: () => void;
   hasNewInsight: boolean;
+  isThinking?: boolean;
 }
 
 const STORAGE_KEY = 'coach_button_pos';
@@ -18,7 +19,7 @@ function loadPosition(): { x: number; y: number } {
   return { x: 16, y: 120 };
 }
 
-export const CoachButton = memo(function CoachButton({ onClick, hasNewInsight }: CoachButtonProps) {
+export const CoachButton = memo(function CoachButton({ onClick, hasNewInsight, isThinking }: CoachButtonProps) {
   const [pos, setPos] = useState(loadPosition);
   const touchStart = useRef({ x: 0, y: 0, btnX: 0, btnY: 0 });
   const totalMove = useRef(0);
@@ -100,7 +101,8 @@ export const CoachButton = memo(function CoachButton({ onClick, hasNewInsight }:
       aria-label="Open poker coach"
     >
       <GraduationCap size={28} />
-      {hasNewInsight && <span className="coach-fab-badge" />}
+      {isThinking && <span className="coach-fab-thinking" />}
+      {hasNewInsight && !isThinking && <span className="coach-fab-badge" />}
     </button>
   );
 });
