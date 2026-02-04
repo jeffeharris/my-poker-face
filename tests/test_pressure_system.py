@@ -241,5 +241,266 @@ class TestPressureSystem(unittest.TestCase):
             "Folders should not receive bluff_called - they made correct decisions")
 
 
+class TestStreakEvents(unittest.TestCase):
+    """Tests for winning/losing streak event detection."""
+
+    def setUp(self):
+        self.detector = PressureEventDetector()
+
+    def test_no_streak_below_threshold(self):
+        """Streak events should not fire for streak_count < 3."""
+        # 2-hand winning streak (below threshold)
+        events = self.detector.detect_streak_events("Alice", {
+            'streak_count': 2,
+            'current_streak': 'winning'
+        })
+        self.assertEqual(events, [])
+
+        # 2-hand losing streak (below threshold)
+        events = self.detector.detect_streak_events("Alice", {
+            'streak_count': 2,
+            'current_streak': 'losing'
+        })
+        self.assertEqual(events, [])
+
+    def test_winning_streak_detection(self):
+        """Winning streak fires at 3+ consecutive wins."""
+        events = self.detector.detect_streak_events("Alice", {
+            'streak_count': 3,
+            'current_streak': 'winning'
+        })
+        self.assertEqual(events, [("winning_streak", ["Alice"])])
+
+        # Also works for longer streaks
+        events = self.detector.detect_streak_events("Bob", {
+            'streak_count': 5,
+            'current_streak': 'winning'
+        })
+        self.assertEqual(events, [("winning_streak", ["Bob"])])
+
+    def test_losing_streak_detection(self):
+        """Losing streak fires at 3+ consecutive losses."""
+        events = self.detector.detect_streak_events("Charlie", {
+            'streak_count': 3,
+            'current_streak': 'losing'
+        })
+        self.assertEqual(events, [("losing_streak", ["Charlie"])])
+
+    def test_neutral_streak_no_event(self):
+        """Neutral streak should not fire events."""
+        events = self.detector.detect_streak_events("Alice", {
+            'streak_count': 5,
+            'current_streak': 'neutral'
+        })
+        self.assertEqual(events, [])
+
+
+class TestStackEvents(unittest.TestCase):
+    """Tests for stack-based event detection (double_up, crippled, short_stack)."""
+
+    def setUp(self):
+        self.detector = PressureEventDetector()
+        # Create test game state with players at various stack sizes
+        self.game_state = initialize_game_state(
+            player_names=["Alice", "Bob", "Charlie"],
+            starting_stack=1000
+        )
+
+    def test_double_up_detection(self):
+        """double_up fires when winner ends with 2x+ starting stack."""
+        # Alice starts with 500, wins pot, now has 1100 (>2x)
+        game_state = self.game_state.update(
+            players=tuple(
+                p.update(stack=1100 if p.name == "Alice" else p.stack)
+                for p in self.game_state.players
+            )
+        )
+        hand_start_stacks = {"Alice": 500, "Bob": 1000, "Charlie": 1000}
+        was_short = set()
+
+        events, _ = self.detector.detect_stack_events(
+            game_state, ["Alice"], hand_start_stacks, was_short, big_blind=100
+        )
+
+        event_names = [e[0] for e in events]
+        self.assertIn("double_up", event_names)
+        double_up = next(e for e in events if e[0] == "double_up")
+        self.assertEqual(double_up[1], ["Alice"])
+
+    def test_double_up_requires_winner(self):
+        """double_up should not fire for losers even if stack increased (side pot)."""
+        # Alice not in winner list, even if stack looks doubled
+        game_state = self.game_state.update(
+            players=tuple(
+                p.update(stack=1100 if p.name == "Alice" else p.stack)
+                for p in self.game_state.players
+            )
+        )
+        hand_start_stacks = {"Alice": 500, "Bob": 1000, "Charlie": 1000}
+
+        events, _ = self.detector.detect_stack_events(
+            game_state, ["Bob"], hand_start_stacks, set(), big_blind=100
+        )
+
+        event_names = [e[0] for e in events]
+        self.assertNotIn("double_up", event_names)
+
+    def test_crippled_detection(self):
+        """crippled fires when loser loses 75%+ of stack."""
+        # Bob starts with 1000, loses 800, now has 200 (80% loss)
+        game_state = self.game_state.update(
+            players=tuple(
+                p.update(stack=200 if p.name == "Bob" else p.stack)
+                for p in self.game_state.players
+            )
+        )
+        hand_start_stacks = {"Alice": 1000, "Bob": 1000, "Charlie": 1000}
+
+        events, _ = self.detector.detect_stack_events(
+            game_state, ["Alice"], hand_start_stacks, set(), big_blind=100
+        )
+
+        event_names = [e[0] for e in events]
+        self.assertIn("crippled", event_names)
+        crippled = next(e for e in events if e[0] == "crippled")
+        self.assertEqual(crippled[1], ["Bob"])
+
+    def test_crippled_not_for_winners(self):
+        """crippled should not fire for winners."""
+        # Alice is winner but also has low stack (shouldn't happen normally)
+        game_state = self.game_state.update(
+            players=tuple(
+                p.update(stack=200 if p.name == "Alice" else p.stack)
+                for p in self.game_state.players
+            )
+        )
+        hand_start_stacks = {"Alice": 1000, "Bob": 1000, "Charlie": 1000}
+
+        events, _ = self.detector.detect_stack_events(
+            game_state, ["Alice"], hand_start_stacks, set(), big_blind=100
+        )
+
+        event_names = [e[0] for e in events]
+        self.assertNotIn("crippled", event_names)
+
+    def test_short_stack_transition(self):
+        """short_stack fires only when crossing threshold (not when already short)."""
+        # Charlie drops below 10 BB (1000) for first time
+        game_state = self.game_state.update(
+            players=tuple(
+                p.update(stack=800 if p.name == "Charlie" else p.stack)
+                for p in self.game_state.players
+            )
+        )
+        hand_start_stacks = {"Alice": 1000, "Bob": 1000, "Charlie": 1200}
+        was_short = set()  # No one was short before
+
+        events, current_short = self.detector.detect_stack_events(
+            game_state, ["Alice"], hand_start_stacks, was_short, big_blind=100
+        )
+
+        event_names = [e[0] for e in events]
+        self.assertIn("short_stack", event_names)
+        self.assertIn("Charlie", current_short)
+
+    def test_short_stack_no_repeat(self):
+        """short_stack should NOT fire if already short."""
+        # Charlie was already short, still short
+        game_state = self.game_state.update(
+            players=tuple(
+                p.update(stack=800 if p.name == "Charlie" else p.stack)
+                for p in self.game_state.players
+            )
+        )
+        hand_start_stacks = {"Alice": 1000, "Bob": 1000, "Charlie": 900}
+        was_short = {"Charlie"}  # Charlie was already short
+
+        events, current_short = self.detector.detect_stack_events(
+            game_state, ["Alice"], hand_start_stacks, was_short, big_blind=100
+        )
+
+        event_names = [e[0] for e in events]
+        self.assertNotIn("short_stack", event_names)
+        self.assertIn("Charlie", current_short)  # Still tracked as short
+
+
+class TestNemesisEvents(unittest.TestCase):
+    """Tests for nemesis win/loss event detection."""
+
+    def setUp(self):
+        self.detector = PressureEventDetector()
+
+    def test_nemesis_win_detection(self):
+        """nemesis_win fires when player beats their nemesis."""
+        # Alice's nemesis is Bob
+        nemesis_map = {"Alice": "Bob", "Bob": None, "Charlie": None}
+
+        # Alice wins, Bob loses
+        events = self.detector.detect_nemesis_events(
+            winner_names=["Alice"],
+            loser_names=["Bob", "Charlie"],
+            player_nemesis_map=nemesis_map
+        )
+
+        self.assertEqual(events, [("nemesis_win", ["Alice"])])
+
+    def test_nemesis_loss_detection(self):
+        """nemesis_loss fires when player loses to their nemesis."""
+        # Alice's nemesis is Bob
+        nemesis_map = {"Alice": "Bob", "Bob": None, "Charlie": None}
+
+        # Bob wins, Alice loses
+        events = self.detector.detect_nemesis_events(
+            winner_names=["Bob"],
+            loser_names=["Alice", "Charlie"],
+            player_nemesis_map=nemesis_map
+        )
+
+        self.assertEqual(events, [("nemesis_loss", ["Alice"])])
+
+    def test_no_event_without_nemesis(self):
+        """No nemesis events if player has no nemesis."""
+        nemesis_map = {"Alice": None, "Bob": None}
+
+        events = self.detector.detect_nemesis_events(
+            winner_names=["Alice"],
+            loser_names=["Bob"],
+            player_nemesis_map=nemesis_map
+        )
+
+        self.assertEqual(events, [])
+
+    def test_no_event_nemesis_not_in_pot(self):
+        """No nemesis event if nemesis folded/not involved."""
+        # Alice's nemesis is Bob, but Bob folded (not in loser_names)
+        nemesis_map = {"Alice": "Bob"}
+
+        events = self.detector.detect_nemesis_events(
+            winner_names=["Alice"],
+            loser_names=["Charlie"],  # Bob not in pot
+            player_nemesis_map=nemesis_map
+        )
+
+        self.assertEqual(events, [])
+
+    def test_mutual_nemesis(self):
+        """Both players can have nemesis events in same hand."""
+        # Alice's nemesis is Bob, Bob's nemesis is Alice
+        nemesis_map = {"Alice": "Bob", "Bob": "Alice"}
+
+        # Alice wins, Bob loses
+        events = self.detector.detect_nemesis_events(
+            winner_names=["Alice"],
+            loser_names=["Bob"],
+            player_nemesis_map=nemesis_map
+        )
+
+        event_types = [e[0] for e in events]
+        # Alice beat her nemesis
+        self.assertIn("nemesis_win", event_types)
+        # Bob lost to his nemesis
+        self.assertIn("nemesis_loss", event_types)
+
+
 if __name__ == '__main__':
     unittest.main()

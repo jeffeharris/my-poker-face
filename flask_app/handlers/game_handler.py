@@ -445,7 +445,7 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         if hand_history_repo:
             for player_name in ai_controllers.keys():
                 try:
-                    session_stats = hand_history_repo.get_player_session_stats(
+                    session_stats = hand_history_repo.get_session_stats(
                         game_id, player_name
                     )
                     streak_events = pressure_detector.detect_streak_events(
