@@ -22,6 +22,7 @@ interface WinnerInfo {
   winners: string[];
   winnings?: { [key: string]: number };  // Optional - may use pot_breakdown instead
   pot_breakdown?: PotBreakdown[];  // New format from backend
+  pot_contributions?: { [key: string]: number };  // Player name -> amount contributed to pot
   hand_name: string;
   winning_hand?: string[];
   showdown: boolean;
@@ -84,14 +85,31 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
     ? winnerInfo.winners.slice(0, -1).join(', ') + ' and ' + winnerInfo.winners[winnerInfo.winners.length - 1]
     : winnerInfo.winners[0];
 
-  // Calculate total winnings - use winnings object if available, otherwise calculate from pot_breakdown
-  let totalWinnings = 0;
-  if (winnerInfo.winnings) {
-    totalWinnings = Object.values(winnerInfo.winnings).reduce((sum, val) => sum + val, 0);
-  } else if (winnerInfo.pot_breakdown) {
-    // Sum up all pot amounts
-    totalWinnings = winnerInfo.pot_breakdown.reduce((sum: number, pot: { total_amount: number }) => sum + pot.total_amount, 0);
+  // Calculate net profit (winnings minus contributions) - standard poker display
+  // Gross winnings = what winners receive from pots
+  // Net profit = gross winnings - what winners contributed to the pot
+  let grossWinnings = 0;
+  let winnersContributions = 0;
+
+  if (winnerInfo.pot_breakdown) {
+    // Sum each winner's share from all pots
+    for (const pot of winnerInfo.pot_breakdown) {
+      for (const winner of pot.winners) {
+        grossWinnings += winner.amount;
+      }
+    }
+  } else if (winnerInfo.winnings) {
+    grossWinnings = Object.values(winnerInfo.winnings).reduce((sum, val) => sum + val, 0);
   }
+
+  // Subtract winners' contributions for net profit
+  if (winnerInfo.pot_contributions) {
+    for (const winnerName of winnerInfo.winners) {
+      winnersContributions += winnerInfo.pot_contributions[winnerName] || 0;
+    }
+  }
+
+  const netProfit = grossWinnings - winnersContributions;
   const isSplitPot = winnerInfo.winners.length > 1;
 
   return (
@@ -114,7 +132,7 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
         )}
 
         <div className="winner-details">
-          <div className="pot-won">{isSplitPot ? `Split $${totalWinnings}` : `Won $${totalWinnings}`}</div>
+          <div className="pot-won">{isSplitPot ? `Split Pot +$${netProfit}` : `+$${netProfit}`}</div>
           {winnerInfo.showdown && winnerInfo.hand_name && (
             <div className="hand-name">with {winnerInfo.hand_name}</div>
           )}

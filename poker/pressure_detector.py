@@ -5,7 +5,7 @@ This module detects game events that should trigger pressure changes
 in AI player personalities.
 """
 
-from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, Any, Set, TYPE_CHECKING
 from .poker_game import PokerGameState, Player
 from .hand_evaluator import HandEvaluator
 from .moment_analyzer import MomentAnalyzer
@@ -407,6 +407,134 @@ class PressureEventDetector:
             # Note: This may overlap with got_sucked_out - that's OK,
             # they're related but bad_beat is specifically about flop equity
             events.append(("bad_beat", bad_beat_victims))
+
+        return events
+
+    # === Streak-based event detection ===
+
+    def detect_streak_events(
+        self,
+        player_name: str,
+        session_stats: Dict[str, Any]
+    ) -> List[Tuple[str, List[str]]]:
+        """Detect winning/losing streak events from session statistics.
+
+        Args:
+            player_name: The player to check
+            session_stats: Dict from hand_history_repo.get_player_session_stats()
+                containing 'current_streak' and 'streak_count' keys
+
+        Returns:
+            List of (event_name, [player_name]) tuples
+        """
+        events = []
+        streak_count = session_stats.get('streak_count', 0)
+        current_streak = session_stats.get('current_streak', 'neutral')
+
+        if streak_count >= 3:
+            if current_streak == 'winning':
+                events.append(("winning_streak", [player_name]))
+            elif current_streak == 'losing':
+                events.append(("losing_streak", [player_name]))
+
+        return events
+
+    # === Stack-based event detection ===
+
+    # Stack event thresholds
+    SHORT_STACK_BB = 10      # Below 10 BB is short-stacked
+    CRIPPLED_LOSS_PCT = 0.75  # Lost 75%+ of stack = crippled
+    DOUBLE_UP_MULTIPLIER = 2  # Ended with 2x+ starting stack
+
+    def detect_stack_events(
+        self,
+        game_state: PokerGameState,
+        winner_names: List[str],
+        hand_start_stacks: Dict[str, int],
+        was_short_stack: Set[str],
+        big_blind: int = 100
+    ) -> Tuple[List[Tuple[str, List[str]]], Set[str]]:
+        """Detect stack-based pressure events: double_up, crippled, short_stack.
+
+        Args:
+            game_state: Current game state after hand completion
+            winner_names: List of players who won the hand
+            hand_start_stacks: Dict mapping player names to stack at hand start
+            was_short_stack: Set of player names who were short-stacked last hand
+            big_blind: Big blind amount for short-stack calculation
+
+        Returns:
+            Tuple of (events, current_short_stack_set)
+            - events: List of (event_name, [player_names]) tuples
+            - current_short_stack_set: Updated set of short-stacked players
+        """
+        events = []
+        current_short = set()
+
+        for player in game_state.players:
+            if player.stack <= 0:
+                continue
+
+            start_stack = hand_start_stacks.get(player.name)
+            current_stack = player.stack
+
+            # Double up: ended with 2x+ starting stack (only for winners)
+            if (start_stack and start_stack > 0 and
+                player.name in winner_names and
+                current_stack >= self.DOUBLE_UP_MULTIPLIER * start_stack):
+                events.append(("double_up", [player.name]))
+
+            # Crippled: lost 75%+ of stack this hand (only for non-winners)
+            elif (start_stack and start_stack > 0 and
+                  player.name not in winner_names):
+                loss_pct = (start_stack - current_stack) / start_stack
+                if loss_pct >= self.CRIPPLED_LOSS_PCT:
+                    events.append(("crippled", [player.name]))
+
+            # Track short stack status (below threshold BB)
+            if current_stack < self.SHORT_STACK_BB * big_blind:
+                current_short.add(player.name)
+
+        # Only fire short_stack for NEW short stacks (transition detection)
+        newly_short = current_short - was_short_stack
+        for player_name in newly_short:
+            events.append(("short_stack", [player_name]))
+
+        return events, current_short
+
+    # === Nemesis-based event detection ===
+
+    def detect_nemesis_events(
+        self,
+        winner_names: List[str],
+        loser_names: List[str],
+        player_nemesis_map: Dict[str, str]
+    ) -> List[Tuple[str, List[str]]]:
+        """Detect nemesis win/loss events.
+
+        Fires when a player wins/loses a pot that their nemesis was also
+        involved in. Works in multiway pots, not just heads-up.
+
+        Args:
+            winner_names: List of players who won the hand
+            loser_names: List of players who lost the hand (didn't fold, didn't win)
+            player_nemesis_map: Dict mapping player names to their nemesis name
+
+        Returns:
+            List of (event_name, [player_name]) tuples
+        """
+        events = []
+
+        for player_name, nemesis in player_nemesis_map.items():
+            if not nemesis:
+                continue
+
+            # Player won and their nemesis lost in the same pot
+            if player_name in winner_names and nemesis in loser_names:
+                events.append(("nemesis_win", [player_name]))
+            # Player lost and their nemesis won
+            elif player_name in loser_names and nemesis in winner_names:
+                events.append(("nemesis_loss", [player_name]))
 
         return events
 

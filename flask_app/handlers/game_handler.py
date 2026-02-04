@@ -412,6 +412,7 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         return
 
     pressure_detector = game_data['pressure_detector']
+    ai_controllers = game_data.get('ai_controllers', {})
 
     # Standard showdown events
     events = pressure_detector.detect_showdown_events(game_state, winner_info)
@@ -423,6 +424,53 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         )
         events.extend(equity_events)
 
+    # Stack events (double_up, crippled, short_stack)
+    hand_start_stacks = game_data.get('hand_start_stacks', {})
+    was_short_stack = game_data.get('short_stack_players', set())
+    big_blind = game_state.current_ante if hasattr(game_state, 'current_ante') else 100
+
+    if hand_start_stacks:
+        stack_events, current_short = pressure_detector.detect_stack_events(
+            game_state, winning_player_names, hand_start_stacks,
+            was_short_stack, big_blind
+        )
+        events.extend(stack_events)
+        game_data['short_stack_players'] = current_short
+
+    # Streak events (from DB-backed session stats)
+    if 'memory_manager' in game_data:
+        memory_manager = game_data['memory_manager']
+        hand_history_repo = getattr(memory_manager, '_persistence', None)
+
+        if hand_history_repo:
+            for player_name in ai_controllers.keys():
+                try:
+                    session_stats = hand_history_repo.get_player_session_stats(
+                        game_id, player_name
+                    )
+                    streak_events = pressure_detector.detect_streak_events(
+                        player_name, session_stats
+                    )
+                    events.extend(streak_events)
+                except Exception as e:
+                    logger.warning(f"Failed to get session stats for {player_name}: {e}")
+
+    # Nemesis events (from TiltState.nemesis)
+    player_nemesis_map = {}
+    for name, controller in ai_controllers.items():
+        if hasattr(controller, 'psychology') and controller.psychology.tilt.nemesis:
+            player_nemesis_map[name] = controller.psychology.tilt.nemesis
+
+    # Losers = active players who didn't win (didn't fold, didn't win)
+    loser_names = [p.name for p in game_state.players
+                   if not p.is_folded and p.name not in winning_player_names]
+
+    if player_nemesis_map:
+        nemesis_events = pressure_detector.detect_nemesis_events(
+            winning_player_names, loser_names, player_nemesis_map
+        )
+        events.extend(nemesis_events)
+
     if not events:
         return
 
@@ -433,7 +481,6 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         return
 
     pressure_stats = game_data['pressure_stats']
-    ai_controllers = game_data.get('ai_controllers', {})
 
     for event_name, affected_players in events:
         details = {
@@ -633,9 +680,17 @@ def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: l
     active_players = [p for p in game_state.players if not p.is_folded]
     is_showdown = len(active_players) > 1
 
+    # Get pot contributions for each player (for net profit display)
+    pot_contributions = {}
+    if isinstance(game_state.pot, dict):
+        for key, value in game_state.pot.items():
+            if key != 'total':  # Skip the 'total' key, only include player contributions
+                pot_contributions[key] = value
+
     winner_data = {
         'winners': winning_player_names,
         'pot_breakdown': winner_info.get('pot_breakdown', []),
+        'pot_contributions': pot_contributions,  # Player name -> amount contributed
         'showdown': is_showdown,
         'community_cards': [],
     }
@@ -1158,6 +1213,20 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         memory_manager = game_data['memory_manager']
         new_hand_number = memory_manager.hand_count + 1
         memory_manager.on_hand_start(state_machine.game_state, hand_number=new_hand_number)
+
+    # Track hand_start_stacks for stack-based pressure events (double_up, crippled, short_stack)
+    # Capture after blinds are posted but before any betting action
+    game_data['hand_start_stacks'] = {
+        p.name: p.stack for p in state_machine.game_state.players
+    }
+
+    # Initialize short_stack_players tracking if not exists
+    if 'short_stack_players' not in game_data:
+        big_blind = state_machine.game_state.current_ante if hasattr(state_machine.game_state, 'current_ante') else 100
+        game_data['short_stack_players'] = {
+            p.name for p in state_machine.game_state.players
+            if p.stack < 10 * big_blind and p.stack > 0
+        }
 
     # Save state after hand evaluation completes (now in stable phase)
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)

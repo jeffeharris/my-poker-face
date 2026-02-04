@@ -316,6 +316,44 @@ class ElasticPersonality:
             "headsup_loss": {
                 "aggression": -0.08,
                 "chattiness": -0.10
+            },
+            # Streak events (require streak_count >= 3)
+            "winning_streak": {
+                "aggression": 0.12,
+                "bluff_tendency": 0.10,
+                "chattiness": 0.15
+            },
+            "losing_streak": {
+                "aggression": -0.12,
+                "bluff_tendency": -0.10,
+                "chattiness": -0.15
+            },
+            # Stack events
+            "double_up": {
+                "aggression": 0.15,
+                "bluff_tendency": 0.12,
+                "chattiness": 0.18
+            },
+            "crippled": {
+                "aggression": -0.20,
+                "bluff_tendency": -0.18,
+                "chattiness": -0.15
+            },
+            "short_stack": {
+                "aggression": -0.10,
+                "bluff_tendency": 0.05,  # Desperate bluffs
+                "chattiness": -0.08
+            },
+            # Nemesis events
+            "nemesis_win": {
+                "aggression": 0.15,
+                "bluff_tendency": 0.08,
+                "chattiness": 0.12
+            },
+            "nemesis_loss": {
+                "aggression": -0.10,
+                "bluff_tendency": -0.08,
+                "chattiness": -0.12
             }
         }
     

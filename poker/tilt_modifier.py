@@ -190,6 +190,13 @@ class TiltState:
             'got_sucked_out': 0.20,     # Was ahead but lost - very tilting
             # Heads-up events
             'headsup_loss': 0.08,       # Lost heads-up pot
+            # Streak events
+            'losing_streak': 0.12,      # 3+ consecutive losses
+            # Stack events
+            'crippled': 0.18,           # Lost 75%+ of stack in one hand
+            'short_stack': 0.05,        # Dropped below 10 BB
+            # Nemesis events
+            'nemesis_loss': 0.15,       # Lost to your nemesis
         }
 
         # Events that DECREASE tilt (adjusted for better recovery)
@@ -204,6 +211,12 @@ class TiltState:
             'cooler': 0.00,             # Unavoidable loss - no tilt change
             # Heads-up events
             'headsup_win': 0.05,        # Won heads-up pot
+            # Streak events
+            'winning_streak': 0.08,     # 3+ consecutive wins
+            # Stack events
+            'double_up': 0.10,          # Doubled stack in one hand
+            # Nemesis events
+            'nemesis_win': 0.10,        # Beat your nemesis
         }
 
         if event_name in tilt_increases:
