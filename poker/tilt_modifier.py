@@ -186,6 +186,10 @@ class TiltState:
             'big_loss': 0.10,           # Lost a big pot
             'rivalry_trigger': 0.05,    # Trash talked / taunted
             'fold_under_pressure': 0.02,  # Pressured into folding
+            # Equity-based events
+            'got_sucked_out': 0.20,     # Was ahead but lost - very tilting
+            # Heads-up events
+            'headsup_loss': 0.08,       # Lost heads-up pot
         }
 
         # Events that DECREASE tilt (adjusted for better recovery)
@@ -195,6 +199,11 @@ class TiltState:
             'win': 0.10,                # Any win
             'eliminated_opponent': 0.20,  # Knocked someone out (big relief)
             'friendly_chat': 0.05,      # Friendly interaction
+            # Equity-based events
+            'suckout': 0.08,            # Lucky win - came from behind
+            'cooler': 0.00,             # Unavoidable loss - no tilt change
+            # Heads-up events
+            'headsup_win': 0.05,        # Won heads-up pot
         }
 
         if event_name in tilt_increases:

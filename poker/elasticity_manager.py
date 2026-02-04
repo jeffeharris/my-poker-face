@@ -306,6 +306,16 @@ class ElasticPersonality:
                 "aggression": -0.35,
                 "bluff_tendency": -0.25,
                 "chattiness": -0.2
+            },
+            # Heads-up events (already detected in pressure_detector)
+            "headsup_win": {
+                "aggression": 0.10,
+                "bluff_tendency": 0.08,
+                "chattiness": 0.08
+            },
+            "headsup_loss": {
+                "aggression": -0.08,
+                "chattiness": -0.10
             }
         }
     
