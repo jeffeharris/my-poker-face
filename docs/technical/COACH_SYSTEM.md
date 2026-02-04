@@ -161,7 +161,7 @@ else:                                return 'loose-passive'
 
 When a game starts, historical opponent data is loaded from the database:
 - Aggregated stats across all previous sessions
-- Used when current session has < 5 hands
+- Used when current session has < 10 hands
 - AI personalities have deterministic behavior, so historical data is reliable
 
 ---
@@ -326,15 +326,25 @@ raise_threshold = min(0.75, base_raise_threshold + opponent_adjustment)
 
 ### Action Button Highlighting
 
-In `MobilePokerTable.tsx`:
+In `MobilePokerTable.tsx`, the recommended action is derived from the coach's explicit recommendation (set when `/ask` returns):
 
 ```tsx
+const recommendedAction = useMemo(() => {
+  if (coach.mode === 'off') return null;
+  return coach.coachAction;
+}, [coach.mode, coach.coachAction]);
+
 <MobileActionButtons
-  recommendedAction={coach.mode !== 'off' ? coach.stats?.recommendation : null}
+  recommendedAction={recommendedAction}
+  raiseToAmount={raiseToAmount}
 />
 ```
 
-The `coach-recommended` CSS class adds a green pulsing glow to the recommended button.
+The highlight source can be configured via `COACH_HIGHLIGHT_SOURCE` environment variable:
+- `coach` (default): Uses LLM coach's recommendation from `/ask`
+- `gto`: Uses GTO-based recommendation from stats
+
+Each action button type has its own highlight color (fold/check/call/raise) with a pulsing glow animation.
 
 ### Features
 

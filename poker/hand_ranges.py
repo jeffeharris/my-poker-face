@@ -801,7 +801,8 @@ def sample_hand_for_opponent(
     excluded_cards: Set[str],
     config: EquityConfig = None,
     rng: Optional[random.Random] = None,
-    board_cards: Optional[List[str]] = None
+    board_cards: Optional[List[str]] = None,
+    weight_cache: Optional[Dict[Tuple[str, str], float]] = None
 ) -> Optional[Tuple[str, str]]:
     """Sample a hand from an opponent's estimated range.
 
@@ -815,6 +816,8 @@ def sample_hand_for_opponent(
         config: EquityConfig for calculation options
         rng: Random number generator
         board_cards: Community cards for board-connection weighting
+        weight_cache: Optional cache mapping combo -> weight for board connection.
+            When provided, weights are looked up/stored here to avoid recomputation.
 
     Returns:
         Tuple of (card1, card2) or None if no valid hand
@@ -847,7 +850,15 @@ def sample_hand_for_opponent(
     )
 
     if use_weighted:
-        weights = [_get_board_connection_weight(combo, board_cards) for combo in valid_combos]
+        # Use cache to avoid recomputing board connection weights for same combo/board
+        if weight_cache is not None:
+            weights = []
+            for combo in valid_combos:
+                if combo not in weight_cache:
+                    weight_cache[combo] = _get_board_connection_weight(combo, board_cards)
+                weights.append(weight_cache[combo])
+        else:
+            weights = [_get_board_connection_weight(combo, board_cards) for combo in valid_combos]
         return rng.choices(valid_combos, weights=weights)[0]
 
     return rng.choice(valid_combos)
@@ -879,10 +890,12 @@ def sample_hands_for_opponent_infos(
 
     hands = []
     current_excluded = set(excluded_cards)
+    # Shared cache for board connection weights - avoids recomputing for same combo/board
+    weight_cache: Dict[Tuple[str, str], float] = {}
 
     for opponent in opponents:
         hand = sample_hand_for_opponent(
-            opponent, current_excluded, config, rng, board_cards
+            opponent, current_excluded, config, rng, board_cards, weight_cache
         )
         hands.append(hand)
 
