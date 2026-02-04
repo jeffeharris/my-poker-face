@@ -88,10 +88,6 @@ class HandEquityHistory:
             key=lambda s: STREET_ORDER.index(s.street) if s.street in STREET_ORDER else 99
         )
 
-    def get_player_names(self) -> List[str]:
-        """Get list of all players with equity data."""
-        return list({snap.player_name for snap in self.snapshots})
-
     def was_behind_then_won(self, player_name: str, threshold: float = 0.40) -> bool:
         """Check if player was behind (<threshold) on any earlier street but won (1.0 on river)."""
         river_equity = self.get_player_equity(player_name, 'RIVER')
