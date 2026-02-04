@@ -180,10 +180,12 @@ GROUP BY tilt_band
 **Target Distribution:**
 | Band | Target % |
 |------|----------|
-| Low (<0.3) | 40-50% |
-| Medium (0.3-0.6) | 25-35% |
-| High (0.6-0.9) | 15-20% |
-| Full (0.9+) | 5-10% |
+| Low (<0.3) | 70-85% |
+| Medium (0.3-0.6) | 10-20% |
+| High (0.6-0.9) | 2-7% |
+| Full (0.9+) | 0-2% |
+
+*Note: These targets reflect realistic poker psychology. Players should be calm most of the time - being tilted frequently would be unrealistic.*
 
 ### 5. Personality Distinctiveness
 

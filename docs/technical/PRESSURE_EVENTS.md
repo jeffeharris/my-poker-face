@@ -264,7 +264,7 @@ win < headsup_win < big_win < double_up < suckout
 
 - **Tilt increase:** Losses, bad luck, being outplayed, social attacks
 - **Tilt decrease:** Wins, successful plays, knocking out opponents
-- **Target distribution:** ~50% low, ~30% medium, ~15% high, ~5% full
+- **Target distribution:** ~75% low, ~15% medium, ~5% high, ~1% full (realistic - players should be calm most of the time)
 
 ---
 
