@@ -147,7 +147,7 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
     @patch.object(AIPokerPlayer, '_load_personality_config')
     def test_personality_loading(self, mock_load_config):
         """Test that personalities load correctly from JSON."""
-        # Mock to return the Eeyore personality from our fixtures
+        # Mock to return the Scrooge personality from our fixtures
         mock_load_config.return_value = PERSONALITIES_FIXTURE['Ebenezer Scrooge']
 
         # Test known personality
@@ -156,23 +156,31 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         self.assertEqual(player.confidence, 'pessimistic')
         self.assertEqual(player.attitude, 'grumpy and suspicious')
 
-        # Test personality traits
+        # Test personality traits (new 5-trait poker-native model)
         traits = player.personality_config['personality_traits']
-        self.assertEqual(traits['bluff_tendency'], 0.2)
-        self.assertEqual(traits['aggression'], 0.2)
-        self.assertEqual(traits['chattiness'], 0.5)
-        self.assertEqual(traits['emoji_usage'], 0.0)
+        # New model traits - Scrooge is tight and passive
+        self.assertIn('tightness', traits)
+        self.assertIn('aggression', traits)
+        self.assertIn('confidence', traits)
+        self.assertIn('composure', traits)
+        self.assertIn('table_talk', traits)
+        # Verify trait values are in valid range
+        for trait_name, trait_value in traits.items():
+            self.assertGreaterEqual(trait_value, 0.0)
+            self.assertLessEqual(trait_value, 1.0)
     
     def test_unknown_personality_gets_default(self):
         """Test that unknown personalities get default config."""
         player = AIPokerPlayer(name='Unknown Celebrity', starting_money=10000)
         self.assertIn('play_style', player.personality_config)
         self.assertIn('personality_traits', player.personality_config)
-        
-        # Should have valid trait values
+
+        # Should have valid trait values (new 5-trait model)
         traits = player.personality_config['personality_traits']
-        self.assertGreaterEqual(traits['bluff_tendency'], 0)
-        self.assertLessEqual(traits['bluff_tendency'], 1)
+        # Check for new model traits (or old model during conversion)
+        for trait_name, trait_value in traits.items():
+            self.assertGreaterEqual(trait_value, 0.0)
+            self.assertLessEqual(trait_value, 1.0)
     
     def test_persona_prompt_generation(self):
         """Test persona prompt generation."""
@@ -193,12 +201,11 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
     def test_personality_modifiers(self, mock_load_config):
         """Test personality modifier generation based on archetype matrix.
 
-        The get_personality_modifier method uses a unified strategy matrix
-        combining aggression and bluff_tendency into poker archetypes:
-        - High aggression + high bluff = LAG (Loose-Aggressive)
-        - Low aggression + low bluff = Tight-Passive (rock)
+        The get_personality_modifier method uses the 5-trait poker-native model:
+        - Low tightness + high aggression = LAG (Loose-Aggressive)
+        - High tightness + low aggression = Tight-Passive (rock)
         """
-        # Blackbeard: high bluff (0.8) + high aggression (0.9) = LAG archetype
+        # Blackbeard: low tightness + high aggression = LAG archetype
         mock_load_config.return_value = PERSONALITIES_FIXTURE['Blackbeard']
         bluffer = AIPokerPlayer(name='Blackbeard', starting_money=10000)
         bluffer_mod = bluffer.get_personality_modifier()

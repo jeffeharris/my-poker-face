@@ -37,14 +37,24 @@ logger = logging.getLogger(__name__)
 
 
 # Layer 1: Baseline mood from elastic traits (deterministic)
+#
+# Updated for 5-trait poker-native model:
+# - Valence: confidence × composure (overall positivity)
+# - Arousal: aggression + inverse composure (energy/agitation)
+# - Control: directly from composure
+# - Focus: composure with table_talk modifier
 
 def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
     """
     Compute baseline emotional dimensions from current elastic trait values.
 
-    This is the slow-moving "session mood" — it reflects accumulated pressure
-    and recovery across many hands. Moves only as fast as the elastic traits
-    themselves shift.
+    For 5-trait poker-native model:
+    - confidence × composure → valence (mood)
+    - aggression + (1 - composure) → arousal
+    - composure → control
+    - composure - table_talk → focus
+
+    Also supports old 4-trait model for backward compatibility.
 
     Args:
         elastic_traits: Dict of trait name -> ElasticTrait (or dict with
@@ -68,31 +78,43 @@ def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
     def _trait_drift(name: str) -> float:
         return _trait_val(name) - _trait_anchor(name)
 
-    aggression = _trait_val('aggression')
-    chattiness = _trait_val('chattiness')
-    emoji = _trait_val('emoji_usage')
+    # Detect trait format (new 5-trait vs old 4-trait)
+    is_new_format = 'composure' in elastic_traits or 'confidence' in elastic_traits
 
-    # Average drift from anchor across all traits — positive means the session
-    # has been going well (traits pushed up by wins), negative means pressure
-    avg_drift = sum(_trait_drift(t) for t in elastic_traits) / max(len(elastic_traits), 1)
+    if is_new_format:
+        # New 5-trait poker-native model
+        confidence = _trait_val('confidence', 0.5)
+        composure = _trait_val('composure', 0.7)
+        aggression = _trait_val('aggression', 0.5)
+        table_talk = _trait_val('table_talk', 0.5)
 
-    # Valence: overall mood. Driven by whether traits are above or below anchor.
-    # High aggression + high bluff = feeling bold (positive).
-    # Traits below anchor = things have been going badly (negative).
-    valence = _clamp(avg_drift * 3.0, -1.0, 1.0)
+        # Valence: confidence × composure drives overall mood
+        # High confidence + high composure = positive
+        # Low of either = negative
+        valence = _clamp((confidence * 0.6 + composure * 0.4) * 2 - 1, -1.0, 1.0)
 
-    # Arousal: energy level. High aggression and chattiness = high energy.
-    # Measured as absolute distance from anchor (any big shift = more aroused).
-    avg_abs_drift = sum(abs(_trait_drift(t)) for t in elastic_traits) / max(len(elastic_traits), 1)
-    arousal = _clamp(0.35 + aggression * 0.25 + avg_abs_drift * 2.0, 0.0, 1.0)
+        # Arousal: aggression + inverse composure (tilted = more aroused)
+        arousal = _clamp(aggression * 0.4 + (1.0 - composure) * 0.4 + 0.2, 0.0, 1.0)
 
-    # Control: sense of command. Large trait drifts = less control (being pushed
-    # around by events). Traits near anchor = steady and in control.
-    control = _clamp(0.7 - avg_abs_drift * 3.0, 0.0, 1.0)
+        # Control: directly from composure
+        control = _clamp(composure, 0.0, 1.0)
 
-    # Focus: mental clarity. High chattiness + emoji = more scattered.
-    # Low arousal + small drift = clear-headed.
-    focus = _clamp(0.7 - chattiness * 0.15 - emoji * 0.1 - avg_abs_drift * 1.5, 0.0, 1.0)
+        # Focus: composure dominates, table_talk slightly reduces
+        focus = _clamp(composure * 0.85 - table_talk * 0.1, 0.0, 1.0)
+    else:
+        # Old 4-trait model (backward compatibility)
+        aggression = _trait_val('aggression')
+        chattiness = _trait_val('chattiness', 0.5)
+        emoji = _trait_val('emoji_usage', 0.3)
+
+        # Average drift from anchor across all traits
+        avg_drift = sum(_trait_drift(t) for t in elastic_traits) / max(len(elastic_traits), 1)
+        avg_abs_drift = sum(abs(_trait_drift(t)) for t in elastic_traits) / max(len(elastic_traits), 1)
+
+        valence = _clamp(avg_drift * 3.0, -1.0, 1.0)
+        arousal = _clamp(0.35 + aggression * 0.25 + avg_abs_drift * 2.0, 0.0, 1.0)
+        control = _clamp(0.7 - avg_abs_drift * 3.0, 0.0, 1.0)
+        focus = _clamp(0.7 - chattiness * 0.15 - emoji * 0.1 - avg_abs_drift * 1.5, 0.0, 1.0)
 
     return {
         'valence': round(valence, 3),

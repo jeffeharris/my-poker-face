@@ -269,8 +269,10 @@ def _get_reaction_threshold(
 ) -> float:
     """Get personality-modified reaction threshold.
 
-    Volatile personalities (high aggression or bluff_tendency) react to
+    Volatile personalities (high aggression or low tightness) react to
     smaller equity swings. Stoic personalities need larger swings.
+
+    Supports both new 5-trait model (tightness) and old 4-trait model (bluff_tendency).
     """
     if player_name not in ai_controllers:
         return BASE_REACTION_THRESHOLD
@@ -281,14 +283,20 @@ def _get_reaction_threshold(
         return BASE_REACTION_THRESHOLD
 
     aggression = traits.get('aggression', 0.5)
-    bluff_tendency = traits.get('bluff_tendency', 0.5)
+    # Support both new (tightness) and old (bluff_tendency) models
+    # Low tightness = loose = volatile; high bluff_tendency = volatile
+    tightness = traits.get('tightness')
+    if tightness is not None:
+        looseness = 1.0 - tightness
+    else:
+        looseness = traits.get('bluff_tendency', 0.5)
 
-    # Volatile: either trait is high → lower threshold (react more)
-    if aggression > HIGH_TRAIT or bluff_tendency > HIGH_TRAIT:
+    # Volatile: high aggression or loose player → lower threshold (react more)
+    if aggression > HIGH_TRAIT or looseness > HIGH_TRAIT:
         return BASE_REACTION_THRESHOLD + REACTIVE_THRESHOLD_OFFSET
 
-    # Stoic: both traits are low → higher threshold (react less)
-    if aggression < LOW_TRAIT and bluff_tendency < LOW_TRAIT:
+    # Stoic: low aggression and tight player → higher threshold (react less)
+    if aggression < LOW_TRAIT and looseness < LOW_TRAIT:
         return BASE_REACTION_THRESHOLD + STOIC_THRESHOLD_OFFSET
 
     return BASE_REACTION_THRESHOLD

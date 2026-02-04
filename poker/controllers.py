@@ -654,14 +654,14 @@ class AIPlayerController:
         big_blind = game_state.current_ante or 100
         game_messages = _convert_messages_to_bb(game_messages, big_blind)
 
-        # Get current chattiness and determine if should speak
+        # Get current table_talk trait and determine if should speak
         current_traits = self.get_current_personality_traits()
-        chattiness = current_traits.get('chattiness', 0.5)
+        table_talk = current_traits.get('table_talk', current_traits.get('chattiness', 0.5))
 
         # Build game context for chattiness decision (use original messages for address detection)
         game_context = self._build_game_context(game_state, original_messages)
         should_speak = self.chattiness_manager.should_speak(
-            self.player_name, chattiness, game_context
+            self.player_name, table_talk, game_context
         )
         speaking_context = self.chattiness_manager.get_speaking_context(self.player_name)
 
@@ -688,7 +688,7 @@ class AIPlayerController:
         # Add chattiness guidance to message (if enabled)
         if self.prompt_config.chattiness:
             chattiness_guidance = self._build_chattiness_guidance(
-                chattiness, should_speak, speaking_context, player_options
+                table_talk, should_speak, speaking_context, player_options
             )
             message = message + "\n\n" + chattiness_guidance
 
@@ -1446,7 +1446,13 @@ class AIPlayerController:
                     snapshot['focus'] = psych.emotional.focus
                     snapshot['display_emotion'] = psych.get_display_emotion()
                 traits = psych.traits
+                # New 5-trait model
                 snapshot['elastic_aggression'] = traits.get('aggression')
+                snapshot['elastic_tightness'] = traits.get('tightness')
+                snapshot['elastic_confidence'] = traits.get('confidence')
+                snapshot['elastic_composure'] = traits.get('composure')
+                snapshot['elastic_table_talk'] = traits.get('table_talk')
+                # Backward compatibility: also include old trait name if present
                 snapshot['elastic_bluff_tendency'] = traits.get('bluff_tendency')
                 psychology_snapshot = snapshot
 

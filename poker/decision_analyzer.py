@@ -128,7 +128,12 @@ class DecisionAnalysis:
     focus: Optional[float] = None
     display_emotion: Optional[str] = None
     elastic_aggression: Optional[float] = None
-    elastic_bluff_tendency: Optional[float] = None
+    elastic_bluff_tendency: Optional[float] = None  # Legacy - kept for historical data
+    # New 5-trait poker-native model (v70)
+    elastic_tightness: Optional[float] = None
+    elastic_confidence: Optional[float] = None
+    elastic_composure: Optional[float] = None
+    elastic_table_talk: Optional[float] = None
 
     # Range tracking (v67)
     opponent_ranges_json: Optional[str] = None    # {"Batman": ["AA", "AKs", ...], ...}
@@ -278,6 +283,11 @@ class DecisionAnalyzer:
             analysis.display_emotion = psychology_snapshot.get('display_emotion')
             analysis.elastic_aggression = psychology_snapshot.get('elastic_aggression')
             analysis.elastic_bluff_tendency = psychology_snapshot.get('elastic_bluff_tendency')
+            # New 5-trait model
+            analysis.elastic_tightness = psychology_snapshot.get('elastic_tightness')
+            analysis.elastic_confidence = psychology_snapshot.get('elastic_confidence')
+            analysis.elastic_composure = psychology_snapshot.get('elastic_composure')
+            analysis.elastic_table_talk = psychology_snapshot.get('elastic_table_talk')
 
         # Calculate hand strength if we have cards
         if player_hand and community_cards:

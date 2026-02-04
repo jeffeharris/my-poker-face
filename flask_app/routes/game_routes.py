@@ -16,7 +16,7 @@ from poker.prompt_config import PromptConfig
 from poker.betting_context import BettingContext
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
-from poker.tilt_modifier import TiltState
+# TiltState removed - now using ComposureState from player_psychology
 from poker.emotional_state import EmotionalState
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker

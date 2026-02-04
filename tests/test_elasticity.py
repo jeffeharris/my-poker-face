@@ -62,8 +62,32 @@ class TestElasticTrait(unittest.TestCase):
 class TestElasticPersonality(unittest.TestCase):
     """Test the ElasticPersonality class."""
     
-    def test_from_base_personality(self):
-        """Test creating elastic personality from base config."""
+    def test_from_base_personality_new_format(self):
+        """Test creating elastic personality from new 5-trait config."""
+        base_config = {
+            'personality_traits': {
+                'tightness': 0.4,
+                'aggression': 0.9,
+                'confidence': 0.7,
+                'composure': 0.8,
+                'table_talk': 0.6
+            }
+        }
+
+        personality = ElasticPersonality.from_base_personality(
+            "Test Player", base_config
+        )
+
+        self.assertEqual(personality.name, "Test Player")
+        self.assertEqual(len(personality.traits), 5)
+        self.assertEqual(personality.get_trait_value('tightness'), 0.4)
+        self.assertEqual(personality.get_trait_value('aggression'), 0.9)
+        self.assertEqual(personality.get_trait_value('confidence'), 0.7)
+        self.assertEqual(personality.get_trait_value('composure'), 0.8)
+        self.assertEqual(personality.get_trait_value('table_talk'), 0.6)
+
+    def test_from_base_personality_old_format_conversion(self):
+        """Test old 4-trait config is auto-converted to 5-trait model."""
         base_config = {
             'personality_traits': {
                 'bluff_tendency': 0.8,
@@ -72,61 +96,70 @@ class TestElasticPersonality(unittest.TestCase):
                 'emoji_usage': 0.4
             }
         }
-        
+
         personality = ElasticPersonality.from_base_personality(
             "Test Player", base_config
         )
-        
+
         self.assertEqual(personality.name, "Test Player")
-        self.assertEqual(len(personality.traits), 4)
-        self.assertEqual(personality.get_trait_value('bluff_tendency'), 0.8)
+        # Old 4-trait is converted to new 5-trait
+        self.assertEqual(len(personality.traits), 5)
+        # Aggression is preserved
         self.assertEqual(personality.get_trait_value('aggression'), 0.9)
+        # tightness, confidence, composure, table_talk should exist
+        self.assertIsNotNone(personality.get_trait_value('tightness'))
+        self.assertIsNotNone(personality.get_trait_value('confidence'))
+        self.assertIsNotNone(personality.get_trait_value('composure'))
+        self.assertIsNotNone(personality.get_trait_value('table_talk'))
     
     def test_apply_pressure_event(self):
         """Test applying pressure events."""
         base_config = {
             'personality_traits': {
-                'bluff_tendency': 0.5,
+                'tightness': 0.5,
                 'aggression': 0.5,
-                'chattiness': 0.5,
-                'emoji_usage': 0.5
+                'confidence': 0.5,
+                'composure': 0.7,
+                'table_talk': 0.5
             }
         }
-        
+
         personality = ElasticPersonality.from_base_personality(
             "Test Player", base_config
         )
-        
+
         # Apply big win event
         personality.apply_pressure_event('big_win')
-        
-        # Check that pressure was applied
-        self.assertGreater(personality.traits['aggression'].pressure, 0)
-        self.assertGreater(personality.traits['chattiness'].pressure, 0)
+
+        # Check that pressure was applied (big_win affects confidence, composure, aggression, table_talk)
+        self.assertGreater(personality.traits['confidence'].pressure, 0)
+        self.assertGreater(personality.traits['composure'].pressure, 0)
+        self.assertGreater(personality.traits['table_talk'].pressure, 0)
     
     def test_mood_vocabulary(self):
         """Test mood vocabulary system."""
         base_config = {
             'personality_traits': {
-                'bluff_tendency': 0.1,
-                'aggression': 0.2,
-                'chattiness': 0.3,
-                'emoji_usage': 0.1
+                'tightness': 0.7,  # Tight player
+                'aggression': 0.2,  # Passive
+                'confidence': 0.3,  # Low confidence
+                'composure': 0.5,  # Moderate composure
+                'table_talk': 0.3  # Quiet
             }
         }
-        
+
         # Test Eeyore's moods
         personality = ElasticPersonality.from_base_personality(
             "Eeyore", base_config
         )
-        
+
         mood = personality.get_current_mood()
         self.assertIn(mood, ["pessimistic", "melancholy", "resigned"])
-        
+
         # Apply negative pressure - need more pressure to change mood category
         personality.traits['aggression'].pressure = -0.5
-        personality.traits['bluff_tendency'].pressure = -0.5
-        personality.traits['chattiness'].pressure = -0.5
+        personality.traits['confidence'].pressure = -0.5
+        personality.traits['composure'].pressure = -0.5
         mood = personality.get_current_mood()
         # Could be any Eeyore mood since pressure affects mood selection
         possible_moods = ["hopeless", "defeated", "miserable", "pessimistic", "melancholy", "resigned"]
@@ -209,40 +242,44 @@ class TestElasticityIntegration(unittest.TestCase):
 
     def test_full_pressure_cycle(self):
         """Test a complete pressure application and recovery cycle."""
-        # Create an ElasticPersonality directly (how it's used in the actual codebase)
+        # Create an ElasticPersonality with new 5-trait model
         personality = ElasticPersonality.from_base_personality(
             "Gordon Ramsay",
             {
                 'personality_traits': {
-                    'bluff_tendency': 0.6,
+                    'tightness': 0.3,
                     'aggression': 0.95,
-                    'chattiness': 0.9,
-                    'emoji_usage': 0.2
+                    'confidence': 0.8,
+                    'composure': 0.7,
+                    'table_talk': 0.9
                 }
             }
         )
 
-        # Get initial trait values
-        initial_aggression = personality.get_trait_value('aggression')
+        # Get initial trait values (big_loss primarily affects composure and confidence)
+        initial_composure = personality.get_trait_value('composure')
+        initial_confidence = personality.get_trait_value('confidence')
 
         # Apply a big loss event
         personality.apply_pressure_event("big_loss")
 
-        # Check traits changed
-        new_aggression = personality.get_trait_value('aggression')
-        self.assertLess(new_aggression, initial_aggression)
+        # Check composure and confidence decreased (big_loss affects these)
+        new_composure = personality.get_trait_value('composure')
+        new_confidence = personality.get_trait_value('confidence')
+        self.assertLess(new_composure, initial_composure)
+        self.assertLess(new_confidence, initial_confidence)
 
         # Apply recovery several times
         for _ in range(10):
             personality.recover_traits()
 
         # Check traits moved back toward anchor
-        recovered_aggression = personality.get_trait_value('aggression')
-        self.assertGreater(recovered_aggression, new_aggression)
+        recovered_composure = personality.get_trait_value('composure')
+        self.assertGreater(recovered_composure, new_composure)
         # After 10 recoveries, should be closer but not exactly at anchor
         # due to exponential decay
-        diff = abs(recovered_aggression - initial_aggression)
-        self.assertLess(diff, 0.1)  # Within 0.1 of original
+        diff = abs(recovered_composure - initial_composure)
+        self.assertLess(diff, 0.15)  # Within 0.15 of original
 
 
 if __name__ == '__main__':

@@ -18,7 +18,7 @@ from poker.poker_game import determine_winner, play_turn, advance_to_next_active
 from poker.poker_state_machine import PokerPhase
 from poker.hand_evaluator import HandEvaluator
 from .avatar_handler import get_avatar_url_with_fallback
-from poker.tilt_modifier import TiltState
+from poker.player_psychology import ComposureState
 from poker.elasticity_manager import ElasticPersonality
 from poker.emotional_state import EmotionalState
 from poker.runout_reactions import compute_runout_reactions
@@ -238,7 +238,7 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
                 else:
                     # Fallback: reconstruct from old separate states (if they exist)
                     if ctrl_state.get('tilt_state'):
-                        controller.psychology.tilt = TiltState.from_dict(ctrl_state['tilt_state'])
+                        controller.psychology.tilt = ComposureState.from_tilt_state(ctrl_state['tilt_state'])
                     if ctrl_state.get('elastic_personality'):
                         controller.psychology.elastic = ElasticPersonality.from_dict(ctrl_state['elastic_personality'])
                     if player.name in emotional_states:

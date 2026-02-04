@@ -46,10 +46,11 @@ class DecisionAnalysisRepository(BaseRepository):
                     tilt_level, tilt_source,
                     valence, arousal, control, focus,
                     display_emotion, elastic_aggression, elastic_bluff_tendency,
+                    elastic_tightness, elastic_confidence, elastic_composure, elastic_table_talk,
                     opponent_ranges_json, board_texture_json,
                     player_hand_canonical, player_hand_in_range, player_hand_tier, standard_range_pct,
                     analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -86,6 +87,10 @@ class DecisionAnalysisRepository(BaseRepository):
                 data.get('display_emotion'),
                 data.get('elastic_aggression'),
                 data.get('elastic_bluff_tendency'),
+                data.get('elastic_tightness'),
+                data.get('elastic_confidence'),
+                data.get('elastic_composure'),
+                data.get('elastic_table_talk'),
                 data.get('opponent_ranges_json'),
                 data.get('board_texture_json'),
                 data.get('player_hand_canonical'),

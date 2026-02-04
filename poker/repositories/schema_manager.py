@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 # v67: Add range tracking columns to player_decision_analysis for coach integration
 # v68: Add onboarding_completed_at to player_coach_profile for reliable onboarding tracking
 # v69: Add hand_equity table for equity-based pressure event detection
-SCHEMA_VERSION = 69
+# v70: Add new 5-trait psychology columns to player_decision_analysis
+SCHEMA_VERSION = 70
 
 
 
@@ -609,7 +610,7 @@ class SchemaManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
 
-            # 22. Player decision analysis (v20, v22, v23, v67)
+            # 22. Player decision analysis (v20, v22, v23, v67, v70)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS player_decision_analysis (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -649,6 +650,10 @@ class SchemaManager:
                     display_emotion TEXT,
                     elastic_aggression REAL,
                     elastic_bluff_tendency REAL,
+                    elastic_tightness REAL,
+                    elastic_confidence REAL,
+                    elastic_composure REAL,
+                    elastic_table_talk REAL,
                     opponent_ranges_json TEXT,
                     board_texture_json TEXT,
                     player_hand_canonical TEXT,
@@ -1027,6 +1032,7 @@ class SchemaManager:
             67: (self._migrate_v67_add_range_tracking, "Add range tracking columns to player_decision_analysis"),
             68: (self._migrate_v68_add_onboarding_completed, "Add onboarding_completed_at to player_coach_profile"),
             69: (self._migrate_v69_add_hand_equity, "Add hand_equity table for equity-based pressure detection"),
+            70: (self._migrate_v70_add_5trait_columns, "Add 5-trait psychology columns to player_decision_analysis"),
         }
 
         with self._get_connection() as conn:
@@ -3152,4 +3158,36 @@ class SchemaManager:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_street_equity ON hand_equity(street, equity)")
 
         logger.info("Migration v69 complete: hand_equity table added")
+
+    def _migrate_v70_add_5trait_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v70: Add new 5-trait psychology columns to player_decision_analysis.
+
+        The new poker-native psychology model uses 5 traits:
+        - tightness: Range selectivity (0=loose, 1=tight)
+        - aggression: Bet frequency (0=passive, 1=aggressive)
+        - confidence: Sizing/commitment (0=scared, 1=fearless)
+        - composure: Decision quality (0=tilted, 1=focused)
+        - table_talk: Chat frequency (0=silent, 1=chatty)
+
+        This migration adds the elastic_* columns for the new traits while
+        keeping elastic_bluff_tendency for backward compatibility with historical data.
+        """
+        # Get existing columns
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        # Add new trait columns
+        new_columns = [
+            ('elastic_tightness', 'REAL'),
+            ('elastic_confidence', 'REAL'),
+            ('elastic_composure', 'REAL'),
+            ('elastic_table_talk', 'REAL'),
+        ]
+
+        for col_name, col_type in new_columns:
+            if col_name not in existing_columns:
+                conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
+                logger.debug(f"Added column {col_name} to player_decision_analysis")
+
+        logger.info("Migration v70 complete: 5-trait psychology columns added")
 

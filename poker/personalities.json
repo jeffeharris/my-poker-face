@@ -5,10 +5,11 @@
       "default_confidence": "steady",
       "default_attitude": "thoughtful",
       "personality_traits": {
-        "bluff_tendency": 0.4,
+        "tightness": 0.51,
         "aggression": 0.3,
-        "chattiness": 0.6,
-        "emoji_usage": 0.2
+        "confidence": 0.6,
+        "composure": 0.7,
+        "table_talk": 0.52
       },
       "verbal_tics": [
         "'Honesty is the best policy.'",
@@ -25,10 +26,11 @@
       "default_confidence": "steady",
       "default_attitude": "intimidating",
       "personality_traits": {
-        "bluff_tendency": 0.4,
+        "tightness": 0.42,
         "aggression": 0.6,
-        "chattiness": 0.3,
-        "emoji_usage": 0.2
+        "confidence": 0.66,
+        "composure": 0.7,
+        "table_talk": 0.28
       },
       "verbal_tics": [
         "Victory is not final, failure is not fatal.",
@@ -45,10 +47,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "mysterious",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.21,
         "aggression": 0.8,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
+        "confidence": 0.73,
+        "composure": 0.7,
+        "table_talk": 0.36
       },
       "verbal_tics": [
         "Victory is merely a hand away.",
@@ -65,10 +68,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "charismatic",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.27,
         "aggression": 0.6,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
+        "confidence": 0.69,
+        "composure": 0.7,
+        "table_talk": 0.74
       },
       "verbal_tics": [
         "\"A king must never fold!\"",
@@ -87,10 +91,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "intimidating",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.26,
         "aggression": 0.8,
-        "chattiness": 0.4,
-        "emoji_usage": 0.1
+        "confidence": 0.72,
+        "composure": 0.7,
+        "table_talk": 0.34
       },
       "verbal_tics": [
         "Off with their heads!",
@@ -108,10 +113,11 @@
       "default_confidence": "steady",
       "default_attitude": "mysterious",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.38,
         "aggression": 0.4,
-        "chattiness": 0.7,
-        "emoji_usage": 0.2
+        "confidence": 0.64,
+        "composure": 0.7,
+        "table_talk": 0.6
       },
       "verbal_tics": [
         "To be or not to be, that is the question.",
@@ -128,10 +134,11 @@
       "default_confidence": "steady",
       "default_attitude": "mysterious",
       "personality_traits": {
-        "bluff_tendency": 0.4,
+        "tightness": 0.42,
         "aggression": 0.6,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
+        "confidence": 0.66,
+        "composure": 0.7,
+        "table_talk": 0.36
       },
       "verbal_tics": [
         "What is truth in this game?",
@@ -148,10 +155,11 @@
       "default_confidence": "steady",
       "default_attitude": "mysterious",
       "personality_traits": {
-        "bluff_tendency": 0.4,
+        "tightness": 0.42,
         "aggression": 0.6,
-        "chattiness": 0.3,
-        "emoji_usage": 0.2
+        "confidence": 0.66,
+        "composure": 0.7,
+        "table_talk": 0.28
       },
       "verbal_tics": [
         "Elementary, my dear opponent.",
@@ -168,10 +176,11 @@
       "default_confidence": "steady",
       "default_attitude": "mysterious",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.38,
         "aggression": 0.4,
-        "chattiness": 0.5,
-        "emoji_usage": 0.2
+        "confidence": 0.64,
+        "composure": 0.7,
+        "table_talk": 0.44
       },
       "verbal_tics": [
         "What\u2019s life without a little risk?",
@@ -189,10 +198,11 @@
       "default_confidence": "enigmatic",
       "default_attitude": "playful",
       "personality_traits": {
-        "bluff_tendency": 0.9,
+        "tightness": 0.2,
         "aggression": 0.5,
-        "chattiness": 0.0,
-        "emoji_usage": 0.7
+        "confidence": 0.69,
+        "composure": 0.7,
+        "table_talk": 0.14
       },
       "verbal_tics": [
         "...",
@@ -211,10 +221,11 @@
       "default_confidence": "steady",
       "default_attitude": "friendly",
       "personality_traits": {
-        "bluff_tendency": 0.4,
+        "tightness": 0.51,
         "aggression": 0.3,
-        "chattiness": 0.9,
-        "emoji_usage": 0.7
+        "confidence": 0.6,
+        "composure": 0.7,
+        "table_talk": 0.86
       },
       "verbal_tics": [
         "Why don't scientists trust atoms? Because they make up everything!",
@@ -233,10 +244,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "intimidating",
       "personality_traits": {
-        "bluff_tendency": 0.8,
+        "tightness": 0.13,
         "aggression": 0.9,
-        "chattiness": 0.2,
-        "emoji_usage": 0.1
+        "confidence": 0.76,
+        "composure": 0.7,
+        "table_talk": 0.18
       },
       "verbal_tics": [
         "You call that a bet?",
@@ -255,10 +267,11 @@
       "default_confidence": "steady",
       "default_attitude": "mysterious",
       "personality_traits": {
-        "bluff_tendency": 0.4,
+        "tightness": 0.51,
         "aggression": 0.3,
-        "chattiness": 0.5,
-        "emoji_usage": 0.2
+        "confidence": 0.6,
+        "composure": 0.7,
+        "table_talk": 0.44
       },
       "verbal_tics": [
         "Patience is a virtue.",
@@ -275,10 +288,11 @@
       "default_confidence": "serene",
       "default_attitude": "peaceful",
       "personality_traits": {
-        "bluff_tendency": 0.3,
+        "tightness": 0.62,
         "aggression": 0.1,
-        "chattiness": 0.6,
-        "emoji_usage": 0.5
+        "confidence": 0.55,
+        "composure": 0.7,
+        "table_talk": 0.58
       },
       "verbal_tics": [
         "Happy little cards",
@@ -297,10 +311,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "friendly",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.38,
         "aggression": 0.4,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
+        "confidence": 0.64,
+        "composure": 0.7,
+        "table_talk": 0.74
       },
       "verbal_tics": [
         "Oh, the cards you'll see!",
@@ -317,10 +332,11 @@
       "default_confidence": "steady",
       "default_attitude": "mysterious",
       "personality_traits": {
-        "bluff_tendency": 0.4,
+        "tightness": 0.51,
         "aggression": 0.3,
-        "chattiness": 0.6,
-        "emoji_usage": 0.2
+        "confidence": 0.6,
+        "composure": 0.7,
+        "table_talk": 0.52
       },
       "verbal_tics": [
         "Blessed are the bold",
@@ -337,10 +353,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "menacing",
       "personality_traits": {
-        "bluff_tendency": 0.8,
+        "tightness": 0.13,
         "aggression": 0.9,
-        "chattiness": 0.6,
-        "emoji_usage": 0.2
+        "confidence": 0.76,
+        "composure": 0.7,
+        "table_talk": 0.52
       },
       "verbal_tics": [
         "Surrender yer chips or face the consequences!",
@@ -359,10 +376,11 @@
       "default_confidence": "steady",
       "default_attitude": "calm and inscrutable",
       "personality_traits": {
-        "bluff_tendency": 0.5,
+        "tightness": 0.43,
         "aggression": 0.4,
-        "chattiness": 0.3,
-        "emoji_usage": 0.1
+        "confidence": 0.63,
+        "composure": 0.7,
+        "table_talk": 0.26
       },
       "verbal_tics": [
         "Every battle is won before it is fought.",
@@ -381,10 +399,11 @@
       "default_confidence": "steady",
       "default_attitude": "friendly and shrewd",
       "personality_traits": {
-        "bluff_tendency": 0.5,
+        "tightness": 0.4,
         "aggression": 0.5,
-        "chattiness": 0.7,
-        "emoji_usage": 0.3
+        "confidence": 0.65,
+        "composure": 0.7,
+        "table_talk": 0.62
       },
       "verbal_tics": [
         "A penny saved is a penny earned, but a chip wagered...",
@@ -403,10 +422,11 @@
       "default_confidence": "steady",
       "default_attitude": "wry and amused",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.38,
         "aggression": 0.4,
-        "chattiness": 0.8,
-        "emoji_usage": 0.2
+        "confidence": 0.64,
+        "composure": 0.7,
+        "table_talk": 0.68
       },
       "verbal_tics": [
         "The reports of my bad hand have been greatly exaggerated.",
@@ -425,10 +445,11 @@
       "default_confidence": "steady",
       "default_attitude": "intense and distracted",
       "personality_traits": {
-        "bluff_tendency": 0.3,
+        "tightness": 0.5,
         "aggression": 0.5,
-        "chattiness": 0.5,
-        "emoji_usage": 0.1
+        "confidence": 0.63,
+        "composure": 0.7,
+        "table_talk": 0.42
       },
       "verbal_tics": [
         "The pattern is clear if you know where to look.",
@@ -447,10 +468,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "showman",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.3,
         "aggression": 0.5,
-        "chattiness": 0.6,
-        "emoji_usage": 0.3
+        "confidence": 0.67,
+        "composure": 0.7,
+        "table_talk": 0.54
       },
       "verbal_tics": [
         "Watch closely... nothing up my sleeve.",
@@ -469,10 +491,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "amused superiority",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.35,
         "aggression": 0.5,
-        "chattiness": 0.9,
-        "emoji_usage": 0.2
+        "confidence": 0.66,
+        "composure": 0.7,
+        "table_talk": 0.76
       },
       "verbal_tics": [
         "I can resist everything except temptation... and a good pot.",
@@ -491,10 +514,11 @@
       "default_confidence": "steady",
       "default_attitude": "haunted and intense",
       "personality_traits": {
-        "bluff_tendency": 0.5,
+        "tightness": 0.37,
         "aggression": 0.6,
-        "chattiness": 0.5,
-        "emoji_usage": 0.0
+        "confidence": 0.67,
+        "composure": 0.7,
+        "table_talk": 0.4
       },
       "verbal_tics": [
         "Once upon a midnight dreary, while I pondered this hand, weak and weary...",
@@ -513,10 +537,11 @@
       "default_confidence": "steady",
       "default_attitude": "cunning and detached",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.27,
         "aggression": 0.6,
-        "chattiness": 0.4,
-        "emoji_usage": 0.0
+        "confidence": 0.69,
+        "composure": 0.7,
+        "table_talk": 0.32
       },
       "verbal_tics": [
         "It is better to be feared than loved at this table.",
@@ -535,10 +560,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "regal and wrathful",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.23,
         "aggression": 0.9,
-        "chattiness": 0.6,
-        "emoji_usage": 0.3
+        "confidence": 0.74,
+        "composure": 0.7,
+        "table_talk": 0.54
       },
       "verbal_tics": [
         "You dare challenge the king of the gods?",
@@ -557,10 +583,11 @@
       "default_confidence": "steady",
       "default_attitude": "alluring and commanding",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.27,
         "aggression": 0.6,
-        "chattiness": 0.7,
-        "emoji_usage": 0.3
+        "confidence": 0.69,
+        "composure": 0.7,
+        "table_talk": 0.62
       },
       "verbal_tics": [
         "Empires have fallen for less than what I hold.",
@@ -579,10 +606,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "haughty and fabulous",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.24,
         "aggression": 0.7,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
+        "confidence": 0.71,
+        "composure": 0.7,
+        "table_talk": 0.74
       },
       "verbal_tics": [
         "Let them eat cake... after I take their chips!",
@@ -601,10 +629,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "brash and spirited",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.26,
         "aggression": 0.8,
-        "chattiness": 0.7,
-        "emoji_usage": 0.3
+        "confidence": 0.72,
+        "composure": 0.7,
+        "table_talk": 0.62
       },
       "verbal_tics": [
         "Saddle up, this hand's about to get wild!",
@@ -623,10 +652,11 @@
       "default_confidence": "steady",
       "default_attitude": "imperious and dignified",
       "personality_traits": {
-        "bluff_tendency": 0.5,
+        "tightness": 0.37,
         "aggression": 0.6,
-        "chattiness": 0.5,
-        "emoji_usage": 0.1
+        "confidence": 0.67,
+        "composure": 0.7,
+        "table_talk": 0.42
       },
       "verbal_tics": [
         "I have the heart and stomach of a king, and a poker player too.",
@@ -645,10 +675,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "fierce and righteous",
       "personality_traits": {
-        "bluff_tendency": 0.3,
+        "tightness": 0.41,
         "aggression": 0.8,
-        "chattiness": 0.5,
-        "emoji_usage": 0.2
+        "confidence": 0.69,
+        "composure": 0.7,
+        "table_talk": 0.44
       },
       "verbal_tics": [
         "The voices tell me to raise!",
@@ -667,10 +698,11 @@
       "default_confidence": "steady",
       "default_attitude": "fiery and expressive",
       "personality_traits": {
-        "bluff_tendency": 0.5,
+        "tightness": 0.37,
         "aggression": 0.6,
-        "chattiness": 0.7,
-        "emoji_usage": 0.4
+        "confidence": 0.67,
+        "composure": 0.7,
+        "table_talk": 0.64
       },
       "verbal_tics": [
         "I paint my own reality, and I play my own cards.",
@@ -690,10 +722,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "exuberant and scheming",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.3,
         "aggression": 0.5,
-        "chattiness": 0.9,
-        "emoji_usage": 0.6
+        "confidence": 0.67,
+        "composure": 0.7,
+        "table_talk": 0.84
       },
       "verbal_tics": [
         "I've got a great idea!",
@@ -714,10 +747,11 @@
       "default_confidence": "steady",
       "default_attitude": "cool and composed",
       "personality_traits": {
-        "bluff_tendency": 0.4,
+        "tightness": 0.42,
         "aggression": 0.6,
-        "chattiness": 0.5,
-        "emoji_usage": 0.2
+        "confidence": 0.66,
+        "composure": 0.7,
+        "table_talk": 0.44
       },
       "verbal_tics": [
         "I never miss my shot, and I never miss a read.",
@@ -736,10 +770,11 @@
       "default_confidence": "steady",
       "default_attitude": "curious and perceptive",
       "personality_traits": {
-        "bluff_tendency": 0.4,
+        "tightness": 0.45,
         "aggression": 0.5,
-        "chattiness": 0.6,
-        "emoji_usage": 0.1
+        "confidence": 0.64,
+        "composure": 0.7,
+        "table_talk": 0.5
       },
       "verbal_tics": [
         "The clues are all there, if one knows where to look.",
@@ -758,10 +793,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "commanding and ruthless",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.21,
         "aggression": 0.8,
-        "chattiness": 0.5,
-        "emoji_usage": 0.1
+        "confidence": 0.73,
+        "composure": 0.7,
+        "table_talk": 0.42
       },
       "verbal_tics": [
         "Screw your courage to the sticking place!",
@@ -780,10 +816,11 @@
       "default_confidence": "steady",
       "default_attitude": "menacing elegance",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.29,
         "aggression": 0.7,
-        "chattiness": 0.4,
-        "emoji_usage": 0.0
+        "confidence": 0.7,
+        "composure": 0.7,
+        "table_talk": 0.32
       },
       "verbal_tics": [
         "I never bluff... I simply wait.",
@@ -802,10 +839,11 @@
       "default_confidence": "pessimistic",
       "default_attitude": "grumpy and suspicious",
       "personality_traits": {
-        "bluff_tendency": 0.2,
+        "tightness": 0.64,
         "aggression": 0.2,
-        "chattiness": 0.5,
-        "emoji_usage": 0.0
+        "confidence": 0.56,
+        "composure": 0.7,
+        "table_talk": 0.4
       },
       "verbal_tics": [
         "Bah, humbug! That bet is far too rich.",
@@ -824,10 +862,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "roguish and charming",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.29,
         "aggression": 0.7,
-        "chattiness": 0.7,
-        "emoji_usage": 0.3
+        "confidence": 0.7,
+        "composure": 0.7,
+        "table_talk": 0.62
       },
       "verbal_tics": [
         "I steal from the chip-rich and give to... well, myself.",
@@ -846,10 +885,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "noble and oblivious",
       "personality_traits": {
-        "bluff_tendency": 0.8,
+        "tightness": 0.19,
         "aggression": 0.7,
-        "chattiness": 0.8,
-        "emoji_usage": 0.3
+        "confidence": 0.72,
+        "composure": 0.7,
+        "table_talk": 0.7
       },
       "verbal_tics": [
         "I see a royal flush where others see mere windmills!",
@@ -869,10 +909,11 @@
       "default_confidence": "steady",
       "default_attitude": "curious and bemused",
       "personality_traits": {
-        "bluff_tendency": 0.4,
+        "tightness": 0.51,
         "aggression": 0.3,
-        "chattiness": 0.7,
-        "emoji_usage": 0.4
+        "confidence": 0.6,
+        "composure": 0.7,
+        "table_talk": 0.64
       },
       "verbal_tics": [
         "Curiouser and curiouser!",
@@ -892,10 +933,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "imperious and explosive",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.22,
         "aggression": 0.95,
-        "chattiness": 0.8,
-        "emoji_usage": 0.3
+        "confidence": 0.75,
+        "composure": 0.7,
+        "table_talk": 0.7
       },
       "verbal_tics": [
         "Off with their chips!",
@@ -915,10 +957,11 @@
       "default_confidence": "enigmatic",
       "default_attitude": "playful and unsettling",
       "personality_traits": {
-        "bluff_tendency": 0.8,
+        "tightness": 0.31,
         "aggression": 0.3,
-        "chattiness": 0.6,
-        "emoji_usage": 0.4
+        "confidence": 0.64,
+        "composure": 0.7,
+        "table_talk": 0.56
       },
       "verbal_tics": [
         "We're all mad here... especially the one who just called.",
@@ -938,10 +981,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "menacing and theatrical",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.21,
         "aggression": 0.8,
-        "chattiness": 0.7,
-        "emoji_usage": 0.2
+        "confidence": 0.73,
+        "composure": 0.7,
+        "table_talk": 0.6
       },
       "verbal_tics": [
         "I'll get you, my pretty... and your little chips too!",
@@ -960,10 +1004,11 @@
       "default_confidence": "steady",
       "default_attitude": "cold and hypnotic",
       "personality_traits": {
-        "bluff_tendency": 0.6,
+        "tightness": 0.29,
         "aggression": 0.7,
-        "chattiness": 0.2,
-        "emoji_usage": 0.0
+        "confidence": 0.7,
+        "composure": 0.7,
+        "table_talk": 0.16
       },
       "verbal_tics": [
         "Look into my eyes... if you dare.",
@@ -983,10 +1028,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "mystical and dramatic",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.33,
         "aggression": 0.4,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
+        "confidence": 0.65,
+        "composure": 0.7,
+        "table_talk": 0.74
       },
       "verbal_tics": [
         "The spirits tell me you're bluffing...",
@@ -1006,10 +1052,11 @@
       "default_confidence": "steady",
       "default_attitude": "prim and disapproving",
       "personality_traits": {
-        "bluff_tendency": 0.3,
+        "tightness": 0.5,
         "aggression": 0.5,
-        "chattiness": 0.3,
-        "emoji_usage": 0.0
+        "confidence": 0.63,
+        "composure": 0.7,
+        "table_talk": 0.24
       },
       "verbal_tics": [
         "Shh. We're playing.",
@@ -1029,10 +1076,11 @@
       "default_confidence": "overconfident",
       "default_attitude": "reckless and fearless",
       "personality_traits": {
-        "bluff_tendency": 0.5,
+        "tightness": 0.27,
         "aggression": 0.95,
-        "chattiness": 0.5,
-        "emoji_usage": 0.3
+        "confidence": 0.74,
+        "composure": 0.7,
+        "table_talk": 0.46
       },
       "verbal_tics": [
         "Honey badger don't care.",
@@ -1052,10 +1100,11 @@
       "default_confidence": "steady",
       "default_attitude": "warm and disarming",
       "personality_traits": {
-        "bluff_tendency": 0.7,
+        "tightness": 0.27,
         "aggression": 0.6,
-        "chattiness": 0.7,
-        "emoji_usage": 0.4
+        "confidence": 0.69,
+        "composure": 0.7,
+        "table_talk": 0.64
       },
       "verbal_tics": [
         "Oh my, is it my turn already, dear?",
@@ -1075,10 +1124,11 @@
       "default_confidence": "steady",
       "default_attitude": "encouraging and condescending",
       "personality_traits": {
-        "bluff_tendency": 0.5,
+        "tightness": 0.4,
         "aggression": 0.5,
-        "chattiness": 0.8,
-        "emoji_usage": 0.6
+        "confidence": 0.65,
+        "composure": 0.7,
+        "table_talk": 0.76
       },
       "verbal_tics": [
         "That's a very brave bet, sweetie!",

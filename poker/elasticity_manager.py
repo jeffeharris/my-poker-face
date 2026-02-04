@@ -3,12 +3,27 @@ Elasticity Manager for dynamic personality traits in poker AI players.
 
 This module handles the elasticity system that allows AI personalities to change
 dynamically during gameplay while maintaining their core identity.
+
+Updated for 5-trait poker-native model:
+- tightness: Range selectivity (0=loose, 1=tight)
+- aggression: Bet frequency (0=passive, 1=aggressive)
+- confidence: Sizing/commitment (0=scared, 1=fearless)
+- composure: Decision quality (0=tilted, 1=focused) - replaces separate tilt system
+- table_talk: Chat frequency (0=silent, 1=chatty)
 """
 
 import json
 from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from .trait_converter import (
+    detect_trait_format,
+    convert_old_to_new_traits,
+    convert_old_elasticity_config,
+    get_default_elasticity_config,
+    NEW_TRAIT_NAMES,
+)
 
 
 @dataclass
@@ -151,21 +166,29 @@ class ElasticPersonality:
         Args:
             opponent_tendencies: Dict with keys like 'aggression_factor', 'bluff_frequency', 'vpip', etc.
         """
-        # If opponent is very aggressive, become more cautious
+        # If opponent is very aggressive, become more cautious (tighten up)
         aggression = opponent_tendencies.get('aggression_factor', 1.0)
-        if aggression > 2.0 and 'aggression' in self.traits:
-            # Counter aggressive opponents by tightening up
-            self.traits['aggression'].apply_pressure(-0.1)
+        if aggression > 2.0:
+            if 'aggression' in self.traits:
+                self.traits['aggression'].apply_pressure(-0.1)
+            if 'tightness' in self.traits:
+                self.traits['tightness'].apply_pressure(0.1)
 
-        # If opponent bluffs a lot, reduce own bluff tendency (they'll call more)
+        # If opponent bluffs a lot, tighten up and increase confidence to call them down
         bluff_freq = opponent_tendencies.get('bluff_frequency', 0.3)
-        if bluff_freq > 0.5 and 'bluff_tendency' in self.traits:
-            self.traits['bluff_tendency'].apply_pressure(-0.15)
+        if bluff_freq > 0.5:
+            if 'tightness' in self.traits:
+                self.traits['tightness'].apply_pressure(0.1)
+            if 'confidence' in self.traits:
+                self.traits['confidence'].apply_pressure(0.1)
 
-        # If opponent is very tight (low VPIP), can bluff more against them
+        # If opponent is very tight (low VPIP), can loosen up against them
         vpip = opponent_tendencies.get('vpip', 0.5)
-        if vpip < 0.2 and 'bluff_tendency' in self.traits:
-            self.traits['bluff_tendency'].apply_pressure(0.1)
+        if vpip < 0.2:
+            if 'tightness' in self.traits:
+                self.traits['tightness'].apply_pressure(-0.1)
+            if 'aggression' in self.traits:
+                self.traits['aggression'].apply_pressure(0.1)
 
         # If opponent folds a lot to pressure, be more aggressive
         fold_to_cbet = opponent_tendencies.get('fold_to_cbet', 0.5)
@@ -200,34 +223,47 @@ class ElasticPersonality:
     @classmethod
     def from_base_personality(cls, name: str, personality_config: Dict[str, Any],
                             elasticity_config: Optional[Dict[str, Any]] = None) -> 'ElasticPersonality':
-        """Create elastic personality from base personality configuration."""
+        """Create elastic personality from base personality configuration.
+
+        Auto-detects old 4-trait format and converts to new 5-trait model.
+        """
         # Check if elasticity config is embedded in personality config
         if not elasticity_config and 'elasticity_config' in personality_config:
             elasticity_config = personality_config['elasticity_config']
-        
-        # Default elasticity values (fallback for old personalities)
+
+        # Get base traits and detect format
+        base_traits = personality_config.get('personality_traits', {})
+        trait_format = detect_trait_format(base_traits)
+
+        # Convert if old format detected
+        if trait_format == 'old':
+            base_traits = convert_old_to_new_traits(base_traits)
+            elasticity_config = convert_old_elasticity_config(elasticity_config)
+
+        # Default elasticity values for new 5-trait model
         default_elasticities = {
-            'bluff_tendency': 0.3,
-            'aggression': 0.5,
-            'chattiness': 0.8,
-            'emoji_usage': 0.2
+            'tightness': 0.3,      # Moderate - playing style shifts under pressure
+            'aggression': 0.5,     # High - aggression shifts significantly
+            'confidence': 0.4,     # Moderate - confidence varies with results
+            'composure': 0.4,      # Moderate - composure affected by bad beats
+            'table_talk': 0.6,     # High - chattiness varies with mood
         }
-        
+
         # Override with personality-specific elasticity if provided
         if elasticity_config:
             trait_elasticity = elasticity_config.get('trait_elasticity', {})
             # Update defaults with personality-specific values
             for trait, value in trait_elasticity.items():
-                default_elasticities[trait] = value
-        
+                if trait in default_elasticities:
+                    default_elasticities[trait] = value
+
         personality = cls(
             name=name,
             mood_elasticity=elasticity_config.get('mood_elasticity', 0.4) if elasticity_config else 0.4,
             recovery_rate=elasticity_config.get('recovery_rate', 0.1) if elasticity_config else 0.1
         )
-        
-        # Create elastic traits from base personality traits
-        base_traits = personality_config.get('personality_traits', {})
+
+        # Create elastic traits from converted/new traits
         for trait_name, base_value in base_traits.items():
             elasticity = default_elasticities.get(trait_name, 0.5)
             personality.traits[trait_name] = ElasticTrait(
@@ -235,126 +271,182 @@ class ElasticPersonality:
                 anchor=base_value,
                 elasticity=elasticity
             )
-        
+
+        # Ensure all 5 traits exist (fill in missing with defaults)
+        for trait_name in NEW_TRAIT_NAMES:
+            if trait_name not in personality.traits:
+                default_value = 0.7 if trait_name == 'composure' else 0.5
+                elasticity = default_elasticities.get(trait_name, 0.5)
+                personality.traits[trait_name] = ElasticTrait(
+                    value=default_value,
+                    anchor=default_value,
+                    elasticity=elasticity
+                )
+
         return personality
     
     def _load_pressure_events(self) -> Dict[str, Dict[str, float]]:
-        """Load pressure event configurations."""
-        # For now, return hardcoded events. Could be moved to JSON later.
+        """Load pressure event configurations for 5-trait poker-native model.
+
+        Traits affected:
+        - tightness: Range selectivity (increases under pressure/losses)
+        - aggression: Bet frequency
+        - confidence: Sizing/commitment
+        - composure: Decision quality (drops with bad beats, rises with wins)
+        - table_talk: Chat frequency
+        """
         return {
+            # === Win Events ===
             "big_win": {
-                "aggression": 0.2,
-                "chattiness": 0.3,
-                "bluff_tendency": 0.1
+                "confidence": 0.20,
+                "composure": 0.15,
+                "aggression": 0.10,
+                "tightness": -0.05,    # Play slightly looser after wins
+                "table_talk": 0.15,
             },
-            "big_loss": {
-                "aggression": -0.3,
-                "chattiness": -0.2,
-                "emoji_usage": -0.1
+            "win": {
+                "confidence": 0.08,
+                "composure": 0.05,
+                "table_talk": 0.05,
             },
             "successful_bluff": {
-                "bluff_tendency": 0.3,
-                "aggression": 0.2
-            },
-            "bluff_called": {
-                "bluff_tendency": -0.4,
-                "aggression": -0.1
-            },
-            "friendly_chat": {
-                "chattiness": 0.2,
-                "emoji_usage": 0.1
-            },
-            "rivalry_trigger": {
-                "aggression": 0.4,
-                "bluff_tendency": 0.2
-            },
-            "eliminated_opponent": {
-                "aggression": 0.3,
-                "chattiness": 0.2,
-                "bluff_tendency": 0.15
-            },
-            "bad_beat": {
-                "aggression": -0.2,
-                "bluff_tendency": -0.3,
-                "chattiness": -0.1
-            },
-            "fold_under_pressure": {
-                "aggression": -0.15,
-                "bluff_tendency": -0.1,
-                "chattiness": -0.05
-            },
-            "aggressive_bet": {
-                "aggression": 0.25,
-                "bluff_tendency": 0.15,
-                "chattiness": 0.1
-            },
-            # Equity-based events (detected via EquityTracker)
-            "cooler": {
-                # Both players had strong hands - unavoidable loss, less tilting
-                "aggression": -0.1,
-                "bluff_tendency": -0.15,
-                "chattiness": -0.1
+                "confidence": 0.20,
+                "composure": 0.10,
+                "aggression": 0.15,
+                "tightness": -0.10,    # Looser after successful bluff
+                "table_talk": 0.10,
             },
             "suckout": {
-                # Lucky win - came from behind to win
-                "aggression": 0.3,
-                "bluff_tendency": 0.2,
-                "chattiness": 0.25
+                # Lucky win - came from behind
+                "confidence": 0.15,
+                "composure": 0.05,
+                "aggression": 0.10,
+                "tightness": -0.15,    # Play looser when running good
+                "table_talk": 0.20,
+            },
+
+            # === Loss Events ===
+            "big_loss": {
+                "confidence": -0.15,
+                "composure": -0.25,
+                "tightness": 0.10,     # Tighten up after losses
+                "table_talk": -0.10,
+            },
+            "bluff_called": {
+                "confidence": -0.20,
+                "composure": -0.15,
+                "aggression": -0.15,
+                "tightness": 0.15,     # Play tighter after failed bluff
+                "table_talk": -0.05,
+            },
+            "bad_beat": {
+                # Lost with a strong hand
+                "composure": -0.30,
+                "confidence": -0.10,
+                "tightness": 0.10,
+                "table_talk": -0.15,
             },
             "got_sucked_out": {
                 # Was ahead but lost - very tilting
-                "aggression": -0.35,
-                "bluff_tendency": -0.25,
-                "chattiness": -0.2
+                "composure": -0.35,
+                "confidence": -0.15,
+                "table_talk": -0.15,
             },
-            # Heads-up events (already detected in pressure_detector)
-            "headsup_win": {
+            "cooler": {
+                # Both had strong hands - unavoidable, less tilting
+                "composure": 0.0,      # No composure hit - unavoidable
+                "confidence": -0.05,
+            },
+
+            # === Social Events ===
+            "friendly_chat": {
+                "table_talk": 0.10,
+                "composure": 0.05,
+            },
+            "rivalry_trigger": {
+                "aggression": 0.15,
+                "composure": -0.10,
+                "table_talk": 0.10,    # More trash talk
+            },
+
+            # === Elimination Events ===
+            "eliminated_opponent": {
+                "confidence": 0.15,
+                "composure": 0.10,
                 "aggression": 0.10,
-                "bluff_tendency": 0.08,
-                "chattiness": 0.08
+                "table_talk": 0.15,
+            },
+
+            # === Pressure/Fold Events ===
+            "fold_under_pressure": {
+                "confidence": -0.10,
+                "composure": -0.05,
+                "aggression": -0.10,
+            },
+            "aggressive_bet": {
+                "aggression": 0.15,
+                "confidence": 0.10,
+            },
+
+            # === Heads-up Events ===
+            "headsup_win": {
+                "confidence": 0.10,
+                "composure": 0.05,
+                "aggression": 0.08,
+                "table_talk": 0.08,
             },
             "headsup_loss": {
-                "aggression": -0.08,
-                "chattiness": -0.10
+                "confidence": -0.08,
+                "composure": -0.10,
+                "table_talk": -0.08,
             },
-            # Streak events (require streak_count >= 3)
+
+            # === Streak Events ===
             "winning_streak": {
-                "aggression": 0.12,
-                "bluff_tendency": 0.10,
-                "chattiness": 0.15
+                "confidence": 0.15,
+                "composure": 0.10,
+                "aggression": 0.10,
+                "tightness": -0.10,    # Looser on winning streaks
+                "table_talk": 0.15,
             },
             "losing_streak": {
-                "aggression": -0.12,
-                "bluff_tendency": -0.10,
-                "chattiness": -0.15
+                "composure": -0.20,
+                "confidence": -0.15,
+                "tightness": 0.15,     # Tighter on losing streaks
+                "table_talk": -0.15,
             },
-            # Stack events
+
+            # === Stack Events ===
             "double_up": {
-                "aggression": 0.15,
-                "bluff_tendency": 0.12,
-                "chattiness": 0.18
+                "confidence": 0.25,
+                "composure": 0.15,
+                "aggression": 0.10,
+                "tightness": -0.10,
+                "table_talk": 0.20,
             },
             "crippled": {
-                "aggression": -0.20,
-                "bluff_tendency": -0.18,
-                "chattiness": -0.15
+                "composure": -0.20,
+                "confidence": -0.20,
+                "table_talk": -0.15,
             },
             "short_stack": {
-                "aggression": -0.10,
-                "bluff_tendency": 0.05,  # Desperate bluffs
-                "chattiness": -0.08
+                "confidence": -0.15,
+                "composure": -0.10,
+                "tightness": -0.20,    # Forced to play looser (push/fold)
             },
-            # Nemesis events
+
+            # === Nemesis Events ===
             "nemesis_win": {
-                "aggression": 0.15,
-                "bluff_tendency": 0.08,
-                "chattiness": 0.12
+                "confidence": 0.15,
+                "composure": 0.10,
+                "aggression": 0.10,
+                "table_talk": 0.15,
             },
             "nemesis_loss": {
-                "aggression": -0.10,
-                "bluff_tendency": -0.08,
-                "chattiness": -0.12
-            }
+                "composure": -0.15,
+                "confidence": -0.10,
+                "table_talk": -0.10,
+            },
         }
     
     def _load_mood_vocabulary(self) -> Dict[str, Dict[str, Any]]:

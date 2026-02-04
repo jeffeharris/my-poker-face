@@ -37,9 +37,9 @@ class TestGoldenPath(unittest.TestCase):
             {
                 'name': 'Ebenezer Scrooge',
                 'expected_traits': {
-                    'conservative_play': True,  # Low bluff tendency (0.2)
+                    'conservative_play': True,  # High tightness (tight player)
                     'passive': True,  # Low aggression (0.2)
-                    'quiet': False  # Chattiness is 0.5 (not < 0.5)
+                    'quiet': True  # table_talk 0.4 (converted from chattiness 0.5 + emoji 0.0)
                 }
             },
             {
@@ -74,22 +74,24 @@ class TestGoldenPath(unittest.TestCase):
                 # Check personality traits affect modifiers
                 modifier = player.get_personality_modifier()
                 traits = player.personality_config['personality_traits']
-                
-                # Verify trait-based expectations
+
+                # Verify trait-based expectations (new 5-trait model)
+                # Note: conservative_play maps to tightness (high = conservative)
                 if test_case['expected_traits']['conservative_play']:
-                    self.assertLess(traits['bluff_tendency'], 0.5)
+                    self.assertGreater(traits.get('tightness', 0.5), 0.5)  # Tight player
                 else:
-                    self.assertGreater(traits['bluff_tendency'], 0.5)
-                
+                    self.assertLess(traits.get('tightness', 0.5), 0.5)  # Loose player
+
                 if test_case['expected_traits']['passive']:
                     self.assertLessEqual(traits['aggression'], 0.5)  # A Mime has exactly 0.5
                 else:
                     self.assertGreater(traits['aggression'], 0.5)
-                
+
+                # Note: quiet maps to table_talk (low = quiet)
                 if test_case['expected_traits']['quiet']:
-                    self.assertLess(traits['chattiness'], 0.5)
+                    self.assertLess(traits.get('table_talk', traits.get('chattiness', 0.5)), 0.5)
                 else:
-                    self.assertGreaterEqual(traits['chattiness'], 0.5)
+                    self.assertGreaterEqual(traits.get('table_talk', traits.get('chattiness', 0.5)), 0.5)
                 
                 # Test prompt generation includes all components
                 prompt = player.persona_prompt()
