@@ -26,6 +26,7 @@ class TestExperimentRoutes(unittest.TestCase):
         # Create repos using our test database
         repos = create_repos(self.test_db.name)
         self.experiment_repo = repos['experiment_repo']
+        self.personality_repo = repos['personality_repo']
 
         # Patch init_persistence to use our test DB repos instead of creating new ones
         def mock_init_persistence():
@@ -84,13 +85,14 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_get_personalities(self):
         """Test getting available personalities."""
-        response = self.client.get('/api/experiments/personalities')
-        data = response.get_json()
+        with patch('flask_app.routes.experiment_routes.personality_repo', self.personality_repo):
+            response = self.client.get('/api/experiments/personalities')
+            data = response.get_json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(data['success'])
-        self.assertIn('personalities', data)
-        self.assertIsInstance(data['personalities'], list)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(data['success'])
+            self.assertIn('personalities', data)
+            self.assertIsInstance(data['personalities'], list)
 
     def test_get_prompt_options(self):
         """Test getting prompt config options."""
