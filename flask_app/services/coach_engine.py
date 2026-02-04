@@ -73,7 +73,7 @@ def _compute_equity(player_hand: List[str], community: List[str],
         logger.error("Both equity calculations (ranges + random) failed")
         return None
     except Exception as e:
-        logger.error(f"Equity calculation failed: {e}")
+        logger.error(f"Equity calculation failed: {e}", exc_info=True)
         return None
 
 
@@ -116,7 +116,7 @@ def _compute_outs(player_hand: List[str], community: List[str]) -> Optional[Dict
                 'cards': outs[:15],  # Cap display at 15
             }
     except Exception as e:
-        logger.warning(f"Outs calculation failed: {e}")
+        logger.warning(f"Outs calculation failed: {e}", exc_info=True)
 
     return None
 
@@ -141,7 +141,7 @@ def _compute_hand_strength(player_hand_cards, community_cards) -> Optional[Dict]
             'rank': result.get('hand_rank'),
         }
     except Exception as e:
-        logger.warning(f"Hand strength evaluation failed: {e}")
+        logger.warning(f"Hand strength evaluation failed: {e}", exc_info=True)
         return None
 
 

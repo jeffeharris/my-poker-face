@@ -137,7 +137,6 @@ def _normalize_action(action: Optional[str], available_actions: List[str]) -> Op
 def _parse_coach_response(response: str, coaching_data: Dict) -> CoachResponse:
     """Parse JSON response from coach LLM, falling back gracefully on failure."""
     available_actions = coaching_data.get('available_actions', [])
-    gto_recommendation = coaching_data.get('recommendation')
 
     try:
         data = json.loads(response)
@@ -235,8 +234,12 @@ def _format_stats_for_prompt(data: Dict) -> str:
 
     big_blind = data.get('big_blind', 0)
     stack = data.get('stack', 0)
-    lines.append(f"Blinds: ${big_blind // 2}/${big_blind}")
-    lines.append(f"Stack: ${stack}" + (f" ({stack // big_blind} BB)" if big_blind > 0 else ""))
+    if big_blind > 0:
+        # Small blind is half big blind (truncated), matching poker/poker_game.py:722
+        lines.append(f"Blinds: ${big_blind // 2}/${big_blind}")
+        lines.append(f"Stack: ${stack} ({stack // big_blind} BB)")
+    else:
+        lines.append(f"Stack: ${stack}")
     lines.append(f"Pot: ${data.get('pot_total', 0)}")
     lines.append(f"Cost to call: ${data.get('cost_to_call', 0)}")
 
