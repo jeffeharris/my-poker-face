@@ -275,6 +275,96 @@ Events modify traits the same way, just with clearer meanings:
 
 ---
 
+## Open Questions & Ideas
+
+### Observation: "Thinking" vs "Confident" States
+
+From experiment data:
+- Players in a "thinking" state have been doing well
+- Players in a "confident" state have been making bad decisions
+
+This suggests **overconfidence hurts overall play**, even though intuition says confidence should help.
+
+### Hypothesis: Confidence Affects Different Decisions Differently
+
+| Decision Type | High Confidence | Low Confidence |
+|---------------|-----------------|----------------|
+| **Bluffing** | ✅ Helps (commits, good timing) | ❌ Hurts (hesitant, gives up) |
+| **Calling** | ❌ Hurts (hero calls, doesn't fold) | ✅ Helps? (more disciplined) |
+
+Confident players might bluff well but leak chips on bad calls.
+
+### Idea: Decision vs Execution Model
+
+Instead of traits affecting **frequency** of decisions, they affect **quality** of execution:
+
+```
+STRATEGY TRAITS (WHAT to do)          MENTAL STATE (HOW WELL)
+─────────────────────────────         ─────────────────────────
+
+tightness  → which hands to play      confidence → bluff execution
+aggression → how often to bet         composure  → call/fold execution
+```
+
+Example:
+- AI decides to bluff (based on strategy + situation)
+- **High confidence** → executes well (right sizing, commits)
+- **Low confidence** → executes poorly (hesitant, weird sizing)
+
+Example:
+- AI decides to call (based on pot odds + hand strength)
+- **High composure** → executes well (disciplined, correct spots)
+- **Low composure** → executes poorly (hero calls, revenge calls)
+
+### This Explains the Data
+
+| State | Confidence | Composure | Bluff Execution | Call Execution | Overall |
+|-------|------------|-----------|-----------------|----------------|---------|
+| **Thinking** | Mid | High | ✅ Good | ✅ Good | ✅ Best |
+| **Confident** | High | Mid | ✅ Great | ❌ Poor | ⚠️ Mixed |
+| **Cautious** | Low | High | ❌ Poor | ✅ Good | ⚠️ Tight |
+| **Manic Tilt** | High | Low | ✅ Great | ❌ Terrible | ❌ Bad |
+| **Defeated Tilt** | Low | Low | ❌ Poor | ❌ Poor | ❌ Worst |
+
+"Thinking" wins because **both** bluffs and calls are executed well.
+
+### Possible Simplification: 4 Core Traits
+
+```python
+@dataclass
+class PokerPsychology:
+    # Strategy (WHAT to do)
+    tightness: float      # Hand selection, continue thresholds
+    aggression: float     # Bet/raise frequency
+
+    # Execution (HOW WELL)
+    confidence: float     # Bluff execution quality
+    composure: float      # Call/fold execution quality
+
+    # table_talk could be derived from confidence + composure
+```
+
+### Questions to Resolve
+
+1. **Should confidence only affect bluffs?** Or does it also help value betting?
+
+2. **Is "thinking" the optimal state?** High composure + moderate confidence = best play?
+
+3. **How to represent in prompts?**
+   - Current: "You feel confident"
+   - New: "You're executing bluffs well but making loose calls"
+
+4. **Does this change the emotion mapping?**
+   - High confidence = good at bluffs, bad at calls → mixed emotion?
+   - Or keep simple quadrant model?
+
+5. **Should we test this model?** Run experiment comparing:
+   - High confidence + high composure
+   - Mid confidence + high composure ("thinking")
+   - See which actually performs better
+
+---
+
 ## Related Documentation
 
 - [PSYCHOLOGY_DESIGN.md](/docs/technical/PSYCHOLOGY_DESIGN.md) - Current design goals
