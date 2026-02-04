@@ -28,6 +28,9 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-text-muted, #777);
+  white-space: nowrap;
+  width: 100%;
+  text-align: center;
 }
 
 .stat-value {
@@ -92,6 +95,66 @@
   height: 100%;
   border-radius: 2px;
   transition: width 0.3s ease;
+}
+
+/* Player stats row */
+.stats-player-row {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md, 8px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stats-player-label {
+  font-family: var(--font-display, sans-serif);
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted, #777);
+  flex-shrink: 0;
+}
+
+.stats-player-values {
+  display: flex;
+  flex: 1;
+  justify-content: space-around;
+  gap: 6px;
+}
+
+.stats-player-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.stats-player-key {
+  font-family: var(--font-display, sans-serif);
+  font-size: 8px;
+  font-weight: var(--font-weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted, #666);
+}
+
+.stats-player-val {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-text-primary, #eee);
+}
+
+.stats-player-style {
+  font-family: var(--font-body, sans-serif);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold, 600);
+  text-transform: capitalize;
+  color: var(--color-gold, #d4a574);
 }
 
 /* Recommendation strip */

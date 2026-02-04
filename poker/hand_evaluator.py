@@ -1,4 +1,5 @@
 from collections import Counter
+from typing import Dict, List
 
 
 # Mapping from numeric rank values to display names
@@ -7,6 +8,50 @@ RANK_DISPLAY_NAMES = {
     9: '9', 8: '8', 7: '7', 6: '6', 5: '5',
     4: '4', 3: '3', 2: '2', 1: 'A'  # 1 for Ace-low straight
 }
+
+# Mapping from rank character to numeric value (for board connection analysis)
+RANK_CHAR_TO_VALUE = {
+    'A': 14, 'K': 13, 'Q': 12, 'J': 11, 'T': 10,
+    '9': 9, '8': 8, '7': 7, '6': 6, '5': 5,
+    '4': 4, '3': 3, '2': 2
+}
+
+
+def _has_straight_draw(sorted_ranks: List[int]) -> bool:
+    """Check if there are 4 cards to a straight (OESD or gutshot).
+
+    Uses a sliding window approach: 4 unique ranks within any 5-rank window
+    is a straight draw (either open-ended or gutshot).
+
+    Args:
+        sorted_ranks: List of unique rank values, sorted ascending
+
+    Returns:
+        True if any 5-rank window contains 4+ cards
+
+    Examples:
+        [4, 5, 6, 7] -> True (OESD: 4-5-6-7)
+        [2, 5, 6, 7, 8] -> True (OESD: 5-6-7-8)
+        [7, 9, 10, 11] -> True (gutshot: J-T-9-7, needs 8)
+        [2, 3, 4, 14] -> True (wheel gutshot: A-4-3-2, needs 5)
+        [2, 4, 6, 8] -> False (no 4 in any 5-rank window)
+    """
+    if len(sorted_ranks) < 4:
+        return False
+
+    # Handle ace-low straight draws (A-2-3-4-5 wheel)
+    ranks = list(sorted_ranks)
+    if 14 in ranks:
+        ranks = [1] + ranks  # Add ace as 1 for wheel draws
+
+    # Check each possible 5-rank window
+    for start_rank in ranks:
+        window_end = start_rank + 4
+        count = sum(1 for r in ranks if start_rank <= r <= window_end)
+        if count >= 4:
+            return True
+
+    return False
 
 
 def rank_to_display(value: int) -> str:
@@ -174,3 +219,90 @@ class HandEvaluator:
             kickers = sorted([card for card in self.ranks if card != pair], reverse=True)[:3]
             return True, [pair]*2, kickers, None, f"One Pair, {rank_to_display(pair)}'s"
         return False, [], [], None, None
+
+    @staticmethod
+    def get_board_connection(hole_cards: List[str], board_cards: List[str]) -> Dict:
+        """Check how hole cards connect with the board.
+
+        Used for weighting opponent hand sampling in equity calculations.
+        Hands that "hit" the board are sampled more frequently when opponent
+        has shown postflop aggression.
+
+        Args:
+            hole_cards: ['Ah', 'Kd'] - two hole cards as strings
+            board_cards: ['Qs', '7h', '2c'] - board cards as strings
+
+        Returns:
+            Dict with:
+            - connects: bool (has pair+, overpair, underpair, or draw)
+            - has_pair: bool (card rank matches board rank)
+            - has_overpair: bool (pocket pair > all board ranks)
+            - has_underpair: bool (pocket pair < max board rank)
+            - has_flush_draw: bool (suited hole cards + 2 of that suit on board)
+            - has_straight_draw: bool (4 to a straight, OESD or gutshot)
+            - weight: float (2.0 for pair/overpair, 1.5 for draws/underpair, 0.5 for air)
+
+        Examples:
+            ['Ah', 'Kd'] + ['As', '7h', '2c'] -> has_pair=True, weight=2.0
+            ['Qh', 'Qd'] + ['Js', '7h', '2c'] -> has_overpair=True, weight=2.0
+            ['2h', '2d'] + ['As', 'Kh', 'Qc'] -> has_underpair=True, weight=1.5
+            ['Ah', 'Kh'] + ['Qh', '7h', '2c'] -> has_flush_draw=True, weight=1.5
+            ['9h', '8d'] + ['7s', '6h', '2c'] -> has_straight_draw=True, weight=1.5
+            ['Jh', 'Td'] + ['Qs', '9h', '2c'] -> has_straight_draw=True (gutshot), weight=1.5
+            ['Ah', 'Kd'] + ['7s', '5h', '2c'] -> connects=False, weight=0.5
+        """
+        if not board_cards:
+            return {'connects': False, 'weight': 1.0}
+
+        # Parse cards - handle both 'Ah' and '10h' formats
+        def parse_rank(card: str) -> int:
+            if card.startswith('10'):
+                return 10
+            return RANK_CHAR_TO_VALUE.get(card[0], 0)
+
+        def parse_suit(card: str) -> str:
+            return card[-1]  # Last character is always the suit
+
+        hole_ranks = [parse_rank(c) for c in hole_cards]
+        hole_suits = [parse_suit(c) for c in hole_cards]
+        board_ranks = [parse_rank(c) for c in board_cards]
+        board_suits = [parse_suit(c) for c in board_cards]
+
+        # Check pair (hole card rank matches board rank)
+        has_pair = any(r in board_ranks for r in hole_ranks)
+
+        # Check overpair (pocket pair > all board ranks)
+        is_pocket_pair = hole_ranks[0] == hole_ranks[1]
+        has_overpair = is_pocket_pair and hole_ranks[0] > max(board_ranks)
+
+        # Check underpair (pocket pair < max board rank, not hitting set)
+        has_underpair = is_pocket_pair and hole_ranks[0] < max(board_ranks) and not has_pair
+
+        # Check flush draw (suited hole cards + 2 of that suit on board)
+        is_suited = hole_suits[0] == hole_suits[1]
+        suit_count = board_suits.count(hole_suits[0]) if is_suited else 0
+        has_flush_draw = is_suited and suit_count >= 2
+
+        # Check straight draw (4 to a straight)
+        all_ranks = sorted(set(hole_ranks + board_ranks))
+        has_straight_draw = _has_straight_draw(all_ranks)
+
+        connects = has_pair or has_overpair or has_underpair or has_flush_draw or has_straight_draw
+
+        # Calculate sampling weight
+        if has_pair or has_overpair:
+            weight = 2.0  # Made hand (pair with board or overpair)
+        elif has_underpair or has_flush_draw or has_straight_draw:
+            weight = 1.5  # Draw or weak made hand (underpair)
+        else:
+            weight = 0.5  # Air
+
+        return {
+            'connects': connects,
+            'has_pair': has_pair,
+            'has_overpair': has_overpair,
+            'has_underpair': has_underpair,
+            'has_flush_draw': has_flush_draw,
+            'has_straight_draw': has_straight_draw,
+            'weight': weight,
+        }

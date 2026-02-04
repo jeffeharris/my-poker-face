@@ -53,6 +53,15 @@ class EvidenceRules:
     automatic_regression: float = 0.70    # Window accuracy to regress from automatic
     introduced_min_opps: int = 3          # Min opps before introduced -> practicing
 
+    def __post_init__(self):
+        if not (0 <= self.regression_threshold < self.advancement_threshold <= 1.0):
+            raise ValueError(
+                f"Invalid thresholds: regression ({self.regression_threshold}) "
+                f"must be < advancement ({self.advancement_threshold})"
+            )
+        if self.window_size <= 0:
+            raise ValueError(f"window_size must be positive, got {self.window_size}")
+
 
 # ---------------------------------------------------------------------------
 # Player state dataclasses
@@ -66,6 +75,7 @@ class PlayerSkillState:
     total_opportunities: int = 0
     total_correct: int = 0
     window_opportunities: int = 0
+    # window_correct is intentionally denormalized from window_decisions for DB read efficiency
     window_correct: int = 0
     window_decisions: tuple = ()
     streak_correct: int = 0

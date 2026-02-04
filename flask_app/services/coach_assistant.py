@@ -4,9 +4,10 @@ Provides a CoachAssistant that wraps the core Assistant class
 with a poker-coaching system prompt and stat formatting.
 """
 
+import json
 import logging
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional, TypedDict
 
 from core.llm.assistant import Assistant
 from core.llm.tracking import CallType
@@ -20,11 +21,25 @@ You are a professional poker coach helping a player in real-time during a game.
 
 Rules:
 - I will provide pre-calculated statistics. Reference them directly - do not recalculate.
+- CRITICAL: Only recommend actions from the "Available actions" list. If raise/bet is not listed, don't suggest it (e.g., when all opponents are all-in, you can only call or fold).
+- Consider position when giving advice: early position requires tighter ranges, late position allows wider opening ranges.
+- Note opponent stack sizes and all-in status — this affects what actions make sense.
 - Be concise and actionable. For proactive tips: 1-2 sentences max. For questions: 2-3 short paragraphs.
 - Explain the math simply (e.g., "You need 22% equity to call, and you have 45% — easy call")
 - Mention opponent tendencies when relevant
 - Be encouraging but honest about mistakes
 - Use poker terminology naturally but explain concepts for beginners when asked
+
+RESPONSE FORMAT: Always respond with valid JSON in this exact format:
+{
+  "advice": "Your coaching message here (1-2 sentences for tips, 2-3 paragraphs for questions)",
+  "action": "fold" | "check" | "call" | "raise" | null,
+  "raise_to": <total chip amount if action is raise, omit otherwise>
+}
+
+- Set "action" to the action you recommend from Available actions, or null if you want the player to figure it out themselves.
+- For raises, include "raise_to" with the specific total chip amount (not the raise increment).
+- If no specific action recommendation, set "action" to null.
 """
 
 LEARN_MODE_PROMPT = """\
@@ -52,6 +67,7 @@ You are in REVIEW mode. Analyze what just happened.
 PROACTIVE_TIP_PROMPT = """\
 Given these stats, provide a brief 1-2 sentence coaching tip for the player's current situation. \
 If a SKILL FOCUS is listed, your tip MUST teach or reinforce that specific concept using the current hand as an example. \
+Start with the key action or insight — no preamble, no filler words, no greeting. \
 Be direct and actionable.\
 """
 
@@ -81,6 +97,81 @@ _MODE_PROMPTS = {
 }
 
 
+class CoachResponse(TypedDict, total=False):
+    """Structured coach response with advice and optional action recommendation."""
+    advice: str
+    action: Optional[str]  # 'fold', 'check', 'call', 'raise', or None
+    raise_to: Optional[int]
+
+
+def _normalize_action(action: Optional[str], available_actions: List[str]) -> Optional[str]:
+    """Normalize LLM action output to canonical form and validate against available actions."""
+    if not action:
+        return None
+
+    action_lower = action.lower().strip()
+
+    # Map variations to canonical actions
+    if action_lower in ('bet', 'raise', 'all-in', 'allin', 'all in', 'all_in'):
+        normalized = 'raise'
+    elif action_lower in ('check', 'pass'):
+        normalized = 'check'
+    elif action_lower in ('call', 'match'):
+        normalized = 'call'
+    elif action_lower in ('fold', 'muck'):
+        normalized = 'fold'
+    else:
+        normalized = action_lower
+
+    # Validate against available actions (bet/raise are interchangeable)
+    if normalized == 'raise' and ('raise' in available_actions or 'bet' in available_actions):
+        return 'raise'
+    if normalized in available_actions:
+        return normalized
+
+    # Action not available - return None to fall back to GTO
+    logger.warning(f"Coach suggested unavailable action '{action}' (normalized: '{normalized}'), ignoring")
+    return None
+
+
+def _parse_coach_response(response: str, coaching_data: Dict) -> CoachResponse:
+    """Parse JSON response from coach LLM, falling back gracefully on failure."""
+    available_actions = coaching_data.get('available_actions', [])
+
+    try:
+        data = json.loads(response)
+        advice = data.get('advice', response)
+        raw_action = data.get('action')
+        raise_to = data.get('raise_to')
+
+        # Normalize and validate action
+        action = _normalize_action(raw_action, available_actions)
+
+        # Validate raise_to is a reasonable number (round floats to nearest int)
+        if raise_to is not None:
+            try:
+                raise_to = int(round(float(raise_to)))
+                if raise_to <= 0:
+                    raise_to = None
+            except (ValueError, TypeError):
+                raise_to = None
+
+        return CoachResponse(
+            advice=advice,
+            action=action,
+            raise_to=raise_to if action == 'raise' else None,
+        )
+    except json.JSONDecodeError as e:
+        logger.warning(f"Coach response JSON parse failed: {e}, raw: {response[:200]}")
+        # Truncate and clean up raw response for display
+        cleaned = response.strip()[:500] if response else "I couldn't format my response properly."
+        return CoachResponse(
+            advice=cleaned,
+            action=None,
+            raise_to=None,
+        )
+
+
 class CoachAssistant:
     """LLM-powered poker coaching assistant."""
 
@@ -89,7 +180,7 @@ class CoachAssistant:
         self.mode = mode
         system_prompt = COACH_SYSTEM_PROMPT
         if player_name:
-            system_prompt += f"\nThe player's name is {player_name}. Address them by name occasionally."
+            system_prompt += f"\nThe player's name is {player_name}. Use their name sparingly — at most once every few messages, never in proactive tips."
         if mode and mode in _MODE_PROMPTS:
             system_prompt += f"\n\n{_MODE_PROMPTS[mode]}"
         if skill_context:
@@ -103,17 +194,25 @@ class CoachAssistant:
             owner_id=owner_id,
         )
 
-    def ask(self, question: str, coaching_data: Dict) -> str:
-        """Answer a coaching question with current game stats as context."""
+    def ask(self, question: str, coaching_data: Dict) -> CoachResponse:
+        """Answer a coaching question with current game stats as context.
+
+        Returns a CoachResponse dict with 'advice', 'action', and optional 'raise_to'.
+        """
         stats_text = _format_stats_for_prompt(coaching_data)
         message = f"Current stats:\n{stats_text}\n\nPlayer question: {question}"
-        return self._assistant.chat(message)
+        response = self._assistant.chat(message, json_format=True)
+        return _parse_coach_response(response, coaching_data)
 
-    def get_proactive_tip(self, coaching_data: Dict) -> str:
-        """Generate a brief proactive coaching tip."""
+    def get_proactive_tip(self, coaching_data: Dict) -> CoachResponse:
+        """Generate a brief proactive coaching tip.
+
+        Returns a CoachResponse dict with 'advice', 'action', and optional 'raise_to'.
+        """
         stats_text = _format_stats_for_prompt(coaching_data)
         message = f"Current stats:\n{stats_text}\n\n{PROACTIVE_TIP_PROMPT}"
-        return self._assistant.chat(message)
+        response = self._assistant.chat(message, json_format=True)
+        return _parse_coach_response(response, coaching_data)
 
     def review_hand(self, hand_context_text: str) -> str:
         """Generate a post-hand review."""
@@ -126,10 +225,30 @@ def _format_stats_for_prompt(data: Dict) -> str:
     lines = []
 
     lines.append(f"Phase: {data.get('phase', '?')}")
-    lines.append(f"Position: {data.get('position', '?')}")
-    lines.append(f"Stack: ${data.get('stack', 0)}")
+
+    # Position with context
+    position = data.get('position', '?')
+    position_context = data.get('position_context', '')
+    if position_context:
+        lines.append(f"Position: {position} ({position_context})")
+    else:
+        lines.append(f"Position: {position}")
+
+    big_blind = data.get('big_blind', 0)
+    stack = data.get('stack', 0)
+    if big_blind > 0:
+        # Small blind is half big blind (truncated), matching poker/poker_game.py:722
+        lines.append(f"Blinds: ${big_blind // 2}/${big_blind}")
+        lines.append(f"Stack: ${stack} ({stack // big_blind} BB)")
+    else:
+        lines.append(f"Stack: ${stack}")
     lines.append(f"Pot: ${data.get('pot_total', 0)}")
     lines.append(f"Cost to call: ${data.get('cost_to_call', 0)}")
+
+    # Available actions - critical for valid recommendations
+    available = data.get('available_actions', [])
+    if available:
+        lines.append(f"Available actions: {', '.join(available)}")
 
     equity = data.get('equity')
     if equity is not None:
@@ -169,6 +288,15 @@ def _format_stats_for_prompt(data: Dict) -> str:
         lines.append("Opponents:")
         for opp in opponents:
             parts = [opp['name']]
+
+            # Stack and all-in status (critical for valid recommendations)
+            stack = opp.get('stack')
+            is_all_in = opp.get('is_all_in', False)
+            if is_all_in:
+                parts.append("ALL-IN")
+            elif stack is not None:
+                parts.append(f"${stack}")
+
             if opp.get('style') and opp['style'] != 'unknown':
                 parts.append(opp['style'])
             if opp.get('vpip') is not None:

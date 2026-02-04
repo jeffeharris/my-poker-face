@@ -322,8 +322,8 @@ class TestOpponentTendencies(unittest.TestCase):
         self.assertEqual(tendencies.get_play_style_label(), "unknown")
 
         # Simulate tight-aggressive (low VPIP, high AF)
-        tendencies.hands_observed = 10
-        tendencies._vpip_count = 2  # 20% VPIP
+        tendencies.hands_observed = 15  # MIN_HANDS_FOR_STYLE_LABEL threshold
+        tendencies._vpip_count = 3  # 20% VPIP
         tendencies._bet_raise_count = 8
         tendencies._call_count = 2
         tendencies._recalculate_stats()
@@ -420,8 +420,8 @@ class TestOpponentModelManager(unittest.TestCase):
         """Test generating table summary for multiple opponents."""
         manager = OpponentModelManager()
 
-        # Build up some observations
-        for i in range(5):
+        # Build up some observations (MIN_HANDS_FOR_SUMMARY = 10)
+        for i in range(10):
             manager.observe_action("Alice", "Bob", "raise", "PRE_FLOP", hand_number=i)
             manager.observe_action("Alice", "Carol", "call", "PRE_FLOP", hand_number=i)
 

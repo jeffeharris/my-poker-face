@@ -26,14 +26,32 @@ class TestExperimentRoutes(unittest.TestCase):
         # Create repos using our test database
         repos = create_repos(self.test_db.name)
         self.experiment_repo = repos['experiment_repo']
+        self.personality_repo = repos['personality_repo']
 
-        # Create the Flask app
-        self.app = create_app()
+        # Patch init_persistence to use our test DB repos instead of creating new ones
+        def mock_init_persistence():
+            import flask_app.extensions as ext
+            ext.game_repo = repos['game_repo']
+            ext.user_repo = repos['user_repo']
+            ext.settings_repo = repos['settings_repo']
+            ext.personality_repo = repos['personality_repo']
+            ext.experiment_repo = repos['experiment_repo']
+            ext.prompt_capture_repo = repos['prompt_capture_repo']
+            ext.decision_analysis_repo = repos['decision_analysis_repo']
+            ext.prompt_preset_repo = repos['prompt_preset_repo']
+            ext.capture_label_repo = repos['capture_label_repo']
+            ext.replay_experiment_repo = repos['replay_experiment_repo']
+            ext.llm_repo = repos['llm_repo']
+            ext.guest_tracking_repo = repos['guest_tracking_repo']
+            ext.hand_history_repo = repos['hand_history_repo']
+            ext.tournament_repo = repos['tournament_repo']
+            ext.coach_repo = repos['coach_repo']
+            ext.persistence_db_path = repos['db_path']
+
+        with patch('flask_app.extensions.init_persistence', mock_init_persistence):
+            self.app = create_app()
         self.app.testing = True
-
-        # Patch the experiment_repo in extensions
-        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
-            self.client = self.app.test_client()
+        self.client = self.app.test_client()
 
     def tearDown(self):
         """Clean up temporary database."""
@@ -67,13 +85,14 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_get_personalities(self):
         """Test getting available personalities."""
-        response = self.client.get('/api/experiments/personalities')
-        data = response.get_json()
+        with patch('flask_app.routes.experiment_routes.personality_repo', self.personality_repo):
+            response = self.client.get('/api/experiments/personalities')
+            data = response.get_json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(data['success'])
-        self.assertIn('personalities', data)
-        self.assertIsInstance(data['personalities'], list)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(data['success'])
+            self.assertIn('personalities', data)
+            self.assertIsInstance(data['personalities'], list)
 
     def test_get_prompt_options(self):
         """Test getting prompt config options."""

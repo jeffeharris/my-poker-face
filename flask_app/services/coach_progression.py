@@ -167,6 +167,84 @@ class CoachProgressionService:
 
         return self.get_player_state(user_id)
 
+    def update_player_level(self, user_id: str, level: str) -> Dict:
+        """Update an existing player's coaching level without wiping stats.
+
+        Unlike initialize_player(), this method:
+        - Preserves all existing skill statistics
+        - Only unlocks additional gates for higher levels
+        - Only creates new skill states for newly unlocked gates
+        - Never overwrites existing skill data
+
+        Level determines which gates should be unlocked:
+        - beginner: Gate 1 only
+        - intermediate: Gates 1-2
+        - experienced: Gates 1-3
+        """
+        now = datetime.now().isoformat()
+
+        # Update profile level and mark onboarding as completed
+        self._coach_repo.save_coach_profile(
+            user_id, self_reported_level=level, effective_level=level,
+            onboarding_completed_at=now
+        )
+
+        now = datetime.now().isoformat()
+
+        # Load existing state to know what's already unlocked
+        existing_skills = self._coach_repo.load_all_skill_states(user_id)
+        existing_gates = self._coach_repo.load_gate_progress(user_id)
+
+        # Gate 1 is always unlocked - ensure it exists
+        if 1 not in existing_gates:
+            self._coach_repo.save_gate_progress(
+                user_id, GateProgress(gate_number=1, unlocked=True, unlocked_at=now)
+            )
+
+        # Determine which gates to unlock based on new level
+        gates_to_unlock = {1}  # Gate 1 always
+        if level in ('intermediate', 'experienced'):
+            gates_to_unlock.add(2)
+        if level == 'experienced':
+            gates_to_unlock.add(3)
+
+        # Unlock any gates that aren't already unlocked
+        for gate_num in gates_to_unlock:
+            if gate_num not in existing_gates or not existing_gates[gate_num].unlocked:
+                self._coach_repo.save_gate_progress(
+                    user_id, GateProgress(gate_number=gate_num, unlocked=True, unlocked_at=now)
+                )
+                logger.info(f"Unlocked gate {gate_num} for user {user_id} via level update to {level}")
+
+        # Initialize skills ONLY for newly unlocked gates (don't touch existing skills)
+        for gate_num in gates_to_unlock:
+            # Determine appropriate initial state for new skills in this gate
+            if level == 'beginner':
+                initial_state = SkillState.INTRODUCED
+            elif level == 'intermediate':
+                initial_state = SkillState.INTRODUCED if gate_num == 2 else SkillState.PRACTICING
+            else:  # experienced
+                if gate_num == 1:
+                    initial_state = SkillState.RELIABLE
+                elif gate_num == 2:
+                    initial_state = SkillState.PRACTICING
+                else:
+                    initial_state = SkillState.INTRODUCED
+
+            for skill_def in get_skills_for_gate(gate_num):
+                # Only create skill state if it doesn't exist - NEVER overwrite
+                if skill_def.skill_id not in existing_skills:
+                    ss = PlayerSkillState(
+                        skill_id=skill_def.skill_id,
+                        state=initial_state,
+                        first_seen_at=now,
+                    )
+                    self._coach_repo.save_skill_state(user_id, ss)
+                    logger.info(f"Created new skill {skill_def.skill_id} for user {user_id} "
+                                f"(gate {gate_num}, state={initial_state.value})")
+
+        return self.get_player_state(user_id)
+
     # ------------------------------------------------------------------
     # Coaching decision
     # ------------------------------------------------------------------

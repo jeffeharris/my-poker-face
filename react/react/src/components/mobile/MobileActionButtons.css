@@ -496,14 +496,29 @@
   color: var(--color-text-tertiary);
 }
 
-/* Coach recommendation highlight */
-.action-btn.coach-recommended {
-  box-shadow: 0 0 12px rgba(76, 175, 80, 0.5), 0 0 24px rgba(76, 175, 80, 0.2);
-  border: 1px solid rgba(76, 175, 80, 0.6);
+/* Coach recommendation highlights - color-matched to button type */
+
+/* Define glow colors per button type (RGB values for use in rgba()) */
+.fold-btn { --coach-glow: 244, 63, 94; }
+.check-btn { --coach-glow: 52, 211, 153; }
+.call-btn { --coach-glow: 59, 130, 246; }
+.raise-btn { --coach-glow: 212, 165, 116; }
+
+/* Shared coach recommendation styles */
+.fold-btn.coach-recommended,
+.check-btn.coach-recommended,
+.call-btn.coach-recommended,
+.raise-btn.coach-recommended {
+  box-shadow: 0 0 16px rgba(var(--coach-glow), 0.6), 0 0 32px rgba(var(--coach-glow), 0.3), var(--shadow-md);
+  border: 2px solid rgba(var(--coach-glow), 1);
   animation: coachPulse 2s ease-in-out infinite;
 }
 
 @keyframes coachPulse {
-  0%, 100% { box-shadow: 0 0 12px rgba(76, 175, 80, 0.5), 0 0 24px rgba(76, 175, 80, 0.2); }
-  50% { box-shadow: 0 0 18px rgba(76, 175, 80, 0.7), 0 0 36px rgba(76, 175, 80, 0.3); }
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(var(--coach-glow), 0.6), 0 0 32px rgba(var(--coach-glow), 0.3), var(--shadow-md);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(var(--coach-glow), 0.8), 0 0 48px rgba(var(--coach-glow), 0.4), var(--shadow-lg);
+  }
 }

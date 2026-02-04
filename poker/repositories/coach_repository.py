@@ -143,25 +143,30 @@ class CoachRepository(BaseRepository):
     # --- Coach Profile ---
 
     def save_coach_profile(self, user_id: str, self_reported_level: str = None,
-                           effective_level: str = 'beginner') -> None:
+                           effective_level: str = 'beginner',
+                           onboarding_completed_at: str = None) -> None:
         """Persist the player's coaching profile."""
         now = datetime.now().isoformat()
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO player_coach_profile
-                    (user_id, self_reported_level, effective_level, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                    (user_id, self_reported_level, effective_level, created_at, updated_at,
+                     onboarding_completed_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     self_reported_level = excluded.self_reported_level,
                     effective_level = excluded.effective_level,
-                    updated_at = excluded.updated_at
-            """, (user_id, self_reported_level, effective_level, now, now))
+                    updated_at = excluded.updated_at,
+                    onboarding_completed_at = COALESCE(excluded.onboarding_completed_at,
+                                                       player_coach_profile.onboarding_completed_at)
+            """, (user_id, self_reported_level, effective_level, now, now, onboarding_completed_at))
 
     def load_coach_profile(self, user_id: str) -> Optional[Dict]:
         """Load coaching profile. Returns dict or None."""
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT user_id, self_reported_level, effective_level, created_at, updated_at "
+                "SELECT user_id, self_reported_level, effective_level, created_at, updated_at, "
+                "onboarding_completed_at "
                 "FROM player_coach_profile WHERE user_id = ?",
                 (user_id,),
             )
@@ -174,6 +179,7 @@ class CoachRepository(BaseRepository):
                 'effective_level': row[2],
                 'created_at': row[3],
                 'updated_at': row[4],
+                'onboarding_completed_at': row[5],
             }
 
     # --- Metrics queries (admin) ---

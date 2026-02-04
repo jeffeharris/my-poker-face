@@ -498,7 +498,7 @@ class AIMemoryManager:
         count = 0
 
         for model in opponent_models.values():
-            if model.tendencies.hands_observed >= 5:  # Need enough data
+            if model.tendencies.hands_observed >= 15:  # Need enough data (sync with poker/config.py)
                 avg_tendencies['aggression_factor'] += model.tendencies.aggression_factor
                 avg_tendencies['bluff_frequency'] += model.tendencies.bluff_frequency
                 avg_tendencies['vpip'] += model.tendencies.vpip

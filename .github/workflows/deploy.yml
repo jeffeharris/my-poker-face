@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       test_mode:
@@ -80,10 +81,33 @@ jobs:
   test-e2e:
     name: Test E2E (Playwright)
     runs-on: ubuntu-latest
+    # Only run E2E when:
+    # - Pushed to main
+    # - Manual trigger
+    # - PR is marked ready for review (with frontend/backend changes)
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.action == 'ready_for_review')
     steps:
       - uses: actions/checkout@v6
 
+      - name: Check for relevant changes
+        if: github.event_name == 'pull_request'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            e2e_relevant:
+              - 'react/**'
+              - 'flask_app/**'
+
+      - name: Skip if no relevant changes
+        if: github.event_name == 'pull_request' && steps.filter.outputs.e2e_relevant != 'true'
+        run: echo "No changes to react/** or flask_app/**, skipping E2E tests"
+
       - name: Create test environment file
+        if: github.event_name != 'pull_request' || steps.filter.outputs.e2e_relevant == 'true'
         run: |
           printf '%s\n' \
             'FLASK_ENV=development' \
@@ -96,19 +120,20 @@ jobs:
             > .env
 
       - name: Run E2E tests
+        if: github.event_name != 'pull_request' || steps.filter.outputs.e2e_relevant == 'true'
         run: |
           TEST_MODE=${{ inputs.test_mode || 'mock' }} \
           docker compose -f docker-compose.yml -f docker-compose.test.yml \
             up --build --exit-code-from playwright playwright
 
       - name: Copy test results from container
-        if: failure()
+        if: failure() && (github.event_name != 'pull_request' || steps.filter.outputs.e2e_relevant == 'true')
         run: |
           docker compose -f docker-compose.yml -f docker-compose.test.yml \
             cp playwright:/app/test-results ./playwright-results 2>/dev/null || true
 
       - name: Upload test results
-        if: failure()
+        if: failure() && (github.event_name != 'pull_request' || steps.filter.outputs.e2e_relevant == 'true')
         uses: actions/upload-artifact@v6
         with:
           name: playwright-report
