@@ -457,14 +457,12 @@ export async function navigateToGamePage(
     localStorage.setItem('currentUser', u);
   }, user);
   await page.goto(`/game/${gameId}`);
-  // Wait for main UI (not loading state) - use data-testid to avoid matching .mobile-poker-table during loading
+  // Wait for main UI - data-testid is unique to loaded state, unlike CSS class which exists in both loading and loaded states
   await expect(page.getByTestId('mobile-poker-table')).toBeVisible({ timeout: 10000 });
-  // Wait for socket connection (reconnecting overlay should not be visible)
-  await expect(page.getByTestId('reconnecting-overlay')).not.toBeVisible({ timeout: 5000 });
-  // Wait for action area to be stable (Safari needs extra time for layout to settle after animations)
+  // Wait for socket connection using data-connected attribute (deterministic vs arbitrary timeout)
+  await expect(page.getByTestId('mobile-poker-table')).toHaveAttribute('data-connected', 'true', { timeout: 5000 });
+  // Wait for action area to be stable
   await expect(page.getByTestId('action-btn-chat')).toBeVisible({ timeout: 5000 });
-  // Small delay to let any CSS transitions/animations complete - WebKit needs this for stability
-  await page.waitForTimeout(500);
 }
 
 // ─── Common mock setup for menu-page tests ───

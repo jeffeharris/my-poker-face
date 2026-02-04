@@ -15,5 +15,6 @@ EXPOSE 5173
 
 # Run Playwright tests (Vite dev server auto-starts via webServer config)
 # Safari runs with --workers=1 to avoid WebKit timing issues under parallel load
-# Chrome runs with default parallelism for speed
-CMD ["sh", "-c", "npx playwright test --project='Mobile Safari' --workers=1 --reporter=list && npx playwright test --project='Mobile Chrome' --workers=4 --reporter=list"]
+# Chrome runs with parallelism (4 workers) for speed
+# Both suites run regardless of individual failures; exit code reflects if either failed
+CMD ["sh", "-c", "EXIT_CODE=0; npx playwright test --project='Mobile Safari' --workers=1 --reporter=list || EXIT_CODE=$?; npx playwright test --project='Mobile Chrome' --workers=4 --reporter=list || EXIT_CODE=$?; exit $EXIT_CODE"]
