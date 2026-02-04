@@ -7,7 +7,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  // Safari runs serially in CI (fullyParallel: false), so workers only affects Chrome
+  // Default worker count; can be overridden per-project via CLI (e.g., --workers=1 for Safari in Dockerfile.playwright)
   workers: process.env.CI ? 4 : 8,
   reporter: 'list',
   use: {
