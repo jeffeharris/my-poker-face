@@ -54,22 +54,25 @@ class TestBaseRepository(unittest.TestCase):
 
     def test_different_threads_get_different_connections(self):
         """Different threads should get different connection objects."""
-        ids = []
+        connections = []
+        barrier = threading.Barrier(2)  # Ensure both threads hold connections simultaneously
 
-        def get_conn_id():
+        def get_conn():
             with self.repo._get_connection() as conn:
-                ids.append(id(conn))
+                connections.append(conn)
+                barrier.wait()  # Wait for both threads to have their connections
             self.repo.close()  # Clean up thread-local connection
 
-        t1 = threading.Thread(target=get_conn_id)
-        t2 = threading.Thread(target=get_conn_id)
+        t1 = threading.Thread(target=get_conn)
+        t2 = threading.Thread(target=get_conn)
         t1.start()
         t2.start()
         t1.join()
         t2.join()
 
-        self.assertEqual(len(ids), 2)
-        self.assertNotEqual(ids[0], ids[1])
+        self.assertEqual(len(connections), 2)
+        # Compare IDs while both connections are still referenced (not freed)
+        self.assertNotEqual(id(connections[0]), id(connections[1]))
 
     def test_commit_on_success(self):
         with self.repo._get_connection() as conn:
