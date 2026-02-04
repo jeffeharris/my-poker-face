@@ -59,7 +59,9 @@ IMAGE SHOWN TO USER
 
 ---
 
-## Difficulty Scaling
+## Difficulty Scaling (Planned)
+
+> **Note:** This feature is not yet implemented. The design below describes planned functionality.
 
 Psychology's influence on AI behavior is controlled by a `difficulty_multiplier`:
 
@@ -206,7 +208,7 @@ GROUP BY player_name
 
 ## Pressure Events
 
-Events that modify psychological state. See [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) for full catalog.
+Events that modify psychological state.
 
 ### Event Categories
 
@@ -274,7 +276,5 @@ Before shipping psychology changes:
 
 ## Related Documentation
 
-- [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) - Event catalog and detection
 - [AI_PSYCHOLOGY_SYSTEMS.md](AI_PSYCHOLOGY_SYSTEMS.md) - System architecture
 - [ELASTICITY_SYSTEM.md](ELASTICITY_SYSTEM.md) - Trait mechanics
-- [EQUITY_PRESSURE_DETECTION.md](EQUITY_PRESSURE_DETECTION.md) - Equity-based events
