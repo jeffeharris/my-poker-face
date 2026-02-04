@@ -98,45 +98,11 @@ class PressureEventDetector:
             loser_names = [p.name for p in players_with_chips if p.name not in winner_names]
             if loser_names:
                 events.append(("headsup_loss", loser_names))
-        
-        # Detect bad beat (strong hand loses)
-        if len(active_players) > 1 and winner_names:
-            # Find second-best hand
-            losers_with_hands = []
-            for player in active_players:
-                if player.name not in winner_names:
-                    # Convert cards to proper format for HandEvaluator
-                    player_cards = []
-                    for card in player.hand:
-                        if hasattr(card, 'to_dict'):
-                            player_cards.append(card)
-                        else:
-                            # Convert dict to Card object
-                            from core.card import Card
-                            player_cards.append(Card(card['rank'], card['suit']))
-                    
-                    community_cards = []
-                    for card in game_state.community_cards:
-                        if hasattr(card, 'to_dict'):
-                            community_cards.append(card)
-                        else:
-                            from core.card import Card
-                            community_cards.append(Card(card['rank'], card['suit']))
-                    
-                    hand_result = HandEvaluator(
-                        player_cards + community_cards
-                    ).evaluate_hand()
-                    losers_with_hands.append((player.name, hand_result['hand_rank']))
-            
-            if losers_with_hands:
-                # Sort by hand rank (lower is better)
-                losers_with_hands.sort(key=lambda x: x[1])
-                second_best_name, second_best_rank = losers_with_hands[0]
-                
-                # Bad beat: very strong hand loses
-                if second_best_rank <= 4 and winner_hand_rank > second_best_rank:
-                    events.append(("bad_beat", [second_best_name]))
-        
+
+        # Note: bad_beat detection removed from here to avoid duplicates.
+        # Equity-based bad_beat detection in detect_equity_events() is more accurate
+        # as it considers the player's actual winning probability, not just hand rank.
+
         return events
     
     def detect_fold_events(self, game_state: PokerGameState, 

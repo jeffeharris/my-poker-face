@@ -951,7 +951,12 @@ def api_new_game():
             'content': '***   GAME START   ***',
             'timestamp': datetime.now().isoformat(),
             'type': 'table'
-        }]
+        }],
+        # Stack tracking for pressure events (double_up, crippled, short_stack)
+        'hand_start_stacks': {
+            p.name: p.stack for p in state_machine.game_state.players
+        },
+        'short_stack_players': set(),  # No one is short at game start
     }
     game_state_service.set_game(game_id, game_data)
 

@@ -1120,15 +1120,38 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         except Exception as e:
             logger.warning(f"Memory manager hand completion failed: {e}")
 
-        # Persist equity history to database
+        # Persist equity history to database (with hand_history_id for joins)
         if equity_history and equity_history.snapshots:
             try:
                 from poker.repositories.hand_equity_repository import HandEquityRepository
+                from poker.equity_snapshot import HandEquityHistory
                 equity_repo = HandEquityRepository(hand_history_repo.db_path)
-                equity_repo.save_equity_history(equity_history)
-                logger.debug(
-                    f"[Game {game_id}] Saved {len(equity_history.snapshots)} equity snapshots"
+
+                # Get the hand_history_id that was just created
+                hand_history_id = hand_history_repo.get_hand_history_id(
+                    game_id, equity_history.hand_number
                 )
+
+                if hand_history_id:
+                    # Create new equity history with the actual ID for proper joins
+                    equity_history_with_id = HandEquityHistory(
+                        hand_history_id=hand_history_id,
+                        game_id=equity_history.game_id,
+                        hand_number=equity_history.hand_number,
+                        snapshots=equity_history.snapshots,
+                    )
+                    equity_repo.save_equity_history(equity_history_with_id)
+                    logger.debug(
+                        f"[Game {game_id}] Saved {len(equity_history.snapshots)} equity snapshots "
+                        f"with hand_history_id={hand_history_id}"
+                    )
+                else:
+                    # Fallback: save without ID (for backwards compatibility)
+                    equity_repo.save_equity_history(equity_history)
+                    logger.warning(
+                        f"[Game {game_id}] No hand_history_id found for hand {equity_history.hand_number}, "
+                        f"saving equity without ID"
+                    )
             except Exception as e:
                 logger.warning(f"[Game {game_id}] Failed to save equity history: {e}")
 

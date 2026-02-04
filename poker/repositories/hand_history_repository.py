@@ -2,7 +2,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from .base_repository import BaseRepository
 
@@ -49,6 +49,24 @@ class HandHistoryRepository(BaseRepository):
             hand_id = cursor.lastrowid
             logger.debug(f"Saved hand #{hand_dict['hand_number']} for game {hand_dict['game_id']}")
             return hand_id
+
+    def get_hand_history_id(self, game_id: str, hand_number: int) -> Optional[int]:
+        """Get the database ID for a hand history record.
+
+        Args:
+            game_id: The game identifier
+            hand_number: The hand number within the game
+
+        Returns:
+            The database ID if found, None otherwise
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT id FROM hand_history
+                WHERE game_id = ? AND hand_number = ?
+            """, (game_id, hand_number))
+            row = cursor.fetchone()
+            return row['id'] if row else None
 
     # Hand Commentary Persistence Methods
     def save_hand_commentary(self, game_id: str, hand_number: int, player_name: str,
