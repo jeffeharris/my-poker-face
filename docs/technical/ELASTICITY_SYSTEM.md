@@ -2,6 +2,26 @@
 
 ## Recent Updates
 
+### 2026-02-04: 5-Trait Poker-Native Model Migration
+The elasticity system has been migrated from the old 4-trait model to a new 5-trait poker-native model:
+
+**Old Model (Deprecated):**
+- bluff_tendency, aggression, chattiness, emoji_usage
+
+**New Model (Current):**
+| Trait | Range | Description |
+|-------|-------|-------------|
+| **tightness** | 0 (loose) to 1 (tight) | Range selectivity - how many hands they play |
+| **aggression** | 0 (passive) to 1 (aggressive) | Bet frequency - how often they bet/raise |
+| **confidence** | 0 (scared) to 1 (fearless) | Sizing/commitment - how big they bet |
+| **composure** | 0 (tilted) to 1 (focused) | Decision quality - replaces separate tilt system |
+| **table_talk** | 0 (silent) to 1 (chatty) | Chat frequency |
+
+**Key Changes:**
+- **Composure replaces TiltState**: Tilt is now tracked as a trait (composure), not a separate system
+- **Automatic conversion**: Old 4-trait personalities are auto-converted to 5-trait format
+- **Trait converter**: `poker/trait_converter.py` handles format detection and conversion
+
 ### 2026-02-03: Removed ElasticityManager
 - **Removed** `ElasticityManager` class - was a redundant wrapper
 - `ElasticPersonality` is now owned directly by `PlayerPsychology`
@@ -58,13 +78,14 @@ Key properties:
 Manages all elastic traits for a single AI personality. Owned by `PlayerPsychology`.
 
 Features:
-- Tracks multiple traits (bluff_tendency, aggression, chattiness, emoji_usage)
+- Tracks 5-trait poker-native model (tightness, aggression, confidence, composure, table_talk)
+- Auto-converts old 4-trait personalities to new format
 - Applies pressure events to modify traits
 - Manages mood vocabulary based on pressure levels
 - Supports trait recovery toward anchor values
 
 ```python
-# Create from personality config
+# Create from personality config (auto-converts old format)
 personality = ElasticPersonality.from_base_personality(name, personality_config)
 
 # Apply pressure events
@@ -88,28 +109,56 @@ Detectable events:
 
 ### 1. Pressure System
 
-Pressure accumulates from game events and affects trait values:
+Pressure accumulates from game events and affects trait values. The 5-trait model uses poker-native pressure events:
 
 ```python
 pressure_events = {
+    # Win events boost confidence, composure, aggression; reduce tightness
     "big_win": {
-        "aggression": +0.2,
-        "chattiness": +0.3,
-        "bluff_tendency": +0.1
+        "confidence": +0.20,
+        "composure": +0.15,
+        "aggression": +0.10,
+        "tightness": -0.05,    # Play slightly looser after wins
+        "table_talk": +0.15,
     },
+    # Loss events reduce confidence/composure, increase tightness
     "big_loss": {
-        "aggression": -0.3,
-        "chattiness": -0.2,
-        "emoji_usage": -0.1
-    }
+        "confidence": -0.15,
+        "composure": -0.25,
+        "tightness": +0.10,    # Tighten up after losses
+        "table_talk": -0.10,
+    },
+    # Bad beats heavily affect composure (tilting)
+    "bad_beat": {
+        "composure": -0.30,
+        "confidence": -0.10,
+        "tightness": +0.10,
+        "table_talk": -0.15,
+    },
+    # Bluff outcomes affect confidence and aggression
+    "successful_bluff": {
+        "confidence": +0.20,
+        "composure": +0.10,
+        "aggression": +0.15,
+        "tightness": -0.10,    # Looser after successful bluff
+        "table_talk": +0.10,
+    },
+    "bluff_called": {
+        "confidence": -0.20,
+        "composure": -0.15,
+        "aggression": -0.15,
+        "tightness": +0.15,    # Play tighter after failed bluff
+        "table_talk": -0.05,
+    },
 }
 ```
 
-When pressure exceeds a threshold (default 0.25), the trait value changes:
-1. Calculate change: `change = pressure * elasticity`
-2. Update value: `new_value = anchor + change`
-3. Clamp to bounds: `value = clamp(new_value, min, max)`
-4. Reduce pressure: `pressure *= 0.5`
+When pressure exceeds a threshold (default 0.1), the trait value changes:
+1. Immediate effect: `change = pressure * elasticity * 0.3`
+2. Accumulated effect: `change = pressure * elasticity * 0.5`
+3. Update value: `new_value = anchor + change`
+4. Clamp to bounds: `value = clamp(new_value, min, max)`
+5. Reduce pressure: `pressure *= 0.7`
 
 ### 2. Recovery Mechanism
 
@@ -236,13 +285,14 @@ AI controllers automatically save/restore their elastic personality through Play
 
 ## Configuration
 
-### Default Elasticity Values
+### Default Elasticity Values (5-Trait Model)
 ```python
 default_elasticities = {
-    'bluff_tendency': 0.3,
-    'aggression': 0.5,
-    'chattiness': 0.8,
-    'emoji_usage': 0.2
+    'tightness': 0.3,      # Moderate - playing style shifts under pressure
+    'aggression': 0.5,     # High - aggression shifts significantly
+    'confidence': 0.4,     # Moderate - confidence varies with results
+    'composure': 0.4,      # Moderate - composure affected by bad beats
+    'table_talk': 0.6,     # High - chattiness varies with mood
 }
 ```
 
@@ -252,12 +302,23 @@ You can provide custom elasticity configurations:
 ```python
 elasticity_config = {
     'trait_elasticity': {
-        'aggression': 0.9,  # Very elastic
-        'bluff_tendency': 0.1  # Not very elastic
+        'aggression': 0.9,   # Very elastic - swings with wins/losses
+        'composure': 0.2,    # Low elasticity - stays calm under pressure
+        'tightness': 0.1,    # Not very elastic - consistent style
     },
     'mood_elasticity': 0.6,
     'recovery_rate': 0.15
 }
+```
+
+### Old 4-Trait Config (Auto-Converted)
+If you have old-format personalities, they are automatically converted:
+```python
+# Old format (deprecated)
+old_traits = {'bluff_tendency': 0.8, 'aggression': 0.9, 'chattiness': 0.7, 'emoji_usage': 0.3}
+
+# Automatically becomes:
+new_traits = {'tightness': 0.32, 'aggression': 0.9, 'confidence': 0.78, 'composure': 0.7, 'table_talk': 0.62}
 ```
 
 ## Testing

@@ -62,10 +62,12 @@ Manages personality creation and storage with a smart lookup hierarchy:
   "default_confidence": "supreme",
   "default_attitude": "intense",
   "personality_traits": {
-    "bluff_tendency": 0.7,     // 0-1 scale
-    "aggression": 0.9,          // 0-1 scale
-    "chattiness": 0.8,          // 0-1 scale
-    "emoji_usage": 0.2          // 0-1 scale
+    // 5-trait poker-native model (Feb 2026)
+    "tightness": 0.3,       // 0-1 scale: 0=loose, 1=tight
+    "aggression": 0.9,      // 0-1 scale: 0=passive, 1=aggressive
+    "confidence": 0.8,      // 0-1 scale: 0=scared, 1=fearless
+    "composure": 0.7,       // 0-1 scale: 0=tilted, 1=focused
+    "table_talk": 0.8       // 0-1 scale: 0=silent, 1=chatty
   },
   "verbal_tics": [
     "This hand is RAW!",
@@ -214,18 +216,21 @@ Gordon Ramsay (AI):
       "default_confidence": "certain",
       "default_attitude": "aloof",
       "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.5,
-        "chattiness": 0.6,
-        "emoji_usage": 0.0
+        "tightness": 0.7,      // Selective about hands
+        "aggression": 0.5,     // Moderate betting
+        "confidence": 0.8,     // High confidence
+        "composure": 0.9,      // Very composed under pressure
+        "table_talk": 0.6      // Moderate commentary
       }
     }
   }
 }
 ```
 
+> Note: Old 4-trait personalities (bluff_tendency, chattiness, emoji_usage) are auto-converted.
+
 2. **Via AI Generation:**
-Simply use a new name - the system will generate an appropriate personality automatically.
+Simply use a new name - the system will generate an appropriate personality automatically using the 5-trait model.
 
 3. **Via Database:**
 Personalities can be imported/exported or manually added to the SQLite database.
@@ -244,25 +249,26 @@ Modify these files to adjust AI behavior:
 - **Token Usage**: ~500-1000 tokens per decision
 - **Persistence**: Full state can be saved/loaded
 
-## Personality Elasticity Integration (NEW)
+## Personality Elasticity Integration
 
-The AI Player System now includes dynamic personality traits that change during gameplay through the Elasticity System.
+The AI Player System includes dynamic 5-trait personalities that change during gameplay through the Elasticity System.
 
 ### How Elasticity Works with AI Players
 
-1. **Trait Modification**: Each personality trait (bluff_tendency, aggression, etc.) can elastically change within defined bounds based on game events.
+1. **Trait Modification**: Each personality trait (tightness, aggression, confidence, composure, table_talk) elastically changes within defined bounds based on game events.
 
-2. **Mood Updates**: The AI's confidence and attitude update based on accumulated pressure:
+2. **Pressure Events**: Events route through PlayerPsychology:
    ```python
-   # In AIPokerPlayer
-   ai_player.apply_pressure_event('big_loss')  # Reduces aggression
-   ai_player.update_mood_from_elasticity()     # Updates confidence/attitude
+   # Via AIPlayerController
+   controller.psychology.apply_pressure_event('big_loss')  # Reduces composure, confidence
+   # Composure replaces old tilt system: low composure = tilted
    ```
 
 3. **Dynamic Decisions**: The AIPlayerController uses current elastic trait values:
    ```python
    # Gets current trait values, not just base values
-   traits = controller.get_current_personality_traits()
+   traits = controller.psychology.traits
+   # {'tightness': 0.5, 'aggression': 0.7, 'confidence': 0.6, 'composure': 0.8, 'table_talk': 0.5}
    ```
 
 4. **Persistence**: Elastic personality state is fully serialized with the player.
