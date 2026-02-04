@@ -126,7 +126,7 @@ The system estimates opponent hand ranges using this fallback chain:
 
 ### Data Requirements
 
-Stats require **≥5 hands observed** before being used. Cross-session historical data is loaded when current session data is insufficient.
+Stats require **≥15 hands observed** before being used for style labeling. Cross-session historical data is loaded when current session data is insufficient.
 
 ---
 
@@ -148,7 +148,7 @@ Stats require **≥5 hands observed** before being used. Cross-session historica
 ### Play Style Classification
 
 ```python
-is_tight = vpip < 0.25
+is_tight = vpip < 0.3
 is_aggressive = aggression_factor > 1.5
 
 if is_tight and is_aggressive:     return 'tight-aggressive'
@@ -364,9 +364,10 @@ The `coach-recommended` CSS class adds a green pulsing glow to the recommended b
 ### Skill States
 
 Each skill progresses through states:
-- `learning` — Initial state, coach actively teaches
+- `introduced` — Initial state, coach introduces concept
+- `practicing` — Player is learning, coach reinforces
 - `reliable` — Player demonstrates competence
-- `regressed` — Performance dropped below threshold
+- `automatic` — Skill is mastered, minimal coaching needed
 
 ### Evidence Rules
 
@@ -375,7 +376,7 @@ EvidenceRules(
     min_opportunities=12,        # Min chances before advancement
     advancement_threshold=0.75,  # Success rate to advance
     regression_threshold=0.60,   # Fall below this to regress
-    window_size=50,              # Rolling window for accuracy
+    window_size=20,              # Rolling window for accuracy (default; actual skills use 30)
 )
 ```
 

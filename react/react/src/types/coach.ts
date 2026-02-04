@@ -6,6 +6,8 @@ export interface PlayerStats {
   hands_observed: number;
 }
 
+export type ActionRecommendation = 'fold' | 'check' | 'call' | 'raise';
+
 export interface CoachStats {
   equity: number | null;
   equity_vs_random: number | null;
@@ -17,7 +19,7 @@ export interface CoachStats {
   hand_rank: number | null;
   outs: number | null;
   outs_cards: string[] | null;
-  recommendation: string | null; // 'fold' | 'check' | 'call' | 'raise'
+  recommendation: ActionRecommendation | null;
   raise_to: number | null; // Specific raise amount suggested by coach
   position: string | null;
   phase: string | null;

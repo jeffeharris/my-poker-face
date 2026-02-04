@@ -162,9 +162,11 @@ def _parse_coach_response(response: str, coaching_data: Dict) -> CoachResponse:
             raise_to=raise_to if action == 'raise' else None,
         )
     except json.JSONDecodeError as e:
-        logger.warning(f"Coach response JSON parse failed: {e}, using raw text")
+        logger.warning(f"Coach response JSON parse failed: {e}, raw: {response[:200]}")
+        # Truncate and clean up raw response for display
+        cleaned = response.strip()[:500] if response else "I couldn't format my response properly."
         return CoachResponse(
-            advice=response,
+            advice=cleaned,
             action=None,
             raise_to=None,
         )

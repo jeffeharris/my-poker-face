@@ -113,6 +113,12 @@ def coach_ask(game_id: str):
             result = coach.get_proactive_tip(stats or {})
         else:
             result = coach.ask(question, stats or {})
+    except json.JSONDecodeError as e:
+        logger.error(f"Coach response parse failed: {e}", exc_info=True)
+        return jsonify({'error': 'Coach response error'}), 500
+    except TimeoutError as e:
+        logger.error(f"Coach request timed out: {e}", exc_info=True)
+        return jsonify({'error': 'Coach is taking too long, please try again'}), 504
     except Exception as e:
         logger.error(f"Coach ask failed: {e}", exc_info=True)
         return jsonify({'error': 'Coach unavailable'}), 503

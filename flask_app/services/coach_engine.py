@@ -181,7 +181,7 @@ def _position_label_to_key(position_label: str) -> str:
     }
     result = mapping.get(position_label)
     if result is None:
-        logger.warning(f"Unknown position label '{position_label}', defaulting to 'button'")
+        logger.warning(f"Unknown position label '{position_label}', defaulting to 'button'", exc_info=True)
         return 'button'
     return result
 
@@ -312,7 +312,7 @@ def _build_opponent_infos(
         try:
             historical_data = game_repo.load_cross_session_opponent_models(human_name, user_id)
         except Exception as e:
-            logger.debug(f"Failed to load historic stats: {e}")
+            logger.warning(f"Failed to load historic stats: {e}")
 
     min_hands = EquityConfig().min_hands_for_stats
 
