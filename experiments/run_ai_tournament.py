@@ -875,8 +875,16 @@ class AITournamentRunner:
             if not hasattr(controller, 'psychology'):
                 continue
 
+            # Get player's actual contribution to the pot (not total pot size)
+            player_contribution = game_state.pot.get(player.name, 0) if isinstance(game_state.pot, dict) else 0
+
             player_won = player.name in winner_names
-            amount = winnings_by_player.get(player.name, 0) if player_won else -pot_size
+            if player_won:
+                # Net profit = winnings - what they put in
+                amount = winnings_by_player.get(player.name, 0) - player_contribution
+            else:
+                # Net loss = what they actually contributed (not total pot)
+                amount = -player_contribution
 
             # Detect bad beat (strong hand loses at showdown)
             was_bad_beat = False

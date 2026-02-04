@@ -477,8 +477,16 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
 
         controller = ai_controllers[player.name]
 
+        # Get player's actual contribution to the pot (not total pot size)
+        player_contribution = game_state.pot.get(player.name, 0) if isinstance(game_state.pot, dict) else 0
+
         player_won = player.name in winning_player_names
-        amount = winnings_by_player.get(player.name, 0) if player_won else -pot_size
+        if player_won:
+            # Net profit = winnings - what they put in
+            amount = winnings_by_player.get(player.name, 0) - player_contribution
+        else:
+            # Net loss = what they actually contributed (not total pot)
+            amount = -player_contribution
 
         was_bad_beat = False
         was_bluff_called = False
