@@ -361,7 +361,7 @@ export function MobilePokerTable({
   const showReconnecting = !isConnected && storePlayers;
 
   return (
-    <div className="mobile-poker-table" data-testid="mobile-poker-table">
+    <div className="mobile-poker-table" data-testid="mobile-poker-table" data-connected={isConnected ? 'true' : 'false'}>
       {/* Reconnecting overlay - shows when socket is disconnected but we have game state */}
       {showReconnecting && (
         <div className="mobile-reconnecting-overlay" data-testid="reconnecting-overlay">
