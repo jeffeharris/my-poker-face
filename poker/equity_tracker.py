@@ -180,10 +180,8 @@ class EquityTracker:
                     active_equities = result.equities
             except Exception as e:
                 logger.error(f"Equity calculation failed for street {street}: {e}")
-                # Fallback: equal equity for active players
-                num_active = len(active_hole_cards)
-                if num_active > 0:
-                    active_equities = {name: 1.0 / num_active for name in active_hole_cards}
+                # Return empty - don't fabricate equity data
+                return []
         elif len(active_hole_cards) == 1:
             # Only one player left - they have 100% equity
             active_equities = {list(active_hole_cards.keys())[0]: 1.0}
@@ -267,12 +265,12 @@ class EquityTracker:
             if action.action == 'fold':
                 cumulative_folded.add(action.player_name)
 
-            # Update folded set for current and subsequent streets
+            # Update folded set for subsequent streets only
             action_street = action.phase
             if action_street in STREET_ORDER:
                 idx = STREET_ORDER.index(action_street)
-                # Include current street (idx) since fold happened during this street
-                for i in range(idx, len(STREET_ORDER)):
+                # Mark as folded starting from NEXT street (player was active until they folded)
+                for i in range(idx + 1, len(STREET_ORDER)):
                     folded_by_street[STREET_ORDER[i]] = cumulative_folded.copy()
 
         return folded_by_street
@@ -299,12 +297,12 @@ class EquityTracker:
             if action.action == 'fold':
                 cumulative_folded.add(action.player_name)
 
-            # Update folded set for current and subsequent streets
+            # Update folded set for subsequent streets only
             action_street = action.phase
             if action_street in STREET_ORDER:
                 idx = STREET_ORDER.index(action_street)
-                # Include current street (idx) since fold happened during this street
-                for i in range(idx, len(STREET_ORDER)):
+                # Mark as folded starting from NEXT street (player was active until they folded)
+                for i in range(idx + 1, len(STREET_ORDER)):
                     folded_by_street[STREET_ORDER[i]] = cumulative_folded.copy()
 
         return folded_by_street
