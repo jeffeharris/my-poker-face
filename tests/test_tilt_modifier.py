@@ -27,12 +27,14 @@ class TestTiltState(unittest.TestCase):
         self.assertGreater(state.tilt_level, 0)
 
     def test_big_loss_increases_tilt_more(self):
-        """Big losses should increase tilt more."""
+        """Big losses (> 15 BB) should increase tilt more than regular losses."""
         state1 = TiltState()
         state2 = TiltState()
 
-        state1.update_from_hand('lost', -100)
-        state2.update_from_hand('lost', -1000)
+        # Regular loss: 100 chips at 100 BB = 1 BB (not a big loss)
+        state1.update_from_hand('lost', -100, big_blind=100)
+        # Big loss: 2000 chips at 100 BB = 20 BB (> 15 BB threshold)
+        state2.update_from_hand('lost', -2000, big_blind=100)
 
         self.assertGreater(state2.tilt_level, state1.tilt_level)
 
@@ -41,7 +43,7 @@ class TestTiltState(unittest.TestCase):
         state = TiltState()
         state.update_from_hand('lost', -500, was_bad_beat=True)
 
-        self.assertGreaterEqual(state.tilt_level, 0.25)
+        self.assertGreaterEqual(state.tilt_level, 0.15)  # Reduced from 0.25 for slower tilt buildup
         self.assertEqual(state.tilt_source, 'bad_beat')
 
     def test_winning_reduces_tilt(self):
@@ -92,6 +94,44 @@ class TestTiltState(unittest.TestCase):
 
         state.tilt_level = 0.8
         self.assertEqual(state.get_tilt_category(), 'severe')
+
+    def test_big_loss_relative_to_big_blind(self):
+        """Big loss threshold should be relative to big blind (15 BB)."""
+        state = TiltState()
+
+        # At 100 BB, threshold is 1500. A 1000 loss is NOT a big loss.
+        state.update_from_hand('lost', -1000, big_blind=100)
+        self.assertNotEqual(state.tilt_source, 'big_loss')  # Regular loss, not big_loss
+
+        # Reset and test actual big loss (> 15 BB)
+        state2 = TiltState()
+        state2.update_from_hand('lost', -2000, big_blind=100)  # 20 BB loss
+        self.assertEqual(state2.tilt_source, 'big_loss')
+
+    def test_big_win_relative_to_big_blind(self):
+        """Big win threshold should be relative to big blind (15 BB)."""
+        state = TiltState()
+        state.tilt_level = 0.5
+
+        # Win 1000 at 100 BB = 10 BB win, not "big"
+        initial_tilt = state.tilt_level
+        state.update_from_hand('won', 1000, big_blind=100)
+        regular_reduction = initial_tilt - state.tilt_level
+
+        # Win 2000 at 100 BB = 20 BB win, should be "big" and reduce more
+        state2 = TiltState()
+        state2.tilt_level = 0.5
+        state2.update_from_hand('won', 2000, big_blind=100)
+        big_reduction = 0.5 - state2.tilt_level
+
+        self.assertGreater(big_reduction, regular_reduction)
+
+    def test_decay_rate_increased(self):
+        """Decay should be 0.05 per call (up from 0.02)."""
+        state = TiltState()
+        state.tilt_level = 0.5
+        state.decay()
+        self.assertEqual(state.tilt_level, 0.45)  # 0.5 - 0.05 = 0.45
 
 
 class TestTiltPromptModifier(unittest.TestCase):

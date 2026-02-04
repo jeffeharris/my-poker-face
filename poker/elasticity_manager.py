@@ -287,6 +287,73 @@ class ElasticPersonality:
                 "aggression": 0.25,
                 "bluff_tendency": 0.15,
                 "chattiness": 0.1
+            },
+            # Equity-based events (detected via EquityTracker)
+            "cooler": {
+                # Both players had strong hands - unavoidable loss, less tilting
+                "aggression": -0.1,
+                "bluff_tendency": -0.15,
+                "chattiness": -0.1
+            },
+            "suckout": {
+                # Lucky win - came from behind to win
+                "aggression": 0.3,
+                "bluff_tendency": 0.2,
+                "chattiness": 0.25
+            },
+            "got_sucked_out": {
+                # Was ahead but lost - very tilting
+                "aggression": -0.35,
+                "bluff_tendency": -0.25,
+                "chattiness": -0.2
+            },
+            # Heads-up events (already detected in pressure_detector)
+            "headsup_win": {
+                "aggression": 0.10,
+                "bluff_tendency": 0.08,
+                "chattiness": 0.08
+            },
+            "headsup_loss": {
+                "aggression": -0.08,
+                "chattiness": -0.10
+            },
+            # Streak events (require streak_count >= 3)
+            "winning_streak": {
+                "aggression": 0.12,
+                "bluff_tendency": 0.10,
+                "chattiness": 0.15
+            },
+            "losing_streak": {
+                "aggression": -0.12,
+                "bluff_tendency": -0.10,
+                "chattiness": -0.15
+            },
+            # Stack events
+            "double_up": {
+                "aggression": 0.15,
+                "bluff_tendency": 0.12,
+                "chattiness": 0.18
+            },
+            "crippled": {
+                "aggression": -0.20,
+                "bluff_tendency": -0.18,
+                "chattiness": -0.15
+            },
+            "short_stack": {
+                "aggression": -0.10,
+                "bluff_tendency": 0.05,  # Desperate bluffs
+                "chattiness": -0.08
+            },
+            # Nemesis events
+            "nemesis_win": {
+                "aggression": 0.15,
+                "bluff_tendency": 0.08,
+                "chattiness": 0.12
+            },
+            "nemesis_loss": {
+                "aggression": -0.10,
+                "bluff_tendency": -0.08,
+                "chattiness": -0.12
             }
         }
     
@@ -381,69 +448,3 @@ class ElasticPersonality:
         }
 
 
-class ElasticityManager:
-    """Manages elasticity for all AI players in a game."""
-    
-    def __init__(self):
-        self.personalities: Dict[str, ElasticPersonality] = {}
-    
-    def add_player(self, name: str, personality_config: Dict[str, Any],
-                   elasticity_config: Optional[Dict[str, Any]] = None) -> None:
-        """Add a player with elastic personality."""
-        self.personalities[name] = ElasticPersonality.from_base_personality(
-            name, personality_config, elasticity_config
-        )
-    
-    def apply_game_event(self, event_name: str, player_names: Optional[list] = None) -> None:
-        """Apply a game event to specified players or all players."""
-        if player_names is None:
-            player_names = list(self.personalities.keys())
-        
-        for name in player_names:
-            if name in self.personalities:
-                self.personalities[name].apply_pressure_event(event_name)
-    
-    def recover_all(self) -> None:
-        """Apply recovery to all players."""
-        for personality in self.personalities.values():
-            personality.recover_traits()
-    
-    def get_player_traits(self, player_name: str) -> Dict[str, float]:
-        """Get current trait values for a player."""
-        if player_name in self.personalities:
-            personality = self.personalities[player_name]
-            return {
-                trait_name: trait.value
-                for trait_name, trait in personality.traits.items()
-            }
-        return {}
-    
-    def get_player_mood(self, player_name: str) -> str:
-        """Get current mood for a player."""
-        if player_name in self.personalities:
-            return self.personalities[player_name].get_current_mood()
-        return "neutral"
-    
-    def apply_pressure(self, player_name: str, trait_name: str, pressure: float) -> None:
-        """Apply pressure to a specific trait for a player."""
-        if player_name in self.personalities:
-            personality = self.personalities[player_name]
-            if trait_name in personality.traits:
-                personality.traits[trait_name].apply_pressure(pressure)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            'personalities': {
-                name: personality.to_dict()
-                for name, personality in self.personalities.items()
-            }
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ElasticityManager':
-        """Create from dictionary."""
-        manager = cls()
-        for name, personality_data in data.get('personalities', {}).items():
-            manager.personalities[name] = ElasticPersonality.from_dict(personality_data)
-        return manager

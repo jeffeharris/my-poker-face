@@ -22,6 +22,8 @@ from poker.tilt_modifier import TiltState
 from poker.elasticity_manager import ElasticPersonality
 from poker.emotional_state import EmotionalState
 from poker.runout_reactions import compute_runout_reactions
+from poker.equity_tracker import EquityTracker
+from poker.equity_snapshot import HandEquityHistory
 from core.card import Card
 
 from ..extensions import socketio, game_repo, guest_tracking_repo, tournament_repo, hand_history_repo, personality_repo, capture_label_repo, decision_analysis_repo, coach_repo
@@ -393,14 +395,81 @@ def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data:
 
 def handle_pressure_events(game_id: str, game_data: dict, game_state,
                            winner_info: dict, winning_player_names: list,
-                           pot_size: int) -> None:
-    """Apply elasticity pressure events from showdown."""
+                           pot_size: int,
+                           equity_history: Optional[HandEquityHistory] = None) -> None:
+    """Apply elasticity pressure events from showdown.
+
+    Args:
+        game_id: The game identifier
+        game_data: Game data dictionary
+        game_state: Current game state
+        winner_info: Winner information from showdown
+        winning_player_names: List of winner names
+        pot_size: Total pot size
+        equity_history: Optional equity history for equity-based events
+    """
     if 'pressure_detector' not in game_data:
         return
 
     pressure_detector = game_data['pressure_detector']
+    ai_controllers = game_data.get('ai_controllers', {})
+
+    # Standard showdown events
     events = pressure_detector.detect_showdown_events(game_state, winner_info)
-    pressure_detector.apply_detected_events(events)
+
+    # Equity-based events (cooler, suckout, got_sucked_out, equity-based bad_beat)
+    if equity_history and equity_history.snapshots:
+        equity_events = pressure_detector.detect_equity_events(
+            game_state, winner_info, equity_history, pot_size=pot_size
+        )
+        events.extend(equity_events)
+
+    # Stack events (double_up, crippled, short_stack)
+    hand_start_stacks = game_data.get('hand_start_stacks', {})
+    was_short_stack = game_data.get('short_stack_players', set())
+    big_blind = game_state.current_ante if hasattr(game_state, 'current_ante') else 100
+
+    if hand_start_stacks:
+        stack_events, current_short = pressure_detector.detect_stack_events(
+            game_state, winning_player_names, hand_start_stacks,
+            was_short_stack, big_blind
+        )
+        events.extend(stack_events)
+        game_data['short_stack_players'] = current_short
+
+    # Streak events (from DB-backed session stats)
+    if 'memory_manager' in game_data:
+        memory_manager = game_data['memory_manager']
+        hand_history_repo = getattr(memory_manager, '_persistence', None)
+
+        if hand_history_repo:
+            for player_name in ai_controllers.keys():
+                try:
+                    session_stats = hand_history_repo.get_session_stats(
+                        game_id, player_name
+                    )
+                    streak_events = pressure_detector.detect_streak_events(
+                        player_name, session_stats
+                    )
+                    events.extend(streak_events)
+                except Exception as e:
+                    logger.warning(f"Failed to get session stats for {player_name}: {e}")
+
+    # Nemesis events (from TiltState.nemesis)
+    player_nemesis_map = {}
+    for name, controller in ai_controllers.items():
+        if hasattr(controller, 'psychology') and controller.psychology.tilt.nemesis:
+            player_nemesis_map[name] = controller.psychology.tilt.nemesis
+
+    # Losers = active players who didn't win (didn't fold, didn't win)
+    loser_names = [p.name for p in game_state.players
+                   if not p.is_folded and p.name not in winning_player_names]
+
+    if player_nemesis_map:
+        nemesis_events = pressure_detector.detect_nemesis_events(
+            winning_player_names, loser_names, player_nemesis_map
+        )
+        events.extend(nemesis_events)
 
     if not events:
         return
@@ -412,7 +481,6 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         return
 
     pressure_stats = game_data['pressure_stats']
-    ai_controllers = game_data.get('ai_controllers', {})
 
     for event_name, affected_players in events:
         details = {
@@ -431,12 +499,7 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
 
     # Emit elasticity update from psychology state
     if ai_controllers:
-        elasticity_data = {}
-        for name, controller in ai_controllers.items():
-            elasticity_data[name] = {
-                'traits': controller.psychology.elastic.to_dict().get('traits', {}),
-                'mood': controller.psychology.mood
-            }
+        elasticity_data = format_elasticity_data(ai_controllers)
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 
@@ -461,8 +524,16 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
 
         controller = ai_controllers[player.name]
 
+        # Get player's actual contribution to the pot (not total pot size)
+        player_contribution = game_state.pot.get(player.name, 0) if isinstance(game_state.pot, dict) else 0
+
         player_won = player.name in winning_player_names
-        amount = winnings_by_player.get(player.name, 0) if player_won else -pot_size
+        if player_won:
+            # Net profit = winnings - what they put in
+            amount = winnings_by_player.get(player.name, 0) - player_contribution
+        else:
+            # Net loss = what they actually contributed (not total pot)
+            amount = -player_contribution
 
         was_bad_beat = False
         was_bluff_called = False
@@ -609,9 +680,17 @@ def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: l
     active_players = [p for p in game_state.players if not p.is_folded]
     is_showdown = len(active_players) > 1
 
+    # Get pot contributions for each player (for net profit display)
+    pot_contributions = {}
+    if isinstance(game_state.pot, dict):
+        for key, value in game_state.pot.items():
+            if key != 'total':  # Skip the 'total' key, only include player contributions
+                pot_contributions[key] = value
+
     winner_data = {
         'winners': winning_player_names,
         'pot_breakdown': winner_info.get('pot_breakdown', []),
+        'pot_contributions': pot_contributions,  # Player name -> amount contributed
         'showdown': is_showdown,
         'community_cards': [],
     }
@@ -1004,8 +1083,27 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             commentary_complete
         )
 
-    # Apply pressure events (fast, local calculations)
-    handle_pressure_events(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
+    # Calculate equity history for equity-based pressure events
+    equity_history = None
+    if 'memory_manager' in game_data:
+        memory_manager = game_data['memory_manager']
+        hand_in_progress = memory_manager.hand_recorder.current_hand
+        if hand_in_progress and hand_in_progress.hole_cards:
+            try:
+                equity_tracker = EquityTracker()
+                equity_history = equity_tracker.calculate_hand_equity_history(hand_in_progress)
+                logger.debug(
+                    f"[Game {game_id}] Calculated equity history: "
+                    f"{len(equity_history.snapshots)} snapshots"
+                )
+            except Exception as e:
+                logger.warning(f"[Game {game_id}] Equity calculation failed: {e}")
+
+    # Apply pressure events (includes equity-based events if available)
+    handle_pressure_events(
+        game_id, game_data, game_state, winner_info, winning_player_names,
+        pot_size_before_award, equity_history=equity_history
+    )
 
     # Complete hand recording in memory manager (fast, local)
     if 'memory_manager' in game_data:
@@ -1021,6 +1119,18 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             )
         except Exception as e:
             logger.warning(f"Memory manager hand completion failed: {e}")
+
+        # Persist equity history to database
+        if equity_history and equity_history.snapshots:
+            try:
+                from poker.repositories.hand_equity_repository import HandEquityRepository
+                equity_repo = HandEquityRepository(hand_history_repo.db_path)
+                equity_repo.save_equity_history(equity_history)
+                logger.debug(
+                    f"[Game {game_id}] Saved {len(equity_history.snapshots)} equity snapshots"
+                )
+            except Exception as e:
+                logger.warning(f"[Game {game_id}] Failed to save equity history: {e}")
 
     # Run end-of-hand coach progression checks (gate unlocks, silent downgrades)
     try:
@@ -1104,6 +1214,20 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         new_hand_number = memory_manager.hand_count + 1
         memory_manager.on_hand_start(state_machine.game_state, hand_number=new_hand_number)
 
+    # Track hand_start_stacks for stack-based pressure events (double_up, crippled, short_stack)
+    # Capture after blinds are posted but before any betting action
+    game_data['hand_start_stacks'] = {
+        p.name: p.stack for p in state_machine.game_state.players
+    }
+
+    # Initialize short_stack_players tracking if not exists
+    if 'short_stack_players' not in game_data:
+        big_blind = state_machine.game_state.current_ante if hasattr(state_machine.game_state, 'current_ante') else 100
+        game_data['short_stack_players'] = {
+            p.name for p in state_machine.game_state.players
+            if p.stack < 10 * big_blind and p.stack > 0
+        }
+
     # Save state after hand evaluation completes (now in stable phase)
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
     game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
@@ -1124,8 +1248,8 @@ def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
     socketio.emit('player_turn_start', {'current_player_options': player_options, 'cost_to_call': cost_to_call}, to=game_id)
 
     # Emit elasticity update for UI display
-    if 'elasticity_manager' in game_data:
-        elasticity_data = format_elasticity_data(game_data['elasticity_manager'])
+    if 'ai_controllers' in game_data:
+        elasticity_data = format_elasticity_data(game_data['ai_controllers'])
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 
@@ -1297,14 +1421,16 @@ def progress_game(game_id: str) -> None:
 
 
 def detect_and_apply_pressure(game_id: str, event_type: str, **kwargs) -> None:
-    """Helper function to detect and apply pressure events."""
+    """Helper function to detect and apply pressure events.
+
+    Routes events through PlayerPsychology for unified tilt + elastic handling.
+    """
     current_game_data = game_state_service.get_game(game_id)
-    if not current_game_data or 'pressure_detector' not in current_game_data:
+    if not current_game_data:
         return
 
-    pressure_detector = current_game_data['pressure_detector']
-    elasticity_manager = current_game_data['elasticity_manager']
     game_state = current_game_data['state_machine'].game_state
+    ai_controllers = current_game_data.get('ai_controllers', {})
 
     events = []
 
@@ -1321,16 +1447,27 @@ def detect_and_apply_pressure(game_id: str, event_type: str, **kwargs) -> None:
         if bet_size > pot_size * 0.75:
             events.append(('aggressive_bet', [betting_player]))
 
-    if events:
-        pressure_detector.apply_detected_events(events)
+    if not events:
+        return
 
-        if 'pressure_stats' in current_game_data:
-            pressure_stats = current_game_data['pressure_stats']
-            for event_name, affected_players in events:
-                details = kwargs.copy()
-                pressure_stats.record_event(event_name, affected_players, details)
+    # Record stats
+    if 'pressure_stats' in current_game_data:
+        pressure_stats = current_game_data['pressure_stats']
+        for event_name, affected_players in events:
+            details = kwargs.copy()
+            pressure_stats.record_event(event_name, affected_players, details)
 
-        elasticity_data = format_elasticity_data(elasticity_manager)
+    # Route through PlayerPsychology for unified tilt + elastic handling
+    for event_name, affected_players in events:
+        for player_name in affected_players:
+            if player_name in ai_controllers:
+                controller = ai_controllers[player_name]
+                # No specific opponent for mid-game events
+                controller.psychology.apply_pressure_event(event_name, opponent=None)
+
+    # Emit elasticity update from psychology state
+    if ai_controllers:
+        elasticity_data = format_elasticity_data(ai_controllers)
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 

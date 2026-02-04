@@ -108,21 +108,34 @@ class TiltState:
         )
 
     def update_from_hand(self, outcome: str, amount: int, opponent: Optional[str] = None,
-                         was_bad_beat: bool = False, was_bluff_called: bool = False):
-        """Update tilt state based on hand outcome."""
+                         was_bad_beat: bool = False, was_bluff_called: bool = False,
+                         big_blind: int = 100):
+        """Update tilt state based on hand outcome.
+
+        Args:
+            outcome: 'won', 'lost', or 'folded'
+            amount: Net chip change (negative for losses)
+            opponent: Optional opponent who caused the outcome
+            was_bad_beat: True if lost with a strong hand
+            was_bluff_called: True if bluff was called and lost
+            big_blind: Big blind size for relative thresholds (15 BB = big loss/win)
+        """
+        # Calculate relative threshold: 15 big blinds
+        big_threshold = big_blind * 15
+
         if outcome == 'lost' or outcome == 'folded':
-            # Increase tilt on losses
+            # Increase tilt on losses (reduced increments for slower tilt buildup)
             if was_bad_beat:
-                self.tilt_level = min(1.0, self.tilt_level + 0.25)
+                self.tilt_level = min(1.0, self.tilt_level + 0.15)
                 self.tilt_source = 'bad_beat'
             elif was_bluff_called:
-                self.tilt_level = min(1.0, self.tilt_level + 0.2)
+                self.tilt_level = min(1.0, self.tilt_level + 0.10)
                 self.tilt_source = 'bluff_called'
-            elif amount < -500:  # Big loss
-                self.tilt_level = min(1.0, self.tilt_level + 0.15)
+            elif amount < -big_threshold:  # Big loss (relative to stakes)
+                self.tilt_level = min(1.0, self.tilt_level + 0.10)
                 self.tilt_source = 'big_loss'
             else:
-                self.tilt_level = min(1.0, self.tilt_level + 0.05)
+                self.tilt_level = min(1.0, self.tilt_level + 0.02)
 
             self.losing_streak += 1
             if self.losing_streak >= 3:
@@ -141,13 +154,13 @@ class TiltState:
 
         elif outcome == 'won':
             # Winning reduces tilt
-            self.tilt_level = max(0.0, self.tilt_level - 0.15)
+            self.tilt_level = max(0.0, self.tilt_level - 0.10)
             self.losing_streak = 0
-            if amount > 500:  # Big win provides more relief
-                self.tilt_level = max(0.0, self.tilt_level - 0.1)
+            if amount > big_threshold:  # Big win provides more relief (relative to stakes)
+                self.tilt_level = max(0.0, self.tilt_level - 0.15)
 
-    def decay(self, amount: float = 0.02):
-        """Natural tilt decay over time."""
+    def decay(self, amount: float = 0.05):
+        """Natural tilt decay over time (2.5x faster than before for quicker recovery)."""
         self.tilt_level = max(0.0, self.tilt_level - amount)
 
     def get_tilt_category(self) -> str:
@@ -164,23 +177,46 @@ class TiltState:
         """Apply a pressure event to tilt state.
 
         Maps pressure detector events to tilt changes.
+        Values tuned to prevent reaching full tilt too easily.
         """
-        # Events that INCREASE tilt
+        # Events that INCREASE tilt (reduced for slower tilt buildup)
         tilt_increases = {
-            'bad_beat': 0.25,           # Lost with strong hand
-            'bluff_called': 0.20,       # Your bluff failed
-            'big_loss': 0.15,           # Lost a big pot
-            'rivalry_trigger': 0.10,    # Trash talked / taunted
-            'fold_under_pressure': 0.05,  # Pressured into folding
+            'bad_beat': 0.15,           # Lost with strong hand
+            'bluff_called': 0.10,       # Your bluff failed
+            'big_loss': 0.10,           # Lost a big pot
+            'rivalry_trigger': 0.05,    # Trash talked / taunted
+            'fold_under_pressure': 0.02,  # Pressured into folding
+            # Equity-based events
+            'got_sucked_out': 0.20,     # Was ahead but lost - very tilting
+            # Heads-up events
+            'headsup_loss': 0.08,       # Lost heads-up pot
+            # Streak events
+            'losing_streak': 0.12,      # 3+ consecutive losses
+            # Stack events
+            'crippled': 0.18,           # Lost 75%+ of stack in one hand
+            'short_stack': 0.05,        # Dropped below 10 BB
+            # Nemesis events
+            'nemesis_loss': 0.15,       # Lost to your nemesis
         }
 
-        # Events that DECREASE tilt
+        # Events that DECREASE tilt (adjusted for better recovery)
         tilt_decreases = {
-            'successful_bluff': 0.15,   # Successfully bluffed
+            'successful_bluff': 0.12,   # Successfully bluffed
             'big_win': 0.20,            # Won big pot
             'win': 0.10,                # Any win
-            'eliminated_opponent': 0.15,  # Knocked someone out
+            'eliminated_opponent': 0.20,  # Knocked someone out (big relief)
             'friendly_chat': 0.05,      # Friendly interaction
+            # Equity-based events
+            'suckout': 0.08,            # Lucky win - came from behind
+            'cooler': 0.00,             # Unavoidable loss - no tilt change
+            # Heads-up events
+            'headsup_win': 0.05,        # Won heads-up pot
+            # Streak events
+            'winning_streak': 0.08,     # 3+ consecutive wins
+            # Stack events
+            'double_up': 0.10,          # Doubled stack in one hand
+            # Nemesis events
+            'nemesis_win': 0.10,        # Beat your nemesis
         }
 
         if event_name in tilt_increases:

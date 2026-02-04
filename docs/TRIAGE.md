@@ -185,6 +185,7 @@ Issues to address once live, during ongoing development.
 | T3-51 | `ConfigPreview.tsx` kitchen sink | `react/react/src/components/admin/ExperimentDesigner/ConfigPreview.tsx` | 1,148 lines handling form view, JSON view, config validation, version history, personality selection, prompt preset loading, seed word generation, launch logic. Split into `ConfigFormView`, `ConfigJsonView`, and extracted hooks for validation/versions/seeds. | |
 | T3-52 | Duplicated collapsible section pattern | `PersonalityManager.tsx`, `UnifiedSettings.tsx`, `ConfigPreview.tsx` | Same collapsible section UI logic repeated across 3+ admin components. Also duplicated mobile filter sheet boilerplate. Extract to shared `CollapsibleSection.tsx` and `MobileFilterSheet.tsx` components. | |
 | T3-53 | Personality name collision — UUID primary keys | `poker/repositories/personality_repository.py`, `schema_manager.py` | `personalities` table uses `name TEXT UNIQUE` as the lookup key. Two users cannot independently create personalities with the same name — `INSERT OR REPLACE` overwrites silently. Full fix requires UUID primary keys with `UNIQUE(name, owner_id)`, migrating all FK references (`avatar_images.personality_name`), API routes, and frontend state. Current mitigation: reject creates if name already exists (409 error). | |
+| T3-54 | Psychology amount uses pot size, not actual loss | `flask_app/handlers/game_handler.py:481` | `amount = -pot_size` for all non-winners, but folders only lost their contribution (blinds/bets), not the entire pot. A pre-flop folder who posted 1 BB gets `amount = -pot_size` (e.g., -150) instead of their actual loss (-50). Inflates loss amounts for psychology/tilt calculations, potentially triggering incorrect `big_loss` or `crippled` events. Fix: track each player's pot contribution and use that as their loss amount. | **FIXED** — now uses `game_state.pot.get(player.name, 0)` for actual contribution; winners get net profit (winnings - contribution) |
 
 ### Documentation & DX
 
@@ -218,8 +219,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 15 | 6 | 0 |
 | **Tier 2: Should-Fix** | 26 | 20 | 6 | 0 |
-| **Tier 3: Post-Release** | 53 | 26 | 1 | 26 |
-| **Total** | **100** | **61** | **13** | **26** |
+| **Tier 3: Post-Release** | 54 | 27 | 1 | 26 |
+| **Total** | **101** | **62** | **13** | **26** |
 
 ## Key Architectural Insight
 

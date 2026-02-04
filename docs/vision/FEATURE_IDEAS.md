@@ -322,6 +322,16 @@ Sherlock sees you as a worthy adversary. He's more likely to:
 
 ## Additional Creative Ideas
 
+### Show to Taunt Mechanic
+When winning without showdown (everyone folds), the winner can optionally reveal their cards:
+- **Risk**: Reveals information about your bluffing patterns
+- **Reward**: Psychologically damages opponents who folded
+- **Implementation**:
+  - Button appears after winning without showdown
+  - If shown as bluff: opponents get `intimidated_by_bluff` event (+0.05 tilt)
+  - If shown as strong hand: opponents may feel validated for folding
+- **Personality Impact**: Some personalities (Trump, Gordon Ramsay) would love to taunt; others (Buddha, Bob Ross) would rarely use it
+
 ### Poker Tournament Seasons
 - **Wild West Season**: Cowboy personalities, saloon setting
 - **Space Season**: Alien personalities, zero-gravity chips
