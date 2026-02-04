@@ -4,7 +4,9 @@ Tests the actual production generate_game_id function from flask_app.routes.game
 """
 import re
 import os
+import tempfile
 import pytest
+from unittest.mock import patch
 
 # Set testing environment before importing flask modules
 os.environ['TESTING'] = '1'
@@ -18,7 +20,35 @@ def generate_game_id():
     so it doesn't need app context to run - only to import the module.
     """
     from flask_app import create_app
-    app = create_app()
+    from poker.repositories import create_repos
+
+    # Create a temporary database for this test module
+    test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+    test_db.close()
+    repos = create_repos(test_db.name)
+
+    # Patch init_persistence to use our test DB repos
+    def mock_init_persistence():
+        import flask_app.extensions as ext
+        ext.game_repo = repos['game_repo']
+        ext.user_repo = repos['user_repo']
+        ext.settings_repo = repos['settings_repo']
+        ext.personality_repo = repos['personality_repo']
+        ext.experiment_repo = repos['experiment_repo']
+        ext.prompt_capture_repo = repos['prompt_capture_repo']
+        ext.decision_analysis_repo = repos['decision_analysis_repo']
+        ext.prompt_preset_repo = repos['prompt_preset_repo']
+        ext.capture_label_repo = repos['capture_label_repo']
+        ext.replay_experiment_repo = repos['replay_experiment_repo']
+        ext.llm_repo = repos['llm_repo']
+        ext.guest_tracking_repo = repos['guest_tracking_repo']
+        ext.hand_history_repo = repos['hand_history_repo']
+        ext.tournament_repo = repos['tournament_repo']
+        ext.coach_repo = repos['coach_repo']
+        ext.persistence_db_path = repos['db_path']
+
+    with patch('flask_app.extensions.init_persistence', mock_init_persistence):
+        app = create_app()
     app.config['TESTING'] = True
 
     with app.app_context():
