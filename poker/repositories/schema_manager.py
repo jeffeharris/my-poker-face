@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 # v65: Add can_access_coach permission for RBAC gating
 # v66: Add window_decisions column for true sliding window (fixes proportional trim bug)
 # v67: Add range tracking columns to player_decision_analysis for coach integration
-SCHEMA_VERSION = 67
+# v68: Add hand_equity table for equity-based pressure event detection
+SCHEMA_VERSION = 68
 
 
 
@@ -227,6 +228,29 @@ class SchemaManager:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_history_game ON hand_history(game_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_history_timestamp ON hand_history(timestamp DESC)")
+
+            # 8b. Hand equity (v68) - equity snapshots for pressure detection and analytics
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS hand_equity (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    hand_history_id INTEGER REFERENCES hand_history(id) ON DELETE SET NULL,
+                    game_id TEXT REFERENCES games(game_id) ON DELETE SET NULL,
+                    hand_number INTEGER NOT NULL,
+                    street TEXT NOT NULL,
+                    player_name TEXT NOT NULL,
+                    player_hole_cards TEXT,
+                    board_cards TEXT,
+                    equity REAL NOT NULL,
+                    was_active BOOLEAN DEFAULT 1,
+                    sample_count INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(hand_history_id, street, player_name)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_game ON hand_equity(game_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_hand ON hand_equity(hand_history_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_player ON hand_equity(player_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_street_equity ON hand_equity(street, equity)")
 
             # 9. Opponent models (v21 added game_id, v25 added notes, v27 fixed constraint)
             conn.execute("""
@@ -1000,6 +1024,7 @@ class SchemaManager:
             65: (self._migrate_v65_add_coach_permission, "Add can_access_coach permission"),
             66: (self._migrate_v66_add_window_decisions, "Add window_decisions column for sliding window"),
             67: (self._migrate_v67_add_range_tracking, "Add range tracking columns to player_decision_analysis"),
+            68: (self._migrate_v68_add_hand_equity, "Add hand_equity table for equity-based pressure detection"),
         }
 
         with self._get_connection() as conn:
@@ -3075,4 +3100,37 @@ class SchemaManager:
                 )
 
         logger.info("Migration v67 complete: range tracking columns added to player_decision_analysis")
+
+    def _migrate_v68_add_hand_equity(self, conn: sqlite3.Connection) -> None:
+        """Migration v68: Add hand_equity table for equity-based pressure detection.
+
+        Stores equity snapshots for all players at all streets, enabling:
+        - Cooler/suckout/got_sucked_out detection
+        - Coaching opportunities ("You folded the best hand")
+        - AI decision tuning analytics
+        - Drama enhancement based on equity swings
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hand_equity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hand_history_id INTEGER REFERENCES hand_history(id) ON DELETE SET NULL,
+                game_id TEXT REFERENCES games(game_id) ON DELETE SET NULL,
+                hand_number INTEGER NOT NULL,
+                street TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                player_hole_cards TEXT,
+                board_cards TEXT,
+                equity REAL NOT NULL,
+                was_active BOOLEAN DEFAULT 1,
+                sample_count INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(hand_history_id, street, player_name)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_game ON hand_equity(game_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_hand ON hand_equity(hand_history_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_player ON hand_equity(player_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_street_equity ON hand_equity(street, equity)")
+
+        logger.info("Migration v68 complete: hand_equity table added")
 

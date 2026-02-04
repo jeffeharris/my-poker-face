@@ -287,6 +287,25 @@ class ElasticPersonality:
                 "aggression": 0.25,
                 "bluff_tendency": 0.15,
                 "chattiness": 0.1
+            },
+            # Equity-based events (detected via EquityTracker)
+            "cooler": {
+                # Both players had strong hands - unavoidable loss, less tilting
+                "aggression": -0.1,
+                "bluff_tendency": -0.15,
+                "chattiness": -0.1
+            },
+            "suckout": {
+                # Lucky win - came from behind to win
+                "aggression": 0.3,
+                "bluff_tendency": 0.2,
+                "chattiness": 0.25
+            },
+            "got_sucked_out": {
+                # Was ahead but lost - very tilting
+                "aggression": -0.35,
+                "bluff_tendency": -0.25,
+                "chattiness": -0.2
             }
         }
     

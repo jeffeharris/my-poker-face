@@ -22,6 +22,8 @@ from poker.tilt_modifier import TiltState
 from poker.elasticity_manager import ElasticPersonality
 from poker.emotional_state import EmotionalState
 from poker.runout_reactions import compute_runout_reactions
+from poker.equity_tracker import EquityTracker
+from poker.equity_snapshot import HandEquityHistory
 from core.card import Card
 
 from ..extensions import socketio, game_repo, guest_tracking_repo, tournament_repo, hand_history_repo, personality_repo, capture_label_repo, decision_analysis_repo, coach_repo
@@ -393,13 +395,33 @@ def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data:
 
 def handle_pressure_events(game_id: str, game_data: dict, game_state,
                            winner_info: dict, winning_player_names: list,
-                           pot_size: int) -> None:
-    """Apply elasticity pressure events from showdown."""
+                           pot_size: int,
+                           equity_history: Optional[HandEquityHistory] = None) -> None:
+    """Apply elasticity pressure events from showdown.
+
+    Args:
+        game_id: The game identifier
+        game_data: Game data dictionary
+        game_state: Current game state
+        winner_info: Winner information from showdown
+        winning_player_names: List of winner names
+        pot_size: Total pot size
+        equity_history: Optional equity history for equity-based events
+    """
     if 'pressure_detector' not in game_data:
         return
 
     pressure_detector = game_data['pressure_detector']
+
+    # Standard showdown events
     events = pressure_detector.detect_showdown_events(game_state, winner_info)
+
+    # Equity-based events (cooler, suckout, got_sucked_out, equity-based bad_beat)
+    if equity_history and equity_history.snapshots:
+        equity_events = pressure_detector.detect_equity_events(
+            game_state, winner_info, equity_history, pot_size=pot_size
+        )
+        events.extend(equity_events)
 
     if not events:
         return
@@ -998,8 +1020,27 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             commentary_complete
         )
 
-    # Apply pressure events (fast, local calculations)
-    handle_pressure_events(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
+    # Calculate equity history for equity-based pressure events
+    equity_history = None
+    if 'memory_manager' in game_data:
+        memory_manager = game_data['memory_manager']
+        hand_in_progress = memory_manager.hand_recorder.current_hand
+        if hand_in_progress and hand_in_progress.hole_cards:
+            try:
+                equity_tracker = EquityTracker()
+                equity_history = equity_tracker.calculate_hand_equity_history(hand_in_progress)
+                logger.debug(
+                    f"[Game {game_id}] Calculated equity history: "
+                    f"{len(equity_history.snapshots)} snapshots"
+                )
+            except Exception as e:
+                logger.warning(f"[Game {game_id}] Equity calculation failed: {e}")
+
+    # Apply pressure events (includes equity-based events if available)
+    handle_pressure_events(
+        game_id, game_data, game_state, winner_info, winning_player_names,
+        pot_size_before_award, equity_history=equity_history
+    )
 
     # Complete hand recording in memory manager (fast, local)
     if 'memory_manager' in game_data:
@@ -1015,6 +1056,18 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             )
         except Exception as e:
             logger.warning(f"Memory manager hand completion failed: {e}")
+
+        # Persist equity history to database
+        if equity_history and equity_history.snapshots:
+            try:
+                from poker.repositories.hand_equity_repository import HandEquityRepository
+                equity_repo = HandEquityRepository(hand_history_repo.db_path)
+                equity_repo.save_equity_history(equity_history)
+                logger.debug(
+                    f"[Game {game_id}] Saved {len(equity_history.snapshots)} equity snapshots"
+                )
+            except Exception as e:
+                logger.warning(f"[Game {game_id}] Failed to save equity history: {e}")
 
     # Run end-of-hand coach progression checks (gate unlocks, silent downgrades)
     try:

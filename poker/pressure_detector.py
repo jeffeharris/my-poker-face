@@ -5,10 +5,13 @@ This module detects game events that should trigger pressure changes
 in AI player personalities.
 """
 
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
 from .poker_game import PokerGameState, Player
 from .hand_evaluator import HandEvaluator
 from .moment_analyzer import MomentAnalyzer
+
+if TYPE_CHECKING:
+    from .equity_snapshot import HandEquityHistory
 
 
 class PressureEventDetector:
@@ -191,6 +194,220 @@ class PressureEventDetector:
             events.append(("friendly_chat", recipients))
         elif any(word in message_lower for word in aggressive_words):
             events.append(("rivalry_trigger", recipients))
-        
+
         return events
-    
+
+    # Equity-based event detection thresholds
+    COOLER_MIN_EQUITY = 0.30       # Both players had 30%+ equity on flop
+    SUCKOUT_THRESHOLD = 0.40      # Winner was <40% equity on turn
+    GOT_SUCKED_OUT_THRESHOLD = 0.60  # Loser was >60% equity on turn
+    BAD_BEAT_EQUITY_THRESHOLD = 0.70  # Loser was >70% favorite on flop
+
+    def detect_equity_events(
+        self,
+        game_state: PokerGameState,
+        winner_info: Dict[str, Any],
+        equity_history: 'HandEquityHistory',
+        pot_size: Optional[int] = None,
+    ) -> List[Tuple[str, List[str]]]:
+        """
+        Detect equity-based pressure events: cooler, suckout, got_sucked_out.
+
+        These events require equity history data calculated at showdown.
+
+        Args:
+            game_state: Current game state
+            winner_info: Winner information from showdown
+            equity_history: HandEquityHistory with equity snapshots for all streets
+            pot_size: Pot size before award (pass explicitly since game_state.pot may be 0)
+
+        Returns:
+            List of (event_name, affected_players) tuples
+        """
+        events = []
+
+        if not equity_history or not equity_history.snapshots:
+            return events
+
+        # Extract winner names from pot_breakdown
+        winner_names = []
+        pot_breakdown = winner_info.get('pot_breakdown', [])
+        for pot in pot_breakdown:
+            for winner in pot.get('winners', []):
+                if winner['name'] not in winner_names:
+                    winner_names.append(winner['name'])
+
+        if not winner_names:
+            return events
+
+        # Get players who made it to showdown (not folded)
+        showdown_players = [p.name for p in game_state.players if not p.is_folded]
+
+        if len(showdown_players) < 2:
+            return events  # Need 2+ players for equity-based events
+
+        # Check for big pot (only apply some events to big pots)
+        # Use provided pot_size since game_state.pot may be 0 after awarding
+        pot_total = pot_size if pot_size is not None else (
+            game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+        )
+        active_stacks = [p.stack for p in game_state.players if p.stack > 0]
+        avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
+        is_big_pot = MomentAnalyzer.is_big_pot(pot_total, 0, avg_stack)
+
+        # Detect cooler
+        cooler_events = self._detect_cooler(showdown_players, winner_names, equity_history)
+        events.extend(cooler_events)
+
+        # Detect suckout (only for big pots - small pots don't matter much)
+        if is_big_pot:
+            suckout_events = self._detect_suckout(winner_names, equity_history)
+            events.extend(suckout_events)
+
+            got_sucked_out_events = self._detect_got_sucked_out(
+                showdown_players, winner_names, equity_history
+            )
+            events.extend(got_sucked_out_events)
+
+        # Equity-based bad beat (replaces rank-based detection)
+        bad_beat_events = self._detect_bad_beat_equity(
+            showdown_players, winner_names, equity_history
+        )
+        events.extend(bad_beat_events)
+
+        return events
+
+    def _detect_cooler(
+        self,
+        showdown_players: List[str],
+        winner_names: List[str],
+        equity_history: 'HandEquityHistory',
+    ) -> List[Tuple[str, List[str]]]:
+        """
+        Detect cooler: Both players had strong hands (>30% equity on flop).
+
+        A cooler is an unavoidable loss - both players had legitimate hands.
+        This is less tilting than a bad beat since the loser "did nothing wrong."
+        """
+        events = []
+        flop_equities = equity_history.get_active_street_equities('FLOP')
+
+        if not flop_equities or len(flop_equities) < 2:
+            return events
+
+        # Find losers who had strong equity on the flop
+        for player_name in showdown_players:
+            if player_name in winner_names:
+                continue  # Winners don't get cooler event
+
+            player_equity = flop_equities.get(player_name, 0)
+            winner_equity = max(
+                flop_equities.get(w, 0) for w in winner_names if w in flop_equities
+            ) if any(w in flop_equities for w in winner_names) else 0
+
+            # Both had strong flop equity
+            if player_equity >= self.COOLER_MIN_EQUITY and winner_equity >= self.COOLER_MIN_EQUITY:
+                events.append(("cooler", [player_name]))
+
+        return events
+
+    def _detect_suckout(
+        self,
+        winner_names: List[str],
+        equity_history: 'HandEquityHistory',
+    ) -> List[Tuple[str, List[str]]]:
+        """
+        Detect suckout: Winner was behind (<40% equity) on turn but won.
+
+        This means the winner got lucky - they were losing and caught a card.
+        """
+        events = []
+        turn_equities = equity_history.get_active_street_equities('TURN')
+
+        if not turn_equities:
+            # Try flop if turn not available
+            turn_equities = equity_history.get_active_street_equities('FLOP')
+
+        if not turn_equities:
+            return events
+
+        suckout_winners = []
+        for winner_name in winner_names:
+            winner_equity = turn_equities.get(winner_name, 1.0)
+            if winner_equity < self.SUCKOUT_THRESHOLD:
+                suckout_winners.append(winner_name)
+
+        if suckout_winners:
+            events.append(("suckout", suckout_winners))
+
+        return events
+
+    def _detect_got_sucked_out(
+        self,
+        showdown_players: List[str],
+        winner_names: List[str],
+        equity_history: 'HandEquityHistory',
+    ) -> List[Tuple[str, List[str]]]:
+        """
+        Detect got_sucked_out: Loser was ahead (>60% equity) on turn but lost.
+
+        This is very tilting - the loser was winning and got unlucky.
+        """
+        events = []
+        turn_equities = equity_history.get_active_street_equities('TURN')
+
+        if not turn_equities:
+            # Try flop if turn not available
+            turn_equities = equity_history.get_active_street_equities('FLOP')
+
+        if not turn_equities:
+            return events
+
+        victims = []
+        for player_name in showdown_players:
+            if player_name in winner_names:
+                continue  # Winners didn't get sucked out
+
+            player_equity = turn_equities.get(player_name, 0)
+            if player_equity > self.GOT_SUCKED_OUT_THRESHOLD:
+                victims.append(player_name)
+
+        if victims:
+            events.append(("got_sucked_out", victims))
+
+        return events
+
+    def _detect_bad_beat_equity(
+        self,
+        showdown_players: List[str],
+        winner_names: List[str],
+        equity_history: 'HandEquityHistory',
+    ) -> List[Tuple[str, List[str]]]:
+        """
+        Detect equity-based bad beat: Loser had >70% equity on flop but lost.
+
+        This replaces the rank-based bad beat detection with equity-based.
+        More accurate since equity accounts for draws and actual win probability.
+        """
+        events = []
+        flop_equities = equity_history.get_active_street_equities('FLOP')
+
+        if not flop_equities:
+            return events
+
+        bad_beat_victims = []
+        for player_name in showdown_players:
+            if player_name in winner_names:
+                continue  # Winners don't get bad beat
+
+            player_equity = flop_equities.get(player_name, 0)
+            if player_equity > self.BAD_BEAT_EQUITY_THRESHOLD:
+                bad_beat_victims.append(player_name)
+
+        if bad_beat_victims:
+            # Note: This may overlap with got_sucked_out - that's OK,
+            # they're related but bad_beat is specifically about flop equity
+            events.append(("bad_beat", bad_beat_victims))
+
+        return events
+
