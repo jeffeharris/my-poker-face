@@ -209,5 +209,37 @@ class TestPressureSystem(unittest.TestCase):
         self.assertGreater(trump_stats['big_losses'], 0, "Trump should have losses")
 
 
+    def test_successful_bluff_does_not_penalize_folders(self):
+        """When everyone folds to a bluff, only winner gets successful_bluff, not folders."""
+        # Set up: Trump bluffs (weak hand), everyone else folded
+        game_state = self.game_state.update(
+            pot={'total': 2000},
+            players=tuple(
+                player.update(is_folded=(player.name != "Donald Trump"))
+                for player in self.game_state.players
+            )
+        )
+
+        winner_info = {
+            'pot_breakdown': [{
+                'winners': [{'name': 'Donald Trump', 'amount': 2000}],
+                'hand_name': 'High Card'
+            }],
+            'hand_rank': 10,  # High card = weak hand (bluff)
+        }
+
+        events = self.pressure_detector.detect_showdown_events(game_state, winner_info)
+        event_types = [e[0] for e in events]
+
+        # Should have successful_bluff for Trump
+        self.assertIn("successful_bluff", event_types)
+        bluff_event = next(e for e in events if e[0] == "successful_bluff")
+        self.assertEqual(bluff_event[1], ["Donald Trump"])
+
+        # Should NOT have bluff_called for folders
+        self.assertNotIn("bluff_called", event_types,
+            "Folders should not receive bluff_called - they made correct decisions")
+
+
 if __name__ == '__main__':
     unittest.main()

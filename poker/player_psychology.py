@@ -168,13 +168,14 @@ class PlayerPsychology:
             key_moment: Optional key moment ('bad_beat', 'bluff_called', etc.)
             big_blind: Big blind size for normalizing reactive spike magnitude
         """
-        # Update tilt from hand outcome
+        # Update tilt from hand outcome (with relative thresholds based on stakes)
         self.tilt.update_from_hand(
             outcome=outcome,
             amount=amount,
             opponent=opponent,
             was_bad_beat=was_bad_beat,
-            was_bluff_called=was_bluff_called
+            was_bluff_called=was_bluff_called,
+            big_blind=big_blind,
         )
 
         # Generate new emotional state (two-layer: baseline + spike)

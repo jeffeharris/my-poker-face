@@ -72,14 +72,13 @@ class PressureEventDetector:
         # Get active players who showed cards
         active_players = [p for p in game_state.players if not p.is_folded]
         
-        # Detect successful bluff (weak hand wins big pot)
+        # Detect successful bluff (weak hand wins big pot when everyone folds)
         if winner_name and winner_hand_rank >= 8 and is_big_pot and len(active_players) == 1:
-            # Winner bluffed everyone out
+            # Winner bluffed everyone out - only reward the bluffer
             events.append(("successful_bluff", [winner_name]))
-            # Other players feel pressure from being bluffed
-            other_players = [p.name for p in game_state.players if p.name != winner_name]
-            events.append(("bluff_called", other_players))
-        
+            # Note: bluff_called should only fire when a bluffer LOSES at showdown,
+            # not when folders escape. Folders made correct decisions and shouldn't be penalized.
+
         # Always track wins (not just big wins)
         if winner_names and pot_total > 0:
             # Track any win for stats
