@@ -178,12 +178,9 @@
     /* Use flex-start to allow full scrolling, center via auto margins on pseudo-elements */
     justify-content: flex-start;
     box-sizing: border-box;
+    /* z-index layering: dim(50) < avatars(100) < shuffle content(150) < winner(1000) */
     position: relative;
-}
-
-/* During interhand transition, lift avatars above the dim overlay */
-.mobile-opponents.interhand-active {
-    z-index: var(--z-sticky); /* 150 - above transition (100), below winner overlay (1000) */
+    z-index: var(--z-dropdown); /* 100 */
 }
 
 /* Spacers that auto-expand to center content when it fits, collapse when it overflows */

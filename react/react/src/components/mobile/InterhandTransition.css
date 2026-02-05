@@ -2,34 +2,50 @@
    INTERHAND TRANSITION
    Premium atmospheric transition between hands
    Evokes the satisfying ritual of a casino shuffle
+
+   Split into two layers:
+   - Dim layer (z-index 50) - BELOW avatars
+   - Content layer (z-index 150) - ABOVE avatars
    =========================================== */
 
-.interhand-transition {
+/* LAYER 1: Dim background - sits BELOW avatars */
+.interhand-dim {
   position: fixed;
   inset: 0;
-  z-index: 100;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  z-index: 50;
   background: radial-gradient(
     ellipse 120% 100% at 50% 40%,
-    rgba(15, 17, 24, 0.92) 0%,
-    rgba(5, 5, 8, 0.97) 60%,
-    rgba(0, 0, 0, 0.99) 100%
+    rgba(15, 17, 24, 0.88) 0%,
+    rgba(5, 5, 8, 0.94) 60%,
+    rgba(0, 0, 0, 0.96) 100%
   );
   animation: transitionFadeIn 0.4s ease-out;
   overflow: hidden;
 }
 
+/* LAYER 2: Content - sits ABOVE avatars */
+.interhand-content-layer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sticky); /* 150 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: transitionFadeIn 0.4s ease-out;
+}
+
+.interhand-content-layer .interhand-content {
+  pointer-events: auto;
+}
+
 @keyframes transitionFadeIn {
   from {
     opacity: 0;
-    backdrop-filter: blur(0px);
   }
   to {
     opacity: 1;
-    backdrop-filter: blur(8px);
   }
 }
 

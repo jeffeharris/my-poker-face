@@ -9,6 +9,10 @@ interface InterhandTransitionProps {
 /**
  * Atmospheric transition shown between hands while the deck is shuffled
  * and commentary finishes. Creates a premium "casino ritual" feel.
+ *
+ * Split into two layers:
+ * - Dim layer (z-index 50) - goes BELOW avatars
+ * - Content layer (z-index 150) - cards/text go ABOVE avatars
  */
 export const InterhandTransition = memo(function InterhandTransition({
   isVisible,
@@ -39,57 +43,61 @@ export const InterhandTransition = memo(function InterhandTransition({
   if (!isVisible) return null;
 
   return (
-    <div className="interhand-transition" data-testid="interhand-transition">
-      {/* Ambient background particles */}
-      <div className="interhand-ambient">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <div key={i} className="ambient-particle" style={{ '--particle-index': i } as React.CSSProperties} />
-        ))}
-      </div>
-
-      {/* Main content area */}
-      <div className={`interhand-content ${showContent ? 'visible' : ''}`}>
-        {/* Animated card deck shuffle */}
-        <div className="shuffle-deck">
-          {shuffleCards.map((card) => (
-            <div
-              key={card.id}
-              className="shuffle-card"
-              style={{
-                '--card-delay': `${card.delay}s`,
-                '--card-offset-x': `${card.offsetX}px`,
-                '--card-rotation': `${card.rotation}deg`,
-              } as React.CSSProperties}
-            >
-              <div className="card-back-pattern">
-                <div className="pattern-diamond" />
-                <div className="pattern-diamond secondary" />
-              </div>
-            </div>
+    <>
+      {/* LAYER 1: Dim background - BELOW avatars */}
+      <div className="interhand-dim" data-testid="interhand-transition">
+        {/* Ambient background particles */}
+        <div className="interhand-ambient">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="ambient-particle" style={{ '--particle-index': i } as React.CSSProperties} />
           ))}
         </div>
-
-        {/* Status text with shimmer */}
-        <div className="interhand-status">
-          <span className="status-text">Shuffling</span>
-          <div className="status-dots">
-            <span className="dot" />
-            <span className="dot" />
-            <span className="dot" />
-          </div>
-        </div>
-
-        {/* Hand number badge */}
-        {handNumber && (
-          <div className="hand-badge">
-            <span className="badge-label">Next Hand</span>
-            <span className="badge-number">#{handNumber + 1}</span>
-          </div>
-        )}
+        {/* Subtle vignette overlay */}
+        <div className="interhand-vignette" />
       </div>
 
-      {/* Subtle vignette overlay */}
-      <div className="interhand-vignette" />
-    </div>
+      {/* LAYER 2: Content - ABOVE avatars */}
+      <div className="interhand-content-layer">
+        <div className={`interhand-content ${showContent ? 'visible' : ''}`}>
+          {/* Animated card deck shuffle */}
+          <div className="shuffle-deck">
+            {shuffleCards.map((card) => (
+              <div
+                key={card.id}
+                className="shuffle-card"
+                style={{
+                  '--card-delay': `${card.delay}s`,
+                  '--card-offset-x': `${card.offsetX}px`,
+                  '--card-rotation': `${card.rotation}deg`,
+                } as React.CSSProperties}
+              >
+                <div className="card-back-pattern">
+                  <div className="pattern-diamond" />
+                  <div className="pattern-diamond secondary" />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Status text with shimmer */}
+          <div className="interhand-status">
+            <span className="status-text">Shuffling</span>
+            <div className="status-dots">
+              <span className="dot" />
+              <span className="dot" />
+              <span className="dot" />
+            </div>
+          </div>
+
+          {/* Hand number badge */}
+          {handNumber && (
+            <div className="hand-badge">
+              <span className="badge-label">Next Hand</span>
+              <span className="badge-number">#{handNumber + 1}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 });
