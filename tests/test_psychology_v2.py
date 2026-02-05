@@ -18,6 +18,8 @@ from poker.player_psychology import (
     ComposureState,
     get_quadrant,
     compute_modifiers,
+    compute_baseline_confidence,
+    compute_baseline_composure,
     _clamp,
 )
 from poker.range_guidance import (
@@ -299,6 +301,211 @@ class TestComputeModifiers:
         assert abs(loose_mod) <= 0.30
 
 
+class TestBaselineFormulas:
+    """Tests for personality-specific baseline derivation formulas."""
+
+    def test_baseline_confidence_formula(self):
+        """Test baseline_confidence formula components."""
+        anchors = PersonalityAnchors(
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.7,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
+        )
+        # Formula: 0.3 + aggression*0.25 + risk_identity*0.20 + (1-ego)*0.25
+        # = 0.3 + 0.125 + 0.10 + 0.125 = 0.65
+        baseline = compute_baseline_confidence(anchors)
+        assert abs(baseline - 0.65) < 0.01
+
+    def test_baseline_confidence_high_aggression(self):
+        """Test that high aggression increases baseline confidence."""
+        low_agg = PersonalityAnchors(
+            baseline_aggression=0.2, baseline_looseness=0.5, ego=0.5, poise=0.7,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        high_agg = PersonalityAnchors(
+            baseline_aggression=0.8, baseline_looseness=0.5, ego=0.5, poise=0.7,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        assert compute_baseline_confidence(high_agg) > compute_baseline_confidence(low_agg)
+
+    def test_baseline_confidence_high_ego_raises(self):
+        """Test that high ego RAISES baseline confidence (high self-regard)."""
+        low_ego = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.2, poise=0.7,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        high_ego = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.8, poise=0.7,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        # High ego = higher baseline (thinks highly of themselves)
+        # Note: brittleness (bigger drops when challenged) is in event impacts, not baseline
+        assert compute_baseline_confidence(high_ego) > compute_baseline_confidence(low_ego)
+
+    def test_baseline_composure_formula(self):
+        """Test baseline_composure formula components."""
+        anchors = PersonalityAnchors(
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.7,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
+        )
+        # Formula: 0.25 + poise*0.50 + (1-expressiveness)*0.15 + (risk_id-0.5)*0.3
+        # = 0.25 + 0.35 + 0.075 + 0 = 0.675
+        baseline = compute_baseline_composure(anchors)
+        assert abs(baseline - 0.675) < 0.01
+
+    def test_baseline_composure_high_poise(self):
+        """Test that high poise increases baseline composure."""
+        low_poise = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.3,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        high_poise = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.85,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        assert compute_baseline_composure(high_poise) > compute_baseline_composure(low_poise)
+
+    def test_baseline_composure_floor(self):
+        """Test that baseline_composure has a floor of 0.25."""
+        # Create extreme low-composure personality
+        extreme = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.0,
+            expressiveness=1.0, risk_identity=0.0, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        # Even with worst anchors, composure should be >= 0.25
+        baseline = compute_baseline_composure(extreme)
+        assert baseline >= 0.25
+
+    def test_volatile_personality_overheated_baseline(self):
+        """Test that volatile personality (low poise, high ego) rests in OVERHEATED."""
+        # Gordon Ramsay type: very low poise, high ego, high aggression, high expressiveness
+        anchors = PersonalityAnchors(
+            baseline_aggression=0.85,
+            baseline_looseness=0.7,
+            ego=0.85,
+            poise=0.20,  # Very low poise = volatile
+            expressiveness=0.80,  # High expressiveness = less internal control
+            risk_identity=0.75,
+            adaptation_bias=0.5,
+            baseline_energy=0.7,
+            recovery_rate=0.12,
+        )
+        baseline_conf = compute_baseline_confidence(anchors)
+        baseline_comp = compute_baseline_composure(anchors)
+        # Should be OVERHEATED: high confidence (>0.5), low composure (<0.5)
+        # Formula: 0.25 + 0.20*0.50 + (1-0.80)*0.15 + (0.75-0.5)*0.3 = 0.455
+        assert baseline_conf > 0.5, f"Expected conf > 0.5, got {baseline_conf}"
+        assert baseline_comp < 0.5, f"Expected comp < 0.5, got {baseline_comp}"
+
+    def test_stoic_personality_poker_face_baseline(self):
+        """Test that stoic personality (high poise, low ego) rests near poker face zone."""
+        # Batman type: high poise, low ego, moderate aggression
+        anchors = PersonalityAnchors(
+            baseline_aggression=0.5,
+            baseline_looseness=0.4,
+            ego=0.30,  # Low ego = stable
+            poise=0.85,  # High poise = composed
+            expressiveness=0.25,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.3,
+            recovery_rate=0.15,
+        )
+        baseline_conf = compute_baseline_confidence(anchors)
+        baseline_comp = compute_baseline_composure(anchors)
+        # Should be near poker face zone: conf ~0.65, comp ~0.75
+        assert 0.55 < baseline_conf < 0.80
+        assert 0.65 < baseline_comp < 0.90
+
+    def test_recovery_toward_personality_baselines(self):
+        """Test that recover() drifts toward personality-specific baselines, not universal 0.5/0.7."""
+        # Create a stoic personality (high poise, low ego) with HIGH baseline composure
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.30,
+                'poise': 0.85,  # High poise -> high baseline composure (~0.77)
+                'expressiveness': 0.25,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.50,  # High rate to see effect quickly
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('StoicPlayer', config)
+
+        # Verify baselines are personality-specific, not universal
+        assert psych._baseline_confidence > 0.55  # Higher than universal 0.5
+        assert psych._baseline_composure > 0.72   # Higher than universal 0.7
+
+        # Manually set axes to low values (simulating being shaken)
+        psych.axes = psych.axes.update(confidence=0.3, composure=0.4)
+
+        # Apply recovery
+        psych.recover()
+
+        # After recovery, should drift TOWARD personality-specific baseline,
+        # not the old universal values (0.5, 0.7)
+        # With rate=0.5: new = old + (baseline - old) * 0.5
+        # If baseline_conf ~0.65: new_conf = 0.3 + (0.65 - 0.3) * 0.5 = 0.475
+        # If baseline_comp ~0.77: new_comp = 0.4 + (0.77 - 0.4) * 0.5 = 0.585
+        assert psych.axes.confidence > 0.4  # Moved toward baseline
+        assert psych.axes.composure > 0.5   # Moved toward baseline (higher than 0.55 which old 0.7 baseline would give)
+
+    def test_volatile_personality_recovery_lower_baseline(self):
+        """Test that volatile personality recovers to LOWER baseline composure."""
+        # Volatile personality (low poise, high ego) with LOW baseline composure
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.8,
+                'baseline_looseness': 0.7,
+                'ego': 0.85,
+                'poise': 0.20,  # Low poise -> low baseline composure
+                'expressiveness': 0.80,
+                'risk_identity': 0.75,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.7,
+                'recovery_rate': 0.50,  # High rate to see effect quickly
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('VolatilePlayer', config)
+
+        # Verify this personality has LOW baseline composure (below 0.5)
+        assert psych._baseline_composure < 0.5
+
+        # Start with HIGH composure (unusually calm for this personality)
+        psych.axes = psych.axes.update(composure=0.8)
+
+        # Apply recovery
+        psych.recover()
+
+        # Volatile personality should recover DOWNWARD toward their low baseline
+        # new_comp = 0.8 + (baseline - 0.8) * 0.5
+        # If baseline ~0.45: new_comp = 0.8 + (0.45 - 0.8) * 0.5 = 0.625
+        assert psych.axes.composure < 0.75  # Dropped toward volatile baseline
+
+
 class TestPositionClamps:
     """Tests for position-clamped range guidance."""
 
@@ -383,22 +590,28 @@ class TestPlayerPsychologyIntegration:
         assert psych.anchors.baseline_looseness == pytest.approx(0.3, 0.01)  # 1 - 0.7
 
     def test_quadrant_property(self):
-        """Test that quadrant property works correctly."""
+        """Test that quadrant property works correctly with personality-specific baselines."""
+        # Create a personality that will start in GUARDED quadrant
+        # Need low baseline_confidence (low aggression, low risk_identity, low ego)
+        # and high baseline_composure (high poise)
         config = {
             'anchors': {
-                'baseline_aggression': 0.5,
+                'baseline_aggression': 0.2,  # Low -> lower confidence
                 'baseline_looseness': 0.5,
-                'ego': 0.5,
-                'poise': 0.7,
-                'expressiveness': 0.5,
-                'risk_identity': 0.5,
+                'ego': 0.2,                   # Low ego -> lower confidence baseline
+                'poise': 0.8,                 # High poise -> higher composure
+                'expressiveness': 0.3,        # Low expressiveness -> higher composure
+                'risk_identity': 0.3,         # Low -> lower confidence, lower composure
                 'adaptation_bias': 0.5,
                 'baseline_energy': 0.5,
                 'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
-        # Initial axes are 0.5 confidence, 0.7 composure -> GUARDED
+        # With these anchors:
+        # baseline_conf = 0.3 + 0.2*0.25 + 0.3*0.20 + 0.2*0.25 = 0.3 + 0.05 + 0.06 + 0.05 = 0.46
+        # baseline_comp = 0.25 + 0.8*0.50 + 0.7*0.15 + (0.3-0.5)*0.3 = 0.25 + 0.40 + 0.105 - 0.06 = 0.695
+        # So confidence ~0.46 (<0.5), composure ~0.70 (>0.5) -> GUARDED
         assert psych.quadrant == EmotionalQuadrant.GUARDED
 
     def test_effective_aggression_derived(self):

@@ -41,6 +41,55 @@ def _clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
     return max(min_val, min(max_val, value))
 
 
+def compute_baseline_confidence(anchors: 'PersonalityAnchors') -> float:
+    """
+    Derive baseline confidence from personality anchors.
+
+    Formula:
+        baseline_confidence = 0.3 (floor)
+            + baseline_aggression × 0.25  (aggressive = confident)
+            + risk_identity × 0.20        (risk-seekers expect to win)
+            + ego × 0.25                  (high ego = high self-regard)
+
+    Note: Ego also causes brittleness (bigger drops when challenged),
+    but that's handled in event impacts, not baseline.
+
+    Returns:
+        Baseline confidence clamped to [0.0, 1.0]
+    """
+    baseline = (
+        0.3
+        + anchors.baseline_aggression * 0.25
+        + anchors.risk_identity * 0.20
+        + anchors.ego * 0.25
+    )
+    return _clamp(baseline)
+
+
+def compute_baseline_composure(anchors: 'PersonalityAnchors') -> float:
+    """
+    Derive baseline composure from personality anchors.
+
+    Formula:
+        risk_mod = (risk_identity - 0.5) × 0.3  (range: -0.15 to +0.15)
+        baseline_composure = 0.25 (floor)
+            + poise × 0.50                (primary driver)
+            + (1 - expressiveness) × 0.15 (low expressiveness = control)
+            + risk_mod                    (risk-seekers comfortable with chaos)
+
+    Returns:
+        Baseline composure clamped to [0.25, 1.0]
+    """
+    risk_mod = (anchors.risk_identity - 0.5) * 0.3
+    baseline = (
+        0.25
+        + anchors.poise * 0.50
+        + (1.0 - anchors.expressiveness) * 0.15
+        + risk_mod
+    )
+    return _clamp(baseline, min_val=0.25, max_val=1.0)
+
+
 class EmotionalQuadrant(Enum):
     """
     Emotional quadrant from Confidence × Composure projection.
@@ -467,10 +516,20 @@ class PlayerPsychology:
     hand_count: int = 0
     last_updated: Optional[str] = None
 
+    # Derived baselines (computed from anchors, used for recovery)
+    _baseline_confidence: Optional[float] = field(default=None, repr=False)
+    _baseline_composure: Optional[float] = field(default=None, repr=False)
+
     def __post_init__(self):
-        """Initialize emotional state generator."""
+        """Initialize emotional state generator and compute baselines."""
         if self._emotional_generator is None:
             self._emotional_generator = EmotionalStateGenerator()
+
+        # Compute derived baselines if not already set
+        if self._baseline_confidence is None:
+            object.__setattr__(self, '_baseline_confidence', compute_baseline_confidence(self.anchors))
+        if self._baseline_composure is None:
+            object.__setattr__(self, '_baseline_composure', compute_baseline_composure(self.anchors))
 
     @classmethod
     def from_personality_config(
@@ -507,11 +566,15 @@ class PlayerPsychology:
                 recovery_rate=0.15,
             )
 
-        # Initialize axes at neutral/anchor values
+        # Compute personality-specific baselines from anchors
+        baseline_conf = compute_baseline_confidence(anchors)
+        baseline_comp = compute_baseline_composure(anchors)
+
+        # Initialize axes at personality-specific baselines
         # Phase 1: energy is static = baseline_energy
         axes = EmotionalAxes(
-            confidence=0.5,  # Start neutral
-            composure=0.7,   # Start slightly focused
+            confidence=baseline_conf,  # Start at personality baseline
+            composure=baseline_comp,   # Start at personality baseline
             energy=anchors.baseline_energy,  # Static in Phase 1
         )
 
@@ -669,20 +732,20 @@ class PlayerPsychology:
         """
         Apply recovery between hands.
 
-        Axes drift toward universal baselines:
-        - Confidence → 0.5 (neutral)
-        - Composure → 0.7 (slightly focused)
+        Axes drift toward personality-specific baselines (derived from anchors):
+        - Confidence → _baseline_confidence (computed from aggression, risk_identity, ego)
+        - Composure → _baseline_composure (computed from poise, expressiveness, risk_identity)
         - Energy = baseline_energy (static in Phase 1)
 
         Recovery rate from anchors.recovery_rate if not specified.
         """
         rate = recovery_rate if recovery_rate is not None else self.anchors.recovery_rate
 
-        # Drift confidence toward 0.5 (neutral)
-        new_conf = self.axes.confidence + (0.5 - self.axes.confidence) * rate
+        # Drift confidence toward personality-specific baseline
+        new_conf = self.axes.confidence + (self._baseline_confidence - self.axes.confidence) * rate
 
-        # Drift composure toward 0.7 (focused)
-        new_comp = self.axes.composure + (0.7 - self.axes.composure) * rate
+        # Drift composure toward personality-specific baseline
+        new_comp = self.axes.composure + (self._baseline_composure - self.axes.composure) * rate
 
         # Energy stays static in Phase 1
         self.axes = self.axes.update(
@@ -1101,9 +1164,12 @@ class PlayerPsychology:
                 energy=traits.get('table_talk', {}).get('value', anchors.baseline_energy),
             )
         else:
+            # No saved axes - initialize at personality-specific baselines
+            baseline_conf = compute_baseline_confidence(anchors)
+            baseline_comp = compute_baseline_composure(anchors)
             axes = EmotionalAxes(
-                confidence=0.5,
-                composure=0.7,
+                confidence=baseline_conf,
+                composure=baseline_comp,
                 energy=anchors.baseline_energy,
             )
 
