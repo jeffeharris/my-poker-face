@@ -1,0 +1,339 @@
+/* ===========================================
+   INTERHAND TRANSITION
+   Premium atmospheric transition between hands
+   Evokes the satisfying ritual of a casino shuffle
+   =========================================== */
+
+.interhand-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(
+    ellipse 120% 100% at 50% 40%,
+    rgba(15, 17, 24, 0.92) 0%,
+    rgba(5, 5, 8, 0.97) 60%,
+    rgba(0, 0, 0, 0.99) 100%
+  );
+  animation: transitionFadeIn 0.4s ease-out;
+  overflow: hidden;
+}
+
+@keyframes transitionFadeIn {
+  from {
+    opacity: 0;
+    backdrop-filter: blur(0px);
+  }
+  to {
+    opacity: 1;
+    backdrop-filter: blur(8px);
+  }
+}
+
+/* ===========================================
+   AMBIENT PARTICLES
+   Floating golden dust motes for atmosphere
+   =========================================== */
+
+.interhand-ambient {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ambient-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: radial-gradient(
+    circle,
+    rgba(212, 165, 116, 0.8) 0%,
+    rgba(212, 165, 116, 0) 70%
+  );
+  border-radius: 50%;
+  opacity: 0;
+  animation: particleFloat 4s ease-in-out infinite;
+  animation-delay: calc(var(--particle-index) * 0.3s);
+}
+
+/* Distribute particles across the screen */
+.ambient-particle:nth-child(1) { left: 15%; top: 20%; }
+.ambient-particle:nth-child(2) { left: 80%; top: 15%; }
+.ambient-particle:nth-child(3) { left: 25%; top: 70%; }
+.ambient-particle:nth-child(4) { left: 70%; top: 65%; }
+.ambient-particle:nth-child(5) { left: 10%; top: 45%; }
+.ambient-particle:nth-child(6) { left: 85%; top: 40%; }
+.ambient-particle:nth-child(7) { left: 45%; top: 10%; }
+.ambient-particle:nth-child(8) { left: 55%; top: 85%; }
+.ambient-particle:nth-child(9) { left: 35%; top: 35%; }
+.ambient-particle:nth-child(10) { left: 65%; top: 55%; }
+.ambient-particle:nth-child(11) { left: 20%; top: 80%; }
+.ambient-particle:nth-child(12) { left: 90%; top: 75%; }
+
+@keyframes particleFloat {
+  0%, 100% {
+    opacity: 0;
+    transform: translateY(0) scale(0.5);
+  }
+  20% {
+    opacity: 0.6;
+    transform: translateY(-10px) scale(1);
+  }
+  80% {
+    opacity: 0.4;
+    transform: translateY(-30px) scale(0.8);
+  }
+}
+
+/* ===========================================
+   MAIN CONTENT AREA
+   =========================================== */
+
+.interhand-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.interhand-content.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* ===========================================
+   SHUFFLE DECK ANIMATION
+   Card backs riffle and settle
+   =========================================== */
+
+.shuffle-deck {
+  position: relative;
+  width: 80px;
+  height: 112px;
+  perspective: 800px;
+}
+
+.shuffle-card {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    145deg,
+    #1a1f2e 0%,
+    #0d1117 100%
+  );
+  border-radius: 8px;
+  border: 1px solid rgba(212, 165, 116, 0.15);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transform-origin: center center;
+  animation: shuffleRiffle 1.6s ease-in-out infinite;
+  animation-delay: var(--card-delay);
+  overflow: hidden;
+}
+
+/* Card back pattern - classic diamond pattern */
+.card-back-pattern {
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(212, 165, 116, 0.12);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(212, 165, 116, 0.03) 4px,
+    rgba(212, 165, 116, 0.03) 8px
+  );
+}
+
+.pattern-diamond {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(212, 165, 116, 0.25);
+  transform: rotate(45deg);
+  position: absolute;
+}
+
+.pattern-diamond.secondary {
+  width: 14px;
+  height: 14px;
+  border-color: rgba(212, 165, 116, 0.15);
+}
+
+/* Riffle shuffle animation - cards fan out and back */
+@keyframes shuffleRiffle {
+  0%, 100% {
+    transform:
+      translateX(var(--card-offset-x))
+      translateY(0)
+      rotateY(0deg)
+      rotateZ(var(--card-rotation))
+      scale(1);
+  }
+  25% {
+    transform:
+      translateX(calc(var(--card-offset-x) * 2.5))
+      translateY(-8px)
+      rotateY(-15deg)
+      rotateZ(calc(var(--card-rotation) * 1.5))
+      scale(1.02);
+  }
+  50% {
+    transform:
+      translateX(var(--card-offset-x))
+      translateY(-4px)
+      rotateY(0deg)
+      rotateZ(var(--card-rotation))
+      scale(1);
+  }
+  75% {
+    transform:
+      translateX(calc(var(--card-offset-x) * -0.5))
+      translateY(-8px)
+      rotateY(15deg)
+      rotateZ(calc(var(--card-rotation) * 0.5))
+      scale(1.02);
+  }
+}
+
+/* ===========================================
+   STATUS TEXT
+   "Shuffling..." with animated dots
+   =========================================== */
+
+.interhand-status {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.status-text {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wider);
+  text-transform: uppercase;
+  background: linear-gradient(
+    90deg,
+    var(--color-gold-dark) 0%,
+    var(--color-gold-bright) 50%,
+    var(--color-gold-dark) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: textShimmer 2.5s ease-in-out infinite;
+}
+
+@keyframes textShimmer {
+  0%, 100% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 0% 50%;
+  }
+}
+
+.status-dots {
+  display: flex;
+  gap: 3px;
+  padding-bottom: 4px;
+}
+
+.status-dots .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-gold);
+  opacity: 0.4;
+  animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.status-dots .dot:nth-child(1) { animation-delay: 0s; }
+.status-dots .dot:nth-child(2) { animation-delay: 0.15s; }
+.status-dots .dot:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes dotPulse {
+  0%, 60%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+}
+
+/* ===========================================
+   HAND NUMBER BADGE
+   Shows upcoming hand number
+   =========================================== */
+
+.hand-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 20px;
+  background: rgba(212, 165, 116, 0.06);
+  border: 1px solid rgba(212, 165, 116, 0.12);
+  border-radius: var(--radius-xl);
+  animation: badgeFadeIn 0.6s ease-out 0.3s both;
+}
+
+@keyframes badgeFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.badge-label {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--letter-spacing-wider);
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.badge-number {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gold-light);
+  text-shadow: 0 0 20px rgba(212, 165, 116, 0.3);
+}
+
+/* ===========================================
+   VIGNETTE OVERLAY
+   Subtle edge darkening for depth
+   =========================================== */
+
+.interhand-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 70% 60% at 50% 50%,
+    transparent 0%,
+    rgba(0, 0, 0, 0.3) 100%
+  );
+  pointer-events: none;
+}

@@ -10,6 +10,7 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
+import { InterhandTransition } from './InterhandTransition';
 import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
@@ -674,6 +675,12 @@ export function MobilePokerTable({
           onSendMessage={wrappedSendMessage}
         />
       )}
+
+      {/* Interhand transition - background layer during end-of-hand phases */}
+      <InterhandTransition
+        isVisible={phase === 'HAND_OVER' || phase === 'EVALUATING_HAND'}
+        handNumber={handNumber}
+      />
 
       {/* Chat Sheet - Redesigned with tabs for Quick Chat / Keyboard */}
       <MobileChatSheet

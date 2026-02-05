@@ -528,7 +528,10 @@
     min-height: 21dvh;
     max-height: 21dvh;
     box-sizing: border-box;
+    position: relative;
 }
+
+/* Interhand transition moved to InterhandTransition.css */
 
 .community-cards-row {
     display: grid;
