@@ -1007,14 +1007,459 @@ The following properties are maintained for existing code:
 
 | Item | Phase | Notes |
 |------|-------|-------|
-| Dynamic energy | Phase 2 | Currently static = baseline_energy |
-| Expression filtering | Phase 2 | `visible_emotion = internal × expressiveness × energy` |
-| Poker Face zone | Phase 3 | 3D ellipsoid membership test |
-| Ego/Poise sensitivity scaling | Phase 4 | Currently using simplified multipliers |
+| ~~Dynamic energy~~ | ~~Phase 2~~ | ✅ Complete - see §21 |
+| ~~Expression filtering~~ | ~~Phase 2~~ | ✅ Complete - see §21 |
+| ~~Poker Face zone~~ | ~~Phase 3~~ | ✅ Complete - see §22 |
+| ~~Ego/Poise sensitivity scaling~~ | ~~Phase 4~~ | ✅ Complete - see §23 |
 | UI updates | Phase 5 | Debug routes updated, main UI unchanged |
 
 ### Known Limitations
 
-1. **Energy is static**: Energy axis doesn't change during play (always = baseline_energy)
-2. **No Poker Face zone**: All players show quadrant emotions, no masking
-3. **Simplified sensitivity**: Event sensitivity uses basic multipliers, not full floor-based scaling from §18.3
+1. ~~**Energy is static**: Energy axis doesn't change during play (always = baseline_energy)~~ → Fixed in Phase 2
+2. ~~**No Poker Face zone**: All players show quadrant emotions, no masking~~ → Fixed in Phase 3
+3. ~~**Simplified sensitivity**: Event sensitivity uses basic multipliers, not full floor-based scaling from §18.3~~ → Fixed in Phase 4
+
+---
+
+## 21. Phase 2 Implementation Status
+
+**Status**: ✅ COMPLETE (2026-02-05)
+
+### What Was Implemented
+
+| Deliverable | Status | Notes |
+|-------------|--------|-------|
+| Energy axis (dynamic) | ✅ | Energy changes via pressure events, recovers toward baseline |
+| Expression filtering formula | ✅ | `visibility = expressiveness × energy` in `expression_filter.py` |
+| Energy replaces table_talk | ✅ | `table_talk` property returns `axes.energy` |
+| Tempo/chattiness guidance | ✅ | `get_tempo_guidance()`, `get_dramatic_sequence_guidance()` |
+| Energy events | ✅ | engagement/disengagement events (all_in_moment, consecutive_folds, etc.) |
+| Edge springs | ✅ | Push away from 0.15 and 0.85 extremes in `recover()` |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `poker/player_psychology.py` | Dynamic energy in `apply_pressure_event()`, edge springs in `recover()` |
+| `poker/expression_filter.py` | New file with visibility calculation, emotion dampening |
+| `poker/controllers.py` | Expression guidance injection |
+
+---
+
+## 22. Phase 3 Implementation Status
+
+**Status**: ✅ COMPLETE (2026-02-05)
+
+### What Was Implemented
+
+| Deliverable | Status | Notes |
+|-------------|--------|-------|
+| Zone geometry | ✅ | `PokerFaceZone` class with center (0.65, 0.75, 0.40) |
+| Size from Poise/Ego | ✅ | `create_poker_face_zone()` adjusts radii based on anchors |
+| Shape from Expressiveness/Risk Identity | ✅ | Asymmetric narrowing based on traits |
+| Membership test | ✅ | `is_in_poker_face_zone()`, `zone_distance` property |
+| Poker Face label when inside zone | ✅ | `get_display_emotion()` returns "poker_face" when in zone |
+| Quadrant labels when outside zone | ✅ | Falls through to quadrant-based emotion |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `poker/player_psychology.py` | `PokerFaceZone` class, `create_poker_face_zone()`, zone membership methods |
+
+### Testable Behaviors
+
+- Batman (high poise, low ego) → large poker face zone, often shows poker face
+- Gordon Ramsay (low poise, high expressiveness) → small zone, rarely in poker face
+- Players enter/exit zone based on game events pushing confidence/composure/energy
+
+---
+
+## 23. Phase 4 Implementation Status
+
+**Status**: ✅ COMPLETE (2026-02-05)
+
+### What Was Implemented
+
+| Deliverable | Status | Notes |
+|-------------|--------|-------|
+| Ego → Confidence routing | ✅ | `_calculate_sensitivity(self.anchors.ego, floor)` in `apply_pressure_event()` |
+| Poise → Composure routing | ✅ | `_calculate_sensitivity(1.0 - self.anchors.poise, floor)` - inverted for high poise = less sensitive |
+| Sensitivity scaling | ✅ | Severity-based floors: minor=0.20, normal=0.30, major=0.40 via `_get_severity_floor()` |
+| Recovery rate per personality | ✅ | Uses `anchors.recovery_rate` in `recover()` method |
+| Asymmetric recovery | ✅ | Below baseline: sticky (0.6 + 0.4×current), Above baseline: slow decay (0.8) |
+
+### Key Functions Added
+
+| Function | Purpose |
+|----------|---------|
+| `_get_severity_floor(event_name)` | Returns 0.20/0.30/0.40 based on event severity |
+| `_calculate_sensitivity(anchor, floor)` | `floor + (1 - floor) × anchor` |
+| `EVENT_SEVERITY` dict | Maps events to 'minor', 'normal', 'major' |
+| `RECOVERY_*` constants | Asymmetric recovery parameters |
+
+### Testable Behaviors
+
+- High-ego player (ego=0.8) loses ~70% more confidence when bluff is called vs low-ego (ego=0.2)
+- High-poise player (poise=0.8) loses ~70% less composure on bad beats vs low-poise (poise=0.2)
+- Major events (bad_beat, got_sucked_out) have higher minimum impact than minor events (fold, small_loss)
+- Tilted players (below baseline) recover slower; confident players (above baseline) stay confident longer
+
+---
+
+## 24. Revised Phase Plan (Phases 5-9)
+
+The original Phase 5 (Integration + Polish) has been expanded into multiple phases to incorporate the Zone Benefits System from `PSYCHOLOGY_ZONES_MODEL.md`.
+
+### Phase 5: Zone Detection System
+
+**Goal**: Detect which zones (sweet spots + penalties) a player is in, with blending
+
+**Existing Infrastructure**:
+- `apply_composure_effects()` in `player_psychology.py` - composure-based tilt (Tilted zone only)
+- `_inject_intrusive_thoughts()` - intrusive thoughts for low composure
+- `_degrade_strategic_info()` - removes strategic phrases when tilted
+- `INTRUSIVE_THOUGHTS` dict - thoughts by pressure source
+- `PromptConfig.tilt_effects` - toggle for the whole system
+
+**New Deliverables**:
+- `get_zone_strengths(confidence, composure)` function returning two-layer dict:
+  - `sweet_spots`: dict of {zone_name: strength} (normalized to sum=1.0)
+  - `penalties`: dict of {zone_name: strength} (raw, can stack)
+- Sweet spot detection (Poker Face, Guarded, Commanding, Aggro) with circular geometry
+- Penalty zone detection (Tilted, Shaken, Overheated, Overconfident, Detached) with edge geometry
+- Energy manifestation helper (`get_zone_manifestation(energy)`)
+- `ZoneEffects` dataclass to hold computed effects
+
+**Integration**:
+- Zone detection called from `apply_tilt_effects()` (renamed to `apply_zone_effects()`)
+- Replaces current composure-only thresholds with full 2D zone model
+
+**Poker Face Zone Update**:
+- Phase 3 implemented center at (0.65, 0.75, 0.40)
+- Zones Model specifies center at (0.52, 0.72, 0.45)
+- **Decision**: Update to Zones Model values for consistency with other sweet spots
+- Will require updating `PokerFaceZone` constants in `player_psychology.py`
+
+**Zone Geometry Summary**:
+
+| Zone | Type | Center (conf, comp) | Radius | Energy Role |
+|------|------|---------------------|--------|-------------|
+| Poker Face | 3D Ellipsoid | (0.52, 0.72) | 0.16 | Affects membership |
+| Guarded | 2D Circle | (0.28, 0.72) | 0.15 | Affects manifestation only |
+| Commanding | 2D Circle | (0.78, 0.78) | 0.14 | Affects manifestation only |
+| Aggro | 2D Circle | (0.68, 0.48) | 0.12 | Affects manifestation only |
+
+| Penalty Zone | Type | Boundary |
+|--------------|------|----------|
+| Tilted | Edge | Composure < 0.35 |
+| Overconfident | Edge | Confidence > 0.90 |
+| Shaken | Corner | Conf < 0.35 AND Comp < 0.35 |
+| Overheated | Corner | Conf > 0.65 AND Comp < 0.35 |
+| Detached | Corner | Conf < 0.35 AND Comp > 0.65 |
+
+**Testable**: Given (confidence, composure, energy), system returns correct zone memberships with strengths.
+
+**Key Design Reference**: See `PSYCHOLOGY_ZONES_MODEL.md` §Zone Detection (Pseudocode)
+
+### Phase 6: Zone Benefits - Intrusive Thoughts
+
+**Goal**: Penalty zones inject intrusive thoughts that disrupt decision-making
+
+**Priority**: HIGH (makes AI feel human when tilted)
+
+**Existing Infrastructure**:
+- `INTRUSIVE_THOUGHTS` dict in `player_psychology.py` - thoughts by pressure source
+- `_inject_intrusive_thoughts()` - injects "[What's running through your mind: ...]"
+- `_add_composure_strategy()` - adds "[Current mindset: ...]" bad advice
+- Currently only triggers on low composure (Tilted zone)
+
+**New Deliverables**:
+- Expand `INTRUSIVE_THOUGHTS` to include all penalty zones:
+  - Existing: Tilted (low composure) - already has pressure-source-based thoughts
+  - New: Shaken (low conf + low comp) - risk-identity split (spew vs collapse)
+  - New: Overheated (high conf + low comp) - manic aggression thoughts
+  - New: Overconfident (high conf) - dismiss opponent strength
+  - New: Detached (low conf + high comp) - overly passive thoughts
+- Energy manifestation variants (low energy vs high energy flavors)
+- Probabilistic injection based on penalty intensity:
+  - 0-25% intensity → 25% chance
+  - 25-50% → 50% chance
+  - 50-75% → 75% chance
+  - 75%+ → 100% chance (cliff)
+
+**Integration**:
+- Modify `_inject_intrusive_thoughts()` to use zone detection, not just composure
+- Add zone-aware thought selection
+
+**Testable**: Tilted player's prompts contain intrusive thoughts. Overconfident player dismisses opponents. Frequency scales with zone intensity.
+
+**Key Design Reference**: See `PSYCHOLOGY_ZONES_MODEL.md` §Penalty Zone Effects
+
+### Phase 7: Zone Benefits - Information Filtering & Strategy Guidance
+
+**Goal**: Zones control what information the AI sees and how it's framed
+
+**Priority**: HIGH (different zones create different playstyles)
+
+**Existing Infrastructure**:
+- `PromptConfig` already has toggles for: `pot_odds`, `hand_strength`, `gto_equity`, `gto_verdict`, `mind_games`, etc.
+- `_degrade_strategic_info()` removes strategic phrases for tilted players
+- `guidance_injection` field for appending extra guidance
+- Opponent stats available via session memory / opponent_intel
+- Equity calculations available via equity_verdict_info
+
+#### 7.1 Zone Strategy Architecture
+
+Each zone has multiple **strategy variations** that can be selected probabilistically. This allows variety and tuning without code changes.
+
+```python
+@dataclass
+class ZoneStrategy:
+    """A strategy variation within a zone."""
+    name: str                    # e.g., "heighten_awareness", "target_weak"
+    weight: float                # Selection probability (0.0-1.0)
+    template: str                # Guidance text with {placeholders}
+    requires: list[str]          # Required context keys (skip if unavailable)
+    min_strength: float = 0.25   # Minimum zone strength to activate
+
+ZONE_STRATEGIES = {
+    'aggro': [
+        ZoneStrategy('heighten_awareness', 0.3,
+            "[AGGRO MODE]\nWatch for signs of weakness. Nervous opponents fold to pressure.",
+            requires=[]),
+        ZoneStrategy('analyze_behavior', 0.4,
+            "[AGGRO MODE]\n{opponent_analysis}\nExploit their patterns.",
+            requires=['opponent_analysis']),
+        ZoneStrategy('target_weak', 0.3,
+            "[AGGRO MODE]\n{weak_player_note}\nAttack the vulnerability.",
+            requires=['weak_player_note']),
+    ],
+    'poker_face': [...],
+    'guarded': [...],
+    'commanding': [...],
+}
+```
+
+**Selection Logic**:
+1. Filter strategies by `min_strength` (skip if zone strength too low)
+2. Filter by `requires` (skip if required context unavailable)
+3. Weighted random selection from remaining strategies
+4. Render template with available context
+
+#### 7.2 Zone Context Data
+
+Context data passed to zone strategy templates:
+
+| Context Key | Source | Used By |
+|-------------|--------|---------|
+| `opponent_stats` | Session memory | All zones |
+| `opponent_displayed_emotion` | Their `get_display_emotion()` | Aggro, Commanding |
+| `opponent_recent_talk` | Recent actions log | Aggro (reading nervousness) |
+| `opponent_fold_pct` | Session stats | Aggro |
+| `opponent_aggression_pct` | Session stats | Guarded (exploit passive traps) |
+| `weak_player_note` | Computed: lowest composure or worst stats | Aggro |
+| `opponent_analysis` | Computed summary | Aggro, Commanding |
+| `equity_vs_ranges` | Equity calculator | Poker Face |
+| `balance_reminder` | Static or computed | Poker Face |
+| `trap_opportunity` | Board texture + opponent tendencies | Guarded |
+| `leverage_note` | Stack-to-pot ratio | Commanding |
+
+**Note**: Not all context is always available. Strategy selection filters by `requires`.
+
+#### 7.3 Deliverables
+
+**New Code**:
+- `ZoneStrategy` dataclass in `player_psychology.py`
+- `ZONE_STRATEGIES` dict with strategy pools per zone
+- `select_zone_strategy(zone_name, strength, context)` function
+- `build_zone_guidance(zone_effects, context)` returns rendered guidance string
+- `ZoneContext` dataclass to hold available context data
+
+**New YAML sections** in `decision.yaml`:
+- `zone_poker_face`, `zone_guarded`, `zone_commanding`, `zone_aggro` (base templates)
+- Strategy variations can override or extend base templates
+
+**Integration Points**:
+- `controllers.py`: Build `ZoneContext` from game state + memory
+- `controllers.py`: Call `build_zone_guidance()` with zone effects + context
+- `prompt_manager.py`: New `zone_context` parameter to `render_decision_prompt()`
+
+#### 7.4 Gradual Activation
+
+Zone effects scale with zone strength:
+
+| Zone Strength | Effect Level | Strategy Selection |
+|---------------|--------------|-------------------|
+| 0-10% | None | No zone guidance |
+| 10-25% | Minimal | Only `min_strength=0.1` strategies |
+| 25-50% | Light | Standard strategies, short templates |
+| 50-75% | Moderate | Full strategies, detailed templates |
+| 75-100% | Full | Intense strategies, opponent-specific calls |
+
+#### 7.5 Blending Multiple Zones
+
+When in multiple sweet spots (e.g., 60% Poker Face + 40% Commanding):
+1. Select strategy from primary zone (highest strength)
+2. Optionally append secondary zone hint
+3. Header shows blend: `[POKER FACE MODE | Commanding edge]`
+
+**Testable**: Player in Aggro zone with opponent stats sees targeted guidance. Player without opponent data sees generic awareness prompt. Blended zones show combined header.
+
+**Key Design Reference**: See `PSYCHOLOGY_ZONES_MODEL.md` §Sweet Spot Benefits
+
+### Phase 8: Tone & Strategy Framing
+
+**Goal**: Zones affect the tone and framing of advice, not just what's shown
+
+**Priority**: MEDIUM (polish after core functionality)
+
+**Deliverables**:
+- Per-zone tone strings (Analytical, Patient, Assertive, Aggressive, etc.)
+- Strategy override/bad advice injection for deep penalties
+- Energy-based tempo guidance ("Take your time" vs "Quick, decisive action")
+- Zone mode headers in prompts (e.g., `[POKER FACE MODE]`, `[AGGRO MODE - rattled]`)
+
+**Testable**: Prompts have appropriate tone markers. Deep tilt prompts contain bad advice injection.
+
+### Phase 9: Game Mode Integration
+
+**Goal**: Psychology zones as a configurable layer on existing game modes
+
+**Existing Infrastructure**:
+- `PromptConfig` already has `tilt_effects` toggle
+- `PromptConfig` has `emotional_state` toggle
+- Game modes (casual, standard, pro, competitive) defined in `game_modes.yaml`
+- Per-player prompt config already supported
+
+**Approach**:
+The psychology zone system is **not a new game mode**. It's a dynamic prompt modification layer that:
+1. Reads player's (confidence, composure, energy) each decision
+2. Computes zone strengths
+3. Dynamically modifies prompt content based on zones
+4. Operates within whatever game mode is selected
+
+**New Deliverables**:
+- New `PromptConfig` toggles:
+  - `zone_sweet_spots: bool` - Enable sweet spot bonuses (Poker Face, Guarded, Commanding, Aggro)
+  - `zone_penalties: bool` - Enable penalty effects (Tilted, Shaken, Overheated, Overconfident, Detached)
+  - (Note: existing `tilt_effects` can become alias for `zone_penalties`)
+- Update game_modes.yaml presets:
+  - **casual**: Both enabled (full psychology)
+  - **standard**: Both enabled
+  - **pro**: Sweet spots only (`zone_penalties: false`) - harder AIs
+  - **competitive**: Sweet spots only - hardest AIs
+- UI indication when player is in a zone (optional visual)
+
+**Testable**: Pro mode AIs don't tilt but still get zone bonuses. Casual mode AIs show full emotional range.
+
+**Key Insight**: This is not "psychology mode" - psychology is always there via anchors. This just controls how much zones affect the **prompt**.
+
+### Phase 10: Experiment & Tuning
+
+**Goal**: Validate system behavior through AI tournaments
+
+**Deliverables**:
+- Experiment config for zone distribution measurement
+- Metrics collection:
+  - % time in each zone per personality
+  - Zone transition frequency
+  - Correlation between zone and decision quality (if measurable)
+  - Tilt frequency vs target (70-85% baseline, 10-20% medium, 2-7% high, 0-2% full)
+- Analysis scripts for experiment results
+- Parameter tuning based on findings:
+  - Zone radii
+  - Penalty thresholds
+  - Gravity strength
+  - Recovery constants
+
+**Testable**: Can run tournament, collect zone data, analyze results.
+
+### Phase Dependencies (Revised)
+
+```
+Phase 1 (Core) ✅
+    ↓
+Phase 2 (Energy) ✅
+    ↓
+Phase 3 (Poker Face) ✅
+    ↓
+Phase 4 (Events) 🔄 IN PROGRESS
+    ↓
+Phase 5 (Zone Detection) ← Foundation for all zone benefits
+    ↓
+Phase 6 (Intrusive Thoughts) ←─┬─→ Can run in parallel
+    ↓                          │
+Phase 7 (Info Filtering) ←─────┘
+    ↓
+Phase 8 (Tone/Framing) ← Polish, can be deferred
+    ↓
+Phase 9 (Config Toggles) ← Simple, just PromptConfig updates
+    ↓
+Phase 10 (Experiments) ← Validation and tuning
+```
+
+### Critical Path
+
+**Minimum viable zone system**: Phases 5 + 6 + 7
+
+This gives us:
+- Zone detection with blending (Phase 5)
+- Intrusive thoughts for all penalties (Phase 6) - expands existing system
+- Information filtering for sweet spots (Phase 7) - new capability
+
+**What we already have** (from Phases 1-4):
+- Dynamic emotional state (confidence, composure, energy)
+- Event sensitivity (Ego/Poise routing)
+- Basic tilt effects (composure-only, being replaced)
+
+**Polish phases** (can be deferred):
+- Phase 8: Tone/framing refinement
+- Phase 9: Config toggles for fine-grained control
+- Phase 10: Experiment validation
+
+---
+
+## 25. Design Decisions: Zone Context & Opponent Awareness
+
+### 25.1 Opponent Emotional Reads
+
+Zones like Aggro benefit from knowing opponent emotional state. Sources of opponent emotion data:
+
+| Source | What It Provides | Availability |
+|--------|------------------|--------------|
+| `get_display_emotion()` | Their avatar emotion (angry, confident, etc.) | ✅ Already exists |
+| Recent table talk | What they said, tone, nervousness | ✅ In recent actions |
+| Recent events | "Lost big pot", "got bluffed" | 🔄 Partial (pressure events are private) |
+| Betting patterns | Erratic sizing = tilted? | ⚠️ Would need analysis |
+
+**Initial Approach**: Use displayed emotion + table talk. Don't infer from betting patterns yet.
+
+### 25.2 Strategy Selection Philosophy
+
+Zone strategies are selected **probabilistically** to create variety:
+- Same zone can produce different guidance each time
+- Strategies filtered by available context (no "target weak player" if we don't know who's weak)
+- Weights tunable via experiments
+
+**Key Insight**: We don't need to decide exact strategy content now. The architecture supports adding/removing/reweighting strategies without code changes.
+
+### 25.3 What Gets Tuned in Phase 10
+
+| Parameter | Starting Value | Tuning Goal |
+|-----------|----------------|-------------|
+| Strategy weights | Equal (0.33 each) | Find which strategies produce best play |
+| `min_strength` thresholds | 0.25 | When should zone effects kick in? |
+| Context requirements | Conservative | Which strategies need which data? |
+| Template intensity | Moderate | How directive should zone guidance be? |
+| Opponent awareness depth | Minimal | How much opponent analysis to surface? |
+
+### 25.4 Deferred Decisions
+
+These decisions are explicitly deferred to Phase 10 tuning:
+
+1. **How much opponent analysis?** Start minimal, add if helpful
+2. **Strategy probability weights** Start equal, adjust based on results
+3. **Template wording** Write initial versions, iterate based on AI behavior
+4. **Cross-zone interactions** How do penalties + sweet spots combine?
+5. **Energy manifestation details** Low vs high energy flavor text
