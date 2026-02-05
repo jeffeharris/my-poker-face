@@ -237,72 +237,69 @@ def get_psychology_debug(game_id):
 
         psych = controller.psychology
 
-        # Build comprehensive psychology view
+        # Build comprehensive psychology view (v2.1 format)
         player_data = {
             'player_name': player_name,
             'hand_count': psych.hand_count,
             'last_updated': psych.last_updated,
 
-            # Summary indicators
+            # v2.1: Quadrant-based emotional state
+            'quadrant': psych.quadrant.value if hasattr(psych, 'quadrant') else None,
+            'display_emotion': psych.get_display_emotion(),
             'mood': psych.mood,
+
+            # v2.1: Dynamic axes
+            'axes': {
+                'confidence': round(psych.confidence, 2),
+                'composure': round(psych.composure, 2),
+                'energy': round(psych.energy, 2) if hasattr(psych, 'energy') else round(psych.table_talk, 2),
+            },
+
+            # v2.1: Derived values
+            'derived': {
+                'effective_aggression': round(psych.effective_aggression, 2) if hasattr(psych, 'effective_aggression') else round(psych.aggression, 2),
+                'effective_looseness': round(psych.effective_looseness, 2) if hasattr(psych, 'effective_looseness') else round(1.0 - psych.tightness, 2),
+            },
+
+            # v2.1: Static anchors (if available)
+            'anchors': psych.anchors.to_dict() if hasattr(psych, 'anchors') else None,
+
+            # Backward compat: tilt indicators
             'tilt_level': round(psych.tilt_level, 2),
             'tilt_category': psych.tilt_category,
             'is_tilted': psych.is_tilted,
-            'display_emotion': psych.get_display_emotion(),
 
-            # Current trait values
+            # Backward compat: Current trait values
             'traits': {k: round(v, 2) for k, v in psych.traits.items()},
 
-            # Elastic personality details
-            'elastic': None,
-
-            # Emotional state details
+            # Emotional narrative (LLM-generated)
             'emotional': None,
 
-            # Tilt state details
-            'tilt': None,
+            # Composure/tilt tracking
+            'composure_state': None,
         }
 
-        # Add elastic personality details
-        if psych.elastic:
-            elastic_details = {
-                'mood': psych.elastic.get_current_mood(),
-                'traits': {}
-            }
-            for trait_name, trait in psych.elastic.traits.items():
-                elastic_details['traits'][trait_name] = {
-                    'value': round(trait.value, 2),
-                    'anchor': round(trait.anchor, 2),
-                    'pressure': round(trait.pressure, 2),
-                    'delta': round(trait.value - trait.anchor, 2),
-                }
-            player_data['elastic'] = elastic_details
-
-        # Add emotional state details
+        # Add emotional narrative details
         if psych.emotional:
             emo = psych.emotional
             player_data['emotional'] = {
+                'narrative': emo.narrative,
+                'inner_voice': emo.inner_voice,
+                # Legacy 4D model (deprecated)
                 'valence': round(emo.valence, 2),
                 'arousal': round(emo.arousal, 2),
                 'control': round(emo.control, 2),
                 'focus': round(emo.focus, 2),
-                'valence_descriptor': emo.valence_descriptor,
-                'arousal_descriptor': emo.arousal_descriptor,
-                'narrative': emo.narrative,
-                'inner_voice': emo.inner_voice,
-                'display_emotion': emo.get_display_emotion(),
             }
 
-        # Add tilt state details
-        if psych.tilt:
-            tilt = psych.tilt
-            player_data['tilt'] = {
-                'level': round(tilt.tilt_level, 2),
-                'category': tilt.get_tilt_category(),
-                'source': tilt.tilt_source,
-                'nemesis': tilt.nemesis,
-                'losing_streak': tilt.losing_streak,
-                'recent_losses_count': len(tilt.recent_losses) if hasattr(tilt, 'recent_losses') else 0,
+        # Add composure state details
+        if psych.composure_state:
+            cs = psych.composure_state
+            player_data['composure_state'] = {
+                'pressure_source': cs.pressure_source,
+                'nemesis': cs.nemesis,
+                'losing_streak': cs.losing_streak,
+                'recent_losses_count': len(cs.recent_losses) if hasattr(cs, 'recent_losses') else 0,
             }
 
         psychology_data[player_name] = player_data

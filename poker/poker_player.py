@@ -350,26 +350,39 @@ class AIPokerPlayer(PokerPlayer):
         """
         Get personality-specific play instructions based on trait values.
 
-        Uses the new 5-trait poker-native model to determine archetype:
-        - tightness + aggression → LAG, TAG, Tricky, Rock
+        Uses the archetype model to determine play style:
+        - looseness + aggression → LAG, TAG, Tricky, Rock
         - Bluff propensity is derived: aggression * 0.6 + looseness * 0.4
+
+        Supports v2.1 anchors format and legacy personality_traits format.
 
         Args:
             traits: Optional dict of current trait values. If not provided, uses static config.
         """
         if traits is None:
-            # Fallback to static config
-            traits = self.personality_config.get("personality_traits", {})
-
-        aggression = traits.get("aggression", 0.5)
-        # Support both new (tightness) and old (bluff_tendency) trait models
-        tightness = traits.get("tightness")
-        if tightness is not None:
-            # New model: derive looseness from tightness
-            looseness = 1.0 - tightness
+            # v2.1: Check for anchors first, then fall back to personality_traits
+            if 'anchors' in self.personality_config:
+                anchors = self.personality_config['anchors']
+                aggression = anchors.get('baseline_aggression', 0.5)
+                looseness = anchors.get('baseline_looseness', 0.5)
+            else:
+                traits = self.personality_config.get("personality_traits", {})
+                aggression = traits.get("aggression", 0.5)
+                tightness = traits.get("tightness")
+                if tightness is not None:
+                    looseness = 1.0 - tightness
+                else:
+                    looseness = traits.get("bluff_tendency", 0.5)
         else:
-            # Old model fallback: use bluff_tendency as looseness proxy
-            looseness = traits.get("bluff_tendency", 0.5)
+            aggression = traits.get("aggression", 0.5)
+            # Support both new (tightness) and old (bluff_tendency) trait models
+            tightness = traits.get("tightness")
+            if tightness is not None:
+                # New model: derive looseness from tightness
+                looseness = 1.0 - tightness
+            else:
+                # Old model fallback: use bluff_tendency as looseness proxy
+                looseness = traits.get("bluff_tendency", 0.5)
 
         # Low tightness (loose) + high aggression = LAG (Loose-Aggressive)
         if looseness > 0.6 and aggression > 0.7:

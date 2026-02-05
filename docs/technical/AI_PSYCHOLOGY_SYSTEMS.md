@@ -1,10 +1,22 @@
 # AI Psychology Systems Architecture
 
-## Overview
+> **⚠️ SUPERSEDED (Feb 2026)**: This document describes the legacy 5-trait model.
+> The system has been updated to **Psychology System v2.1** with a new architecture.
+> See **[PSYCHOLOGY_PRD_v2.md](./PSYCHOLOGY_PRD_v2.md)** for the current design.
+>
+> **v2.1 Architecture:**
+> - 9 static anchors (identity layer) instead of 5 elastic traits
+> - 3 dynamic axes (confidence, composure, energy) instead of 4D emotional model
+> - Quadrant-based emotions (Commanding, Overheated, Guarded, Shaken)
+> - Derived values (effective_aggression, effective_looseness)
+
+---
+
+## Overview (Legacy)
 
 The AI player psychology architecture consists of **5 interconnected systems** that work together to create dynamic, emotionally-responsive AI poker players. These systems allow AI personalities to shift under game pressure while maintaining their core identity.
 
-**Recent Changes (2026-02-04):** The system now uses a **5-trait poker-native model** where composure is a trait rather than a separate tilt system. This simplifies the architecture while maintaining expressive capabilities.
+**Status:** ⚠️ This 5-trait model has been replaced by the v2.1 anchor/axes model.
 
 ### Related Documentation
 - [AI_PLAYER_SYSTEM.md](AI_PLAYER_SYSTEM.md) - Core AI player architecture

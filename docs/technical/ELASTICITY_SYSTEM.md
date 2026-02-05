@@ -1,8 +1,22 @@
 # Personality Elasticity System
 
+> **⚠️ SUPERSEDED (Feb 2026)**: This elasticity system has been replaced by the
+> **Psychology System v2.1** which uses a 9-anchor + 3-axis architecture.
+> See **[PSYCHOLOGY_PRD_v2.md](./PSYCHOLOGY_PRD_v2.md)** for the current design.
+
+---
+
 ## Recent Updates
 
-### 2026-02-04: 5-Trait Poker-Native Model Migration
+### 2026-02-05: Psychology System v2.1
+The elasticity system has been replaced by a new architecture:
+- **9 static anchors** define personality identity (never change during session)
+- **3 dynamic axes** (confidence, composure, energy) replace elastic traits
+- **Derived values** (effective_aggression, effective_looseness) computed from anchors + axes
+- **Quadrant-based emotions** (Commanding, Overheated, Guarded, Shaken)
+- The `elasticity_manager.py` module is now deprecated
+
+### 2026-02-04: 5-Trait Poker-Native Model Migration (Legacy)
 The elasticity system has been migrated from the old 4-trait model to a new 5-trait poker-native model:
 
 **Old Model (Deprecated):**

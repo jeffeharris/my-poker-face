@@ -1,14 +1,31 @@
 """
-Position-Aware Range Guidance for Poker-Native Psychology System.
+Position-Aware Range Guidance for Poker-Native Psychology System v2.1.
 
-Generates human-readable range guidance based on tightness trait and table position.
+Generates range guidance based on LOOSENESS (not tightness) and table position.
+
+Key changes in v2.1:
+- Uses looseness semantics (0=tight, 1=loose) instead of tightness
+- Position clamps ensure realistic ranges regardless of emotional state
+- Clamps apply to OUTPUT (range %), not INPUT (looseness value)
 """
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 
-# Base opening ranges by position (percentage of hands)
-# These are typical opening ranges for a neutral (0.5) tightness player
+# Position-adjusted range clamps (PRD §18.4)
+# These ensure no personality plays unrealistic ranges
+POSITION_CLAMPS: Dict[str, Tuple[float, float]] = {
+    'early': (0.08, 0.35),      # UTG: 8-35%
+    'middle': (0.10, 0.45),     # MP: 10-45%
+    'late': (0.15, 0.65),       # CO: 15-65%
+    'button': (0.15, 0.65),     # BTN: 15-65%
+    'small_blind': (0.12, 0.55),  # SB: 12-55%
+    'big_blind': (0.12, 0.55),    # BB: 12-55%
+    'blinds': (0.12, 0.55),     # Generic blinds reference
+}
+
+# Base opening ranges by position (for neutral 0.5 looseness)
+# Used for get_range_guidance display
 POSITION_RANGES = {
     'early': 0.12,      # UTG: ~12% (tight from early position)
     'middle': 0.18,     # MP: ~18%
@@ -68,14 +85,39 @@ def normalize_position(position: str) -> str:
     return 'middle'
 
 
+def looseness_to_range_pct(effective_looseness: float, position: str) -> float:
+    """
+    Convert effective looseness to position-clamped range percentage.
+
+    This is the core range calculation (PRD §18.4):
+    1. Get position min/max clamps
+    2. Map looseness linearly to [min, max]
+    3. Clamp OUTPUT to position bounds
+
+    Args:
+        effective_looseness: Looseness value (0.0 = tight, 1.0 = loose)
+                            This is baseline_looseness + emotional modifier
+        position: Table position
+
+    Returns:
+        Range percentage clamped to position bounds (0.0 to 1.0)
+    """
+    pos_key = normalize_position(position)
+    min_range, max_range = POSITION_CLAMPS.get(pos_key, (0.10, 0.50))
+
+    # Linear mapping: looseness 0 -> min_range, looseness 1 -> max_range
+    range_pct = min_range + (max_range - min_range) * effective_looseness
+
+    # Clamp to position bounds (critical: clamp OUTPUT, not INPUT)
+    return max(min_range, min(max_range, range_pct))
+
+
 def get_range_percentage(tightness: float, position: str) -> float:
     """
     Calculate the recommended opening range percentage.
 
-    Tightness affects range width:
-    - tightness = 0.0 (loose): 1.5x base range
-    - tightness = 0.5 (neutral): 1.0x base range
-    - tightness = 1.0 (tight): 0.5x base range
+    BACKWARD COMPAT: Uses tightness (inverted looseness).
+    Prefer looseness_to_range_pct for new code.
 
     Args:
         tightness: Tightness trait value (0.0 = loose, 1.0 = tight)
@@ -84,20 +126,9 @@ def get_range_percentage(tightness: float, position: str) -> float:
     Returns:
         Recommended range as a percentage (0.0 to 1.0)
     """
-    pos_key = normalize_position(position)
-    base_range = POSITION_RANGES.get(pos_key, 0.20)
-
-    # Tightness modifier: 1.5 (loose) to 0.5 (tight)
-    # This creates a linear scale where:
-    # - tightness 0.0 -> modifier 1.5 (50% wider ranges)
-    # - tightness 0.5 -> modifier 1.0 (baseline)
-    # - tightness 1.0 -> modifier 0.5 (50% tighter ranges)
-    modifier = 1.5 - tightness
-
-    adjusted_range = base_range * modifier
-
-    # Clamp to reasonable bounds (5% minimum, 60% maximum)
-    return max(0.05, min(0.60, adjusted_range))
+    # Convert tightness to looseness
+    looseness = 1.0 - tightness
+    return looseness_to_range_pct(looseness, position)
 
 
 def get_player_archetype(tightness: float, aggression: float) -> str:
@@ -112,6 +143,7 @@ def get_player_archetype(tightness: float, aggression: float) -> str:
 
     Args:
         tightness: Tightness trait (0 = loose, 1 = tight)
+                   Note: This is 1 - looseness for backward compat
         aggression: Aggression trait (0 = passive, 1 = aggressive)
 
     Returns:
@@ -128,6 +160,24 @@ def get_player_archetype(tightness: float, aggression: float) -> str:
         return 'Rock'
     else:
         return 'Fish'
+
+
+def get_player_archetype_from_looseness(looseness: float, aggression: float) -> str:
+    """
+    Determine the player archetype from looseness and aggression.
+
+    Preferred version using looseness semantics.
+
+    Args:
+        looseness: Looseness value (0 = tight, 1 = loose)
+        aggression: Aggression trait (0 = passive, 1 = aggressive)
+
+    Returns:
+        Archetype string: 'TAG', 'LAG', 'Rock', or 'Fish'
+    """
+    # Convert looseness to tightness for the archetype logic
+    tightness = 1.0 - looseness
+    return get_player_archetype(tightness, aggression)
 
 
 def get_archetype_description(archetype: str) -> str:
@@ -158,6 +208,8 @@ def get_range_guidance(
     """
     Generate human-readable range guidance for AI prompts.
 
+    BACKWARD COMPAT: Uses tightness. For new code, use get_range_guidance_from_looseness.
+
     Args:
         tightness: Tightness trait value (0.0 = loose, 1.0 = tight)
         position: Table position
@@ -167,16 +219,40 @@ def get_range_guidance(
     Returns:
         Guidance string like "Play top 22% of hands from button"
     """
+    looseness = 1.0 - tightness
+    return get_range_guidance_from_looseness(looseness, position, include_archetype, aggression)
+
+
+def get_range_guidance_from_looseness(
+    looseness: float,
+    position: str,
+    include_archetype: bool = False,
+    aggression: Optional[float] = None,
+) -> str:
+    """
+    Generate human-readable range guidance for AI prompts.
+
+    Preferred version using looseness semantics.
+
+    Args:
+        looseness: Looseness value (0.0 = tight, 1.0 = loose)
+        position: Table position
+        include_archetype: If True and aggression provided, include archetype
+        aggression: Aggression trait value (for archetype calculation)
+
+    Returns:
+        Guidance string like "Play top 22% of hands from button"
+    """
     pos_key = normalize_position(position)
-    range_pct = get_range_percentage(tightness, position)
+    range_pct = looseness_to_range_pct(looseness, position)
 
     # Convert to percentage string
     pct_str = f"{range_pct * 100:.0f}%"
 
-    # Describe the style
-    if tightness > 0.7:
+    # Describe the style based on looseness
+    if looseness < 0.3:
         style = 'tight'
-    elif tightness > 0.4:
+    elif looseness < 0.6:
         style = 'standard'
     else:
         style = 'loose'
@@ -190,7 +266,7 @@ def get_range_guidance(
 
     # Add archetype if requested
     if include_archetype and aggression is not None:
-        archetype = get_player_archetype(tightness, aggression)
+        archetype = get_player_archetype_from_looseness(looseness, aggression)
         guidance = f"[{archetype}] {guidance}"
 
     return guidance

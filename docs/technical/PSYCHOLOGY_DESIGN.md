@@ -1,6 +1,18 @@
 # Psychology System Design
 
-## Purpose
+> **⚠️ DEPRECATED**: This document describes the legacy 5-trait model.
+> The system has been updated to v2.1 with a 9-anchor + 3-axis architecture.
+> See **[PSYCHOLOGY_PRD_v2.md](./PSYCHOLOGY_PRD_v2.md)** for the current design.
+>
+> Key changes in v2.1:
+> - 9 static anchors (identity layer) instead of 5 elastic traits
+> - 3 dynamic axes (confidence, composure, energy) instead of 4D emotional model
+> - Quadrant-based emotions (Commanding, Overheated, Guarded, Shaken)
+> - Derived aggression/looseness from anchors + emotional modifiers
+
+---
+
+## Purpose (Legacy)
 
 The psychology system exists to create **novelty and variety** in AI poker play, not to simulate human psychology accurately. Every hand should feel a bit different - the AI isn't a solved GTO bot playing optimal strategy.
 

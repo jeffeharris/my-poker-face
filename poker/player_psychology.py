@@ -1,19 +1,21 @@
 """
-Unified Player Psychology System.
+Unified Player Psychology System v2.1.
 
-Consolidates all psychological state for an AI poker player:
-- Elastic personality traits (5-trait poker-native model with pressure/recovery)
-- Emotional state (derived from confidence × composure + LLM-generated narrative)
-- Composure-based prompt effects (replaces separate tilt system)
+Separates identity (anchors) from state (axes) from expression (output filtering).
 
-5-Trait Poker-Native Model:
-- tightness: Range selectivity (0=loose, 1=tight)
-- aggression: Bet frequency (0=passive, 1=aggressive)
-- confidence: Sizing/commitment (0=scared, 1=fearless)
-- composure: Decision quality (0=tilted, 1=focused)
-- table_talk: Chat frequency (0=silent, 1=chatty)
+Architecture (3 layers):
+1. Identity Layer (Static Anchors) - who the player fundamentally is
+   - 9 anchors: baseline_aggression, baseline_looseness, ego, poise,
+     expressiveness, risk_identity, adaptation_bias, baseline_energy, recovery_rate
 
-Composure replaces the old TiltState system. Low composure = tilted.
+2. State Layer (Dynamic Axes) - how they currently feel
+   - 3 axes: confidence, composure, energy
+   - Derived values: effective_aggression, effective_looseness
+
+3. Expression Layer (Filtered Output) - what the opponent sees
+   - Avatar emotion, table talk, tempo
+
+Phase 1 implements Identity + State layers. Energy is static (= baseline_energy).
 """
 
 import logging
@@ -21,23 +23,254 @@ import random
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from enum import Enum
+from typing import Dict, Any, Optional, List, Tuple
 
-from .elasticity_manager import ElasticPersonality
 from .emotional_state import (
     EmotionalState, EmotionalStateGenerator,
-    compute_baseline_mood, compute_reactive_spike, blend_emotional_state,
 )
-from .trait_converter import (
-    NEW_TRAIT_NAMES,
-    convert_tilt_to_composure,
-)
-from .range_guidance import derive_bluff_propensity, get_player_archetype
+from .range_guidance import get_player_archetype
 
 logger = logging.getLogger(__name__)
 
-# Standard trait names for the 5-trait poker-native model
-TRAIT_NAMES = NEW_TRAIT_NAMES
+
+# === CORE DATA STRUCTURES (Phase 1) ===
+
+def _clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
+    """Clamp value to range [min_val, max_val]."""
+    return max(min_val, min(max_val, value))
+
+
+class EmotionalQuadrant(Enum):
+    """
+    Emotional quadrant from Confidence × Composure projection.
+
+    The 2D quadrant model determines emotional labels:
+    - COMMANDING: High conf, high comp - dominant, in control
+    - OVERHEATED: High conf, low comp - manic, volatile
+    - GUARDED: Low conf, high comp - cautious, defensive
+    - SHAKEN: Low conf, low comp - desperate, spiraling
+    """
+    COMMANDING = "commanding"
+    OVERHEATED = "overheated"
+    GUARDED = "guarded"
+    SHAKEN = "shaken"
+
+
+@dataclass(frozen=True)
+class PersonalityAnchors:
+    """
+    Static personality anchors (Identity Layer).
+
+    These define WHO the player fundamentally is and never change during a session.
+    They act as gravity, pulling dynamic state back toward baseline.
+
+    All values are 0.0-1.0 inclusive.
+    """
+    baseline_aggression: float  # Default bet/raise frequency (0=passive, 1=aggressive)
+    baseline_looseness: float   # Default hand range width (0=tight, 1=loose)
+    ego: float                  # Confidence sensitivity to outplay events (0=stable, 1=brittle)
+    poise: float                # Composure resistance to bad outcomes (0=volatile, 1=stable)
+    expressiveness: float       # Emotional transparency (0=poker face, 1=open book)
+    risk_identity: float        # Variance tolerance (0=risk-averse, 1=risk-seeking)
+    adaptation_bias: float      # Opponent adjustment rate (0=static, 1=adaptive)
+    baseline_energy: float      # Baseline energy level (0=reserved, 1=animated)
+    recovery_rate: float        # Axis decay speed (0=slow, 1=fast)
+
+    def __post_init__(self):
+        """Validate all anchors are in [0, 1]."""
+        for name in [
+            'baseline_aggression', 'baseline_looseness', 'ego', 'poise',
+            'expressiveness', 'risk_identity', 'adaptation_bias',
+            'baseline_energy', 'recovery_rate'
+        ]:
+            val = getattr(self, name)
+            if not isinstance(val, (int, float)):
+                raise TypeError(f"Anchor '{name}' must be numeric, got {type(val).__name__}")
+            if not 0.0 <= val <= 1.0:
+                raise ValueError(f"Anchor '{name}' must be in [0,1], got {val}")
+
+    def to_dict(self) -> Dict[str, float]:
+        """Serialize to dictionary."""
+        return {
+            'baseline_aggression': self.baseline_aggression,
+            'baseline_looseness': self.baseline_looseness,
+            'ego': self.ego,
+            'poise': self.poise,
+            'expressiveness': self.expressiveness,
+            'risk_identity': self.risk_identity,
+            'adaptation_bias': self.adaptation_bias,
+            'baseline_energy': self.baseline_energy,
+            'recovery_rate': self.recovery_rate,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'PersonalityAnchors':
+        """Deserialize from dictionary."""
+        return cls(
+            baseline_aggression=float(data.get('baseline_aggression', 0.5)),
+            baseline_looseness=float(data.get('baseline_looseness', 0.3)),
+            ego=float(data.get('ego', 0.5)),
+            poise=float(data.get('poise', 0.7)),
+            expressiveness=float(data.get('expressiveness', 0.5)),
+            risk_identity=float(data.get('risk_identity', 0.5)),
+            adaptation_bias=float(data.get('adaptation_bias', 0.5)),
+            baseline_energy=float(data.get('baseline_energy', 0.5)),
+            recovery_rate=float(data.get('recovery_rate', 0.15)),
+        )
+
+    @classmethod
+    def from_legacy_traits(cls, traits: Dict[str, float]) -> 'PersonalityAnchors':
+        """
+        Convert legacy 5-trait model to 9-anchor model.
+
+        Legacy traits: tightness, aggression, confidence, composure, table_talk
+        """
+        tightness = traits.get('tightness', 0.5)
+        aggression = traits.get('aggression', 0.5)
+        confidence = traits.get('confidence', 0.5)
+        composure = traits.get('composure', 0.7)
+        table_talk = traits.get('table_talk', 0.5)
+
+        return cls(
+            baseline_aggression=aggression,
+            baseline_looseness=1.0 - tightness,  # Invert tightness to looseness
+            ego=1.0 - confidence * 0.5,  # High confidence → lower ego sensitivity
+            poise=composure,
+            expressiveness=table_talk * 0.8,
+            risk_identity=0.3 + aggression * 0.4,  # Aggressive players more risk-seeking
+            adaptation_bias=0.5,
+            baseline_energy=table_talk,
+            recovery_rate=0.15,
+        )
+
+
+@dataclass
+class EmotionalAxes:
+    """
+    Dynamic emotional state (State Layer).
+
+    These change during play and decay back toward anchor-defined baselines.
+    All values are auto-clamped to [0, 1].
+
+    Phase 1: energy is static (= baseline_energy from anchors).
+    """
+    confidence: float = 0.5   # Belief in reads/decisions (0=scared, 1=fearless)
+    composure: float = 0.7    # Emotional regulation (0=tilted, 1=focused)
+    energy: float = 0.5       # Engagement/intensity (0=reserved, 1=animated)
+
+    def __post_init__(self):
+        """Auto-clamp all values to [0, 1]."""
+        object.__setattr__(self, 'confidence', _clamp(self.confidence))
+        object.__setattr__(self, 'composure', _clamp(self.composure))
+        object.__setattr__(self, 'energy', _clamp(self.energy))
+
+    def to_dict(self) -> Dict[str, float]:
+        """Serialize to dictionary."""
+        return {
+            'confidence': self.confidence,
+            'composure': self.composure,
+            'energy': self.energy,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'EmotionalAxes':
+        """Deserialize from dictionary."""
+        return cls(
+            confidence=float(data.get('confidence', 0.5)),
+            composure=float(data.get('composure', 0.7)),
+            energy=float(data.get('energy', 0.5)),
+        )
+
+    def update(
+        self,
+        confidence: Optional[float] = None,
+        composure: Optional[float] = None,
+        energy: Optional[float] = None,
+    ) -> 'EmotionalAxes':
+        """Return new EmotionalAxes with updated values."""
+        return EmotionalAxes(
+            confidence=confidence if confidence is not None else self.confidence,
+            composure=composure if composure is not None else self.composure,
+            energy=energy if energy is not None else self.energy,
+        )
+
+
+def get_quadrant(confidence: float, composure: float) -> EmotionalQuadrant:
+    """
+    Determine emotional quadrant from Confidence × Composure.
+
+    Quadrant boundaries:
+    - SHAKEN: confidence < 0.35 AND composure < 0.35
+    - COMMANDING: confidence > 0.5 AND composure > 0.5
+    - OVERHEATED: confidence > 0.5 AND composure <= 0.5
+    - GUARDED: confidence <= 0.5 AND composure > 0.5
+    - Otherwise SHAKEN (low confidence, low composure)
+    """
+    # Shaken gate: both axes below threshold
+    if confidence < 0.35 and composure < 0.35:
+        return EmotionalQuadrant.SHAKEN
+
+    if confidence > 0.5:
+        return EmotionalQuadrant.COMMANDING if composure > 0.5 else EmotionalQuadrant.OVERHEATED
+    else:
+        return EmotionalQuadrant.GUARDED if composure > 0.5 else EmotionalQuadrant.SHAKEN
+
+
+def compute_modifiers(
+    confidence: float,
+    composure: float,
+    risk_identity: float,
+) -> Tuple[float, float]:
+    """
+    Compute aggression and looseness modifiers from emotional state.
+
+    Normal states (outside Shaken quadrant):
+    - aggression_mod = (confidence - 0.5) × 0.3 + (0.5 - composure) × 0.2
+    - looseness_mod = (confidence - 0.5) × 0.2 + (0.5 - composure) × 0.15
+    - Clamped to ±0.20
+
+    Shaken gate (confidence < 0.35 AND composure < 0.35):
+    - Behavior splits based on risk_identity
+    - Risk-seeking (> 0.5): manic spew (+aggression, +looseness)
+    - Risk-averse (< 0.5): passive collapse (-aggression, -looseness)
+    - Clamped to ±0.30
+
+    Returns:
+        (aggression_modifier, looseness_modifier)
+    """
+    # Base modifiers
+    aggression_mod = (confidence - 0.5) * 0.3 + (0.5 - composure) * 0.2
+    looseness_mod = (confidence - 0.5) * 0.2 + (0.5 - composure) * 0.15
+
+    # Shaken gate: both axes below threshold
+    if confidence < 0.35 and composure < 0.35:
+        shaken_intensity = (0.35 - confidence) + (0.35 - composure)  # 0 to 0.7
+
+        if risk_identity > 0.5:
+            # Risk-seeking → manic spew
+            aggression_mod += shaken_intensity * 0.3
+            looseness_mod += shaken_intensity * 0.3
+        else:
+            # Risk-averse → passive collapse
+            aggression_mod -= shaken_intensity * 0.3
+            looseness_mod -= shaken_intensity * 0.3
+
+        # Wider clamp for Shaken state
+        return (
+            _clamp(aggression_mod, -0.30, 0.30),
+            _clamp(looseness_mod, -0.30, 0.30),
+        )
+
+    # Normal clamp
+    return (
+        _clamp(aggression_mod, -0.20, 0.20),
+        _clamp(looseness_mod, -0.20, 0.20),
+    )
+
+
+# Legacy trait names for backward compatibility
+TRAIT_NAMES = ['tightness', 'aggression', 'confidence', 'composure', 'table_talk']
 
 
 # === Composure-based Prompt Modification (replaces TiltPromptModifier) ===
@@ -197,23 +430,30 @@ class ComposureState:
 @dataclass
 class PlayerPsychology:
     """
-    Single source of truth for AI player psychological state.
+    Single source of truth for AI player psychological state (v2.1).
 
-    Combines:
-    - Elastic personality (5-trait poker-native model with pressure/recovery)
-    - Emotional state (derived from confidence × composure + narrative)
-    - Composure tracking (source, nemesis - for intrusive thoughts)
+    Three-layer architecture:
+    1. Identity Layer (anchors) - static personality anchors
+    2. State Layer (axes) - dynamic emotional state
+    3. Expression Layer - filtered output (Phase 2+)
 
-    Composure is now a trait (0=tilted, 1=focused), not a separate system.
+    Phase 1: Confidence + Composure dynamic, Energy = baseline_energy (static).
     """
 
     # Identity
     player_name: str
     personality_config: Dict[str, Any]
 
-    # Psychological systems
-    elastic: ElasticPersonality
+    # NEW: Personality anchors (static identity)
+    anchors: PersonalityAnchors
+
+    # NEW: Dynamic emotional axes (replaces elastic)
+    axes: EmotionalAxes
+
+    # Emotional state for narrative/inner voice (kept for LLM narration)
     emotional: Optional[EmotionalState] = None
+
+    # Composure tracking (for intrusive thoughts)
     composure_state: ComposureState = field(default_factory=ComposureState)
 
     # Internal helpers
@@ -243,20 +483,40 @@ class PlayerPsychology:
         """
         Create PlayerPsychology from a personality configuration.
 
-        Auto-detects old 4-trait format and converts to new 5-trait model.
+        Supports both:
+        - New 9-anchor format (config['anchors'])
+        - Legacy 5-trait format (config['personality_traits']) - auto-converted
         """
-        elastic = ElasticPersonality.from_base_personality(
-            name=name,
-            personality_config=config
+        # Check for new anchor format first
+        if 'anchors' in config:
+            anchors = PersonalityAnchors.from_dict(config['anchors'])
+        elif 'personality_traits' in config:
+            # Legacy 5-trait format - convert to anchors
+            anchors = PersonalityAnchors.from_legacy_traits(config['personality_traits'])
+        else:
+            # Default anchors
+            anchors = PersonalityAnchors(
+                baseline_aggression=0.5,
+                baseline_looseness=0.3,
+                ego=0.5,
+                poise=0.7,
+                expressiveness=0.5,
+                risk_identity=0.5,
+                adaptation_bias=0.5,
+                baseline_energy=0.5,
+                recovery_rate=0.15,
+            )
+
+        # Initialize axes at neutral/anchor values
+        # Phase 1: energy is static = baseline_energy
+        axes = EmotionalAxes(
+            confidence=0.5,  # Start neutral
+            composure=0.7,   # Start slightly focused
+            energy=anchors.baseline_energy,  # Static in Phase 1
         )
 
-        # Generate initial baseline emotional state from personality traits
-        baseline = compute_baseline_mood(elastic.traits)
+        # Create initial emotional state
         initial_emotional = EmotionalState(
-            valence=baseline['valence'],
-            arousal=baseline['arousal'],
-            control=baseline['control'],
-            focus=baseline['focus'],
             narrative='Settling in at the table.',
             inner_voice="Let's see what we've got.",
             generated_at_hand=0,
@@ -267,7 +527,8 @@ class PlayerPsychology:
         return cls(
             player_name=name,
             personality_config=config,
-            elastic=elastic,
+            anchors=anchors,
+            axes=axes,
             emotional=initial_emotional,
             game_id=game_id,
             owner_id=owner_id,
@@ -279,21 +540,86 @@ class PlayerPsychology:
         """
         Single entry point for pressure events.
 
-        Updates elastic traits (including composure) and tracks pressure source.
-        """
-        # Update elastic personality traits (including composure)
-        self.elastic.apply_pressure_event(event_name)
+        Routes events through personality anchors:
+        - "Being wrong" events → Confidence (filtered by Ego)
+        - "Bad outcome" events → Composure (filtered by Poise)
 
-        # Update composure tracking (source, nemesis)
+        Updates axes and tracks pressure source for intrusive thoughts.
+        """
+        # Get pressure impacts from event
+        pressure_impacts = self._get_pressure_impacts(event_name)
+
+        # Apply to axes with anchor-based sensitivity
+        if 'confidence' in pressure_impacts:
+            # Ego: high = more sensitive to being outplayed
+            sensitivity = 0.3 + 0.7 * self.anchors.ego
+            delta = pressure_impacts['confidence'] * sensitivity
+            new_conf = self.axes.confidence + delta
+            self.axes = self.axes.update(confidence=new_conf)
+
+        if 'composure' in pressure_impacts:
+            # Poise: high = less sensitive to bad outcomes (inverted)
+            sensitivity = 0.3 + 0.7 * (1.0 - self.anchors.poise)
+            delta = pressure_impacts['composure'] * sensitivity
+            new_comp = self.axes.composure + delta
+            self.axes = self.axes.update(composure=new_comp)
+
+        # Update composure tracking (source, nemesis) for intrusive thoughts
         self.composure_state.update_from_event(event_name, opponent)
 
         self._mark_updated()
 
-        composure = self.composure
         logger.debug(
             f"{self.player_name}: Pressure event '{event_name}' applied. "
-            f"Composure={composure:.2f}"
+            f"Confidence={self.confidence:.2f}, Composure={self.composure:.2f}, "
+            f"Quadrant={self.quadrant.value}"
         )
+
+    def _get_pressure_impacts(self, event_name: str) -> Dict[str, float]:
+        """
+        Get axis impacts for a pressure event.
+
+        Events are categorized as:
+        - Confidence events: "being wrong" (bluff_called, bad_read, outplayed)
+        - Composure events: "bad outcomes" (bad_beat, cooler, suckout)
+        - Mixed events: affect both axes
+        """
+        # Event → axis impact mapping
+        # Positive = increase, Negative = decrease
+        pressure_events = {
+            # === Wins (both positive) ===
+            'big_win': {'confidence': 0.15, 'composure': 0.10},
+            'win': {'confidence': 0.08, 'composure': 0.05},
+            'successful_bluff': {'confidence': 0.20, 'composure': 0.05},
+            'suckout': {'confidence': 0.10, 'composure': 0.05},
+
+            # === Losses ===
+            'big_loss': {'confidence': -0.10, 'composure': -0.15},
+            'bluff_called': {'confidence': -0.20, 'composure': -0.10},  # "Being wrong"
+            'bad_beat': {'confidence': -0.05, 'composure': -0.25},      # "Bad outcome"
+            'got_sucked_out': {'confidence': -0.05, 'composure': -0.30},
+            'cooler': {'confidence': 0.0, 'composure': -0.05},          # Unavoidable
+
+            # === Streaks ===
+            'winning_streak': {'confidence': 0.15, 'composure': 0.10},
+            'losing_streak': {'confidence': -0.15, 'composure': -0.20},
+
+            # === Stack events ===
+            'double_up': {'confidence': 0.20, 'composure': 0.10},
+            'crippled': {'confidence': -0.15, 'composure': -0.15},
+            'short_stack': {'confidence': -0.10, 'composure': -0.10},
+
+            # === Social/rivalry ===
+            'nemesis_win': {'confidence': 0.15, 'composure': 0.10},
+            'nemesis_loss': {'confidence': -0.10, 'composure': -0.15},
+            'rivalry_trigger': {'confidence': 0.0, 'composure': -0.10},
+
+            # === Other ===
+            'eliminated_opponent': {'confidence': 0.10, 'composure': 0.05},
+            'fold_under_pressure': {'confidence': -0.08, 'composure': -0.05},
+        }
+
+        return pressure_events.get(event_name, {})
 
     def on_hand_complete(
         self,
@@ -335,71 +661,127 @@ class PlayerPsychology:
 
         logger.info(
             f"{self.player_name}: Hand complete ({outcome}, ${amount}). "
-            f"Composure={self.composure:.2f}, "
-            f"Emotional={self.emotional.valence_descriptor if self.emotional else 'none'}"
+            f"Quadrant={self.quadrant.value}, "
+            f"Confidence={self.confidence:.2f}, Composure={self.composure:.2f}"
         )
 
-    def recover(self, recovery_rate: float = 0.1) -> None:
+    def recover(self, recovery_rate: Optional[float] = None) -> None:
         """
         Apply recovery between hands.
 
-        - Elastic traits (including composure) drift back toward anchor
-        - Emotional state decays toward baseline
-        """
-        self.elastic.recover_traits(recovery_rate)
+        Axes drift toward universal baselines:
+        - Confidence → 0.5 (neutral)
+        - Composure → 0.7 (slightly focused)
+        - Energy = baseline_energy (static in Phase 1)
 
-        # Decay emotional state toward current baseline
-        if self.emotional:
-            baseline = compute_baseline_mood(self.elastic.traits)
-            self.emotional = self.emotional.decay_toward_baseline(
-                baseline=baseline, rate=recovery_rate
-            )
+        Recovery rate from anchors.recovery_rate if not specified.
+        """
+        rate = recovery_rate if recovery_rate is not None else self.anchors.recovery_rate
+
+        # Drift confidence toward 0.5 (neutral)
+        new_conf = self.axes.confidence + (0.5 - self.axes.confidence) * rate
+
+        # Drift composure toward 0.7 (focused)
+        new_comp = self.axes.composure + (0.7 - self.axes.composure) * rate
+
+        # Energy stays static in Phase 1
+        self.axes = self.axes.update(
+            confidence=new_conf,
+            composure=new_comp,
+            energy=self.anchors.baseline_energy,
+        )
 
         self._mark_updated()
 
-    # === TRAIT ACCESS ===
-
-    @property
-    def traits(self) -> Dict[str, float]:
-        """
-        Get current trait values.
-
-        Returns:
-            Dict of trait names to current values (0.0-1.0)
-        """
-        return {
-            name: self.elastic.get_trait_value(name)
-            for name in TRAIT_NAMES
-        }
-
-    @property
-    def composure(self) -> float:
-        """Current composure level (0.0=tilted, 1.0=focused)."""
-        return self.elastic.get_trait_value('composure')
+    # === AXIS ACCESS (Dynamic State) ===
 
     @property
     def confidence(self) -> float:
         """Current confidence level (0.0=scared, 1.0=fearless)."""
-        return self.elastic.get_trait_value('confidence')
+        return self.axes.confidence
+
+    @property
+    def composure(self) -> float:
+        """Current composure level (0.0=tilted, 1.0=focused)."""
+        return self.axes.composure
+
+    @property
+    def energy(self) -> float:
+        """Current energy level (0.0=reserved, 1.0=animated)."""
+        return self.axes.energy
+
+    @property
+    def quadrant(self) -> EmotionalQuadrant:
+        """Current emotional quadrant from confidence × composure."""
+        return get_quadrant(self.axes.confidence, self.axes.composure)
+
+    # === DERIVED VALUES ===
+
+    @property
+    def effective_aggression(self) -> float:
+        """
+        Derived aggression = baseline + emotional modifier.
+
+        Combines static anchor with dynamic emotional state.
+        """
+        agg_mod, _ = compute_modifiers(
+            self.axes.confidence,
+            self.axes.composure,
+            self.anchors.risk_identity,
+        )
+        return _clamp(self.anchors.baseline_aggression + agg_mod)
+
+    @property
+    def effective_looseness(self) -> float:
+        """
+        Derived looseness = baseline + emotional modifier.
+
+        Combines static anchor with dynamic emotional state.
+        """
+        _, loose_mod = compute_modifiers(
+            self.axes.confidence,
+            self.axes.composure,
+            self.anchors.risk_identity,
+        )
+        return _clamp(self.anchors.baseline_looseness + loose_mod)
+
+    # === BACKWARD COMPAT PROPERTIES ===
+    # These map new architecture to old trait names for existing code
 
     @property
     def tightness(self) -> float:
-        """Current tightness level (0.0=loose, 1.0=tight)."""
-        return self.elastic.get_trait_value('tightness')
+        """Current tightness (inverted looseness) for backward compat."""
+        return 1.0 - self.effective_looseness
 
     @property
     def aggression(self) -> float:
-        """Current aggression level (0.0=passive, 1.0=aggressive)."""
-        return self.elastic.get_trait_value('aggression')
+        """Current aggression for backward compat."""
+        return self.effective_aggression
 
     @property
     def table_talk(self) -> float:
-        """Current table talk level (0.0=silent, 1.0=chatty)."""
-        return self.elastic.get_trait_value('table_talk')
+        """Table talk (energy proxy in Phase 1)."""
+        return self.axes.energy
+
+    @property
+    def traits(self) -> Dict[str, float]:
+        """
+        Get current trait values (backward compat).
+
+        Maps new architecture to old 5-trait format.
+        """
+        return {
+            'tightness': self.tightness,
+            'aggression': self.aggression,
+            'confidence': self.confidence,
+            'composure': self.composure,
+            'table_talk': self.table_talk,
+        }
 
     @property
     def bluff_propensity(self) -> float:
-        """Derived bluff tendency from tightness and aggression."""
+        """Derived bluff tendency from looseness and aggression."""
+        from .range_guidance import derive_bluff_propensity
         return derive_bluff_propensity(self.tightness, self.aggression)
 
     @property
@@ -409,8 +791,18 @@ class PlayerPsychology:
 
     @property
     def mood(self) -> str:
-        """Get current mood from elastic personality."""
-        return self.elastic.get_current_mood()
+        """Get current mood from quadrant."""
+        quadrant = self.quadrant
+        energy = self.axes.energy
+
+        # Map quadrant + energy to mood descriptor
+        mood_map = {
+            EmotionalQuadrant.COMMANDING: 'confident' if energy < 0.7 else 'triumphant',
+            EmotionalQuadrant.OVERHEATED: 'frustrated' if energy < 0.7 else 'explosive',
+            EmotionalQuadrant.GUARDED: 'cautious' if energy < 0.7 else 'paranoid',
+            EmotionalQuadrant.SHAKEN: 'nervous' if energy < 0.7 else 'panicking',
+        }
+        return mood_map.get(quadrant, 'neutral')
 
     # === Composure-based properties (replaces tilt) ===
 
@@ -622,31 +1014,29 @@ class PlayerPsychology:
         """
         Get emotion for avatar display.
 
-        Uses confidence × composure matrix + aggression for angry flair.
+        Uses quadrant model + energy for intensity:
+        - COMMANDING: confident/smug
+        - OVERHEATED: frustrated/angry
+        - GUARDED: thinking/nervous
+        - SHAKEN: nervous/panicking
         """
-        composure = self.composure
-        confidence = self.confidence
-        aggression = self.aggression
+        quadrant = self.quadrant
+        energy = self.axes.energy
+        aggression = self.effective_aggression
 
-        # Angry: low composure + high aggression
-        if composure < 0.4 and aggression > 0.6:
+        # Angry: OVERHEATED + high aggression + high energy
+        if quadrant == EmotionalQuadrant.OVERHEATED and aggression > 0.6 and energy > 0.5:
             return "angry"
 
-        # Use emotional state if available
-        if self.emotional:
-            return self.emotional.get_display_emotion()
+        # Map quadrant to emotion, with energy affecting intensity
+        emotion_map = {
+            EmotionalQuadrant.COMMANDING: 'smug' if energy > 0.6 else 'confident',
+            EmotionalQuadrant.OVERHEATED: 'frustrated' if energy < 0.6 else 'angry',
+            EmotionalQuadrant.GUARDED: 'thinking' if energy < 0.5 else 'nervous',
+            EmotionalQuadrant.SHAKEN: 'nervous' if energy < 0.6 else 'shocked',
+        }
 
-        # Fallback based on confidence × composure
-        if confidence > 0.6 and composure > 0.6:
-            return "confident"
-        elif confidence < 0.4 and composure < 0.4:
-            return "nervous"
-        elif confidence > 0.6 and composure < 0.4:
-            return "frustrated"
-        elif confidence < 0.4 and composure > 0.6:
-            return "thinking"
-
-        return "poker_face"
+        return emotion_map.get(quadrant, "poker_face")
 
     # === SERIALIZATION ===
 
@@ -656,7 +1046,8 @@ class PlayerPsychology:
         """
         return {
             'player_name': self.player_name,
-            'elastic': self.elastic.to_dict() if self.elastic else None,
+            'anchors': self.anchors.to_dict(),
+            'axes': self.axes.to_dict(),
             'emotional': self.emotional.to_dict() if self.emotional else None,
             'composure_state': self.composure_state.to_dict(),
             'game_id': self.game_id,
@@ -670,25 +1061,58 @@ class PlayerPsychology:
         """
         Deserialize from saved state.
 
-        Handles migration from old TiltState format to new ComposureState.
+        Handles migration from old formats:
+        - Old 'elastic' format → convert to anchors/axes
+        - Old 'tilt' format → convert to composure_state
         """
         player_name = data['player_name']
 
-        # Restore elastic personality
-        elastic = None
-        if data.get('elastic'):
-            elastic = ElasticPersonality.from_dict(data['elastic'])
+        # Restore or create anchors
+        if data.get('anchors'):
+            anchors = PersonalityAnchors.from_dict(data['anchors'])
+        elif 'anchors' in personality_config:
+            anchors = PersonalityAnchors.from_dict(personality_config['anchors'])
+        elif 'personality_traits' in personality_config:
+            anchors = PersonalityAnchors.from_legacy_traits(personality_config['personality_traits'])
         else:
-            elastic = ElasticPersonality.from_base_personality(
-                name=player_name,
-                personality_config=personality_config
+            # Default anchors
+            anchors = PersonalityAnchors(
+                baseline_aggression=0.5,
+                baseline_looseness=0.3,
+                ego=0.5,
+                poise=0.7,
+                expressiveness=0.5,
+                risk_identity=0.5,
+                adaptation_bias=0.5,
+                baseline_energy=0.5,
+                recovery_rate=0.15,
+            )
+
+        # Restore or create axes
+        if data.get('axes'):
+            axes = EmotionalAxes.from_dict(data['axes'])
+        elif data.get('elastic'):
+            # Migrate from old elastic format
+            elastic_data = data['elastic']
+            traits = elastic_data.get('traits', {})
+            axes = EmotionalAxes(
+                confidence=traits.get('confidence', {}).get('value', 0.5),
+                composure=traits.get('composure', {}).get('value', 0.7),
+                energy=traits.get('table_talk', {}).get('value', anchors.baseline_energy),
+            )
+        else:
+            axes = EmotionalAxes(
+                confidence=0.5,
+                composure=0.7,
+                energy=anchors.baseline_energy,
             )
 
         # Create psychology instance
         psychology = cls(
             player_name=player_name,
             personality_config=personality_config,
-            elastic=elastic,
+            anchors=anchors,
+            axes=axes,
             game_id=data.get('game_id'),
             owner_id=data.get('owner_id'),
         )
@@ -703,11 +1127,9 @@ class PlayerPsychology:
         elif data.get('tilt'):
             # Migrate old tilt format to composure
             psychology.composure_state = ComposureState.from_tilt_state(data['tilt'])
-            # Convert tilt_level to composure trait
+            # Convert tilt_level to composure axis
             tilt_level = data['tilt'].get('tilt_level', 0.0)
-            composure_value = convert_tilt_to_composure(tilt_level)
-            if 'composure' in psychology.elastic.traits:
-                psychology.elastic.traits['composure'].value = composure_value
+            psychology.axes = psychology.axes.update(composure=1.0 - tilt_level)
 
         # Restore metadata
         psychology.hand_count = data.get('hand_count', 0)
@@ -726,7 +1148,7 @@ class PlayerPsychology:
         session_context: Dict[str, Any],
         big_blind: int = 100,
     ) -> None:
-        """Generate new emotional state via two-layer model + LLM narration."""
+        """Generate new emotional state via quadrant + LLM narration."""
         hand_outcome = {
             'outcome': outcome,
             'amount': amount,
@@ -734,8 +1156,8 @@ class PlayerPsychology:
             'key_moment': key_moment
         }
 
-        # Create a mock tilt state for backward compatibility with emotional_state.py
-        # This will be removed when emotional_state.py is updated
+        # Create mock objects for backward compat with emotional_state.py
+        # TODO: Update emotional_state.py to use new axes model directly
         class MockTiltState:
             def __init__(self, composure: float, source: str, nemesis: Optional[str]):
                 self.tilt_level = 1.0 - composure
@@ -748,12 +1170,21 @@ class PlayerPsychology:
             nemesis=self.composure_state.nemesis
         )
 
+        # Create mock elastic traits dict for backward compat
+        mock_elastic_traits = {
+            'confidence': type('obj', (object,), {'value': self.confidence, 'anchor': 0.5})(),
+            'composure': type('obj', (object,), {'value': self.composure, 'anchor': 0.7})(),
+            'aggression': type('obj', (object,), {'value': self.aggression, 'anchor': self.anchors.baseline_aggression})(),
+            'tightness': type('obj', (object,), {'value': self.tightness, 'anchor': 1.0 - self.anchors.baseline_looseness})(),
+            'table_talk': type('obj', (object,), {'value': self.table_talk, 'anchor': self.anchors.baseline_energy})(),
+        }
+
         try:
             self.emotional = self._emotional_generator.generate(
                 personality_name=self.player_name,
                 personality_config=self.personality_config,
                 hand_outcome=hand_outcome,
-                elastic_traits=self.elastic.traits,
+                elastic_traits=mock_elastic_traits,
                 tilt_state=mock_tilt,
                 session_context=session_context,
                 hand_number=self.hand_count,
@@ -764,21 +1195,25 @@ class PlayerPsychology:
         except Exception as e:
             logger.warning(
                 f"{self.player_name}: Failed to generate emotional state: {e}. "
-                f"Using computed dimensions with fallback narrative."
+                f"Using fallback narrative."
             )
-            baseline = compute_baseline_mood(self.elastic.traits)
-            spike = compute_reactive_spike(
-                outcome=outcome, amount=amount,
-                tilt_level=self.tilt_level, big_blind=big_blind,
-            )
-            dimensions = blend_emotional_state(baseline, spike)
+            # Fallback: create simple emotional state with quadrant-based narrative
+            quadrant = self.quadrant
+            narratives = {
+                EmotionalQuadrant.COMMANDING: "Feeling in control at the table.",
+                EmotionalQuadrant.OVERHEATED: "Running hot, emotions are high.",
+                EmotionalQuadrant.GUARDED: "Playing cautiously, waiting for spots.",
+                EmotionalQuadrant.SHAKEN: "Struggling to find footing.",
+            }
+            inner_voices = {
+                EmotionalQuadrant.COMMANDING: "I've got this.",
+                EmotionalQuadrant.OVERHEATED: "Let's make something happen.",
+                EmotionalQuadrant.GUARDED: "Stay patient, wait for the right moment.",
+                EmotionalQuadrant.SHAKEN: "Need to turn this around.",
+            }
             self.emotional = EmotionalState(
-                valence=dimensions['valence'],
-                arousal=dimensions['arousal'],
-                control=dimensions['control'],
-                focus=dimensions['focus'],
-                narrative='Processing the last hand.',
-                inner_voice='Focus on the next one.',
+                narrative=narratives.get(quadrant, 'Processing the last hand.'),
+                inner_voice=inner_voices.get(quadrant, 'Focus on the next one.'),
                 generated_at_hand=self.hand_count,
                 source_events=[outcome] + ([key_moment] if key_moment else []),
                 used_fallback=True,

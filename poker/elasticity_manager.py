@@ -1,14 +1,17 @@
 """
 Elasticity Manager for dynamic personality traits in poker AI players.
 
-This module handles the elasticity system that allows AI personalities to change
-dynamically during gameplay while maintaining their core identity.
+NOTE: This module is DEPRECATED in Psychology System v2.1.
+The new system uses PlayerPsychology with PersonalityAnchors and EmotionalAxes.
 
-Updated for 5-trait poker-native model:
+This module is kept for backward compatibility with existing saved games
+and will be removed in a future version.
+
+Legacy 5-trait poker-native model:
 - tightness: Range selectivity (0=loose, 1=tight)
 - aggression: Bet frequency (0=passive, 1=aggressive)
 - confidence: Sizing/commitment (0=scared, 1=fearless)
-- composure: Decision quality (0=tilted, 1=focused) - replaces separate tilt system
+- composure: Decision quality (0=tilted, 1=focused)
 - table_talk: Chat frequency (0=silent, 1=chatty)
 """
 
@@ -17,13 +20,81 @@ from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .trait_converter import (
-    detect_trait_format,
-    convert_old_to_new_traits,
-    convert_old_elasticity_config,
-    get_default_elasticity_config,
-    NEW_TRAIT_NAMES,
-)
+# Legacy trait names (for backward compat)
+NEW_TRAIT_NAMES = ['tightness', 'aggression', 'confidence', 'composure', 'table_talk']
+
+
+def detect_trait_format(traits: Dict[str, Any]) -> str:
+    """Detect whether traits are in old or new format."""
+    if not traits:
+        return 'unknown'
+    trait_names = set(traits.keys())
+    new_indicators = {'tightness', 'composure', 'table_talk'}
+    if trait_names & new_indicators:
+        return 'new'
+    old_indicators = {'bluff_tendency', 'chattiness', 'emoji_usage'}
+    if trait_names & old_indicators:
+        return 'old'
+    if 'aggression' in trait_names:
+        return 'old'
+    return 'unknown'
+
+
+def get_default_elasticity_config() -> Dict[str, Any]:
+    """Get default elasticity configuration."""
+    return {
+        'trait_elasticity': {
+            'tightness': 0.3,
+            'aggression': 0.5,
+            'confidence': 0.4,
+            'composure': 0.4,
+            'table_talk': 0.6,
+        },
+        'mood_elasticity': 0.4,
+        'recovery_rate': 0.1,
+    }
+
+
+def convert_old_to_new_traits(old_traits: Dict[str, float]) -> Dict[str, float]:
+    """Convert 4-trait model to 5-trait poker-native model."""
+    bluff = old_traits.get('bluff_tendency', 0.5)
+    agg = old_traits.get('aggression', 0.5)
+    chat = old_traits.get('chattiness', 0.5)
+    emoji = old_traits.get('emoji_usage', 0.3)
+
+    looseness = bluff * 0.5 + agg * 0.3 + 0.2
+    tightness = 1.0 - looseness
+    confidence = 0.5 + agg * 0.2 + bluff * 0.1
+    table_talk = chat * 0.8 + emoji * 0.2
+
+    return {
+        'tightness': round(max(0, min(1, tightness)), 2),
+        'aggression': round(max(0, min(1, agg)), 2),
+        'confidence': round(max(0, min(1, confidence)), 2),
+        'composure': 0.7,
+        'table_talk': round(max(0, min(1, table_talk)), 2),
+    }
+
+
+def convert_old_elasticity_config(old_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert old elasticity config to new format."""
+    if not old_config:
+        return get_default_elasticity_config()
+    old_elasticity = old_config.get('trait_elasticity', {})
+    bluff_e = old_elasticity.get('bluff_tendency', 0.3)
+    agg_e = old_elasticity.get('aggression', 0.5)
+    chat_e = old_elasticity.get('chattiness', 0.8)
+    return {
+        'trait_elasticity': {
+            'tightness': round(bluff_e, 2),
+            'aggression': round(agg_e, 2),
+            'confidence': round((agg_e + bluff_e) / 2, 2),
+            'composure': 0.4,
+            'table_talk': round(chat_e, 2),
+        },
+        'mood_elasticity': old_config.get('mood_elasticity', 0.4),
+        'recovery_rate': old_config.get('recovery_rate', 0.1),
+    }
 
 
 @dataclass

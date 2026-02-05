@@ -1,12 +1,22 @@
 # Personality Elasticity System
 
-> **Note (Feb 2026)**: This document describes the elasticity system. For the most up-to-date technical details, see [ELASTICITY_SYSTEM.md](ELASTICITY_SYSTEM.md) and [AI_PSYCHOLOGY_SYSTEMS.md](AI_PSYCHOLOGY_SYSTEMS.md).
+> **⚠️ SUPERSEDED (Feb 2026)**: This elasticity system has been replaced by the
+> **Psychology System v2.1** which uses a 9-anchor + 3-axis architecture.
+> See **[PSYCHOLOGY_PRD_v2.md](./PSYCHOLOGY_PRD_v2.md)** for the current design.
+>
+> In v2.1:
+> - Static anchors replace elastic trait bounds
+> - Dynamic axes (confidence, composure, energy) replace elastic traits
+> - Derived values (effective_aggression, effective_looseness) compute from anchors + axes
+> - The `elasticity_manager.py` module is deprecated
 
-## Overview
+---
+
+## Overview (Legacy 5-Trait Model)
 
 The elasticity system allows AI personalities to change dynamically during gameplay while maintaining their core identity. Each trait has a defined range of flexibility and responds to game events within those boundaries.
 
-**Status**: ✅ Fully Implemented with 5-Trait Poker-Native Model (Feb 2026)
+**Status**: ⚠️ DEPRECATED - Replaced by v2.1 anchor/axes model
 
 ### 5-Trait Model (Current)
 | Trait | Range | Description |

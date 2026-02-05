@@ -573,10 +573,12 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
                 key_moment=key_moment,
                 big_blind=big_blind,
             )
+            # v2.1: Log quadrant-based state
+            quadrant = controller.psychology.quadrant.value if hasattr(controller.psychology, 'quadrant') else 'unknown'
             logger.debug(
                 f"Psychology update for {player.name}: "
-                f"tilt={controller.psychology.tilt_level:.2f} ({controller.psychology.tilt_category}), "
-                f"emotional={controller.psychology.emotional.valence_descriptor if controller.psychology.emotional else 'none'}"
+                f"quadrant={quadrant}, "
+                f"conf={controller.psychology.confidence:.2f}, comp={controller.psychology.composure:.2f}"
             )
         except Exception as e:
             logger.warning(f"Psychology state update failed for {player.name}: {e}")

@@ -949,3 +949,72 @@ Items to resolve during implementation:
 1. **Tilt distribution tuning**: Parameter values to achieve target tilt frequencies (70-85% baseline, 10-20% medium, etc.)
 2. **Exact ellipsoid radius formulas**: How Poise, Ego, Expressiveness, Risk Identity map to rc, rcomp, re
 3. **Energy event triggers**: What gameplay events move the Energy axis (action density, big moments, etc.)
+
+---
+
+## 20. Phase 1 Implementation Status
+
+**Status**: ✅ COMPLETE (2026-02-05)
+
+### What Was Implemented
+
+| Deliverable | Status | Notes |
+|-------------|--------|-------|
+| Anchor schema (9 anchors) | ✅ | `PersonalityAnchors` dataclass in `player_psychology.py` |
+| Confidence + Composure axes | ✅ | `EmotionalAxes` dataclass, dynamic during play |
+| Energy axis (static) | ✅ | Energy = baseline_energy (static in Phase 1) |
+| Quadrant computation | ✅ | `get_quadrant()` function, `EmotionalQuadrant` enum |
+| Derived aggression/looseness | ✅ | `effective_aggression`, `effective_looseness` properties |
+| Shaken gate logic | ✅ | `compute_modifiers()` with risk_identity split |
+| Position clamps | ✅ | `POSITION_CLAMPS` in `range_guidance.py` |
+| personalities.json migration | ✅ | All 50 personalities converted to 9-anchor schema |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `poker/player_psychology.py` | Added anchors, axes, quadrant, derived values; refactored PlayerPsychology |
+| `poker/range_guidance.py` | Added `looseness_to_range_pct()`, position clamps |
+| `poker/emotional_state.py` | Marked 4D model as deprecated |
+| `poker/elasticity_manager.py` | Marked as deprecated, inlined helpers |
+| `poker/personalities.json` | Regenerated with 9-anchor schema |
+| `poker/poker_player.py` | Updated `get_personality_modifier()` for anchors |
+| `flask_app/routes/debug_routes.py` | Returns quadrant + axes |
+| `flask_app/handlers/game_handler.py` | Logs quadrant instead of valence |
+
+### Files Deleted
+
+| File | Reason |
+|------|--------|
+| `poker/trait_converter.py` | No backward compatibility needed per plan |
+
+### Test Coverage
+
+- 42 new unit tests in `tests/test_psychology_v2.py`
+- All 1506 tests pass (including 42 new + existing)
+
+### Backward Compatibility
+
+The following properties are maintained for existing code:
+- `PlayerPsychology.tightness` → returns `1 - effective_looseness`
+- `PlayerPsychology.aggression` → returns `effective_aggression`
+- `PlayerPsychology.confidence` → returns `axes.confidence`
+- `PlayerPsychology.composure` → returns `axes.composure`
+- `PlayerPsychology.table_talk` → returns `axes.energy`
+- `PlayerPsychology.traits` → returns dict with legacy trait names
+
+### What's Deferred to Later Phases
+
+| Item | Phase | Notes |
+|------|-------|-------|
+| Dynamic energy | Phase 2 | Currently static = baseline_energy |
+| Expression filtering | Phase 2 | `visible_emotion = internal × expressiveness × energy` |
+| Poker Face zone | Phase 3 | 3D ellipsoid membership test |
+| Ego/Poise sensitivity scaling | Phase 4 | Currently using simplified multipliers |
+| UI updates | Phase 5 | Debug routes updated, main UI unchanged |
+
+### Known Limitations
+
+1. **Energy is static**: Energy axis doesn't change during play (always = baseline_energy)
+2. **No Poker Face zone**: All players show quadrant emotions, no masking
+3. **Simplified sensitivity**: Event sensitivity uses basic multipliers, not full floor-based scaling from §18.3

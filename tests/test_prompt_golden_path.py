@@ -70,28 +70,42 @@ class TestGoldenPath(unittest.TestCase):
                 
                 # Verify personality loaded correctly
                 self.assertIsNotNone(player.personality_config)
-                
+
                 # Check personality traits affect modifiers
                 modifier = player.get_personality_modifier()
-                traits = player.personality_config['personality_traits']
 
-                # Verify trait-based expectations (new 5-trait model)
+                # v2.1: Use anchors instead of personality_traits
+                # Support both old (personality_traits) and new (anchors) formats
+                if 'anchors' in player.personality_config:
+                    anchors = player.personality_config['anchors']
+                    # Convert anchors to trait-like dict for testing
+                    # looseness is the inverse of old tightness
+                    tightness = 1.0 - anchors.get('baseline_looseness', 0.5)
+                    aggression = anchors.get('baseline_aggression', 0.5)
+                    table_talk = anchors.get('baseline_energy', 0.5)
+                else:
+                    traits = player.personality_config.get('personality_traits', {})
+                    tightness = traits.get('tightness', 0.5)
+                    aggression = traits.get('aggression', 0.5)
+                    table_talk = traits.get('table_talk', traits.get('chattiness', 0.5))
+
+                # Verify trait-based expectations
                 # Note: conservative_play maps to tightness (high = conservative)
                 if test_case['expected_traits']['conservative_play']:
-                    self.assertGreater(traits.get('tightness', 0.5), 0.5)  # Tight player
+                    self.assertGreater(tightness, 0.5)  # Tight player
                 else:
-                    self.assertLess(traits.get('tightness', 0.5), 0.5)  # Loose player
+                    self.assertLess(tightness, 0.5)  # Loose player
 
                 if test_case['expected_traits']['passive']:
-                    self.assertLessEqual(traits['aggression'], 0.5)  # A Mime has exactly 0.5
+                    self.assertLessEqual(aggression, 0.5)  # A Mime has exactly 0.5
                 else:
-                    self.assertGreater(traits['aggression'], 0.5)
+                    self.assertGreater(aggression, 0.5)
 
-                # Note: quiet maps to table_talk (low = quiet)
+                # Note: quiet maps to table_talk/energy (low = quiet)
                 if test_case['expected_traits']['quiet']:
-                    self.assertLess(traits.get('table_talk', traits.get('chattiness', 0.5)), 0.5)
+                    self.assertLess(table_talk, 0.5)
                 else:
-                    self.assertGreaterEqual(traits.get('table_talk', traits.get('chattiness', 0.5)), 0.5)
+                    self.assertGreaterEqual(table_talk, 0.5)
                 
                 # Test prompt generation includes all components
                 prompt = player.persona_prompt()

@@ -156,31 +156,48 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         self.assertEqual(player.confidence, 'pessimistic')
         self.assertEqual(player.attitude, 'grumpy and suspicious')
 
-        # Test personality traits (new 5-trait poker-native model)
-        traits = player.personality_config['personality_traits']
-        # New model traits - Scrooge is tight and passive
-        self.assertIn('tightness', traits)
-        self.assertIn('aggression', traits)
-        self.assertIn('confidence', traits)
-        self.assertIn('composure', traits)
-        self.assertIn('table_talk', traits)
-        # Verify trait values are in valid range
-        for trait_name, trait_value in traits.items():
-            self.assertGreaterEqual(trait_value, 0.0)
-            self.assertLessEqual(trait_value, 1.0)
+        # Test personality anchors (v2.1 9-anchor model) or legacy traits
+        if 'anchors' in player.personality_config:
+            anchors = player.personality_config['anchors']
+            # v2.1 model anchors - Scrooge is tight and passive
+            self.assertIn('baseline_aggression', anchors)
+            self.assertIn('baseline_looseness', anchors)
+            self.assertIn('ego', anchors)
+            self.assertIn('poise', anchors)
+            self.assertIn('expressiveness', anchors)
+            # Verify anchor values are in valid range
+            for anchor_name, anchor_value in anchors.items():
+                self.assertGreaterEqual(anchor_value, 0.0)
+                self.assertLessEqual(anchor_value, 1.0)
+        else:
+            # Legacy 5-trait model
+            traits = player.personality_config['personality_traits']
+            self.assertIn('tightness', traits)
+            self.assertIn('aggression', traits)
+            for trait_name, trait_value in traits.items():
+                self.assertGreaterEqual(trait_value, 0.0)
+                self.assertLessEqual(trait_value, 1.0)
     
     def test_unknown_personality_gets_default(self):
         """Test that unknown personalities get default config."""
         player = AIPokerPlayer(name='Unknown Celebrity', starting_money=10000)
         self.assertIn('play_style', player.personality_config)
-        self.assertIn('personality_traits', player.personality_config)
+        # v2.1: Should have anchors or legacy personality_traits
+        has_anchors = 'anchors' in player.personality_config
+        has_traits = 'personality_traits' in player.personality_config
+        self.assertTrue(has_anchors or has_traits)
 
-        # Should have valid trait values (new 5-trait model)
-        traits = player.personality_config['personality_traits']
-        # Check for new model traits (or old model during conversion)
-        for trait_name, trait_value in traits.items():
-            self.assertGreaterEqual(trait_value, 0.0)
-            self.assertLessEqual(trait_value, 1.0)
+        # Should have valid values
+        if has_anchors:
+            anchors = player.personality_config['anchors']
+            for anchor_name, anchor_value in anchors.items():
+                self.assertGreaterEqual(anchor_value, 0.0)
+                self.assertLessEqual(anchor_value, 1.0)
+        else:
+            traits = player.personality_config['personality_traits']
+            for trait_name, trait_value in traits.items():
+                self.assertGreaterEqual(trait_value, 0.0)
+                self.assertLessEqual(trait_value, 1.0)
     
     def test_persona_prompt_generation(self):
         """Test persona prompt generation."""

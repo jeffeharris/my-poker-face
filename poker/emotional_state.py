@@ -1,24 +1,15 @@
 """
-Emotional State System for AI Poker Players.
+Emotional State System for AI Poker Players (v2.1).
 
-Two-layer emotional model:
+In v2.1, emotional state is simplified:
+- The 4D model (valence, arousal, control, focus) is DEPRECATED
+- Emotion labels come from the quadrant model (Commanding, Overheated, Guarded, Shaken)
+- This module now primarily handles LLM narration (narrative + inner_voice)
 
-Layer 1 - Baseline mood: Deterministically computed from elastic personality
-traits. Moves slowly as traits shift under pressure and recover. No LLM needed.
-
-Layer 2 - Reactive spike: Computed from hand outcomes (won/lost/folded, amount)
-amplified by tilt level. Fast math, no LLM. Decays toward baseline between hands.
-
-The avatar emotion is derived from the blended state (baseline + spike).
-
-The LLM's role is narration only: given the computed dimensions, it produces
+The LLM's role is narration only: given the quadrant and axes, it produces
 personality-authentic narrative text and inner_voice.
 
-Dimensional model:
-- Valence: Negative to positive feeling (-1 to 1)
-- Arousal: Calm to agitated (0 to 1)
-- Control: Losing grip to in command (0 to 1)
-- Focus: Tunnel vision to clear-headed (0 to 1)
+Legacy 4D model is kept for backward compatibility but will be removed in future.
 """
 
 import json
@@ -234,15 +225,26 @@ EMOTIONAL_NARRATION_SCHEMA = CategorizationSchema(
 
 @dataclass
 class EmotionalState:
-    """Represents a player's emotional state at a point in time."""
+    """
+    Represents a player's emotional state at a point in time.
 
-    # Dimensional scores
+    v2.1 NOTE: The 4D dimensional model (valence, arousal, control, focus)
+    is DEPRECATED. New code should use quadrant-based emotion from
+    PlayerPsychology.quadrant. These fields are kept for backward
+    compatibility with existing saved games and display code.
+
+    The primary use of EmotionalState in v2.1 is for LLM narration
+    (narrative + inner_voice fields).
+    """
+
+    # DEPRECATED: Dimensional scores (kept for backward compat)
+    # In v2.1, emotion is determined by quadrant from PlayerPsychology
     valence: float = 0.0      # -1 (miserable) to 1 (elated)
     arousal: float = 0.5      # 0 (calm) to 1 (agitated)
     control: float = 0.5      # 0 (losing grip) to 1 (in command)
     focus: float = 0.5        # 0 (tunnel vision) to 1 (clear-headed)
 
-    # Narrative elements (LLM-generated)
+    # Narrative elements (LLM-generated) - KEPT FOR v2.1
     narrative: str = ""       # Third person description
     inner_voice: str = ""     # First person thought
 
