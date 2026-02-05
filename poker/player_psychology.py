@@ -41,6 +41,130 @@ def _clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
     return max(min_val, min(max_val, value))
 
 
+# === POKER FACE ZONE (Phase 3) ===
+
+@dataclass(frozen=True)
+class PokerFaceZone:
+    """
+    3D ellipsoid zone in (Confidence, Composure, Energy) space.
+
+    Players inside this zone display 'poker_face' regardless of their
+    quadrant-based emotion. Players outside show their true emotional state.
+
+    Default center: (0.65, 0.75, 0.4) - calm, confident, reserved sweet spot
+    Base radii: rc=0.25, rcomp=0.25, re=0.20
+
+    Membership test: ((c-0.65)/rc)² + ((comp-0.75)/rcomp)² + ((e-0.4)/re)² <= 1.0
+    """
+    # Center coordinates (universal for all players)
+    center_confidence: float = 0.65
+    center_composure: float = 0.75
+    center_energy: float = 0.40
+
+    # Radii (personality-adjusted via create_poker_face_zone)
+    radius_confidence: float = 0.25
+    radius_composure: float = 0.25
+    radius_energy: float = 0.20
+
+    def contains(self, confidence: float, composure: float, energy: float) -> bool:
+        """
+        Check if a point is inside the ellipsoid zone.
+
+        Args:
+            confidence: Current confidence value (0.0 to 1.0)
+            composure: Current composure value (0.0 to 1.0)
+            energy: Current energy value (0.0 to 1.0)
+
+        Returns:
+            True if point is inside or on the boundary of the zone
+        """
+        return self.distance(confidence, composure, energy) <= 1.0
+
+    def distance(self, confidence: float, composure: float, energy: float) -> float:
+        """
+        Calculate normalized distance from zone center.
+
+        Distance < 1.0 means inside zone
+        Distance = 1.0 means on boundary
+        Distance > 1.0 means outside zone
+
+        Args:
+            confidence: Current confidence value (0.0 to 1.0)
+            composure: Current composure value (0.0 to 1.0)
+            energy: Current energy value (0.0 to 1.0)
+
+        Returns:
+            Normalized distance (0.0 = at center, 1.0 = on boundary)
+        """
+        dc = (confidence - self.center_confidence) / self.radius_confidence
+        dcomp = (composure - self.center_composure) / self.radius_composure
+        de = (energy - self.center_energy) / self.radius_energy
+        return (dc**2 + dcomp**2 + de**2) ** 0.5
+
+    def to_dict(self) -> dict:
+        """Serialize zone to dictionary."""
+        return {
+            'center_confidence': self.center_confidence,
+            'center_composure': self.center_composure,
+            'center_energy': self.center_energy,
+            'radius_confidence': self.radius_confidence,
+            'radius_composure': self.radius_composure,
+            'radius_energy': self.radius_energy,
+        }
+
+
+def create_poker_face_zone(anchors: 'PersonalityAnchors') -> PokerFaceZone:
+    """
+    Create a personality-adjusted PokerFaceZone.
+
+    Radius modifiers based on personality anchors:
+    - Poise: High poise = larger composure radius (more tolerance for composure swings)
+    - Ego: Low ego = larger confidence radius (stable, not easily shaken)
+    - Expressiveness: High expressiveness = narrower energy radius (exits zone more easily)
+    - Risk Identity: Asymmetric - extreme values narrow one radius
+
+    Radius formulas:
+        rc = 0.25 * (0.7 + 0.6 * (1 - ego))
+        rcomp = 0.25 * (0.7 + 0.6 * poise)
+        re = 0.20 * (0.7 + 0.6 * (1 - expressiveness))
+
+    Risk identity asymmetric modifier:
+        risk_dev = abs(risk_identity - 0.5)
+        if risk_identity > 0.5: rc *= (1.0 - risk_dev * 0.4)
+        else: rcomp *= (1.0 - risk_dev * 0.4)
+
+    Args:
+        anchors: PersonalityAnchors for the player
+
+    Returns:
+        PokerFaceZone with personality-adjusted radii
+    """
+    # Base radius modifiers (0.7 floor + 0.6 range = 0.7 to 1.3 multiplier)
+    # Confidence radius: low ego = larger (stable confidence)
+    rc = 0.25 * (0.7 + 0.6 * (1.0 - anchors.ego))
+
+    # Composure radius: high poise = larger (composure tolerance)
+    rcomp = 0.25 * (0.7 + 0.6 * anchors.poise)
+
+    # Energy radius: low expressiveness = larger (harder to exit via energy)
+    re = 0.20 * (0.7 + 0.6 * (1.0 - anchors.expressiveness))
+
+    # Risk identity asymmetric modifier
+    risk_dev = abs(anchors.risk_identity - 0.5)  # 0 to 0.5
+    if anchors.risk_identity > 0.5:
+        # Risk-seeking: narrows confidence radius (overconfidence risk)
+        rc *= (1.0 - risk_dev * 0.4)
+    else:
+        # Risk-averse: narrows composure radius (composure fragility)
+        rcomp *= (1.0 - risk_dev * 0.4)
+
+    return PokerFaceZone(
+        radius_confidence=rc,
+        radius_composure=rcomp,
+        radius_energy=re,
+    )
+
+
 def compute_baseline_confidence(anchors: 'PersonalityAnchors') -> float:
     """
     Derive baseline confidence from personality anchors.
@@ -519,12 +643,15 @@ class PlayerPsychology:
     # Phase 2: Consecutive fold tracking for card_dead events
     consecutive_folds: int = 0
 
+    # Phase 3: Poker Face Zone (3D ellipsoid in confidence/composure/energy space)
+    _poker_face_zone: Optional[PokerFaceZone] = field(default=None, repr=False)
+
     # Derived baselines (computed from anchors, used for recovery)
     _baseline_confidence: Optional[float] = field(default=None, repr=False)
     _baseline_composure: Optional[float] = field(default=None, repr=False)
 
     def __post_init__(self):
-        """Initialize emotional state generator and compute baselines."""
+        """Initialize emotional state generator, compute baselines, and create poker face zone."""
         if self._emotional_generator is None:
             self._emotional_generator = EmotionalStateGenerator()
 
@@ -533,6 +660,10 @@ class PlayerPsychology:
             object.__setattr__(self, '_baseline_confidence', compute_baseline_confidence(self.anchors))
         if self._baseline_composure is None:
             object.__setattr__(self, '_baseline_composure', compute_baseline_composure(self.anchors))
+
+        # Phase 3: Create personality-adjusted poker face zone
+        if self._poker_face_zone is None:
+            object.__setattr__(self, '_poker_face_zone', create_poker_face_zone(self.anchors))
 
     @classmethod
     def from_personality_config(
@@ -862,6 +993,42 @@ class PlayerPsychology:
         """Current emotional quadrant from confidence × composure."""
         return get_quadrant(self.axes.confidence, self.axes.composure)
 
+    # === POKER FACE ZONE (Phase 3) ===
+
+    def is_in_poker_face_zone(self) -> bool:
+        """
+        Check if player is currently in the poker face zone.
+
+        Players inside this 3D ellipsoid display 'poker_face' regardless
+        of their quadrant-based emotion. This represents the calm, unreadable
+        sweet spot where experienced players operate.
+
+        Returns:
+            True if player's (confidence, composure, energy) is inside the zone
+        """
+        return self._poker_face_zone.contains(
+            self.axes.confidence,
+            self.axes.composure,
+            self.axes.energy,
+        )
+
+    @property
+    def zone_distance(self) -> float:
+        """
+        Normalized distance from the poker face zone center.
+
+        < 1.0: Inside zone (displays poker_face)
+        = 1.0: On boundary
+        > 1.0: Outside zone (displays quadrant emotion)
+
+        Useful for debugging and visualizing proximity to poker face state.
+        """
+        return self._poker_face_zone.distance(
+            self.axes.confidence,
+            self.axes.composure,
+            self.axes.energy,
+        )
+
     # === DERIVED VALUES ===
 
     @property
@@ -1189,22 +1356,29 @@ class PlayerPsychology:
         """
         Get emotion for avatar display, with optional expression filtering.
 
-        Phase 2: Applies visibility-based dampening based on expressiveness × energy.
-        Low visibility players show poker_face more often.
+        Phase 3: First checks poker face zone membership. Players inside the
+        3D ellipsoid zone display 'poker_face' regardless of quadrant emotion.
+
+        Phase 2: For players outside the zone, applies visibility-based dampening
+        based on expressiveness × energy. Low visibility players show poker_face more often.
 
         Args:
-            use_expression_filter: If True, apply dampening based on visibility.
+            use_expression_filter: If True, apply zone check and visibility dampening.
                                    If False, return true emotion (for debugging).
 
         Returns:
             Emotion string for avatar display
         """
+        # Phase 3: Check poker face zone first (unless debugging)
+        if use_expression_filter and self.is_in_poker_face_zone():
+            return "poker_face"
+
         true_emotion = self._get_true_emotion()
 
         if not use_expression_filter:
             return true_emotion
 
-        # Phase 2: Apply expression filtering
+        # Phase 2: Apply expression filtering for players outside the zone
         from .expression_filter import calculate_visibility, dampen_emotion
 
         visibility = calculate_visibility(
@@ -1231,6 +1405,10 @@ class PlayerPsychology:
             'hand_count': self.hand_count,
             'last_updated': self.last_updated,
             'consecutive_folds': self.consecutive_folds,  # Phase 2
+            # Phase 3: Include zone info for debugging (zone is recomputed from anchors on load)
+            'poker_face_zone': self._poker_face_zone.to_dict() if self._poker_face_zone else None,
+            'in_poker_face_zone': self.is_in_poker_face_zone(),
+            'zone_distance': self.zone_distance,
         }
 
     @classmethod

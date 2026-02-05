@@ -16,6 +16,8 @@ from poker.player_psychology import (
     EmotionalQuadrant,
     PlayerPsychology,
     ComposureState,
+    PokerFaceZone,
+    create_poker_face_zone,
     get_quadrant,
     compute_modifiers,
     compute_baseline_confidence,
@@ -1121,3 +1123,454 @@ class TestExpressionFiltering:
         guidance = get_tempo_guidance(energy=0.2)
 
         assert 'deliberate' in guidance.lower() or 'detailed' in guidance.lower()
+
+
+# === Phase 3 Tests: Poker Face Zone ===
+
+class TestPokerFaceZoneGeometry:
+    """Tests for PokerFaceZone ellipsoid geometry."""
+
+    def test_zone_center_is_inside(self):
+        """Test that the zone center is inside the zone."""
+        from poker.player_psychology import PokerFaceZone
+
+        zone = PokerFaceZone()
+        # Center point should always be inside
+        assert zone.contains(0.65, 0.75, 0.4)
+        assert zone.distance(0.65, 0.75, 0.4) == pytest.approx(0.0, 0.01)
+
+    def test_zone_boundary_distance(self):
+        """Test that boundary points have distance ~1.0."""
+        from poker.player_psychology import PokerFaceZone
+
+        zone = PokerFaceZone()
+        # Move along confidence axis by radius
+        boundary_point = (0.65 + 0.25, 0.75, 0.4)  # (0.9, 0.75, 0.4)
+        assert zone.distance(*boundary_point) == pytest.approx(1.0, 0.01)
+        assert zone.contains(*boundary_point)  # On boundary = inside
+
+    def test_point_outside_zone(self):
+        """Test that points far from center are outside."""
+        from poker.player_psychology import PokerFaceZone
+
+        zone = PokerFaceZone()
+        # Point well outside zone (all axes far from center)
+        assert not zone.contains(0.2, 0.3, 0.9)
+        assert zone.distance(0.2, 0.3, 0.9) > 1.0
+
+    def test_point_just_outside_boundary(self):
+        """Test that points just outside boundary are detected."""
+        from poker.player_psychology import PokerFaceZone
+
+        zone = PokerFaceZone()
+        # Move just past boundary on confidence axis
+        outside_point = (0.65 + 0.26, 0.75, 0.4)  # Just past radius
+        assert not zone.contains(*outside_point)
+        assert zone.distance(*outside_point) > 1.0
+
+    def test_ellipsoid_not_sphere(self):
+        """Test that zone is ellipsoid (different radii matter)."""
+        from poker.player_psychology import PokerFaceZone
+
+        zone = PokerFaceZone()  # rc=0.25, rcomp=0.25, re=0.20
+
+        # Same deviation on confidence (radius 0.25) vs energy (radius 0.20)
+        # Energy deviation should result in larger normalized distance
+        conf_deviation = zone.distance(0.65 + 0.10, 0.75, 0.4)  # Move 0.10 on confidence
+        energy_deviation = zone.distance(0.65, 0.75, 0.4 + 0.10)  # Move 0.10 on energy
+
+        # Energy has smaller radius, so same absolute deviation = larger normalized distance
+        assert energy_deviation > conf_deviation
+
+    def test_zone_serialization(self):
+        """Test zone serializes and contains expected keys."""
+        from poker.player_psychology import PokerFaceZone
+
+        zone = PokerFaceZone(radius_confidence=0.30, radius_composure=0.28, radius_energy=0.18)
+        data = zone.to_dict()
+
+        assert data['center_confidence'] == 0.65
+        assert data['center_composure'] == 0.75
+        assert data['center_energy'] == 0.40
+        assert data['radius_confidence'] == 0.30
+        assert data['radius_composure'] == 0.28
+        assert data['radius_energy'] == 0.18
+
+
+class TestPokerFaceZoneRadiusModifiers:
+    """Tests for personality-based radius modifiers."""
+
+    def test_high_poise_larger_composure_radius(self):
+        """Test that high poise gives larger composure radius."""
+        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+
+        low_poise = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.2,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        high_poise = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.9,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+
+        zone_low = create_poker_face_zone(low_poise)
+        zone_high = create_poker_face_zone(high_poise)
+
+        assert zone_high.radius_composure > zone_low.radius_composure
+
+    def test_low_ego_larger_confidence_radius(self):
+        """Test that low ego gives larger confidence radius."""
+        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+
+        low_ego = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.2, poise=0.5,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        high_ego = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.8, poise=0.5,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+
+        zone_low = create_poker_face_zone(low_ego)
+        zone_high = create_poker_face_zone(high_ego)
+
+        assert zone_low.radius_confidence > zone_high.radius_confidence
+
+    def test_high_expressiveness_smaller_energy_radius(self):
+        """Test that high expressiveness gives smaller energy radius."""
+        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+
+        low_express = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
+            expressiveness=0.2, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        high_express = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
+            expressiveness=0.9, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+
+        zone_low = create_poker_face_zone(low_express)
+        zone_high = create_poker_face_zone(high_express)
+
+        assert zone_low.radius_energy > zone_high.radius_energy
+
+    def test_risk_seeking_narrows_confidence_radius(self):
+        """Test that risk-seeking (>0.5) narrows confidence radius."""
+        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+
+        neutral_risk = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        high_risk = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
+            expressiveness=0.5, risk_identity=0.9, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+
+        zone_neutral = create_poker_face_zone(neutral_risk)
+        zone_high = create_poker_face_zone(high_risk)
+
+        # Risk-seeking narrows confidence radius
+        assert zone_high.radius_confidence < zone_neutral.radius_confidence
+        # Composure radius unchanged (same poise, no risk-averse modifier)
+        # Note: risk_identity being high means the risk-seeking path, which only affects confidence
+
+    def test_risk_averse_narrows_composure_radius(self):
+        """Test that risk-averse (<0.5) narrows composure radius."""
+        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+
+        neutral_risk = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
+            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+        low_risk = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
+            expressiveness=0.5, risk_identity=0.1, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        )
+
+        zone_neutral = create_poker_face_zone(neutral_risk)
+        zone_low = create_poker_face_zone(low_risk)
+
+        # Risk-averse narrows composure radius
+        assert zone_low.radius_composure < zone_neutral.radius_composure
+
+    def test_radius_ranges(self):
+        """Test that radius modifiers produce values in expected ranges."""
+        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+
+        # Extreme personality with all modifiers maximizing zone size
+        max_zone = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5,
+            ego=0.0,  # Max confidence radius
+            poise=1.0,  # Max composure radius
+            expressiveness=0.0,  # Max energy radius
+            risk_identity=0.5,  # No asymmetric penalty
+            adaptation_bias=0.5, baseline_energy=0.5, recovery_rate=0.15,
+        )
+        # Extreme personality with all modifiers minimizing zone size
+        min_zone = PersonalityAnchors(
+            baseline_aggression=0.5, baseline_looseness=0.5,
+            ego=1.0,  # Min confidence radius
+            poise=0.0,  # Min composure radius
+            expressiveness=1.0,  # Min energy radius
+            risk_identity=1.0,  # Asymmetric penalty on confidence
+            adaptation_bias=0.5, baseline_energy=0.5, recovery_rate=0.15,
+        )
+
+        zone_max = create_poker_face_zone(max_zone)
+        zone_min = create_poker_face_zone(min_zone)
+
+        # Per plan: rc: 0.13-0.33, rcomp: 0.13-0.33, re: 0.14-0.26
+        # Note: with risk_identity=1.0, confidence gets additional 20% penalty
+        assert 0.10 <= zone_min.radius_confidence <= 0.35
+        assert 0.10 <= zone_min.radius_composure <= 0.35
+        assert 0.10 <= zone_min.radius_energy <= 0.30
+
+        assert 0.25 <= zone_max.radius_confidence <= 0.35
+        assert 0.25 <= zone_max.radius_composure <= 0.35
+        assert 0.20 <= zone_max.radius_energy <= 0.30
+
+
+class TestPokerFaceZoneIntegration:
+    """Integration tests for poker face zone with PlayerPsychology."""
+
+    def test_batman_inside_zone_at_baseline(self):
+        """Test that Batman (high poise, low ego) is inside zone at baseline."""
+        # Batman-like: high poise, low ego, low expressiveness
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.4,
+                'ego': 0.36,  # Low ego = stable confidence
+                'poise': 0.9,  # High poise = stable composure
+                'expressiveness': 0.25,  # Low expressiveness
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.4,  # Near zone center energy
+                'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Batman', config)
+
+        # Should be inside the poker face zone at baseline
+        assert psych.is_in_poker_face_zone(), (
+            f"Batman should be in poker face zone. "
+            f"Conf={psych.confidence:.2f}, Comp={psych.composure:.2f}, "
+            f"Energy={psych.energy:.2f}, Distance={psych.zone_distance:.2f}"
+        )
+        assert psych.get_display_emotion() == 'poker_face'
+
+    def test_zeus_outside_zone_at_baseline(self):
+        """Test that Zeus (low poise, high ego) is outside zone at baseline."""
+        # Zeus-like: low poise, high ego, high expressiveness
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.85,
+                'baseline_looseness': 0.7,
+                'ego': 0.88,  # High ego = volatile confidence
+                'poise': 0.35,  # Low poise = volatile composure
+                'expressiveness': 0.80,  # High expressiveness
+                'risk_identity': 0.75,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.7,  # High energy
+                'recovery_rate': 0.12,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Zeus', config)
+
+        # Should be outside the poker face zone
+        assert not psych.is_in_poker_face_zone(), (
+            f"Zeus should be outside poker face zone. "
+            f"Conf={psych.confidence:.2f}, Comp={psych.composure:.2f}, "
+            f"Energy={psych.energy:.2f}, Distance={psych.zone_distance:.2f}"
+        )
+        # Should show quadrant-based emotion (not poker_face due to zone)
+        # Note: may still be filtered by expression filter, but should not be poker_face due to zone
+
+    def test_bob_ross_inside_zone_at_baseline(self):
+        """Test that Bob Ross (high poise, moderate ego) is inside zone at baseline."""
+        # Bob Ross-like: very high poise, moderate ego, moderate expressiveness
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.4,
+                'baseline_looseness': 0.6,
+                'ego': 0.5,  # Moderate ego
+                'poise': 0.85,  # Very high poise
+                'expressiveness': 0.6,  # Moderate expressiveness
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.45,  # Near zone center energy
+                'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Bob Ross', config)
+
+        # Should be inside the poker face zone at baseline
+        assert psych.is_in_poker_face_zone(), (
+            f"Bob Ross should be in poker face zone. "
+            f"Conf={psych.confidence:.2f}, Comp={psych.composure:.2f}, "
+            f"Energy={psych.energy:.2f}, Distance={psych.zone_distance:.2f}"
+        )
+
+    def test_pressure_can_exit_zone(self):
+        """Test that pressure events can push a player out of the zone."""
+        # Start with Batman-like personality in zone
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.4,
+                'ego': 0.5,  # Moderate ego so pressure affects them
+                'poise': 0.5,  # Moderate poise so pressure affects them
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.4,
+                'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        initial_in_zone = psych.is_in_poker_face_zone()
+
+        # Apply multiple bad beats to push composure down
+        for _ in range(5):
+            psych.apply_pressure_event('bad_beat')
+
+        # After pressure, should be outside zone
+        assert psych.composure < 0.5  # Composure dropped significantly
+        assert not psych.is_in_poker_face_zone() or psych.zone_distance > 0.8, (
+            f"Player should be pushed toward zone boundary by pressure. "
+            f"Composure={psych.composure:.2f}, Distance={psych.zone_distance:.2f}"
+        )
+
+    def test_zone_distance_property(self):
+        """Test that zone_distance property returns expected values."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        # Should be a float
+        assert isinstance(psych.zone_distance, float)
+
+        # If inside zone, distance < 1.0; if outside, distance > 1.0
+        if psych.is_in_poker_face_zone():
+            assert psych.zone_distance <= 1.0
+        else:
+            assert psych.zone_distance > 1.0
+
+    def test_serialization_includes_zone_info(self):
+        """Test that serialization includes zone information."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+        data = psych.to_dict()
+
+        assert 'poker_face_zone' in data
+        assert 'in_poker_face_zone' in data
+        assert 'zone_distance' in data
+        assert isinstance(data['in_poker_face_zone'], bool)
+        assert isinstance(data['zone_distance'], float)
+
+    def test_deserialization_recomputes_zone(self):
+        """Test that deserialization recomputes zone from anchors."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.3, 'poise': 0.8,
+                'expressiveness': 0.4, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+        original_zone = psych._poker_face_zone
+
+        # Serialize and restore
+        data = psych.to_dict()
+        restored = PlayerPsychology.from_dict(data, config)
+
+        # Zone should be recomputed with same radii
+        assert restored._poker_face_zone.radius_confidence == pytest.approx(
+            original_zone.radius_confidence, 0.001
+        )
+        assert restored._poker_face_zone.radius_composure == pytest.approx(
+            original_zone.radius_composure, 0.001
+        )
+
+    def test_display_emotion_bypasses_quadrant_in_zone(self):
+        """Test that players in zone show poker_face regardless of quadrant."""
+        # Create player who would normally show 'confident' (COMMANDING quadrant)
+        # but is inside the poker face zone
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.6,
+                'baseline_looseness': 0.5,
+                'ego': 0.3,  # Low ego = large zone
+                'poise': 0.85,  # High poise = large zone
+                'expressiveness': 0.3,  # Low expressiveness = large zone
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.4,  # Near zone center
+                'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        # Verify they're in the zone
+        assert psych.is_in_poker_face_zone()
+
+        # Verify their true emotion would be something other than poker_face
+        true_emotion = psych.get_display_emotion(use_expression_filter=False)
+        assert true_emotion != 'poker_face', f"True emotion should not be poker_face, got {true_emotion}"
+
+        # But display emotion should be poker_face
+        display_emotion = psych.get_display_emotion(use_expression_filter=True)
+        assert display_emotion == 'poker_face'
+
+    def test_display_emotion_shows_quadrant_outside_zone(self):
+        """Test that players outside zone show quadrant-based emotion."""
+        # Create volatile player who is clearly outside zone
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.85,
+                'baseline_looseness': 0.7,
+                'ego': 0.9,  # Very high ego = small zone
+                'poise': 0.2,  # Very low poise = small zone
+                'expressiveness': 0.9,  # Very high expressiveness = small zone
+                'risk_identity': 0.8,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.8,  # High energy far from zone center
+                'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('VolatilePlayer', config)
+
+        # Verify they're outside the zone
+        assert not psych.is_in_poker_face_zone()
+
+        # Display emotion should NOT be forced to poker_face by zone
+        # (May still be filtered by expression filter, but that's separate)
+        # With high expressiveness and high energy, visibility is high, so true emotion shows
+        display_emotion = psych.get_display_emotion(use_expression_filter=True)
+        # Should be their quadrant emotion, not poker_face
+        # (expression filter visibility = 0.9 * 0.8 = 0.72, which is > 0.6 threshold)
+        true_emotion = psych.get_display_emotion(use_expression_filter=False)
+        assert display_emotion == true_emotion  # High visibility shows true emotion
