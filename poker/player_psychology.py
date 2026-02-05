@@ -40,44 +40,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# === BACKWARD COMPATIBILITY: ElasticPersonality shim ===
-# These classes provide backward compatibility with code expecting
-# controller.psychology.elastic (the old ElasticPersonality interface).
-# The new system uses anchors + axes instead.
-
-@dataclass
-class ElasticTraitCompat:
-    """
-    Backward-compatible trait interface for old ElasticPersonality consumers.
-
-    Provides the old trait interface: value, anchor, elasticity, pressure, min, max.
-    Maps from the new anchor/axes system.
-    """
-    value: float      # Current value (from axes or derived)
-    anchor: float     # Base value (from anchors)
-    elasticity: float = 0.3  # How much the trait can vary
-    pressure: float = 0.0    # Current pressure (value - anchor)
-    min: float = 0.0
-    max: float = 1.0
-
-
-@dataclass
-class ElasticPersonalityCompat:
-    """
-    Backward-compatible wrapper providing the old ElasticPersonality interface.
-
-    Maps the new PlayerPsychology (anchors + axes) to the old trait-based
-    interface expected by elasticity_service.py and game state emissions.
-    """
-    traits: Dict[str, ElasticTraitCompat]
-
-    def get_trait_value(self, trait_name: str) -> float:
-        """Get current value of a trait."""
-        if trait_name in self.traits:
-            return self.traits[trait_name].value
-        return 0.5  # Default neutral value
-
-
 # === PHASE 4: EVENT SENSITIVITY SYSTEM ===
 
 # Severity-based sensitivity floors
@@ -282,6 +244,7 @@ ZONE_AGGRO_RADIUS = 0.12
 # Penalty zone thresholds
 PENALTY_TILTED_THRESHOLD = 0.35
 PENALTY_OVERCONFIDENT_THRESHOLD = 0.90
+PENALTY_TIMID_THRESHOLD = 0.10  # Left edge (mirror of Overconfident)
 PENALTY_SHAKEN_CONF_THRESHOLD = 0.35
 PENALTY_SHAKEN_COMP_THRESHOLD = 0.35
 PENALTY_OVERHEATED_CONF_THRESHOLD = 0.65
@@ -462,6 +425,7 @@ def _detect_penalty_zones(confidence: float, composure: float) -> Dict[str, floa
     Penalty zones are edge-based regions where decision-making degrades:
     - Tilted: Bottom edge (composure < 0.35)
     - Overconfident: Right edge (confidence > 0.90)
+    - Timid: Left edge (confidence < 0.10) - scared money, over-folds
     - Shaken: Lower-left corner (low conf AND low comp)
     - Overheated: Lower-right corner (high conf AND low comp)
     - Detached: Upper-left corner (low conf AND high comp)
@@ -486,6 +450,11 @@ def _detect_penalty_zones(confidence: float, composure: float) -> Dict[str, floa
     # Strength increases as confidence approaches 1.0
     if confidence > PENALTY_OVERCONFIDENT_THRESHOLD:
         penalties['overconfident'] = (confidence - PENALTY_OVERCONFIDENT_THRESHOLD) / (1.0 - PENALTY_OVERCONFIDENT_THRESHOLD)
+
+    # Timid: left edge (confidence < 0.10) - mirror of Overconfident
+    # Scared money, over-respects opponents, can't pull the trigger
+    if confidence < PENALTY_TIMID_THRESHOLD:
+        penalties['timid'] = (PENALTY_TIMID_THRESHOLD - confidence) / PENALTY_TIMID_THRESHOLD
 
     # Shaken: lower-left corner (low conf AND low comp)
     # Strength based on distance toward (0, 0) corner
@@ -1217,6 +1186,15 @@ DETACHED_THOUGHTS = [
     "Why risk chips on a marginal spot?",
 ]
 
+# Timid zone thoughts (confidence < 0.10) - scared money
+TIMID_THOUGHTS = [
+    "They must have it. They always have it.",
+    "That bet size means strength.",
+    "You can't win this one. Save your chips.",
+    "They wouldn't bet that much without a hand.",
+    "Just let this one go.",
+]
+
 # Energy manifestation variants for thoughts
 ENERGY_THOUGHT_VARIANTS = {
     'tilted': {
@@ -1276,6 +1254,18 @@ ENERGY_THOUGHT_VARIANTS = {
             "Don't force it.",
         ],
     },
+    'timid': {
+        'low_energy': [
+            "Just fold. It's safer.",
+            "You can't beat them anyway.",
+            "Save your chips...",
+        ],
+        'high_energy': [
+            "They have it! They definitely have it!",
+            "Don't call! It's a trap!",
+            "Get out while you can!",
+        ],
+    },
 }
 
 # Zone-based strategy advice (bad advice for penalty zones)
@@ -1309,6 +1299,11 @@ PENALTY_STRATEGY = {
         'mild': "No need to rush. Better spots will come.",
         'moderate': "Why risk chips on marginal spots?",
         'severe': "Just wait. Don't get involved.",
+    },
+    'timid': {
+        'mild': "That bet looks strong. Be careful.",
+        'moderate': "They probably have you beat. Why risk it?",
+        'severe': "Fold. They have it. They always have it.",
     },
 }
 
@@ -1362,6 +1357,14 @@ PHRASES_TO_REMOVE_BY_ZONE = {
         "take your time",
         "think it through",
         "analyze",
+    ],
+    'timid': [
+        "you have the best hand",
+        "value bet",
+        "extract value",
+        "they're bluffing",
+        "you're ahead",
+        "raise for value",
     ],
 }
 
@@ -2153,66 +2156,6 @@ class PlayerPsychology:
         """True if composure < 0.4 (emotional state should be overridden)."""
         return self.composure < 0.4
 
-    # === BACKWARD COMPATIBILITY: elastic property ===
-
-    @property
-    def elastic(self) -> ElasticPersonalityCompat:
-        """
-        Backward-compatible elastic property for old code expecting ElasticPersonality.
-
-        Maps the new anchor/axes system to the old 5-trait interface:
-        - tightness: from anchors.baseline_looseness (inverted)
-        - aggression: from effective_aggression (derived)
-        - confidence: from axes.confidence
-        - composure: from axes.composure
-        - table_talk: from anchors.expressiveness
-        """
-        # Map new system to old traits
-        traits = {
-            'tightness': ElasticTraitCompat(
-                value=1.0 - self.effective_looseness,  # Inverted looseness
-                anchor=1.0 - self.anchors.baseline_looseness,
-                elasticity=0.3,
-                pressure=(1.0 - self.effective_looseness) - (1.0 - self.anchors.baseline_looseness),
-            ),
-            'aggression': ElasticTraitCompat(
-                value=self.effective_aggression,
-                anchor=self.anchors.baseline_aggression,
-                elasticity=0.5,
-                pressure=self.effective_aggression - self.anchors.baseline_aggression,
-            ),
-            'confidence': ElasticTraitCompat(
-                value=self.axes.confidence,
-                anchor=self._baseline_confidence,
-                elasticity=0.4,
-                pressure=self.axes.confidence - self._baseline_confidence,
-            ),
-            'composure': ElasticTraitCompat(
-                value=self.axes.composure,
-                anchor=self._baseline_composure,
-                elasticity=0.4,
-                pressure=self.axes.composure - self._baseline_composure,
-            ),
-            'table_talk': ElasticTraitCompat(
-                value=self.anchors.expressiveness,  # Static in new system
-                anchor=self.anchors.expressiveness,
-                elasticity=0.6,
-                pressure=0.0,
-            ),
-        }
-        return ElasticPersonalityCompat(traits=traits)
-
-    @elastic.setter
-    def elastic(self, value: Any) -> None:
-        """
-        Allow setting elastic for backward compatibility with game restoration.
-
-        Ignores the value since the new system doesn't use ElasticPersonality.
-        The relevant state is already in axes and anchors.
-        """
-        # Log that we're ignoring this (old saved games might try to restore it)
-        logger.debug(f"Ignoring elastic setter for {self.player_name} - using axes/anchors system")
-
     # === PROMPT BUILDING ===
 
     def get_prompt_section(self) -> str:
@@ -2348,6 +2291,9 @@ class PlayerPsychology:
 
         elif zone_name == 'detached':
             thoughts.extend(DETACHED_THOUGHTS)
+
+        elif zone_name == 'timid':
+            thoughts.extend(TIMID_THOUGHTS)
 
         # Add energy manifestation variants if not balanced
         if manifestation != 'balanced' and zone_name in ENERGY_THOUGHT_VARIANTS:

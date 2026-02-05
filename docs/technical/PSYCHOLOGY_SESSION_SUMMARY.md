@@ -184,6 +184,37 @@ This creates dramatic swings that single-event models miss.
 6. `docs/technical/emotional_zones_v2.svg` - Updated zone diagram
 7. `docs/technical/PSYCHOLOGY_SESSION_SUMMARY.md` - This file
 
+## Phase 10: Experiment & Tuning Infrastructure (Added Later)
+
+Phase 10 added infrastructure for validating the zone system through AI tournaments.
+
+### Files Created
+- `experiments/analysis/__init__.py` - Analysis module exports
+- `experiments/analysis/zone_metrics_analyzer.py` - Zone distribution & tilt analysis
+- `experiments/analysis/zone_report_generator.py` - Markdown report generation
+- `experiments/tuning/__init__.py` - Tuning module exports
+- `experiments/tuning/zone_parameter_tuner.py` - Parameter adjustment recommendations
+- `experiments/configs/zone_validation.json` - Archetype validation experiment
+
+### Database Changes (Schema v71)
+Added 15 columns to `player_decision_analysis` for tracking:
+- Zone detection state (confidence, composure, energy, manifestation)
+- Zone membership (sweet spots and penalties as JSON)
+- Zone effects instrumentation (thoughts injected, strategy applied, info degraded)
+
+### Key Components
+- **ZoneMetricsAnalyzer**: Analyzes zone distributions and tilt frequencies
+- **ZoneReportGenerator**: Generates markdown reports vs PRD targets
+- **ZoneParameterTuner**: Recommends parameter adjustments (informational only)
+
+### PRD Targets
+| Band | Target |
+|------|--------|
+| Baseline | 70-85% |
+| Medium | 10-20% |
+| High | 2-7% |
+| Full Tilt | 0-2% |
+
 ## Key Takeaways
 
 1. **Poise drives composure dynamics** - baseline, sensitivity, and recovery

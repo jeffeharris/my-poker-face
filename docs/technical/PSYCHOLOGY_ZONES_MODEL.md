@@ -59,23 +59,26 @@ See `emotional_zones_v3.svg` for the full visual diagram.
 
 ```
                     CONFIDENCE →
-        0.0    0.2    0.4    0.6    0.8    1.0
+        0.0    0.1    0.35   0.6    0.8    0.9   1.0
        ┌──────┬──────┬──────┬──────┬──────┬──────┐
   1.0  │      │      │      │      │      │      │
        │ ░░░░ │      │      │      │      │      │
   0.8  │ ░░░░ │  ◉   │  ◉   │      │  ◉   │ ░░░░ │
 C      │DETACH│GUARD │ P.F. │      │COMMA-│OVER- │
-O 0.6  │      │      │      │      │NDING │CONF  │
+O 0.65 │ ░░░░ │      │      │      │NDING │CONF  │
 M      │      │      │      │      │      │ ░░░░ │
-P 0.4  │      │      │      │  ◉   │      │ ░░░░ │
-O      │▓▓▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓│AGGRO │▓▓▓▓▓▓│▓▓▓▓▓▓│
-S 0.2  │SHAKEN│      │TILTED│      │OVER- │      │
+P 0.4  │ ░░░░ │      │      │  ◉   │      │ ░░░░ │
+O      │TIMID │▓▓▓▓▓▓│▓▓▓▓▓▓│AGGRO │▓▓▓▓▓▓│▓▓▓▓▓▓│
+S 0.35 │ ░░░░ │      │TILTED│      │OVER- │      │
 U      │▓▓▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓│HEATED│▓▓▓▓▓▓│
-R 0.0  │▓▓▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓│
+R 0.0  │SHAKEN│▓▓▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓│
 E ↑    └──────┴──────┴──────┴──────┴──────┴──────┘
+       0.1
 
        ◉ = sweet spot center    ░ = penalty edge region
        ▓ = penalty zone (low composure)
+
+       TIMID = left edge (conf < 0.10) - mirrors OVERCONFIDENT on right edge
 ```
 
 ## Sweet Spots
@@ -135,9 +138,10 @@ Penalty zones are edge-based regions where decision-making degrades.
 | Zone | Boundary | Effect |
 |------|----------|--------|
 | Tilted | Composure < 0.35 | Emotional disaster |
+| Overconfident | Confidence > 0.90 | Ignores warnings, hero calls |
+| Timid | Confidence < 0.10 | Scared money, over-folds |
 | Shaken | Low conf + low comp corner | Desperate, erratic |
 | Overheated | High conf + low comp corner | Reckless aggression |
-| Overconfident | Confidence > 0.90 | Ignores warnings |
 | Detached | Low conf + high comp corner | Too passive |
 
 ### Tilted
@@ -159,6 +163,11 @@ Penalty zones are edge-based regions where decision-making degrades.
 - **Boundary**: Right edge - confidence > 0.90
 - **Effect**: Ignores warnings, hero calls, stubborn
 - **Prompt modification**: Dismisses opponent strength, "you can't be wrong" bias
+
+### Timid
+- **Boundary**: Left edge - confidence < 0.10 (mirrors Overconfident)
+- **Effect**: Scared money, over-respects opponents, can't pull the trigger
+- **Prompt modification**: Assumes opponents always have it, removes value-betting encouragement
 
 ### Detached
 - **Boundary**: Upper-left corner - low confidence AND high composure
@@ -451,6 +460,7 @@ for zone in active_penalties:
 | Shaken | Down-left → toward (0, 0) corner |
 | Overheated | Down-right → toward (1, 0) corner |
 | Overconfident | Right → (1, 0) toward confidence = 1 |
+| Timid | Left → (-1, 0) toward confidence = 0 |
 | Detached | Up-left → toward (0, 1) corner |
 
 #### Gravity Strength
@@ -555,6 +565,10 @@ def get_zone_strengths(confidence: float, composure: float) -> dict:
     # Overconfident: right edge (confidence > 0.90)
     if confidence > 0.90:
         penalties['overconfident'] = (confidence - 0.90) / 0.10
+
+    # Timid: left edge (confidence < 0.10) - mirrors Overconfident
+    if confidence < 0.10:
+        penalties['timid'] = (0.10 - confidence) / 0.10
 
     # Shaken: lower-left corner
     if confidence < 0.35 and composure < 0.35:
@@ -937,6 +951,56 @@ Your read is almost certainly right. Don't let them push you around.
 
 ---
 
+### Timid (Confidence < 0.10)
+
+**Boundary:** Left edge (mirrors Overconfident) | **Intensity:** (0.10 - conf) / 0.10
+
+**Core Effect:** Scared money. Over-respects opponents. Can't pull the trigger even with strong hands.
+
+**Information REMOVED:**
+- "You have the best hand" confirmations
+- Value betting encouragement
+- "They're bluffing" reads
+- Aggressive line suggestions
+
+**Information DISTORTED:**
+- Opponent hands overestimated ("That bet size means strength")
+- Own hand undervalued ("Top pair might not be good here")
+- Risk amplified ("Why risk chips when you're not sure?")
+
+**Intrusive Thoughts:**
+```python
+TIMID_THOUGHTS = [
+    "They must have it. They always have it.",
+    "That bet size means strength.",
+    "You can't win this one. Save your chips.",
+    "They wouldn't bet that much without a hand.",
+    "Just let this one go.",
+]
+```
+
+**Energy Variants:**
+- Low energy: "Just fold. It's safer." / "You can't beat them anyway."
+- High energy: "They have it! They definitely have it!" / "Don't call! It's a trap!"
+
+**Bad Advice Injection:**
+```
+[Current mindset: They probably have you beat. Why risk it?
+That bet looks strong. Better to wait for a clearer spot.]
+```
+
+**Example Prompt (50% timid):**
+```
+[What's running through your mind: They must have it. That bet size means strength.]
+
+Your equity: ~65% (but they bet so confidently...)
+Their large bet could mean anything, but probably strength.
+
+[Current mindset: That bet looks strong. Be careful.]
+```
+
+---
+
 ### Detached (Low Conf + High Comp Corner)
 
 **Boundary:** Upper-left corner (conf < 0.35 AND comp > 0.65) | **Intensity:** Product of (0.35 - conf) × (comp - 0.65)
@@ -1181,6 +1245,7 @@ Energy (the 3rd axis) doesn't change which zone you're in for most zones - it ch
 | **Shaken** | Frozen, deer in headlights | Panicking, erratic chaos |
 | **Overheated** | Simmering, coiled spring | Full manic, no brakes |
 | **Overconfident** | Lazy arrogance, "beneath me" | Loud arrogance, showboating |
+| **Timid** | Resigned folding, "can't win" | Panicked folding, "it's a trap!" |
 | **Detached** | Checked out, autopilot | *(High energy pulls you out of Detached)* |
 
 ### Poker Face: The 3D Exception
@@ -1246,6 +1311,7 @@ def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
 | Shaken | Penalty | Desperation cues | Clear strategy | Panicked | Heavy |
 | Overheated | Penalty | Attack cues (amplified) | All caution | Manic | Moderate |
 | Overconfident | Penalty | Own strength (inflated) | Opponent strength | Dismissive | Moderate |
+| Timid | Penalty | Opponent strength (inflated) | Value opportunities | Fearful | Moderate |
 | Detached | Penalty | Conservative only | Opportunities | Passive | Mild |
 
 ## Archetype Summary
@@ -1289,3 +1355,87 @@ def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
    - A **replacement** for difficulty (psychology IS the difficulty)?
    - A **separate sandbox setting** (another way to configure AI behavior)?
    - Needs design decision before implementation.
+
+---
+
+## Phase 10: Experiment & Tuning Infrastructure
+
+Phase 10 adds infrastructure for validating the zone system through AI tournaments.
+
+### Database Tracking (Schema v71)
+
+Zone metrics are captured in `player_decision_analysis` table for every decision:
+
+**Zone Detection State:**
+- `zone_confidence`, `zone_composure`, `zone_energy` - Axis values at decision time
+- `zone_manifestation` - Energy manifestation ('low_energy', 'balanced', 'high_energy')
+- `zone_sweet_spots_json` - JSON dict of sweet spot memberships
+- `zone_penalties_json` - JSON dict of penalty zone memberships
+- `zone_primary_sweet_spot`, `zone_primary_penalty` - Dominant zones
+- `zone_total_penalty_strength` - Sum of penalty intensities
+- `zone_in_neutral_territory` - Boolean, outside all zones
+
+**Zone Effects Instrumentation:**
+- `zone_intrusive_thoughts_injected` - Were thoughts added to prompt?
+- `zone_intrusive_thoughts_json` - List of injected thoughts
+- `zone_penalty_strategy_applied` - Bad advice text if applied
+- `zone_info_degraded` - Was strategic info removed?
+- `zone_strategy_selected` - Sweet spot strategy template used
+
+### Analysis Tools
+
+**ZoneMetricsAnalyzer** (`experiments/analysis/zone_metrics_analyzer.py`):
+- `get_zone_distribution(experiment_id)` - Per-player zone membership percentages
+- `get_tilt_frequency(experiment_id)` - Tilt band distribution
+- `get_zone_transitions(experiment_id)` - Zone change events
+- `get_intrusive_thought_frequency(experiment_id)` - Injection stats
+
+**ZoneReportGenerator** (`experiments/analysis/zone_report_generator.py`):
+- Generates markdown reports comparing results to PRD targets
+- Includes per-player tables, issues detected, recommendations
+
+### PRD Targets
+
+| Band | Target Range | Description |
+|------|--------------|-------------|
+| Baseline | 70-85% | penalty_strength < 0.10 |
+| Medium | 10-20% | 0.10 ≤ penalty_strength < 0.50 |
+| High | 2-7% | 0.50 ≤ penalty_strength < 0.75 |
+| Full Tilt | 0-2% | penalty_strength ≥ 0.75 |
+
+### Tunable Parameters
+
+**ZoneParameterTuner** (`experiments/tuning/zone_parameter_tuner.py`) tracks 14 parameters:
+
+| Category | Parameters |
+|----------|------------|
+| Penalty Thresholds | `PENALTY_TILTED_THRESHOLD`, `PENALTY_OVERCONFIDENT_THRESHOLD`, etc. |
+| Zone Radii | `ZONE_POKER_FACE_RADIUS`, `ZONE_GUARDED_RADIUS`, etc. |
+| Recovery Constants | `RECOVERY_BELOW_BASELINE_FLOOR`, `RECOVERY_ABOVE_BASELINE`, etc. |
+
+Recommendations are **informational only** - no auto-apply.
+
+### Running Validation Experiments
+
+```bash
+# Run the zone validation experiment
+python experiments/run_from_config.py experiments/configs/zone_validation.json
+
+# Generate a report
+python -c "
+from experiments.analysis.zone_report_generator import ZoneReportGenerator
+gen = ZoneReportGenerator('data/poker_games.db')
+print(gen.generate_report(experiment_id))
+"
+```
+
+### Archetype Validation Config
+
+The `zone_validation.json` experiment uses 4 archetype personalities:
+
+| Personality | Expected Home Zone | Archetype |
+|-------------|-------------------|-----------|
+| Batman | poker_face | Calm, controlled |
+| Gordon Ramsay | aggro | Explosive, confrontational |
+| Bob Ross | guarded | Patient, trap-setting |
+| Napoleon | commanding | Dominant, value-extracting |

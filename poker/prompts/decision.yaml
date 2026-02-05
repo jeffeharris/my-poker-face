@@ -149,3 +149,138 @@ sections:
     [AGGRO MODE]
     {weak_player_note}
     Attack the vulnerability. Pressure extracts folds.
+
+  # ============================================================
+  # === PHASE 8: ENERGY-VARIANT ZONE TEMPLATES ==================
+  # ============================================================
+  # Each zone strategy has _low and _high variants for energy.
+  # Balanced energy uses the base template (no suffix).
+  # ============================================================
+
+  # === POKER FACE ZONE - Low Energy ===
+  zone_poker_face_gto_low: |-
+    [POKER FACE MODE | Measured]
+    Take your time. Play balanced, GTO-influenced poker.
+    Analyze the situation carefully. Make mathematically optimal decisions.
+
+  zone_poker_face_balance_low: |-
+    [POKER FACE MODE | Measured]
+    Consider mixing your actions. Balance value bets with occasional bluffs.
+    Process over outcome. Think through the math deliberately.
+
+  zone_poker_face_equity_low: |-
+    [POKER FACE MODE | Measured]
+    {equity_vs_ranges}
+    Carefully weigh the pot odds. Play the numbers with patience.
+
+  # === POKER FACE ZONE - High Energy ===
+  zone_poker_face_gto_high: |-
+    [POKER FACE MODE | Running hot]
+    Trust your instincts. Play balanced, GTO-influenced poker.
+    Quick decisions - you know the math. Execute with conviction.
+
+  zone_poker_face_balance_high: |-
+    [POKER FACE MODE | Running hot]
+    Mix it up! Balance value bets with occasional bluffs.
+    Trust the process. Strike while you're feeling sharp.
+
+  zone_poker_face_equity_high: |-
+    [POKER FACE MODE | Running hot]
+    {equity_vs_ranges}
+    The math is clear. Trust it and act decisively.
+
+  # === GUARDED ZONE - Low Energy ===
+  zone_guarded_trap_low: |-
+    [GUARDED MODE | Measured]
+    Wait patiently. This could be a trap-worthy spot.
+    Let them make mistakes. No rush.
+
+  zone_guarded_patience_low: |-
+    [GUARDED MODE | Measured]
+    No need to force anything. Better spots will come.
+    Discipline. Wait for strength.
+
+  zone_guarded_control_low: |-
+    [GUARDED MODE | Measured]
+    Keep the pot small. No need to risk more than necessary.
+    Control the pace. Proceed with deliberate caution.
+
+  # === GUARDED ZONE - High Energy ===
+  zone_guarded_trap_high: |-
+    [GUARDED MODE | Alert]
+    Set the trap! This is a perfect spot.
+    A check invites a bluff. Spring it when ready.
+
+  zone_guarded_patience_high: |-
+    [GUARDED MODE | Alert]
+    Stay sharp but selective. Wait for the right moment.
+    Discipline wins - but be ready to strike.
+
+  zone_guarded_control_high: |-
+    [GUARDED MODE | Alert]
+    Control the pot size. Marginal hand, measured response.
+    Stay in control but stay engaged.
+
+  # === COMMANDING ZONE - Low Energy ===
+  zone_commanding_value_low: |-
+    [COMMANDING MODE | Composed]
+    You're in control. Extract value methodically.
+    Strong hands deserve big pots. Build it patiently.
+
+  zone_commanding_pressure_low: |-
+    [COMMANDING MODE | Composed]
+    {opponent_stats}
+    Their weakness is your opportunity. Apply steady pressure.
+
+  zone_commanding_initiative_low: |-
+    [COMMANDING MODE | Composed]
+    You have the betting lead. Maintain it steadily.
+    Make opponents pay to see more cards.
+
+  # === COMMANDING ZONE - High Energy ===
+  zone_commanding_value_high: |-
+    [COMMANDING MODE | Dominant]
+    You've got them! Extract maximum value now.
+    Strong hands deserve big pots. Make them pay.
+
+  zone_commanding_pressure_high: |-
+    [COMMANDING MODE | Dominant]
+    {opponent_stats}
+    Attack! Their weakness is your opportunity. Maximum pressure now.
+
+  zone_commanding_initiative_high: |-
+    [COMMANDING MODE | Dominant]
+    Press your advantage! Keep the betting lead.
+    Make them pay every step of the way.
+
+  # === AGGRO ZONE - Low Energy ===
+  zone_aggro_awareness_low: |-
+    [AGGRO MODE | Watchful]
+    Observe for weakness. Vulnerable opponents reveal themselves.
+    Wait for the right moment to attack.
+
+  zone_aggro_analyze_low: |-
+    [AGGRO MODE | Watchful]
+    {opponent_analysis}
+    Study their patterns. They've shown you how to beat them.
+
+  zone_aggro_target_low: |-
+    [AGGRO MODE | Watchful]
+    {weak_player_note}
+    Target identified. Apply pressure when the moment is right.
+
+  # === AGGRO ZONE - High Energy ===
+  zone_aggro_awareness_high: |-
+    [AGGRO MODE | Hunting]
+    Eyes sharp! Watch for any sign of weakness.
+    Nervous opponents fold to pressure. Attack!
+
+  zone_aggro_analyze_high: |-
+    [AGGRO MODE | Hunting]
+    {opponent_analysis}
+    You see their patterns. Exploit them now!
+
+  zone_aggro_target_high: |-
+    [AGGRO MODE | Hunting]
+    {weak_player_note}
+    Weakness spotted! Attack now. Pressure extracts folds.
