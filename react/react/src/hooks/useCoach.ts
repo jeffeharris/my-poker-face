@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { CoachStats, CoachMessage, CoachMode, CoachProgression, ProgressionState, SkillProgress } from '../types/coach';
+import type { CoachStats, CoachMessage, CoachMode, CoachProgression, ProgressionState, SkillProgress, FeedbackPromptData } from '../types/coach';
 import { config } from '../config';
 
 const MAX_MESSAGES = 50;
@@ -8,13 +8,6 @@ interface UseCoachOptions {
   gameId: string | null;
   playerName: string;
   isPlayerTurn: boolean;
-}
-
-interface FeedbackPrompt {
-  hand: string;
-  position: string;
-  range_target: number;
-  hand_number: number;
 }
 
 interface UseCoachResult {
@@ -39,7 +32,8 @@ interface UseCoachResult {
   dismissSkillUnlock: (skillId: string) => void;
   coachAction: string | null;  // Coach's explicit recommendation (only from /ask endpoint)
   coachRaiseTo: number | null;  // Coach's suggested raise amount
-  feedbackPrompt: FeedbackPrompt | null;  // Pending feedback prompt for folded hands in range
+  feedbackPrompt: FeedbackPromptData | null;  // Pending feedback prompt for folded hands in range
+  setFeedbackPrompt: (prompt: FeedbackPromptData | null) => void;  // Set from socket event
   submitFeedback: (reason: string) => Promise<void>;
   dismissFeedback: () => Promise<void>;
 }
@@ -72,7 +66,34 @@ export function useCoach({
   const [progression, setProgression] = useState<CoachProgression | null>(null);
   const [progressionFull, setProgressionFull] = useState<ProgressionState | null>(null);
   const [skillUnlockQueue, setSkillUnlockQueue] = useState<string[]>([]);
-  const [feedbackPrompt, setFeedbackPrompt] = useState<FeedbackPrompt | null>(null);
+  const [feedbackPrompt, setFeedbackPromptState] = useState<FeedbackPromptData | null>(null);
+  const feedbackPromptHandNumberRef = useRef<number | null>(null);
+
+  // Wrapper to also add feedback prompt as a coach message
+  // Only sets if this is a new prompt (different hand_number) to avoid resetting while user types
+  const setFeedbackPrompt = useCallback((prompt: FeedbackPromptData | null) => {
+    if (prompt) {
+      // Don't reset if we already have a prompt for this hand
+      if (feedbackPromptHandNumberRef.current === prompt.hand_number) {
+        return;
+      }
+      feedbackPromptHandNumberRef.current = prompt.hand_number;
+      setFeedbackPromptState(prompt);
+      const rangePercent = Math.round(prompt.range_target * 100);
+      const feedbackMsg: CoachMessage = {
+        id: `feedback-${Date.now()}`,
+        role: 'coach',
+        content: `You folded ${prompt.hand || 'a hand'} from ${prompt.position}. That's in your range (top ${rangePercent}%). Why did you fold?`,
+        timestamp: Date.now(),
+        type: 'feedback_prompt',
+        feedbackData: prompt,
+      };
+      setMessages(prev => [...prev, feedbackMsg].slice(-MAX_MESSAGES));
+    } else {
+      feedbackPromptHandNumberRef.current = null;
+      setFeedbackPromptState(null);
+    }
+  }, []);
 
   // Track whether we've already fetched for this turn
   const fetchedForTurn = useRef(false);
@@ -329,8 +350,22 @@ export function useCoach({
 
   const submitFeedback = useCallback(async (reason: string) => {
     if (!gameId || !feedbackPrompt) return;
+
+    // Add user's response as a message first
+    const userMsg: CoachMessage = {
+      id: `user-feedback-${Date.now()}`,
+      role: 'user',
+      content: reason,
+      timestamp: Date.now(),
+    };
+    setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
+
+    // Clear the prompt
+    feedbackPromptHandNumberRef.current = null;
+    setFeedbackPromptState(null);
+
     try {
-      await fetch(`${config.API_URL}/api/coach/${gameId}/feedback`, {
+      const res = await fetch(`${config.API_URL}/api/coach/${gameId}/feedback`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -342,7 +377,21 @@ export function useCoach({
           hand_number: feedbackPrompt.hand_number,
         }),
       });
-      setFeedbackPrompt(null);
+
+      // Add coach response as a message
+      if (res.ok) {
+        const data = await res.json();
+        if (data.response) {
+          const responseMsg: CoachMessage = {
+            id: `feedback-response-${Date.now()}`,
+            role: 'coach',
+            content: data.response,
+            timestamp: Date.now(),
+            type: 'tip',
+          };
+          setMessages(prev => [...prev, responseMsg].slice(-MAX_MESSAGES));
+        }
+      }
     } catch {
       /* non-critical */
     }
@@ -350,7 +399,8 @@ export function useCoach({
 
   const dismissFeedback = useCallback(async () => {
     if (!gameId) {
-      setFeedbackPrompt(null);
+      feedbackPromptHandNumberRef.current = null;
+      setFeedbackPromptState(null);
       return;
     }
     try {
@@ -361,7 +411,8 @@ export function useCoach({
     } catch {
       /* non-critical */
     }
-    setFeedbackPrompt(null);
+    feedbackPromptHandNumberRef.current = null;
+    setFeedbackPromptState(null);
   }, [gameId]);
 
   // When player's turn starts, auto-fetch stats (and proactive tip if enabled).
@@ -422,6 +473,7 @@ export function useCoach({
     coachAction,
     coachRaiseTo,
     feedbackPrompt,
+    setFeedbackPrompt,
     submitFeedback,
     dismissFeedback,
   };

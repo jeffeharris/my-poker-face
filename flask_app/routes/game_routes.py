@@ -253,24 +253,37 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
                 if action == 'fold' and range_targets:
                     for ev in evaluations:
                         if (ev.skill_id == 'position_matters' and
-                            ev.evaluation == 'incorrect' and
+                            ev.evaluation in ('incorrect', 'marginal') and
                             'in your range' in ev.reasoning.lower()):
                             # Extract info for feedback prompt
                             from flask_app.services.range_targets import get_range_target
-                            hand = coaching_data.get('hand_display', coaching_data.get('hand', ''))
+                            # hand_hole_cards is a list like ['Ah', 'Kd']
+                            hand_cards = coaching_data.get('hand_hole_cards', [])
+                            hand = ' '.join(hand_cards) if hand_cards else ''
                             position = coaching_data.get('position', '')
                             personal_range_target = get_range_target(range_targets, position)
                             if personal_range_target and personal_range_target > 0:
-                                session_memory.set_feedback_prompt({
+                                # Include hand context for meaningful feedback
+                                hand_context = {
+                                    'phase': coaching_data.get('phase', ''),
+                                    'pot_total': coaching_data.get('pot_total', 0),
+                                    'cost_to_call': coaching_data.get('cost_to_call', 0),
+                                    'equity': coaching_data.get('equity'),
+                                    'hand_strength': coaching_data.get('hand_strength'),
+                                    'hand_actions': coaching_data.get('hand_actions', []),
+                                    'opponent_count': len([s for s in coaching_data.get('opponent_stats', []) if not s.get('is_folded')]),
+                                }
+                                prompt_data = {
                                     'hand': hand,
                                     'position': position,
                                     'range_target': personal_range_target,
                                     'hand_number': hand_number,
-                                })
-                                logger.debug(
-                                    f"[COACH_PROGRESSION] Feedback prompt set for {player_name}: "
-                                    f"folded {hand} from {position} (range: {personal_range_target:.0%})"
-                                )
+                                    'context': hand_context,
+                                }
+                                session_memory.set_feedback_prompt(prompt_data)
+                                # Emit via socket so frontend receives it immediately
+                                from flask_app.extensions import socketio
+                                socketio.emit('coach_feedback_prompt', prompt_data, room=game_id)
                             break
     except Exception as e:
         logger.error(

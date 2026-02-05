@@ -37,6 +37,10 @@ def is_hand_in_range(canonical: str, range_percentage: float) -> bool:
     if not canonical:
         return False
 
+    # 100% range means any hand is in range
+    if range_percentage >= 1.0:
+        return True
+
     # Map percentage to closest tier
     if range_percentage >= 0.35:
         return canonical in TOP_35_HANDS

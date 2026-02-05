@@ -45,12 +45,20 @@ export interface OpponentStat {
   hands_observed: number;
 }
 
+export interface FeedbackPromptData {
+  hand: string;
+  position: string;
+  range_target: number;
+  hand_number: number;
+}
+
 export interface CoachMessage {
   id: string;
   role: 'user' | 'coach';
   content: string;
   timestamp: number;
-  type?: 'review' | 'tip';
+  type?: 'review' | 'tip' | 'feedback_prompt';
+  feedbackData?: FeedbackPromptData;
 }
 
 export type CoachMode = 'proactive' | 'reactive' | 'off';

@@ -298,6 +298,13 @@ def coach_progression(game_id: str):
         return jsonify({'error': 'Could not load progression'}), 500
 
 
+# Canned responses for preset feedback options
+_FEEDBACK_RESPONSES = {
+    'read': "Trust your instincts - just track if your reads are accurate over time.",
+    'unsure': "No worries, position awareness takes practice. Keep at it!",
+}
+
+
 @coach_bp.route('/api/coach/<game_id>/feedback', methods=['POST'])
 @limiter.limit("30/minute")
 @_coach_required
@@ -306,6 +313,7 @@ def coach_feedback(game_id: str):
 
     When a player folds a hand that was in their range, the coach may ask why.
     This endpoint stores the player's explanation for learning and adjustment.
+    Returns a coach response (canned for presets, LLM for custom).
     """
     user_id = _get_current_user_id()
 
@@ -340,10 +348,81 @@ def coach_feedback(game_id: str):
             f"position={position}, action={action}, reason={reason}"
         )
 
-        return jsonify({'status': 'ok'})
+        # Get stored context from session memory
+        hand_context = None
+        if game_data:
+            session_memory = game_data.get('coach_session_memory')
+            if session_memory:
+                feedback_prompt = session_memory.get_feedback_prompt()
+                if feedback_prompt:
+                    hand_context = feedback_prompt.get('context')
+
+        # Generate response - canned for presets, LLM for custom
+        if reason in _FEEDBACK_RESPONSES:
+            response = _FEEDBACK_RESPONSES[reason]
+        else:
+            # Custom reason - generate LLM response with hand context
+            response = _generate_feedback_response(hand, position, reason, hand_context)
+
+        return jsonify({'status': 'ok', 'response': response})
     except Exception as e:
         logger.error(f"Coach feedback failed: {e}", exc_info=True)
         return jsonify({'error': 'Could not record feedback'}), 500
+
+
+def _generate_feedback_response(hand: str, position: str, reason: str, context: dict = None) -> str:
+    """Generate a brief coach response to custom feedback using LLM."""
+    from core.llm import LLMClient, CallType
+
+    try:
+        client = LLMClient()
+
+        # Build context summary
+        context_str = ""
+        if context:
+            parts = []
+            if context.get('phase'):
+                parts.append(f"Phase: {context['phase']}")
+            if context.get('pot_total'):
+                parts.append(f"Pot: ${context['pot_total']}")
+            if context.get('cost_to_call'):
+                parts.append(f"Cost to call: ${context['cost_to_call']}")
+            if context.get('equity') is not None:
+                parts.append(f"Equity: {round(context['equity'] * 100)}%")
+            if context.get('hand_strength'):
+                parts.append(f"Hand: {context['hand_strength']}")
+            if context.get('opponent_count'):
+                parts.append(f"Opponents in hand: {context['opponent_count']}")
+            if context.get('hand_actions'):
+                actions = context['hand_actions'][-3:]  # Last 3 actions
+                action_strs = [f"{a.get('player', '?')}: {a.get('action', '?')}" for a in actions]
+                if action_strs:
+                    parts.append(f"Recent actions: {', '.join(action_strs)}")
+            context_str = "\n".join(parts)
+
+        prompt = f"""You are a friendly poker coach. A student folded {hand or 'a hand'} from {position or 'their position'}, even though it was in their recommended opening range.
+
+Hand situation:
+{context_str if context_str else 'No additional context available.'}
+
+Their reason for folding: "{reason}"
+
+Write a brief 1-2 sentence response. Consider whether their reasoning makes sense given the situation. Be supportive but honest - if their fold was actually reasonable despite being in range, acknowledge that. If they might be playing too tight, gently suggest being more aggressive in that spot."""
+
+        logger.info(f"Generating feedback response: hand={hand}, position={position}, reason={reason}, context={context}")
+        response = client.complete(
+            messages=[{"role": "user", "content": prompt}],
+            call_type=CallType.COACHING,
+            max_tokens=150,
+        )
+        result = response.content.strip().strip('"') if response.content else ""
+        logger.info(f"Feedback response generated: {result}")
+        if not result:
+            return "Thanks for sharing - that context helps!"
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to generate feedback response: {e}")
+        return "Got it, thanks for sharing your thinking!"
 
 
 @coach_bp.route('/api/coach/<game_id>/feedback/dismiss', methods=['POST'])

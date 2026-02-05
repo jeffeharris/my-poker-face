@@ -17,7 +17,6 @@ import { LLMDebugModal } from './LLMDebugModal';
 import { CoachButton } from './CoachButton';
 import { CoachPanel } from './CoachPanel';
 import { CoachBubble } from './CoachBubble';
-import { CoachFeedback } from './CoachFeedback';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useGameStore } from '../../stores/gameStore';
@@ -95,6 +94,14 @@ export function MobilePokerTable({
   const newlyDealtCount = useGameStore(state => state.newlyDealtCount);
   const awaitingAction = useGameStore(state => state.awaitingAction);
 
+  // Callback ref for coach feedback - needed because coach hook is defined after usePokerGame
+  const coachFeedbackCallbackRef = useRef<((prompt: { hand: string; position: string; range_target: number; hand_number: number } | null) => void) | null>(null);
+
+  // Stable callback for coach feedback to avoid re-triggering socket setup
+  const handleCoachFeedbackPrompt = useCallback((prompt: { hand: string; position: string; range_target: number; hand_number: number }) => {
+    coachFeedbackCallbackRef.current?.(prompt);
+  }, []);
+
   // Non-game-state from the hook (socket, overlays, actions)
   const {
     loading,
@@ -118,6 +125,7 @@ export function MobilePokerTable({
     playerName,
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
+    onCoachFeedbackPrompt: handleCoachFeedbackPrompt,
   });
 
   const { wrappedSendMessage, guestChatDisabled, isGuest } = useGuestChatLimit(
@@ -244,6 +252,9 @@ export function MobilePokerTable({
     playerName: playerName || '',
     isPlayerTurn: !!showActionButtons,
   });
+
+  // Wire up the coach feedback callback ref now that coach is defined
+  coachFeedbackCallbackRef.current = coach.setFeedbackPrompt;
 
   const coachEnabled = !isGuest && coach.mode !== 'off';
 
@@ -699,12 +710,22 @@ export function MobilePokerTable({
           />
 
           <CoachBubble
-            isVisible={coach.mode === 'proactive' && !!showActionButtons && !!coach.proactiveTip && !showCoachPanel}
+            isVisible={
+              !showCoachPanel && (
+                // Show for proactive tips during player's turn
+                (coach.mode === 'proactive' && !!showActionButtons && !!coach.proactiveTip) ||
+                // Show for feedback prompts (after folding a hand in range)
+                !!coach.feedbackPrompt
+              )
+            }
             tip={coach.proactiveTip}
             stats={coach.stats}
             onTap={openCoachPanel}
             onDismiss={coach.clearProactiveTip}
             coachingMode={coach.progression?.coaching_mode}
+            feedbackPrompt={coach.feedbackPrompt}
+            onFeedbackSubmit={coach.submitFeedback}
+            onFeedbackDismiss={coach.dismissFeedback}
           />
 
           <CoachPanel
@@ -721,17 +742,6 @@ export function MobilePokerTable({
             onFetchProgression={coach.fetchProgression}
             onSkipAhead={coach.skipAhead}
           />
-
-          {coach.feedbackPrompt && (
-            <CoachFeedback
-              isVisible={!!coach.feedbackPrompt}
-              hand={coach.feedbackPrompt.hand}
-              position={coach.feedbackPrompt.position}
-              rangeTarget={coach.feedbackPrompt.range_target}
-              onDismiss={coach.dismissFeedback}
-              onSubmit={coach.submitFeedback}
-            />
-          )}
         </>
       )}
 
