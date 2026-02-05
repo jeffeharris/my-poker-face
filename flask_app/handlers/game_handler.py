@@ -326,9 +326,11 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state_dict['big_blind_idx'] = game_state.big_blind_idx
     game_state_dict['highest_bet'] = game_state.highest_bet
     # Clear player options during run-it-out or non-betting phases (no actions possible)
-    state_machine = current_game_data['state_machine']
-    should_clear_options = game_state.run_it_out or state_machine.current_phase in (
-        PokerPhase.EVALUATING_HAND, PokerPhase.HAND_OVER, PokerPhase.SHOWDOWN, PokerPhase.GAME_OVER
+    state_machine = current_game_data.get('state_machine')
+    should_clear_options = game_state.run_it_out or (
+        state_machine and state_machine.current_phase in (
+            PokerPhase.EVALUATING_HAND, PokerPhase.HAND_OVER, PokerPhase.SHOWDOWN, PokerPhase.GAME_OVER
+        )
     )
     game_state_dict['player_options'] = [] if should_clear_options else (list(game_state.current_player_options) if game_state.current_player_options else [])
     game_state_dict['min_raise'] = game_state.min_raise_amount
@@ -1199,16 +1201,22 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     # Clear hole cards and emit state to trigger frontend exit animation
     # This ensures old card values are removed before new cards are dealt
-    cleared_players = tuple(p.update(hand=()) for p in game_state.players)
-    cleared_game_state = game_state.update(players=cleared_players)
-    state_machine.game_state = cleared_game_state
-    state_machine.current_phase = PokerPhase.HAND_OVER
-    game_data['state_machine'] = state_machine
-    game_state_service.set_game(game_id, game_data)
-    update_and_emit_game_state(game_id)
+    try:
+        cleared_players = tuple(p.update(hand=()) for p in game_state.players)
+        cleared_game_state = game_state.update(players=cleared_players)
+        state_machine.game_state = cleared_game_state
+        state_machine.current_phase = PokerPhase.HAND_OVER
+        game_data['state_machine'] = state_machine
+        game_state_service.set_game(game_id, game_data)
+        update_and_emit_game_state(game_id)
+    except Exception as e:
+        logger.error(f"Failed to clear hole cards for game {game_id}: {e}")
 
     # Brief delay for frontend to process cleared state and start exit animation
-    socketio.sleep(0.15 * config.ANIMATION_SPEED)
+    try:
+        socketio.sleep(0.15 * config.ANIMATION_SPEED)
+    except Exception as e:
+        logger.warning(f"Sleep interrupted for game {game_id}: {e}")
 
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
@@ -1218,10 +1226,14 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     game_data.pop('runout_emotion_overrides', None)
 
     # Advance to next hand - run until player action needed (deals cards, posts blinds)
-    state_machine.run_until_player_action()
-    game_data['state_machine'] = state_machine
-    game_state_service.set_game(game_id, game_data)
-    update_and_emit_game_state(game_id)
+    try:
+        state_machine.run_until_player_action()
+        game_data['state_machine'] = state_machine
+        game_state_service.set_game(game_id, game_data)
+        update_and_emit_game_state(game_id)
+    except Exception as e:
+        logger.error(f"Failed to advance to next hand for game {game_id}: {e}")
+        update_and_emit_game_state(game_id)  # Emit current state so frontend isn't stuck
 
     # Start recording new hand AFTER cards are dealt
     if 'memory_manager' in game_data:

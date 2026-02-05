@@ -48,6 +48,18 @@ test.describe('End-of-hand UI flow', () => {
       await expect(actionButtons).not.toBeVisible();
     });
 
+    test('action buttons hidden during GAME_OVER phase', async ({ page }) => {
+      const gameState = buildGameState(['fold', 'call', 'raise'], {
+        phase: 'GAME_OVER',
+        player_options: [],
+      });
+      const ctx = await mockGamePageRoutes(page, { gameState });
+      await navigateToGamePage(page, { mockContext: ctx });
+
+      const actionButtons = page.getByTestId('action-buttons');
+      await expect(actionButtons).not.toBeVisible();
+    });
+
     test('action buttons hidden during run_it_out', async ({ page }) => {
       const gameState = buildGameState(['fold', 'call', 'raise'], {
         phase: 'RIVER',
@@ -109,6 +121,19 @@ test.describe('End-of-hand UI flow', () => {
     test('no opponent has thinking class during HAND_OVER phase', async ({ page }) => {
       const gameState = buildGameState([], {
         phase: 'HAND_OVER',
+        current_player_idx: 1,
+        player_options: [],
+      });
+      const ctx = await mockGamePageRoutes(page, { gameState });
+      await navigateToGamePage(page, { mockContext: ctx });
+
+      const thinkingOpponents = page.locator('.mobile-opponent.thinking');
+      await expect(thinkingOpponents).toHaveCount(0);
+    });
+
+    test('no opponent has thinking class during GAME_OVER phase', async ({ page }) => {
+      const gameState = buildGameState([], {
+        phase: 'GAME_OVER',
         current_player_idx: 1,
         player_options: [],
       });

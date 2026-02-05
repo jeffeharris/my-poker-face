@@ -154,8 +154,9 @@ export function MobilePokerTable({
   const humanPlayer = storePlayers?.find(p => p.is_human);
   const isShowdown = phase?.toLowerCase() === 'showdown';
 
-  // Don't highlight active player during run-out or non-betting phases
-  const shouldHighlightActivePlayer = !runItOut &&
+  // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
+  const shouldHighlightActivePlayer = Boolean(phase) &&
+    !runItOut &&
     !NON_BETTING_PHASES.includes(phase as typeof NON_BETTING_PHASES[number]);
 
   // Card animation hook - handles dealing, exit animations, transforms
