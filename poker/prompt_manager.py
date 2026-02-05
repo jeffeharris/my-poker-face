@@ -445,6 +445,7 @@ class PromptManager:
         include_pot_odds: bool = True,
         pot_odds_info: dict | None = None,
         use_simple_response_format: bool = False,
+        expression_guidance: str | None = None,
     ) -> str:
         """Render the decision prompt with toggleable components from YAML.
 
@@ -463,6 +464,7 @@ class PromptManager:
             pot_odds_info: Dict with {pot_odds, equity_needed, pot_fmt, call_fmt, pot_odds_extra}
                            or {'free': True} for free check. None means no pot odds section.
             use_simple_response_format: If True, use simple JSON response format instead of dramatic_sequence
+            expression_guidance: Phase 2 visibility-based expression/tempo guidance string
 
         Returns:
             Rendered decision prompt
@@ -564,6 +566,10 @@ class PromptManager:
             tone_modifier = TONE_MODIFIERS.get(tone, '')
             if drama_text:
                 rendered = f"{rendered}\n\n{drama_text}{tone_modifier}"
+
+        # Phase 2: Append expression guidance (visibility + tempo)
+        if expression_guidance:
+            rendered = f"{rendered}\n\n{expression_guidance}"
 
         return rendered
 

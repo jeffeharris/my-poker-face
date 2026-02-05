@@ -55,6 +55,7 @@ class PromptConfig:
     chattiness: bool = True
     emotional_state: bool = True
     tilt_effects: bool = True
+    expression_filtering: bool = True  # Phase 2: visibility-based expression dampening
 
     # Template instruction components
     mind_games: bool = True

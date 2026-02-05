@@ -29,7 +29,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 18)  # 16 bool + 1 int + 1 str
+        self.assertEqual(len(d), 19)  # 17 bool + 1 int + 1 str (Phase 2 added expression_filtering)
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('dramatic_sequence', d)

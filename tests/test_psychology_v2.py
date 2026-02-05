@@ -729,3 +729,395 @@ class TestPlayerPsychologyIntegration:
         assert restored.anchors.baseline_aggression == 0.6
         assert restored.axes.confidence == 0.7
         assert restored.axes.composure == 0.6
+
+
+# === Phase 2 Tests: Energy + Expression ===
+
+class TestEnergyImpacts:
+    """Tests for Phase 2 energy impacts in pressure events."""
+
+    def test_energy_included_in_win_events(self):
+        """Test that win events include energy impact."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+        initial_energy = psych.energy
+
+        # Big win should increase energy
+        psych.apply_pressure_event('big_win')
+
+        assert psych.energy > initial_energy
+
+    def test_energy_included_in_loss_events(self):
+        """Test that loss events include energy impact."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+        initial_energy = psych.energy
+
+        # Bad beat should decrease energy
+        psych.apply_pressure_event('bad_beat')
+
+        assert psych.energy < initial_energy
+
+    def test_energy_only_events_dont_affect_confidence_composure(self):
+        """Test that energy-only events don't change confidence/composure."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+        initial_conf = psych.confidence
+        initial_comp = psych.composure
+        initial_energy = psych.energy
+
+        # All-in moment is energy-only
+        psych.apply_pressure_event('all_in_moment')
+
+        assert psych.confidence == pytest.approx(initial_conf, 0.001)
+        assert psych.composure == pytest.approx(initial_comp, 0.001)
+        assert psych.energy > initial_energy
+
+    def test_energy_direct_application_no_sensitivity(self):
+        """Test that energy changes are applied directly without sensitivity filter."""
+        # Create two personalities with different poise/ego
+        low_sens_config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.2, 'poise': 0.9,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        high_sens_config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.9, 'poise': 0.2,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+
+        psych_low = PlayerPsychology.from_personality_config('LowSens', low_sens_config)
+        psych_high = PlayerPsychology.from_personality_config('HighSens', high_sens_config)
+
+        # Both should get the SAME energy change
+        psych_low.apply_pressure_event('all_in_moment')
+        psych_high.apply_pressure_event('all_in_moment')
+
+        assert psych_low.energy == psych_high.energy
+
+
+class TestEnergyRecovery:
+    """Tests for Phase 2 energy recovery with edge springs."""
+
+    def test_energy_recovers_toward_baseline(self):
+        """Test that energy recovers toward baseline_energy anchor."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.6, 'recovery_rate': 0.5,  # High rate for faster recovery
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        # Set energy below baseline
+        psych.axes = psych.axes.update(energy=0.3)
+
+        # Apply recovery
+        psych.recover()
+
+        # Should have moved toward baseline_energy (0.6)
+        assert psych.energy > 0.3
+        assert psych.energy < 0.6  # Not fully recovered yet
+
+    def test_edge_spring_at_low_extreme(self):
+        """Test that edge spring pushes away from 0."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.1,  # Low base rate
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        # Set energy very low (triggers edge spring at < 0.15)
+        psych.axes = psych.axes.update(energy=0.05)
+
+        # Record recovery amount without edge spring
+        normal_target_delta = (0.5 - 0.05) * 0.1  # Would be 0.045
+
+        # Apply recovery
+        psych.recover()
+
+        # Edge spring should boost recovery rate, so actual recovery is MORE than normal
+        actual_recovery = psych.energy - 0.05
+        assert actual_recovery > normal_target_delta
+
+    def test_edge_spring_at_high_extreme(self):
+        """Test that edge spring pushes away from 1."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.1,  # Low base rate
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        # Set energy very high (triggers edge spring at > 0.85)
+        psych.axes = psych.axes.update(energy=0.95)
+
+        # Record recovery amount without edge spring
+        normal_target_delta = abs((0.5 - 0.95) * 0.1)  # Would be 0.045
+
+        # Apply recovery
+        psych.recover()
+
+        # Edge spring should boost recovery rate, so actual recovery is MORE than normal
+        actual_recovery = abs(psych.energy - 0.95)
+        assert actual_recovery > normal_target_delta
+
+
+class TestConsecutiveFoldTracking:
+    """Tests for Phase 2 consecutive fold tracking."""
+
+    def test_fold_increments_counter(self):
+        """Test that folding increments the consecutive_folds counter."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        assert psych.consecutive_folds == 0
+
+        psych.on_action_taken('fold')
+        assert psych.consecutive_folds == 1
+
+        psych.on_action_taken('fold')
+        assert psych.consecutive_folds == 2
+
+    def test_non_fold_resets_counter(self):
+        """Test that non-fold actions reset the consecutive_folds counter."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        psych.on_action_taken('fold')
+        psych.on_action_taken('fold')
+        assert psych.consecutive_folds == 2
+
+        psych.on_action_taken('call')
+        assert psych.consecutive_folds == 0
+
+    def test_three_consecutive_folds_triggers_event(self):
+        """Test that 3 consecutive folds triggers consecutive_folds_3 event."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+        initial_energy = psych.energy
+
+        # Fold twice - no event
+        events1 = psych.on_action_taken('fold')
+        events2 = psych.on_action_taken('fold')
+        assert events1 == []
+        assert events2 == []
+        assert psych.energy == initial_energy
+
+        # Third fold triggers event
+        events3 = psych.on_action_taken('fold')
+        assert 'consecutive_folds_3' in events3
+        assert psych.energy < initial_energy  # Energy decreased
+
+    def test_five_consecutive_folds_triggers_card_dead(self):
+        """Test that 5 consecutive folds triggers card_dead_5 event."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        # Fold 4 times
+        for _ in range(4):
+            psych.on_action_taken('fold')
+
+        energy_before_5th = psych.energy
+
+        # Fifth fold triggers card_dead_5
+        events = psych.on_action_taken('fold')
+        assert 'card_dead_5' in events
+        assert psych.energy < energy_before_5th
+
+    def test_consecutive_folds_serialization(self):
+        """Test that consecutive_folds persists through serialization."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        psych.on_action_taken('fold')
+        psych.on_action_taken('fold')
+        assert psych.consecutive_folds == 2
+
+        # Serialize and restore
+        data = psych.to_dict()
+        restored = PlayerPsychology.from_dict(data, config)
+
+        assert restored.consecutive_folds == 2
+
+
+class TestExpressionFiltering:
+    """Tests for Phase 2 expression filtering."""
+
+    def test_calculate_visibility(self):
+        """Test visibility calculation from expressiveness × energy."""
+        from poker.expression_filter import calculate_visibility
+
+        # High expressiveness × high energy = high visibility
+        assert calculate_visibility(0.8, 0.8) == pytest.approx(0.64, 0.01)
+
+        # Low expressiveness × high energy = medium visibility
+        assert calculate_visibility(0.3, 0.8) == pytest.approx(0.24, 0.01)
+
+        # High expressiveness × low energy = medium visibility
+        assert calculate_visibility(0.8, 0.3) == pytest.approx(0.24, 0.01)
+
+        # Low expressiveness × low energy = low visibility
+        assert calculate_visibility(0.3, 0.3) == pytest.approx(0.09, 0.01)
+
+    def test_dampen_emotion_high_visibility(self):
+        """Test that high visibility shows true emotion."""
+        from poker.expression_filter import dampen_emotion
+
+        # High visibility (>0.6) shows true emotion
+        assert dampen_emotion('angry', 0.7) == 'angry'
+        assert dampen_emotion('shocked', 0.8) == 'shocked'
+
+    def test_dampen_emotion_medium_visibility(self):
+        """Test that medium visibility shows dampened emotion."""
+        from poker.expression_filter import dampen_emotion
+
+        # Medium visibility (0.3-0.6) shows dampened emotion
+        assert dampen_emotion('angry', 0.45) == 'frustrated'
+        assert dampen_emotion('shocked', 0.5) == 'nervous'
+        assert dampen_emotion('smug', 0.4) == 'confident'
+
+    def test_dampen_emotion_low_visibility_deterministic(self):
+        """Test that low visibility shows poker_face in deterministic mode."""
+        from poker.expression_filter import dampen_emotion
+
+        # Low visibility (<0.3) with deterministic mode always shows poker_face
+        assert dampen_emotion('angry', 0.2, use_random=False) == 'poker_face'
+        assert dampen_emotion('shocked', 0.1, use_random=False) == 'poker_face'
+
+    def test_get_display_emotion_with_filtering(self):
+        """Test that get_display_emotion applies expression filtering."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.7, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.3,
+                'expressiveness': 0.2,  # Low expressiveness
+                'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        # Set low energy (expressiveness 0.2 × energy 0.2 = visibility 0.04)
+        psych.axes = psych.axes.update(energy=0.2)
+
+        # Without filtering, would show true emotion based on quadrant
+        true_emotion = psych.get_display_emotion(use_expression_filter=False)
+        assert true_emotion != 'poker_face'  # Has some emotion
+
+        # With filtering (deterministic), should show poker_face
+        # Need to test multiple times since it might be random
+        displayed = psych.get_display_emotion(use_expression_filter=True)
+        # At visibility 0.04, we're in "low" territory and should see dampening
+        # The result will be poker_face or the medium-dampened version
+        assert displayed in ['poker_face', 'thinking', 'frustrated', 'nervous', 'confident']
+
+    def test_get_display_emotion_high_expressiveness_shows_true(self):
+        """Test that high expressiveness + high energy shows true emotion."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.7, 'baseline_looseness': 0.5, 'ego': 0.7, 'poise': 0.3,
+                'expressiveness': 0.9,  # High expressiveness
+                'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.8, 'recovery_rate': 0.15,  # High energy
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+
+        # Visibility = 0.9 × 0.8 = 0.72 (high)
+        true_emotion = psych.get_display_emotion(use_expression_filter=False)
+        filtered_emotion = psych.get_display_emotion(use_expression_filter=True)
+
+        # High visibility should preserve true emotion
+        assert filtered_emotion == true_emotion
+
+    def test_expression_guidance_high_visibility(self):
+        """Test expression guidance for high visibility players."""
+        from poker.expression_filter import get_expression_guidance
+
+        guidance = get_expression_guidance(expressiveness=0.9, energy=0.8)
+
+        assert 'animated' in guidance.lower() or 'full' in guidance.lower()
+        assert 'unreadable' not in guidance.lower()
+
+    def test_expression_guidance_low_visibility(self):
+        """Test expression guidance for low visibility players."""
+        from poker.expression_filter import get_expression_guidance
+
+        guidance = get_expression_guidance(expressiveness=0.2, energy=0.3)
+
+        assert 'unreadable' in guidance.lower() or 'minimal' in guidance.lower()
+
+    def test_tempo_guidance_high_energy(self):
+        """Test tempo guidance for high energy."""
+        from poker.expression_filter import get_tempo_guidance
+
+        guidance = get_tempo_guidance(energy=0.8)
+
+        assert 'quick' in guidance.lower() or 'hot' in guidance.lower()
+
+    def test_tempo_guidance_low_energy(self):
+        """Test tempo guidance for low energy."""
+        from poker.expression_filter import get_tempo_guidance
+
+        guidance = get_tempo_guidance(energy=0.2)
+
+        assert 'deliberate' in guidance.lower() or 'detailed' in guidance.lower()

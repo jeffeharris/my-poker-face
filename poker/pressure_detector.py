@@ -474,22 +474,30 @@ class PressureEventDetector:
         self,
         winner_names: List[str],
         loser_names: List[str],
-        player_nemesis_map: Dict[str, str]
+        player_nemesis_map: Dict[str, str],
+        is_big_pot: bool = False,
     ) -> List[Tuple[str, List[str]]]:
         """Detect nemesis win/loss events.
 
         Fires when a player wins/loses a pot that their nemesis was also
         involved in. Works in multiway pots, not just heads-up.
 
+        Phase 2: Gated behind is_big_pot to avoid energy spikes on minor pots.
+
         Args:
             winner_names: List of players who won the hand
             loser_names: List of players who lost the hand (didn't fold, didn't win)
             player_nemesis_map: Dict mapping player names to their nemesis name
+            is_big_pot: Whether this is a significant pot (controls event firing)
 
         Returns:
             List of (event_name, [player_name]) tuples
         """
         events = []
+
+        # Phase 2: Only fire nemesis events on big pots
+        if not is_big_pot:
+            return events
 
         for player_name, nemesis in player_nemesis_map.items():
             if not nemesis:
@@ -501,6 +509,96 @@ class PressureEventDetector:
             # Player lost and their nemesis won
             elif player_name in loser_names and nemesis in winner_names:
                 events.append(("nemesis_loss", [player_name]))
+
+        return events
+
+    # === Phase 2: Energy Event Detection ===
+
+    def detect_action_events(
+        self,
+        game_state: PokerGameState,
+        player_name: str,
+        action: str,
+        amount: int = 0,
+    ) -> List[Tuple[str, List[str]]]:
+        """Detect energy events triggered by player actions.
+
+        Phase 2: Detects engagement events that affect energy axis.
+
+        Args:
+            game_state: Current game state
+            player_name: Player who took the action
+            action: The action taken ('fold', 'call', 'raise', 'check', 'all_in')
+            amount: Amount for raise/all_in actions
+
+        Returns:
+            List of (event_name, [player_name]) tuples
+        """
+        events = []
+
+        # All-in moment: high engagement
+        if action == 'all_in':
+            events.append(("all_in_moment", [player_name]))
+        elif action == 'call':
+            # Check if this is a call of an all-in
+            player = next((p for p in game_state.players if p.name == player_name), None)
+            if player:
+                cost_to_call = game_state.highest_bet - player.bet
+                if cost_to_call >= player.stack:
+                    events.append(("all_in_moment", [player_name]))
+
+        # Heads-up: only two players remain active
+        active_players = [p for p in game_state.players if not p.is_folded and p.stack > 0]
+        if len(active_players) == 2 and action != 'fold':
+            # Don't fire for the folding player
+            events.append(("heads_up", [player_name]))
+
+        return events
+
+    def detect_phase_events(
+        self,
+        game_state: PokerGameState,
+        phase: str,
+        active_player_names: List[str],
+    ) -> List[Tuple[str, List[str]]]:
+        """Detect energy events triggered by phase transitions.
+
+        Phase 2: Detects engagement/disengagement from game flow.
+
+        Args:
+            game_state: Current game state
+            phase: Current phase ('FLOP', 'TURN', 'RIVER', 'SHOWDOWN')
+            active_player_names: Players who haven't folded
+
+        Returns:
+            List of (event_name, [player_name]) tuples
+        """
+        events = []
+
+        # Calculate pot info for big_pot detection
+        pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+        active_stacks = [p.stack for p in game_state.players if p.stack > 0]
+        avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
+
+        is_big_pot = MomentAnalyzer.is_big_pot(pot_total, 0, avg_stack)
+
+        # Showdown involvement: players who made it to showdown
+        if phase == 'SHOWDOWN':
+            for player_name in active_player_names:
+                events.append(("showdown_involved", [player_name]))
+
+        # Big pot involvement
+        if is_big_pot:
+            for player_name in active_player_names:
+                events.append(("big_pot_involved", [player_name]))
+
+        # Not in hand: players who folded (low engagement)
+        folded_players = [
+            p.name for p in game_state.players
+            if p.is_folded and p.stack > 0
+        ]
+        for player_name in folded_players:
+            events.append(("not_in_hand", [player_name]))
 
         return events
 

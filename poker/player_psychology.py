@@ -516,6 +516,9 @@ class PlayerPsychology:
     hand_count: int = 0
     last_updated: Optional[str] = None
 
+    # Phase 2: Consecutive fold tracking for card_dead events
+    consecutive_folds: int = 0
+
     # Derived baselines (computed from anchors, used for recovery)
     _baseline_confidence: Optional[float] = field(default=None, repr=False)
     _baseline_composure: Optional[float] = field(default=None, repr=False)
@@ -606,11 +609,16 @@ class PlayerPsychology:
         Routes events through personality anchors:
         - "Being wrong" events → Confidence (filtered by Ego)
         - "Bad outcome" events → Composure (filtered by Poise)
+        - Energy events → Direct application (no sensitivity filter)
 
         Updates axes and tracks pressure source for intrusive thoughts.
         """
         # Get pressure impacts from event
         pressure_impacts = self._get_pressure_impacts(event_name)
+
+        new_conf = self.axes.confidence
+        new_comp = self.axes.composure
+        new_energy = self.axes.energy
 
         # Apply to axes with anchor-based sensitivity
         if 'confidence' in pressure_impacts:
@@ -618,14 +626,25 @@ class PlayerPsychology:
             sensitivity = 0.3 + 0.7 * self.anchors.ego
             delta = pressure_impacts['confidence'] * sensitivity
             new_conf = self.axes.confidence + delta
-            self.axes = self.axes.update(confidence=new_conf)
 
         if 'composure' in pressure_impacts:
             # Poise: high = less sensitive to bad outcomes (inverted)
             sensitivity = 0.3 + 0.7 * (1.0 - self.anchors.poise)
             delta = pressure_impacts['composure'] * sensitivity
             new_comp = self.axes.composure + delta
-            self.axes = self.axes.update(composure=new_comp)
+
+        if 'energy' in pressure_impacts:
+            # Energy: Direct application - no sensitivity filter
+            # All personalities respond equally to engagement/disengagement
+            delta = pressure_impacts['energy']
+            new_energy = self.axes.energy + delta
+
+        # Update all axes at once
+        self.axes = self.axes.update(
+            confidence=new_conf,
+            composure=new_comp,
+            energy=new_energy,
+        )
 
         # Update composure tracking (source, nemesis) for intrusive thoughts
         self.composure_state.update_from_event(event_name, opponent)
@@ -635,7 +654,7 @@ class PlayerPsychology:
         logger.debug(
             f"{self.player_name}: Pressure event '{event_name}' applied. "
             f"Confidence={self.confidence:.2f}, Composure={self.composure:.2f}, "
-            f"Quadrant={self.quadrant.value}"
+            f"Energy={self.energy:.2f}, Quadrant={self.quadrant.value}"
         )
 
     def _get_pressure_impacts(self, event_name: str) -> Dict[str, float]:
@@ -645,40 +664,53 @@ class PlayerPsychology:
         Events are categorized as:
         - Confidence events: "being wrong" (bluff_called, bad_read, outplayed)
         - Composure events: "bad outcomes" (bad_beat, cooler, suckout)
-        - Mixed events: affect both axes
+        - Energy events: engagement/intensity changes
+        - Mixed events: affect multiple axes
+
+        Phase 2: Energy is now dynamic and included in most events.
+        Energy-only events don't affect confidence/composure.
         """
         # Event → axis impact mapping
         # Positive = increase, Negative = decrease
         pressure_events = {
-            # === Wins (both positive) ===
-            'big_win': {'confidence': 0.15, 'composure': 0.10},
-            'win': {'confidence': 0.08, 'composure': 0.05},
-            'successful_bluff': {'confidence': 0.20, 'composure': 0.05},
-            'suckout': {'confidence': 0.10, 'composure': 0.05},
+            # === WIN EVENTS ===
+            'big_win': {'confidence': 0.15, 'composure': 0.10, 'energy': 0.10},
+            'win': {'confidence': 0.08, 'composure': 0.05},  # No energy change for regular wins
+            'successful_bluff': {'confidence': 0.20, 'composure': 0.05, 'energy': 0.10},
+            'suckout': {'confidence': 0.10, 'composure': 0.05, 'energy': 0.10},
+            'double_up': {'confidence': 0.20, 'composure': 0.10, 'energy': 0.15},
+            'eliminated_opponent': {'confidence': 0.10, 'composure': 0.05, 'energy': 0.12},
 
-            # === Losses ===
-            'big_loss': {'confidence': -0.10, 'composure': -0.15},
-            'bluff_called': {'confidence': -0.20, 'composure': -0.10},  # "Being wrong"
-            'bad_beat': {'confidence': -0.05, 'composure': -0.25},      # "Bad outcome"
-            'got_sucked_out': {'confidence': -0.05, 'composure': -0.30},
-            'cooler': {'confidence': 0.0, 'composure': -0.05},          # Unavoidable
+            # === LOSS EVENTS ===
+            'big_loss': {'confidence': -0.10, 'composure': -0.15, 'energy': -0.08},
+            'bluff_called': {'confidence': -0.20, 'composure': -0.10, 'energy': -0.08},
+            'bad_beat': {'confidence': -0.05, 'composure': -0.25, 'energy': -0.10},
+            'got_sucked_out': {'confidence': -0.05, 'composure': -0.30, 'energy': -0.15},
+            'cooler': {'confidence': 0.0, 'composure': -0.05, 'energy': -0.08},
+            'crippled': {'confidence': -0.15, 'composure': -0.15, 'energy': -0.15},
+            'short_stack': {'confidence': -0.10, 'composure': -0.10, 'energy': -0.08},
 
-            # === Streaks ===
-            'winning_streak': {'confidence': 0.15, 'composure': 0.10},
-            'losing_streak': {'confidence': -0.15, 'composure': -0.20},
+            # === STREAK EVENTS ===
+            'winning_streak': {'confidence': 0.15, 'composure': 0.10, 'energy': 0.08},
+            'losing_streak': {'confidence': -0.15, 'composure': -0.20, 'energy': -0.12},
 
-            # === Stack events ===
-            'double_up': {'confidence': 0.20, 'composure': 0.10},
-            'crippled': {'confidence': -0.15, 'composure': -0.15},
-            'short_stack': {'confidence': -0.10, 'composure': -0.10},
+            # === SOCIAL/RIVALRY (gated behind is_big_pot in detector) ===
+            'nemesis_win': {'confidence': 0.15, 'composure': 0.10, 'energy': 0.12},
+            'nemesis_loss': {'confidence': -0.10, 'composure': -0.15, 'energy': -0.08},
+            'rivalry_trigger': {'confidence': 0.0, 'composure': -0.10, 'energy': 0.05},
 
-            # === Social/rivalry ===
-            'nemesis_win': {'confidence': 0.15, 'composure': 0.10},
-            'nemesis_loss': {'confidence': -0.10, 'composure': -0.15},
-            'rivalry_trigger': {'confidence': 0.0, 'composure': -0.10},
+            # === ENGAGEMENT EVENTS (Energy only) ===
+            'all_in_moment': {'energy': 0.15},
+            'showdown_involved': {'energy': 0.05},
+            'big_pot_involved': {'energy': 0.05},
+            'heads_up': {'energy': 0.05},
 
-            # === Other ===
-            'eliminated_opponent': {'confidence': 0.10, 'composure': 0.05},
+            # === DISENGAGEMENT EVENTS (Energy only) ===
+            'consecutive_folds_3': {'energy': -0.08},
+            'card_dead_5': {'energy': -0.12},
+            'not_in_hand': {'energy': -0.02},
+
+            # === OTHER ===
             'fold_under_pressure': {'confidence': -0.08, 'composure': -0.05},
         }
 
@@ -735,9 +767,12 @@ class PlayerPsychology:
         Axes drift toward personality-specific baselines (derived from anchors):
         - Confidence → _baseline_confidence (computed from aggression, risk_identity, ego)
         - Composure → _baseline_composure (computed from poise, expressiveness, risk_identity)
-        - Energy = baseline_energy (static in Phase 1)
+        - Energy → baseline_energy (with edge springs at extremes)
 
         Recovery rate from anchors.recovery_rate if not specified.
+
+        Phase 2: Energy now recovers toward baseline_energy with edge springs
+        that push away from extremes (0 and 1).
         """
         rate = recovery_rate if recovery_rate is not None else self.anchors.recovery_rate
 
@@ -747,14 +782,63 @@ class PlayerPsychology:
         # Drift composure toward personality-specific baseline
         new_comp = self.axes.composure + (self._baseline_composure - self.axes.composure) * rate
 
-        # Energy stays static in Phase 1
+        # Phase 2: Energy recovers toward baseline with edge springs
+        energy_rate = rate
+        energy_target = self.anchors.baseline_energy
+        current_energy = self.axes.energy
+
+        # Edge springs: push away from extremes
+        if current_energy < 0.15:
+            # Low energy spring - push away from 0
+            spring = (0.15 - current_energy) * 0.33
+            energy_rate += spring
+        elif current_energy > 0.85:
+            # High energy spring - push away from 1
+            spring = (current_energy - 0.85) * 0.33
+            energy_rate += spring
+
+        new_energy = current_energy + (energy_target - current_energy) * energy_rate
+
         self.axes = self.axes.update(
             confidence=new_conf,
             composure=new_comp,
-            energy=self.anchors.baseline_energy,
+            energy=new_energy,
         )
 
         self._mark_updated()
+
+    def on_action_taken(self, action: str) -> List[str]:
+        """
+        Track player action for consecutive fold detection.
+
+        Phase 2: Energy decreases with consecutive folds (disengagement).
+
+        Args:
+            action: The action taken ('fold', 'call', 'raise', 'check', 'all_in')
+
+        Returns:
+            List of energy events triggered (empty list, or ['consecutive_folds_3'] or ['card_dead_5'])
+        """
+        events = []
+
+        if action == 'fold':
+            self.consecutive_folds += 1
+
+            # Check for disengagement events
+            if self.consecutive_folds == 3:
+                events.append('consecutive_folds_3')
+            elif self.consecutive_folds == 5:
+                events.append('card_dead_5')
+        else:
+            # Any non-fold action resets the counter
+            self.consecutive_folds = 0
+
+        # Apply any triggered energy events
+        for event in events:
+            self.apply_pressure_event(event)
+
+        self._mark_updated()
+        return events
 
     # === AXIS ACCESS (Dynamic State) ===
 
@@ -1073,9 +1157,9 @@ class PlayerPsychology:
 
     # === AVATAR DISPLAY ===
 
-    def get_display_emotion(self) -> str:
+    def _get_true_emotion(self) -> str:
         """
-        Get emotion for avatar display.
+        Get the player's true emotional state (before expression filtering).
 
         Uses quadrant model + energy for intensity:
         - COMMANDING: confident/smug
@@ -1101,6 +1185,35 @@ class PlayerPsychology:
 
         return emotion_map.get(quadrant, "poker_face")
 
+    def get_display_emotion(self, use_expression_filter: bool = True) -> str:
+        """
+        Get emotion for avatar display, with optional expression filtering.
+
+        Phase 2: Applies visibility-based dampening based on expressiveness × energy.
+        Low visibility players show poker_face more often.
+
+        Args:
+            use_expression_filter: If True, apply dampening based on visibility.
+                                   If False, return true emotion (for debugging).
+
+        Returns:
+            Emotion string for avatar display
+        """
+        true_emotion = self._get_true_emotion()
+
+        if not use_expression_filter:
+            return true_emotion
+
+        # Phase 2: Apply expression filtering
+        from .expression_filter import calculate_visibility, dampen_emotion
+
+        visibility = calculate_visibility(
+            self.anchors.expressiveness,
+            self.axes.energy,
+        )
+
+        return dampen_emotion(true_emotion, visibility)
+
     # === SERIALIZATION ===
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1116,7 +1229,8 @@ class PlayerPsychology:
             'game_id': self.game_id,
             'owner_id': self.owner_id,
             'hand_count': self.hand_count,
-            'last_updated': self.last_updated
+            'last_updated': self.last_updated,
+            'consecutive_folds': self.consecutive_folds,  # Phase 2
         }
 
     @classmethod
@@ -1200,6 +1314,9 @@ class PlayerPsychology:
         # Restore metadata
         psychology.hand_count = data.get('hand_count', 0)
         psychology.last_updated = data.get('last_updated')
+
+        # Phase 2: Restore consecutive fold tracking
+        psychology.consecutive_folds = data.get('consecutive_folds', 0)
 
         return psychology
 

@@ -763,8 +763,14 @@ class AIPlayerController:
             self._current_hand_plans.append(plan)
 
         logger.debug(f"[AI_DECISION] Response:\n{json.dumps(cleaned_response, indent=4)}")
+
+        # Phase 2: Track action for consecutive fold detection (energy events)
+        action = cleaned_response.get('action', '')
+        if action and self.psychology:
+            self.psychology.on_action_taken(action)
+
         return cleaned_response
-    
+
     def _get_ai_decision(self, message: str, **context) -> Dict:
         """Get AI decision with automatic error recovery and fallback.
 
@@ -1262,6 +1268,16 @@ class AIPlayerController:
             else:
                 pot_odds_info = {'free': True}
 
+        # Phase 2: Add expression filtering guidance (visibility + tempo)
+        expression_guidance = None
+        if self.prompt_config.expression_filtering and self.psychology:
+            from .expression_filter import get_expression_guidance
+            expression_guidance = get_expression_guidance(
+                expressiveness=self.psychology.anchors.expressiveness,
+                energy=self.psychology.energy,
+                include_tempo=True,
+            )
+
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         prompt = self.prompt_manager.render_decision_prompt(
             message=message,
@@ -1275,6 +1291,7 @@ class AIPlayerController:
             include_pot_odds=self.prompt_config.pot_odds,
             pot_odds_info=pot_odds_info,
             use_simple_response_format=self.prompt_config.use_simple_response_format,
+            expression_guidance=expression_guidance,
         )
 
         return (prompt, drama_context)

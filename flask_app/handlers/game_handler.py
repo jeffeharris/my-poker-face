@@ -424,6 +424,15 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         )
         events.extend(equity_events)
 
+    # Phase 2: Phase-based energy events (showdown_involved, big_pot_involved, not_in_hand)
+    active_player_names = [p.name for p in game_state.players if not p.is_folded]
+    if len(active_player_names) >= 2:
+        # This is a showdown (2+ players made it)
+        phase_events = pressure_detector.detect_phase_events(
+            game_state, 'SHOWDOWN', active_player_names
+        )
+        events.extend(phase_events)
+
     # Stack events (double_up, crippled, short_stack)
     hand_start_stacks = game_data.get('hand_start_stacks', {})
     was_short_stack = game_data.get('short_stack_players', set())
@@ -456,6 +465,7 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
                     logger.warning(f"Failed to get session stats for {player_name}: {e}")
 
     # Nemesis events (from TiltState.nemesis)
+    # Phase 2: Gated behind is_big_pot to avoid energy spikes on minor pots
     player_nemesis_map = {}
     for name, controller in ai_controllers.items():
         if hasattr(controller, 'psychology') and controller.psychology.tilt.nemesis:
@@ -465,9 +475,15 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
     loser_names = [p.name for p in game_state.players
                    if not p.is_folded and p.name not in winning_player_names]
 
+    # Calculate is_big_pot for nemesis event gating
+    from poker.moment_analyzer import MomentAnalyzer
+    active_stacks = [p.stack for p in game_state.players if p.stack > 0]
+    avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
+    is_big_pot = MomentAnalyzer.is_big_pot(pot_size, 0, avg_stack)
+
     if player_nemesis_map:
         nemesis_events = pressure_detector.detect_nemesis_events(
-            winning_player_names, loser_names, player_nemesis_map
+            winning_player_names, loser_names, player_nemesis_map, is_big_pot=is_big_pot
         )
         events.extend(nemesis_events)
 
@@ -1590,6 +1606,22 @@ def handle_ai_action(game_id: str) -> None:
         detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)
     elif action in ['raise', 'all_in'] and amount > 0:
         detect_and_apply_pressure(game_id, 'big_bet', player_name=current_player.name, bet_size=amount)
+
+    # Phase 2: Detect action-based energy events (all_in_moment, heads_up)
+    if 'pressure_detector' in current_game_data:
+        pressure_detector = current_game_data['pressure_detector']
+        action_events = pressure_detector.detect_action_events(
+            game_state=state_machine.game_state,
+            player_name=current_player.name,
+            action=action,
+            amount=amount,
+        )
+        # Apply energy events to player psychology
+        if action_events and current_player.name in ai_controllers:
+            controller = ai_controllers[current_player.name]
+            for event_name, _ in action_events:
+                controller.psychology.apply_pressure_event(event_name)
+            logger.debug(f"[Energy] Applied action events for {current_player.name}: {[e[0] for e in action_events]}")
 
     game_state = play_turn(state_machine.game_state, action, amount)
     record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
