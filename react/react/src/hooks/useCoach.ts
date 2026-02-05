@@ -10,6 +10,13 @@ interface UseCoachOptions {
   isPlayerTurn: boolean;
 }
 
+interface FeedbackPrompt {
+  hand: string;
+  position: string;
+  range_target: number;
+  hand_number: number;
+}
+
 interface UseCoachResult {
   mode: CoachMode;
   setMode: (mode: CoachMode) => void;
@@ -32,6 +39,9 @@ interface UseCoachResult {
   dismissSkillUnlock: (skillId: string) => void;
   coachAction: string | null;  // Coach's explicit recommendation (only from /ask endpoint)
   coachRaiseTo: number | null;  // Coach's suggested raise amount
+  feedbackPrompt: FeedbackPrompt | null;  // Pending feedback prompt for folded hands in range
+  submitFeedback: (reason: string) => Promise<void>;
+  dismissFeedback: () => Promise<void>;
 }
 
 function loadLocalMode(): CoachMode {
@@ -62,6 +72,7 @@ export function useCoach({
   const [progression, setProgression] = useState<CoachProgression | null>(null);
   const [progressionFull, setProgressionFull] = useState<ProgressionState | null>(null);
   const [skillUnlockQueue, setSkillUnlockQueue] = useState<string[]>([]);
+  const [feedbackPrompt, setFeedbackPrompt] = useState<FeedbackPrompt | null>(null);
 
   // Track whether we've already fetched for this turn
   const fetchedForTurn = useRef(false);
@@ -138,6 +149,11 @@ export function useCoach({
       if (res.ok) {
         const data = await res.json();
         setStats(data);
+
+        // Extract feedback prompt from stats response
+        if (data.feedback_prompt) {
+          setFeedbackPrompt(data.feedback_prompt);
+        }
 
         // Extract progression from stats response
         if (data.progression) {
@@ -311,6 +327,43 @@ export function useCoach({
     setSkillUnlockQueue(prev => prev.filter(id => id !== skillId));
   }, []);
 
+  const submitFeedback = useCallback(async (reason: string) => {
+    if (!gameId || !feedbackPrompt) return;
+    try {
+      await fetch(`${config.API_URL}/api/coach/${gameId}/feedback`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hand: feedbackPrompt.hand,
+          position: feedbackPrompt.position,
+          action: 'fold',
+          reason,
+          hand_number: feedbackPrompt.hand_number,
+        }),
+      });
+      setFeedbackPrompt(null);
+    } catch {
+      /* non-critical */
+    }
+  }, [gameId, feedbackPrompt]);
+
+  const dismissFeedback = useCallback(async () => {
+    if (!gameId) {
+      setFeedbackPrompt(null);
+      return;
+    }
+    try {
+      await fetch(`${config.API_URL}/api/coach/${gameId}/feedback/dismiss`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
+      /* non-critical */
+    }
+    setFeedbackPrompt(null);
+  }, [gameId]);
+
   // When player's turn starts, auto-fetch stats (and proactive tip if enabled).
   // Debounce to avoid duplicate fetches from rapid game-state socket updates
   // that can briefly toggle isPlayerTurn multiple times.
@@ -368,5 +421,8 @@ export function useCoach({
     dismissSkillUnlock,
     coachAction,
     coachRaiseTo,
+    feedbackPrompt,
+    submitFeedback,
+    dismissFeedback,
   };
 }

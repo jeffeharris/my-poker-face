@@ -17,6 +17,7 @@ import { LLMDebugModal } from './LLMDebugModal';
 import { CoachButton } from './CoachButton';
 import { CoachPanel } from './CoachPanel';
 import { CoachBubble } from './CoachBubble';
+import { CoachFeedback } from './CoachFeedback';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useGameStore } from '../../stores/gameStore';
@@ -720,6 +721,17 @@ export function MobilePokerTable({
             onFetchProgression={coach.fetchProgression}
             onSkipAhead={coach.skipAhead}
           />
+
+          {coach.feedbackPrompt && (
+            <CoachFeedback
+              isVisible={!!coach.feedbackPrompt}
+              hand={coach.feedbackPrompt.hand}
+              position={coach.feedbackPrompt.position}
+              rangeTarget={coach.feedbackPrompt.range_target}
+              onDismiss={coach.dismissFeedback}
+              onSubmit={coach.submitFeedback}
+            />
+          )}
         </>
       )}
 

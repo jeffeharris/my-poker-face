@@ -65,6 +65,13 @@ def coach_stats(game_id: str):
     if data is None:
         return jsonify({'error': 'Could not compute stats'}), 500
 
+    # Include any pending feedback prompt from session memory
+    session_memory = game_data.get('coach_session_memory')
+    if session_memory:
+        feedback_prompt = session_memory.get_feedback_prompt()
+        if feedback_prompt:
+            data['feedback_prompt'] = feedback_prompt
+
     return jsonify(data)
 
 
@@ -289,6 +296,72 @@ def coach_progression(game_id: str):
     except Exception as e:
         logger.error(f"Coach progression failed: {e}", exc_info=True)
         return jsonify({'error': 'Could not load progression'}), 500
+
+
+@coach_bp.route('/api/coach/<game_id>/feedback', methods=['POST'])
+@limiter.limit("30/minute")
+@_coach_required
+def coach_feedback(game_id: str):
+    """Record player feedback on a coach evaluation.
+
+    When a player folds a hand that was in their range, the coach may ask why.
+    This endpoint stores the player's explanation for learning and adjustment.
+    """
+    user_id = _get_current_user_id()
+
+    body = request.get_json(silent=True) or {}
+    hand = body.get('hand', '')
+    position = body.get('position', '')
+    action = body.get('action', 'fold')
+    reason = body.get('reason', '')
+    hand_number = body.get('hand_number')
+
+    if not reason:
+        return jsonify({'error': 'No reason provided'}), 400
+
+    try:
+        # Store feedback in session memory for context
+        game_data = game_state_service.get_game(game_id)
+        if game_data:
+            session_memory = game_data.get('coach_session_memory')
+            if session_memory:
+                session_memory.record_player_feedback(
+                    hand_number=hand_number,
+                    feedback={
+                        'hand': hand,
+                        'position': position,
+                        'action': action,
+                        'reason': reason,
+                    }
+                )
+
+        logger.info(
+            f"Coach feedback recorded: user={user_id}, hand={hand}, "
+            f"position={position}, action={action}, reason={reason}"
+        )
+
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        logger.error(f"Coach feedback failed: {e}", exc_info=True)
+        return jsonify({'error': 'Could not record feedback'}), 500
+
+
+@coach_bp.route('/api/coach/<game_id>/feedback/dismiss', methods=['POST'])
+@limiter.limit("30/minute")
+@_coach_required
+def coach_feedback_dismiss(game_id: str):
+    """Dismiss the feedback prompt without recording a response."""
+    try:
+        game_data = game_state_service.get_game(game_id)
+        if game_data:
+            session_memory = game_data.get('coach_session_memory')
+            if session_memory:
+                session_memory.clear_feedback_prompt()
+
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        logger.error(f"Coach feedback dismiss failed: {e}", exc_info=True)
+        return jsonify({'error': 'Could not dismiss feedback'}), 500
 
 
 @coach_bp.route('/api/coach/<game_id>/onboarding', methods=['POST'])

@@ -211,15 +211,21 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
         service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
 
+        # Get range targets from player profile
+        profile = player_state.get('profile', {})
+        range_targets = profile.get('range_targets') if profile else None
+
         classifier = SituationClassifier()
         unlocked = [g for g, gp in player_state['gate_progress'].items() if gp.unlocked]
         classification = classifier.classify(
-            coaching_data, unlocked, player_state['skill_states']
+            coaching_data, unlocked, player_state['skill_states'],
+            range_targets=range_targets
         )
 
         if classification.relevant_skills:
             evaluations = service.evaluate_and_update(
-                user_id, action, coaching_data, classification
+                user_id, action, coaching_data, classification,
+                range_targets=range_targets
             )
             if evaluations:
                 logger.debug(
@@ -242,6 +248,30 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
 
                 for ev in evaluations:
                     session_memory.record_hand_evaluation(hand_number, ev)
+
+                # Check if player folded a hand in their range - trigger feedback prompt
+                if action == 'fold' and range_targets:
+                    for ev in evaluations:
+                        if (ev.skill_id == 'position_matters' and
+                            ev.evaluation == 'incorrect' and
+                            'in your range' in ev.reasoning.lower()):
+                            # Extract info for feedback prompt
+                            from flask_app.services.range_targets import get_range_target
+                            hand = coaching_data.get('hand_display', coaching_data.get('hand', ''))
+                            position = coaching_data.get('position', '')
+                            personal_range_target = get_range_target(range_targets, position)
+                            if personal_range_target and personal_range_target > 0:
+                                session_memory.set_feedback_prompt({
+                                    'hand': hand,
+                                    'position': position,
+                                    'range_target': personal_range_target,
+                                    'hand_number': hand_number,
+                                })
+                                logger.debug(
+                                    f"[COACH_PROGRESSION] Feedback prompt set for {player_name}: "
+                                    f"folded {hand} from {position} (range: {personal_range_target:.0%})"
+                                )
+                            break
     except Exception as e:
         logger.error(
             f"[COACH_PROGRESSION] Failed for game={game_id} player={player_name}: {e}",

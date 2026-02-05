@@ -17,6 +17,7 @@ from poker.coach_models import (
 from .skill_definitions import ALL_GATES, ALL_SKILLS, get_skills_for_gate
 from .situation_classifier import SituationClassifier, SituationClassification
 from .skill_evaluator import SkillEvaluation, SkillEvaluator
+from .range_targets import DEFAULT_RANGE_TARGETS, expand_ranges_for_gate, get_expanded_ranges
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,8 @@ class SessionMemory:
         self.concept_count: Dict[str, int] = defaultdict(int)
         self.current_hand_number: int = 0
         self.hand_evaluations: Dict[int, list] = defaultdict(list)
+        self.pending_feedback_prompt: Optional[Dict] = None
+        self.player_feedback: Dict[int, list] = defaultdict(list)
 
     def new_hand(self, hand_number: int) -> None:
         if hand_number != self.current_hand_number:
@@ -63,6 +66,28 @@ class SessionMemory:
         evals = self.hand_evaluations.get(hand_number, [])
         priority = {'incorrect': 0, 'marginal': 1, 'correct': 2}
         return sorted(evals, key=lambda e: priority.get(e.evaluation, 3))
+
+    def record_player_feedback(self, hand_number: int, feedback: Dict) -> None:
+        """Store player feedback on a coach evaluation.
+
+        This is used when the player provides a reason for their action
+        (e.g., why they folded a hand in their range).
+        """
+        self.player_feedback[hand_number].append(feedback)
+        # Clear the pending feedback prompt once feedback is recorded
+        self.pending_feedback_prompt = None
+
+    def set_feedback_prompt(self, prompt_data: Dict) -> None:
+        """Set a pending feedback prompt to show the player."""
+        self.pending_feedback_prompt = prompt_data
+
+    def get_feedback_prompt(self) -> Optional[Dict]:
+        """Get the pending feedback prompt (if any)."""
+        return self.pending_feedback_prompt
+
+    def clear_feedback_prompt(self) -> None:
+        """Clear the pending feedback prompt."""
+        self.pending_feedback_prompt = None
 
 
 class CoachProgressionService:
@@ -109,9 +134,20 @@ class CoachProgressionService:
         - beginner: Gate 1 unlocked, all Gate 1 skills Introduced
         - intermediate: Gate 1 Practicing, Gate 2 unlocked + Introduced
         - experienced: Gate 1 Reliable, Gate 2 Practicing
+
+        Also initializes range targets appropriate to the level.
         """
+        # Determine initial range targets based on level
+        if level == 'beginner':
+            initial_ranges = DEFAULT_RANGE_TARGETS.copy()
+        elif level == 'intermediate':
+            initial_ranges = get_expanded_ranges(2)  # Gate 2 ranges
+        else:  # experienced
+            initial_ranges = get_expanded_ranges(3)  # Gate 3 ranges
+
         self._coach_repo.save_coach_profile(
-            user_id, self_reported_level=level, effective_level=level
+            user_id, self_reported_level=level, effective_level=level,
+            range_targets=initial_ranges
         )
 
         now = datetime.now().isoformat()
@@ -257,6 +293,7 @@ class CoachProgressionService:
         gate_progress: Dict[int, GateProgress],
         session_memory: Optional[SessionMemory] = None,
         hand_number: int = 0,
+        range_targets: Optional[Dict[str, float]] = None,
     ) -> CoachingDecision:
         """Determine what to coach on for the current situation.
 
@@ -269,7 +306,7 @@ class CoachProgressionService:
         unlocked = [g for g, gp in gate_progress.items() if gp.unlocked]
 
         classification = self._classifier.classify(
-            coaching_data, unlocked, skill_states,
+            coaching_data, unlocked, skill_states, range_targets=range_targets,
         )
 
         if not classification.primary_skill:
@@ -323,13 +360,14 @@ class CoachProgressionService:
         action: str,
         coaching_data: Dict,
         classification: SituationClassification,
+        range_targets: Optional[Dict[str, float]] = None,
     ) -> List[SkillEvaluation]:
         """Evaluate player action against relevant skills and update progress."""
         evaluations = []
 
         for skill_id in classification.relevant_skills:
             evaluation = self._evaluator.evaluate(
-                skill_id, action, coaching_data
+                skill_id, action, coaching_data, range_targets=range_targets
             )
 
             if evaluation.evaluation == 'not_applicable':
@@ -507,6 +545,13 @@ class CoachProgressionService:
                             first_seen_at=now,
                         )
                         self._coach_repo.save_skill_state(user_id, ss)
+
+                # Expand range targets for the newly unlocked gate
+                current_ranges = self._coach_repo.load_range_targets(user_id)
+                if current_ranges:
+                    expanded_ranges = expand_ranges_for_gate(current_ranges, gate_num)
+                    self._coach_repo.save_range_targets(user_id, expanded_ranges)
+                    logger.info(f"Range targets expanded for user {user_id} on gate {gate_num} unlock")
 
                 # Reload after mutations so subsequent iterations see fresh data
                 skill_states = self._coach_repo.load_all_skill_states(user_id)

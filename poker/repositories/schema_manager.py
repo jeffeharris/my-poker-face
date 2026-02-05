@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 # v67: Add range tracking columns to player_decision_analysis for coach integration
 # v68: Add onboarding_completed_at to player_coach_profile for reliable onboarding tracking
 # v69: Add hand_equity table for equity-based pressure event detection
-SCHEMA_VERSION = 69
+# v70: Add range_targets JSON column to player_coach_profile for dynamic range coaching
+SCHEMA_VERSION = 70
 
 
 
@@ -1027,6 +1028,7 @@ class SchemaManager:
             67: (self._migrate_v67_add_range_tracking, "Add range tracking columns to player_decision_analysis"),
             68: (self._migrate_v68_add_onboarding_completed, "Add onboarding_completed_at to player_coach_profile"),
             69: (self._migrate_v69_add_hand_equity, "Add hand_equity table for equity-based pressure detection"),
+            70: (self._migrate_v70_add_range_targets, "Add range_targets JSON column to player_coach_profile"),
         }
 
         with self._get_connection() as conn:
@@ -3152,4 +3154,25 @@ class SchemaManager:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_street_equity ON hand_equity(street, equity)")
 
         logger.info("Migration v69 complete: hand_equity table added")
+
+    def _migrate_v70_add_range_targets(self, conn: sqlite3.Connection) -> None:
+        """Migration v70: Add range_targets JSON column to player_coach_profile.
+
+        Stores personalized range targets per position as JSON:
+        {"UTG": 0.10, "UTG+1": 0.12, "MP": 0.15, "CO": 0.22, "BTN": 0.30, "BB": 0.30}
+
+        Range targets evolve as players progress through gates, starting tight
+        and expanding as they demonstrate skill mastery.
+        """
+        columns = [row[1] for row in conn.execute(
+            "PRAGMA table_info(player_coach_profile)"
+        ).fetchall()]
+
+        if 'range_targets' not in columns:
+            conn.execute(
+                "ALTER TABLE player_coach_profile "
+                "ADD COLUMN range_targets TEXT DEFAULT NULL"
+            )
+
+        logger.info("Migration v70 complete: range_targets column added to player_coach_profile")
 
