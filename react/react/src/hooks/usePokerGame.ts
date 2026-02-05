@@ -7,13 +7,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
-
-interface CoachFeedbackPrompt {
-  hand: string;
-  position: string;
-  range_target: number;
-  hand_number: number;
-}
+import type { FeedbackPromptData } from '../types/coach';
 
 interface UsePokerGameOptions {
   gameId: string | null;
@@ -21,7 +15,7 @@ interface UsePokerGameOptions {
   onGameCreated?: (gameId: string) => void;
   onNewAiMessage?: (message: ChatMessage) => void;
   onGameLoadFailed?: () => void;
-  onCoachFeedbackPrompt?: (prompt: CoachFeedbackPrompt) => void;
+  onCoachFeedbackPrompt?: (prompt: FeedbackPromptData) => void;
 }
 
 type QueuedAction = 'check_fold' | null;
@@ -504,7 +498,7 @@ export function usePokerGame({
       setGuestLimitReached(true);
     });
 
-    socket.on('coach_feedback_prompt', (data: CoachFeedbackPrompt) => {
+    socket.on('coach_feedback_prompt', (data: FeedbackPromptData) => {
       if (onCoachFeedbackPrompt) {
         onCoachFeedbackPrompt(data);
       }

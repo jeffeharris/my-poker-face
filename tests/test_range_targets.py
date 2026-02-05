@@ -78,8 +78,11 @@ class TestNormalizePosition:
         assert normalize_position('big_blind_player') == 'BB'
         assert normalize_position('Small Blind') == 'BB'  # Small blind treated as BB
         assert normalize_position('small_blind') == 'BB'
-        # Note: Short forms like 'BB' and 'SB' don't contain 'blind'
-        # so they fall back to MP - this is a known limitation
+        # Short forms
+        assert normalize_position('BB') == 'BB'
+        assert normalize_position('bb') == 'BB'
+        assert normalize_position('SB') == 'BB'  # Small blind treated as BB
+        assert normalize_position('sb') == 'BB'
 
     def test_empty_string_fallback(self):
         """Empty string should fallback to MP."""

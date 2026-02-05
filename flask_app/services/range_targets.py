@@ -8,14 +8,13 @@ from typing import Dict, Optional
 
 # Default ranges for complete beginners (Gate 1)
 # These are intentionally tight to teach discipline first
-# TODO: Restore to tight ranges after testing (0.08-0.25)
 DEFAULT_RANGE_TARGETS: Dict[str, float] = {
-    'UTG': 1.0,        # TESTING: 100%
-    'UTG+1': 1.0,
-    'MP': 1.0,
-    'CO': 1.0,
-    'BTN': 1.0,
-    'BB': 1.0,
+    'UTG': 0.08,       # Top 8% - very tight early position
+    'UTG+1': 0.10,     # Top 10%
+    'MP': 0.12,        # Top 12%
+    'CO': 0.18,        # Top 18% - opening up in late position
+    'BTN': 0.25,       # Top 25% - widest from button
+    'BB': 0.20,        # Top 20% - defending big blind
 }
 
 # Range expansions when gates unlock
@@ -84,7 +83,7 @@ def normalize_position(position: str) -> str:
         return 'BTN'
 
     # Blinds - treat small blind like BB for simplicity
-    if 'blind' in pos_lower:
+    if 'blind' in pos_lower or pos_lower == 'bb' or pos_lower == 'sb':
         return 'BB'
 
     # Fallback to middle position (conservative)
