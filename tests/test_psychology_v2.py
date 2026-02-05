@@ -1574,3 +1574,278 @@ class TestPokerFaceZoneIntegration:
         # (expression filter visibility = 0.9 * 0.8 = 0.72, which is > 0.6 threshold)
         true_emotion = psych.get_display_emotion(use_expression_filter=False)
         assert display_emotion == true_emotion  # High visibility shows true emotion
+
+
+# === Phase 4 Tests: Severity Sensitivity + Asymmetric Recovery ===
+
+class TestSeveritySensitivity:
+    """Tests for Phase 4 severity-based sensitivity floors."""
+
+    def test_minor_event_uses_low_floor(self):
+        """Minor events use floor=0.20, giving lower sensitivity."""
+        from poker.player_psychology import _get_severity_floor, _calculate_sensitivity
+
+        floor = _get_severity_floor('win')  # Minor event
+        assert floor == 0.20
+
+        # Low ego player (0.2) with minor event
+        # sensitivity = 0.20 + 0.80 × 0.2 = 0.36
+        sensitivity = _calculate_sensitivity(0.2, floor)
+        assert sensitivity == pytest.approx(0.36, 0.01)
+
+    def test_normal_event_uses_default_floor(self):
+        """Normal events use floor=0.30 (the default)."""
+        from poker.player_psychology import _get_severity_floor, _calculate_sensitivity
+
+        floor = _get_severity_floor('big_loss')  # Normal event
+        assert floor == 0.30
+
+        # Low ego player (0.2) with normal event
+        # sensitivity = 0.30 + 0.70 × 0.2 = 0.44
+        sensitivity = _calculate_sensitivity(0.2, floor)
+        assert sensitivity == pytest.approx(0.44, 0.01)
+
+    def test_major_event_uses_high_floor(self):
+        """Major events use floor=0.40, giving higher minimum sensitivity."""
+        from poker.player_psychology import _get_severity_floor, _calculate_sensitivity
+
+        floor = _get_severity_floor('bad_beat')  # Major event
+        assert floor == 0.40
+
+        # Even low ego player (0.2) feels major events more
+        # sensitivity = 0.40 + 0.60 × 0.2 = 0.52
+        sensitivity = _calculate_sensitivity(0.2, floor)
+        assert sensitivity == pytest.approx(0.52, 0.01)
+
+    def test_high_ego_major_event_near_full(self):
+        """High ego + major event approaches full impact."""
+        from poker.player_psychology import _get_severity_floor, _calculate_sensitivity
+
+        floor = _get_severity_floor('bad_beat')  # Major event
+        # sensitivity = 0.40 + 0.60 × 0.9 = 0.94
+        sensitivity = _calculate_sensitivity(0.9, floor)
+        assert sensitivity == pytest.approx(0.94, 0.01)
+
+    def test_unknown_event_defaults_to_normal(self):
+        """Unknown events default to normal severity (0.30 floor)."""
+        from poker.player_psychology import _get_severity_floor
+
+        floor = _get_severity_floor('completely_made_up_event')
+        assert floor == 0.30
+
+    def test_minor_vs_major_event_impact_difference(self):
+        """Verify that minor and major events have different impacts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5,
+                'ego': 0.3,  # Low-moderate ego
+                'poise': 0.3,  # Low-moderate poise (sensitive to composure)
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        # Test minor event (win)
+        psych_minor = PlayerPsychology.from_personality_config('TestMinor', config)
+        initial_conf = psych_minor.confidence
+        psych_minor.apply_pressure_event('win')  # Minor event
+        minor_delta = psych_minor.confidence - initial_conf
+
+        # Test major event (double_up) - similar base impact but higher floor
+        psych_major = PlayerPsychology.from_personality_config('TestMajor', config)
+        initial_conf_major = psych_major.confidence
+        psych_major.apply_pressure_event('double_up')  # Major event
+        major_delta = psych_major.confidence - initial_conf_major
+
+        # Major event should have larger impact due to higher floor
+        # (Both are positive confidence events, major should be bigger)
+        assert abs(major_delta) > abs(minor_delta)
+
+    def test_poise_inverted_for_composure(self):
+        """High poise = LOW sensitivity to composure events."""
+        # High poise player
+        high_poise_config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.9,  # High poise
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        # Low poise player
+        low_poise_config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.1,  # Low poise
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+
+        psych_high = PlayerPsychology.from_personality_config('HighPoise', high_poise_config)
+        psych_low = PlayerPsychology.from_personality_config('LowPoise', low_poise_config)
+
+        # Record initial composure (will differ due to different baselines)
+        high_initial = psych_high.composure
+        low_initial = psych_low.composure
+
+        # Apply same bad_beat event
+        psych_high.apply_pressure_event('bad_beat')
+        psych_low.apply_pressure_event('bad_beat')
+
+        # Calculate composure drops
+        high_drop = high_initial - psych_high.composure
+        low_drop = low_initial - psych_low.composure
+
+        # Low poise should drop MORE (higher sensitivity = 1 - poise)
+        assert low_drop > high_drop
+
+
+class TestAsymmetricRecovery:
+    """Tests for Phase 4 asymmetric recovery mechanics."""
+
+    def test_recovery_slower_when_deeply_tilted(self):
+        """
+        Recovery from deep tilt (comp=0.2) is proportionally slower than mild tilt.
+
+        The asymmetric recovery means that the MODIFIER is smaller when deeply tilted,
+        making tilt "sticky". We test this by comparing the effective recovery rate
+        (recovery / gap_to_baseline) rather than absolute recovery amounts.
+        """
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.7,  # Baseline composure around 0.675
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.3,  # Use same rate
+            }
+        }
+
+        # Deep tilt player (composure = 0.2)
+        psych_deep = PlayerPsychology.from_personality_config('DeepTilt', config)
+        psych_deep.axes = psych_deep.axes.update(composure=0.2)
+        deep_baseline = psych_deep._baseline_composure
+        deep_gap = deep_baseline - 0.2
+
+        # Mild tilt player (composure = 0.5)
+        psych_mild = PlayerPsychology.from_personality_config('MildTilt', config)
+        psych_mild.axes = psych_mild.axes.update(composure=0.5)
+        mild_baseline = psych_mild._baseline_composure
+        mild_gap = mild_baseline - 0.5
+
+        # Apply recovery
+        psych_deep.recover()
+        psych_mild.recover()
+
+        # Calculate recovery as proportion of gap closed
+        deep_recovery = psych_deep.composure - 0.2
+        mild_recovery = psych_mild.composure - 0.5
+
+        deep_rate_effective = deep_recovery / deep_gap if deep_gap > 0 else 0
+        mild_rate_effective = mild_recovery / mild_gap if mild_gap > 0 else 0
+
+        # Deep tilt should have LOWER effective rate (sticky modifier = 0.6 + 0.4 × 0.2 = 0.68)
+        # Mild tilt should have HIGHER effective rate (sticky modifier = 0.6 + 0.4 × 0.5 = 0.80)
+        # Expected: deep_rate = 0.3 × 0.68 = 0.204, mild_rate = 0.3 × 0.80 = 0.24
+        assert deep_rate_effective < mild_rate_effective
+
+    def test_hot_streak_decays_at_point_eight(self):
+        """Above-baseline states decay at fixed 0.8 modifier."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5,  # Moderate baseline
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.5,  # High rate
+            }
+        }
+
+        psych = PlayerPsychology.from_personality_config('HotStreak', config)
+        baseline_comp = psych._baseline_composure
+
+        # Set composure ABOVE baseline (hot streak state)
+        psych.axes = psych.axes.update(composure=0.9)
+
+        # Apply recovery
+        psych.recover()
+
+        # Expected: new = 0.9 + (baseline - 0.9) × 0.5 × 0.8
+        # With baseline ~0.55: new = 0.9 + (0.55 - 0.9) × 0.5 × 0.8 = 0.9 - 0.14 = 0.76
+        expected = 0.9 + (baseline_comp - 0.9) * 0.5 * 0.8
+
+        assert psych.composure == pytest.approx(expected, 0.01)
+
+    def test_recovery_still_targets_personality_baseline(self):
+        """Recovery target is personality-specific, not universal."""
+        # High-poise player has high baseline composure
+        high_poise_config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.9,  # High poise -> high baseline
+                'expressiveness': 0.3, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.9,  # Very high rate for convergence
+            }
+        }
+
+        psych = PlayerPsychology.from_personality_config('HighPoise', high_poise_config)
+        baseline_comp = psych._baseline_composure
+
+        # Verify baseline is high (not the old universal 0.7)
+        assert baseline_comp > 0.7
+
+        # Set composure low
+        psych.axes = psych.axes.update(composure=0.3)
+
+        # Apply many recovery cycles
+        for _ in range(50):
+            psych.recover()
+
+        # Should converge toward personality baseline, not universal 0.7
+        assert psych.composure > 0.7  # Should be closer to ~0.8
+
+    def test_energy_recovery_unchanged(self):
+        """Energy still uses edge springs, not asymmetric recovery."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.5,
+            }
+        }
+
+        # Test energy at extreme low (should trigger edge spring)
+        psych_low = PlayerPsychology.from_personality_config('LowEnergy', config)
+        psych_low.axes = psych_low.axes.update(energy=0.05)
+
+        # Energy recovery should be boosted by edge spring
+        psych_low.recover()
+
+        # Edge spring at 0.05: spring = (0.15 - 0.05) × 0.33 = 0.033
+        # Rate becomes 0.5 + 0.033 = 0.533
+        # new = 0.05 + (0.5 - 0.05) × 0.533 = 0.05 + 0.24 = 0.29
+        assert psych_low.energy > 0.2  # Significant boost from edge spring
+
+    def test_confidence_asymmetric_recovery(self):
+        """Confidence also uses asymmetric recovery."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5,
+                'ego': 0.5,  # Baseline confidence around 0.65
+                'poise': 0.7, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.5,
+            }
+        }
+
+        psych = PlayerPsychology.from_personality_config('Test', config)
+        baseline_conf = psych._baseline_confidence
+
+        # Set confidence below baseline
+        psych.axes = psych.axes.update(confidence=0.3)
+
+        # Apply recovery
+        psych.recover()
+
+        # Sticky modifier = 0.6 + 0.4 × 0.3 = 0.72
+        # new = 0.3 + (baseline - 0.3) × 0.5 × 0.72
+        expected = 0.3 + (baseline_conf - 0.3) * 0.5 * 0.72
+
+        assert psych.confidence == pytest.approx(expected, 0.01)

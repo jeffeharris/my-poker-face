@@ -34,6 +34,84 @@ from .range_guidance import get_player_archetype
 logger = logging.getLogger(__name__)
 
 
+# === PHASE 4: EVENT SENSITIVITY SYSTEM ===
+
+# Severity-based sensitivity floors
+SEVERITY_MINOR = 0.20
+SEVERITY_NORMAL = 0.30
+SEVERITY_MAJOR = 0.40
+
+# Asymmetric recovery constants
+RECOVERY_BELOW_BASELINE_FLOOR = 0.6
+RECOVERY_BELOW_BASELINE_RANGE = 0.4
+RECOVERY_ABOVE_BASELINE = 0.8
+
+# Event severity categorization
+EVENT_SEVERITY = {
+    # Minor events (floor=0.20) - routine, small stakes
+    'win': 'minor',
+    'fold_under_pressure': 'minor',
+    'cooler': 'minor',
+
+    # Normal events (floor=0.30) - standard gameplay, default
+    'big_win': 'normal',
+    'big_loss': 'normal',
+    'bluff_called': 'normal',
+    'successful_bluff': 'normal',
+    'short_stack': 'normal',
+    'winning_streak': 'normal',
+    'losing_streak': 'normal',
+
+    # Major events (floor=0.40) - high impact, dramatic moments
+    'bad_beat': 'major',
+    'got_sucked_out': 'major',
+    'double_up': 'major',
+    'crippled': 'major',
+    'eliminated_opponent': 'major',
+    'suckout': 'major',
+    'nemesis_win': 'major',
+    'nemesis_loss': 'major',
+}
+
+
+def _get_severity_floor(event_name: str) -> float:
+    """
+    Get sensitivity floor based on event severity.
+
+    Args:
+        event_name: Name of the pressure event
+
+    Returns:
+        Sensitivity floor (0.20 for minor, 0.30 for normal, 0.40 for major)
+    """
+    severity = EVENT_SEVERITY.get(event_name, 'normal')
+    floors = {
+        'minor': SEVERITY_MINOR,
+        'normal': SEVERITY_NORMAL,
+        'major': SEVERITY_MAJOR,
+    }
+    return floors[severity]
+
+
+def _calculate_sensitivity(anchor: float, floor: float) -> float:
+    """
+    Calculate sensitivity multiplier with severity-based floor.
+
+    Formula: sensitivity = floor + (1 - floor) × anchor
+
+    This ensures minimum sensitivity based on event severity while
+    still allowing personality to scale the impact.
+
+    Args:
+        anchor: Personality anchor value (0-1)
+        floor: Minimum sensitivity floor based on event severity
+
+    Returns:
+        Sensitivity multiplier (floor to 1.0)
+    """
+    return floor + (1.0 - floor) * anchor
+
+
 # === CORE DATA STRUCTURES (Phase 1) ===
 
 def _clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
@@ -742,25 +820,33 @@ class PlayerPsychology:
         - "Bad outcome" events → Composure (filtered by Poise)
         - Energy events → Direct application (no sensitivity filter)
 
+        Phase 4: Uses severity-based sensitivity floors:
+        - Minor events: floor=0.20 (routine gameplay)
+        - Normal events: floor=0.30 (standard stakes)
+        - Major events: floor=0.40 (high-impact moments)
+
         Updates axes and tracks pressure source for intrusive thoughts.
         """
         # Get pressure impacts from event
         pressure_impacts = self._get_pressure_impacts(event_name)
 
+        # Phase 4: Get severity-based floor for this event
+        floor = _get_severity_floor(event_name)
+
         new_conf = self.axes.confidence
         new_comp = self.axes.composure
         new_energy = self.axes.energy
 
-        # Apply to axes with anchor-based sensitivity
+        # Apply to axes with anchor-based sensitivity using severity floor
         if 'confidence' in pressure_impacts:
             # Ego: high = more sensitive to being outplayed
-            sensitivity = 0.3 + 0.7 * self.anchors.ego
+            sensitivity = _calculate_sensitivity(self.anchors.ego, floor)
             delta = pressure_impacts['confidence'] * sensitivity
             new_conf = self.axes.confidence + delta
 
         if 'composure' in pressure_impacts:
-            # Poise: high = less sensitive to bad outcomes (inverted)
-            sensitivity = 0.3 + 0.7 * (1.0 - self.anchors.poise)
+            # Poise: high = LESS sensitive to bad outcomes (inverted)
+            sensitivity = _calculate_sensitivity(1.0 - self.anchors.poise, floor)
             delta = pressure_impacts['composure'] * sensitivity
             new_comp = self.axes.composure + delta
 
@@ -783,7 +869,7 @@ class PlayerPsychology:
         self._mark_updated()
 
         logger.debug(
-            f"{self.player_name}: Pressure event '{event_name}' applied. "
+            f"{self.player_name}: Pressure event '{event_name}' (floor={floor:.2f}) applied. "
             f"Confidence={self.confidence:.2f}, Composure={self.composure:.2f}, "
             f"Energy={self.energy:.2f}, Quadrant={self.quadrant.value}"
         )
@@ -904,16 +990,42 @@ class PlayerPsychology:
 
         Phase 2: Energy now recovers toward baseline_energy with edge springs
         that push away from extremes (0 and 1).
+
+        Phase 4: Asymmetric recovery for confidence and composure:
+        - Below baseline: sticky recovery (modifier = 0.6 + 0.4 × current)
+          Tilt is hard to escape - the deeper you are, the slower you recover
+        - Above baseline: slow decay (modifier = 0.8)
+          Hot streaks persist longer
         """
         rate = recovery_rate if recovery_rate is not None else self.anchors.recovery_rate
 
-        # Drift confidence toward personality-specific baseline
-        new_conf = self.axes.confidence + (self._baseline_confidence - self.axes.confidence) * rate
+        # === CONFIDENCE (Phase 4: Asymmetric) ===
+        current_conf = self.axes.confidence
+        conf_baseline = self._baseline_confidence
 
-        # Drift composure toward personality-specific baseline
-        new_comp = self.axes.composure + (self._baseline_composure - self.axes.composure) * rate
+        if current_conf < conf_baseline:
+            # Below baseline - sticky recovery (tilt is hard to escape)
+            conf_modifier = RECOVERY_BELOW_BASELINE_FLOOR + RECOVERY_BELOW_BASELINE_RANGE * current_conf
+        else:
+            # Above baseline - slow decay (hot streaks persist)
+            conf_modifier = RECOVERY_ABOVE_BASELINE
 
-        # Phase 2: Energy recovers toward baseline with edge springs
+        new_conf = current_conf + (conf_baseline - current_conf) * rate * conf_modifier
+
+        # === COMPOSURE (Phase 4: Asymmetric) ===
+        current_comp = self.axes.composure
+        comp_baseline = self._baseline_composure
+
+        if current_comp < comp_baseline:
+            # Below baseline - tilt is sticky
+            comp_modifier = RECOVERY_BELOW_BASELINE_FLOOR + RECOVERY_BELOW_BASELINE_RANGE * current_comp
+        else:
+            # Above baseline - calm persists
+            comp_modifier = RECOVERY_ABOVE_BASELINE
+
+        new_comp = current_comp + (comp_baseline - current_comp) * rate * comp_modifier
+
+        # === ENERGY (unchanged - uses edge springs) ===
         energy_rate = rate
         energy_target = self.anchors.baseline_energy
         current_energy = self.axes.energy
