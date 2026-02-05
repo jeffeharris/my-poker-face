@@ -552,6 +552,11 @@ class CoachProgressionService:
                     expanded_ranges = expand_ranges_for_gate(current_ranges, gate_num)
                     self._coach_repo.save_range_targets(user_id, expanded_ranges)
                     logger.info(f"Range targets expanded for user {user_id} on gate {gate_num} unlock")
+                else:
+                    # Initialize range targets for existing users who don't have them yet
+                    initialized_ranges = get_expanded_ranges(gate_num)
+                    self._coach_repo.save_range_targets(user_id, initialized_ranges)
+                    logger.info(f"Range targets initialized for user {user_id} at gate {gate_num}")
 
                 # Reload after mutations so subsequent iterations see fresh data
                 skill_states = self._coach_repo.load_all_skill_states(user_id)

@@ -257,9 +257,14 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
                             'in your range' in ev.reasoning.lower()):
                             # Extract info for feedback prompt
                             from flask_app.services.range_targets import get_range_target
-                            # hand_hole_cards is a list like ['Ah', 'Kd']
-                            hand_cards = coaching_data.get('hand_hole_cards', [])
-                            hand = ' '.join(hand_cards) if hand_cards else ''
+                            # Prefer canonical format (e.g. "AKs") from hand_strength,
+                            # fall back to hole cards if not available
+                            hand_strength = coaching_data.get('hand_strength')
+                            if isinstance(hand_strength, str) and hand_strength:
+                                hand = hand_strength
+                            else:
+                                hand_cards = coaching_data.get('hand_hole_cards', [])
+                                hand = ' '.join(hand_cards) if hand_cards else ''
                             position = coaching_data.get('position', '')
                             personal_range_target = get_range_target(range_targets, position)
                             if personal_range_target and personal_range_target > 0:

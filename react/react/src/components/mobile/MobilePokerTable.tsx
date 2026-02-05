@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
 import { Check, X, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
+import type { FeedbackPromptData } from '../../types/coach';
 import type { Player } from '../../types/player';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
@@ -95,10 +96,10 @@ export function MobilePokerTable({
   const awaitingAction = useGameStore(state => state.awaitingAction);
 
   // Callback ref for coach feedback - needed because coach hook is defined after usePokerGame
-  const coachFeedbackCallbackRef = useRef<((prompt: { hand: string; position: string; range_target: number; hand_number: number } | null) => void) | null>(null);
+  const coachFeedbackCallbackRef = useRef<((prompt: FeedbackPromptData | null) => void) | null>(null);
 
   // Stable callback for coach feedback to avoid re-triggering socket setup
-  const handleCoachFeedbackPrompt = useCallback((prompt: { hand: string; position: string; range_target: number; hand_number: number }) => {
+  const handleCoachFeedbackPrompt = useCallback((prompt: FeedbackPromptData) => {
     coachFeedbackCallbackRef.current?.(prompt);
   }, []);
 

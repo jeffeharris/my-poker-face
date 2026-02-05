@@ -1,6 +1,5 @@
 """Tests for coach feedback functionality in SessionMemory."""
 
-import pytest
 from flask_app.services.coach_progression import SessionMemory
 
 

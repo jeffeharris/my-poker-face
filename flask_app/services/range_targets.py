@@ -4,7 +4,7 @@ Provides default ranges, position normalization, and gate-based expansion
 for the personalized range coaching system.
 """
 
-from typing import Dict, Optional
+from typing import Dict
 
 # Default ranges for complete beginners (Gate 1)
 # These are intentionally tight to teach discipline first

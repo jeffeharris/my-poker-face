@@ -1,6 +1,5 @@
 """Tests for range_targets module - personal adaptive range targets for coaching."""
 
-import pytest
 from flask_app.services.range_targets import (
     DEFAULT_RANGE_TARGETS,
     GATE_EXPANSIONS,
@@ -240,9 +239,11 @@ class TestIntegrationWithHandTiers:
         gate1_btn = DEFAULT_RANGE_TARGETS['BTN']  # 25%
         gate4_btn = GATE_EXPANSIONS[4]['BTN']     # 40%
 
-        # Should be borderline at gate 1, definitely in at gate 4
+        # Should be outside range at gate 1 (25%), in range at gate 4 (40%)
         result_gate1 = is_hand_in_range('87s', gate1_btn)
         result_gate4 = is_hand_in_range('87s', gate4_btn)
 
+        # Gate 1 is too tight for 87s
+        assert result_gate1 is False
         # Gate 4 should allow it
         assert result_gate4 is True
