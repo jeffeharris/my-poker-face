@@ -19,6 +19,7 @@ Phase 1 implements Identity + State layers. Energy is static (= baseline_energy)
 """
 
 import logging
+import math
 import random
 import re
 from dataclasses import dataclass, field
@@ -112,11 +113,329 @@ def _calculate_sensitivity(anchor: float, floor: float) -> float:
     return floor + (1.0 - floor) * anchor
 
 
+# === PHASE 5: ZONE DETECTION SYSTEM ===
+
+# Sweet spot centers and radii (from PSYCHOLOGY_ZONES_MODEL.md)
+ZONE_GUARDED_CENTER = (0.28, 0.72)
+ZONE_GUARDED_RADIUS = 0.15
+
+ZONE_POKER_FACE_CENTER = (0.52, 0.72)
+ZONE_POKER_FACE_RADIUS = 0.16
+
+ZONE_COMMANDING_CENTER = (0.78, 0.78)
+ZONE_COMMANDING_RADIUS = 0.14
+
+ZONE_AGGRO_CENTER = (0.68, 0.48)
+ZONE_AGGRO_RADIUS = 0.12
+
+# Penalty zone thresholds
+PENALTY_TILTED_THRESHOLD = 0.35
+PENALTY_OVERCONFIDENT_THRESHOLD = 0.90
+PENALTY_SHAKEN_CONF_THRESHOLD = 0.35
+PENALTY_SHAKEN_COMP_THRESHOLD = 0.35
+PENALTY_OVERHEATED_CONF_THRESHOLD = 0.65
+PENALTY_OVERHEATED_COMP_THRESHOLD = 0.35
+PENALTY_DETACHED_CONF_THRESHOLD = 0.35
+PENALTY_DETACHED_COMP_THRESHOLD = 0.65
+
+# Energy manifestation thresholds
+ENERGY_LOW_THRESHOLD = 0.35
+ENERGY_HIGH_THRESHOLD = 0.65
+
+
 # === CORE DATA STRUCTURES (Phase 1) ===
 
 def _clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
     """Clamp value to range [min_val, max_val]."""
     return max(min_val, min(max_val, value))
+
+
+# === ZONE DETECTION (Phase 5) ===
+
+
+@dataclass(frozen=True)
+class ZoneEffects:
+    """
+    Computed zone effects for a player's current emotional state.
+
+    Two-layer model:
+    - Sweet spots: mutually exclusive zones (normalized to sum=1.0)
+    - Penalties: stackable edge effects (raw strengths, can exceed 1.0 when stacked)
+
+    This class represents DETECTION only. Zone EFFECTS (prompt modifications)
+    come in Phases 6-7.
+    """
+    sweet_spots: Dict[str, float] = field(default_factory=dict)
+    penalties: Dict[str, float] = field(default_factory=dict)
+    manifestation: str = 'balanced'
+    confidence: float = 0.5
+    composure: float = 0.7
+    energy: float = 0.5
+
+    @property
+    def primary_sweet_spot(self) -> Optional[str]:
+        """
+        Get the dominant sweet spot zone name, or None if in neutral territory.
+
+        Returns the zone with highest strength after normalization.
+        """
+        if not self.sweet_spots:
+            return None
+        return max(self.sweet_spots.keys(), key=lambda k: self.sweet_spots[k])
+
+    @property
+    def primary_penalty(self) -> Optional[str]:
+        """
+        Get the dominant penalty zone name, or None if not in any penalty zone.
+
+        Returns the penalty zone with highest raw strength.
+        """
+        if not self.penalties:
+            return None
+        return max(self.penalties.keys(), key=lambda k: self.penalties[k])
+
+    @property
+    def total_penalty_strength(self) -> float:
+        """
+        Sum of all penalty zone strengths.
+
+        Penalties stack additively, so this can exceed 1.0 when in multiple
+        penalty zones simultaneously (e.g., Tilted + Shaken).
+        """
+        return sum(self.penalties.values())
+
+    @property
+    def in_neutral_territory(self) -> bool:
+        """
+        True if outside all sweet spots AND all penalty zones.
+
+        Neutral territory means no special zone effects apply - standard baseline play.
+        """
+        return not self.sweet_spots and not self.penalties
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize zone effects to dictionary."""
+        return {
+            'sweet_spots': dict(self.sweet_spots),
+            'penalties': dict(self.penalties),
+            'manifestation': self.manifestation,
+            'confidence': self.confidence,
+            'composure': self.composure,
+            'energy': self.energy,
+            'primary_sweet_spot': self.primary_sweet_spot,
+            'primary_penalty': self.primary_penalty,
+            'total_penalty_strength': self.total_penalty_strength,
+            'in_neutral_territory': self.in_neutral_territory,
+        }
+
+
+def _calculate_sweet_spot_strength(
+    confidence: float,
+    composure: float,
+    center: Tuple[float, float],
+    radius: float,
+) -> float:
+    """
+    Calculate strength within a circular sweet spot zone using cosine falloff.
+
+    The strength is 1.0 at the center and smoothly decreases to 0.0 at the edge.
+    Outside the radius, strength is 0.0.
+
+    Formula: strength = 0.5 + 0.5 * cos(π * distance / radius)
+
+    This gives:
+    - 100% strength at center
+    - ~85% at 25% of radius
+    - ~50% at 50% of radius
+    - ~15% at 75% of radius
+    - 0% at edge (smooth transition)
+
+    Args:
+        confidence: Current confidence value (0.0 to 1.0)
+        composure: Current composure value (0.0 to 1.0)
+        center: (confidence, composure) center coordinates of the zone
+        radius: Radius of the circular zone
+
+    Returns:
+        Zone strength (0.0 to 1.0), where 0.0 means outside the zone
+    """
+    distance = math.sqrt(
+        (confidence - center[0]) ** 2 + (composure - center[1]) ** 2
+    )
+
+    if distance >= radius:
+        return 0.0
+
+    return 0.5 + 0.5 * math.cos(math.pi * distance / radius)
+
+
+def _detect_sweet_spots(confidence: float, composure: float) -> Dict[str, float]:
+    """
+    Detect which sweet spot zones the player is in and their raw strengths.
+
+    Checks all 4 sweet spot zones:
+    - Guarded: Patient, trap-setting (low conf, high comp)
+    - Poker Face: GTO, balanced (mid conf, high comp)
+    - Commanding: Pressure, value extraction (high conf, high comp)
+    - Aggro: Exploitative, aggressive (high conf, mid comp)
+
+    Args:
+        confidence: Current confidence value (0.0 to 1.0)
+        composure: Current composure value (0.0 to 1.0)
+
+    Returns:
+        Dictionary of {zone_name: raw_strength} for zones with strength > 0
+    """
+    sweet_spots = {}
+
+    # Check each sweet spot zone
+    zones = [
+        ('guarded', ZONE_GUARDED_CENTER, ZONE_GUARDED_RADIUS),
+        ('poker_face', ZONE_POKER_FACE_CENTER, ZONE_POKER_FACE_RADIUS),
+        ('commanding', ZONE_COMMANDING_CENTER, ZONE_COMMANDING_RADIUS),
+        ('aggro', ZONE_AGGRO_CENTER, ZONE_AGGRO_RADIUS),
+    ]
+
+    for zone_name, center, radius in zones:
+        strength = _calculate_sweet_spot_strength(confidence, composure, center, radius)
+        if strength > 0:
+            sweet_spots[zone_name] = strength
+
+    return sweet_spots
+
+
+def _detect_penalty_zones(confidence: float, composure: float) -> Dict[str, float]:
+    """
+    Detect which penalty zones the player is in and their strengths.
+
+    Penalty zones are edge-based regions where decision-making degrades:
+    - Tilted: Bottom edge (composure < 0.35)
+    - Overconfident: Right edge (confidence > 0.90)
+    - Shaken: Lower-left corner (low conf AND low comp)
+    - Overheated: Lower-right corner (high conf AND low comp)
+    - Detached: Upper-left corner (low conf AND high comp)
+
+    Penalties stack - a player can be in multiple penalty zones simultaneously.
+
+    Args:
+        confidence: Current confidence value (0.0 to 1.0)
+        composure: Current composure value (0.0 to 1.0)
+
+    Returns:
+        Dictionary of {zone_name: raw_strength} for active penalty zones
+    """
+    penalties = {}
+
+    # Tilted: bottom edge (composure < 0.35)
+    # Strength increases as composure decreases
+    if composure < PENALTY_TILTED_THRESHOLD:
+        penalties['tilted'] = (PENALTY_TILTED_THRESHOLD - composure) / PENALTY_TILTED_THRESHOLD
+
+    # Overconfident: right edge (confidence > 0.90)
+    # Strength increases as confidence approaches 1.0
+    if confidence > PENALTY_OVERCONFIDENT_THRESHOLD:
+        penalties['overconfident'] = (confidence - PENALTY_OVERCONFIDENT_THRESHOLD) / (1.0 - PENALTY_OVERCONFIDENT_THRESHOLD)
+
+    # Shaken: lower-left corner (low conf AND low comp)
+    # Strength based on distance toward (0, 0) corner
+    if confidence < PENALTY_SHAKEN_CONF_THRESHOLD and composure < PENALTY_SHAKEN_COMP_THRESHOLD:
+        # Calculate how far into the corner (using Manhattan-style product)
+        conf_depth = (PENALTY_SHAKEN_CONF_THRESHOLD - confidence) / PENALTY_SHAKEN_CONF_THRESHOLD
+        comp_depth = (PENALTY_SHAKEN_COMP_THRESHOLD - composure) / PENALTY_SHAKEN_COMP_THRESHOLD
+        penalties['shaken'] = conf_depth * comp_depth
+
+    # Overheated: lower-right corner (high conf AND low comp)
+    # Manic aggression without judgment
+    if confidence > PENALTY_OVERHEATED_CONF_THRESHOLD and composure < PENALTY_OVERHEATED_COMP_THRESHOLD:
+        conf_depth = (confidence - PENALTY_OVERHEATED_CONF_THRESHOLD) / (1.0 - PENALTY_OVERHEATED_CONF_THRESHOLD)
+        comp_depth = (PENALTY_OVERHEATED_COMP_THRESHOLD - composure) / PENALTY_OVERHEATED_COMP_THRESHOLD
+        penalties['overheated'] = conf_depth * comp_depth
+
+    # Detached: upper-left corner (low conf AND high comp)
+    # Too passive, misses opportunities
+    if confidence < PENALTY_DETACHED_CONF_THRESHOLD and composure > PENALTY_DETACHED_COMP_THRESHOLD:
+        conf_depth = (PENALTY_DETACHED_CONF_THRESHOLD - confidence) / PENALTY_DETACHED_CONF_THRESHOLD
+        comp_depth = (composure - PENALTY_DETACHED_COMP_THRESHOLD) / (1.0 - PENALTY_DETACHED_COMP_THRESHOLD)
+        penalties['detached'] = conf_depth * comp_depth
+
+    return penalties
+
+
+def _get_zone_manifestation(energy: float) -> str:
+    """
+    Get the energy manifestation flavor for zone effects.
+
+    Energy doesn't change which zone you're in (except Poker Face 3D),
+    but it changes HOW that zone manifests - the flavor and expression.
+
+    Args:
+        energy: Current energy value (0.0 to 1.0)
+
+    Returns:
+        Manifestation string: 'low_energy', 'balanced', or 'high_energy'
+    """
+    if energy < ENERGY_LOW_THRESHOLD:
+        return 'low_energy'
+    elif energy > ENERGY_HIGH_THRESHOLD:
+        return 'high_energy'
+    else:
+        return 'balanced'
+
+
+def get_zone_effects(confidence: float, composure: float, energy: float) -> ZoneEffects:
+    """
+    Compute zone effects for a player's current emotional state.
+
+    This is the main entry point for zone detection. It:
+    1. Detects which sweet spots the player is in (raw strengths)
+    2. Normalizes sweet spot strengths to sum=1.0 (for blending)
+    3. Detects which penalty zones the player is in (raw, can stack)
+    4. Gets energy manifestation (flavor)
+    5. Returns a ZoneEffects object with all detection results
+
+    Sweet spots and penalties are calculated as separate layers:
+    - Sweet spot blend: which beneficial zone(s) apply, normalized weights
+    - Penalty blend: which penalty zone(s) apply, raw strengths
+
+    Both layers can apply simultaneously. A player can be:
+    - 60% Commanding + 40% Poker Face (sweet spot blend)
+    - 30% Overheated (penalty blend)
+
+    Args:
+        confidence: Current confidence value (0.0 to 1.0)
+        composure: Current composure value (0.0 to 1.0)
+        energy: Current energy value (0.0 to 1.0)
+
+    Returns:
+        ZoneEffects object with detection results
+    """
+    # Step 1: Detect sweet spots (raw strengths)
+    raw_sweet_spots = _detect_sweet_spots(confidence, composure)
+
+    # Step 2: Normalize sweet spots to sum=1.0
+    normalized_sweet_spots = {}
+    total_strength = sum(raw_sweet_spots.values())
+    if total_strength > 0:
+        normalized_sweet_spots = {
+            zone: strength / total_strength
+            for zone, strength in raw_sweet_spots.items()
+        }
+
+    # Step 3: Detect penalty zones (raw, can stack)
+    penalties = _detect_penalty_zones(confidence, composure)
+
+    # Step 4: Get energy manifestation
+    manifestation = _get_zone_manifestation(energy)
+
+    # Step 5: Return ZoneEffects
+    return ZoneEffects(
+        sweet_spots=normalized_sweet_spots,
+        penalties=penalties,
+        manifestation=manifestation,
+        confidence=confidence,
+        composure=composure,
+        energy=energy,
+    )
 
 
 # === POKER FACE ZONE (Phase 3) ===
@@ -129,15 +448,18 @@ class PokerFaceZone:
     Players inside this zone display 'poker_face' regardless of their
     quadrant-based emotion. Players outside show their true emotional state.
 
-    Default center: (0.65, 0.75, 0.4) - calm, confident, reserved sweet spot
+    Default center: (0.52, 0.72, 0.45) - calm, balanced sweet spot
     Base radii: rc=0.25, rcomp=0.25, re=0.20
 
-    Membership test: ((c-0.65)/rc)² + ((comp-0.75)/rcomp)² + ((e-0.4)/re)² <= 1.0
+    Membership test: ((c-0.52)/rc)² + ((comp-0.72)/rcomp)² + ((e-0.45)/re)² <= 1.0
+
+    Note: This 3D zone is used for expression filtering (avatar display).
+    The 2D Poker Face sweet spot (Phase 5) uses the same center for conf/comp.
     """
     # Center coordinates (universal for all players)
-    center_confidence: float = 0.65
-    center_composure: float = 0.75
-    center_energy: float = 0.40
+    center_confidence: float = 0.52
+    center_composure: float = 0.72
+    center_energy: float = 0.45
 
     # Radii (personality-adjusted via create_poker_face_zone)
     radius_confidence: float = 0.25
@@ -1141,6 +1463,52 @@ class PlayerPsychology:
             self.axes.energy,
         )
 
+    # === ZONE DETECTION (Phase 5) ===
+
+    @property
+    def zone_effects(self) -> ZoneEffects:
+        """
+        Get current zone effects based on emotional state.
+
+        Computes which psychological zones (sweet spots + penalties) the player
+        is currently in, along with their strengths. This is the foundation for
+        zone-based prompt modifications in Phases 6-7.
+
+        Returns:
+            ZoneEffects with sweet_spots (normalized), penalties (raw), and
+            energy manifestation.
+        """
+        return get_zone_effects(
+            self.axes.confidence,
+            self.axes.composure,
+            self.axes.energy,
+        )
+
+    @property
+    def primary_zone(self) -> str:
+        """
+        Get the name of the strongest zone the player is in, or 'neutral'.
+
+        Priority:
+        1. If in any penalty zone, returns the strongest penalty (penalties take precedence)
+        2. If in any sweet spot, returns the strongest sweet spot
+        3. Otherwise returns 'neutral'
+
+        Note: This is a convenience property. For full zone information including
+        blended weights, use the zone_effects property.
+        """
+        effects = self.zone_effects
+
+        # Penalties take precedence (they represent problematic states)
+        if effects.primary_penalty:
+            return effects.primary_penalty
+
+        # Then sweet spots
+        if effects.primary_sweet_spot:
+            return effects.primary_sweet_spot
+
+        return 'neutral'
+
     # === DERIVED VALUES ===
 
     @property
@@ -1521,6 +1889,9 @@ class PlayerPsychology:
             'poker_face_zone': self._poker_face_zone.to_dict() if self._poker_face_zone else None,
             'in_poker_face_zone': self.is_in_poker_face_zone(),
             'zone_distance': self.zone_distance,
+            # Phase 5: Include zone detection results
+            'zone_effects': self.zone_effects.to_dict(),
+            'primary_zone': self.primary_zone,
         }
 
     @classmethod

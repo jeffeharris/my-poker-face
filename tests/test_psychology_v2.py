@@ -1135,17 +1135,17 @@ class TestPokerFaceZoneGeometry:
         from poker.player_psychology import PokerFaceZone
 
         zone = PokerFaceZone()
-        # Center point should always be inside
-        assert zone.contains(0.65, 0.75, 0.4)
-        assert zone.distance(0.65, 0.75, 0.4) == pytest.approx(0.0, 0.01)
+        # Center point should always be inside (Phase 5: updated to 0.52, 0.72, 0.45)
+        assert zone.contains(0.52, 0.72, 0.45)
+        assert zone.distance(0.52, 0.72, 0.45) == pytest.approx(0.0, 0.01)
 
     def test_zone_boundary_distance(self):
         """Test that boundary points have distance ~1.0."""
         from poker.player_psychology import PokerFaceZone
 
         zone = PokerFaceZone()
-        # Move along confidence axis by radius
-        boundary_point = (0.65 + 0.25, 0.75, 0.4)  # (0.9, 0.75, 0.4)
+        # Move along confidence axis by radius (Phase 5: updated center to 0.52, 0.72, 0.45)
+        boundary_point = (0.52 + 0.25, 0.72, 0.45)  # (0.77, 0.72, 0.45)
         assert zone.distance(*boundary_point) == pytest.approx(1.0, 0.01)
         assert zone.contains(*boundary_point)  # On boundary = inside
 
@@ -1163,8 +1163,8 @@ class TestPokerFaceZoneGeometry:
         from poker.player_psychology import PokerFaceZone
 
         zone = PokerFaceZone()
-        # Move just past boundary on confidence axis
-        outside_point = (0.65 + 0.26, 0.75, 0.4)  # Just past radius
+        # Move just past boundary on confidence axis (Phase 5: updated center to 0.52, 0.72, 0.45)
+        outside_point = (0.52 + 0.26, 0.72, 0.45)  # Just past radius
         assert not zone.contains(*outside_point)
         assert zone.distance(*outside_point) > 1.0
 
@@ -1176,8 +1176,9 @@ class TestPokerFaceZoneGeometry:
 
         # Same deviation on confidence (radius 0.25) vs energy (radius 0.20)
         # Energy deviation should result in larger normalized distance
-        conf_deviation = zone.distance(0.65 + 0.10, 0.75, 0.4)  # Move 0.10 on confidence
-        energy_deviation = zone.distance(0.65, 0.75, 0.4 + 0.10)  # Move 0.10 on energy
+        # Phase 5: updated center to 0.52, 0.72, 0.45
+        conf_deviation = zone.distance(0.52 + 0.10, 0.72, 0.45)  # Move 0.10 on confidence
+        energy_deviation = zone.distance(0.52, 0.72, 0.45 + 0.10)  # Move 0.10 on energy
 
         # Energy has smaller radius, so same absolute deviation = larger normalized distance
         assert energy_deviation > conf_deviation
@@ -1189,9 +1190,10 @@ class TestPokerFaceZoneGeometry:
         zone = PokerFaceZone(radius_confidence=0.30, radius_composure=0.28, radius_energy=0.18)
         data = zone.to_dict()
 
-        assert data['center_confidence'] == 0.65
-        assert data['center_composure'] == 0.75
-        assert data['center_energy'] == 0.40
+        # Phase 5: updated center to 0.52, 0.72, 0.45
+        assert data['center_confidence'] == 0.52
+        assert data['center_composure'] == 0.72
+        assert data['center_energy'] == 0.45
         assert data['radius_confidence'] == 0.30
         assert data['radius_composure'] == 0.28
         assert data['radius_energy'] == 0.18
