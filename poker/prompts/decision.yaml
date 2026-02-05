@@ -85,3 +85,67 @@ sections:
     - Do NOT add extra quotation marks around speech
     Match intensity to the moment - routine hands get 0-1 beats, climactic moments get 3-5 beats.
     You ARE {name} — stay fully in character with your signature style, catchphrases, and mannerisms. Reference opponents by name when needling them. Keep your actual hand SECRET.
+
+  # === POKER FACE ZONE (high composure, moderate confidence) ===
+  zone_poker_face_gto: |-
+    [POKER FACE MODE]
+    Play balanced, GTO-influenced poker. Focus on pot odds and equity.
+    Make mathematically optimal decisions. Don't let results affect your process.
+
+  zone_poker_face_balance: |-
+    [POKER FACE MODE]
+    Mix your actions to stay unpredictable. Balance value bets with occasional bluffs.
+    Process over outcome. Trust the math.
+
+  zone_poker_face_equity: |-
+    [POKER FACE MODE]
+    {equity_vs_ranges}
+    Pot odds and equity guide your decisions. Play the numbers.
+
+  # === GUARDED ZONE (high composure, low confidence) ===
+  zone_guarded_trap: |-
+    [GUARDED MODE]
+    Patience is your edge. This could be a trap-worthy spot.
+    A check may induce a bluff. Let opponents make mistakes.
+
+  zone_guarded_patience: |-
+    [GUARDED MODE]
+    Wait for strong spots. No need to force action with marginal holdings.
+    Discipline wins in the long run.
+
+  zone_guarded_control: |-
+    [GUARDED MODE]
+    Keep the pot small with marginal hands. Pot control is wise here.
+    Out of position? Proceed with caution.
+
+  # === COMMANDING ZONE (high composure, high confidence) ===
+  zone_commanding_value: |-
+    [COMMANDING MODE]
+    You're in control. Extract maximum value from strong hands.
+    Strong hands deserve big pots.
+
+  zone_commanding_pressure: |-
+    [COMMANDING MODE]
+    {opponent_stats}
+    Their weakness is your opportunity. A substantial bet puts maximum pressure.
+
+  zone_commanding_initiative: |-
+    [COMMANDING MODE]
+    You have the betting lead - keep it. Press your advantages.
+    Make opponents pay to see more cards.
+
+  # === AGGRO ZONE (moderate composure, high confidence) ===
+  zone_aggro_awareness: |-
+    [AGGRO MODE]
+    Watch for signs of weakness. Nervous opponents fold to pressure.
+    Attack when you sense vulnerability.
+
+  zone_aggro_analyze: |-
+    [AGGRO MODE]
+    {opponent_analysis}
+    Exploit their patterns. They've shown you how to beat them.
+
+  zone_aggro_target: |-
+    [AGGRO MODE]
+    {weak_player_note}
+    Attack the vulnerability. Pressure extracts folds.

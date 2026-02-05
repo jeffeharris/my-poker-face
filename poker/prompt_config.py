@@ -56,6 +56,7 @@ class PromptConfig:
     emotional_state: bool = True
     tilt_effects: bool = True
     expression_filtering: bool = True  # Phase 2: visibility-based expression dampening
+    zone_benefits: bool = True         # Phase 7: zone-based strategy guidance
 
     # Template instruction components
     mind_games: bool = True
@@ -201,12 +202,13 @@ class PromptConfig:
 
     @classmethod
     def pro(cls) -> 'PromptConfig':
-        """Pro mode - GTO-focused analytical poker with exploitative adjustments."""
+        """Pro mode - GTO-focused analytical poker. AIs don't tilt (harder opponents)."""
         return cls(
             gto_equity=True,
             gto_verdict=True,
             chattiness=False,
             dramatic_sequence=False,
+            tilt_effects=False,  # Harder AIs - no penalty zones / intrusive thoughts
             guidance_injection=cls.EXPLOITATIVE_GUIDANCE,
         )
 

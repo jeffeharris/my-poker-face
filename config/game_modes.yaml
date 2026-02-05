@@ -17,12 +17,13 @@ presets:
       show_equity_always: true
 
   pro:
-    description: "GTO-focused analytical poker with exploitative adjustments"
+    description: "GTO-focused analytical poker - AIs don't tilt (harder opponents)"
     prompt_config:
       show_equity_always: true
       show_equity_verdict: true
       chattiness: false
       dramatic_sequence: false
+      tilt_effects: false  # Harder AIs - no penalty zones / intrusive thoughts
       guidance_injection: >-
         EXPLOIT AGGRESSIVE OPPONENTS: When facing players who rarely fold and raise frequently,
         adjust your strategy: (1) Trap with strong hands - check to induce bluffs rather than betting,

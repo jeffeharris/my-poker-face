@@ -446,6 +446,7 @@ class PromptManager:
         pot_odds_info: dict | None = None,
         use_simple_response_format: bool = False,
         expression_guidance: str | None = None,
+        zone_guidance: str | None = None,
     ) -> str:
         """Render the decision prompt with toggleable components from YAML.
 
@@ -465,6 +466,7 @@ class PromptManager:
                            or {'free': True} for free check. None means no pot odds section.
             use_simple_response_format: If True, use simple JSON response format instead of dramatic_sequence
             expression_guidance: Phase 2 visibility-based expression/tempo guidance string
+            zone_guidance: Phase 7 zone-based strategy guidance string
 
         Returns:
             Rendered decision prompt
@@ -475,6 +477,10 @@ class PromptManager:
         # Always include base section with message substitution
         if 'base' in template.sections:
             sections_to_render.append(template.sections['base'].format(message=message))
+
+        # Phase 7: Include zone-based strategy guidance (early to frame the decision)
+        if zone_guidance:
+            sections_to_render.append(zone_guidance)
 
         # Include pot-committed warning if applicable (high priority - insert before other guidance)
         if pot_committed_info and 'pot_committed' in template.sections:

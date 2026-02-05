@@ -29,7 +29,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 19)  # 17 bool + 1 int + 1 str (Phase 2 added expression_filtering)
+        self.assertEqual(len(d), 20)  # 18 bool + 1 int + 1 str (Phase 7 added zone_benefits)
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('dramatic_sequence', d)
@@ -280,12 +280,15 @@ class TestGameModes(unittest.TestCase):
         self.assertTrue(config.dramatic_sequence)
 
     def test_pro_mode(self):
-        """Pro mode should show equity + verdict, disable chattiness and dramatic sequence."""
+        """Pro mode should show equity + verdict, disable chattiness, dramatic sequence, and tilt."""
         config = PromptConfig.pro()
         self.assertTrue(config.gto_equity)
         self.assertTrue(config.gto_verdict)
         self.assertFalse(config.chattiness)
         self.assertFalse(config.dramatic_sequence)
+        # Phase 9: Pro mode AIs don't tilt (harder opponents)
+        self.assertTrue(config.zone_benefits)   # Still get sweet spot guidance
+        self.assertFalse(config.tilt_effects)   # No tilting - harder opponents
 
     def test_from_mode_name_valid(self):
         """from_mode_name should resolve valid mode names."""
@@ -321,6 +324,55 @@ class TestGameModes(unittest.TestCase):
         casual = PromptConfig.casual()
         default = PromptConfig()
         self.assertEqual(casual.to_dict(), default.to_dict())
+
+
+class TestZoneToggles(unittest.TestCase):
+    """Tests for Phase 9 zone toggles across game modes."""
+
+    def test_default_zone_toggles_enabled(self):
+        """Default config has both zone toggles True."""
+        config = PromptConfig()
+        self.assertTrue(config.zone_benefits)
+        self.assertTrue(config.tilt_effects)
+
+    def test_casual_mode_full_psychology(self):
+        """Casual mode enables all psychology features."""
+        config = PromptConfig.casual()
+        self.assertTrue(config.zone_benefits)
+        self.assertTrue(config.tilt_effects)
+
+    def test_standard_mode_full_psychology(self):
+        """Standard mode enables all psychology features."""
+        config = PromptConfig.standard()
+        self.assertTrue(config.zone_benefits)
+        self.assertTrue(config.tilt_effects)
+
+    def test_pro_mode_no_tilt(self):
+        """Pro mode disables tilt_effects (harder AIs)."""
+        config = PromptConfig.pro()
+        self.assertTrue(config.zone_benefits)   # Still get sweet spot guidance
+        self.assertFalse(config.tilt_effects)   # No tilting - harder opponents
+
+    def test_competitive_mode_full_psychology(self):
+        """Competitive mode keeps full psychology (zone tuning deferred to Phase 10)."""
+        config = PromptConfig.competitive()
+        self.assertTrue(config.zone_benefits)
+        self.assertTrue(config.tilt_effects)
+
+    def test_from_dict_backward_compat(self):
+        """Old saved games without zone toggles default to True."""
+        old_data = {'pot_odds': True}  # No zone fields
+        config = PromptConfig.from_dict(old_data)
+        self.assertTrue(config.zone_benefits)
+        self.assertTrue(config.tilt_effects)
+
+    def test_to_dict_includes_zone_toggles(self):
+        """Serialization includes zone toggles."""
+        config = PromptConfig(tilt_effects=False)
+        data = config.to_dict()
+        self.assertIn('zone_benefits', data)
+        self.assertIn('tilt_effects', data)
+        self.assertFalse(data['tilt_effects'])
 
 
 if __name__ == '__main__':

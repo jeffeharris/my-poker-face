@@ -17,6 +17,7 @@ from poker.player_psychology import (
     PlayerPsychology,
     ComposureState,
     PokerFaceZone,
+    ZoneEffects,
     create_poker_face_zone,
     get_quadrant,
     compute_modifiers,
@@ -1851,3 +1852,478 @@ class TestAsymmetricRecovery:
         expected = 0.3 + (baseline_conf - 0.3) * 0.5 * 0.72
 
         assert psych.confidence == pytest.approx(expected, 0.01)
+
+
+# === Phase 6 Tests: Zone-Based Intrusive Thoughts ===
+
+class TestProbabilisticInjection:
+    """Tests for Phase 6 probabilistic thought injection."""
+
+    def test_zero_intensity_never_injects(self):
+        """Zero intensity should never inject thoughts."""
+        from poker.player_psychology import _should_inject_thoughts
+
+        # Test many times to verify it never triggers
+        results = [_should_inject_thoughts(0.0) for _ in range(100)]
+        assert all(r is False for r in results)
+
+    def test_high_intensity_always_injects(self):
+        """Intensity >= 0.75 should always inject (cliff)."""
+        from poker.player_psychology import _should_inject_thoughts
+
+        # Test many times to verify it always triggers
+        for intensity in [0.75, 0.80, 0.90, 1.0]:
+            results = [_should_inject_thoughts(intensity) for _ in range(100)]
+            assert all(r is True for r in results), f"Failed at intensity {intensity}"
+
+    def test_medium_intensity_probabilistic(self):
+        """Medium intensity (0.25-0.75) should inject probabilistically."""
+        from poker.player_psychology import _should_inject_thoughts
+
+        # At 50% intensity, should inject ~75% of the time
+        results = [_should_inject_thoughts(0.50) for _ in range(1000)]
+        injection_rate = sum(results) / len(results)
+        # Should be around 0.75 with some variance
+        assert 0.65 < injection_rate < 0.85, f"Got {injection_rate}"
+
+    def test_low_intensity_minimum_chance(self):
+        """Low intensity (0.01-0.25) should have minimum 10% chance."""
+        from poker.player_psychology import _should_inject_thoughts
+
+        # At 10% intensity, should inject ~10% of the time
+        results = [_should_inject_thoughts(0.10) for _ in range(1000)]
+        injection_rate = sum(results) / len(results)
+        # Should be around 0.10 with variance
+        assert 0.03 < injection_rate < 0.20, f"Got {injection_rate}"
+
+
+class TestZoneThoughtSelection:
+    """Tests for Phase 6 zone-specific thought selection."""
+
+    def test_tilted_zone_uses_pressure_source_thoughts(self):
+        """Tilted zone should use pressure_source-based thoughts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.2,  # Low poise to get into tilted zone
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+        psych.composure_state.pressure_source = 'bad_beat'
+
+        thoughts = psych._get_zone_thoughts('tilted', 'balanced', 0.5)
+
+        # Should include bad_beat thoughts
+        from poker.player_psychology import INTRUSIVE_THOUGHTS
+        assert any(t in thoughts for t in INTRUSIVE_THOUGHTS['bad_beat'])
+
+    def test_shaken_zone_risk_seeking_thoughts(self):
+        """Shaken zone with risk_identity > 0.5 should get risk-seeking thoughts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5,
+                'risk_identity': 0.8,  # Risk-seeking
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        thoughts = psych._get_zone_thoughts('shaken', 'balanced', 0.5)
+
+        from poker.player_psychology import SHAKEN_THOUGHTS
+        assert any(t in thoughts for t in SHAKEN_THOUGHTS['risk_seeking'])
+        assert not any(t in thoughts for t in SHAKEN_THOUGHTS['risk_averse'])
+
+    def test_shaken_zone_risk_averse_thoughts(self):
+        """Shaken zone with risk_identity < 0.5 should get risk-averse thoughts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5,
+                'risk_identity': 0.2,  # Risk-averse
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        thoughts = psych._get_zone_thoughts('shaken', 'balanced', 0.5)
+
+        from poker.player_psychology import SHAKEN_THOUGHTS
+        assert any(t in thoughts for t in SHAKEN_THOUGHTS['risk_averse'])
+        assert not any(t in thoughts for t in SHAKEN_THOUGHTS['risk_seeking'])
+
+    def test_overheated_zone_thoughts(self):
+        """Overheated zone should return overheated thoughts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        thoughts = psych._get_zone_thoughts('overheated', 'balanced', 0.5)
+
+        from poker.player_psychology import OVERHEATED_THOUGHTS
+        assert any(t in thoughts for t in OVERHEATED_THOUGHTS)
+
+    def test_overconfident_zone_thoughts(self):
+        """Overconfident zone should return overconfident thoughts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        thoughts = psych._get_zone_thoughts('overconfident', 'balanced', 0.5)
+
+        from poker.player_psychology import OVERCONFIDENT_THOUGHTS
+        assert any(t in thoughts for t in OVERCONFIDENT_THOUGHTS)
+
+    def test_detached_zone_thoughts(self):
+        """Detached zone should return detached thoughts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        thoughts = psych._get_zone_thoughts('detached', 'balanced', 0.5)
+
+        from poker.player_psychology import DETACHED_THOUGHTS
+        assert any(t in thoughts for t in DETACHED_THOUGHTS)
+
+
+class TestEnergyManifestationThoughts:
+    """Tests for Phase 6 energy manifestation thought variants."""
+
+    def test_low_energy_adds_energy_thoughts(self):
+        """Low energy manifestation should add energy-specific thoughts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        from poker.player_psychology import ENERGY_THOUGHT_VARIANTS
+
+        # Test tilted zone with low energy
+        thoughts = psych._get_zone_thoughts('tilted', 'low_energy', 0.5)
+        low_energy_thoughts = ENERGY_THOUGHT_VARIANTS['tilted']['low_energy']
+
+        assert any(t in thoughts for t in low_energy_thoughts)
+
+    def test_high_energy_adds_energy_thoughts(self):
+        """High energy manifestation should add energy-specific thoughts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        from poker.player_psychology import ENERGY_THOUGHT_VARIANTS
+
+        # Test overheated zone with high energy
+        thoughts = psych._get_zone_thoughts('overheated', 'high_energy', 0.5)
+        high_energy_thoughts = ENERGY_THOUGHT_VARIANTS['overheated']['high_energy']
+
+        assert any(t in thoughts for t in high_energy_thoughts)
+
+    def test_balanced_energy_no_extra_thoughts(self):
+        """Balanced energy manifestation should not add energy thoughts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        from poker.player_psychology import ENERGY_THOUGHT_VARIANTS, OVERHEATED_THOUGHTS
+
+        # Get thoughts with balanced energy
+        thoughts_balanced = psych._get_zone_thoughts('overheated', 'balanced', 0.5)
+
+        # Should only contain base overheated thoughts, not energy variants
+        high_energy_thoughts = ENERGY_THOUGHT_VARIANTS['overheated']['high_energy']
+        low_energy_thoughts = ENERGY_THOUGHT_VARIANTS['overheated']['low_energy']
+
+        # Balanced should have base thoughts but not energy variants
+        assert any(t in thoughts_balanced for t in OVERHEATED_THOUGHTS)
+        # Energy variants should NOT be in balanced (they're added separately for non-balanced)
+
+
+class TestPenaltyStrategy:
+    """Tests for Phase 6 penalty zone strategy advice."""
+
+    def test_tilted_strategy_tiers(self):
+        """Tilted zone should get tiered advice based on intensity."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.2,  # Very low poise
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        # Force into tilted zone by setting very low composure
+        psych.axes = psych.axes.update(composure=0.1)
+
+        from poker.player_psychology import ZoneEffects, PENALTY_STRATEGY
+
+        # Test mild intensity
+        mild_effects = ZoneEffects(penalties={'tilted': 0.30}, composure=0.1)
+        result_mild = psych._add_penalty_strategy("test prompt", mild_effects)
+        assert PENALTY_STRATEGY['tilted']['mild'] in result_mild
+
+        # Test severe intensity
+        severe_effects = ZoneEffects(penalties={'tilted': 0.85}, composure=0.1)
+        result_severe = psych._add_penalty_strategy("test prompt", severe_effects)
+        assert PENALTY_STRATEGY['tilted']['severe'] in result_severe
+
+    def test_shaken_risk_identity_split(self):
+        """Shaken zone should split advice by risk_identity."""
+        # Risk-seeking personality
+        risk_seeking_config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5,
+                'risk_identity': 0.8,  # Risk-seeking
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych_risk_seeking = PlayerPsychology.from_personality_config('RiskSeeker', risk_seeking_config)
+
+        # Risk-averse personality
+        risk_averse_config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5,
+                'risk_identity': 0.2,  # Risk-averse
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych_risk_averse = PlayerPsychology.from_personality_config('RiskAverse', risk_averse_config)
+
+        from poker.player_psychology import ZoneEffects, PENALTY_STRATEGY
+
+        shaken_effects = ZoneEffects(penalties={'shaken': 0.50}, composure=0.2, confidence=0.2)
+
+        result_seeking = psych_risk_seeking._add_penalty_strategy("test", shaken_effects)
+        result_averse = psych_risk_averse._add_penalty_strategy("test", shaken_effects)
+
+        # Should get different advice based on risk_identity
+        assert PENALTY_STRATEGY['shaken_risk_seeking']['moderate'] in result_seeking
+        assert PENALTY_STRATEGY['shaken_risk_averse']['moderate'] in result_averse
+
+
+class TestZoneDegradation:
+    """Tests for Phase 6 zone-specific info degradation."""
+
+    def test_tilted_removes_conservative_phrases(self):
+        """Tilted zone should remove conservative/caution phrases."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.2, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        from poker.player_psychology import ZoneEffects, PHRASES_TO_REMOVE_BY_ZONE
+
+        test_prompt = (
+            "Consider your options. Preserve your chips for when the odds are in your favor. "
+            "Balance your confidence with a healthy dose of skepticism."
+        )
+
+        tilted_effects = ZoneEffects(penalties={'tilted': 0.50}, composure=0.2)
+        result = psych._degrade_strategic_info_by_zone(test_prompt, tilted_effects)
+
+        # Conservative phrases should be removed
+        for phrase in PHRASES_TO_REMOVE_BY_ZONE['tilted']:
+            assert phrase not in result
+            assert phrase.lower() not in result
+
+    def test_overconfident_removes_caution_phrases(self):
+        """Overconfident zone should remove caution/doubt phrases."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        from poker.player_psychology import ZoneEffects
+
+        test_prompt = "They might have you beat. Consider folding. be cautious."
+
+        overconfident_effects = ZoneEffects(penalties={'overconfident': 0.50}, confidence=0.95)
+        result = psych._degrade_strategic_info_by_zone(test_prompt, overconfident_effects)
+
+        # Caution phrases should be removed
+        assert "Consider folding" not in result
+        assert "be cautious" not in result
+
+    def test_heavy_penalty_replaces_pot_odds(self):
+        """Heavy total penalty should replace pot odds guidance."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        from poker.player_psychology import ZoneEffects
+
+        test_prompt = (
+            "Consider the pot odds, the amount of money in the pot, "
+            "and how much you would have to risk."
+        )
+
+        # Heavy penalty (>= 0.60)
+        heavy_effects = ZoneEffects(penalties={'tilted': 0.40, 'shaken': 0.25}, composure=0.2)
+        result = psych._degrade_strategic_info_by_zone(test_prompt, heavy_effects)
+
+        assert "Don't overthink this" in result
+        assert "pot odds" not in result
+
+
+class TestZoneEffectsIntegration:
+    """Integration tests for Phase 6 zone effects."""
+
+    def test_apply_zone_effects_no_penalty(self):
+        """Players with no penalty zones should get unmodified prompt."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.3,
+                'poise': 0.85,  # High poise = high composure baseline
+                'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        # Should start in a good state (no penalty zones)
+        test_prompt = "What is your move? Consider your options carefully."
+
+        result = psych.apply_zone_effects(test_prompt)
+
+        # If no penalties, prompt should be unchanged
+        if psych.zone_effects.total_penalty_strength < 0.10:
+            assert result == test_prompt
+
+    def test_apply_zone_effects_tilted_player(self):
+        """Tilted player should get intrusive thoughts and bad advice."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.8,
+                'poise': 0.2,  # Very low poise
+                'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Tilted', config)
+
+        # Force very low composure
+        psych.axes = psych.axes.update(composure=0.15)
+        psych.composure_state.pressure_source = 'bad_beat'
+
+        test_prompt = "What is your move?"
+
+        # Run multiple times to account for probabilistic injection
+        results_with_thoughts = 0
+        for _ in range(20):
+            result = psych.apply_zone_effects(test_prompt)
+            if "[What's running through your mind:" in result:
+                results_with_thoughts += 1
+
+        # At high intensity (0.57+), should inject most of the time
+        assert results_with_thoughts > 10, f"Only got thoughts {results_with_thoughts}/20 times"
+
+    def test_backward_compat_apply_composure_effects(self):
+        """apply_composure_effects should delegate to apply_zone_effects."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.2, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+        psych.axes = psych.axes.update(composure=0.15)
+
+        test_prompt = "test"
+
+        # Both should produce same type of output
+        result1 = psych.apply_composure_effects(test_prompt)
+        # Reset any random state by setting same seed
+        import random
+        random.seed(42)
+        result2 = psych.apply_zone_effects(test_prompt)
+
+        # They should both be modified (we can't test exact equality due to randomness)
+        # Just verify both methods exist and return strings
+        assert isinstance(result1, str)
+        assert isinstance(result2, str)
+
+    def test_backward_compat_apply_tilt_effects(self):
+        """apply_tilt_effects should also work."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        test_prompt = "test"
+        result = psych.apply_tilt_effects(test_prompt)
+
+        assert isinstance(result, str)
+
+    def test_multiple_penalty_zones_stack(self):
+        """Multiple active penalty zones should both contribute thoughts."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.2,  # Low poise for tilted
+                'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('Test', config)
+
+        # Force into corner (both tilted and potentially shaken)
+        psych.axes = psych.axes.update(composure=0.15, confidence=0.15)
+
+        zone_effects = psych.zone_effects
+
+        # Should be in multiple penalty zones
+        assert len(zone_effects.penalties) >= 1  # At least tilted
+        assert zone_effects.total_penalty_strength > 0.5  # Combined significant

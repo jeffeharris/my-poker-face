@@ -32,6 +32,11 @@ from .emotional_state import (
 )
 from .range_guidance import get_player_archetype
 
+# Type hint for forward reference to PromptManager
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .prompt_manager import PromptManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,6 +116,86 @@ def _calculate_sensitivity(anchor: float, floor: float) -> float:
         Sensitivity multiplier (floor to 1.0)
     """
     return floor + (1.0 - floor) * anchor
+
+
+# === PHASE 7: ZONE BENEFITS SYSTEM ===
+
+
+@dataclass(frozen=True)
+class ZoneStrategy:
+    """
+    Strategy guidance for a sweet spot zone.
+
+    Each zone has multiple strategies that can be selected based on
+    zone strength and available context.
+    """
+    name: str                    # e.g., "gto_focus"
+    weight: float                # Selection probability (normalized)
+    template_key: str            # Key in decision.yaml
+    requires: List[str]          # Required context keys
+    min_strength: float = 0.25   # Minimum zone strength to activate
+
+
+@dataclass
+class ZoneContext:
+    """
+    Context data for zone-based strategy guidance.
+
+    Provides information needed to render zone templates.
+    """
+    # Available for all zones
+    opponent_stats: Optional[str] = None          # Summary of opponent tendencies
+    opponent_displayed_emotion: Optional[str] = None
+
+    # Poker Face specific
+    equity_vs_ranges: Optional[str] = None        # "Your equity: 58% vs their range"
+
+    # Aggro specific
+    opponent_analysis: Optional[str] = None       # "They fold to river bets 70%"
+    weak_player_note: Optional[str] = None        # "Player X seems rattled"
+
+    # Commanding specific
+    leverage_note: Optional[str] = None           # Stack-to-pot ratio context
+
+    def has(self, key: str) -> bool:
+        """Check if context key is available (not None)."""
+        return getattr(self, key, None) is not None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for template rendering."""
+        return {
+            'opponent_stats': self.opponent_stats or '',
+            'opponent_displayed_emotion': self.opponent_displayed_emotion or '',
+            'equity_vs_ranges': self.equity_vs_ranges or '',
+            'opponent_analysis': self.opponent_analysis or '',
+            'weak_player_note': self.weak_player_note or '',
+            'leverage_note': self.leverage_note or '',
+        }
+
+
+# Zone strategies for each sweet spot
+ZONE_STRATEGIES: Dict[str, List[ZoneStrategy]] = {
+    'poker_face': [
+        ZoneStrategy('gto_focus', 0.4, 'zone_poker_face_gto', requires=[]),
+        ZoneStrategy('balance_reminder', 0.3, 'zone_poker_face_balance', requires=[]),
+        ZoneStrategy('equity_analysis', 0.3, 'zone_poker_face_equity', requires=['equity_vs_ranges']),
+    ],
+    'guarded': [
+        ZoneStrategy('trap_opportunity', 0.4, 'zone_guarded_trap', requires=[]),
+        ZoneStrategy('patience_cue', 0.3, 'zone_guarded_patience', requires=[]),
+        ZoneStrategy('pot_control', 0.3, 'zone_guarded_control', requires=[]),
+    ],
+    'commanding': [
+        ZoneStrategy('value_extraction', 0.4, 'zone_commanding_value', requires=[]),
+        ZoneStrategy('pressure_point', 0.3, 'zone_commanding_pressure', requires=['opponent_stats']),
+        ZoneStrategy('initiative', 0.3, 'zone_commanding_initiative', requires=[]),
+    ],
+    'aggro': [
+        ZoneStrategy('heighten_awareness', 0.3, 'zone_aggro_awareness', requires=[]),
+        ZoneStrategy('analyze_behavior', 0.4, 'zone_aggro_analyze', requires=['opponent_analysis']),
+        ZoneStrategy('target_weak', 0.3, 'zone_aggro_target', requires=['weak_player_note']),
+    ],
+}
 
 
 # === PHASE 5: ZONE DETECTION SYSTEM ===
@@ -436,6 +521,113 @@ def get_zone_effects(confidence: float, composure: float, energy: float) -> Zone
         composure=composure,
         energy=energy,
     )
+
+
+# === PHASE 7: ZONE STRATEGY SELECTION ===
+
+
+def select_zone_strategy(
+    zone_name: str,
+    strength: float,
+    context: ZoneContext
+) -> Optional[ZoneStrategy]:
+    """
+    Select a strategy for the given zone.
+
+    1. Get strategies for zone
+    2. Filter by min_strength
+    3. Filter by requires (skip if context missing)
+    4. Weighted random selection from remaining
+
+    Args:
+        zone_name: Name of the sweet spot zone
+        strength: Zone strength (0.0 to 1.0)
+        context: ZoneContext with available data
+
+    Returns:
+        Selected ZoneStrategy or None if no eligible strategies
+    """
+    strategies = ZONE_STRATEGIES.get(zone_name, [])
+
+    # Filter by strength threshold
+    eligible = [s for s in strategies if strength >= s.min_strength]
+
+    # Filter by required context
+    eligible = [s for s in eligible if all(context.has(r) for r in s.requires)]
+
+    if not eligible:
+        return None
+
+    # Weighted random selection
+    weights = [s.weight for s in eligible]
+    total = sum(weights)
+    weights = [w / total for w in weights]  # normalize
+
+    return random.choices(eligible, weights=weights, k=1)[0]
+
+
+def build_zone_guidance(
+    zone_strengths: Dict[str, Any],
+    context: ZoneContext,
+    prompt_manager: 'PromptManager'
+) -> str:
+    """
+    Build zone guidance string from zone strengths and context.
+
+    1. Find primary sweet spot (highest strength > 0.1)
+    2. Select strategy for primary zone
+    3. Render template with context
+    4. Optionally add secondary zone hint
+
+    Args:
+        zone_strengths: Dict with 'sweet_spots' key containing zone->strength mapping
+        context: ZoneContext with available data
+        prompt_manager: PromptManager for template rendering
+
+    Returns:
+        Rendered zone guidance string, or empty string if no guidance
+    """
+    sweet_spots = zone_strengths.get('sweet_spots', {})
+
+    if not sweet_spots:
+        return ""  # No zone guidance
+
+    # Primary zone (highest strength)
+    primary_zone = max(sweet_spots.items(), key=lambda x: x[1])
+    zone_name, strength = primary_zone
+
+    if strength < 0.1:
+        return ""  # Too weak
+
+    # Select strategy
+    strategy = select_zone_strategy(zone_name, strength, context)
+    if not strategy:
+        return ""
+
+    # Render template
+    try:
+        template = prompt_manager.get_template('decision')
+        if strategy.template_key not in template.sections:
+            logger.warning(f"Zone template '{strategy.template_key}' not found")
+            return ""
+
+        template_content = template.sections[strategy.template_key]
+        guidance = template_content.format(**context.to_dict())
+    except KeyError as e:
+        logger.warning(f"Missing variable {e} in zone template '{strategy.template_key}'")
+        return ""
+    except Exception as e:
+        logger.warning(f"Error rendering zone template: {e}")
+        return ""
+
+    # Add secondary zone hint if applicable
+    secondary = [(n, s) for n, s in sweet_spots.items() if n != zone_name and s > 0.25]
+    if secondary:
+        sec_name, sec_strength = max(secondary, key=lambda x: x[1])
+        # Add hint to first line's bracket
+        guidance = guidance.replace(']', f' | {sec_name.replace("_", " ").title()} edge]', 1)
+
+    return guidance
 
 
 # === POKER FACE ZONE (Phase 3) ===
@@ -846,9 +1038,9 @@ def compute_modifiers(
 TRAIT_NAMES = ['tightness', 'aggression', 'confidence', 'composure', 'table_talk']
 
 
-# === Composure-based Prompt Modification (replaces TiltPromptModifier) ===
+# === PHASE 6: ZONE-BASED PROMPT MODIFICATION ===
 
-# Intrusive thoughts injected based on pressure source
+# Intrusive thoughts injected based on pressure source (TILTED zone)
 INTRUSIVE_THOUGHTS = {
     'bad_beat': [
         "You can't believe that river card. Unreal.",
@@ -887,7 +1079,144 @@ INTRUSIVE_THOUGHTS = {
     ],
 }
 
-# Strategy overrides for low composure players
+# Shaken zone thoughts - split by risk_identity
+SHAKEN_THOUGHTS = {
+    'risk_seeking': [
+        "All or nothing. Make a stand.",
+        "Go big or go home.",
+        "They can smell your fear - shock them.",
+        "If you're going down, make it spectacular.",
+    ],
+    'risk_averse': [
+        "Everything you do is wrong.",
+        "Just survive. Don't make it worse.",
+        "Wait for a miracle hand.",
+        "Every decision feels like a trap.",
+    ],
+}
+
+# Overheated zone thoughts (high confidence + low composure)
+OVERHEATED_THOUGHTS = [
+    "You're on FIRE. Keep the pressure on!",
+    "They can't handle you tonight. Push harder!",
+    "Why slow down when you're crushing?",
+    "Make them FEAR you.",
+    "Attack, attack, attack!",
+]
+
+# Overconfident zone thoughts (confidence > 0.90)
+OVERCONFIDENT_THOUGHTS = [
+    "There's no way they have it.",
+    "They're trying to bluff you off the best hand.",
+    "You read this perfectly. Stick with your read.",
+    "Folding here would be weak.",
+    "They're scared of you.",
+]
+
+# Detached zone thoughts (low confidence + high composure)
+DETACHED_THOUGHTS = [
+    "Is this really the spot? Probably not.",
+    "Better to wait for something clearer.",
+    "Don't get involved unnecessarily.",
+    "Why risk chips on a marginal spot?",
+]
+
+# Energy manifestation variants for thoughts
+ENERGY_THOUGHT_VARIANTS = {
+    'tilted': {
+        'low_energy': [
+            "Nothing ever goes your way.",
+            "Why even try?",
+            "Just fold and wait...",
+        ],
+        'high_energy': [
+            "Make them PAY for that!",
+            "You can't let them push you around!",
+            "Time to take control!",
+        ],
+    },
+    'shaken': {
+        'low_energy': [
+            "You're frozen. Can't make a move.",
+            "Everything is falling apart.",
+            "Just... don't do anything stupid.",
+        ],
+        'high_energy': [
+            "DO SOMETHING!",
+            "This is your last chance!",
+            "Now or never!",
+        ],
+    },
+    'overheated': {
+        'low_energy': [
+            "You've got this. Just keep pushing.",
+            "Stay aggressive.",
+        ],
+        'high_energy': [
+            "CRUSH THEM!",
+            "NO MERCY!",
+            "They're DONE!",
+        ],
+    },
+    'overconfident': {
+        'low_energy': [
+            "You've got this figured out.",
+            "Trust your read.",
+        ],
+        'high_energy': [
+            "They have NOTHING!",
+            "You're unbeatable right now!",
+            "This is too easy!",
+        ],
+    },
+    'detached': {
+        'low_energy': [
+            "Maybe just sit this one out...",
+            "Not worth the effort.",
+            "Whatever happens, happens.",
+        ],
+        'high_energy': [
+            "Stay disciplined. Wait for the right spot.",
+            "Don't force it.",
+        ],
+    },
+}
+
+# Zone-based strategy advice (bad advice for penalty zones)
+PENALTY_STRATEGY = {
+    'tilted': {
+        'mild': "You're feeling the pressure. Trust your gut more than the math.",
+        'moderate': "Forget the textbook plays. You need to make something happen.",
+        'severe': "Big hands or big bluffs - that's how you get back in this.",
+    },
+    'shaken_risk_seeking': {
+        'mild': "Time to make a stand.",
+        'moderate': "Go big or go home. Passive play won't save you.",
+        'severe': "All or nothing. Make it spectacular.",
+    },
+    'shaken_risk_averse': {
+        'mild': "Be careful. Every decision matters.",
+        'moderate': "Just survive. Don't make it worse.",
+        'severe': "Wait for a miracle. Don't force anything.",
+    },
+    'overheated': {
+        'mild': "You're running hot. Keep the pressure on.",
+        'moderate': "Attack, attack, attack. They can't handle you.",
+        'severe': "Why slow down? You can't lose tonight.",
+    },
+    'overconfident': {
+        'mild': "Trust your reads. You've been right all night.",
+        'moderate': "They're probably bluffing. Stick with your read.",
+        'severe': "Folding would be weak. You know you're ahead.",
+    },
+    'detached': {
+        'mild': "No need to rush. Better spots will come.",
+        'moderate': "Why risk chips on marginal spots?",
+        'severe': "Just wait. Don't get involved.",
+    },
+}
+
+# Legacy strategy overrides for backward compatibility
 COMPOSURE_STRATEGY = {
     'slightly_rattled': (
         "You're feeling the pressure. Trust your gut more than the math. "
@@ -903,6 +1232,67 @@ COMPOSURE_STRATEGY = {
         "Don't fold unless you have absolutely nothing."
     ),
 }
+
+# Phrases to remove by zone (degrade strategic info)
+PHRASES_TO_REMOVE_BY_ZONE = {
+    'tilted': [
+        "Preserve your chips for when the odds are in your favor",
+        "preserve your chips for stronger opportunities",
+        "remember that sometimes folding or checking is the best move",
+        "Balance your confidence with a healthy dose of skepticism",
+    ],
+    'overconfident': [
+        "They might have you beat",
+        "Respect their bet",
+        "Consider folding",
+        "be cautious",
+        "they could have",
+    ],
+    'overheated': [
+        "slow down",
+        "pot control",
+        "wait for a better spot",
+        "manage your risk",
+        "be patient",
+    ],
+    'detached': [
+        "attack",
+        "pressure",
+        "exploit",
+        "take the initiative",
+        "be aggressive",
+    ],
+    'shaken': [
+        "take your time",
+        "think it through",
+        "analyze",
+    ],
+}
+
+
+def _should_inject_thoughts(penalty_intensity: float) -> bool:
+    """
+    Determine if intrusive thoughts should be injected based on penalty intensity.
+
+    Probability scales with intensity, with a cliff at 75%+.
+    Minimum 10% ensures some chance even at low intensity.
+
+    Args:
+        penalty_intensity: Strength of the penalty zone (0.0 to 1.0)
+
+    Returns:
+        True if thoughts should be injected
+    """
+    if penalty_intensity <= 0:
+        return False
+    elif penalty_intensity >= 0.75:
+        return True  # Cliff - always inject
+    elif penalty_intensity >= 0.50:
+        return random.random() < 0.75
+    elif penalty_intensity >= 0.25:
+        return random.random() < 0.50
+    else:
+        return random.random() < 0.10  # Minimum 10%
 
 
 @dataclass
@@ -1680,64 +2070,145 @@ class PlayerPsychology:
 
         return self.emotional.to_prompt_section()
 
-    def apply_composure_effects(self, prompt: str) -> str:
+    def apply_zone_effects(self, prompt: str) -> str:
         """
-        Apply composure-based prompt modifications (replaces apply_tilt_effects).
+        Apply zone-based prompt modifications (Phase 6).
 
-        Composure thresholds:
-        - 0.8+: Focused - no modifications
-        - 0.6-0.8: Slightly rattled - intrusive thoughts
-        - 0.4-0.6: Rattled - degraded strategy + more thoughts
-        - <0.4: Tilted - heavy degradation
+        Uses zone detection from Phase 5 to apply penalty zone effects:
+        1. Inject intrusive thoughts (probabilistic)
+        2. Add bad advice (if penalty intensity >= 0.25)
+        3. Degrade strategic info (if penalty intensity >= 0.50)
 
         Args:
             prompt: Original prompt
 
         Returns:
-            Modified prompt with composure effects
+            Modified prompt with zone effects
         """
-        composure = self.composure
-        aggression = self.aggression
+        zone_effects = self.zone_effects
+        penalties = zone_effects.penalties
+        total_penalty = sum(penalties.values())
 
-        if composure >= 0.8:
-            return prompt  # Focused, no modifications
+        if total_penalty < 0.10:
+            return prompt  # No significant penalty, no modifications
 
         modified = prompt
 
-        # Inject intrusive thoughts (composure < 0.8)
-        modified = self._inject_intrusive_thoughts(modified, composure)
+        # 1. Inject intrusive thoughts (probabilistic)
+        modified = self._inject_zone_thoughts(modified, zone_effects)
 
-        # Add tilted strategy advice (composure < 0.6)
-        if composure < 0.6:
-            modified = self._add_composure_strategy(modified, composure)
+        # 2. Add bad advice (if penalty intensity >= 0.25)
+        if total_penalty >= 0.25:
+            modified = self._add_penalty_strategy(modified, zone_effects)
 
-        # Degrade strategic info (composure < 0.4)
-        if composure < 0.4:
-            modified = self._degrade_strategic_info(modified)
+        # 3. Degrade strategic info (if penalty intensity >= 0.50)
+        if total_penalty >= 0.50:
+            modified = self._degrade_strategic_info_by_zone(modified, zone_effects)
 
         # Add angry flair if low composure + high aggression
-        if composure < 0.4 and aggression > 0.6:
+        if self.composure < 0.4 and self.aggression > 0.6:
             modified = self._add_angry_modifier(modified)
 
         return modified
 
-    def apply_tilt_effects(self, prompt: str) -> str:
-        """Backward compatibility alias for apply_composure_effects."""
-        return self.apply_composure_effects(prompt)
+    def apply_composure_effects(self, prompt: str) -> str:
+        """
+        Apply composure-based prompt modifications.
 
-    def _inject_intrusive_thoughts(self, prompt: str, composure: float) -> str:
-        """Add intrusive thoughts based on pressure source."""
+        Phase 6: Now delegates to apply_zone_effects() for full zone awareness.
+        Kept for backward compatibility.
+
+        Args:
+            prompt: Original prompt
+
+        Returns:
+            Modified prompt with zone effects
+        """
+        return self.apply_zone_effects(prompt)
+
+    def apply_tilt_effects(self, prompt: str) -> str:
+        """Backward compatibility alias for apply_zone_effects."""
+        return self.apply_zone_effects(prompt)
+
+    def _get_zone_thoughts(
+        self,
+        zone_name: str,
+        manifestation: str,
+        intensity: float,
+    ) -> List[str]:
+        """
+        Get available intrusive thoughts for a penalty zone.
+
+        Args:
+            zone_name: Name of the penalty zone ('tilted', 'shaken', etc.)
+            manifestation: Energy manifestation ('low_energy', 'balanced', 'high_energy')
+            intensity: Zone intensity (0.0 to 1.0)
+
+        Returns:
+            List of thought strings to potentially sample from
+        """
         thoughts = []
 
-        source = self.composure_state.pressure_source or 'big_loss'
-        if source in INTRUSIVE_THOUGHTS:
-            # More thoughts with lower composure
-            num_thoughts = 1 if composure >= 0.5 else 2
-            available = INTRUSIVE_THOUGHTS[source]
-            thoughts.extend(random.sample(available, min(num_thoughts, len(available))))
+        if zone_name == 'tilted':
+            # Use pressure_source-based thoughts for tilted
+            source = self.composure_state.pressure_source or 'big_loss'
+            if source in INTRUSIVE_THOUGHTS:
+                thoughts.extend(INTRUSIVE_THOUGHTS[source])
 
-        # Add nemesis thoughts if severely rattled
-        if self.composure_state.nemesis and composure < 0.5:
+        elif zone_name == 'shaken':
+            # Split by risk_identity
+            if self.anchors.risk_identity > 0.5:
+                thoughts.extend(SHAKEN_THOUGHTS['risk_seeking'])
+            else:
+                thoughts.extend(SHAKEN_THOUGHTS['risk_averse'])
+
+        elif zone_name == 'overheated':
+            thoughts.extend(OVERHEATED_THOUGHTS)
+
+        elif zone_name == 'overconfident':
+            thoughts.extend(OVERCONFIDENT_THOUGHTS)
+
+        elif zone_name == 'detached':
+            thoughts.extend(DETACHED_THOUGHTS)
+
+        # Add energy manifestation variants if not balanced
+        if manifestation != 'balanced' and zone_name in ENERGY_THOUGHT_VARIANTS:
+            energy_thoughts = ENERGY_THOUGHT_VARIANTS[zone_name].get(manifestation, [])
+            thoughts.extend(energy_thoughts)
+
+        return thoughts
+
+    def _inject_zone_thoughts(self, prompt: str, zone_effects: ZoneEffects) -> str:
+        """
+        Add intrusive thoughts based on active penalty zones.
+
+        Uses probabilistic injection based on zone intensity.
+
+        Args:
+            prompt: Original prompt
+            zone_effects: ZoneEffects from zone detection
+
+        Returns:
+            Modified prompt with intrusive thoughts
+        """
+        thoughts = []
+        penalties = zone_effects.penalties
+        manifestation = zone_effects.manifestation
+
+        # For each active penalty zone, maybe add thoughts
+        for zone_name, intensity in penalties.items():
+            if not _should_inject_thoughts(intensity):
+                continue
+
+            zone_thoughts = self._get_zone_thoughts(zone_name, manifestation, intensity)
+            if zone_thoughts:
+                # More thoughts with higher intensity
+                num_thoughts = 1 if intensity < 0.5 else 2
+                sampled = random.sample(zone_thoughts, min(num_thoughts, len(zone_thoughts)))
+                thoughts.extend(sampled)
+
+        # Add nemesis thoughts if applicable
+        if self.composure_state.nemesis and any(p > 0.3 for p in penalties.values()):
             nemesis_thoughts = INTRUSIVE_THOUGHTS.get('nemesis', [])
             if nemesis_thoughts:
                 thought = random.choice(nemesis_thoughts).format(
@@ -1754,45 +2225,125 @@ class PlayerPsychology:
             return prompt.replace("What is your move", thought_block + "What is your move")
         return prompt + thought_block
 
-    def _add_composure_strategy(self, prompt: str, composure: float) -> str:
-        """Add tilted strategy advice based on composure level."""
-        if composure >= 0.6:
+    def _add_penalty_strategy(self, prompt: str, zone_effects: ZoneEffects) -> str:
+        """
+        Add bad advice based on active penalty zones.
+
+        Selects advice from the strongest penalty zone.
+
+        Args:
+            prompt: Original prompt
+            zone_effects: ZoneEffects from zone detection
+
+        Returns:
+            Modified prompt with bad strategy advice
+        """
+        penalties = zone_effects.penalties
+        if not penalties:
             return prompt
 
-        if composure >= 0.4:
-            advice = COMPOSURE_STRATEGY['slightly_rattled']
-        elif composure >= 0.2:
-            advice = COMPOSURE_STRATEGY['tilted']
+        # Get strongest penalty zone
+        strongest_zone = max(penalties, key=penalties.get)
+        intensity = penalties[strongest_zone]
+
+        if intensity < 0.25:
+            return prompt
+
+        # Determine severity tier
+        if intensity >= 0.70:
+            tier = 'severe'
+        elif intensity >= 0.40:
+            tier = 'moderate'
         else:
-            advice = COMPOSURE_STRATEGY['severely_tilted']
+            tier = 'mild'
 
-        return prompt + f"\n[Current mindset: {advice}]\n"
+        # Handle Shaken's risk_identity split
+        zone_key = strongest_zone
+        if strongest_zone == 'shaken':
+            if self.anchors.risk_identity > 0.5:
+                zone_key = 'shaken_risk_seeking'
+            else:
+                zone_key = 'shaken_risk_averse'
 
-    def _degrade_strategic_info(self, prompt: str) -> str:
-        """Remove or obscure strategic advice for severely tilted players."""
-        phrases_to_remove = [
-            "Preserve your chips for when the odds are in your favor",
-            "preserve your chips for stronger opportunities",
-            "remember that sometimes folding or checking is the best move",
-            "Balance your confidence with a healthy dose of skepticism",
-        ]
+        advice = PENALTY_STRATEGY.get(zone_key, {}).get(tier, '')
+        if advice:
+            return prompt + f"\n[Current mindset: {advice}]\n"
+        return prompt
 
+    def _degrade_strategic_info_by_zone(self, prompt: str, zone_effects: ZoneEffects) -> str:
+        """
+        Remove or obscure strategic advice based on active penalty zones.
+
+        Each penalty zone removes different types of advice.
+
+        Args:
+            prompt: Original prompt
+            zone_effects: ZoneEffects from zone detection
+
+        Returns:
+            Modified prompt with degraded strategic info
+        """
         modified = prompt
+        penalties = zone_effects.penalties
+
+        # Collect all phrases to remove from active penalty zones
+        phrases_to_remove = []
+        for zone_name, intensity in penalties.items():
+            if intensity >= 0.25:  # Only remove phrases if zone is significant
+                zone_phrases = PHRASES_TO_REMOVE_BY_ZONE.get(zone_name, [])
+                phrases_to_remove.extend(zone_phrases)
+
+        # Remove phrases
         for phrase in phrases_to_remove:
             modified = modified.replace(phrase, "")
             modified = modified.replace(phrase.lower(), "")
 
-        # Replace pot odds guidance
-        modified = modified.replace(
-            "Consider the pot odds, the amount of money in the pot, and how much you would have to risk.",
-            "Don't overthink this."
-        )
+        # Replace pot odds guidance if heavily penalized
+        total_penalty = sum(penalties.values())
+        if total_penalty >= 0.60:
+            modified = modified.replace(
+                "Consider the pot odds, the amount of money in the pot, and how much you would have to risk.",
+                "Don't overthink this."
+            )
 
         # Clean up whitespace
         modified = re.sub(r'\s+', ' ', modified)
         modified = re.sub(r'\s+([,.])', r'\1', modified)
 
         return modified
+
+    # Legacy method for backward compatibility
+    def _inject_intrusive_thoughts(self, prompt: str, composure: float) -> str:
+        """
+        Legacy method: Add intrusive thoughts based on composure level.
+
+        Deprecated in Phase 6. Use _inject_zone_thoughts() instead.
+        Kept for backward compatibility with tests.
+        """
+        zone_effects = self.zone_effects
+        return self._inject_zone_thoughts(prompt, zone_effects)
+
+    # Legacy method for backward compatibility
+    def _add_composure_strategy(self, prompt: str, composure: float) -> str:
+        """
+        Legacy method: Add tilted strategy advice.
+
+        Deprecated in Phase 6. Use _add_penalty_strategy() instead.
+        Kept for backward compatibility with tests.
+        """
+        zone_effects = self.zone_effects
+        return self._add_penalty_strategy(prompt, zone_effects)
+
+    # Legacy method for backward compatibility
+    def _degrade_strategic_info(self, prompt: str) -> str:
+        """
+        Legacy method: Remove strategic advice for severely tilted players.
+
+        Deprecated in Phase 6. Use _degrade_strategic_info_by_zone() instead.
+        Kept for backward compatibility with tests.
+        """
+        zone_effects = self.zone_effects
+        return self._degrade_strategic_info_by_zone(prompt, zone_effects)
 
     def _add_angry_modifier(self, prompt: str) -> str:
         """Add angry flair for low composure + high aggression."""

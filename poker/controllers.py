@@ -27,7 +27,7 @@ from .ai_resilience import (
     describe_response_error,
     FallbackActionSelector,
 )
-from .player_psychology import PlayerPsychology
+from .player_psychology import PlayerPsychology, ZoneContext, build_zone_guidance
 from .hand_narrator import narrate_hand_breakdown
 from .memory.commentary_generator import DecisionPlan
 from .minimal_prompt import (
@@ -1278,6 +1278,27 @@ class AIPlayerController:
                 include_tempo=True,
             )
 
+        # Phase 7: Add zone-based strategy guidance
+        zone_guidance = None
+        if self.prompt_config.zone_benefits and self.psychology:
+            # Find focal opponent (first active opponent, or strongest)
+            focal_opponent = None
+            active_opponents = [
+                p for p in game_state.players
+                if not p.is_folded and p.name != player.name
+            ]
+            if active_opponents:
+                focal_opponent = active_opponents[0]
+
+            # Build context and zone guidance
+            zone_context = self._build_zone_context(game_state, focal_opponent)
+            zone_effects = self.psychology.zone_effects
+            zone_guidance = build_zone_guidance(
+                zone_effects.to_dict(),
+                zone_context,
+                self.prompt_manager,
+            )
+
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         prompt = self.prompt_manager.render_decision_prompt(
             message=message,
@@ -1292,6 +1313,7 @@ class AIPlayerController:
             pot_odds_info=pot_odds_info,
             use_simple_response_format=self.prompt_config.use_simple_response_format,
             expression_guidance=expression_guidance,
+            zone_guidance=zone_guidance,
         )
 
         return (prompt, drama_context)
@@ -1680,6 +1702,64 @@ class AIPlayerController:
             guidance += "(The table has been quiet for a while)\n"
 
         return guidance
+
+    def _build_zone_context(self, game_state, focal_opponent=None) -> ZoneContext:
+        """
+        Build ZoneContext from game state and memory for zone-based strategy guidance.
+
+        Args:
+            game_state: Current game state
+            focal_opponent: Primary opponent to gather intel on (optional)
+
+        Returns:
+            ZoneContext with available data populated
+        """
+        context = ZoneContext()
+
+        # Get opponent's displayed emotion if available
+        if focal_opponent and hasattr(focal_opponent, '_controller'):
+            controller = focal_opponent._controller
+            if hasattr(controller, 'psychology') and controller.psychology:
+                context.opponent_displayed_emotion = controller.psychology.get_display_emotion()
+
+        # Add opponent stats if available from opponent model manager
+        if self.opponent_model_manager and focal_opponent:
+            opp_model = self.opponent_model_manager.get_model(self.player_name, focal_opponent.name)
+            if opp_model and opp_model.tendencies:
+                tendencies = opp_model.tendencies
+                fold_pct = getattr(tendencies, 'fold_frequency', None)
+                aggression = getattr(tendencies, 'aggression_factor', None)
+
+                # Build opponent stats string
+                if fold_pct is not None or aggression is not None:
+                    parts = []
+                    if fold_pct is not None:
+                        parts.append(f"folds {fold_pct:.0%}")
+                    if aggression is not None:
+                        parts.append(f"aggression {aggression:.1f}")
+                    context.opponent_stats = f"{focal_opponent.name}: {', '.join(parts)}"
+
+                # Build opponent analysis (more detailed) for Aggro zone
+                if hasattr(tendencies, 'to_dict'):
+                    stats = tendencies.to_dict()
+                    analysis_parts = []
+                    if stats.get('river_fold_to_bet'):
+                        analysis_parts.append(f"folds to river bets {stats['river_fold_to_bet']:.0%}")
+                    if stats.get('bluff_frequency'):
+                        analysis_parts.append(f"bluffs {stats['bluff_frequency']:.0%}")
+                    if analysis_parts:
+                        context.opponent_analysis = f"{focal_opponent.name} {', '.join(analysis_parts)}"
+
+        # Check for weak player based on displayed emotion
+        if context.opponent_displayed_emotion in ['nervous', 'shaken', 'panicking', 'shocked']:
+            if focal_opponent:
+                context.weak_player_note = f"{focal_opponent.name} appears {context.opponent_displayed_emotion}"
+
+        # Add equity vs ranges if available (stored during equity calculation)
+        if hasattr(self, '_equity_info') and self._equity_info:
+            context.equity_vs_ranges = self._equity_info
+
+        return context
 
 
 def human_player_action(ui_data: dict, player_options: List[str]) -> Dict:
