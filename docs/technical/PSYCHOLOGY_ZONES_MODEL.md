@@ -1154,6 +1154,85 @@ def build_zone_modified_prompt(
 
 ---
 
+## Energy and Zone Manifestations
+
+Energy (the 3rd axis) doesn't change which zone you're in for most zones - it changes **how the zone manifests**. Same core benefits/penalties, different flavor and expression.
+
+### Design Principle
+
+- **Zone (2D: Confidence × Composure)** → WHAT info/framing you get
+- **Energy** → HOW that zone manifests (flavor, tempo, expression)
+- **Poker Face** → Special case where energy affects zone **membership**
+
+### Sweet Spot Manifestations
+
+| Zone | Low Energy | Mid Energy | High Energy |
+|------|------------|------------|-------------|
+| **Poker Face** | Cold, robotic reads | Balanced, flow state | *Exits zone* (mask slips) |
+| **Guarded** | Withdrawn, fortress mode | Patient, watchful | Paranoid, over-cautious |
+| **Commanding** | Quiet dominance, intimidating silence | Assertive control | Aggressive dominance, table captain |
+| **Aggro** | Calculated predator, cold exploitation | Aggressive pressure | Manic attack mode |
+
+### Penalty Zone Manifestations
+
+| Zone | Low Energy | High Energy |
+|------|------------|-------------|
+| **Tilted** | Passive despair, folding spiral | Explosive spew, "I'll show them" |
+| **Shaken** | Frozen, deer in headlights | Panicking, erratic chaos |
+| **Overheated** | Simmering, coiled spring | Full manic, no brakes |
+| **Overconfident** | Lazy arrogance, "beneath me" | Loud arrogance, showboating |
+| **Detached** | Checked out, autopilot | *(High energy pulls you out of Detached)* |
+
+### Poker Face: The 3D Exception
+
+Poker Face is the **one zone** where energy affects membership, not just flavor. Maintaining a poker face requires emotional regulation - energy extremes break that control.
+
+```python
+# Poker Face zone membership (3D ellipsoid)
+POKER_FACE_CENTER = (0.52, 0.72, 0.45)  # (conf, comp, energy)
+POKER_FACE_RADII = (0.16, 0.16, 0.20)   # narrower on energy axis
+
+def in_poker_face_zone(conf, comp, energy) -> bool:
+    """Check if player is in Poker Face zone."""
+    dc = (conf - 0.52) / 0.16
+    dcomp = (comp - 0.72) / 0.16
+    de = (energy - 0.45) / 0.20
+    return (dc**2 + dcomp**2 + de**2) <= 1.0
+```
+
+**What happens at energy extremes:**
+- **Energy too high (> 0.65):** Mask slips → fall into adjacent 2D quadrant (likely Commanding or Aggro based on confidence)
+- **Energy too low (< 0.25):** Checked out → fall into Detached zone
+
+### Manifestation Effects
+
+| Aspect | Low Energy Flavor | High Energy Flavor |
+|--------|-------------------|-------------------|
+| **Intrusive thoughts** | Resignation-flavored ("Why bother...") | Aggression-flavored ("Make them pay!") |
+| **Tone** | Passive voice, withdrawn | Active voice, intense |
+| **Tempo guidance** | "Take your time, no rush" | "Quick, decisive action" |
+| **Talk style** | Terse, minimal speech | Verbose, emphatic declarations |
+
+### Implementation
+
+```python
+def get_zone_manifestation(energy: float) -> str:
+    """Returns manifestation flavor based on energy level."""
+    if energy < 0.35:
+        return "low_energy"
+    elif energy > 0.65:
+        return "high_energy"
+    else:
+        return "balanced"
+
+def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
+    """Returns flavor-specific modifiers for a zone."""
+    # Select different intrusive thoughts, tone, tempo based on manifestation
+    ...
+```
+
+---
+
 ## Summary Table
 
 | Zone | Type | Information Shown | Information Hidden | Tone | Intrusive Thoughts |
@@ -1196,6 +1275,7 @@ def build_zone_modified_prompt(
 5. **Formula reconciliation** - Complex blend with translation layer (0-1 input → 0.35-0.85 safe range)
 6. **Anchor caps** - Floor 0.35, ceiling 0.85 ensures no baseline lands in penalty zones
 7. **Zone benefits design** - What each zone shows/hides, intrusive thoughts, tone, blending rules (see Zone Benefits System section)
+8. **Energy (3rd dimension)** - Energy creates zone manifestations (flavor), not new zones. Poker Face is 3D (energy extremes break the mask). See Energy and Zone Manifestations section.
 
 ### Still Open (Implementation & Tuning)
 
@@ -1204,8 +1284,7 @@ def build_zone_modified_prompt(
 3. **Gravity strength tuning** - Is 0.03 the right balance? Needs simulation.
 4. **Asymmetric recovery constants** - Are 0.6/0.4/0.8 the right values? Needs simulation.
 5. **Trait weight tuning** - Are the confidence/composure blend weights correct? May need adjustment.
-6. **Energy (3rd dimension)** - How does Energy interact with the 2D zone model? (Deferred to Phase 2)
-7. **Difficulty settings relationship** - Game has difficulty settings that control what info is shown to players. Is the psychology system:
+6. **Difficulty settings relationship** - Game has difficulty settings that control what info is shown to players. Is the psychology system:
    - An **overlay** on top of difficulty (difficulty sets max info, psychology filters further)?
    - A **replacement** for difficulty (psychology IS the difficulty)?
    - A **separate sandbox setting** (another way to configure AI behavior)?
