@@ -1493,6 +1493,29 @@ class AIPlayerController:
                 snapshot['elastic_table_talk'] = traits.get('table_talk')
                 # Backward compatibility: also include old trait name if present
                 snapshot['elastic_bluff_tendency'] = traits.get('bluff_tendency')
+
+                # Zone detection data (Phase 10)
+                zone_effects = psych.zone_effects
+                snapshot['zone_confidence'] = zone_effects.confidence
+                snapshot['zone_composure'] = zone_effects.composure
+                snapshot['zone_energy'] = zone_effects.energy
+                snapshot['zone_manifestation'] = zone_effects.manifestation
+                snapshot['zone_sweet_spots_json'] = json.dumps(zone_effects.sweet_spots)
+                snapshot['zone_penalties_json'] = json.dumps(zone_effects.penalties)
+                snapshot['zone_primary_sweet_spot'] = zone_effects.primary_sweet_spot
+                snapshot['zone_primary_penalty'] = zone_effects.primary_penalty
+                snapshot['zone_total_penalty_strength'] = zone_effects.total_penalty_strength
+                snapshot['zone_in_neutral_territory'] = zone_effects.in_neutral_territory
+
+                # Zone effects instrumentation (Phase 10)
+                instr = getattr(psych, '_last_zone_effects_instrumentation', None)
+                if instr:
+                    snapshot['zone_intrusive_thoughts_injected'] = instr.get('intrusive_thoughts_injected')
+                    snapshot['zone_intrusive_thoughts_json'] = json.dumps(instr.get('intrusive_thoughts', []))
+                    snapshot['zone_penalty_strategy_applied'] = instr.get('penalty_strategy_applied')
+                    snapshot['zone_info_degraded'] = instr.get('info_degraded')
+                    snapshot['zone_strategy_selected'] = instr.get('strategy_selected')
+
                 psychology_snapshot = snapshot
 
             analyzer = get_analyzer()

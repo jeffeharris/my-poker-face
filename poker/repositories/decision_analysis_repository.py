@@ -49,8 +49,14 @@ class DecisionAnalysisRepository(BaseRepository):
                     elastic_tightness, elastic_confidence, elastic_composure, elastic_table_talk,
                     opponent_ranges_json, board_texture_json,
                     player_hand_canonical, player_hand_in_range, player_hand_tier, standard_range_pct,
+                    zone_confidence, zone_composure, zone_energy, zone_manifestation,
+                    zone_sweet_spots_json, zone_penalties_json,
+                    zone_primary_sweet_spot, zone_primary_penalty,
+                    zone_total_penalty_strength, zone_in_neutral_territory,
+                    zone_intrusive_thoughts_injected, zone_intrusive_thoughts_json,
+                    zone_penalty_strategy_applied, zone_info_degraded, zone_strategy_selected,
                     analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -97,6 +103,21 @@ class DecisionAnalysisRepository(BaseRepository):
                 data.get('player_hand_in_range'),
                 data.get('player_hand_tier'),
                 data.get('standard_range_pct'),
+                data.get('zone_confidence'),
+                data.get('zone_composure'),
+                data.get('zone_energy'),
+                data.get('zone_manifestation'),
+                data.get('zone_sweet_spots_json'),
+                data.get('zone_penalties_json'),
+                data.get('zone_primary_sweet_spot'),
+                data.get('zone_primary_penalty'),
+                data.get('zone_total_penalty_strength'),
+                data.get('zone_in_neutral_territory'),
+                data.get('zone_intrusive_thoughts_injected'),
+                data.get('zone_intrusive_thoughts_json'),
+                data.get('zone_penalty_strategy_applied'),
+                data.get('zone_info_degraded'),
+                data.get('zone_strategy_selected'),
                 data.get('analyzer_version'),
                 data.get('processing_time_ms'),
             ))

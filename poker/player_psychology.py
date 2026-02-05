@@ -40,6 +40,44 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# === BACKWARD COMPATIBILITY: ElasticPersonality shim ===
+# These classes provide backward compatibility with code expecting
+# controller.psychology.elastic (the old ElasticPersonality interface).
+# The new system uses anchors + axes instead.
+
+@dataclass
+class ElasticTraitCompat:
+    """
+    Backward-compatible trait interface for old ElasticPersonality consumers.
+
+    Provides the old trait interface: value, anchor, elasticity, pressure, min, max.
+    Maps from the new anchor/axes system.
+    """
+    value: float      # Current value (from axes or derived)
+    anchor: float     # Base value (from anchors)
+    elasticity: float = 0.3  # How much the trait can vary
+    pressure: float = 0.0    # Current pressure (value - anchor)
+    min: float = 0.0
+    max: float = 1.0
+
+
+@dataclass
+class ElasticPersonalityCompat:
+    """
+    Backward-compatible wrapper providing the old ElasticPersonality interface.
+
+    Maps the new PlayerPsychology (anchors + axes) to the old trait-based
+    interface expected by elasticity_service.py and game state emissions.
+    """
+    traits: Dict[str, ElasticTraitCompat]
+
+    def get_trait_value(self, trait_name: str) -> float:
+        """Get current value of a trait."""
+        if trait_name in self.traits:
+            return self.traits[trait_name].value
+        return 0.5  # Default neutral value
+
+
 # === PHASE 4: EVENT SENSITIVITY SYSTEM ===
 
 # Severity-based sensitivity floors
@@ -195,6 +233,34 @@ ZONE_STRATEGIES: Dict[str, List[ZoneStrategy]] = {
         ZoneStrategy('analyze_behavior', 0.4, 'zone_aggro_analyze', requires=['opponent_analysis']),
         ZoneStrategy('target_weak', 0.3, 'zone_aggro_target', requires=['weak_player_note']),
     ],
+}
+
+# === PHASE 8: ENERGY MANIFESTATION LABELS ===
+
+# Per-zone energy labels for header display
+# Each zone gets its own flavor for low/high energy states
+# 'balanced' energy uses no modifier (clean header)
+ENERGY_MANIFESTATION_LABELS = {
+    'poker_face': {
+        'low_energy': 'Measured',       # Deliberate, careful
+        'balanced': '',                  # No modifier
+        'high_energy': 'Running hot',   # Quick, instinctive
+    },
+    'guarded': {
+        'low_energy': 'Measured',       # Withdrawn, cautious
+        'balanced': '',
+        'high_energy': 'Alert',         # Watchful, ready to spring
+    },
+    'commanding': {
+        'low_energy': 'Composed',       # Calm dominance
+        'balanced': '',
+        'high_energy': 'Dominant',      # Aggressive control
+    },
+    'aggro': {
+        'low_energy': 'Watchful',       # Patient predator
+        'balanced': '',
+        'high_energy': 'Hunting',       # Active pursuit
+    },
 }
 
 
@@ -574,13 +640,19 @@ def build_zone_guidance(
     """
     Build zone guidance string from zone strengths and context.
 
+    Phase 8 enhancements:
+    - Energy-variant templates: tries _low/_high suffix based on manifestation
+    - Energy labels in header: [POKER FACE MODE | Running hot]
+
+    Steps:
     1. Find primary sweet spot (highest strength > 0.1)
     2. Select strategy for primary zone
-    3. Render template with context
-    4. Optionally add secondary zone hint
+    3. Try energy-variant template, fall back to base
+    4. Add energy label to header
+    5. Optionally add secondary zone hint
 
     Args:
-        zone_strengths: Dict with 'sweet_spots' key containing zone->strength mapping
+        zone_strengths: Dict with 'sweet_spots' and 'manifestation' keys
         context: ZoneContext with available data
         prompt_manager: PromptManager for template rendering
 
@@ -604,14 +676,31 @@ def build_zone_guidance(
     if not strategy:
         return ""
 
-    # Render template
+    # Get energy manifestation
+    manifestation = zone_strengths.get('manifestation', 'balanced')
+
+    # Render template - try energy variant first, fall back to base
     try:
         template = prompt_manager.get_template('decision')
-        if strategy.template_key not in template.sections:
-            logger.warning(f"Zone template '{strategy.template_key}' not found")
+        base_template_key = strategy.template_key
+
+        # Determine energy-variant template key
+        if manifestation == 'low_energy':
+            variant_key = f"{base_template_key}_low"
+        elif manifestation == 'high_energy':
+            variant_key = f"{base_template_key}_high"
+        else:
+            variant_key = base_template_key  # balanced uses base template
+
+        # Try variant, fall back to base
+        if variant_key in template.sections:
+            template_content = template.sections[variant_key]
+        elif base_template_key in template.sections:
+            template_content = template.sections[base_template_key]
+        else:
+            logger.warning(f"Zone template '{base_template_key}' not found")
             return ""
 
-        template_content = template.sections[strategy.template_key]
         guidance = template_content.format(**context.to_dict())
     except KeyError as e:
         logger.warning(f"Missing variable {e} in zone template '{strategy.template_key}'")
@@ -620,11 +709,18 @@ def build_zone_guidance(
         logger.warning(f"Error rendering zone template: {e}")
         return ""
 
+    # Add energy label to header if not already present and not balanced
+    zone_labels = ENERGY_MANIFESTATION_LABELS.get(zone_name, {})
+    energy_label = zone_labels.get(manifestation, '')
+    if energy_label and f'| {energy_label}]' not in guidance:
+        # Transform [POKER FACE MODE] → [POKER FACE MODE | Running hot]
+        guidance = guidance.replace(']', f' | {energy_label}]', 1)
+
     # Add secondary zone hint if applicable
     secondary = [(n, s) for n, s in sweet_spots.items() if n != zone_name and s > 0.25]
     if secondary:
         sec_name, sec_strength = max(secondary, key=lambda x: x[1])
-        # Add hint to first line's bracket
+        # Add hint to first line's bracket (after energy label if present)
         guidance = guidance.replace(']', f' | {sec_name.replace("_", " ").title()} edge]', 1)
 
     return guidance
@@ -2057,6 +2153,66 @@ class PlayerPsychology:
         """True if composure < 0.4 (emotional state should be overridden)."""
         return self.composure < 0.4
 
+    # === BACKWARD COMPATIBILITY: elastic property ===
+
+    @property
+    def elastic(self) -> ElasticPersonalityCompat:
+        """
+        Backward-compatible elastic property for old code expecting ElasticPersonality.
+
+        Maps the new anchor/axes system to the old 5-trait interface:
+        - tightness: from anchors.baseline_looseness (inverted)
+        - aggression: from effective_aggression (derived)
+        - confidence: from axes.confidence
+        - composure: from axes.composure
+        - table_talk: from anchors.expressiveness
+        """
+        # Map new system to old traits
+        traits = {
+            'tightness': ElasticTraitCompat(
+                value=1.0 - self.effective_looseness,  # Inverted looseness
+                anchor=1.0 - self.anchors.baseline_looseness,
+                elasticity=0.3,
+                pressure=(1.0 - self.effective_looseness) - (1.0 - self.anchors.baseline_looseness),
+            ),
+            'aggression': ElasticTraitCompat(
+                value=self.effective_aggression,
+                anchor=self.anchors.baseline_aggression,
+                elasticity=0.5,
+                pressure=self.effective_aggression - self.anchors.baseline_aggression,
+            ),
+            'confidence': ElasticTraitCompat(
+                value=self.axes.confidence,
+                anchor=self._baseline_confidence,
+                elasticity=0.4,
+                pressure=self.axes.confidence - self._baseline_confidence,
+            ),
+            'composure': ElasticTraitCompat(
+                value=self.axes.composure,
+                anchor=self._baseline_composure,
+                elasticity=0.4,
+                pressure=self.axes.composure - self._baseline_composure,
+            ),
+            'table_talk': ElasticTraitCompat(
+                value=self.anchors.expressiveness,  # Static in new system
+                anchor=self.anchors.expressiveness,
+                elasticity=0.6,
+                pressure=0.0,
+            ),
+        }
+        return ElasticPersonalityCompat(traits=traits)
+
+    @elastic.setter
+    def elastic(self, value: Any) -> None:
+        """
+        Allow setting elastic for backward compatibility with game restoration.
+
+        Ignores the value since the new system doesn't use ElasticPersonality.
+        The relevant state is already in axes and anchors.
+        """
+        # Log that we're ignoring this (old saved games might try to restore it)
+        logger.debug(f"Ignoring elastic setter for {self.player_name} - using axes/anchors system")
+
     # === PROMPT BUILDING ===
 
     def get_prompt_section(self) -> str:
@@ -2079,6 +2235,8 @@ class PlayerPsychology:
         2. Add bad advice (if penalty intensity >= 0.25)
         3. Degrade strategic info (if penalty intensity >= 0.50)
 
+        Also stores instrumentation data for experiment analysis (Phase 10).
+
         Args:
             prompt: Original prompt
 
@@ -2089,25 +2247,45 @@ class PlayerPsychology:
         penalties = zone_effects.penalties
         total_penalty = sum(penalties.values())
 
+        # Initialize instrumentation tracking
+        instrumentation = {
+            'intrusive_thoughts_injected': False,
+            'intrusive_thoughts': [],
+            'penalty_strategy_applied': None,
+            'info_degraded': False,
+            'strategy_selected': None,
+        }
+
         if total_penalty < 0.10:
+            # Store empty instrumentation for low penalty
+            self._last_zone_effects_instrumentation = instrumentation
             return prompt  # No significant penalty, no modifications
 
         modified = prompt
 
         # 1. Inject intrusive thoughts (probabilistic)
-        modified = self._inject_zone_thoughts(modified, zone_effects)
+        modified, injected_thoughts = self._inject_zone_thoughts_instrumented(modified, zone_effects)
+        if injected_thoughts:
+            instrumentation['intrusive_thoughts_injected'] = True
+            instrumentation['intrusive_thoughts'] = injected_thoughts
 
         # 2. Add bad advice (if penalty intensity >= 0.25)
         if total_penalty >= 0.25:
-            modified = self._add_penalty_strategy(modified, zone_effects)
+            modified, strategy_text = self._add_penalty_strategy_instrumented(modified, zone_effects)
+            if strategy_text:
+                instrumentation['penalty_strategy_applied'] = strategy_text
 
         # 3. Degrade strategic info (if penalty intensity >= 0.50)
         if total_penalty >= 0.50:
-            modified = self._degrade_strategic_info_by_zone(modified, zone_effects)
+            modified, was_degraded = self._degrade_strategic_info_by_zone_instrumented(modified, zone_effects)
+            instrumentation['info_degraded'] = was_degraded
 
         # Add angry flair if low composure + high aggression
         if self.composure < 0.4 and self.aggression > 0.6:
             modified = self._add_angry_modifier(modified)
+
+        # Store instrumentation for snapshot capture
+        self._last_zone_effects_instrumentation = instrumentation
 
         return modified
 
@@ -2191,6 +2369,22 @@ class PlayerPsychology:
         Returns:
             Modified prompt with intrusive thoughts
         """
+        modified, _ = self._inject_zone_thoughts_instrumented(prompt, zone_effects)
+        return modified
+
+    def _inject_zone_thoughts_instrumented(
+        self, prompt: str, zone_effects: ZoneEffects
+    ) -> Tuple[str, List[str]]:
+        """
+        Add intrusive thoughts with instrumentation tracking.
+
+        Args:
+            prompt: Original prompt
+            zone_effects: ZoneEffects from zone detection
+
+        Returns:
+            Tuple of (modified_prompt, list_of_injected_thoughts)
+        """
         thoughts = []
         penalties = zone_effects.penalties
         manifestation = zone_effects.manifestation
@@ -2217,19 +2411,21 @@ class PlayerPsychology:
                 thoughts.append(thought)
 
         if not thoughts:
-            return prompt
+            return prompt, []
 
         thought_block = "\n\n[What's running through your mind: " + " ".join(thoughts) + "]\n"
 
         if "What is your move" in prompt:
-            return prompt.replace("What is your move", thought_block + "What is your move")
-        return prompt + thought_block
+            return prompt.replace("What is your move", thought_block + "What is your move"), thoughts
+        return prompt + thought_block, thoughts
 
     def _add_penalty_strategy(self, prompt: str, zone_effects: ZoneEffects) -> str:
         """
         Add bad advice based on active penalty zones.
 
-        Selects advice from the strongest penalty zone.
+        Phase 8: Energy flavor added to bad advice.
+        - High energy: More intense punctuation (! instead of .)
+        - Low energy: Withdrawn flavor ("whatever...", "who cares")
 
         Args:
             prompt: Original prompt
@@ -2238,16 +2434,32 @@ class PlayerPsychology:
         Returns:
             Modified prompt with bad strategy advice
         """
+        modified, _ = self._add_penalty_strategy_instrumented(prompt, zone_effects)
+        return modified
+
+    def _add_penalty_strategy_instrumented(
+        self, prompt: str, zone_effects: ZoneEffects
+    ) -> Tuple[str, Optional[str]]:
+        """
+        Add bad advice with instrumentation tracking.
+
+        Args:
+            prompt: Original prompt
+            zone_effects: ZoneEffects from zone detection
+
+        Returns:
+            Tuple of (modified_prompt, strategy_text_if_applied)
+        """
         penalties = zone_effects.penalties
         if not penalties:
-            return prompt
+            return prompt, None
 
         # Get strongest penalty zone
         strongest_zone = max(penalties, key=penalties.get)
         intensity = penalties[strongest_zone]
 
         if intensity < 0.25:
-            return prompt
+            return prompt, None
 
         # Determine severity tier
         if intensity >= 0.70:
@@ -2267,8 +2479,18 @@ class PlayerPsychology:
 
         advice = PENALTY_STRATEGY.get(zone_key, {}).get(tier, '')
         if advice:
-            return prompt + f"\n[Current mindset: {advice}]\n"
-        return prompt
+            # Phase 8: Add energy flavor
+            manifestation = zone_effects.manifestation
+            if manifestation == 'high_energy':
+                # High energy: more intense punctuation
+                advice = advice.replace('.', '!')
+            elif manifestation == 'low_energy':
+                # Low energy: withdrawn flavor
+                suffixes = [" Whatever.", " Who cares.", " ..."]
+                advice = advice.rstrip('.') + random.choice(suffixes)
+
+            return prompt + f"\n[Current mindset: {advice}]\n", advice
+        return prompt, None
 
     def _degrade_strategic_info_by_zone(self, prompt: str, zone_effects: ZoneEffects) -> str:
         """
@@ -2283,6 +2505,22 @@ class PlayerPsychology:
         Returns:
             Modified prompt with degraded strategic info
         """
+        modified, _ = self._degrade_strategic_info_by_zone_instrumented(prompt, zone_effects)
+        return modified
+
+    def _degrade_strategic_info_by_zone_instrumented(
+        self, prompt: str, zone_effects: ZoneEffects
+    ) -> Tuple[str, bool]:
+        """
+        Remove strategic advice with instrumentation tracking.
+
+        Args:
+            prompt: Original prompt
+            zone_effects: ZoneEffects from zone detection
+
+        Returns:
+            Tuple of (modified_prompt, was_info_degraded)
+        """
         modified = prompt
         penalties = zone_effects.penalties
 
@@ -2293,24 +2531,29 @@ class PlayerPsychology:
                 zone_phrases = PHRASES_TO_REMOVE_BY_ZONE.get(zone_name, [])
                 phrases_to_remove.extend(zone_phrases)
 
+        # Track if we actually removed anything
+        was_degraded = False
+
         # Remove phrases
         for phrase in phrases_to_remove:
+            if phrase in modified or phrase.lower() in modified:
+                was_degraded = True
             modified = modified.replace(phrase, "")
             modified = modified.replace(phrase.lower(), "")
 
         # Replace pot odds guidance if heavily penalized
         total_penalty = sum(penalties.values())
         if total_penalty >= 0.60:
-            modified = modified.replace(
-                "Consider the pot odds, the amount of money in the pot, and how much you would have to risk.",
-                "Don't overthink this."
-            )
+            pot_odds_text = "Consider the pot odds, the amount of money in the pot, and how much you would have to risk."
+            if pot_odds_text in modified:
+                was_degraded = True
+            modified = modified.replace(pot_odds_text, "Don't overthink this.")
 
         # Clean up whitespace
         modified = re.sub(r'\s+', ' ', modified)
         modified = re.sub(r'\s+([,.])', r'\1', modified)
 
-        return modified
+        return modified, was_degraded
 
     # Legacy method for backward compatibility
     def _inject_intrusive_thoughts(self, prompt: str, composure: float) -> str:

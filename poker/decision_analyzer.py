@@ -143,6 +143,25 @@ class DecisionAnalysis:
     player_hand_tier: Optional[str] = None        # "premium", "strong", ..., "trash"
     standard_range_pct: Optional[float] = None    # Expected range % for position (e.g., 15)
 
+    # Zone detection snapshot (v71)
+    zone_confidence: Optional[float] = None       # Confidence value at decision time
+    zone_composure: Optional[float] = None        # Composure value at decision time
+    zone_energy: Optional[float] = None           # Energy value at decision time
+    zone_manifestation: Optional[str] = None      # 'low_energy', 'balanced', 'high_energy'
+    zone_sweet_spots_json: Optional[str] = None   # JSON: {"poker_face": 0.8, ...}
+    zone_penalties_json: Optional[str] = None     # JSON: {"tilted": 0.3, ...}
+    zone_primary_sweet_spot: Optional[str] = None # Dominant sweet spot zone
+    zone_primary_penalty: Optional[str] = None    # Dominant penalty zone
+    zone_total_penalty_strength: Optional[float] = None  # Sum of penalty intensities
+    zone_in_neutral_territory: Optional[bool] = None     # Not in any zone
+
+    # Zone effects tracking (v71)
+    zone_intrusive_thoughts_injected: Optional[bool] = None   # Were thoughts added?
+    zone_intrusive_thoughts_json: Optional[str] = None        # JSON list of injected thoughts
+    zone_penalty_strategy_applied: Optional[str] = None       # Bad advice string if added
+    zone_info_degraded: Optional[bool] = None                 # Was strategic info removed?
+    zone_strategy_selected: Optional[str] = None              # Sweet spot strategy template key
+
     # Metadata
     analyzer_version: str = "1.0"
     processing_time_ms: Optional[int] = None
@@ -288,6 +307,25 @@ class DecisionAnalyzer:
             analysis.elastic_confidence = psychology_snapshot.get('elastic_confidence')
             analysis.elastic_composure = psychology_snapshot.get('elastic_composure')
             analysis.elastic_table_talk = psychology_snapshot.get('elastic_table_talk')
+
+            # Zone detection snapshot (Phase 10)
+            analysis.zone_confidence = psychology_snapshot.get('zone_confidence')
+            analysis.zone_composure = psychology_snapshot.get('zone_composure')
+            analysis.zone_energy = psychology_snapshot.get('zone_energy')
+            analysis.zone_manifestation = psychology_snapshot.get('zone_manifestation')
+            analysis.zone_sweet_spots_json = psychology_snapshot.get('zone_sweet_spots_json')
+            analysis.zone_penalties_json = psychology_snapshot.get('zone_penalties_json')
+            analysis.zone_primary_sweet_spot = psychology_snapshot.get('zone_primary_sweet_spot')
+            analysis.zone_primary_penalty = psychology_snapshot.get('zone_primary_penalty')
+            analysis.zone_total_penalty_strength = psychology_snapshot.get('zone_total_penalty_strength')
+            analysis.zone_in_neutral_territory = psychology_snapshot.get('zone_in_neutral_territory')
+
+            # Zone effects instrumentation (Phase 10)
+            analysis.zone_intrusive_thoughts_injected = psychology_snapshot.get('zone_intrusive_thoughts_injected')
+            analysis.zone_intrusive_thoughts_json = psychology_snapshot.get('zone_intrusive_thoughts_json')
+            analysis.zone_penalty_strategy_applied = psychology_snapshot.get('zone_penalty_strategy_applied')
+            analysis.zone_info_degraded = psychology_snapshot.get('zone_info_degraded')
+            analysis.zone_strategy_selected = psychology_snapshot.get('zone_strategy_selected')
 
         # Calculate hand strength if we have cards
         if player_hand and community_cards:
