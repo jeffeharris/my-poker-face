@@ -23,6 +23,7 @@ import { useGameStore } from '../../stores/gameStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { useCoach } from '../../hooks/useCoach';
+import { NON_BETTING_PHASES } from '../../constants/gamePhases';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
@@ -93,6 +94,7 @@ export function MobilePokerTable({
   const bettingContext = useGameStore(state => state.bettingContext);
   const newlyDealtCount = useGameStore(state => state.newlyDealtCount);
   const awaitingAction = useGameStore(state => state.awaitingAction);
+  const runItOut = useGameStore(state => state.runItOut);
 
   // Non-game-state from the hook (socket, overlays, actions)
   const {
@@ -151,6 +153,10 @@ export function MobilePokerTable({
   const currentPlayer = storePlayers?.[currentPlayerIdx];
   const humanPlayer = storePlayers?.find(p => p.is_human);
   const isShowdown = phase?.toLowerCase() === 'showdown';
+
+  // Don't highlight active player during run-out or non-betting phases
+  const shouldHighlightActivePlayer = !runItOut &&
+    !NON_BETTING_PHASES.includes(phase as typeof NON_BETTING_PHASES[number]);
 
   // Card animation hook - handles dealing, exit animations, transforms
   const {
@@ -388,7 +394,8 @@ export function MobilePokerTable({
       <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`} data-testid="mobile-opponents" ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
           const opponentIdx = storePlayers.findIndex(p => p.name === opponent.name);
-          const isCurrentPlayer = opponentIdx === currentPlayerIdx;
+          // Use shouldHighlightActivePlayer to suppress highlighting during run-out/evaluation
+          const isCurrentPlayer = shouldHighlightActivePlayer && opponentIdx === currentPlayerIdx;
           const isDealer = opponentIdx === dealerIdx;
 
           return (

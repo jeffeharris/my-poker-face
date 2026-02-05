@@ -13,6 +13,7 @@ import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { logger } from '../../../utils/logger';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
+import { NON_BETTING_PHASES } from '../../../constants/gamePhases';
 import type { Player } from '../../../types/player';
 import '../../../styles/action-badges.css';
 import './PokerTable.css';
@@ -131,7 +132,12 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   const isHumanDealer = humanPlayerIndex === gameState?.current_dealer_idx;
   const isHumanSmallBlind = humanPlayerIndex === gameState?.small_blind_idx;
   const isHumanBigBlind = humanPlayerIndex === gameState?.big_blind_idx;
-  const isHumanCurrentPlayer = humanPlayerIndex === gameState?.current_player_idx;
+
+  // Don't highlight active player during run-out or non-betting phases
+  const shouldHighlightActivePlayer = !gameState?.run_it_out &&
+    !NON_BETTING_PHASES.includes(gameState?.phase as typeof NON_BETTING_PHASES[number]);
+  const isHumanCurrentPlayer = shouldHighlightActivePlayer &&
+    humanPlayerIndex === gameState?.current_player_idx;
 
   if (error) {
     return (
@@ -283,7 +289,9 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                 const isDealer = playerIndex === gameState.current_dealer_idx;
                 const isSmallBlind = playerIndex === gameState.small_blind_idx;
                 const isBigBlind = playerIndex === gameState.big_blind_idx;
-                const isCurrentPlayer = playerIndex === gameState.current_player_idx;
+                // Use shouldHighlightActivePlayer to suppress highlighting during run-out/evaluation
+                const isCurrentPlayer = shouldHighlightActivePlayer &&
+                  playerIndex === gameState.current_player_idx;
 
                 // Compute avatar state: swap to "thinking" when AI is processing
                 const isAiThinking = isCurrentPlayer && aiThinking && !player.is_human;

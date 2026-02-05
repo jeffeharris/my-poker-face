@@ -325,7 +325,12 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state_dict['small_blind_idx'] = game_state.small_blind_idx
     game_state_dict['big_blind_idx'] = game_state.big_blind_idx
     game_state_dict['highest_bet'] = game_state.highest_bet
-    game_state_dict['player_options'] = [] if game_state.run_it_out else (list(game_state.current_player_options) if game_state.current_player_options else [])
+    # Clear player options during run-it-out or non-betting phases (no actions possible)
+    state_machine = current_game_data['state_machine']
+    should_clear_options = game_state.run_it_out or state_machine.current_phase in (
+        PokerPhase.EVALUATING_HAND, PokerPhase.HAND_OVER, PokerPhase.SHOWDOWN, PokerPhase.GAME_OVER
+    )
+    game_state_dict['player_options'] = [] if should_clear_options else (list(game_state.current_player_options) if game_state.current_player_options else [])
     game_state_dict['min_raise'] = game_state.min_raise_amount
     game_state_dict['big_blind'] = game_state.current_ante
     game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
@@ -1192,15 +1197,25 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         if hasattr(controller, 'psychology') and controller.psychology:
             controller.psychology.recover(recovery_rate=0.1)
 
+    # Clear hole cards and emit state to trigger frontend exit animation
+    # This ensures old card values are removed before new cards are dealt
+    cleared_players = tuple(p.update(hand=()) for p in game_state.players)
+    cleared_game_state = game_state.update(players=cleared_players)
+    state_machine.game_state = cleared_game_state
+    state_machine.current_phase = PokerPhase.HAND_OVER
+    game_data['state_machine'] = state_machine
+    game_state_service.set_game(game_id, game_data)
+    update_and_emit_game_state(game_id)
+
+    # Brief delay for frontend to process cleared state and start exit animation
+    socketio.sleep(0.15 * config.ANIMATION_SPEED)
+
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
     # Reset card announcement and run-out reaction tracking for new hand
     game_data['last_announced_phase'] = None
     game_data.pop('runout_reaction_schedule', None)
     game_data.pop('runout_emotion_overrides', None)
-    # Sync chip updates to state machine before advancing
-    state_machine.game_state = game_state
-    state_machine.current_phase = PokerPhase.HAND_OVER
 
     # Advance to next hand - run until player action needed (deals cards, posts blinds)
     state_machine.run_until_player_action()
