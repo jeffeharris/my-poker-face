@@ -200,7 +200,7 @@ export function useCoach({
     } catch {
       /* non-critical */
     }
-  }, [gameId, mode, fetchProgression]);
+  }, [gameId, mode, fetchProgression, setFeedbackPrompt]);
 
   const fetchProactiveTip = useCallback(async () => {
     if (!gameId) return;
