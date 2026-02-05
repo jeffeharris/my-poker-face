@@ -178,6 +178,9 @@
     /* Use flex-start to allow full scrolling, center via auto margins on pseudo-elements */
     justify-content: flex-start;
     box-sizing: border-box;
+    /* Keep avatars visible above interhand transition (z-index 100) but below winner overlay (1000) */
+    position: relative;
+    z-index: var(--z-sticky); /* 150 */
 }
 
 /* Spacers that auto-expand to center content when it fits, collapse when it overflows */
