@@ -19,7 +19,6 @@ from poker.poker_state_machine import PokerPhase
 from poker.hand_evaluator import HandEvaluator
 from .avatar_handler import get_avatar_url_with_fallback
 from poker.player_psychology import ComposureState
-from poker.elasticity_manager import ElasticPersonality
 from poker.emotional_state import EmotionalState
 from poker.runout_reactions import compute_runout_reactions
 from poker.equity_tracker import EquityTracker
@@ -239,8 +238,7 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
                     # Fallback: reconstruct from old separate states (if they exist)
                     if ctrl_state.get('tilt_state'):
                         controller.psychology.tilt = ComposureState.from_tilt_state(ctrl_state['tilt_state'])
-                    if ctrl_state.get('elastic_personality'):
-                        controller.psychology.elastic = ElasticPersonality.from_dict(ctrl_state['elastic_personality'])
+                    # Note: elastic_personality is deprecated - new system uses anchors/axes
                     if player.name in emotional_states:
                         controller.psychology.emotional = EmotionalState.from_dict(emotional_states[player.name])
 
@@ -905,10 +903,10 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
 
         for name, controller in ai_controllers.items():
-            memory_manager.apply_learned_adjustments(
-                name,
-                controller.psychology.elastic
-            )
+            # Note: apply_learned_adjustments expects old ElasticPersonality
+            # The new psychology system (v2.1) handles adaptation differently
+            # Pass None to skip adjustment (function handles None gracefully)
+            memory_manager.apply_learned_adjustments(name, None)
     except Exception as e:
         logger.warning(f"Commentary generation failed: {e}")
 

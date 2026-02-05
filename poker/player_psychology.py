@@ -949,31 +949,6 @@ class PersonalityAnchors:
             recovery_rate=float(data.get('recovery_rate', 0.15)),
         )
 
-    @classmethod
-    def from_legacy_traits(cls, traits: Dict[str, float]) -> 'PersonalityAnchors':
-        """
-        Convert legacy 5-trait model to 9-anchor model.
-
-        Legacy traits: tightness, aggression, confidence, composure, table_talk
-        """
-        tightness = traits.get('tightness', 0.5)
-        aggression = traits.get('aggression', 0.5)
-        confidence = traits.get('confidence', 0.5)
-        composure = traits.get('composure', 0.7)
-        table_talk = traits.get('table_talk', 0.5)
-
-        return cls(
-            baseline_aggression=aggression,
-            baseline_looseness=1.0 - tightness,  # Invert tightness to looseness
-            ego=1.0 - confidence * 0.5,  # High confidence → lower ego sensitivity
-            poise=composure,
-            expressiveness=table_talk * 0.8,
-            risk_identity=0.3 + aggression * 0.4,  # Aggressive players more risk-seeking
-            adaptation_bias=0.5,
-            baseline_energy=table_talk,
-            recovery_rate=0.15,
-        )
-
 
 @dataclass
 class EmotionalAxes:
@@ -1565,18 +1540,14 @@ class PlayerPsychology:
         """
         Create PlayerPsychology from a personality configuration.
 
-        Supports both:
-        - New 9-anchor format (config['anchors'])
-        - Legacy 5-trait format (config['personality_traits']) - auto-converted
+        Requires 9-anchor format (config['anchors']).
+        Falls back to defaults if anchors not found (with warning).
         """
-        # Check for new anchor format first
         if 'anchors' in config:
             anchors = PersonalityAnchors.from_dict(config['anchors'])
-        elif 'personality_traits' in config:
-            # Legacy 5-trait format - convert to anchors
-            anchors = PersonalityAnchors.from_legacy_traits(config['personality_traits'])
         else:
-            # Default anchors
+            # Missing anchors - use defaults and warn
+            logger.warning(f"Personality '{name}' missing anchors - using defaults. Run seed_personalities.py --force to fix.")
             anchors = PersonalityAnchors(
                 baseline_aggression=0.5,
                 baseline_looseness=0.3,

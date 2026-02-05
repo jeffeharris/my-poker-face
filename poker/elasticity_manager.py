@@ -56,7 +56,13 @@ def get_default_elasticity_config() -> Dict[str, Any]:
 
 
 def convert_old_to_new_traits(old_traits: Dict[str, float]) -> Dict[str, float]:
-    """Convert 4-trait model to 5-trait poker-native model."""
+    """Convert 4-trait model to 5-trait poker-native model.
+
+    Derives composure from traits to create personality differentiation:
+    - Lower chattiness → higher composure (stoic types)
+    - Lower aggression → higher composure (calm types)
+    - Lower bluff_tendency → higher composure (straightforward types)
+    """
     bluff = old_traits.get('bluff_tendency', 0.5)
     agg = old_traits.get('aggression', 0.5)
     chat = old_traits.get('chattiness', 0.5)
@@ -67,11 +73,15 @@ def convert_old_to_new_traits(old_traits: Dict[str, float]) -> Dict[str, float]:
     confidence = 0.5 + agg * 0.2 + bluff * 0.1
     table_talk = chat * 0.8 + emoji * 0.2
 
+    # Derive composure: calmer personalities (low chat, low aggression) have higher composure
+    # Range: ~0.45 (high chat + high agg) to ~0.85 (low chat + low agg)
+    composure = 0.85 - chat * 0.25 - agg * 0.15
+
     return {
         'tightness': round(max(0, min(1, tightness)), 2),
         'aggression': round(max(0, min(1, agg)), 2),
         'confidence': round(max(0, min(1, confidence)), 2),
-        'composure': 0.7,
+        'composure': round(max(0, min(1, composure)), 2),
         'table_talk': round(max(0, min(1, table_talk)), 2),
     }
 
