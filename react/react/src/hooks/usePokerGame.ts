@@ -113,6 +113,7 @@ export function usePokerGame({
   const refreshGameStateRef = useRef<(gId: string, silent?: boolean) => Promise<boolean>>(() => Promise.resolve(false));
   const aiThinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gameIdRef = useRef<string | null>(null);
+  const lastErrorRefreshRef = useRef<number>(0);
 
   // State buffer for card animation gating
   // Use refs (not useState) because socket callbacks capture values at registration time,
@@ -496,13 +497,17 @@ export function usePokerGame({
       setGuestLimitReached(true);
     });
 
-    socket.on('game_error', (data: { error: string; details: string; recoverable: boolean }) => {
-      logger.error(`Game error: ${data.error}`, data.details);
+    socket.on('game_error', (data: { error: string; details?: string; recoverable: boolean }) => {
+      logger.error(`Game error: ${data.error}`, data.details ?? '');
       toast.error(data.error);
 
       if (data.recoverable) {
-        const gId = gameIdRef.current;
-        if (gId) refreshGameStateRef.current(gId, true);
+        const now = Date.now();
+        if (now - lastErrorRefreshRef.current > 5000) {
+          lastErrorRefreshRef.current = now;
+          const gId = gameIdRef.current;
+          if (gId) refreshGameStateRef.current(gId, true);
+        }
       }
     });
 

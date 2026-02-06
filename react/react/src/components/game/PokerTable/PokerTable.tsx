@@ -135,7 +135,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
 
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
   const phase = gameState?.phase;
-  const shouldHighlightActivePlayer = isBettingPhase(phase, gameState?.run_it_out ?? false);
+  const shouldHighlightActivePlayer = isBettingPhase(phase, gameState?.run_it_out);
   const isHumanCurrentPlayer = shouldHighlightActivePlayer &&
     humanPlayerIndex === gameState?.current_player_idx;
 
@@ -289,7 +289,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                 const isDealer = playerIndex === gameState.current_dealer_idx;
                 const isSmallBlind = playerIndex === gameState.small_blind_idx;
                 const isBigBlind = playerIndex === gameState.big_blind_idx;
-                // Use shouldHighlightActivePlayer to suppress highlighting during run-out/evaluation
                 const isCurrentPlayer = shouldHighlightActivePlayer &&
                   playerIndex === gameState.current_player_idx;
 

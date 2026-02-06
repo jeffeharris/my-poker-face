@@ -81,15 +81,14 @@ describe('InterhandTransition', () => {
       expect(screen.queryByText('Next Hand')).toBeNull();
     });
 
-    it('does not display hand badge when handNumber is 0 (falsy)', async () => {
-      // Note: The component uses {handNumber && ...} which treats 0 as falsy
+    it('does not display hand badge when handNumber is 0', async () => {
       render(<InterhandTransition isVisible={true} handNumber={0} />);
 
       await act(async () => {
         vi.advanceTimersByTime(100);
       });
 
-      // handNumber=0 is falsy so badge should not appear
+      // handNumber=0 means no hand played yet, badge should not appear
       expect(screen.queryByText('Next Hand')).toBeNull();
     });
   });

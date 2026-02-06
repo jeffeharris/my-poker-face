@@ -11,7 +11,7 @@ And NOT cleared during normal betting phases (PRE_FLOP, FLOP, TURN, RIVER).
 """
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from poker.poker_game import Player, PokerGameState
 from poker.poker_state_machine import PokerPhase
@@ -100,7 +100,6 @@ class TestShouldClearOptions(unittest.TestCase):
         """Options should NOT be cleared during RIVER betting phase."""
         game_data = create_mock_game_data(PokerPhase.RIVER)
         self.assertFalse(compute_should_clear_options(game_data))
-
 
 
 if __name__ == '__main__':

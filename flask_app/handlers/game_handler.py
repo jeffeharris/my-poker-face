@@ -1210,7 +1210,6 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         logger.error(f"Failed to clear hole cards for game {game_id}: {e}", exc_info=True)
         socketio.emit('game_error', {
             'error': 'Failed to transition between hands',
-            'details': str(e),
             'recoverable': True
         }, to=game_id)
         return game_state, False  # Early return to prevent corrupted state
@@ -1238,7 +1237,6 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         logger.error(f"Failed to advance to next hand for game {game_id}: {e}", exc_info=True)
         socketio.emit('game_error', {
             'error': 'Failed to start new hand',
-            'details': str(e),
             'recoverable': True
         }, to=game_id)
         return game_state, False

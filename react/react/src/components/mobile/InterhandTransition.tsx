@@ -88,7 +88,7 @@ export const InterhandTransition = memo(function InterhandTransition({
           </div>
 
           {/* Hand number badge */}
-          {handNumber && (
+          {handNumber != null && handNumber > 0 && (
             <div className="hand-badge">
               <span className="badge-label">Next Hand</span>
               <span className="badge-number">#{handNumber + 1}</span>

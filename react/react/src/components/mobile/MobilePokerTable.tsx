@@ -394,7 +394,6 @@ export function MobilePokerTable({
       <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`} data-testid="mobile-opponents" ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
           const opponentIdx = storePlayers.findIndex(p => p.name === opponent.name);
-          // Use shouldHighlightActivePlayer to suppress highlighting during run-out/evaluation
           const isCurrentPlayer = shouldHighlightActivePlayer && opponentIdx === currentPlayerIdx;
           const isDealer = opponentIdx === dealerIdx;
 
