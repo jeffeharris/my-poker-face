@@ -6,6 +6,8 @@ import { mockGamePageRoutes, navigateToGamePage, buildGameState } from '../helpe
  * Verifies that action buttons and active player highlighting are properly
  * suppressed during non-betting phases (EVALUATING_HAND, HAND_OVER, etc.)
  * and during run-it-out sequences.
+ *
+ * NOTE: Phase strings must match PokerPhase enum names from the backend.
  */
 test.describe('End-of-hand UI flow', () => {
 
@@ -157,6 +159,67 @@ test.describe('End-of-hand UI flow', () => {
       // Batman (index 1) should have the thinking class during normal play
       const thinkingOpponents = page.locator('.mobile-opponent.thinking');
       await expect(thinkingOpponents).toHaveCount(1);
+    });
+
+  });
+
+  test.describe('InterhandTransition visibility', () => {
+
+    test('InterhandTransition visible during HAND_OVER phase', async ({ page }) => {
+      const gameState = buildGameState([], {
+        phase: 'HAND_OVER',
+        player_options: [],
+        hand_number: 5,
+      });
+      const ctx = await mockGamePageRoutes(page, { gameState });
+      await navigateToGamePage(page, { mockContext: ctx });
+
+      // InterhandTransition should be visible during HAND_OVER
+      const transition = page.getByTestId('interhand-transition');
+      await expect(transition).toBeVisible();
+    });
+
+    test('InterhandTransition NOT visible during betting phases', async ({ page }) => {
+      const gameState = buildGameState(['fold', 'call', 'raise'], {
+        phase: 'PRE_FLOP',
+        run_it_out: false,
+      });
+      const ctx = await mockGamePageRoutes(page, { gameState });
+      await navigateToGamePage(page, { mockContext: ctx });
+
+      // InterhandTransition should NOT be visible during normal betting
+      const transition = page.getByTestId('interhand-transition');
+      await expect(transition).not.toBeVisible();
+    });
+
+    test('InterhandTransition NOT visible during EVALUATING_HAND phase', async ({ page }) => {
+      const gameState = buildGameState([], {
+        phase: 'EVALUATING_HAND',
+        player_options: [],
+      });
+      const ctx = await mockGamePageRoutes(page, { gameState });
+      await navigateToGamePage(page, { mockContext: ctx });
+
+      // InterhandTransition should NOT be visible during evaluation (only during HAND_OVER)
+      const transition = page.getByTestId('interhand-transition');
+      await expect(transition).not.toBeVisible();
+    });
+
+    test('InterhandTransition shows hand number during HAND_OVER', async ({ page }) => {
+      const gameState = buildGameState([], {
+        phase: 'HAND_OVER',
+        player_options: [],
+        hand_number: 5,
+      });
+      const ctx = await mockGamePageRoutes(page, { gameState });
+      await navigateToGamePage(page, { mockContext: ctx });
+
+      // Wait for content visibility delay
+      await page.waitForTimeout(150);
+
+      // Should show "Next Hand" label and hand number #6 (5 + 1)
+      await expect(page.getByText('Next Hand')).toBeVisible();
+      await expect(page.getByText('#6')).toBeVisible();
     });
 
   });

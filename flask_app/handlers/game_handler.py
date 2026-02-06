@@ -326,16 +326,13 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state_dict['big_blind_idx'] = game_state.big_blind_idx
     game_state_dict['highest_bet'] = game_state.highest_bet
     # Clear player options during run-it-out or non-betting phases (no actions possible)
+    from poker.game_helpers import should_clear_player_options
     state_machine = current_game_data.get('state_machine')
-    should_clear_options = game_state.run_it_out or (
-        state_machine and state_machine.current_phase in (
-            PokerPhase.EVALUATING_HAND, PokerPhase.HAND_OVER, PokerPhase.SHOWDOWN, PokerPhase.GAME_OVER
-        )
-    )
-    game_state_dict['player_options'] = [] if should_clear_options else (list(game_state.current_player_options) if game_state.current_player_options else [])
+    should_clear = should_clear_player_options(game_state, state_machine)
+    game_state_dict['player_options'] = [] if should_clear else (list(game_state.current_player_options) if game_state.current_player_options else [])
     game_state_dict['min_raise'] = game_state.min_raise_amount
     game_state_dict['big_blind'] = game_state.current_ante
-    game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
+    game_state_dict['phase'] = current_game_data['state_machine'].current_phase.name
     memory_manager = current_game_data.get('memory_manager')
     game_state_dict['hand_number'] = memory_manager.hand_count if memory_manager else 0
 
@@ -1211,6 +1208,12 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         update_and_emit_game_state(game_id)
     except Exception as e:
         logger.error(f"Failed to clear hole cards for game {game_id}: {e}")
+        socketio.emit('game_error', {
+            'error': 'Failed to transition between hands',
+            'details': str(e),
+            'recoverable': True
+        }, to=game_id)
+        return game_state, False  # Early return to prevent corrupted state
 
     # Brief delay for frontend to process cleared state and start exit animation
     try:
@@ -1233,7 +1236,12 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         update_and_emit_game_state(game_id)
     except Exception as e:
         logger.error(f"Failed to advance to next hand for game {game_id}: {e}")
-        update_and_emit_game_state(game_id)  # Emit current state so frontend isn't stuck
+        socketio.emit('game_error', {
+            'error': 'Failed to start new hand',
+            'details': str(e),
+            'recoverable': True
+        }, to=game_id)
+        # Don't emit potentially corrupted state - let frontend refresh
 
     # Start recording new hand AFTER cards are dealt
     if 'memory_manager' in game_data:

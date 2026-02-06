@@ -110,6 +110,7 @@ export function usePokerGame({
   const [queuedAction, setQueuedAction] = useState<QueuedAction>(null);
   const queuedActionRef = useRef<QueuedAction>(null);
   const handlePlayerActionRef = useRef<(action: string, amount?: number) => Promise<void>>(() => Promise.resolve());
+  const refreshGameStateRef = useRef<(gId: string, silent?: boolean) => Promise<boolean>>(() => Promise.resolve(false));
   const aiThinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gameIdRef = useRef<string | null>(null);
 
@@ -495,6 +496,16 @@ export function usePokerGame({
       setGuestLimitReached(true);
     });
 
+    socket.on('game_error', (data: { error: string; details: string; recoverable: boolean }) => {
+      logger.error(`Game error: ${data.error}`, data.details);
+      toast.error(data.error);
+
+      if (data.recoverable) {
+        const gId = gameIdRef.current;
+        if (gId) refreshGameStateRef.current(gId, true);
+      }
+    });
+
     socket.on('rate_limited', (data: { event: string; message: string }) => {
       logger.warn(`Rate limited: ${data.event}`);
       toast.error(data.message);
@@ -579,6 +590,9 @@ export function usePokerGame({
       return false;
     }
   }, [clearAiThinkingTimeout, applyGameState, resetBuffer]);
+
+  // Keep ref in sync for socket callback access
+  refreshGameStateRef.current = refreshGameState;
 
   const createSocket = useCallback((gId: string) => {
     const socket = io(config.SOCKET_URL, {

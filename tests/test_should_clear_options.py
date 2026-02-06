@@ -14,7 +14,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from poker.poker_game import Player, PokerGameState
-from poker.poker_state_machine import PokerPhase, ImmutableStateMachine
+from poker.poker_state_machine import PokerPhase
+from poker.game_helpers import should_clear_player_options
 
 
 def create_mock_game_data(phase: PokerPhase, run_it_out: bool = False):
@@ -42,20 +43,13 @@ def create_mock_game_data(phase: PokerPhase, run_it_out: bool = False):
 
 
 def compute_should_clear_options(game_data: dict) -> bool:
-    """
-    Replicate the should_clear_options logic from game_handler.py.
+    """Test wrapper for should_clear_player_options.
 
-    This mirrors the logic at game_handler.py:328-332 for testing purposes.
+    Uses the shared implementation from poker.game_helpers.
     """
     game_state = game_data['game_state']
     state_machine = game_data.get('state_machine')
-    should_clear_options = game_state.run_it_out or (
-        state_machine and state_machine.current_phase in (
-            PokerPhase.EVALUATING_HAND, PokerPhase.HAND_OVER,
-            PokerPhase.SHOWDOWN, PokerPhase.GAME_OVER
-        )
-    )
-    return should_clear_options
+    return should_clear_player_options(game_state, state_machine)
 
 
 class TestShouldClearOptions(unittest.TestCase):
