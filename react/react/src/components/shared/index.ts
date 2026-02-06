@@ -35,7 +35,7 @@ export type { ThemedSelectProps } from './ThemedSelect';
 export { UserDropdown } from './UserDropdown';
 export type { UserDropdownProps } from './UserDropdown';
 
-export { LoadingOverlay } from './LoadingOverlay';
+export { ShuffleLoading } from './ShuffleLoading';
 
 export { ActionBadge } from './ActionBadge';
 export type { ActionBadgeProps } from './ActionBadge';

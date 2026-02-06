@@ -175,7 +175,7 @@ test.describe('End-of-hand UI flow', () => {
       await navigateToGamePage(page, { mockContext: ctx });
 
       // InterhandTransition should be visible during HAND_OVER
-      const transition = page.getByTestId('interhand-transition');
+      const transition = page.getByTestId('shuffle-loading');
       await expect(transition).toBeVisible();
     });
 
@@ -188,7 +188,7 @@ test.describe('End-of-hand UI flow', () => {
       await navigateToGamePage(page, { mockContext: ctx });
 
       // InterhandTransition should NOT be visible during normal betting
-      const transition = page.getByTestId('interhand-transition');
+      const transition = page.getByTestId('shuffle-loading');
       await expect(transition).not.toBeVisible();
     });
 
@@ -201,7 +201,7 @@ test.describe('End-of-hand UI flow', () => {
       await navigateToGamePage(page, { mockContext: ctx });
 
       // InterhandTransition should NOT be visible during evaluation (only during HAND_OVER)
-      const transition = page.getByTestId('interhand-transition');
+      const transition = page.getByTestId('shuffle-loading');
       await expect(transition).not.toBeVisible();
     });
 

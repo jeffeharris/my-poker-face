@@ -8,7 +8,7 @@ import { GamePage } from './components/game/GamePage'
 import { useAuth } from './hooks/useAuth'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { useUsageStats } from './hooks/useUsageStats'
-import { LoadingOverlay, GuestLimitModal } from './components/shared'
+import { ShuffleLoading, GuestLimitModal } from './components/shared'
 import { logger } from './utils/logger'
 import { config } from './config'
 import { type Theme } from './types/theme'
@@ -411,8 +411,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
       {/* Loading Overlay - blocks all interaction during game creation */}
       {isCreatingGame && (
-        <LoadingOverlay
-          message="Setting up your game..."
+        <ShuffleLoading
+          isVisible={true}
+          message="Setting up your game"
           submessage={loadingSubmessage}
         />
       )}

@@ -1,15 +1,35 @@
 /* ===========================================
-   INTERHAND TRANSITION
-   Premium atmospheric transition between hands
-   Evokes the satisfying ritual of a casino shuffle
+   SHUFFLE LOADING
+   Premium shuffle-deck animation for all loading states.
 
-   Split into two layers:
-   - Dim layer (z-index 50) - BELOW avatars
-   - Content layer (z-index 150) - ABOVE avatars
+   Two variants:
+   - overlay: single full-screen layer at z-overlay
+   - interhand: two-layer split (dim z-50, content z-150)
    =========================================== */
 
+/* --- OVERLAY VARIANT (single layer) --- */
+.shuffle-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: radial-gradient(
+    ellipse 120% 100% at 50% 40%,
+    rgba(15, 17, 24, 0.92) 0%,
+    rgba(5, 5, 8, 0.97) 60%,
+    rgba(0, 0, 0, 0.98) 100%
+  );
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: shuffleLoadingFadeIn 0.4s ease-out;
+}
+
+/* --- INTERHAND VARIANT (two layers) --- */
+
 /* LAYER 1: Dim background - sits BELOW avatars */
-.interhand-dim {
+.shuffle-loading-dim {
   position: fixed;
   inset: 0;
   z-index: 50;
@@ -19,12 +39,12 @@
     rgba(5, 5, 8, 0.94) 60%,
     rgba(0, 0, 0, 0.96) 100%
   );
-  animation: transitionFadeIn 0.4s ease-out;
+  animation: shuffleLoadingFadeIn 0.4s ease-out;
   overflow: hidden;
 }
 
 /* LAYER 2: Content - sits ABOVE avatars */
-.interhand-content-layer {
+.shuffle-loading-content-layer {
   position: fixed;
   inset: 0;
   z-index: var(--z-sticky); /* 150 */
@@ -33,83 +53,23 @@
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  animation: transitionFadeIn 0.4s ease-out;
+  animation: shuffleLoadingFadeIn 0.4s ease-out;
 }
 
-.interhand-content-layer .interhand-content {
+.shuffle-loading-content-layer .shuffle-loading-content {
   pointer-events: auto;
 }
 
-@keyframes transitionFadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-/* ===========================================
-   AMBIENT PARTICLES
-   Floating golden dust motes for atmosphere
-   =========================================== */
-
-.interhand-ambient {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.ambient-particle {
-  position: absolute;
-  width: 3px;
-  height: 3px;
-  background: radial-gradient(
-    circle,
-    rgba(212, 165, 116, 0.8) 0%,
-    rgba(212, 165, 116, 0) 70%
-  );
-  border-radius: 50%;
-  opacity: 0;
-  animation: particleFloat 4s ease-in-out infinite;
-  animation-delay: calc(var(--particle-index) * 0.3s);
-}
-
-/* Distribute particles across the screen */
-.ambient-particle:nth-child(1) { left: 15%; top: 20%; }
-.ambient-particle:nth-child(2) { left: 80%; top: 15%; }
-.ambient-particle:nth-child(3) { left: 25%; top: 70%; }
-.ambient-particle:nth-child(4) { left: 70%; top: 65%; }
-.ambient-particle:nth-child(5) { left: 10%; top: 45%; }
-.ambient-particle:nth-child(6) { left: 85%; top: 40%; }
-.ambient-particle:nth-child(7) { left: 45%; top: 10%; }
-.ambient-particle:nth-child(8) { left: 55%; top: 85%; }
-.ambient-particle:nth-child(9) { left: 35%; top: 35%; }
-.ambient-particle:nth-child(10) { left: 65%; top: 55%; }
-.ambient-particle:nth-child(11) { left: 20%; top: 80%; }
-.ambient-particle:nth-child(12) { left: 90%; top: 75%; }
-
-@keyframes particleFloat {
-  0%, 100% {
-    opacity: 0;
-    transform: translateY(0) scale(0.5);
-  }
-  20% {
-    opacity: 0.6;
-    transform: translateY(-10px) scale(1);
-  }
-  80% {
-    opacity: 0.4;
-    transform: translateY(-30px) scale(0.8);
-  }
+@keyframes shuffleLoadingFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ===========================================
    MAIN CONTENT AREA
    =========================================== */
 
-.interhand-content {
+.shuffle-loading-content {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -119,7 +79,7 @@
   transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.interhand-content.visible {
+.shuffle-loading-content.visible {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
@@ -129,14 +89,14 @@
    Card backs riffle and settle
    =========================================== */
 
-.shuffle-deck {
+.shuffle-loading-deck {
   position: relative;
   width: 80px;
   height: 112px;
   perspective: 800px;
 }
 
-.shuffle-card {
+.shuffle-loading-card {
   position: absolute;
   width: 100%;
   height: 100%;
@@ -151,13 +111,13 @@
     0 2px 8px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 rgba(255, 255, 255, 0.03);
   transform-origin: center center;
-  animation: shuffleRiffle 1.6s ease-in-out infinite;
+  animation: shuffleLoadingRiffle 1.6s ease-in-out infinite;
   animation-delay: var(--card-delay);
   overflow: hidden;
 }
 
 /* Card back pattern - classic diamond pattern */
-.card-back-pattern {
+.shuffle-loading-card-back {
   position: absolute;
   inset: 4px;
   border: 1px solid rgba(212, 165, 116, 0.12);
@@ -174,7 +134,7 @@
   );
 }
 
-.pattern-diamond {
+.shuffle-loading-diamond {
   width: 24px;
   height: 24px;
   border: 2px solid rgba(212, 165, 116, 0.25);
@@ -182,14 +142,14 @@
   position: absolute;
 }
 
-.pattern-diamond.secondary {
+.shuffle-loading-diamond.secondary {
   width: 14px;
   height: 14px;
   border-color: rgba(212, 165, 116, 0.15);
 }
 
 /* Riffle shuffle animation - cards fan out and back */
-@keyframes shuffleRiffle {
+@keyframes shuffleLoadingRiffle {
   0%, 100% {
     transform:
       translateX(var(--card-offset-x))
@@ -226,16 +186,16 @@
 
 /* ===========================================
    STATUS TEXT
-   "Shuffling..." with animated dots
+   Message with shimmer and animated dots
    =========================================== */
 
-.interhand-status {
+.shuffle-loading-status {
   display: flex;
   align-items: baseline;
   gap: 4px;
 }
 
-.status-text {
+.shuffle-loading-text {
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: var(--font-weight-semibold);
@@ -251,38 +211,34 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: textShimmer 2.5s ease-in-out infinite;
+  animation: shuffleLoadingShimmer 2.5s ease-in-out infinite;
 }
 
-@keyframes textShimmer {
-  0%, 100% {
-    background-position: 100% 50%;
-  }
-  50% {
-    background-position: 0% 50%;
-  }
+@keyframes shuffleLoadingShimmer {
+  0%, 100% { background-position: 100% 50%; }
+  50% { background-position: 0% 50%; }
 }
 
-.status-dots {
+.shuffle-loading-dots {
   display: flex;
   gap: 3px;
   padding-bottom: 4px;
 }
 
-.status-dots .dot {
+.shuffle-loading-dots .dot {
   width: 4px;
   height: 4px;
   border-radius: 50%;
   background: var(--color-gold);
   opacity: 0.4;
-  animation: dotPulse 1.4s ease-in-out infinite;
+  animation: shuffleLoadingDotPulse 1.4s ease-in-out infinite;
 }
 
-.status-dots .dot:nth-child(1) { animation-delay: 0s; }
-.status-dots .dot:nth-child(2) { animation-delay: 0.15s; }
-.status-dots .dot:nth-child(3) { animation-delay: 0.3s; }
+.shuffle-loading-dots .dot:nth-child(1) { animation-delay: 0s; }
+.shuffle-loading-dots .dot:nth-child(2) { animation-delay: 0.15s; }
+.shuffle-loading-dots .dot:nth-child(3) { animation-delay: 0.3s; }
 
-@keyframes dotPulse {
+@keyframes shuffleLoadingDotPulse {
   0%, 60%, 100% {
     opacity: 0.3;
     transform: scale(1);
@@ -294,11 +250,24 @@
 }
 
 /* ===========================================
-   HAND NUMBER BADGE
-   Shows upcoming hand number
+   SUBMESSAGE
    =========================================== */
 
-.hand-badge {
+.shuffle-loading-submessage {
+  font-family: var(--font-body);
+  font-size: var(--font-size-md);
+  color: var(--color-text-tertiary);
+  margin: -16px 0 0 0;
+  text-align: center;
+  max-width: 300px;
+}
+
+/* ===========================================
+   HAND NUMBER BADGE
+   Shows upcoming hand number (interhand variant)
+   =========================================== */
+
+.shuffle-loading-badge {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -307,10 +276,10 @@
   background: rgba(212, 165, 116, 0.06);
   border: 1px solid rgba(212, 165, 116, 0.12);
   border-radius: var(--radius-xl);
-  animation: badgeFadeIn 0.6s ease-out 0.3s both;
+  animation: shuffleLoadingBadgeFadeIn 0.6s ease-out 0.3s both;
 }
 
-@keyframes badgeFadeIn {
+@keyframes shuffleLoadingBadgeFadeIn {
   from {
     opacity: 0;
     transform: translateY(8px);
@@ -321,7 +290,7 @@
   }
 }
 
-.badge-label {
+.shuffle-loading-badge-label {
   font-family: var(--font-body);
   font-size: 11px;
   font-weight: var(--font-weight-medium);
@@ -330,7 +299,7 @@
   color: var(--color-text-tertiary);
 }
 
-.badge-number {
+.shuffle-loading-badge-number {
   font-family: var(--font-mono);
   font-size: 18px;
   font-weight: var(--font-weight-bold);
@@ -340,10 +309,10 @@
 
 /* ===========================================
    VIGNETTE OVERLAY
-   Subtle edge darkening for depth
+   Subtle edge darkening for depth (interhand only)
    =========================================== */
 
-.interhand-vignette {
+.shuffle-loading-vignette {
   position: absolute;
   inset: 0;
   background: radial-gradient(

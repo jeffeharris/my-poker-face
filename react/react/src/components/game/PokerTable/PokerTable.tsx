@@ -9,6 +9,7 @@ import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
+import { ShuffleLoading } from '../../shared/ShuffleLoading';
 import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { logger } from '../../../utils/logger';
 import { config } from '../../../config';
@@ -168,17 +169,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   if (loading) {
     return (
       <div className="poker-table">
-        <div className="initial-loading">
-          <div className="loading-card-fan">
-            {['♠', '♥', '♦', '♣'].map((suit, i) => (
-              <div key={i} className={`loading-card card-${i}`}>
-                <span className="suit">{suit}</span>
-              </div>
-            ))}
-          </div>
-          <h2>Setting up the table...</h2>
-          <p>Shuffling cards and gathering players</p>
-        </div>
+        <ShuffleLoading isVisible={true} message="Setting up the table" submessage="Shuffling cards and gathering players" />
       </div>
     );
   }

@@ -10,7 +10,7 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
-import { InterhandTransition } from './InterhandTransition';
+import { ShuffleLoading } from '../shared/ShuffleLoading';
 import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
@@ -346,16 +346,7 @@ export function MobilePokerTable({
   // If we have game state but are disconnected, we'll show a reconnecting overlay instead
   if (loading && !storePlayers) {
     return (
-      <div className="mobile-poker-table mobile-loading" data-testid="mobile-loading">
-        <div className="mobile-loading-content">
-          <div className="loading-cards">
-            {['♠', '♥', '♦', '♣'].map((suit, i) => (
-              <div key={i} className={`loading-card suit-${i}`}>{suit}</div>
-            ))}
-          </div>
-          <p>Setting up the table...</p>
-        </div>
-      </div>
+      <ShuffleLoading isVisible={true} message="Setting up the table" />
     );
   }
 
@@ -674,9 +665,11 @@ export function MobilePokerTable({
       )}
 
       {/* Interhand transition - background layer during end-of-hand phases */}
-      <InterhandTransition
+      <ShuffleLoading
         isVisible={phase === 'HAND_OVER'}
+        message="Shuffling"
         handNumber={handNumber}
+        variant="interhand"
       />
 
       {/* Chat Sheet - Redesigned with tabs for Quick Chat / Keyboard */}
