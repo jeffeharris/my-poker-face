@@ -791,8 +791,9 @@ class AIPlayerController:
 
         # Phase 2: Track action for consecutive fold detection (energy events)
         action = cleaned_response.get('action', '')
+        self.last_energy_events = []
         if action and self.psychology:
-            self.psychology.on_action_taken(action)
+            self.last_energy_events = self.psychology.on_action_taken(action)
 
         return cleaned_response
 

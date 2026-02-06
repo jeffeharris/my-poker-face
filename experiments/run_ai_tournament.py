@@ -1149,9 +1149,29 @@ class AITournamentRunner:
                             )
 
                         # Get AI decision
+                        pre_decision_energy = controller.psychology.energy if hasattr(controller, 'psychology') and controller.psychology else None
                         start_time = time.time()
                         response = controller.decide_action([])
                         latency = (time.time() - start_time) * 1000
+
+                        # Log energy events from on_action_taken (consecutive folds)
+                        if (self.pressure_event_repo and tournament_id
+                                and hasattr(controller, 'last_energy_events')
+                                and controller.last_energy_events
+                                and pre_decision_energy is not None):
+                            energy_delta = controller.psychology.energy - pre_decision_energy
+                            for evt_name in controller.last_energy_events:
+                                self.pressure_event_repo.save_event(
+                                    game_id=tournament_id,
+                                    player_name=current_player.name,
+                                    event_type=evt_name,
+                                    hand_number=hand_number,
+                                    details={
+                                        'conf_delta': 0,
+                                        'comp_delta': 0,
+                                        'energy_delta': round(energy_delta, 6),
+                                    },
+                                )
 
                         # Update heartbeat after API call
                         if tournament_id and self.experiment_id:
