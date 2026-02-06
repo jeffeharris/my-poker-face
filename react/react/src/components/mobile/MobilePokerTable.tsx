@@ -384,7 +384,7 @@ export function MobilePokerTable({
       {/* Opponents Strip */}
       <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`} data-testid="mobile-opponents" ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
-          const opponentIdx = storePlayers.findIndex(p => p.name === opponent.name);
+          const opponentIdx = storePlayers?.findIndex(p => p.name === opponent.name) ?? -1;
           const isCurrentPlayer = shouldHighlightActivePlayer && opponentIdx === currentPlayerIdx;
           const isDealer = opponentIdx === dealerIdx;
 
@@ -466,7 +466,7 @@ export function MobilePokerTable({
 
       {/* Floating Pot Display - between opponents and community cards */}
       <div className="mobile-floating-pot" data-testid="mobile-pot">
-        <PotDisplay total={pot.total} />
+        <PotDisplay total={pot?.total ?? 0} />
       </div>
 
       {/* Community Cards - Always show 5 slots */}
@@ -510,7 +510,7 @@ export function MobilePokerTable({
       {/* Hero Section - Your Cards */}
       <div className={`mobile-hero ${currentPlayer?.is_human ? 'active-turn' : ''} ${humanPlayer?.is_folded ? 'folded' : ''}`} data-testid="mobile-hero">
         {/* Dealer chip - positioned in upper right */}
-        {storePlayers.findIndex(p => p.is_human) === dealerIdx && (
+        {storePlayers?.findIndex(p => p.is_human) === dealerIdx && (
           <span className="dealer-chip">D</span>
         )}
         <div className="hero-info">
@@ -603,7 +603,7 @@ export function MobilePokerTable({
             currentPlayerBet={currentPlayer.bet}
             minRaise={minRaise}
             bigBlind={bigBlind}
-            potSize={pot.total}
+            potSize={pot?.total ?? 0}
             onAction={handlePlayerAction}
             onQuickChat={openChatSheet}
             bettingContext={bettingContext ?? undefined}
