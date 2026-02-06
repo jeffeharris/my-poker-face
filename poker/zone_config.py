@@ -156,6 +156,11 @@ EVENT_SEVERITY = {
     'loss': 'minor',
     'fold_under_pressure': 'minor',
     'cooler': 'minor',
+    'big_pot_involved': 'minor',
+    'all_in_moment': 'minor',
+    'consecutive_folds_3': 'minor',
+    'card_dead_5': 'minor',
+    'not_in_hand': 'minor',
 
     # Normal events (floor=0.30) - standard gameplay, default
     'big_win': 'normal',
@@ -171,9 +176,7 @@ EVENT_SEVERITY = {
     # Major events (floor=0.40) - high impact, dramatic moments
     'bad_beat': 'major',
     'got_sucked_out': 'major',
-    'double_up': 'major',
     'crippled': 'major',
-    'eliminated_opponent': 'major',
     'suckout': 'major',
     'nemesis_win': 'major',
     'nemesis_loss': 'major',

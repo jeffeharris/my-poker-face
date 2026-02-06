@@ -298,50 +298,188 @@ class PlayerPsychology:
             f"Energy={self.energy:.2f}, Quadrant={self.quadrant.value}"
         )
 
+    # === EVENT RESOLUTION CONSTANTS ===
+
+    # Event categories for resolve_hand_events()
+    OUTCOME_EVENTS = {'win', 'loss', 'big_win', 'big_loss', 'headsup_win', 'headsup_loss'}
+    EGO_EVENTS = {'successful_bluff', 'bluff_called', 'nemesis_win', 'nemesis_loss'}
+    EQUITY_SHOCK_EVENTS = {'bad_beat', 'cooler', 'suckout', 'got_sucked_out'}
+    PRESSURE_EVENTS = {'big_pot_involved', 'all_in_moment', 'card_dead_5', 'consecutive_folds_3', 'not_in_hand'}
+    DESPERATION_EVENTS = {'short_stack', 'crippled', 'fold_under_pressure'}
+    STREAK_EVENTS = {'winning_streak', 'losing_streak'}
+
+    # Outcome priority (higher index = higher priority)
+    OUTCOME_PRIORITY = ['loss', 'win', 'headsup_loss', 'headsup_win', 'big_loss', 'big_win']
+
+    # Equity shock priority (higher index = higher priority)
+    EQUITY_SHOCK_PRIORITY = ['suckout', 'cooler', 'got_sucked_out', 'bad_beat']
+
     def _get_pressure_impacts(self, event_name: str) -> Dict[str, float]:
         """Get axis impacts for a pressure event."""
         pressure_events = {
-            # Win events - primarily boost CONFIDENCE (skill validation)
-            # Composure only changes when the win has emotional weight
-            'big_win': {'confidence': 0.20, 'composure': 0.03, 'energy': 0.12},
-            'win': {'confidence': 0.08, 'composure': 0.02},
-            'loss': {'confidence': -0.04, 'composure': -0.01},  # Small pot showdown loss
-            'successful_bluff': {'confidence': 0.28, 'composure': 0.0, 'energy': 0.12},
-            'suckout': {'confidence': -0.05, 'composure': 0.10, 'energy': 0.10},  # Lucky win: relief but you know it
-            'double_up': {'confidence': 0.22, 'composure': 0.05, 'energy': 0.18},
-            'eliminated_opponent': {'confidence': 0.15, 'composure': 0.0, 'energy': 0.14},
-            # Loss events - bad luck hits COMPOSURE, outplay hits CONFIDENCE
-            'big_loss': {'confidence': -0.15, 'composure': -0.25, 'energy': -0.12},
-            'bluff_called': {'confidence': -0.30, 'composure': -0.05, 'energy': -0.12},  # Outplayed = ego hit
-            'bad_beat': {'confidence': 0.0, 'composure': -0.38, 'energy': -0.15},  # Played right, got unlucky
-            'got_sucked_out': {'confidence': 0.0, 'composure': -0.42, 'energy': -0.22},  # Pure variance = pure composure
-            'cooler': {'confidence': 0.0, 'composure': -0.08, 'energy': -0.10},
-            'crippled': {'confidence': -0.18, 'composure': -0.25, 'energy': -0.22},
-            'short_stack': {'confidence': -0.08, 'composure': -0.18, 'energy': -0.12},
-            # Streak events - winning streak = getting cocky (conf up, comp DOWN)
-            'winning_streak': {'confidence': 0.20, 'composure': -0.05, 'energy': 0.10},
-            'losing_streak': {'confidence': -0.12, 'composure': -0.30, 'energy': -0.18},
-            # Heads-up events
-            'headsup_win': {'confidence': 0.10, 'composure': 0.02, 'energy': 0.08},
-            'headsup_loss': {'confidence': -0.08, 'composure': -0.04, 'energy': -0.06},
-            # Social/rivalry - ego events hit confidence primarily
-            'nemesis_win': {'confidence': 0.22, 'composure': 0.05, 'energy': 0.14},
-            'nemesis_loss': {'confidence': -0.22, 'composure': -0.08, 'energy': -0.12},
-            'rivalry_trigger': {'confidence': 0.0, 'composure': -0.15, 'energy': 0.06},
-            # Engagement events (energy only)
-            'all_in_moment': {'energy': 0.15},
-            'showdown_involved': {'energy': 0.05},
-            'big_pot_involved': {'energy': 0.05},
-            'heads_up': {'energy': 0.05},
-            # Disengagement events (energy only)
-            'consecutive_folds_3': {'energy': -0.08},
-            'card_dead_5': {'energy': -0.12},
+            # Outcomes (pick ONE via resolve_hand_events)
+            'win': {'confidence': 0.02, 'energy': 0.02},
+            'loss': {'confidence': -0.02, 'energy': -0.02},
+            'big_win': {'confidence': 0.12, 'composure': 0.02, 'energy': 0.08},
+            'big_loss': {'confidence': -0.15, 'composure': -0.05, 'energy': -0.08},
+            'headsup_win': {'confidence': 0.06, 'composure': 0.02, 'energy': 0.05},
+            'headsup_loss': {'confidence': -0.06, 'composure': -0.02, 'energy': -0.05},
+            # Ego/Agency (at most ONE, scaled 50% via resolve_hand_events)
+            'successful_bluff': {'confidence': 0.20, 'composure': 0.05, 'energy': 0.05},
+            'bluff_called': {'confidence': -0.25, 'composure': -0.10, 'energy': -0.05},
+            'nemesis_win': {'confidence': 0.18, 'composure': 0.05, 'energy': 0.05},
+            'nemesis_loss': {'confidence': -0.18, 'composure': -0.05, 'energy': -0.05},
+            # Equity Shock (at most ONE, composure-only)
+            'bad_beat': {'composure': -0.35, 'energy': -0.10},
+            'cooler': {'composure': -0.20, 'energy': -0.05},
+            'suckout': {'composure': 0.10, 'energy': 0.05},
+            'got_sucked_out': {'composure': -0.30, 'energy': -0.15},
+            # Streaks (additive)
+            'winning_streak': {'confidence': 0.10, 'composure': -0.05, 'energy': 0.05},
+            'losing_streak': {'confidence': -0.12, 'composure': -0.20, 'energy': -0.10},
+            # Pressure/Fatigue (additive, no confidence)
+            'big_pot_involved': {'composure': -0.05, 'energy': -0.05},
+            'all_in_moment': {'composure': -0.08, 'energy': -0.08},
+            'card_dead_5': {'composure': -0.05, 'energy': -0.10},
+            'consecutive_folds_3': {'composure': -0.05, 'energy': -0.08},
             'not_in_hand': {'energy': -0.02},
-            # Other - folding under pressure = shaken confidence but showed discipline
-            'fold_under_pressure': {'confidence': -0.12, 'composure': 0.05},
+            # Desperation (additive)
+            'short_stack': {'confidence': -0.08, 'composure': -0.15, 'energy': -0.10},
+            'crippled': {'confidence': -0.20, 'composure': -0.25, 'energy': -0.15},
+            'fold_under_pressure': {'confidence': -0.10, 'composure': 0.05},
         }
 
         return pressure_events.get(event_name, {})
+
+    def resolve_hand_events(
+        self,
+        events: List[str],
+        opponent: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Resolve a set of detected events into a single psychological update.
+
+        Resolution rules:
+        1. Select ONE outcome event (highest priority) -> full strength
+        2. Apply at most ONE ego/agency modifier -> scaled 50%
+        3. Apply ALL pressure/fatigue events -> additive
+        4. Apply ALL desperation + streak events -> additive
+        5. Apply at most ONE equity shock event -> full strength (composure-only)
+        6. Clamp axes
+
+        Args:
+            events: List of event names detected for this player
+            opponent: Optional opponent name for composure tracking
+
+        Returns:
+            Dict with events_applied, per-axis deltas, and final values
+        """
+        events_applied = []
+        total_conf_delta = 0.0
+        total_comp_delta = 0.0
+        total_energy_delta = 0.0
+
+        # 1. Select ONE outcome (highest priority wins)
+        outcome_events = [e for e in events if e in self.OUTCOME_EVENTS]
+        if outcome_events:
+            best_outcome = max(outcome_events, key=lambda e: self.OUTCOME_PRIORITY.index(e))
+            impacts = self._get_pressure_impacts(best_outcome)
+            total_conf_delta += impacts.get('confidence', 0)
+            total_comp_delta += impacts.get('composure', 0)
+            total_energy_delta += impacts.get('energy', 0)
+            events_applied.append(best_outcome)
+
+        # 2. At most ONE ego/agency modifier, scaled 50%
+        ego_events = [e for e in events if e in self.EGO_EVENTS]
+        if ego_events:
+            ego_event = ego_events[0]  # Take first detected
+            impacts = self._get_pressure_impacts(ego_event)
+            total_conf_delta += impacts.get('confidence', 0) * 0.5
+            total_comp_delta += impacts.get('composure', 0) * 0.5
+            total_energy_delta += impacts.get('energy', 0) * 0.5
+            events_applied.append(ego_event)
+
+        # 3. ALL pressure/fatigue events (additive)
+        for event in events:
+            if event in self.PRESSURE_EVENTS:
+                impacts = self._get_pressure_impacts(event)
+                total_conf_delta += impacts.get('confidence', 0)
+                total_comp_delta += impacts.get('composure', 0)
+                total_energy_delta += impacts.get('energy', 0)
+                events_applied.append(event)
+
+        # 4. ALL desperation + streak events (additive)
+        for event in events:
+            if event in self.DESPERATION_EVENTS or event in self.STREAK_EVENTS:
+                impacts = self._get_pressure_impacts(event)
+                total_conf_delta += impacts.get('confidence', 0)
+                total_comp_delta += impacts.get('composure', 0)
+                total_energy_delta += impacts.get('energy', 0)
+                events_applied.append(event)
+
+        # 5. At most ONE equity shock event (highest priority)
+        shock_events = [e for e in events if e in self.EQUITY_SHOCK_EVENTS]
+        if shock_events:
+            best_shock = max(shock_events, key=lambda e: self.EQUITY_SHOCK_PRIORITY.index(e))
+            impacts = self._get_pressure_impacts(best_shock)
+            total_comp_delta += impacts.get('composure', 0)
+            total_energy_delta += impacts.get('energy', 0)
+            events_applied.append(best_shock)
+
+        # Apply deltas through sensitivity system
+        pre_conf = self.axes.confidence
+        pre_comp = self.axes.composure
+        pre_energy = self.axes.energy
+
+        # Use a blended severity floor based on the most impactful event
+        floor = max(
+            (_get_severity_floor(e) for e in events_applied),
+            default=SEVERITY_NORMAL,
+        )
+
+        new_conf = pre_conf
+        new_comp = pre_comp
+        new_energy = pre_energy
+
+        if total_conf_delta != 0:
+            sensitivity = _calculate_sensitivity(self.anchors.ego, floor)
+            new_conf = pre_conf + total_conf_delta * sensitivity
+
+        if total_comp_delta != 0:
+            sensitivity = _calculate_sensitivity(1.0 - self.anchors.poise, floor)
+            new_comp = pre_comp + total_comp_delta * sensitivity
+
+        if total_energy_delta != 0:
+            new_energy = pre_energy + total_energy_delta
+
+        self.axes = self.axes.update(
+            confidence=new_conf,
+            composure=new_comp,
+            energy=new_energy,
+        )
+
+        # Update composure tracking
+        for event in events_applied:
+            self.composure_state.update_from_event(event, opponent)
+
+        self._mark_updated()
+
+        logger.debug(
+            f"{self.player_name}: Resolved {len(events_applied)} events {events_applied}. "
+            f"Conf={self.confidence:.2f} (d={total_conf_delta:+.3f}), "
+            f"Comp={self.composure:.2f} (d={total_comp_delta:+.3f}), "
+            f"Energy={self.energy:.2f} (d={total_energy_delta:+.3f})"
+        )
+
+        return {
+            'events_applied': events_applied,
+            'conf_delta': round(new_conf - pre_conf, 6),
+            'comp_delta': round(new_comp - pre_comp, 6),
+            'energy_delta': round(new_energy - pre_energy, 6),
+            'conf_after': round(self.confidence, 4),
+            'comp_after': round(self.composure, 4),
+            'energy_after': round(self.energy, 4),
+        }
 
     def on_hand_complete(
         self,

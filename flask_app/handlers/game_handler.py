@@ -399,7 +399,11 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
                            winner_info: dict, winning_player_names: list,
                            pot_size: int,
                            equity_history: Optional[HandEquityHistory] = None) -> None:
-    """Apply elasticity pressure events from showdown.
+    """Apply pressure events from showdown using balanced resolution model.
+
+    Detects all events, then uses resolve_hand_events() per player to pick
+    one outcome, at most one ego modifier (scaled 50%), additive pressure/fatigue,
+    and at most one equity shock event.
 
     Args:
         game_id: The game identifier
@@ -419,15 +423,15 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
     # Standard showdown events
     events = pressure_detector.detect_showdown_events(game_state, winner_info)
 
-    # Equity-based events (cooler, suckout, got_sucked_out, equity-based bad_beat)
-    if equity_history and equity_history.snapshots:
-        equity_events = pressure_detector.detect_equity_events(
-            game_state, winner_info, equity_history, pot_size=pot_size
+    # Equity shock events (weighted-delta model)
+    hand_start_stacks = game_data.get('hand_start_stacks', {})
+    if equity_history and equity_history.snapshots and hand_start_stacks:
+        equity_events = pressure_detector.detect_equity_shock_events(
+            equity_history, winning_player_names, pot_size, hand_start_stacks
         )
         events.extend(equity_events)
 
-    # Stack events (double_up, crippled, short_stack)
-    hand_start_stacks = game_data.get('hand_start_stacks', {})
+    # Stack events (crippled, short_stack)
     was_short_stack = game_data.get('short_stack_players', set())
     big_blind = game_state.current_ante if hasattr(game_state, 'current_ante') else 100
 
@@ -458,17 +462,14 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
                     logger.warning(f"Failed to get session stats for {player_name}: {e}")
 
     # Nemesis events (from TiltState.nemesis)
-    # Phase 2: Gated behind is_big_pot to avoid energy spikes on minor pots
     player_nemesis_map = {}
     for name, controller in ai_controllers.items():
         if hasattr(controller, 'psychology') and controller.psychology.tilt.nemesis:
             player_nemesis_map[name] = controller.psychology.tilt.nemesis
 
-    # Losers = active players who didn't win (didn't fold, didn't win)
     loser_names = [p.name for p in game_state.players
                    if not p.is_folded and p.name not in winning_player_names]
 
-    # Calculate is_big_pot for nemesis event gating
     from poker.moment_analyzer import MomentAnalyzer
     active_stacks = [p.stack for p in game_state.players if p.stack > 0]
     avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
@@ -479,6 +480,11 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
             winning_player_names, loser_names, player_nemesis_map, is_big_pot=is_big_pot
         )
         events.extend(nemesis_events)
+
+    # Big pot involvement (inline detection for pressure/fatigue)
+    if is_big_pot:
+        active_player_names = [p.name for p in game_state.players if not p.is_folded]
+        events.append(("big_pot_involved", active_player_names))
 
     if not events:
         return
@@ -499,12 +505,17 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         }
         pressure_stats.record_event(event_name, affected_players, details)
 
-        # Update psychology (tilt + elastic) for affected AI players
+    # Build per-player event lists and resolve via resolve_hand_events()
+    player_events: dict = {}
+    for event_name, affected_players in events:
         for player_name in affected_players:
             if player_name in ai_controllers:
-                controller = ai_controllers[player_name]
-                opponent = winning_player_names[0] if winning_player_names and player_name not in winning_player_names else None
-                controller.psychology.apply_pressure_event(event_name, opponent)
+                player_events.setdefault(player_name, []).append(event_name)
+
+    for player_name, player_event_list in player_events.items():
+        controller = ai_controllers[player_name]
+        opponent = winning_player_names[0] if winning_player_names and player_name not in winning_player_names else None
+        controller.psychology.resolve_hand_events(player_event_list, opponent)
 
     # Emit elasticity update from psychology state
     if ai_controllers:

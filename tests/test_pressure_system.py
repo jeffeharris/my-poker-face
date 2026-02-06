@@ -430,7 +430,7 @@ class TestStreakEvents(unittest.TestCase):
 
 
 class TestStackEvents(unittest.TestCase):
-    """Tests for stack-based event detection (double_up, crippled, short_stack)."""
+    """Tests for stack-based event detection (crippled, short_stack)."""
 
     def setUp(self):
         self.detector = PressureEventDetector()
@@ -439,45 +439,6 @@ class TestStackEvents(unittest.TestCase):
             player_names=["Alice", "Bob", "Charlie"],
             starting_stack=1000
         )
-
-    def test_double_up_detection(self):
-        """double_up fires when winner ends with 2x+ starting stack."""
-        # Alice starts with 500, wins pot, now has 1100 (>2x)
-        game_state = self.game_state.update(
-            players=tuple(
-                p.update(stack=1100 if p.name == "Alice" else p.stack)
-                for p in self.game_state.players
-            )
-        )
-        hand_start_stacks = {"Alice": 500, "Bob": 1000, "Charlie": 1000}
-        was_short = set()
-
-        events, _ = self.detector.detect_stack_events(
-            game_state, ["Alice"], hand_start_stacks, was_short, big_blind=100
-        )
-
-        event_names = [e[0] for e in events]
-        self.assertIn("double_up", event_names)
-        double_up = next(e for e in events if e[0] == "double_up")
-        self.assertEqual(double_up[1], ["Alice"])
-
-    def test_double_up_requires_winner(self):
-        """double_up should not fire for losers even if stack increased (side pot)."""
-        # Alice not in winner list, even if stack looks doubled
-        game_state = self.game_state.update(
-            players=tuple(
-                p.update(stack=1100 if p.name == "Alice" else p.stack)
-                for p in self.game_state.players
-            )
-        )
-        hand_start_stacks = {"Alice": 500, "Bob": 1000, "Charlie": 1000}
-
-        events, _ = self.detector.detect_stack_events(
-            game_state, ["Bob"], hand_start_stacks, set(), big_blind=100
-        )
-
-        event_names = [e[0] for e in events]
-        self.assertNotIn("double_up", event_names)
 
     def test_crippled_detection(self):
         """crippled fires when loser loses 75%+ of stack."""

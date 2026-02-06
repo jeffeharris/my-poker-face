@@ -849,13 +849,11 @@ class AITournamentRunner:
         hand_start_stacks: Optional[Dict[str, int]] = None,
         was_short_stack: Optional[set] = None,
     ) -> set:
-        """Process psychology updates using pressure event detection.
+        """Process psychology updates using balanced event resolution model.
 
-        Detects game events (showdown, big_win, bad_beat, etc.) and applies them
-        to player psychology via apply_pressure_event(). Also applies recovery
-        between hands to drift axes back toward personality baselines.
-
-        This properly mirrors game_handler.py's handle_pressure_events() for experiments.
+        Detects all game events, then resolves per player: one outcome, at most
+        one ego modifier (scaled 50%), additive pressure/fatigue, and at most
+        one equity shock event. Also applies recovery between hands.
 
         Args:
             game_state: Current game state after pot awarded
@@ -884,16 +882,14 @@ class AITournamentRunner:
         avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
         is_big_pot = MomentAnalyzer.is_big_pot(pot_size, 0, avg_stack)
 
-        # === DETECT PRESSURE EVENTS ===
+        # === DETECT ALL EVENTS ===
         all_events = []
 
-        # 1. Standard showdown events (big_win, big_loss, successful_bluff)
+        # 1. Standard showdown events (big_win, big_loss, win, loss, successful_bluff, etc.)
         showdown_events = self.pressure_detector.detect_showdown_events(game_state, winner_info)
         all_events.extend(showdown_events)
 
-        # 2. Phase events — individual detectors cover showdown/stack/streak below
-
-        # 3. Stack events (double_up, crippled, short_stack)
+        # 2. Stack events (crippled, short_stack)
         current_short = was_short_stack or set()
         if hand_start_stacks:
             stack_events, current_short = self.pressure_detector.detect_stack_events(
@@ -902,7 +898,7 @@ class AITournamentRunner:
             )
             all_events.extend(stack_events)
 
-        # 4. Streak events (winning_streak, losing_streak)
+        # 3. Streak events (winning_streak, losing_streak)
         if self.hand_history_repo:
             for player_name in controllers:
                 try:
@@ -916,55 +912,62 @@ class AITournamentRunner:
                 except Exception as e:
                     logger.warning(f"Failed to get session stats for {player_name}: {e}")
 
+        # 4. Big pot involvement (pressure/fatigue)
+        if is_big_pot:
+            active_player_names = [p.name for p in game_state.players if not p.is_folded]
+            all_events.append(("big_pot_involved", active_player_names))
+
         # 5. Losers for nemesis tracking
         loser_names = [p.name for p in game_state.players
                        if not p.is_folded and p.name not in winner_names]
 
-        # === APPLY EVENTS TO EACH PLAYER'S PSYCHOLOGY ===
+        # === BUILD PER-PLAYER EVENT LISTS AND RESOLVE ===
+        player_events: Dict[str, list] = {}
         for event_name, affected_players in all_events:
             for player_name in affected_players:
-                if player_name not in controllers:
-                    continue
-                controller = controllers[player_name]
-                if not hasattr(controller, 'psychology'):
-                    continue
+                if player_name in controllers:
+                    player_events.setdefault(player_name, []).append(event_name)
 
-                # Determine opponent for this event (for nemesis tracking)
-                opponent = None
-                if player_name in winner_names and loser_names:
-                    opponent = loser_names[0]
-                elif player_name in loser_names and winner_names:
-                    opponent = winner_names[0]
+        for player_name, player_event_list in player_events.items():
+            controller = controllers[player_name]
+            if not hasattr(controller, 'psychology'):
+                continue
 
-                try:
-                    conf_before = controller.psychology.confidence
-                    comp_before = controller.psychology.composure
-                    energy_before = controller.psychology.energy
-                    controller.psychology.apply_pressure_event(event_name, opponent)
-                    logger.debug(
-                        f"[Psychology] {player_name}: Applied '{event_name}' event. "
-                        f"Conf={controller.psychology.confidence:.2f}, "
-                        f"Comp={controller.psychology.composure:.2f}"
-                    )
-                    # Persist pressure event for trajectory viewer
-                    if self.pressure_event_repo:
+            # Determine opponent for nemesis tracking
+            opponent = None
+            if player_name in winner_names and loser_names:
+                opponent = loser_names[0]
+            elif player_name in loser_names and winner_names:
+                opponent = winner_names[0]
+
+            try:
+                result = controller.psychology.resolve_hand_events(player_event_list, opponent)
+                logger.debug(
+                    f"[Psychology] {player_name}: Resolved {result['events_applied']}. "
+                    f"Conf={controller.psychology.confidence:.2f}, "
+                    f"Comp={controller.psychology.composure:.2f}"
+                )
+                # Persist resolved events for trajectory viewer
+                if self.pressure_event_repo:
+                    for event_name in result['events_applied']:
                         self.pressure_event_repo.save_event(
                             game_id=game_id,
                             player_name=player_name,
                             event_type=event_name,
                             hand_number=hand_number,
                             details={
-                                'conf_delta': round(controller.psychology.confidence - conf_before, 6),
-                                'comp_delta': round(controller.psychology.composure - comp_before, 6),
-                                'energy_delta': round(controller.psychology.energy - energy_before, 6),
-                                'conf_after': round(controller.psychology.confidence, 4),
-                                'comp_after': round(controller.psychology.composure, 4),
-                                'energy_after': round(controller.psychology.energy, 4),
+                                'conf_delta': result['conf_delta'],
+                                'comp_delta': result['comp_delta'],
+                                'energy_delta': result['energy_delta'],
+                                'conf_after': result['conf_after'],
+                                'comp_after': result['comp_after'],
+                                'energy_after': result['energy_after'],
                                 'opponent': opponent,
+                                'resolved_from': player_event_list,
                             },
                         )
-                except Exception as e:
-                    logger.warning(f"Failed to apply pressure event '{event_name}' to {player_name}: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to resolve events for {player_name}: {e}")
 
         # === APPLY RECOVERY AND SAVE STATE ===
         for player in game_state.players:

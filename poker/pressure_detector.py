@@ -219,217 +219,114 @@ class PressureEventDetector:
 
         return events
 
-    # Equity-based event detection thresholds
-    COOLER_MIN_EQUITY = 0.30       # Both players had 30%+ equity on flop
-    SUCKOUT_THRESHOLD = 0.40      # Winner was <40% equity on turn
-    GOT_SUCKED_OUT_THRESHOLD = 0.60  # Loser was >60% equity on turn
-    BAD_BEAT_EQUITY_THRESHOLD = 0.70  # Loser was >70% favorite on flop
+    # Weighted-delta equity shock detection thresholds
+    EQUITY_SHOCK_THRESHOLD = 0.30      # Minimum weighted delta to trigger an event
+    BAD_BEAT_EQUITY_MIN = 0.80         # Loser had 80%+ equity at worst swing
+    COOLER_EQUITY_MIN = 0.60           # Loser had 60-80% equity at worst swing
+    POT_SIGNIFICANCE_MIN = 0.15        # Ignore swings in trivial pots
 
-    def detect_equity_events(
+    # Street weights (later streets feel worse)
+    STREET_WEIGHTS = {
+        'FLOP': 1.0,
+        'TURN': 1.2,
+        'RIVER': 1.4,
+    }
+
+    def detect_equity_shock_events(
         self,
-        game_state: PokerGameState,
-        winner_info: Dict[str, Any],
         equity_history: 'HandEquityHistory',
-        pot_size: Optional[int] = None,
+        winner_names: List[str],
+        pot_size: int,
+        hand_start_stacks: Dict[str, int],
     ) -> List[Tuple[str, List[str]]]:
         """
-        Detect equity-based pressure events: cooler, suckout, got_sucked_out.
+        Detect equity shock events using a weighted-delta model.
 
-        These events require equity history data calculated at showdown.
+        For each player, tracks equity swings across streets weighted by
+        pot significance and street weight. Fires at most ONE event per player.
+
+        Priority: bad_beat > got_sucked_out > cooler > suckout
 
         Args:
-            game_state: Current game state
-            winner_info: Winner information from showdown
             equity_history: HandEquityHistory with equity snapshots for all streets
-            pot_size: Pot size before award (pass explicitly since game_state.pot may be 0)
+            winner_names: List of players who won the hand
+            pot_size: Total pot size
+            hand_start_stacks: Dict mapping player names to stack at hand start
 
         Returns:
-            List of (event_name, affected_players) tuples
+            List of (event_name, [player_name]) tuples
         """
+        from .equity_snapshot import STREET_ORDER
+
         events = []
 
         if not equity_history or not equity_history.snapshots:
             return events
 
-        # Extract winner names from pot_breakdown
-        winner_names = []
-        pot_breakdown = winner_info.get('pot_breakdown', [])
-        for pot in pot_breakdown:
-            for winner in pot.get('winners', []):
-                if winner['name'] not in winner_names:
-                    winner_names.append(winner['name'])
+        for player_name in equity_history.get_player_names():
+            # Calculate pot significance for this player
+            player_stack = hand_start_stacks.get(player_name, 0)
+            if player_stack <= 0:
+                continue
+            pot_significance = pot_size / player_stack
+            if pot_significance < self.POT_SIGNIFICANCE_MIN:
+                continue
 
-        if not winner_names:
-            return events
+            history = equity_history.get_player_history(player_name)
+            if len(history) < 2:
+                continue
 
-        # Get players who made it to showdown (not folded)
-        showdown_players = [p.name for p in game_state.players if not p.is_folded]
+            # Only consider active snapshots
+            active_history = [s for s in history if s.was_active]
+            if len(active_history) < 2:
+                continue
 
-        if len(showdown_players) < 2:
-            return events  # Need 2+ players for equity-based events
+            # Find largest positive and negative weighted deltas
+            max_positive_wd = 0.0
+            max_negative_wd = 0.0
+            worst_swing_prev_equity = 0.0  # Equity before the worst negative swing
 
-        # Check for big pot (only apply some events to big pots)
-        # Use provided pot_size since game_state.pot may be 0 after awarding
-        pot_total = pot_size if pot_size is not None else (
-            game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
-        )
-        active_stacks = [p.stack for p in game_state.players if p.stack > 0]
-        avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
-        is_big_pot = MomentAnalyzer.is_big_pot(pot_total, 0, avg_stack)
+            for i in range(len(active_history) - 1):
+                prev = active_history[i]
+                next_ = active_history[i + 1]
 
-        # Detect cooler
-        cooler_events = self._detect_cooler(showdown_players, winner_names, equity_history)
-        events.extend(cooler_events)
+                delta = next_.equity - prev.equity
+                street_weight = self.STREET_WEIGHTS.get(next_.street, 1.0)
+                weighted_delta = delta * pot_significance * street_weight
 
-        # Detect suckout (only for big pots - small pots don't matter much)
-        if is_big_pot:
-            suckout_events = self._detect_suckout(winner_names, equity_history)
-            events.extend(suckout_events)
+                if weighted_delta > max_positive_wd:
+                    max_positive_wd = weighted_delta
+                if weighted_delta < max_negative_wd:
+                    max_negative_wd = weighted_delta
+                    worst_swing_prev_equity = prev.equity
 
-            got_sucked_out_events = self._detect_got_sucked_out(
-                showdown_players, winner_names, equity_history
-            )
-            events.extend(got_sucked_out_events)
+            # Determine event (at most one per player, by priority)
+            player_won = player_name in winner_names
+            player_lost = not player_won
 
-        # Equity-based bad beat (replaces rank-based detection)
-        bad_beat_events = self._detect_bad_beat_equity(
-            showdown_players, winner_names, equity_history
-        )
-        events.extend(bad_beat_events)
+            event = None
 
-        return events
+            # bad_beat: lost AND had 80%+ equity at worst swing AND big negative delta
+            if (player_lost
+                    and worst_swing_prev_equity >= self.BAD_BEAT_EQUITY_MIN
+                    and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD):
+                event = 'bad_beat'
+            # got_sucked_out: lost AND big negative delta
+            elif (player_lost
+                  and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD):
+                event = 'got_sucked_out'
+            # cooler: lost AND had 60-80% equity at worst swing AND big negative delta
+            elif (player_lost
+                  and self.COOLER_EQUITY_MIN <= worst_swing_prev_equity < self.BAD_BEAT_EQUITY_MIN
+                  and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD):
+                event = 'cooler'
+            # suckout: won AND big positive delta (they got lucky)
+            elif (player_won
+                  and max_positive_wd >= self.EQUITY_SHOCK_THRESHOLD):
+                event = 'suckout'
 
-    def _detect_cooler(
-        self,
-        showdown_players: List[str],
-        winner_names: List[str],
-        equity_history: 'HandEquityHistory',
-    ) -> List[Tuple[str, List[str]]]:
-        """
-        Detect cooler: Both players had strong hands (>30% equity on flop).
-
-        A cooler is an unavoidable loss - both players had legitimate hands.
-        This is less tilting than a bad beat since the loser "did nothing wrong."
-        """
-        events = []
-        flop_equities = equity_history.get_active_street_equities('FLOP')
-
-        if not flop_equities or len(flop_equities) < 2:
-            return events
-
-        # Find losers who had strong equity on the flop
-        for player_name in showdown_players:
-            if player_name in winner_names:
-                continue  # Winners don't get cooler event
-
-            player_equity = flop_equities.get(player_name, 0)
-            winner_equity = max(
-                flop_equities.get(w, 0) for w in winner_names if w in flop_equities
-            ) if any(w in flop_equities for w in winner_names) else 0
-
-            # Both had strong flop equity
-            if player_equity >= self.COOLER_MIN_EQUITY and winner_equity >= self.COOLER_MIN_EQUITY:
-                events.append(("cooler", [player_name]))
-
-        return events
-
-    def _detect_suckout(
-        self,
-        winner_names: List[str],
-        equity_history: 'HandEquityHistory',
-    ) -> List[Tuple[str, List[str]]]:
-        """
-        Detect suckout: Winner was behind (<40% equity) on turn but won.
-
-        This means the winner got lucky - they were losing and caught a card.
-        """
-        events = []
-        turn_equities = equity_history.get_active_street_equities('TURN')
-
-        if not turn_equities:
-            # Try flop if turn not available
-            turn_equities = equity_history.get_active_street_equities('FLOP')
-
-        if not turn_equities:
-            return events
-
-        suckout_winners = []
-        for winner_name in winner_names:
-            winner_equity = turn_equities.get(winner_name, 1.0)
-            if winner_equity < self.SUCKOUT_THRESHOLD:
-                suckout_winners.append(winner_name)
-
-        if suckout_winners:
-            events.append(("suckout", suckout_winners))
-
-        return events
-
-    def _detect_got_sucked_out(
-        self,
-        showdown_players: List[str],
-        winner_names: List[str],
-        equity_history: 'HandEquityHistory',
-    ) -> List[Tuple[str, List[str]]]:
-        """
-        Detect got_sucked_out: Loser was ahead (>60% equity) on turn but lost.
-
-        This is very tilting - the loser was winning and got unlucky.
-        """
-        events = []
-        turn_equities = equity_history.get_active_street_equities('TURN')
-
-        if not turn_equities:
-            # Try flop if turn not available
-            turn_equities = equity_history.get_active_street_equities('FLOP')
-
-        if not turn_equities:
-            return events
-
-        victims = []
-        for player_name in showdown_players:
-            if player_name in winner_names:
-                continue  # Winners didn't get sucked out
-
-            player_equity = turn_equities.get(player_name, 0)
-            if player_equity > self.GOT_SUCKED_OUT_THRESHOLD:
-                victims.append(player_name)
-
-        if victims:
-            events.append(("got_sucked_out", victims))
-
-        return events
-
-    def _detect_bad_beat_equity(
-        self,
-        showdown_players: List[str],
-        winner_names: List[str],
-        equity_history: 'HandEquityHistory',
-    ) -> List[Tuple[str, List[str]]]:
-        """
-        Detect equity-based bad beat: Loser had >70% equity on flop but lost.
-
-        This replaces the rank-based bad beat detection with equity-based.
-        More accurate since equity accounts for draws and actual win probability.
-        """
-        events = []
-        flop_equities = equity_history.get_active_street_equities('FLOP')
-
-        if not flop_equities:
-            return events
-
-        bad_beat_victims = []
-        for player_name in showdown_players:
-            if player_name in winner_names:
-                continue  # Winners don't get bad beat
-
-            player_equity = flop_equities.get(player_name, 0)
-            if player_equity > self.BAD_BEAT_EQUITY_THRESHOLD:
-                bad_beat_victims.append(player_name)
-
-        if bad_beat_victims:
-            # Note: This may overlap with got_sucked_out - that's OK,
-            # they're related but bad_beat is specifically about flop equity
-            events.append(("bad_beat", bad_beat_victims))
+            if event:
+                events.append((event, [player_name]))
 
         return events
 
@@ -442,7 +339,7 @@ class PressureEventDetector:
         action: str,
         amount: int = 0,
     ) -> List[Tuple[str, List[str]]]:
-        """Detect energy events from player actions (all_in_moment, heads_up).
+        """Detect pressure events from player actions (all_in_moment).
 
         Args:
             game_state: Current game state
@@ -458,11 +355,6 @@ class PressureEventDetector:
         # All-in moment: player went all-in
         if action == 'all_in':
             events.append(("all_in_moment", [player_name]))
-
-        # Heads-up: only two active players remain
-        active_players = [p for p in game_state.players if not p.is_folded and p.stack > 0]
-        if len(active_players) == 2 and player_name in [p.name for p in active_players]:
-            events.append(("heads_up", [player_name]))
 
         return events
 
@@ -501,7 +393,6 @@ class PressureEventDetector:
     # Stack event thresholds
     SHORT_STACK_BB = 10      # Below 10 BB is short-stacked
     CRIPPLED_LOSS_PCT = 0.75  # Lost 75%+ of stack = crippled
-    DOUBLE_UP_MULTIPLIER = 2  # Ended with 2x+ starting stack
 
     def detect_stack_events(
         self,
@@ -511,7 +402,7 @@ class PressureEventDetector:
         was_short_stack: Set[str],
         big_blind: int = 100
     ) -> Tuple[List[Tuple[str, List[str]]], Set[str]]:
-        """Detect stack-based pressure events: double_up, crippled, short_stack.
+        """Detect stack-based pressure events: crippled, short_stack.
 
         Args:
             game_state: Current game state after hand completion
@@ -535,15 +426,9 @@ class PressureEventDetector:
             start_stack = hand_start_stacks.get(player.name)
             current_stack = player.stack
 
-            # Double up: ended with 2x+ starting stack (only for winners)
-            if (start_stack and start_stack > 0 and
-                player.name in winner_names and
-                current_stack >= self.DOUBLE_UP_MULTIPLIER * start_stack):
-                events.append(("double_up", [player.name]))
-
             # Crippled: lost 75%+ of stack this hand (only for non-winners)
-            elif (start_stack and start_stack > 0 and
-                  player.name not in winner_names):
+            if (start_stack and start_stack > 0 and
+                    player.name not in winner_names):
                 loss_pct = (start_stack - current_stack) / start_stack
                 if loss_pct >= self.CRIPPLED_LOSS_PCT:
                     events.append(("crippled", [player.name]))
