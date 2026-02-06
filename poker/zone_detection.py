@@ -242,12 +242,12 @@ def _calculate_sweet_spot_strength(
     radius: float,
 ) -> float:
     """
-    Calculate strength within a circular sweet spot zone using cosine falloff.
+    Calculate strength within a circular sweet spot zone.
 
-    The strength is 1.0 at the center and smoothly decreases to 0.0 at the edge.
-    Outside the radius, strength is 0.0.
-
-    Formula: strength = 0.5 + 0.5 * cos(pi * distance / radius)
+    Inner-radius full strength + linear outer falloff:
+    - Within inner_radius (40% of radius): full strength (1.0)
+    - Between inner_radius and radius: linear falloff from 1.0 to 0.0
+    - Outside radius: 0.0
     """
     distance = math.sqrt(
         (confidence - center[0]) ** 2 + (composure - center[1]) ** 2
@@ -256,7 +256,11 @@ def _calculate_sweet_spot_strength(
     if distance >= radius:
         return 0.0
 
-    return 0.5 + 0.5 * math.cos(math.pi * distance / radius)
+    inner_radius = radius * 0.4
+    if distance <= inner_radius:
+        return 1.0
+
+    return 1.0 - (distance - inner_radius) / (radius - inner_radius)
 
 
 def _detect_sweet_spots(confidence: float, composure: float) -> Dict[str, float]:
