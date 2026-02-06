@@ -144,35 +144,57 @@ class CoachRepository(BaseRepository):
 
     def save_coach_profile(self, user_id: str, self_reported_level: str = None,
                            effective_level: str = 'beginner',
-                           onboarding_completed_at: str = None) -> None:
-        """Persist the player's coaching profile."""
+                           onboarding_completed_at: str = None,
+                           range_targets: Dict = None) -> None:
+        """Persist the player's coaching profile.
+
+        Args:
+            user_id: Player's user ID
+            self_reported_level: Player's self-assessment (beginner/intermediate/experienced)
+            effective_level: System-adjusted level based on observed play
+            onboarding_completed_at: ISO timestamp when onboarding finished
+            range_targets: Dict of position -> percentage for personal range targets
+        """
         now = datetime.now().isoformat()
+        range_targets_json = json.dumps(range_targets) if range_targets else None
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO player_coach_profile
                     (user_id, self_reported_level, effective_level, created_at, updated_at,
-                     onboarding_completed_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                     onboarding_completed_at, range_targets)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     self_reported_level = excluded.self_reported_level,
                     effective_level = excluded.effective_level,
                     updated_at = excluded.updated_at,
                     onboarding_completed_at = COALESCE(excluded.onboarding_completed_at,
-                                                       player_coach_profile.onboarding_completed_at)
-            """, (user_id, self_reported_level, effective_level, now, now, onboarding_completed_at))
+                                                       player_coach_profile.onboarding_completed_at),
+                    range_targets = COALESCE(excluded.range_targets,
+                                             player_coach_profile.range_targets)
+            """, (user_id, self_reported_level, effective_level, now, now,
+                  onboarding_completed_at, range_targets_json))
 
     def load_coach_profile(self, user_id: str) -> Optional[Dict]:
         """Load coaching profile. Returns dict or None."""
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT user_id, self_reported_level, effective_level, created_at, updated_at, "
-                "onboarding_completed_at "
+                "onboarding_completed_at, range_targets "
                 "FROM player_coach_profile WHERE user_id = ?",
                 (user_id,),
             )
             row = cursor.fetchone()
             if not row:
                 return None
+
+            # Parse range_targets JSON if present
+            range_targets = None
+            if row[6]:
+                try:
+                    range_targets = json.loads(row[6])
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"Invalid range_targets JSON for user {user_id}")
+
             return {
                 'user_id': row[0],
                 'self_reported_level': row[1],
@@ -180,7 +202,41 @@ class CoachRepository(BaseRepository):
                 'created_at': row[3],
                 'updated_at': row[4],
                 'onboarding_completed_at': row[5],
+                'range_targets': range_targets,
             }
+
+    def save_range_targets(self, user_id: str, range_targets: Dict[str, float]) -> None:
+        """Update only the range_targets for a user.
+
+        Uses upsert to handle both existing and new profiles.
+        Useful when expanding ranges on gate unlock without modifying other fields.
+        """
+        now = datetime.now().isoformat()
+        range_targets_json = json.dumps(range_targets)
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO player_coach_profile (user_id, range_targets, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    range_targets = excluded.range_targets,
+                    updated_at = excluded.updated_at
+            """, (user_id, range_targets_json, now, now))
+
+    def load_range_targets(self, user_id: str) -> Optional[Dict[str, float]]:
+        """Load just the range_targets for a user. Returns None if not set."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT range_targets FROM player_coach_profile WHERE user_id = ?",
+                (user_id,),
+            )
+            row = cursor.fetchone()
+            if not row or not row[0]:
+                return None
+            try:
+                return json.loads(row[0])
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Invalid range_targets JSON for user {user_id}")
+                return None
 
     # --- Metrics queries (admin) ---
 

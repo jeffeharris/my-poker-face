@@ -7,7 +7,6 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
-
 interface UsePokerGameOptions {
   gameId: string | null;
   playerName?: string;

@@ -16,11 +16,18 @@ interface CoachBubbleProps {
 
 const AUTO_DISMISS_MS = 8000;
 
-export const CoachBubble = memo(function CoachBubble({ isVisible, tip, stats, onTap, onDismiss, coachingMode }: CoachBubbleProps) {
+export const CoachBubble = memo(function CoachBubble({
+  isVisible,
+  tip,
+  stats,
+  onTap,
+  onDismiss,
+  coachingMode,
+}: CoachBubbleProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Reset expanded state when tip changes or bubble hides
+  // Reset state when tip changes or bubble hides
   useEffect(() => {
     if (!isVisible) {
       setIsExpanded(false);
@@ -76,6 +83,7 @@ export const CoachBubble = memo(function CoachBubble({ isVisible, tip, stats, on
           >
             <X size={16} />
           </button>
+
           <div className="coach-bubble-main">
             <div className="coach-bubble-icon">
               <GraduationCap size={18} />

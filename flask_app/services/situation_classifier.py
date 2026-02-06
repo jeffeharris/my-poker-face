@@ -33,6 +33,7 @@ class SituationClassifier:
         coaching_data: Dict,
         unlocked_gates: List[int],
         skill_states: Dict[str, PlayerSkillState],
+        range_targets: Optional[Dict[str, float]] = None,
     ) -> SituationClassification:
         """Classify the current situation against unlocked skills.
 
@@ -41,11 +42,12 @@ class SituationClassifier:
                            hand_strength, pot_total, cost_to_call, etc.
             unlocked_gates: List of gate numbers the player has unlocked.
             skill_states: Dict of skill_id -> PlayerSkillState.
+            range_targets: Optional personal range targets for the player.
 
         Returns:
             SituationClassification with relevant skills and primary skill.
         """
-        ctx = build_poker_context(coaching_data)
+        ctx = build_poker_context(coaching_data, range_targets=range_targets)
         if not ctx:
             return SituationClassification(
                 relevant_skills=(), primary_skill=None, situation_tags=()
