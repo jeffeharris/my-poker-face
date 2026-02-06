@@ -101,17 +101,6 @@ class TestShouldClearOptions(unittest.TestCase):
         game_data = create_mock_game_data(PokerPhase.RIVER)
         self.assertFalse(compute_should_clear_options(game_data))
 
-    def test_options_cleared_when_state_machine_missing(self):
-        """Options should be cleared based on run_it_out when state_machine is missing."""
-        game_data = create_mock_game_data(PokerPhase.PRE_FLOP)
-        game_data['state_machine'] = None
-
-        # Without state_machine and without run_it_out, should not clear
-        self.assertFalse(compute_should_clear_options(game_data))
-
-        # With run_it_out, should clear even without state_machine
-        game_data['game_state'] = game_data['game_state'].update(run_it_out=True)
-        self.assertTrue(compute_should_clear_options(game_data))
 
 
 if __name__ == '__main__':

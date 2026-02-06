@@ -32,6 +32,7 @@ from ..services.elasticity_service import format_elasticity_data
 from ..services.ai_debug_service import get_all_players_llm_stats
 from .message_handler import send_message, format_action_message, record_action_in_memory, format_messages_for_api
 from .. import config
+from poker.game_helpers import should_clear_player_options
 from poker.guest_limits import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
 
 logger = logging.getLogger(__name__)
@@ -326,7 +327,6 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state_dict['big_blind_idx'] = game_state.big_blind_idx
     game_state_dict['highest_bet'] = game_state.highest_bet
     # Clear player options during run-it-out or non-betting phases (no actions possible)
-    from poker.game_helpers import should_clear_player_options
     state_machine = current_game_data.get('state_machine')
     should_clear = should_clear_player_options(game_state, state_machine)
     game_state_dict['player_options'] = [] if should_clear else (list(game_state.current_player_options) if game_state.current_player_options else [])
@@ -1207,7 +1207,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
     except Exception as e:
-        logger.error(f"Failed to clear hole cards for game {game_id}: {e}")
+        logger.error(f"Failed to clear hole cards for game {game_id}: {e}", exc_info=True)
         socketio.emit('game_error', {
             'error': 'Failed to transition between hands',
             'details': str(e),
@@ -1235,13 +1235,13 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
     except Exception as e:
-        logger.error(f"Failed to advance to next hand for game {game_id}: {e}")
+        logger.error(f"Failed to advance to next hand for game {game_id}: {e}", exc_info=True)
         socketio.emit('game_error', {
             'error': 'Failed to start new hand',
             'details': str(e),
             'recoverable': True
         }, to=game_id)
-        # Don't emit potentially corrupted state - let frontend refresh
+        return game_state, False
 
     # Start recording new hand AFTER cards are dealt
     if 'memory_manager' in game_data:

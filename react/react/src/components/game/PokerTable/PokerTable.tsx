@@ -13,7 +13,7 @@ import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { logger } from '../../../utils/logger';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
-import { NON_BETTING_PHASES } from '../../../constants/gamePhases';
+import { isBettingPhase } from '../../../constants/gamePhases';
 import type { Player } from '../../../types/player';
 import '../../../styles/action-badges.css';
 import './PokerTable.css';
@@ -135,9 +135,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
 
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
   const phase = gameState?.phase;
-  const shouldHighlightActivePlayer = Boolean(phase) &&
-    !gameState?.run_it_out &&
-    !NON_BETTING_PHASES.includes(phase as typeof NON_BETTING_PHASES[number]);
+  const shouldHighlightActivePlayer = isBettingPhase(phase, gameState?.run_it_out ?? false);
   const isHumanCurrentPlayer = shouldHighlightActivePlayer &&
     humanPlayerIndex === gameState?.current_player_idx;
 

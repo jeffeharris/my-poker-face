@@ -1,5 +1,13 @@
-import { memo, useEffect, useState, useMemo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import './InterhandTransition.css';
+
+/** Static card positions for the shuffle animation. */
+const SHUFFLE_CARDS = Array.from({ length: 8 }, (_, i) => ({
+  id: i,
+  delay: i * 0.08,
+  offsetX: (i - 3.5) * 4,
+  rotation: (i - 3.5) * 2,
+}));
 
 interface InterhandTransitionProps {
   isVisible: boolean;
@@ -30,16 +38,6 @@ export const InterhandTransition = memo(function InterhandTransition({
     }
   }, [isVisible]);
 
-  // Generate card positions for the shuffle animation
-  const shuffleCards = useMemo(() => {
-    return Array.from({ length: 8 }, (_, i) => ({
-      id: i,
-      delay: i * 0.08,
-      offsetX: (i - 3.5) * 4,
-      rotation: (i - 3.5) * 2,
-    }));
-  }, []);
-
   if (!isVisible) return null;
 
   return (
@@ -61,7 +59,7 @@ export const InterhandTransition = memo(function InterhandTransition({
         <div className={`interhand-content ${showContent ? 'visible' : ''}`}>
           {/* Animated card deck shuffle */}
           <div className="shuffle-deck">
-            {shuffleCards.map((card) => (
+            {SHUFFLE_CARDS.map((card) => (
               <div
                 key={card.id}
                 className="shuffle-card"

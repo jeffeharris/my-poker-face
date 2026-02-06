@@ -24,7 +24,7 @@ import { useGameStore } from '../../stores/gameStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { useCoach } from '../../hooks/useCoach';
-import { NON_BETTING_PHASES } from '../../constants/gamePhases';
+import { isBettingPhase } from '../../constants/gamePhases';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
@@ -156,9 +156,7 @@ export function MobilePokerTable({
   const isShowdown = phase?.toLowerCase() === 'showdown';
 
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
-  const shouldHighlightActivePlayer = Boolean(phase) &&
-    !runItOut &&
-    !NON_BETTING_PHASES.includes(phase as typeof NON_BETTING_PHASES[number]);
+  const shouldHighlightActivePlayer = isBettingPhase(phase, runItOut);
 
   // Card animation hook - handles dealing, exit animations, transforms
   const {
@@ -678,7 +676,7 @@ export function MobilePokerTable({
 
       {/* Interhand transition - background layer during end-of-hand phases */}
       <InterhandTransition
-        isVisible={phase === 'HAND_OVER' || phase === 'EVALUATING_HAND'}
+        isVisible={phase === 'HAND_OVER'}
         handNumber={handNumber}
       />
 

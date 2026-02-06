@@ -534,8 +534,6 @@
     position: relative;
 }
 
-/* Interhand transition moved to InterhandTransition.css */
-
 .community-cards-row {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
