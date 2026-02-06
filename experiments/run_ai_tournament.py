@@ -902,7 +902,21 @@ class AITournamentRunner:
             )
             all_events.extend(stack_events)
 
-        # 4. Losers for nemesis tracking
+        # 4. Streak events (winning_streak, losing_streak)
+        if self.hand_history_repo:
+            for player_name in controllers:
+                try:
+                    session_stats = self.hand_history_repo.get_session_stats(
+                        game_id, player_name
+                    )
+                    streak_events = self.pressure_detector.detect_streak_events(
+                        player_name, session_stats
+                    )
+                    all_events.extend(streak_events)
+                except Exception as e:
+                    logger.warning(f"Failed to get session stats for {player_name}: {e}")
+
+        # 5. Losers for nemesis tracking
         loser_names = [p.name for p in game_state.players
                        if not p.is_folded and p.name not in winner_names]
 
@@ -923,6 +937,9 @@ class AITournamentRunner:
                     opponent = winner_names[0]
 
                 try:
+                    conf_before = controller.psychology.confidence
+                    comp_before = controller.psychology.composure
+                    energy_before = controller.psychology.energy
                     controller.psychology.apply_pressure_event(event_name, opponent)
                     logger.debug(
                         f"[Psychology] {player_name}: Applied '{event_name}' event. "
@@ -937,6 +954,9 @@ class AITournamentRunner:
                             event_type=event_name,
                             hand_number=hand_number,
                             details={
+                                'conf_delta': round(controller.psychology.confidence - conf_before, 6),
+                                'comp_delta': round(controller.psychology.composure - comp_before, 6),
+                                'energy_delta': round(controller.psychology.energy - energy_before, 6),
                                 'conf_after': round(controller.psychology.confidence, 4),
                                 'comp_after': round(controller.psychology.composure, 4),
                                 'energy_after': round(controller.psychology.energy, 4),
@@ -1152,6 +1172,18 @@ class AITournamentRunner:
                         if advanced_state is not None:
                             game_state = advanced_state
                         state_machine.game_state = game_state  # Use property setter
+
+                        # Detect action-based energy events (all_in_moment, heads_up)
+                        enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
+                        if enable_psychology:
+                            action_events = self.pressure_detector.detect_action_events(
+                                game_state, current_player.name, action, amount
+                            )
+                            for event_name, affected_players in action_events:
+                                for pname in affected_players:
+                                    ctrl = controllers.get(pname)
+                                    if ctrl and hasattr(ctrl, 'psychology'):
+                                        ctrl.psychology.apply_pressure_event(event_name)
 
                         # Per-action save for resilience (enables pause/resume)
                         if tournament_id and self.experiment_id:

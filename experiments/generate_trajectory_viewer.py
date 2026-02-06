@@ -252,8 +252,8 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 .avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#000;flex-shrink:0}
 .player-name{font-weight:500;font-size:0.88rem;white-space:nowrap}
 
-.player-middle{flex:1;min-width:0}
-.events{display:flex;flex-wrap:wrap;gap:4px;min-height:24px}
+.player-middle{flex:1;min-width:0;overflow:hidden}
+.events{min-height:24px}
 .event-badge{padding:2px 7px;border-radius:3px;font-size:0.72rem;font-weight:500;white-space:nowrap}
 .event-badge.win{background:rgba(0,184,148,0.13);color:#00b894}
 .event-badge.loss{background:rgba(255,107,107,0.13);color:#ff6b6b}
@@ -261,6 +261,17 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 .event-badge.penalty{background:rgba(255,107,107,0.18);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25)}
 .event-badge.neutral{background:rgba(150,150,150,0.1);color:#888}
 .event-badge.thoughts{background:rgba(255,230,109,0.15);color:#ffe66d}
+
+.force-table{width:100%;font-size:0.72rem;font-variant-numeric:tabular-nums;border-collapse:collapse}
+.force-table td{padding:1px 4px;white-space:nowrap}
+.force-table .force-label{color:#888;text-align:left;width:100px}
+.force-table .force-val{text-align:right;width:72px;font-family:monospace}
+.force-table .force-net{border-top:1px solid #30363d}
+.force-table .force-net .force-label{color:#ccc;font-weight:600}
+.force-table .force-pos{color:#00b894}
+.force-table .force-neg{color:#ff6b6b}
+.force-table .force-zero{color:#444}
+.force-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
 
 .player-right{display:flex;flex-direction:column;gap:3px;min-width:220px}
 .axis-row{display:flex;align-items:center;gap:6px;font-size:0.78rem}
@@ -810,61 +821,110 @@ const EVENT_STYLES = {
   _gravity: {label: 'zone gravity', cls: 'thoughts'},
 };
 
+function fmtDelta(v) {
+  if (Math.abs(v) < 0.0005) return {text: '\u2014', cls: 'force-zero'};
+  const sign = v > 0 ? '+' : '';
+  return {text: sign + v.toFixed(3), cls: v > 0 ? 'force-pos' : 'force-neg'};
+}
+
 function computeEvents(playerName, current, prev) {
   if (!prev) return '<span class="event-badge neutral">Baseline</span>';
-  const b = [];
 
-  // Show actual pressure events if available
   const pe = DATA.pressure_events || {};
   const playerEvents = pe[playerName] || {};
-  const handEvents = playerEvents[current.hand] || [];
+  // Events applied after prev hand caused the movement to current position
+  const handEvents = playerEvents[prev.hand] || [];
+
+  // Separate events into force rows (have deltas) and badges (no deltas)
+  const forceRows = [];
+  const badges = [];
+  let netConf = 0, netComp = 0, netEnergy = 0;
 
   for (const evt of handEvents) {
     const style = EVENT_STYLES[evt.type] || {label: evt.type, cls: 'neutral'};
-    let extra = '';
-    if (evt.type === '_recovery' && evt.details) {
-      const dc = evt.details.conf_delta || 0;
-      const dm = evt.details.comp_delta || 0;
-      extra = ' c' + (dc >= 0 ? '+' : '') + dc.toFixed(3) +
-              ' m' + (dm >= 0 ? '+' : '') + dm.toFixed(3);
-    } else if (evt.type === '_gravity' && evt.details) {
-      const dc = evt.details.conf_delta || 0;
-      const dm = evt.details.comp_delta || 0;
-      extra = ' c' + (dc >= 0 ? '+' : '') + dc.toFixed(3) +
-              ' m' + (dm >= 0 ? '+' : '') + dm.toFixed(3);
+    const d = evt.details || {};
+    const hasDeltas = d.conf_delta !== undefined || d.comp_delta !== undefined;
+
+    if (hasDeltas) {
+      const cd = d.conf_delta || 0;
+      const md = d.comp_delta || 0;
+      const ed = d.energy_delta || 0;
+      netConf += cd;
+      netComp += md;
+      netEnergy += ed;
+      forceRows.push({label: style.label, cls: style.cls, conf: cd, comp: md, energy: ed});
+    } else {
+      badges.push('<span class="event-badge ' + style.cls + '">' + style.label + '</span>');
     }
-    b.push('<span class="event-badge ' + style.cls + '">' + style.label + extra + '</span>');
   }
 
-  // Stack change (always show if changed)
+  let html = '';
+
+  // Force breakdown table
+  if (forceRows.length > 0) {
+    html += '<table class="force-table">';
+    for (const row of forceRows) {
+      const c = fmtDelta(row.conf);
+      const m = fmtDelta(row.comp);
+      const e = fmtDelta(row.energy);
+      html += '<tr>' +
+        '<td class="force-label"><span class="event-badge ' + row.cls + '" style="padding:1px 5px;font-size:0.68rem">' + row.label + '</span></td>' +
+        '<td class="force-val ' + c.cls + '">conf ' + c.text + '</td>' +
+        '<td class="force-val ' + m.cls + '">comp ' + m.text + '</td>' +
+        '<td class="force-val ' + e.cls + '">nrg ' + e.text + '</td>' +
+        '</tr>';
+    }
+    // Net row (only if multiple forces)
+    if (forceRows.length > 1) {
+      const nc = fmtDelta(netConf);
+      const nm = fmtDelta(netComp);
+      const ne = fmtDelta(netEnergy);
+      html += '<tr class="force-net">' +
+        '<td class="force-label">net</td>' +
+        '<td class="force-val ' + nc.cls + '">conf ' + nc.text + '</td>' +
+        '<td class="force-val ' + nm.cls + '">comp ' + nm.text + '</td>' +
+        '<td class="force-val ' + ne.cls + '">nrg ' + ne.text + '</td>' +
+        '</tr>';
+    }
+    html += '</table>';
+  }
+
+  // Badge section (zone transitions, penalties, old events without deltas)
+  const badgeParts = badges.slice();
+
+  // Stack change
   const sd = current.stack - prev.stack;
-  if (sd > 0) b.push('<span class="event-badge win">+' + sd + ' chips</span>');
-  else if (sd < 0) b.push('<span class="event-badge loss">' + sd + ' chips</span>');
+  if (sd > 0) badgeParts.push('<span class="event-badge win">+' + sd + ' chips</span>');
+  else if (sd < 0) badgeParts.push('<span class="event-badge loss">' + sd + ' chips</span>');
 
   // Zone transitions
   if (current.sweet_spot !== prev.sweet_spot) {
     if (current.sweet_spot)
-      b.push('<span class="event-badge zone">\u2192 ' + current.sweet_spot + '</span>');
+      badgeParts.push('<span class="event-badge zone">\u2192 ' + current.sweet_spot + '</span>');
     if (prev.sweet_spot && !current.sweet_spot)
-      b.push('<span class="event-badge neutral">left ' + prev.sweet_spot + '</span>');
+      badgeParts.push('<span class="event-badge neutral">left ' + prev.sweet_spot + '</span>');
   }
 
   // Penalty changes
   if (current.penalty !== prev.penalty) {
     if (current.penalty)
-      b.push('<span class="event-badge penalty">\u26a0 ' + current.penalty + '</span>');
+      badgeParts.push('<span class="event-badge penalty">\u26a0 ' + current.penalty + '</span>');
     if (prev.penalty && !current.penalty)
-      b.push('<span class="event-badge zone">\u2713 left ' + prev.penalty + '</span>');
+      badgeParts.push('<span class="event-badge zone">\u2713 left ' + prev.penalty + '</span>');
   } else if (current.penalty) {
-    b.push('<span class="event-badge penalty">' + current.penalty +
+    badgeParts.push('<span class="event-badge penalty">' + current.penalty +
       ' (' + (current.penalty_strength * 100).toFixed(0) + '%)</span>');
   }
 
   // Intrusive thoughts
   if (current.intrusive)
-    b.push('<span class="event-badge thoughts">\ud83d\udcad intrusive thoughts</span>');
+    badgeParts.push('<span class="event-badge thoughts">\ud83d\udcad intrusive thoughts</span>');
 
-  return b.length ? b.join('') : '<span class="event-badge neutral">steady</span>';
+  if (badgeParts.length > 0) {
+    html += '<div class="force-badges">' + badgeParts.join('') + '</div>';
+  }
+
+  return html || '<span class="event-badge neutral">steady</span>';
 }
 
 // --- Controls ---
