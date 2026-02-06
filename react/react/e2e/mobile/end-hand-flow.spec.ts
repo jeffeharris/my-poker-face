@@ -174,12 +174,12 @@ test.describe('End-of-hand UI flow', () => {
       const ctx = await mockGamePageRoutes(page, { gameState });
       await navigateToGamePage(page, { mockContext: ctx });
 
-      // InterhandTransition should be visible during HAND_OVER
+      // ShuffleLoading should be visible during HAND_OVER
       const transition = page.getByTestId('shuffle-loading');
       await expect(transition).toBeVisible();
     });
 
-    test('InterhandTransition NOT visible during betting phases', async ({ page }) => {
+    test('ShuffleLoading NOT visible during betting phases', async ({ page }) => {
       const gameState = buildGameState(['fold', 'call', 'raise'], {
         phase: 'PRE_FLOP',
         run_it_out: false,
@@ -187,12 +187,12 @@ test.describe('End-of-hand UI flow', () => {
       const ctx = await mockGamePageRoutes(page, { gameState });
       await navigateToGamePage(page, { mockContext: ctx });
 
-      // InterhandTransition should NOT be visible during normal betting
+      // ShuffleLoading should NOT be visible during normal betting
       const transition = page.getByTestId('shuffle-loading');
       await expect(transition).not.toBeVisible();
     });
 
-    test('InterhandTransition NOT visible during EVALUATING_HAND phase', async ({ page }) => {
+    test('ShuffleLoading NOT visible during EVALUATING_HAND phase', async ({ page }) => {
       const gameState = buildGameState([], {
         phase: 'EVALUATING_HAND',
         player_options: [],
@@ -200,12 +200,12 @@ test.describe('End-of-hand UI flow', () => {
       const ctx = await mockGamePageRoutes(page, { gameState });
       await navigateToGamePage(page, { mockContext: ctx });
 
-      // InterhandTransition should NOT be visible during evaluation (only during HAND_OVER)
+      // ShuffleLoading should NOT be visible during evaluation (only during HAND_OVER)
       const transition = page.getByTestId('shuffle-loading');
       await expect(transition).not.toBeVisible();
     });
 
-    test('InterhandTransition shows hand number during HAND_OVER', async ({ page }) => {
+    test('ShuffleLoading shows hand number during HAND_OVER', async ({ page }) => {
       const gameState = buildGameState([], {
         phase: 'HAND_OVER',
         player_options: [],
