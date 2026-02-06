@@ -305,28 +305,28 @@ class PlayerPsychology:
     def _get_pressure_impacts(self, event_name: str) -> Dict[str, float]:
         """Get axis impacts for a pressure event."""
         pressure_events = {
-            # Win events
-            'big_win': {'confidence': 0.15, 'composure': 0.10, 'energy': 0.10},
+            # Win events (+15-20% increase for more volatility in both directions)
+            'big_win': {'confidence': 0.18, 'composure': 0.12, 'energy': 0.12},
             'win': {'confidence': 0.08, 'composure': 0.05},
-            'successful_bluff': {'confidence': 0.20, 'composure': 0.05, 'energy': 0.10},
-            'suckout': {'confidence': 0.10, 'composure': 0.05, 'energy': 0.10},
-            'double_up': {'confidence': 0.20, 'composure': 0.10, 'energy': 0.15},
-            'eliminated_opponent': {'confidence': 0.10, 'composure': 0.05, 'energy': 0.12},
-            # Loss events
-            'big_loss': {'confidence': -0.10, 'composure': -0.15, 'energy': -0.08},
-            'bluff_called': {'confidence': -0.20, 'composure': -0.10, 'energy': -0.08},
-            'bad_beat': {'confidence': -0.05, 'composure': -0.25, 'energy': -0.10},
-            'got_sucked_out': {'confidence': -0.05, 'composure': -0.30, 'energy': -0.15},
-            'cooler': {'confidence': 0.0, 'composure': -0.05, 'energy': -0.08},
-            'crippled': {'confidence': -0.15, 'composure': -0.15, 'energy': -0.15},
-            'short_stack': {'confidence': -0.10, 'composure': -0.10, 'energy': -0.08},
+            'successful_bluff': {'confidence': 0.25, 'composure': 0.06, 'energy': 0.12},
+            'suckout': {'confidence': 0.12, 'composure': 0.06, 'energy': 0.12},
+            'double_up': {'confidence': 0.24, 'composure': 0.12, 'energy': 0.18},
+            'eliminated_opponent': {'confidence': 0.12, 'composure': 0.06, 'energy': 0.14},
+            # Loss events (~40-50% increase to push moderate players into penalty zones)
+            'big_loss': {'confidence': -0.15, 'composure': -0.22, 'energy': -0.12},
+            'bluff_called': {'confidence': -0.28, 'composure': -0.15, 'energy': -0.12},
+            'bad_beat': {'confidence': -0.08, 'composure': -0.35, 'energy': -0.15},
+            'got_sucked_out': {'confidence': -0.08, 'composure': -0.40, 'energy': -0.22},
+            'cooler': {'confidence': 0.0, 'composure': -0.08, 'energy': -0.10},
+            'crippled': {'confidence': -0.22, 'composure': -0.22, 'energy': -0.22},
+            'short_stack': {'confidence': -0.15, 'composure': -0.15, 'energy': -0.12},
             # Streak events
-            'winning_streak': {'confidence': 0.15, 'composure': 0.10, 'energy': 0.08},
-            'losing_streak': {'confidence': -0.15, 'composure': -0.20, 'energy': -0.12},
+            'winning_streak': {'confidence': 0.18, 'composure': 0.12, 'energy': 0.10},
+            'losing_streak': {'confidence': -0.22, 'composure': -0.28, 'energy': -0.18},
             # Social/rivalry
-            'nemesis_win': {'confidence': 0.15, 'composure': 0.10, 'energy': 0.12},
-            'nemesis_loss': {'confidence': -0.10, 'composure': -0.15, 'energy': -0.08},
-            'rivalry_trigger': {'confidence': 0.0, 'composure': -0.10, 'energy': 0.05},
+            'nemesis_win': {'confidence': 0.18, 'composure': 0.12, 'energy': 0.14},
+            'nemesis_loss': {'confidence': -0.15, 'composure': -0.22, 'energy': -0.12},
+            'rivalry_trigger': {'confidence': 0.0, 'composure': -0.15, 'energy': 0.06},
             # Engagement events (energy only)
             'all_in_moment': {'energy': 0.15},
             'showdown_involved': {'energy': 0.05},
@@ -337,7 +337,7 @@ class PlayerPsychology:
             'card_dead_5': {'energy': -0.12},
             'not_in_hand': {'energy': -0.02},
             # Other
-            'fold_under_pressure': {'confidence': -0.08, 'composure': -0.05},
+            'fold_under_pressure': {'confidence': -0.12, 'composure': -0.08},
         }
 
         return pressure_events.get(event_name, {})
