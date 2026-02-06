@@ -9,10 +9,12 @@ import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
+import { ShuffleLoading } from '../../shared/ShuffleLoading';
 import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { logger } from '../../../utils/logger';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
+import { isBettingPhase } from '../../../constants/gamePhases';
 import type { Player } from '../../../types/player';
 import '../../../styles/action-badges.css';
 import './PokerTable.css';
@@ -131,7 +133,12 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   const isHumanDealer = humanPlayerIndex === gameState?.current_dealer_idx;
   const isHumanSmallBlind = humanPlayerIndex === gameState?.small_blind_idx;
   const isHumanBigBlind = humanPlayerIndex === gameState?.big_blind_idx;
-  const isHumanCurrentPlayer = humanPlayerIndex === gameState?.current_player_idx;
+
+  // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
+  const phase = gameState?.phase;
+  const shouldHighlightActivePlayer = isBettingPhase(phase, gameState?.run_it_out);
+  const isHumanCurrentPlayer = shouldHighlightActivePlayer &&
+    humanPlayerIndex === gameState?.current_player_idx;
 
   if (error) {
     return (
@@ -162,17 +169,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   if (loading) {
     return (
       <div className="poker-table">
-        <div className="initial-loading">
-          <div className="loading-card-fan">
-            {['♠', '♥', '♦', '♣'].map((suit, i) => (
-              <div key={i} className={`loading-card card-${i}`}>
-                <span className="suit">{suit}</span>
-              </div>
-            ))}
-          </div>
-          <h2>Setting up the table...</h2>
-          <p>Shuffling cards and gathering players</p>
-        </div>
+        <ShuffleLoading isVisible={true} message="Setting up the table" submessage="Shuffling cards and gathering players" />
       </div>
     );
   }
@@ -283,7 +280,8 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                 const isDealer = playerIndex === gameState.current_dealer_idx;
                 const isSmallBlind = playerIndex === gameState.small_blind_idx;
                 const isBigBlind = playerIndex === gameState.big_blind_idx;
-                const isCurrentPlayer = playerIndex === gameState.current_player_idx;
+                const isCurrentPlayer = shouldHighlightActivePlayer &&
+                  playerIndex === gameState.current_player_idx;
 
                 // Compute avatar state: swap to "thinking" when AI is processing
                 const isAiThinking = isCurrentPlayer && aiThinking && !player.is_human;

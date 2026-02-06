@@ -10,6 +10,7 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
+import { ShuffleLoading } from '../shared/ShuffleLoading';
 import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
@@ -23,6 +24,7 @@ import { useGameStore } from '../../stores/gameStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { useCoach } from '../../hooks/useCoach';
+import { isBettingPhase } from '../../constants/gamePhases';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
@@ -93,6 +95,7 @@ export function MobilePokerTable({
   const bettingContext = useGameStore(state => state.bettingContext);
   const newlyDealtCount = useGameStore(state => state.newlyDealtCount);
   const awaitingAction = useGameStore(state => state.awaitingAction);
+  const runItOut = useGameStore(state => state.runItOut);
 
   // Non-game-state from the hook (socket, overlays, actions)
   const {
@@ -151,6 +154,9 @@ export function MobilePokerTable({
   const currentPlayer = storePlayers?.[currentPlayerIdx];
   const humanPlayer = storePlayers?.find(p => p.is_human);
   const isShowdown = phase?.toLowerCase() === 'showdown';
+
+  // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
+  const shouldHighlightActivePlayer = isBettingPhase(phase, runItOut);
 
   // Card animation hook - handles dealing, exit animations, transforms
   const {
@@ -336,24 +342,11 @@ export function MobilePokerTable({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coach.skillUnlockQueue]);
 
-  // Only show full loading screen on initial load (no game state yet)
-  // If we have game state but are disconnected, we'll show a reconnecting overlay instead
-  if (loading && !storePlayers) {
-    return (
-      <div className="mobile-poker-table mobile-loading" data-testid="mobile-loading">
-        <div className="mobile-loading-content">
-          <div className="loading-cards">
-            {['♠', '♥', '♦', '♣'].map((suit, i) => (
-              <div key={i} className={`loading-card suit-${i}`}>{suit}</div>
-            ))}
-          </div>
-          <p>Setting up the table...</p>
-        </div>
-      </div>
-    );
-  }
+  const isInitialLoading = loading && !storePlayers;
+  const hasGameData = Boolean(storePlayers && pot);
 
-  if (!storePlayers || !pot) {
+  // Only show error when not loading and still no data
+  if (!isInitialLoading && !hasGameData) {
     return <div className="mobile-poker-table mobile-error">Failed to load game</div>;
   }
 
@@ -362,6 +355,9 @@ export function MobilePokerTable({
 
   return (
     <div className="mobile-poker-table" data-testid="mobile-poker-table" data-connected={isConnected ? 'true' : 'false'}>
+      {/* Initial loading overlay - slides off screen when game data arrives */}
+      <ShuffleLoading isVisible={isInitialLoading} message="Setting up the table" exitStyle="slide" />
+
       {/* Reconnecting overlay - shows when socket is disconnected but we have game state */}
       {showReconnecting && (
         <div className="mobile-reconnecting-overlay" data-testid="reconnecting-overlay">
@@ -372,6 +368,7 @@ export function MobilePokerTable({
         </div>
       )}
 
+      {hasGameData && <>
       {/* Header with MenuBar - matches menu screens */}
       <MenuBar
         onBack={onBack}
@@ -387,8 +384,8 @@ export function MobilePokerTable({
       {/* Opponents Strip */}
       <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`} data-testid="mobile-opponents" ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
-          const opponentIdx = storePlayers.findIndex(p => p.name === opponent.name);
-          const isCurrentPlayer = opponentIdx === currentPlayerIdx;
+          const opponentIdx = storePlayers?.findIndex(p => p.name === opponent.name) ?? -1;
+          const isCurrentPlayer = shouldHighlightActivePlayer && opponentIdx === currentPlayerIdx;
           const isDealer = opponentIdx === dealerIdx;
 
           return (
@@ -469,7 +466,7 @@ export function MobilePokerTable({
 
       {/* Floating Pot Display - between opponents and community cards */}
       <div className="mobile-floating-pot" data-testid="mobile-pot">
-        <PotDisplay total={pot.total} />
+        <PotDisplay total={pot?.total ?? 0} />
       </div>
 
       {/* Community Cards - Always show 5 slots */}
@@ -513,7 +510,7 @@ export function MobilePokerTable({
       {/* Hero Section - Your Cards */}
       <div className={`mobile-hero ${currentPlayer?.is_human ? 'active-turn' : ''} ${humanPlayer?.is_folded ? 'folded' : ''}`} data-testid="mobile-hero">
         {/* Dealer chip - positioned in upper right */}
-        {storePlayers.findIndex(p => p.is_human) === dealerIdx && (
+        {storePlayers?.findIndex(p => p.is_human) === dealerIdx && (
           <span className="dealer-chip">D</span>
         )}
         <div className="hero-info">
@@ -606,7 +603,7 @@ export function MobilePokerTable({
             currentPlayerBet={currentPlayer.bet}
             minRaise={minRaise}
             bigBlind={bigBlind}
-            potSize={pot.total}
+            potSize={pot?.total ?? 0}
             onAction={handlePlayerAction}
             onQuickChat={openChatSheet}
             bettingContext={bettingContext ?? undefined}
@@ -666,6 +663,14 @@ export function MobilePokerTable({
           onSendMessage={wrappedSendMessage}
         />
       )}
+
+      {/* Shuffle animation during end-of-hand phases (winner announcement layers above) */}
+      <ShuffleLoading
+        isVisible={phase === 'EVALUATING_HAND' || phase === 'HAND_OVER'}
+        message="Shuffling"
+        handNumber={handNumber}
+        variant="interhand"
+      />
 
       {/* Chat Sheet - Redesigned with tabs for Quick Chat / Keyboard */}
       <MobileChatSheet
@@ -734,6 +739,7 @@ export function MobilePokerTable({
           onReturnToMenu={() => { if (onBack) onBack(); }}
         />
       )}
+      </>}
     </div>
   );
 }
