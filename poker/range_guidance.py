@@ -425,31 +425,73 @@ def classify_preflop_hand_for_player(
 
     # Premium hands are always in range
     if canonical in PREMIUM_HANDS:
-        return f"{canonical} - premium hand, always in range from {pos_display}"
+        return f"{canonical} - premium hand, raise or re-raise from {pos_display}"
 
     in_range = is_hand_in_range(canonical, range_pct)
     range_pct_display = f"~{range_pct * 100:.0f}%"
 
+    # Looseness-scaled directive language:
+    # Tight players (< 0.4) get strong fold directives
+    # Medium players (0.4-0.6) get moderate guidance
+    # Loose players (> 0.6) get soft nudges that respect their wide range
     if in_range:
-        # Check if hand is on the edge (would drop out at range_pct - 0.05)
         tighter_pct = max(0.0, range_pct - 0.05)
         in_tighter = is_hand_in_range(canonical, tighter_pct)
         if not in_tighter:
             return (
-                f"{canonical} - on the edge of your range from {pos_display} "
-                f"(you play {range_pct_display} here)"
+                f"{canonical} - playable but marginal from {pos_display}, "
+                f"proceed carefully (you play {range_pct_display} here)"
             )
-        return f"{canonical} - well within your range from {pos_display}"
+        return f"{canonical} - solid hand from {pos_display}, raise-worthy"
     else:
-        # Check if hand is just outside (would be included at range_pct + 0.10)
         looser_pct = min(1.0, range_pct + 0.10)
         in_looser = is_hand_in_range(canonical, looser_pct)
-        if in_looser:
-            return (
-                f"{canonical} - just outside your range from {pos_display} "
-                f"(you play {range_pct_display} here)"
-            )
-        return (
-            f"{canonical} - outside your range from {pos_display} "
-            f"(you play {range_pct_display} here)"
+
+        outside_msg, just_outside_msg = _get_outside_range_messages(
+            effective_looseness, canonical, pos_display, range_pct_display,
         )
+        return just_outside_msg if in_looser else outside_msg
+
+
+def _get_outside_range_messages(
+    looseness: float,
+    canonical: str,
+    pos_display: str,
+    range_pct_display: str,
+) -> tuple:
+    """Return (well_outside_msg, just_outside_msg) scaled by looseness.
+
+    Tight players get strong fold directives.
+    Loose players get soft nudges that respect their wide-range style.
+    """
+    if looseness < 0.4:
+        # Tight player — strong directive
+        just_outside = (
+            f"{canonical} - below your range from {pos_display}, "
+            f"fold unless you have a strong read (you play {range_pct_display} here)"
+        )
+        well_outside = (
+            f"{canonical} - well below your range from {pos_display}, "
+            f"you should fold this (you play {range_pct_display} here)"
+        )
+    elif looseness < 0.65:
+        # Medium player — moderate guidance
+        just_outside = (
+            f"{canonical} - just outside your range from {pos_display}, "
+            f"usually a fold without a read (you play {range_pct_display} here)"
+        )
+        well_outside = (
+            f"{canonical} - outside your range from {pos_display}, "
+            f"fold from here (you play {range_pct_display} here)"
+        )
+    else:
+        # Loose player — soft nudge, respect their style
+        just_outside = (
+            f"{canonical} - just past the edge of your range from {pos_display}, "
+            f"not a standard open but playable with position (you play {range_pct_display} here)"
+        )
+        well_outside = (
+            f"{canonical} - outside your range from {pos_display}, "
+            f"speculative at best (you play {range_pct_display} here)"
+        )
+    return well_outside, just_outside

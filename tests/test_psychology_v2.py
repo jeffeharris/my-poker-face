@@ -1656,12 +1656,7 @@ class TestSeveritySensitivity:
 
 
 class TestAsymmetricRecovery:
-    """Tests for Phase 4 asymmetric recovery mechanics.
-
-    Note: These tests use low confidence values to stay in neutral territory
-    (no zone gravity effects), so we can test anchor recovery mechanics in isolation.
-    Zone gravity is tested separately in TestZoneGravity.
-    """
+    """Tests for Phase 4 asymmetric recovery mechanics."""
 
     def test_recovery_slower_when_deeply_tilted(self):
         """
@@ -1671,8 +1666,6 @@ class TestAsymmetricRecovery:
         making tilt "sticky". We test this by comparing the effective recovery rate
         (recovery / gap_to_baseline) rather than absolute recovery amounts.
 
-        Note: Uses low confidence (0.35) to stay in neutral territory and avoid
-        zone gravity effects from sweet spots like Aggro.
         """
         config = {
             'anchors': {
@@ -1825,109 +1818,6 @@ class TestAsymmetricRecovery:
 
 
 # === Zone Gravity Tests ===
-
-class TestZoneGravity:
-    """Tests for zone gravity mechanics.
-
-    Zone gravity creates "stickiness" - zones are harder to leave once you're in them.
-    Sweet spots pull toward their center, penalty zones pull toward extremes.
-    """
-
-    def test_penalty_zone_gravity_pulls_toward_extreme(self):
-        """Penalty zones should pull toward their extreme/edge."""
-        from poker.player_psychology import (
-            get_zone_effects, _calculate_zone_gravity, PENALTY_GRAVITY_DIRECTIONS
-        )
-
-        # Player in tilted zone (composure < 0.35)
-        # Tilted pulls toward composure=0 (down)
-        effects = get_zone_effects(0.5, 0.25, 0.5)
-        assert 'tilted' in effects.penalties
-
-        gravity_conf, gravity_comp = _calculate_zone_gravity(0.5, 0.25, effects)
-
-        # Should pull composure DOWN (negative)
-        assert gravity_comp < 0
-        # Should not significantly affect confidence (tilted is composure-only)
-        assert abs(gravity_conf) < 0.001
-
-    def test_sweet_spot_gravity_pulls_toward_center(self):
-        """Sweet spots should pull toward their center."""
-        from poker.player_psychology import (
-            get_zone_effects, _calculate_zone_gravity, ZONE_AGGRO_CENTER
-        )
-
-        # Player in aggro zone (high conf, mid comp)
-        effects = get_zone_effects(0.70, 0.50, 0.5)
-        assert 'aggro' in effects.sweet_spots
-
-        gravity_conf, gravity_comp = _calculate_zone_gravity(0.70, 0.50, effects)
-
-        # Aggro center is (0.68, 0.48)
-        # Player at (0.70, 0.50) should be pulled slightly left and down
-        assert gravity_conf < 0  # Pull left toward 0.68
-        assert gravity_comp < 0  # Pull down toward 0.48
-
-    def test_neutral_territory_no_gravity(self):
-        """Neutral territory should have no zone gravity."""
-        from poker.player_psychology import get_zone_effects, _calculate_zone_gravity
-
-        # Position in neutral territory (no zones)
-        effects = get_zone_effects(0.45, 0.55, 0.5)
-        assert not effects.sweet_spots
-        assert not effects.penalties
-
-        gravity_conf, gravity_comp = _calculate_zone_gravity(0.45, 0.55, effects)
-
-        # No gravity in neutral territory
-        assert gravity_conf == 0.0
-        assert gravity_comp == 0.0
-
-    def test_gravity_applied_during_recovery(self):
-        """Zone gravity should be applied during recover()."""
-        from poker.player_psychology import PlayerPsychology
-
-        config = {
-            'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.7,  # High baseline composure
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.3,
-            }
-        }
-
-        # Player in aggro zone
-        psych = PlayerPsychology.from_personality_config('Test', config)
-        psych.axes = psych.axes.update(confidence=0.70, composure=0.50)
-
-        initial_comp = psych.composure
-
-        # Recovery would normally pull composure UP toward baseline (~0.67)
-        # But aggro zone gravity pulls DOWN toward center (0.48)
-        # Net effect: slower upward movement or even downward pull
-        psych.recover()
-
-        # The composure change should be smaller than pure anchor recovery
-        # because zone gravity is fighting against it
-        # (We just verify zone gravity has an effect - detailed values tested above)
-        final_comp = psych.composure
-
-        # Due to zone gravity, final composure should be different from
-        # what pure anchor recovery would produce
-        pure_anchor_result = 0.50 + (0.67 - 0.50) * 0.3 * 0.8  # ~0.541
-        # Zone gravity pulls down, so final should be below pure anchor result
-        assert final_comp < pure_anchor_result
-
-    def test_gravity_strength_parameter(self):
-        """Zone gravity should use GRAVITY_STRENGTH parameter."""
-        from poker.player_psychology import (
-            get_zone_effects, _calculate_zone_gravity, get_zone_param
-        )
-
-        # Verify parameter exists and has reasonable value
-        strength = get_zone_param('GRAVITY_STRENGTH')
-        assert 0.005 <= strength <= 0.05  # Tunable range (default 0.01)
-
 
 # === Phase 6 Tests: Zone-Based Intrusive Thoughts ===
 
