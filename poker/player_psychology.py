@@ -2926,41 +2926,21 @@ class PlayerPsychology:
             'key_moment': key_moment
         }
 
-        # Create mock objects for backward compat with emotional_state.py
-        # TODO: Update emotional_state.py to use new axes model directly
-        class MockTiltState:
-            def __init__(self, composure: float, source: str, nemesis: Optional[str]):
-                self.tilt_level = 1.0 - composure
-                self.tilt_source = source
-                self.nemesis = nemesis
-
-        mock_tilt = MockTiltState(
-            composure=self.composure,
-            source=self.composure_state.pressure_source,
-            nemesis=self.composure_state.nemesis
-        )
-
-        # Create mock elastic traits dict for backward compat
-        mock_elastic_traits = {
-            'confidence': type('obj', (object,), {'value': self.confidence, 'anchor': 0.5})(),
-            'composure': type('obj', (object,), {'value': self.composure, 'anchor': 0.7})(),
-            'aggression': type('obj', (object,), {'value': self.aggression, 'anchor': self.anchors.baseline_aggression})(),
-            'tightness': type('obj', (object,), {'value': self.tightness, 'anchor': 1.0 - self.anchors.baseline_looseness})(),
-            'table_talk': type('obj', (object,), {'value': self.table_talk, 'anchor': self.anchors.baseline_energy})(),
-        }
-
         try:
             self.emotional = self._emotional_generator.generate(
                 personality_name=self.player_name,
                 personality_config=self.personality_config,
                 hand_outcome=hand_outcome,
-                elastic_traits=mock_elastic_traits,
-                tilt_state=mock_tilt,
                 session_context=session_context,
                 hand_number=self.hand_count,
                 game_id=self.game_id,
                 owner_id=self.owner_id,
                 big_blind=big_blind,
+                confidence=self.confidence,
+                composure=self.composure,
+                energy=self.energy,
+                baseline_anchors=self.anchors.to_dict(),
+                composure_state=self.composure_state,
             )
         except Exception as e:
             logger.warning(
