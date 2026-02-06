@@ -1,7 +1,7 @@
 """
 Expression Filtering for Psychology System Phase 2.
 
-Controls how emotions are displayed based on visibility (expressiveness × energy).
+Controls how emotions are displayed based on visibility (0.7*expressiveness + 0.3*energy).
 Low visibility players show poker face more often; high visibility shows true emotions.
 
 Also provides prompt guidance for dramatic_sequence length and tempo based on visibility/energy.
@@ -54,7 +54,7 @@ def calculate_visibility(expressiveness: float, energy: float) -> float:
     Returns:
         Visibility value (0.0 to 1.0)
     """
-    return expressiveness * energy
+    return 0.7 * expressiveness + 0.3 * energy
 
 
 def dampen_emotion(true_emotion: str, visibility: float, use_random: bool = True) -> str:
