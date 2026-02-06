@@ -152,6 +152,7 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
             'stack': row['player_stack'] or 0,
             'action': row['action_taken'],
             'intrusive': bool(row['zone_intrusive_thoughts_injected']),
+            'emotion': row['display_emotion'] or 'poker_face',
         })
 
     # Get pressure events for this game (keyed by player → hand_number → [events])
@@ -264,6 +265,7 @@ def extract_data_for_game(db_path: str, game_id: str) -> dict:
             'stack': row['player_stack'] or 0,
             'action': row['action_taken'],
             'intrusive': bool(row['zone_intrusive_thoughts_injected']),
+            'emotion': row['display_emotion'] or 'poker_face',
         })
 
     # Get pressure events for this game
@@ -333,39 +335,63 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0d1117;color:#e6e6e6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow-x:hidden}
-.container{max-width:1100px;margin:0 auto;padding:16px 20px}
+.container{max-width:1400px;margin:0 auto;padding:16px 20px}
 header{text-align:center;margin-bottom:12px}
 h1{font-size:1.3rem;font-weight:500;color:#fff;letter-spacing:-0.3px}
 .meta{color:#666;font-size:0.8rem;margin-top:2px}
 .game-selector{margin-top:6px}
 .game-selector select{background:#161b22;color:#e6e6e6;border:1px solid #30363d;padding:4px 8px;border-radius:4px;font-size:0.8rem}
 
-.chart-section{display:flex;justify-content:center;margin-bottom:12px}
+.main-layout{display:flex;gap:16px;align-items:flex-start}
+.left-panel{flex:1;min-width:280px;overflow-y:auto;max-height:calc(100vh - 140px)}
+.right-panel{flex:2;position:sticky;top:16px}
+
+.chart-section{display:flex;justify-content:center}
 canvas{border-radius:8px;cursor:crosshair}
 
-.controls{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#161b22;border-radius:8px;margin-bottom:12px;border:1px solid #21262d}
-.control-btn{background:#21262d;border:1px solid #30363d;color:#e6e6e6;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.controls{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#161b22;border-radius:8px;margin-top:12px;margin-bottom:12px;border:1px solid #21262d;flex-wrap:wrap}
+.controls-row{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.control-btn{background:#21262d;border:1px solid #30363d;color:#e6e6e6;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;transition:background .15s;flex-shrink:0}
 .control-btn:hover{background:#30363d}
 .control-btn:active{background:#3d444d}
-input[type="range"]{flex:1;-webkit-appearance:none;height:6px;background:#30363d;border-radius:3px;outline:none}
+input[type="range"]{flex:1;-webkit-appearance:none;height:6px;background:#30363d;border-radius:3px;outline:none;min-width:100px}
 input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#58a6ff;cursor:pointer;transition:transform .1s}
 input[type="range"]::-webkit-slider-thumb:hover{transform:scale(1.2)}
 input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#58a6ff;cursor:pointer;border:none}
 .hand-info{font-size:0.85rem;white-space:nowrap;min-width:110px;text-align:right;font-variant-numeric:tabular-nums}
-.kbd-hint{color:#444;font-size:0.7rem;margin-left:auto}
+.kbd-hint{color:#444;font-size:0.7rem}
+
+.overlay-toggles{display:flex;align-items:center;gap:6px}
+.overlay-toggle{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;border:1px solid #30363d;font-size:0.72rem;cursor:pointer;color:#666;transition:all 0.15s;user-select:none;background:transparent}
+.overlay-toggle:hover{border-color:#444}
+.overlay-toggle.active{color:var(--toggle-color);border-color:var(--toggle-color);background:var(--toggle-bg)}
+.overlay-dot{width:6px;height:6px;border-radius:50%;background:var(--toggle-color);opacity:0.5}
+.overlay-toggle.active .overlay-dot{opacity:1}
 
 .player-grid{display:flex;flex-direction:column;gap:6px}
-.player-card{display:flex;align-items:center;gap:14px;padding:10px 14px;background:#161b22;border-radius:8px;border-left:3px solid transparent;border:1px solid #21262d;cursor:pointer;transition:background .15s,border-color .15s}
+.player-card{display:flex;flex-direction:column;gap:4px;padding:8px 10px;background:#161b22;border-radius:6px;border-left:3px solid transparent;border:1px solid #21262d;cursor:pointer;transition:background .15s,border-color .15s}
 .player-card:hover{background:#1c2129}
 .player-card.highlighted{border-color:#58a6ff !important;background:#1c2433}
 .player-card.dimmed{opacity:0.35}
 
-.player-left{display:flex;align-items:center;gap:10px;min-width:160px}
-.avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#000;flex-shrink:0}
-.player-name{font-weight:500;font-size:0.88rem;white-space:nowrap}
+.player-header-row{display:flex;align-items:center;gap:8px;width:100%}
+.player-left{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.avatar-wrap{position:relative;flex-shrink:0}
+.avatar{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10px;color:#000;flex-shrink:0}
+.avatar-emotion{position:absolute;bottom:-2px;right:-4px;font-size:12px;line-height:1;filter:drop-shadow(0 0 2px rgba(0,0,0,0.8));display:none}
+.player-name-wrap{display:flex;align-items:baseline;gap:6px;min-width:0}
+.player-name{font-weight:500;font-size:0.82rem;white-space:nowrap}
+.player-emotion-text{font-size:0.66rem;display:none}
+.card-summary{display:flex;flex-wrap:wrap;gap:3px;flex:1;min-width:0;justify-content:flex-end}
+.expand-btn{background:none;border:none;color:#555;font-size:11px;cursor:pointer;padding:2px 4px;transition:color .15s,transform .15s;flex-shrink:0}
+.expand-btn:hover{color:#999}
+.player-card.expanded .expand-btn{transform:rotate(90deg)}
 
-.player-middle{flex:1;min-width:0;overflow:hidden}
-.events{min-height:24px}
+.card-details{max-height:0;overflow:hidden;transition:max-height .25s ease}
+.player-card.expanded .card-details{max-height:500px}
+
+.player-middle{min-width:0;overflow:hidden}
+.events{min-height:16px}
 .event-badge{padding:2px 7px;border-radius:3px;font-size:0.72rem;font-weight:500;white-space:nowrap}
 .event-badge.win{background:rgba(0,184,148,0.13);color:#00b894}
 .event-badge.loss{background:rgba(255,107,107,0.13);color:#ff6b6b}
@@ -385,31 +411,36 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 .force-table .force-zero{color:#444}
 .force-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
 
-.player-right{display:flex;flex-direction:column;gap:3px;min-width:220px}
-.axis-row{display:flex;align-items:center;gap:6px;font-size:0.78rem}
-.axis-label{width:46px;color:#666;text-align:right}
-.axis-bar{flex:1;height:5px;background:#21262d;border-radius:2px;overflow:hidden;min-width:60px}
+.player-right{display:flex;flex-direction:column;gap:2px;width:100%}
+.axis-row{display:flex;align-items:center;gap:4px;font-size:0.72rem}
+.axis-label{width:18px;color:#666;text-align:right;font-size:0.66rem}
+.axis-bar{flex:1;height:4px;background:#21262d;border-radius:2px;overflow:hidden;min-width:40px}
 .axis-fill{height:100%;border-radius:2px;transition:width .3s ease}
-.axis-value{width:32px;text-align:right;font-variant-numeric:tabular-nums;color:#ccc}
-.axis-delta{width:48px;text-align:right;font-variant-numeric:tabular-nums;font-size:0.72rem}
+.axis-value{width:30px;text-align:right;font-variant-numeric:tabular-nums;color:#ccc;font-size:0.7rem}
+.axis-delta{width:42px;text-align:right;font-variant-numeric:tabular-nums;font-size:0.66rem}
 .positive{color:#00b894}
 .negative{color:#ff6b6b}
 .neutral-delta{color:#444}
 
+.affinity-section{margin-top:3px;padding-top:3px;border-top:1px solid #21262d}
+.affinity-row{display:flex;align-items:center;gap:4px;height:12px;font-size:0.66rem}
+.affinity-label{width:18px;color:#666;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
+.affinity-bar-bg{flex:1;height:3px;background:#21262d;border-radius:2px;overflow:hidden;min-width:30px}
+.affinity-bar-fill{height:100%;border-radius:2px;transition:width .3s ease}
+.affinity-pct{width:26px;text-align:right;color:#888;font-variant-numeric:tabular-nums}
+.affinity-active .affinity-label{color:#FFD700}
+.affinity-active .affinity-pct{color:#FFD700}
+
+@media(max-width:900px){
+  .main-layout{flex-direction:column}
+  .left-panel{max-height:none;overflow-y:visible}
+  .right-panel{position:static;width:100%}
+}
 @media(max-width:800px){
   .player-left{min-width:120px}
   .player-right{min-width:160px}
   .player-card{flex-wrap:wrap}
 }
-
-.affinity-section{margin-top:4px;padding-top:4px;border-top:1px solid #21262d}
-.affinity-row{display:flex;align-items:center;gap:6px;height:14px;font-size:0.72rem}
-.affinity-label{width:22px;color:#666;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
-.affinity-bar-bg{flex:1;height:4px;background:#21262d;border-radius:2px;overflow:hidden;min-width:40px}
-.affinity-bar-fill{height:100%;border-radius:2px;transition:width .3s ease}
-.affinity-pct{width:28px;text-align:right;color:#888;font-variant-numeric:tabular-nums}
-.affinity-active .affinity-label{color:#FFD700}
-.affinity-active .affinity-pct{color:#FFD700}
 </style>
 </head>
 <body>
@@ -422,26 +453,44 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
     </div>
   </header>
 
-  <div class="chart-section">
-    <canvas id="chart"></canvas>
+  <div class="main-layout">
+    <div class="left-panel">
+      <div class="player-grid" id="player-grid"></div>
+    </div>
+    <div class="right-panel">
+      <div class="chart-section">
+        <canvas id="chart"></canvas>
+      </div>
+    </div>
   </div>
 
   <div class="controls">
-    <button class="control-btn" id="prev-btn" title="Previous hand (←)">&#9664;</button>
-    <button class="control-btn" id="play-btn" title="Play / Pause (Space)">&#9654;</button>
-    <button class="control-btn" id="next-btn" title="Next hand (→)">&#9654;</button>
-    <input type="range" id="slider" min="0" max="0" value="0">
-    <div class="hand-info" id="hand-info">Hand 1 / 1</div>
-    <span class="kbd-hint">← → Space</span>
-    <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+    <div class="controls-row">
+      <button class="control-btn" id="prev-btn" title="Previous hand (←)">&#9664;</button>
+      <button class="control-btn" id="play-btn" title="Play / Pause (Space)">&#9654;</button>
+      <button class="control-btn" id="next-btn" title="Next hand (→)">&#9654;</button>
+      <input type="range" id="slider" min="0" max="0" value="0">
+      <div class="hand-info" id="hand-info">Hand 1 / 1</div>
+      <span class="kbd-hint">← → Space</span>
+    </div>
+    <div class="overlay-toggles">
+      <span class="overlay-toggle active" id="toggle-zones" style="--toggle-color:#90EE90;--toggle-bg:rgba(144,238,144,0.08)" title="Sweet spot zones">
+        <span class="overlay-dot"></span>Zones
+      </span>
+      <span class="overlay-toggle active" id="toggle-penalties" style="--toggle-color:#ff6b6b;--toggle-bg:rgba(255,107,107,0.08)" title="Penalty zones">
+        <span class="overlay-dot"></span>Penalties
+      </span>
+      <span class="overlay-toggle" id="toggle-emotions" style="--toggle-color:#FFD700;--toggle-bg:rgba(255,215,0,0.08)" title="Emotion quadrants">
+        <span class="overlay-dot"></span>Emotions
+      </span>
+    </div>
+    <span style="display:flex;align-items:center;gap:6px">
       <label style="font-size:0.75rem;color:#666;cursor:pointer;display:flex;align-items:center;gap:4px">
         <input type="checkbox" id="auto-refresh"> Live
       </label>
       <button class="control-btn" id="refresh-btn" title="Refresh data (R)">↻</button>
     </span>
   </div>
-
-  <div class="player-grid" id="player-grid"></div>
 </div>
 
 <script>
@@ -505,7 +554,7 @@ function toCanvas(conf, comp) {
 
 function setupCanvas() {
   const container = canvas.parentElement;
-  const maxSize = Math.min(container.clientWidth - 8, 640);
+  const maxSize = Math.min(container.clientWidth - 8, 860);
   chartSize = Math.max(400, maxSize);
   const dpr = window.devicePixelRatio || 1;
   canvas.width = chartSize * dpr;
@@ -523,18 +572,25 @@ function hexAlpha(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
+// --- Overlay toggles ---
+let showZones = true;
+let showPenalties = true;
+let showEmotions = false;
+
 // --- Drawing ---
 function render(idx) {
   ctx.clearRect(0, 0, chartSize, chartSize);
   drawBackground();
-  drawPenaltyZones();
+  if (showPenalties) drawPenaltyZones();
   drawGrid();
-  drawSweetSpots();
-  drawPenaltyLabels();
+  if (showZones) drawSweetSpots();
+  if (showPenalties) drawPenaltyLabels();
+  if (showEmotions) drawEmotionZones();
   drawAxes();
   drawBaselines();
   drawTrails(idx);
   drawDots(idx);
+  if (showEmotions) drawEmotionLabels(idx);
   drawLegend();
   updatePlayerCards(idx);
 }
@@ -682,6 +738,122 @@ function drawSweetSpots() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(zone.label, cx, cy);
+  }
+}
+
+// --- Emotion overlay ---
+const EMOTION_EMOJI = {
+  poker_face: '\u{1F610}', confident: '\u{1F60F}', smug: '\u{1F60E}',
+  angry: '\u{1F621}', frustrated: '\u{1F624}', nervous: '\u{1F630}',
+  thinking: '\u{1F914}', shocked: '\u{1F631}', elated: '\u{1F929}', happy: '\u{1F60A}',
+};
+
+const QUADRANT_COLORS = {
+  commanding: '#FFD700',
+  overheated: '#FF6347',
+  guarded:    '#6495ED',
+  shaken:     '#FF8C00',
+};
+
+function drawEmotionZones() {
+  const ds = chartSize - 2 * PAD;
+  // Quadrant boundary lines at conf=0.5, comp=0.5
+  const [mx, _my1] = toCanvas(0.5, 0);
+  const [_mx2, my] = toCanvas(0, 0.5);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1;
+  // Vertical line at conf=0.5
+  ctx.beginPath(); ctx.moveTo(mx, PAD); ctx.lineTo(mx, PAD + ds); ctx.stroke();
+  // Horizontal line at comp=0.5
+  ctx.beginPath(); ctx.moveTo(PAD, my); ctx.lineTo(PAD + ds, my); ctx.stroke();
+
+  // SHAKEN corner highlight (conf<0.35, comp<0.35)
+  const [shX, _] = toCanvas(0.35, 0);
+  const [__, shY] = toCanvas(0, 0.35);
+  ctx.strokeStyle = 'rgba(255,140,0,0.15)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(shX, PAD + ds); ctx.lineTo(shX, shY); ctx.lineTo(PAD + ds, shY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Quadrant emoji labels
+  ctx.font = '10px sans-serif';
+  ctx.textBaseline = 'middle';
+  const labelPad = 8;
+
+  // COMMANDING (upper-right): conf>0.5, comp>0.5
+  ctx.fillStyle = 'rgba(255,215,0,0.45)';
+  ctx.textAlign = 'right';
+  ctx.fillText('COMMANDING \u{1F60E}\u{1F60F}', PAD + ds - labelPad, PAD + labelPad + 4);
+
+  // OVERHEATED (lower-right): conf>0.5, comp<=0.5
+  ctx.fillStyle = 'rgba(255,99,71,0.45)';
+  ctx.textAlign = 'right';
+  ctx.fillText('OVERHEATED \u{1F621}\u{1F624}', PAD + ds - labelPad, PAD + ds - labelPad);
+
+  // GUARDED (upper-left): conf<=0.5, comp>0.5
+  ctx.fillStyle = 'rgba(100,149,237,0.45)';
+  ctx.textAlign = 'left';
+  ctx.fillText('\u{1F914}\u{1F630} GUARDED', PAD + labelPad, PAD + labelPad + 4);
+
+  // SHAKEN (lower-left): conf<0.35, comp<0.35
+  ctx.fillStyle = 'rgba(255,140,0,0.45)';
+  ctx.textAlign = 'left';
+  ctx.fillText('\u{1F631}\u{1F630} SHAKEN', PAD + labelPad, PAD + ds - labelPad);
+
+  ctx.restore();
+}
+
+function drawEmotionLabels(globalIdx) {
+  const currentHand = allHands[globalIdx];
+  const positions = []; // track drawn positions to avoid overlap
+
+  for (const player of DATA.players) {
+    const point = getPlayerState(player, currentHand);
+    if (!point) continue;
+    const dimmed = highlightedPlayer && highlightedPlayer !== player;
+    const eliminated = point.hand < currentHand;
+    if (dimmed || eliminated) continue;
+
+    const emotion = point.emotion || 'poker_face';
+    const emoji = EMOTION_EMOJI[emotion] || EMOTION_EMOJI.poker_face;
+    const [x, y] = toCanvas(point.conf, point.comp);
+
+    // Offset: above-right of dot, shift right for overlapping players
+    let ox = x + 12;
+    let oy = y - 12;
+    for (const pos of positions) {
+      if (Math.abs(ox - pos[0]) < 22 && Math.abs(oy - pos[1]) < 16) {
+        ox += 22;
+      }
+    }
+    positions.push([ox, oy]);
+
+    // Dark pill background
+    const pillW = 20, pillH = 18;
+    ctx.fillStyle = 'rgba(13,17,23,0.85)';
+    ctx.beginPath();
+    const r = 4;
+    ctx.moveTo(ox - pillW/2 + r, oy - pillH/2);
+    ctx.lineTo(ox + pillW/2 - r, oy - pillH/2);
+    ctx.quadraticCurveTo(ox + pillW/2, oy - pillH/2, ox + pillW/2, oy - pillH/2 + r);
+    ctx.lineTo(ox + pillW/2, oy + pillH/2 - r);
+    ctx.quadraticCurveTo(ox + pillW/2, oy + pillH/2, ox + pillW/2 - r, oy + pillH/2);
+    ctx.lineTo(ox - pillW/2 + r, oy + pillH/2);
+    ctx.quadraticCurveTo(ox - pillW/2, oy + pillH/2, ox - pillW/2, oy + pillH/2 - r);
+    ctx.lineTo(ox - pillW/2, oy - pillH/2 + r);
+    ctx.quadraticCurveTo(ox - pillW/2, oy - pillH/2, ox - pillW/2 + r, oy - pillH/2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Emoji
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(emoji, ox, oy);
   }
 }
 
@@ -849,25 +1021,43 @@ function createPlayerCards() {
     card.style.borderLeftColor = color;
 
     card.innerHTML =
-      '<div class="player-left">' +
-        '<div class="avatar" style="background:' + color + '">' + initials + '</div>' +
-        '<div class="player-name">' + player + '</div>' +
-      '</div>' +
-      '<div class="player-middle">' +
-        '<div class="events" id="events-' + sid + '"></div>' +
+      '<div class="player-header-row">' +
+        '<div class="player-left">' +
+          '<div class="avatar-wrap">' +
+            '<div class="avatar" style="background:' + color + '">' + initials + '</div>' +
+            '<span class="avatar-emotion" id="avatar-emo-' + sid + '"></span>' +
+          '</div>' +
+          '<div class="player-name-wrap">' +
+            '<div class="player-name">' + player + '</div>' +
+            '<span class="player-emotion-text" id="emo-text-' + sid + '"></span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="card-summary" id="summary-' + sid + '"></div>' +
+        '<button class="expand-btn" title="Show details">&#9656;</button>' +
       '</div>' +
       '<div class="player-right">' +
-        makeAxisRow('Conf', sid, 'conf', color, 1) +
-        makeAxisRow('Comp', sid, 'comp', color, 1) +
-        makeAxisRow('Energy', sid, 'energy', color, 0.6) +
+        makeAxisRow('C', sid, 'conf', color, 1) +
+        makeAxisRow('M', sid, 'comp', color, 1) +
+        makeAxisRow('E', sid, 'energy', color, 0.6) +
         '<div class="affinity-section">' +
           makeAffinityRow(AFFINITY_LABELS.guarded, sid, 'guarded', AFFINITY_COLORS.guarded) +
           makeAffinityRow(AFFINITY_LABELS.poker_face, sid, 'poker_face', AFFINITY_COLORS.poker_face) +
           makeAffinityRow(AFFINITY_LABELS.commanding, sid, 'commanding', AFFINITY_COLORS.commanding) +
           makeAffinityRow(AFFINITY_LABELS.aggro, sid, 'aggro', AFFINITY_COLORS.aggro) +
         '</div>' +
+      '</div>' +
+      '<div class="card-details">' +
+        '<div class="player-middle">' +
+          '<div class="events" id="events-' + sid + '"></div>' +
+        '</div>' +
       '</div>';
 
+    // Expand button toggles details
+    card.querySelector('.expand-btn').addEventListener('click', function(e) {
+      e.stopPropagation();
+      card.classList.toggle('expanded');
+    });
+    // Card click highlights on chart
     card.addEventListener('click', () => toggleHighlight(player));
     grid.appendChild(card);
   }
@@ -976,14 +1166,44 @@ function updatePlayerCards(globalIdx) {
       }
     }
 
-    // Events
+    // Events (in details)
     const evEl = document.getElementById('events-' + sid);
     if (eliminated) {
       evEl.innerHTML = '<span class="event-badge loss">Eliminated</span>';
     } else {
       evEl.innerHTML = computeEvents(player, currentHand, prevHand, current, prev);
     }
+
+    // Summary badges (always visible in header row)
+    const summaryEl = document.getElementById('summary-' + sid);
+    if (summaryEl) {
+      summaryEl.innerHTML = computeSummary(player, currentHand, prevHand, current, prev, eliminated);
+    }
+
+    // Emotion indicator on card (visible when emotions overlay active)
+    const emotion = current.emotion || 'poker_face';
+    const emoji = EMOTION_EMOJI[emotion] || EMOTION_EMOJI.poker_face;
+    const avatarEmo = document.getElementById('avatar-emo-' + sid);
+    const emoText = document.getElementById('emo-text-' + sid);
+    if (avatarEmo) {
+      avatarEmo.textContent = emoji;
+      avatarEmo.style.display = showEmotions ? '' : 'none';
+    }
+    if (emoText) {
+      const quadrant = getQuadrant(current.conf, current.comp);
+      const qColor = QUADRANT_COLORS[quadrant] || '#888';
+      emoText.textContent = emotion.replace('_', ' ');
+      emoText.style.color = qColor;
+      emoText.style.display = showEmotions ? '' : 'none';
+    }
   }
+}
+
+function getQuadrant(conf, comp) {
+  if (conf > 0.5 && comp > 0.5) return 'commanding';
+  if (conf > 0.5 && comp <= 0.5) return 'overheated';
+  if (conf <= 0.5 && comp > 0.5) return 'guarded';
+  return 'shaken';
 }
 
 function el(sid, prefix) {
@@ -1138,6 +1358,33 @@ function computeEvents(playerName, currentHand, prevHand, current, prev) {
   return html || '<span class="event-badge neutral">steady</span>';
 }
 
+function computeSummary(playerName, currentHand, prevHand, current, prev, eliminated) {
+  if (eliminated) return '<span class="event-badge loss">Eliminated</span>';
+  if (!prev || !prevHand) return '<span class="event-badge neutral">Baseline</span>';
+
+  const parts = [];
+
+  // Stack change
+  const sd = current.stack - prev.stack;
+  if (sd > 0) parts.push('<span class="event-badge win">+' + sd + '</span>');
+  else if (sd < 0) parts.push('<span class="event-badge loss">' + sd + '</span>');
+
+  // Zone transition
+  if (current.sweet_spot !== prev.sweet_spot && current.sweet_spot) {
+    parts.push('<span class="event-badge zone">\u2192 ' + current.sweet_spot + '</span>');
+  }
+
+  // Penalty
+  if (current.penalty) {
+    parts.push('<span class="event-badge penalty">\u26a0 ' + current.penalty + '</span>');
+  }
+
+  // Intrusive thoughts
+  if (current.intrusive) parts.push('<span class="event-badge thoughts">\ud83d\udcad</span>');
+
+  return parts.join('') || '<span class="event-badge neutral">steady</span>';
+}
+
 // --- Controls ---
 let maxHands = 0;
 let playing = false;
@@ -1275,10 +1522,28 @@ function setupRefresh() {
   });
 }
 
+function setupOverlayToggles() {
+  const toggles = [
+    {id: 'toggle-zones', getter: () => showZones, setter: v => { showZones = v; }},
+    {id: 'toggle-penalties', getter: () => showPenalties, setter: v => { showPenalties = v; }},
+    {id: 'toggle-emotions', getter: () => showEmotions, setter: v => { showEmotions = v; }},
+  ];
+  for (const t of toggles) {
+    const el = document.getElementById(t.id);
+    el.addEventListener('click', function() {
+      const newVal = !t.getter();
+      t.setter(newVal);
+      this.classList.toggle('active', newVal);
+      render(parseInt(document.getElementById('slider').value));
+    });
+  }
+}
+
 function init() {
   setupCanvas();
   createPlayerCards();
   setupControls();
+  setupOverlayToggles();
   setupRefresh();
   render(0);
 }
