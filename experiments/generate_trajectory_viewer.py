@@ -301,6 +301,12 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
     <input type="range" id="slider" min="0" max="0" value="0">
     <div class="hand-info" id="hand-info">Hand 1 / 1</div>
     <span class="kbd-hint">← → Space</span>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+      <label style="font-size:0.75rem;color:#666;cursor:pointer;display:flex;align-items:center;gap:4px">
+        <input type="checkbox" id="auto-refresh"> Live
+      </label>
+      <button class="control-btn" id="refresh-btn" title="Refresh data (R)">↻</button>
+    </span>
   </div>
 
   <div class="player-grid" id="player-grid"></div>
@@ -949,10 +955,10 @@ function setupControls() {
       sel.appendChild(opt);
     }
     sel.addEventListener('change', function() {
-      // Reload would be needed for different game data.
-      // For now just show a note.
-      document.getElementById('meta').textContent =
-        'Re-generate with --game ' + this.value + ' to view this game';
+      // Navigate to same endpoint with game parameter
+      const url = new URL(window.location.href);
+      url.searchParams.set('game', this.value);
+      window.location.href = url.toString();
     });
   }
 }
@@ -970,10 +976,42 @@ function sanitize(name) {
 }
 
 // --- Init ---
+// --- Auto-refresh for live viewing ---
+let autoRefreshInterval = null;
+
+function setupRefresh() {
+  const refreshBtn = document.getElementById('refresh-btn');
+  const autoCheck = document.getElementById('auto-refresh');
+
+  refreshBtn.addEventListener('click', function() {
+    window.location.reload();
+  });
+
+  autoCheck.addEventListener('change', function() {
+    if (this.checked) {
+      autoRefreshInterval = setInterval(function() {
+        window.location.reload();
+      }, 10000); // refresh every 10 seconds
+    } else {
+      clearInterval(autoRefreshInterval);
+      autoRefreshInterval = null;
+    }
+  });
+
+  // 'R' key to refresh
+  document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    if (e.key === 'r' || e.key === 'R') {
+      window.location.reload();
+    }
+  });
+}
+
 function init() {
   setupCanvas();
   createPlayerCards();
   setupControls();
+  setupRefresh();
   render(0);
 }
 
