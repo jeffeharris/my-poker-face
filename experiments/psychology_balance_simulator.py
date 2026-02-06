@@ -115,16 +115,13 @@ class PlayerConfig:
 
     def get_baseline_composure(self) -> float:
         """
-        Get composure baseline - derived from poise.
+        Get composure baseline - simplified formula for simulation.
 
-        High poise → higher baseline composure (naturally calm)
-        Low poise → lower baseline composure (naturally volatile)
+        Note: The main system (player_psychology.py) uses a multi-factor formula
+        including poise, expressiveness, and risk_identity. This simulator uses
+        a simplified 2-parameter version for quick balance testing.
 
         Formula: 0.45 + 0.40 * poise
-        - poise 0.25 → baseline 0.55 (tends toward rattled)
-        - poise 0.50 → baseline 0.65 (tends toward alert)
-        - poise 0.70 → baseline 0.73 (tends toward alert/focused boundary)
-        - poise 0.85 → baseline 0.79 (tends toward focused)
         """
         if self.baseline_composure is not None:
             return self.baseline_composure
@@ -132,15 +129,14 @@ class PlayerConfig:
 
     def get_baseline_confidence(self) -> float:
         """
-        Get confidence baseline - derived from ego (inverted).
+        Get confidence baseline - simplified formula for simulation.
 
-        Low ego → higher baseline confidence (secure, doesn't need validation)
-        High ego → lower baseline confidence (needs wins to feel good)
+        Note: The main system (player_psychology.py) uses a multi-factor formula
+        including aggression, risk_identity, and ego (all positive contributors).
+        This simulator uses a simplified 2-parameter version with inverted ego
+        for quick balance testing.
 
         Formula: 0.35 + 0.30 * (1 - ego)
-        - ego 0.25 → baseline 0.575 (naturally confident)
-        - ego 0.50 → baseline 0.50 (neutral)
-        - ego 0.80 → baseline 0.41 (needs wins to feel confident)
         """
         if self.baseline_confidence is not None:
             return self.baseline_confidence

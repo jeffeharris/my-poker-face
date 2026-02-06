@@ -1831,9 +1831,9 @@ def display_player_turn_update(ui_data, player_options: Optional[List] = None) -
         # Render the player's cards using the CardRenderer.
         rendered_hole_cards = CardRenderer().render_hole_cards(
             [ensure_card(c) for c in player_hand])
-    except:
+    except (ValueError, TypeError, KeyError) as e:
         print(f"{player_name} has no cards.")
-        raise ValueError('Missing cards. Please check your hand.')
+        raise ValueError('Missing cards. Please check your hand.') from e
 
     # Display information to the user
     if len(ui_data['community_cards']) > 0:

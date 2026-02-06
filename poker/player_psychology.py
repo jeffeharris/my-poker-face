@@ -1187,15 +1187,13 @@ class PersonalityAnchors:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class EmotionalAxes:
     """
     Dynamic emotional state (State Layer).
 
     These change during play and decay back toward anchor-defined baselines.
     All values are auto-clamped to [0, 1].
-
-    Phase 1: energy is static (= baseline_energy from anchors).
     """
     confidence: float = 0.5   # Belief in reads/decisions (0=scared, 1=fearless)
     composure: float = 0.7    # Emotional regulation (0=tilted, 1=focused)
@@ -2874,7 +2872,8 @@ class PlayerPsychology:
         elif 'anchors' in personality_config:
             anchors = PersonalityAnchors.from_dict(personality_config['anchors'])
         elif 'personality_traits' in personality_config:
-            anchors = PersonalityAnchors.from_legacy_traits(personality_config['personality_traits'])
+            logger.warning(f"Legacy traits format for {player_name} - using default anchors")
+            anchors = PersonalityAnchors()
         else:
             # Default anchors
             anchors = PersonalityAnchors(

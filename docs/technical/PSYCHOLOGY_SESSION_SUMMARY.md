@@ -14,17 +14,23 @@ Historical data showed **100% of decisions in "alert" band** (composure 0.6-0.8)
 
 ### 2. Personality-Specific Baselines
 
-**Composure baseline derived from poise:**
+> **Note:** These formulas evolved during implementation. The canonical formulas
+> are in `poker/player_psychology.py` (`compute_baseline_confidence()` and
+> `compute_baseline_composure()`). The simplified formulas below were the original
+> design; the implementation uses multi-factor versions with penalty zone clamping.
+
+**Composure baseline (multi-factor, see `compute_baseline_composure()`):**
 ```python
-baseline_composure = 0.45 + 0.40 × poise
-# Range: 0.45 (low poise) to 0.85 (high poise)
+risk_mod = (risk_identity - 0.5) × 0.3
+baseline_composure = 0.25 + poise × 0.50 + (1 - expressiveness) × 0.15 + risk_mod
+# Clamped to stay outside TILTED penalty threshold
 ```
 
-**Confidence baseline derived from ego (FIXED - was inverted!):**
+**Confidence baseline (multi-factor, see `compute_baseline_confidence()`):**
 ```python
-baseline_confidence = 0.40 + 0.45 × ego
-# Range: 0.40 (low ego) to 0.85 (high ego)
-# High ego = starts confident (arrogant), NOT insecure
+baseline_confidence = 0.3 + baseline_aggression × 0.25 + risk_identity × 0.20 + ego × 0.25
+# High ego contributes to high confidence (arrogant)
+# Clamped to stay outside TIMID and OVERCONFIDENT penalty thresholds
 ```
 
 **Base recovery derived from poise:**
