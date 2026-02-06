@@ -91,9 +91,6 @@ from .zone_detection import (  # noqa: F401
     PENALTY_DETACHED_COMP_THRESHOLD,
     ENERGY_LOW_THRESHOLD,
     ENERGY_HIGH_THRESHOLD,
-    GRAVITY_STRENGTH,
-    PENALTY_GRAVITY_DIRECTIONS,
-    SWEET_SPOT_CENTERS,
     ZoneStrategy,
     ZoneContext,
     ZONE_STRATEGIES,
@@ -104,7 +101,6 @@ from .zone_detection import (  # noqa: F401
     _detect_penalty_zones,
     _get_zone_manifestation,
     get_zone_effects,
-    _calculate_zone_gravity,
     select_zone_strategy,
     build_zone_guidance,
 )
@@ -309,12 +305,13 @@ class PlayerPsychology:
             # Composure only changes when the win has emotional weight
             'big_win': {'confidence': 0.20, 'composure': 0.03, 'energy': 0.12},
             'win': {'confidence': 0.08, 'composure': 0.02},
+            'loss': {'confidence': -0.04, 'composure': -0.01},  # Small pot showdown loss
             'successful_bluff': {'confidence': 0.28, 'composure': 0.0, 'energy': 0.12},
             'suckout': {'confidence': -0.05, 'composure': 0.10, 'energy': 0.10},  # Lucky win: relief but you know it
             'double_up': {'confidence': 0.22, 'composure': 0.05, 'energy': 0.18},
             'eliminated_opponent': {'confidence': 0.15, 'composure': 0.0, 'energy': 0.14},
             # Loss events - bad luck hits COMPOSURE, outplay hits CONFIDENCE
-            'big_loss': {'confidence': -0.06, 'composure': -0.25, 'energy': -0.12},
+            'big_loss': {'confidence': -0.15, 'composure': -0.25, 'energy': -0.12},
             'bluff_called': {'confidence': -0.30, 'composure': -0.05, 'energy': -0.12},  # Outplayed = ego hit
             'bad_beat': {'confidence': 0.0, 'composure': -0.38, 'energy': -0.15},  # Played right, got unlucky
             'got_sucked_out': {'confidence': 0.0, 'composure': -0.42, 'energy': -0.22},  # Pure variance = pure composure
@@ -324,6 +321,9 @@ class PlayerPsychology:
             # Streak events - winning streak = getting cocky (conf up, comp DOWN)
             'winning_streak': {'confidence': 0.20, 'composure': -0.05, 'energy': 0.10},
             'losing_streak': {'confidence': -0.12, 'composure': -0.30, 'energy': -0.18},
+            # Heads-up events
+            'headsup_win': {'confidence': 0.10, 'composure': 0.02, 'energy': 0.08},
+            'headsup_loss': {'confidence': -0.08, 'composure': -0.04, 'energy': -0.06},
             # Social/rivalry - ego events hit confidence primarily
             'nemesis_win': {'confidence': 0.22, 'composure': 0.05, 'energy': 0.14},
             'nemesis_loss': {'confidence': -0.22, 'composure': -0.08, 'energy': -0.12},
@@ -394,10 +394,8 @@ class PlayerPsychology:
         - Below baseline: sticky recovery (modifier = floor + range * current)
         - Above baseline: slow decay (modifier = 0.8)
 
-        Zone gravity applied after anchor gravity to create zone "stickiness".
-
         Returns:
-            Dict with force breakdown: recovery deltas, gravity deltas, before/after values
+            Dict with recovery deltas and before/after values
         """
         rate = recovery_rate if recovery_rate is not None else self.anchors.recovery_rate
 
@@ -443,17 +441,6 @@ class PlayerPsychology:
 
         new_energy = pre_energy + (energy_target - pre_energy) * energy_rate
 
-        # Capture recovery deltas (before gravity)
-        recovery_conf = new_conf - pre_conf
-        recovery_comp = new_comp - pre_comp
-        recovery_energy = new_energy - pre_energy
-
-        # Zone gravity
-        zone_fx = get_zone_effects(new_conf, new_comp, new_energy)
-        gravity_conf, gravity_comp = _calculate_zone_gravity(new_conf, new_comp, zone_fx)
-        new_conf = _clamp(new_conf + gravity_conf)
-        new_comp = _clamp(new_comp + gravity_comp)
-
         self.axes = self.axes.update(
             confidence=new_conf,
             composure=new_comp,
@@ -463,11 +450,9 @@ class PlayerPsychology:
         self._mark_updated()
 
         return {
-            'recovery_conf': round(recovery_conf, 6),
-            'recovery_comp': round(recovery_comp, 6),
-            'recovery_energy': round(recovery_energy, 6),
-            'gravity_conf': round(gravity_conf, 6),
-            'gravity_comp': round(gravity_comp, 6),
+            'recovery_conf': round(new_conf - pre_conf, 6),
+            'recovery_comp': round(new_comp - pre_comp, 6),
+            'recovery_energy': round(new_energy - pre_energy, 6),
             'conf_after': round(new_conf, 4),
             'comp_after': round(new_comp, 4),
             'energy_after': round(new_energy, 4),

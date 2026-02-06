@@ -62,6 +62,7 @@ class PlayerPressureStats:
             self.biggest_pot_won = max(self.biggest_pot_won, pot_size)
             
         elif event.event_type == "big_win":
+            self.wins += 1  # big_win also counts as a win (they don't stack)
             self.big_wins += 1
             pot_size = event.details.get('pot_size', 0)
             self.biggest_pot_won = max(self.biggest_pot_won, pot_size)

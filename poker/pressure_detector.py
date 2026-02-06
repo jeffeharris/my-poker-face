@@ -73,23 +73,38 @@ class PressureEventDetector:
         active_players = [p for p in game_state.players if not p.is_folded]
         
         # Detect successful bluff (weak hand wins big pot when everyone folds)
+        # Priority system: only ONE win-type event per winner (successful_bluff > big_win > win)
+        bluff_winners = set()
         if winner_name and winner_hand_rank >= 8 and is_big_pot and len(active_players) == 1:
             # Winner bluffed everyone out - only reward the bluffer
             events.append(("successful_bluff", [winner_name]))
-            # Note: bluff_called should only fire when a bluffer LOSES at showdown,
-            # not when folders escape. Folders made correct decisions and shouldn't be penalized.
+            bluff_winners.add(winner_name)
 
-        # Always track wins (not just big wins)
+        # Track wins — only ONE of successful_bluff / big_win / win per winner
         if winner_names and pot_total > 0:
-            # Track any win for stats
-            events.append(("win", winner_names))
+            non_bluff_winners = [w for w in winner_names if w not in bluff_winners]
 
-            # Additionally track big wins/losses
             if is_big_pot:
-                events.append(("big_win", winner_names))
+                # Big win for non-bluff winners (bluff winners already got successful_bluff)
+                if non_bluff_winners:
+                    events.append(("big_win", non_bluff_winners))
+                # Regular win for any remaining winners not covered by big_win or bluff
+                # (none — big_win already covers them)
+            else:
+                # Small pot: regular win
+                if non_bluff_winners:
+                    events.append(("win", non_bluff_winners))
+
+            # Losses
+            if is_big_pot:
                 losers = [p.name for p in active_players if p.name not in winner_names]
                 if losers:
                     events.append(("big_loss", losers))
+            else:
+                # Small pot losers (showdown losers who aren't winners)
+                losers = [p.name for p in active_players if p.name not in winner_names]
+                if losers:
+                    events.append(("loss", losers))
 
         # Track heads-up record (when only 2 players have chips)
         players_with_chips = [p for p in game_state.players if p.stack > 0 or p.name in winner_names]
@@ -132,11 +147,19 @@ class PressureEventDetector:
                 # Sort by hand rank (lower is better)
                 losers_with_hands.sort(key=lambda x: x[1])
                 second_best_name, second_best_rank = losers_with_hands[0]
-                
+
                 # Bad beat: very strong hand loses
                 if second_best_rank <= 4 and winner_hand_rank > second_best_rank:
                     events.append(("bad_beat", [second_best_name]))
-        
+
+                # Bluff called: loser showed a weak hand (rank >= 8) at multi-player showdown
+                # This means they tried to bluff but got caught
+                bluff_called_players = [
+                    name for name, rank in losers_with_hands if rank >= 8
+                ]
+                if bluff_called_players:
+                    events.append(("bluff_called", bluff_called_players))
+
         return events
     
     def detect_fold_events(self, game_state: PokerGameState, 
@@ -410,6 +433,39 @@ class PressureEventDetector:
 
         return events
 
+    # === Action-based event detection ===
+
+    def detect_action_events(
+        self,
+        game_state: PokerGameState,
+        player_name: str,
+        action: str,
+        amount: int = 0,
+    ) -> List[Tuple[str, List[str]]]:
+        """Detect energy events from player actions (all_in_moment, heads_up).
+
+        Args:
+            game_state: Current game state
+            player_name: Name of the player who acted
+            action: The action taken (e.g., 'all_in', 'raise', 'call')
+            amount: Bet/raise amount
+
+        Returns:
+            List of (event_name, [player_name]) tuples
+        """
+        events = []
+
+        # All-in moment: player went all-in
+        if action == 'all_in':
+            events.append(("all_in_moment", [player_name]))
+
+        # Heads-up: only two active players remain
+        active_players = [p for p in game_state.players if not p.is_folded and p.stack > 0]
+        if len(active_players) == 2 and player_name in [p.name for p in active_players]:
+            events.append(("heads_up", [player_name]))
+
+        return events
+
     # === Streak-based event detection ===
 
     def detect_streak_events(
@@ -508,7 +564,8 @@ class PressureEventDetector:
         self,
         winner_names: List[str],
         loser_names: List[str],
-        player_nemesis_map: Dict[str, str]
+        player_nemesis_map: Dict[str, str],
+        is_big_pot: bool = True,
     ) -> List[Tuple[str, List[str]]]:
         """Detect nemesis win/loss events.
 
@@ -519,10 +576,14 @@ class PressureEventDetector:
             winner_names: List of players who won the hand
             loser_names: List of players who lost the hand (didn't fold, didn't win)
             player_nemesis_map: Dict mapping player names to their nemesis name
+            is_big_pot: If False, skip nemesis events (small pots don't warrant them)
 
         Returns:
             List of (event_name, [player_name]) tuples
         """
+        if not is_big_pot:
+            return []
+
         events = []
 
         for player_name, nemesis in player_nemesis_map.items():

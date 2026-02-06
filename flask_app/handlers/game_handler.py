@@ -426,16 +426,6 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         )
         events.extend(equity_events)
 
-    # Phase 2: Phase-based energy events (showdown_involved, big_pot_involved, not_in_hand)
-    active_player_names = [p.name for p in game_state.players if not p.is_folded]
-    if len(active_player_names) >= 2:
-        # This is a showdown (2+ players made it)
-        phase_events = pressure_detector.detect_phase_events(
-            game_state, 'SHOWDOWN', active_player_names
-        )
-        events.extend(phase_events)
-
-
     # Stack events (double_up, crippled, short_stack)
     hand_start_stacks = game_data.get('hand_start_stacks', {})
     was_short_stack = game_data.get('short_stack_players', set())
