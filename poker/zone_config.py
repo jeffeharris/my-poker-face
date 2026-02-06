@@ -53,7 +53,7 @@ def _load_zone_params() -> Dict[str, Any]:
             'RECOVERY_ABOVE_BASELINE': 0.80,
         },
         'gravity': {
-            'GRAVITY_STRENGTH': 0.03,
+            'GRAVITY_STRENGTH': 0.01,
         },
     }
 
