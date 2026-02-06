@@ -31,39 +31,47 @@ class TestPersonalityResponses(unittest.TestCase):
             starting_money=10000
         )
         
-        traits = ai_player.personality_config['personality_traits']
-        
+        # Get traits from anchors (v2.1) or legacy personality_traits
+        anchors = ai_player.personality_config.get('anchors', {})
+        if anchors:
+            aggression = anchors.get('baseline_aggression', 0.5)
+            bluff_tendency = aggression * 0.6 + anchors.get('baseline_looseness', 0.5) * 0.4
+        else:
+            traits = ai_player.personality_config.get('personality_traits', {})
+            aggression = traits.get('aggression', 0.5)
+            bluff_tendency = traits.get('bluff_tendency', 0.5)
+
         # Decision logic based on personality traits
         if scenario == "facing_bet":
             # Facing a bet with medium hand (pocket 7s vs high board)
-            if traits['aggression'] > 0.8:
+            if aggression > 0.8:
                 action = "raise"
                 amount = 2000
-            elif traits['aggression'] < 0.3:
+            elif aggression < 0.3:
                 action = "fold"
                 amount = 0
-            elif traits['bluff_tendency'] > 0.6:
+            elif bluff_tendency > 0.6:
                 action = "raise"
                 amount = 1000
             else:
                 action = "call"
                 amount = 100
         else:  # no_bet scenario
-            if traits['aggression'] > 0.7:
+            if aggression > 0.7:
                 action = "raise"
                 amount = 1500
             else:
                 action = "check"
                 amount = 0
-                
+
         # Generate personality-appropriate responses
         responses = self._get_personality_responses(personality_name, action)
-        
+
         return {
             "action": action,
             "raise_to": amount,
             "inner_monologue": responses['thought'],
-            "bluff_likelihood": int(traits['bluff_tendency'] * 100),
+            "bluff_likelihood": int(bluff_tendency * 100),
             "hand_strategy": responses['strategy'],
             "dramatic_sequence": responses['physical'] + [responses['verbal']],
         }
@@ -217,9 +225,12 @@ class TestPersonalityResponses(unittest.TestCase):
 
             # Print results
             print(f"\n{player_name}:")
+            anchors = ai_player.personality_config.get('anchors', {})
+            aggression = anchors.get('baseline_aggression', 0.5)
+            looseness = anchors.get('baseline_looseness', 0.5)
             print(f"  Personality Traits:")
-            print(f"    - Bluff Tendency: {ai_player.personality_config['personality_traits']['bluff_tendency']:.0%}")
-            print(f"    - Aggression: {ai_player.personality_config['personality_traits']['aggression']:.0%}")
+            print(f"    - Aggression: {aggression:.0%}")
+            print(f"    - Looseness: {looseness:.0%}")
             print(f"  Decision: {response['action'].upper()}" +
                   (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else ""))
             beats = response.get('dramatic_sequence', [])
@@ -262,7 +273,9 @@ class TestPersonalityResponses(unittest.TestCase):
             print(f"  Says: \"{'; '.join(speech)}\"")
 
             # Verify decisions match personality
-            if ai_player.personality_config['personality_traits']['aggression'] > 0.7:
+            anchors = ai_player.personality_config.get('anchors', {})
+            aggression = anchors.get('baseline_aggression', 0.5)
+            if aggression > 0.7:
                 self.assertEqual(response['action'], "raise")
             else:
                 self.assertEqual(response['action'], "check")

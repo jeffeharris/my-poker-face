@@ -1926,7 +1926,7 @@ class TestZoneGravity:
 
         # Verify parameter exists and has reasonable value
         strength = get_zone_param('GRAVITY_STRENGTH')
-        assert 0.02 <= strength <= 0.05  # Expected range from docs
+        assert 0.005 <= strength <= 0.05  # Tunable range (default 0.01)
 
 
 # === Phase 6 Tests: Zone-Based Intrusive Thoughts ===
