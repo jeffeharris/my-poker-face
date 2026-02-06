@@ -221,6 +221,14 @@ export function MobilePokerTable({
       });
   }, [players]);
 
+  // Separate active and folded opponents
+  const activeOpponents = useMemo(() => opponents.filter(p => !p.is_folded), [opponents]);
+  const foldedOpponents = useMemo(() => opponents.filter(p => p.is_folded), [opponents]);
+
+  // During showdown, hide folded players so active players have more room
+  const hasRevealedCards = revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
+  const isInShowdown = hasRevealedCards;
+
 
   // Stable map of player name → avatar URL for FloatingChat
   const playerAvatars = useMemo(() => {
@@ -386,9 +394,37 @@ export function MobilePokerTable({
       {/* Spacer for fixed MenuBar */}
       <div className="menu-bar-spacer" />
 
-      {/* Opponents Strip */}
-      <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`} data-testid="mobile-opponents" ref={opponentsContainerRef}>
-        {opponents.map((opponent) => {
+      {/* Opponents Section */}
+      <div className={`opponents-wrapper ${isInShowdown ? 'showdown-mode' : ''}`}>
+        {/* Ghost Rail - folded players as small circles during showdown */}
+        {isInShowdown && foldedOpponents.length > 0 && (
+          <div className="ghost-rail" data-testid="ghost-rail">
+            {foldedOpponents.map((player) => (
+              <div
+                key={player.name}
+                className="ghost-avatar"
+                title={player.nickname || player.name}
+              >
+                {player.avatar_url ? (
+                  <img
+                    src={`${config.API_URL}${player.avatar_url}`}
+                    alt={player.nickname || player.name}
+                  />
+                ) : (
+                  <span className="ghost-initial">{player.name.charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Opponents Row - shows only active players during showdown */}
+        <div
+          className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`}
+          data-testid="mobile-opponents"
+          ref={opponentsContainerRef}
+        >
+        {(isInShowdown ? activeOpponents : opponents).map((opponent) => {
           const opponentIdx = storePlayers.findIndex(p => p.name === opponent.name);
           const isCurrentPlayer = opponentIdx === currentPlayerIdx;
           const isDealer = opponentIdx === dealerIdx;
@@ -467,6 +503,7 @@ export function MobilePokerTable({
             humanPlayerName={humanPlayer?.name}
           />
         )}
+        </div>
       </div>
 
       {/* Floating Pot Display - between opponents and community cards */}
