@@ -477,7 +477,7 @@ class AIMemoryManager:
 
         Args:
             player_name: Name of the AI player
-            elastic_personality: The player's ElasticPersonality object
+            elastic_personality: The player's personality object (unused, pass None)
         """
         if not elastic_personality:
             return

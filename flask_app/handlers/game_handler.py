@@ -903,8 +903,6 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
 
         for name, controller in ai_controllers.items():
-            # Note: apply_learned_adjustments expects old ElasticPersonality
-            # The new psychology system (v2.1) handles adaptation differently
             # Pass None to skip adjustment (function handles None gracefully)
             memory_manager.apply_learned_adjustments(name, None)
     except Exception as e:

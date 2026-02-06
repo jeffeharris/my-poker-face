@@ -3,8 +3,7 @@
 This module provides centralized functions for formatting psychology data
 for API responses and WebSocket emissions.
 
-Updated for Psychology System v2.1 which uses anchors + axes instead of
-the old ElasticPersonality trait system.
+Uses Psychology System v2.1 (anchors + axes).
 """
 
 from typing import Dict, Any
