@@ -1262,7 +1262,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     ai_controllers = game_data.get('ai_controllers', {})
     for player_name, controller in ai_controllers.items():
         if hasattr(controller, 'psychology') and controller.psychology:
-            recovery_info = controller.psychology.recover(recovery_rate=0.1)
+            recovery_info = controller.psychology.recover()
 
             # Persist recovery force for trajectory viewer
             if event_repository and recovery_info:
@@ -1278,6 +1278,26 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
                             'energy_delta': recovery_info['recovery_energy'],
                         },
                     )
+                # Zone gravity force (if present in recovery_info)
+                gravity_conf = recovery_info.get('gravity_conf', 0)
+                gravity_comp = recovery_info.get('gravity_comp', 0)
+                if abs(gravity_conf) > 0.001 or abs(gravity_comp) > 0.001:
+                    event_repository.save_event(
+                        game_id=game_id,
+                        player_name=player_name,
+                        event_type='_gravity',
+                        hand_number=hand_number,
+                        details={
+                            'conf_delta': gravity_conf,
+                            'comp_delta': gravity_comp,
+                        },
+                    )
+
+            # Save emotional state if available (matches experiment pipeline)
+            if controller.psychology.emotional:
+                game_repo.save_emotional_state(
+                    game_id, player_name, controller.psychology.emotional
+                )
 
     # Clear hole cards and emit state to trigger frontend exit animation
     # This ensures old card values are removed before new cards are dealt

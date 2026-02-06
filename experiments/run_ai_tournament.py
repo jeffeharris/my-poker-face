@@ -848,6 +848,8 @@ class AITournamentRunner:
         game_id: str,
         hand_start_stacks: Optional[Dict[str, int]] = None,
         was_short_stack: Optional[set] = None,
+        memory_manager: Optional['AIMemoryManager'] = None,
+        enable_commentary: bool = False,
     ) -> set:
         """Process psychology updates using balanced event resolution model.
 
@@ -864,6 +866,8 @@ class AITournamentRunner:
             game_id: Game ID for persisting state
             hand_start_stacks: Optional dict of player name -> stack at hand start
             was_short_stack: Optional set of players who were short-stacked last hand
+            memory_manager: Optional memory manager for equity history access
+            enable_commentary: Whether to generate LLM emotional narration
 
         Returns:
             Updated set of currently short-stacked players
@@ -917,9 +921,35 @@ class AITournamentRunner:
             active_player_names = [p.name for p in game_state.players if not p.is_folded]
             all_events.append(("big_pot_involved", active_player_names))
 
-        # 5. Losers for nemesis tracking
+        # 5. Equity shock events (weighted-delta model)
+        hand_in_progress = memory_manager.hand_recorder.current_hand if memory_manager else None
+        if hand_in_progress and hand_in_progress.hole_cards and hand_start_stacks:
+            try:
+                from poker.equity_tracker import EquityTracker
+                equity_tracker = EquityTracker()
+                equity_history = equity_tracker.calculate_hand_equity_history(hand_in_progress)
+                if equity_history and equity_history.snapshots:
+                    equity_events = self.pressure_detector.detect_equity_shock_events(
+                        equity_history, winner_names, pot_size, hand_start_stacks
+                    )
+                    all_events.extend(equity_events)
+            except Exception as e:
+                logger.warning(f"Equity shock detection failed: {e}")
+
+        # 6. Nemesis events (from ComposureState.nemesis)
         loser_names = [p.name for p in game_state.players
                        if not p.is_folded and p.name not in winner_names]
+
+        player_nemesis_map = {}
+        for name, controller in controllers.items():
+            if hasattr(controller, 'psychology') and controller.psychology.tilt.nemesis:
+                player_nemesis_map[name] = controller.psychology.tilt.nemesis
+
+        if player_nemesis_map:
+            nemesis_events = self.pressure_detector.detect_nemesis_events(
+                winner_names, loser_names, player_nemesis_map, is_big_pot=is_big_pot
+            )
+            all_events.extend(nemesis_events)
 
         # === BUILD PER-PLAYER EVENT LISTS AND RESOLVE ===
         player_events: Dict[str, list] = {}
@@ -968,6 +998,48 @@ class AITournamentRunner:
                         )
             except Exception as e:
                 logger.warning(f"Failed to resolve events for {player_name}: {e}")
+
+        # === UPDATE COMPOSURE TRACKING (on_hand_complete) ===
+        # Calculate winnings per player from pot_breakdown (split-pot support)
+        winnings_by_player = {}
+        for pot in winner_info.get('pot_breakdown', []):
+            for winner in pot.get('winners', []):
+                winnings_by_player[winner['name']] = winnings_by_player.get(winner['name'], 0) + winner.get('amount', 0)
+
+        for player in game_state.players:
+            if player.name not in controllers:
+                continue
+            controller = controllers[player.name]
+            if not hasattr(controller, 'psychology'):
+                continue
+
+            player_contribution = game_state.pot.get(player.name, 0) if isinstance(game_state.pot, dict) else 0
+            player_won = player.name in winner_names
+            if player_won:
+                amount = winnings_by_player.get(player.name, 0) - player_contribution
+            else:
+                amount = -player_contribution
+
+            was_bad_beat = not player_won and not player.is_folded and winner_info.get('hand_rank', 0) >= 2
+            outcome = 'won' if player_won else ('folded' if player.is_folded else 'lost')
+            opponent = winner_names[0] if not player_won and winner_names else None
+
+            try:
+                if enable_commentary:
+                    # Full on_hand_complete: composure tracking + LLM emotional narration
+                    controller.psychology.on_hand_complete(
+                        outcome=outcome, amount=amount, opponent=opponent,
+                        was_bad_beat=was_bad_beat, was_bluff_called=False,
+                        big_blind=big_blind,
+                    )
+                else:
+                    # Lightweight: composure tracking only (no LLM call)
+                    controller.psychology.composure_state.update_from_hand(
+                        outcome=outcome, amount=amount, opponent=opponent,
+                        was_bad_beat=was_bad_beat, was_bluff_called=False,
+                    )
+            except Exception as e:
+                logger.warning(f"on_hand_complete failed for {player.name}: {e}")
 
         # === APPLY RECOVERY AND SAVE STATE ===
         for player in game_state.players:
@@ -1091,6 +1163,9 @@ class AITournamentRunner:
         # Set hand number on all controllers for decision analysis
         for controller in controllers.values():
             controller.current_hand_number = hand_number
+
+        # Capture stacks at hand start for stack-based pressure events
+        hand_start_stacks = {p.name: p.stack for p in game_state.players}
 
         logger.debug(f"Hand {hand_number}: Starting with {len(active_players)} players")
 
@@ -1287,14 +1362,16 @@ class AITournamentRunner:
             enable_commentary = variant_config.get('enable_commentary', False) if variant_config else False
 
             if enable_psychology:
-                # Note: hand_start_stacks and was_short_stack not tracked yet
-                # Stack events will be added in a future enhancement
-                self._process_psychology(
+                was_short = getattr(self, '_was_short_stack', None)
+                current_short = self._process_psychology(
                     game_state, controllers, winner_info, winner_names, hand_number,
                     game_id=tournament_id,
-                    hand_start_stacks=None,
-                    was_short_stack=None,
+                    hand_start_stacks=hand_start_stacks,
+                    was_short_stack=was_short,
+                    memory_manager=memory_manager,
+                    enable_commentary=enable_commentary,
                 )
+                self._was_short_stack = current_short
 
             if enable_commentary:
                 # Build AI players context for commentary generation
@@ -1351,6 +1428,9 @@ class AITournamentRunner:
         start_time = datetime.now()
         variant_info = f" [{variant_label}]" if variant_label else ""
         logger.info(f"Starting tournament {tournament_id}{variant_info}")
+
+        # Reset per-tournament psychology tracking
+        self._was_short_stack = None
 
         state_machine, controllers, memory_manager = self.create_game(tournament_id, variant_config, tournament_number)
 
