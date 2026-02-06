@@ -95,56 +95,6 @@
     to { opacity: 1; transform: translateY(0); }
 }
 
-.mobile-loading-content {
-    text-align: center;
-}
-
-.loading-cards {
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 20px;
-}
-
-.loading-card {
-    width: 40px;
-    height: 56px;
-    background: white;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 24px;
-    animation: cardFloat 1.5s ease-in-out infinite;
-}
-
-.loading-card.suit-0 {
-    color: #000;
-    animation-delay: 0s;
-}
-.loading-card.suit-1 {
-    color: #e53935;
-    animation-delay: 0.15s;
-}
-.loading-card.suit-2 {
-    color: #e53935;
-    animation-delay: 0.3s;
-}
-.loading-card.suit-3 {
-    color: #000;
-    animation-delay: 0.45s;
-}
-
-@keyframes cardFloat {
-    0%,
-    100% {
-        transform: translateY(0);
-    }
-    50% {
-        transform: translateY(-10px);
-    }
-}
-
 .mobile-error {
     display: flex;
     justify-content: center;
@@ -263,6 +213,9 @@
     /* Use flex-start to allow full scrolling, center via auto margins on pseudo-elements */
     justify-content: flex-start;
     box-sizing: border-box;
+    /* z-index layering: dim(50) < avatars(100) < shuffle content(150) < winner(1000) */
+    position: relative;
+    z-index: var(--z-dropdown); /* 100 */
 }
 
 
@@ -635,6 +588,7 @@
     min-height: 21dvh;
     max-height: 21dvh;
     box-sizing: border-box;
+    position: relative;
 }
 
 .community-cards-row {
