@@ -9,7 +9,7 @@ const SHUFFLE_CARDS = Array.from({ length: 8 }, (_, i) => ({
   rotation: (i - 3.5) * 2,
 }));
 
-const FADE_OUT_MS = 400;
+const EXIT_MS = { fade: 400, slide: 500 };
 
 interface ShuffleLoadingProps {
   isVisible: boolean;
@@ -19,6 +19,8 @@ interface ShuffleLoadingProps {
   /** 'overlay' (default): single full-screen layer at z-overlay.
    *  'interhand': two-layer split so avatars stay visible between layers. */
   variant?: 'overlay' | 'interhand';
+  /** 'fade' (default): opacity fade-out. 'slide': slide off screen to the left. */
+  exitStyle?: 'fade' | 'slide';
 }
 
 /**
@@ -34,13 +36,14 @@ export const ShuffleLoading = memo(function ShuffleLoading({
   submessage,
   handNumber,
   variant = 'overlay',
+  exitStyle = 'fade',
 }: ShuffleLoadingProps) {
   const [showContent, setShowContent] = useState(false);
   // Keep component mounted during fade-out
   const [mounted, setMounted] = useState(false);
   const [fadingOut, setFadingOut] = useState(false);
 
-  // Mount immediately when visible; fade out then unmount when hidden
+  // Mount immediately when visible; animate out then unmount when hidden
   useEffect(() => {
     if (isVisible) {
       setMounted(true);
@@ -50,7 +53,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
       const timer = setTimeout(() => {
         setMounted(false);
         setFadingOut(false);
-      }, FADE_OUT_MS);
+      }, EXIT_MS[exitStyle]);
       return () => clearTimeout(timer);
     }
   }, [isVisible]);
@@ -67,7 +70,9 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
   if (!mounted) return null;
 
-  const fadeClass = fadingOut ? ' shuffle-loading-fade-out' : '';
+  const exitClass = fadingOut
+    ? (exitStyle === 'slide' ? ' shuffle-loading-slide-out' : ' shuffle-loading-fade-out')
+    : '';
 
   const content = (
     <div className={`shuffle-loading-content ${showContent ? 'visible' : ''}`}>
@@ -120,12 +125,12 @@ export const ShuffleLoading = memo(function ShuffleLoading({
     return (
       <>
         {/* LAYER 1: Dim background - BELOW avatars */}
-        <div className={`shuffle-loading-dim${fadeClass}`} data-testid="shuffle-loading">
+        <div className={`shuffle-loading-dim${exitClass}`} data-testid="shuffle-loading">
           <div className="shuffle-loading-vignette" />
         </div>
 
         {/* LAYER 2: Content - ABOVE avatars */}
-        <div className={`shuffle-loading-content-layer${fadeClass}`}>
+        <div className={`shuffle-loading-content-layer${exitClass}`}>
           {content}
         </div>
       </>
@@ -134,7 +139,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
   // overlay variant: single full-screen layer
   return (
-    <div className={`shuffle-loading-overlay${fadeClass}`} data-testid="shuffle-loading">
+    <div className={`shuffle-loading-overlay${exitClass}`} data-testid="shuffle-loading">
       {content}
     </div>
   );

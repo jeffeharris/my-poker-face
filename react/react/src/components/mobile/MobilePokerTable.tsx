@@ -342,15 +342,11 @@ export function MobilePokerTable({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coach.skillUnlockQueue]);
 
-  // Only show full loading screen on initial load (no game state yet)
-  // If we have game state but are disconnected, we'll show a reconnecting overlay instead
-  if (loading && !storePlayers) {
-    return (
-      <ShuffleLoading isVisible={true} message="Setting up the table" />
-    );
-  }
+  const isInitialLoading = loading && !storePlayers;
+  const hasGameData = Boolean(storePlayers && pot);
 
-  if (!storePlayers || !pot) {
+  // Only show error when not loading and still no data
+  if (!isInitialLoading && !hasGameData) {
     return <div className="mobile-poker-table mobile-error">Failed to load game</div>;
   }
 
@@ -359,6 +355,9 @@ export function MobilePokerTable({
 
   return (
     <div className="mobile-poker-table" data-testid="mobile-poker-table" data-connected={isConnected ? 'true' : 'false'}>
+      {/* Initial loading overlay - slides off screen when game data arrives */}
+      <ShuffleLoading isVisible={isInitialLoading} message="Setting up the table" exitStyle="slide" />
+
       {/* Reconnecting overlay - shows when socket is disconnected but we have game state */}
       {showReconnecting && (
         <div className="mobile-reconnecting-overlay" data-testid="reconnecting-overlay">
@@ -369,6 +368,7 @@ export function MobilePokerTable({
         </div>
       )}
 
+      {hasGameData && <>
       {/* Header with MenuBar - matches menu screens */}
       <MenuBar
         onBack={onBack}
@@ -736,6 +736,7 @@ export function MobilePokerTable({
           onReturnToMenu={() => { if (onBack) onBack(); }}
         />
       )}
+      </>}
     </div>
   );
 }

@@ -410,13 +410,12 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       </ErrorBoundary>
 
       {/* Loading Overlay - blocks all interaction during game creation */}
-      {isCreatingGame && (
-        <ShuffleLoading
-          isVisible={true}
-          message="Setting up your game"
-          submessage={loadingSubmessage}
-        />
-      )}
+      <ShuffleLoading
+        isVisible={isCreatingGame}
+        message="Setting up your game"
+        submessage={loadingSubmessage}
+        exitStyle="slide"
+      />
 
       {/* Max Games Error Modal */}
       {maxGamesError && (
