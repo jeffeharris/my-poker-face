@@ -1,0 +1,80 @@
+{
+  "name": "range_guidance_ab_test_gemini",
+  "description": "A/B test: looseness-aware preflop range guidance vs generic preflop classification using Gemini 2.0 Flash. Same test as gpt-5-nano version but with different model to compare model sensitivity.",
+  "hypothesis": "Range guidance produces personality-differentiated preflop play regardless of model. Comparing Gemini 2.0 Flash vs gpt-5-nano to see if wording sensitivity varies by model.",
+  "tags": ["range_guidance", "preflop", "psychology", "ab_test", "gemini"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 50,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "starting_stack": 1500,
+  "big_blind": 50,
+  "model": "gemini-2.0-flash",
+  "provider": "google",
+  "parallel_tournaments": 4,
+  "stagger_start_delay": 2.0,
+  "capture_prompts": true,
+  "random_seed": 42,
+  "control": {
+    "label": "Range-Guidance-ON",
+    "description": "Looseness-aware preflop classification (premium/well within/edge/outside)",
+    "enable_psychology": true,
+    "prompt_config": {
+      "pot_odds": true,
+      "hand_strength": true,
+      "range_guidance": true,
+      "gto_equity": false,
+      "gto_verdict": false,
+      "situational_guidance": true,
+      "session_memory": true,
+      "opponent_intel": true,
+      "strategic_reflection": false,
+      "chattiness": true,
+      "emotional_state": true,
+      "tilt_effects": true,
+      "mind_games": true,
+      "dramatic_sequence": true
+    }
+  },
+  "variants": [
+    {
+      "label": "Range-Guidance-OFF",
+      "description": "Generic preflop classification (hand category + percentile only)",
+      "enable_psychology": true,
+      "prompt_config": {
+        "pot_odds": true,
+        "hand_strength": true,
+        "range_guidance": false,
+        "gto_equity": false,
+        "gto_verdict": false,
+        "situational_guidance": true,
+        "session_memory": true,
+        "opponent_intel": true,
+        "strategic_reflection": false,
+        "chattiness": true,
+        "emotional_state": true,
+        "tilt_effects": true,
+        "mind_games": true,
+        "dramatic_sequence": true
+      }
+    }
+  ],
+  "personalities": [
+    {
+      "name": "Bob Ross",
+      "description": "TIGHT: looseness=0.38, poise=0.85"
+    },
+    {
+      "name": "Sherlock Holmes",
+      "description": "MEDIUM: looseness=0.58, poise=0.85"
+    },
+    {
+      "name": "Napoleon",
+      "description": "LOOSE: looseness=0.79, ego=0.86"
+    },
+    {
+      "name": "Blackbeard",
+      "description": "VERY LOOSE: looseness=0.87"
+    }
+  ]
+}
