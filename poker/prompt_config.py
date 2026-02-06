@@ -44,6 +44,7 @@ class PromptConfig:
     # Game state components
     pot_odds: bool = True
     hand_strength: bool = True
+    range_guidance: bool = True  # Looseness-aware preflop range classification
 
     # Memory components
     session_memory: bool = True
