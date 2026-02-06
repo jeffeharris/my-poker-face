@@ -487,7 +487,8 @@ class PressureEventDetector:
         streak_count = session_stats.get('streak_count', 0)
         current_streak = session_stats.get('current_streak', 'neutral')
 
-        if streak_count >= 3:
+        # Fire only at milestone thresholds (not every hand the streak persists)
+        if streak_count in (3, 6):
             if current_streak == 'winning':
                 events.append(("winning_streak", [player_name]))
             elif current_streak == 'losing':

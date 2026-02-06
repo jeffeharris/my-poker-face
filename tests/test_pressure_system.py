@@ -390,19 +390,27 @@ class TestStreakEvents(unittest.TestCase):
         self.assertEqual(events, [])
 
     def test_winning_streak_detection(self):
-        """Winning streak fires at 3+ consecutive wins."""
+        """Winning streak fires at milestone thresholds (3, 6)."""
         events = self.detector.detect_streak_events("Alice", {
             'streak_count': 3,
             'current_streak': 'winning'
         })
         self.assertEqual(events, [("winning_streak", ["Alice"])])
 
-        # Also works for longer streaks
+        # Also fires at second milestone (6)
         events = self.detector.detect_streak_events("Bob", {
-            'streak_count': 5,
+            'streak_count': 6,
             'current_streak': 'winning'
         })
         self.assertEqual(events, [("winning_streak", ["Bob"])])
+
+        # Does NOT fire between milestones (4, 5, 7, etc.)
+        for count in (4, 5, 7, 8):
+            events = self.detector.detect_streak_events("Alice", {
+                'streak_count': count,
+                'current_streak': 'winning'
+            })
+            self.assertEqual(events, [], f"Should not fire at streak_count={count}")
 
     def test_losing_streak_detection(self):
         """Losing streak fires at 3+ consecutive losses."""
