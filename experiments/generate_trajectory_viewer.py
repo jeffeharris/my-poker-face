@@ -401,6 +401,15 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
   .player-right{min-width:160px}
   .player-card{flex-wrap:wrap}
 }
+
+.affinity-section{margin-top:4px;padding-top:4px;border-top:1px solid #21262d}
+.affinity-row{display:flex;align-items:center;gap:6px;height:14px;font-size:0.72rem}
+.affinity-label{width:22px;color:#666;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
+.affinity-bar-bg{flex:1;height:4px;background:#21262d;border-radius:2px;overflow:hidden;min-width:40px}
+.affinity-bar-fill{height:100%;border-radius:2px;transition:width .3s ease}
+.affinity-pct{width:28px;text-align:right;color:#888;font-variant-numeric:tabular-nums}
+.affinity-active .affinity-label{color:#FFD700}
+.affinity-active .affinity-pct{color:#FFD700}
 </style>
 </head>
 <body>
@@ -851,6 +860,12 @@ function createPlayerCards() {
         makeAxisRow('Conf', sid, 'conf', color, 1) +
         makeAxisRow('Comp', sid, 'comp', color, 1) +
         makeAxisRow('Energy', sid, 'energy', color, 0.6) +
+        '<div class="affinity-section">' +
+          makeAffinityRow(AFFINITY_LABELS.guarded, sid, 'guarded', AFFINITY_COLORS.guarded) +
+          makeAffinityRow(AFFINITY_LABELS.poker_face, sid, 'poker_face', AFFINITY_COLORS.poker_face) +
+          makeAffinityRow(AFFINITY_LABELS.commanding, sid, 'commanding', AFFINITY_COLORS.commanding) +
+          makeAffinityRow(AFFINITY_LABELS.aggro, sid, 'aggro', AFFINITY_COLORS.aggro) +
+        '</div>' +
       '</div>';
 
     card.addEventListener('click', () => toggleHighlight(player));
@@ -865,6 +880,37 @@ function makeAxisRow(label, sid, axis, color, opacity) {
       'style="background:' + color + ';opacity:' + opacity + '"></div></div>' +
     '<span class="axis-value" id="' + axis + '-val-' + sid + '">\u2014</span>' +
     '<span class="axis-delta" id="' + axis + '-delta-' + sid + '">\u2014</span>' +
+  '</div>';
+}
+
+// --- Affinity computation (mirrors playstyle_selector.py) ---
+const AFFINITY_SIGMA = 0.25;
+const AFFINITY_STYLES = ['guarded', 'poker_face', 'commanding', 'aggro'];
+const AFFINITY_LABELS = {guarded: 'GU', poker_face: 'PF', commanding: 'CM', aggro: 'AG'};
+const AFFINITY_COLORS = {guarded: '#87CEEB', poker_face: '#90EE90', commanding: '#FFD700', aggro: '#FFA500'};
+
+function computeAffinities(conf, comp) {
+  const raw = {};
+  let total = 0;
+  for (const style of AFFINITY_STYLES) {
+    const center = SWEET_SPOTS[style].center;
+    const dSq = (conf - center[0]) ** 2 + (comp - center[1]) ** 2;
+    const v = Math.exp(-dSq / (2 * AFFINITY_SIGMA ** 2));
+    raw[style] = v;
+    total += v;
+  }
+  if (total === 0) return {guarded: 0.25, poker_face: 0.25, commanding: 0.25, aggro: 0.25};
+  const result = {};
+  for (const s of AFFINITY_STYLES) result[s] = raw[s] / total;
+  return result;
+}
+
+function makeAffinityRow(label, sid, style, color) {
+  return '<div class="affinity-row" id="aff-row-' + style + '-' + sid + '">' +
+    '<span class="affinity-label">' + label + '</span>' +
+    '<div class="affinity-bar-bg"><div class="affinity-bar-fill" id="aff-bar-' + style + '-' + sid + '" ' +
+      'style="background:' + color + '"></div></div>' +
+    '<span class="affinity-pct" id="aff-pct-' + style + '-' + sid + '">0%</span>' +
   '</div>';
 }
 
@@ -912,6 +958,21 @@ function updatePlayerCards(globalIdx) {
       for (const ax of ['conf', 'comp', 'energy']) {
         el(sid, ax + '-delta').textContent = '\u2014';
         el(sid, ax + '-delta').className = 'axis-delta neutral-delta';
+      }
+    }
+
+    // Affinities
+    const affinities = computeAffinities(current.conf, current.comp);
+    for (const style of AFFINITY_STYLES) {
+      const pct = affinities[style];
+      const barEl = document.getElementById('aff-bar-' + style + '-' + sid);
+      const pctEl = document.getElementById('aff-pct-' + style + '-' + sid);
+      const rowEl = document.getElementById('aff-row-' + style + '-' + sid);
+      if (barEl) barEl.style.width = (pct * 100) + '%';
+      if (pctEl) pctEl.textContent = Math.round(pct * 100) + '%';
+      if (rowEl) {
+        if (current.sweet_spot === style) rowEl.classList.add('affinity-active');
+        else rowEl.classList.remove('affinity-active');
       }
     }
 

@@ -170,6 +170,7 @@ class ControlConfig:
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
     enable_psychology: bool = False  # Enable tilt + emotional state generation
+    enable_playstyle: Optional[bool] = None  # None=inherit from enable_psychology, True/False=override
     enable_commentary: bool = False  # Enable commentary generation
     reasoning_effort: Optional[str] = None  # 'minimal', 'low', 'medium', 'high'
 
@@ -186,6 +187,7 @@ class VariantConfig:
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
     enable_psychology: bool = False  # Enable tilt + emotional state generation
+    enable_playstyle: Optional[bool] = None  # None=inherit from enable_psychology, True/False=override
     enable_commentary: bool = False  # Enable commentary generation
     reasoning_effort: Optional[str] = None  # Inherits from control if None
 
@@ -273,6 +275,7 @@ class ExperimentConfig:
             'game_mode': self.control.get('game_mode'),
             'prompt_config': self.control.get('prompt_config'),
             'enable_psychology': self.control.get('enable_psychology', False),
+            'enable_playstyle': self.control.get('enable_playstyle'),
             'enable_commentary': self.control.get('enable_commentary', False),
             'reasoning_effort': self.control.get('reasoning_effort'),
             # New fields for enhanced variant support
@@ -294,6 +297,7 @@ class ExperimentConfig:
                 'prompt_config': variant.get('prompt_config') if 'prompt_config' in variant else control_config.get('prompt_config'),
                 # Psychology flags - inherit from control if not specified
                 'enable_psychology': variant.get('enable_psychology', control_config.get('enable_psychology', False)),
+                'enable_playstyle': variant.get('enable_playstyle') if 'enable_playstyle' in variant else control_config.get('enable_playstyle'),
                 'enable_commentary': variant.get('enable_commentary', control_config.get('enable_commentary', False)),
                 # Reasoning effort - inherit from control if not specified
                 'reasoning_effort': variant.get('reasoning_effort') if 'reasoning_effort' in variant else control_config.get('reasoning_effort'),
@@ -787,6 +791,14 @@ class AITournamentRunner:
         elif guidance_injection:
             prompt_config = PromptConfig(guidance_injection=guidance_injection)
 
+        # Apply enable_playstyle toggle (controls zone_benefits on prompt_config)
+        enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
+        enable_playstyle = variant_config.get('enable_playstyle') if variant_config else None
+        if enable_playstyle is None:
+            enable_playstyle = enable_psychology  # Inherit from psychology flag
+        if not enable_playstyle:
+            prompt_config = prompt_config.copy(zone_benefits=False)
+
         controllers = {}
         for player in game_state.players:
             # Check for per-player config override
@@ -901,6 +913,12 @@ class AITournamentRunner:
                 was_short_stack or set(), big_blind
             )
             all_events.extend(stack_events)
+
+            # Short-stack survival (calm play while short-stacked)
+            survival_events = self.pressure_detector.detect_short_stack_survival_events(
+                current_short, hand_number
+            )
+            all_events.extend(survival_events)
 
         # 3. Streak events (winning_streak, losing_streak)
         if self.hand_history_repo:
@@ -1277,7 +1295,8 @@ class AITournamentRunner:
                         enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
                         if enable_psychology:
                             action_events = self.pressure_detector.detect_action_events(
-                                game_state, current_player.name, action, amount
+                                game_state, current_player.name, action, amount,
+                                hand_number=getattr(memory_manager, 'hand_count', 0) if memory_manager else 0,
                             )
                             for event_name, affected_players in action_events:
                                 for pname in affected_players:

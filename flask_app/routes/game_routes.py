@@ -1249,7 +1249,7 @@ def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""
 
     @sio.on('join_game')
-    @socket_rate_limit(max_calls=5, window_seconds=10)
+    @socket_rate_limit(max_calls=20, window_seconds=10)
     def on_join(game_id):
         game_id_str = str(game_id)
         game_data = game_state_service.get_game(game_id_str)

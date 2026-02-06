@@ -453,6 +453,13 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         events.extend(stack_events)
         game_data['short_stack_players'] = current_short
 
+        # Short-stack survival (calm play while short-stacked)
+        hand_number = _get_hand_number(game_data)
+        survival_events = pressure_detector.detect_short_stack_survival_events(
+            current_short, hand_number
+        )
+        events.extend(survival_events)
+
     # Streak events (from DB-backed session stats)
     if 'memory_manager' in game_data:
         memory_manager = game_data['memory_manager']
@@ -1718,6 +1725,7 @@ def handle_ai_action(game_id: str) -> None:
             player_name=current_player.name,
             action=action,
             amount=amount,
+            hand_number=_get_hand_number(current_game_data),
         )
         # Apply energy events to player psychology and persist
         if action_events and current_player.name in ai_controllers:

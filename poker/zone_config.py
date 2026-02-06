@@ -161,6 +161,8 @@ EVENT_SEVERITY = {
     'consecutive_folds_3': 'minor',
     'card_dead_5': 'minor',
     'not_in_hand': 'minor',
+    'disciplined_fold': 'minor',
+    'short_stack_survival': 'minor',
 
     # Normal events (floor=0.30) - standard gameplay, default
     'big_win': 'normal',

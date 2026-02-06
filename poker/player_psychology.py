@@ -105,6 +105,19 @@ from .zone_detection import (  # noqa: F401
     build_zone_guidance,
 )
 
+# From playstyle_selector
+from .playstyle_selector import (  # noqa: F401
+    PlaystyleState,
+    PlaystyleBriefing,
+    compute_playstyle_affinities,
+    derive_primary_playstyle,
+    compute_identity_bias,
+    compute_exploit_scores,
+    compute_election_interval,
+    select_playstyle,
+    build_playstyle_briefing,
+)
+
 # From zone_effects
 from .zone_effects import (  # noqa: F401
     INTRUSIVE_THOUGHTS,
@@ -170,6 +183,10 @@ class PlayerPsychology:
     _baseline_confidence: Optional[float] = field(default=None, repr=False)
     _baseline_composure: Optional[float] = field(default=None, repr=False)
 
+    # Playstyle selection state
+    _playstyle_state: Optional[PlaystyleState] = field(default=None, repr=False)
+    _identity_biases: Optional[Dict[str, float]] = field(default=None, repr=False)
+
     def __post_init__(self):
         """Initialize emotional state generator, compute baselines, and create poker face zone."""
         if self._emotional_generator is None:
@@ -184,6 +201,18 @@ class PlayerPsychology:
         # Create personality-adjusted poker face zone
         if self._poker_face_zone is None:
             object.__setattr__(self, '_poker_face_zone', create_poker_face_zone(self.anchors))
+
+        # Initialize playstyle from baseline axes
+        if self._playstyle_state is None:
+            primary = derive_primary_playstyle(self._baseline_confidence, self._baseline_composure)
+            object.__setattr__(self, '_playstyle_state', PlaystyleState(
+                active_playstyle=primary,
+                primary_playstyle=primary,
+            ))
+        if self._identity_biases is None:
+            object.__setattr__(self, '_identity_biases', compute_identity_bias(
+                self._playstyle_state.primary_playstyle
+            ))
 
     @classmethod
     def from_personality_config(
@@ -304,7 +333,7 @@ class PlayerPsychology:
     OUTCOME_EVENTS = {'win', 'loss', 'big_win', 'big_loss', 'headsup_win', 'headsup_loss'}
     EGO_EVENTS = {'successful_bluff', 'bluff_called', 'nemesis_win', 'nemesis_loss'}
     EQUITY_SHOCK_EVENTS = {'bad_beat', 'cooler', 'suckout', 'got_sucked_out'}
-    PRESSURE_EVENTS = {'big_pot_involved', 'all_in_moment', 'card_dead_5', 'consecutive_folds_3', 'not_in_hand'}
+    PRESSURE_EVENTS = {'big_pot_involved', 'all_in_moment', 'card_dead_5', 'consecutive_folds_3', 'not_in_hand', 'disciplined_fold', 'short_stack_survival'}
     DESPERATION_EVENTS = {'short_stack', 'crippled', 'fold_under_pressure'}
     STREAK_EVENTS = {'winning_streak', 'losing_streak'}
 
@@ -340,9 +369,11 @@ class PlayerPsychology:
             # Pressure/Fatigue (additive, no confidence)
             'big_pot_involved': {'composure': -0.05, 'energy': -0.05},
             'all_in_moment': {'composure': -0.08, 'energy': -0.08},
-            'card_dead_5': {'composure': -0.05, 'energy': -0.10},
+            'card_dead_5': {'confidence': -0.03, 'composure': 0.03, 'energy': -0.10},
             'consecutive_folds_3': {'composure': -0.05, 'energy': -0.08},
             'not_in_hand': {'energy': -0.02},
+            'disciplined_fold': {'confidence': -0.06, 'composure': 0.12, 'energy': -0.02},
+            'short_stack_survival': {'confidence': -0.04, 'composure': 0.06, 'energy': -0.05},
             # Desperation (additive)
             'short_stack': {'confidence': -0.08, 'composure': -0.15, 'energy': -0.10},
             'crippled': {'confidence': -0.20, 'composure': -0.25, 'energy': -0.15},
@@ -682,6 +713,45 @@ class PlayerPsychology:
             return effects.primary_sweet_spot
 
         return 'neutral'
+
+    # === PLAYSTYLE SELECTION ===
+
+    def update_playstyle(
+        self,
+        opponent_models: Optional[Dict[str, Any]] = None,
+        hand_number: int = 0,
+    ) -> PlaystyleState:
+        """
+        Select the appropriate playstyle based on current emotional state,
+        identity, and opponent exploitation opportunities.
+
+        Updates internal _playstyle_state and returns it.
+        """
+        nemesis = self.composure_state.nemesis if self.composure_state else None
+
+        self._playstyle_state = select_playstyle(
+            current_state=self._playstyle_state,
+            confidence=self.confidence,
+            composure=self.composure,
+            energy=self.energy,
+            adaptation_bias=self.anchors.adaptation_bias,
+            identity_biases=self._identity_biases,
+            opponent_models=opponent_models,
+            nemesis=nemesis,
+            hand_number=hand_number,
+        )
+
+        return self._playstyle_state
+
+    @property
+    def playstyle_state(self) -> PlaystyleState:
+        """Get current playstyle state."""
+        return self._playstyle_state
+
+    @property
+    def active_playstyle(self) -> str:
+        """Get current active playstyle name."""
+        return self._playstyle_state.active_playstyle
 
     # === DERIVED VALUES ===
 
@@ -1112,6 +1182,7 @@ class PlayerPsychology:
             'zone_distance': self.zone_distance,
             'zone_effects': self.zone_effects.to_dict(),
             'primary_zone': self.primary_zone,
+            'playstyle_state': self._playstyle_state.to_dict() if self._playstyle_state else None,
         }
 
     @classmethod
@@ -1186,6 +1257,13 @@ class PlayerPsychology:
         psychology.hand_count = data.get('hand_count', 0)
         psychology.last_updated = data.get('last_updated')
         psychology.consecutive_folds = data.get('consecutive_folds', 0)
+
+        # Restore playstyle state if saved; otherwise __post_init__ already derived it
+        if data.get('playstyle_state'):
+            psychology._playstyle_state = PlaystyleState.from_dict(data['playstyle_state'])
+            psychology._identity_biases = compute_identity_bias(
+                psychology._playstyle_state.primary_playstyle
+            )
 
         return psychology
 

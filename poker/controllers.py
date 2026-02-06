@@ -27,7 +27,7 @@ from .ai_resilience import (
     describe_response_error,
     FallbackActionSelector,
 )
-from .player_psychology import PlayerPsychology, ZoneContext, build_zone_guidance
+from .player_psychology import PlayerPsychology, ZoneContext, build_zone_guidance, build_playstyle_briefing
 from .hand_narrator import narrate_hand_breakdown
 from .memory.commentary_generator import DecisionPlan
 from .minimal_prompt import (
@@ -1304,10 +1304,22 @@ class AIPlayerController:
                 include_tempo=True,
             )
 
-        # Phase 7: Add zone-based strategy guidance
+        # Playstyle selection + briefing (replaces Phase 7 zone guidance)
         zone_guidance = None
+        playstyle_briefing = None
         if self.prompt_config.zone_benefits and self.psychology:
-            # Find focal opponent (first active opponent, or strongest)
+            # 1. Get opponent models
+            opponent_models = {}
+            if self.opponent_model_manager:
+                opponent_models = self.opponent_model_manager.get_all_models_for_observer(self.player_name)
+
+            # 2. Select playstyle
+            playstyle_state = self.psychology.update_playstyle(
+                opponent_models=opponent_models,
+                hand_number=self.current_hand_number,
+            )
+
+            # 3. Build briefing with curated stats + framing + suppression flags
             focal_opponent = None
             active_opponents = [
                 p for p in game_state.players
@@ -1316,14 +1328,48 @@ class AIPlayerController:
             if active_opponents:
                 focal_opponent = active_opponents[0]
 
-            # Build context and zone guidance
             zone_context = self._build_zone_context(game_state, focal_opponent)
-            zone_effects = self.psychology.zone_effects
-            zone_guidance = build_zone_guidance(
-                zone_effects.to_dict(),
-                zone_context,
-                self.prompt_manager,
+
+            # Compute game stats for briefing
+            active_stacks = [p.stack for p in game_state.players if not p.is_folded]
+            avg_stack = sum(active_stacks) / max(len(active_stacks), 1)
+
+            # Extract threat info from exploit scoring
+            threat_name, threat_summary = None, None
+            if opponent_models:
+                from .playstyle_selector import _select_biggest_threat
+                nemesis = self.psychology.composure_state.nemesis if self.psychology.composure_state else None
+                threat_model = _select_biggest_threat(opponent_models, nemesis)
+                if threat_model:
+                    threat_name = threat_model.opponent
+                    threat_summary = threat_model.tendencies.get_summary()
+
+            # Suppress opponent emotion display for poker_face at full engagement
+            if (playstyle_state.active_playstyle == 'poker_face'
+                    and playstyle_state.engagement == 'full'):
+                zone_context.opponent_displayed_emotion = None
+
+            playstyle_briefing = build_playstyle_briefing(
+                active_playstyle=playstyle_state.active_playstyle,
+                zone_effects=self.psychology.zone_effects,
+                zone_context=zone_context,
+                prompt_manager=self.prompt_manager,
+                active_affinity=playstyle_state.active_affinity,
+                engagement=playstyle_state.engagement,
+                player_stack=player.stack,
+                avg_stack=avg_stack,
+                pot_total=game_state.pot.get('total', 0),
+                big_blind=game_state.current_ante or 100,
+                threat_name=threat_name,
+                threat_summary=threat_summary,
             )
+            zone_guidance = playstyle_briefing.guidance
+
+            # 4. Apply suppressions to this decision's prompt args
+            if playstyle_briefing.suppress_equity_verdict:
+                equity_verdict_info = None
+            if playstyle_briefing.suppress_pot_odds:
+                pot_odds_info = None
 
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         prompt = self.prompt_manager.render_decision_prompt(
@@ -1547,6 +1593,16 @@ class AIPlayerController:
                     snapshot['zone_penalty_strategy_applied'] = instr.get('penalty_strategy_applied')
                     snapshot['zone_info_degraded'] = instr.get('info_degraded')
                     snapshot['zone_strategy_selected'] = instr.get('strategy_selected')
+
+                # Playstyle tracking
+                if psych.playstyle_state:
+                    ps = psych.playstyle_state
+                    snapshot['playstyle_active'] = ps.active_playstyle
+                    snapshot['playstyle_primary'] = ps.primary_playstyle
+                    snapshot['playstyle_scores_json'] = json.dumps(ps.style_scores)
+                    snapshot['playstyle_effective_adaptation'] = ps.last_effective_adaptation
+                    snapshot['playstyle_engagement'] = ps.engagement
+                    snapshot['playstyle_active_affinity'] = ps.active_affinity
 
                 psychology_snapshot = snapshot
 

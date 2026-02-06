@@ -22,9 +22,23 @@ class PressureEventDetector:
     (e.g., controller.psychology.apply_pressure_event()).
     """
 
+    # Cooldown thresholds
+    DISCIPLINED_FOLD_COOLDOWN = 2   # Max once per 2 hands per player
+    SHORT_STACK_SURVIVAL_COOLDOWN = 5  # Max once per 5 hands per player
+    SHORT_STACK_SURVIVAL_HANDS = 3    # Must survive 3+ hands while short without all-in
+
     def __init__(self):
         self.last_pot_size = 0
         self.player_hand_history: Dict[str, List[int]] = {}  # Track hand strengths
+
+        # Disciplined fold cooldown: player_name -> hand_number of last fire
+        self._disciplined_fold_last_hand: Dict[str, int] = {}
+
+        # Short-stack survival tracking
+        # player_name -> number of consecutive hands survived while short without all-in
+        self._short_stack_hands_survived: Dict[str, int] = {}
+        # player_name -> hand_number of last short_stack_survival fire
+        self._short_stack_survival_last_hand: Dict[str, int] = {}
         
     def detect_showdown_events(self, game_state: PokerGameState, 
                              winner_info: Dict[str, Any]) -> List[Tuple[str, List[str]]]:
@@ -338,14 +352,16 @@ class PressureEventDetector:
         player_name: str,
         action: str,
         amount: int = 0,
+        hand_number: int = 0,
     ) -> List[Tuple[str, List[str]]]:
-        """Detect pressure events from player actions (all_in_moment).
+        """Detect pressure events from player actions (all_in_moment, disciplined_fold).
 
         Args:
             game_state: Current game state
             player_name: Name of the player who acted
-            action: The action taken (e.g., 'all_in', 'raise', 'call')
+            action: The action taken (e.g., 'all_in', 'raise', 'call', 'fold')
             amount: Bet/raise amount
+            hand_number: Current hand number (for cooldown tracking)
 
         Returns:
             List of (event_name, [player_name]) tuples
@@ -355,8 +371,76 @@ class PressureEventDetector:
         # All-in moment: player went all-in
         if action == 'all_in':
             events.append(("all_in_moment", [player_name]))
+            # Reset short-stack survival counter on all-in
+            self._short_stack_hands_survived.pop(player_name, None)
+
+        # Disciplined fold: fold on turn/river with decent equity in a significant pot
+        if action == 'fold':
+            fold_event = self._detect_disciplined_fold(
+                game_state, player_name, hand_number
+            )
+            if fold_event:
+                events.append(fold_event)
 
         return events
+
+    # Disciplined fold detection thresholds
+    DISCIPLINED_FOLD_MIN_EQUITY = 0.25
+    DISCIPLINED_FOLD_MIN_POT_SIGNIFICANCE = 0.15
+    DISCIPLINED_FOLD_MIN_COMMUNITY_CARDS = 4  # Turn or later
+
+    def _detect_disciplined_fold(
+        self,
+        game_state: PokerGameState,
+        player_name: str,
+        hand_number: int,
+    ) -> Optional[Tuple[str, List[str]]]:
+        """Detect a disciplined fold: folding a decent hand in a significant pot.
+
+        Fires when:
+        - Player folds on turn or river (4+ community cards)
+        - Player's estimated equity >= 0.25
+        - Pot significance (pot / player_stack) >= 0.15
+        - Cooldown: at most once per 2 hands per player
+        """
+        # Check cooldown
+        last_hand = self._disciplined_fold_last_hand.get(player_name, -999)
+        if hand_number - last_hand < self.DISCIPLINED_FOLD_COOLDOWN:
+            return None
+
+        # Must be on turn or river
+        community_cards = game_state.community_cards
+        if len(community_cards) < self.DISCIPLINED_FOLD_MIN_COMMUNITY_CARDS:
+            return None
+
+        # Must be facing a bet (cost to call > 0)
+        player = next(
+            (p for p in game_state.players if p.name == player_name), None
+        )
+        if not player:
+            return None
+
+        cost_to_call = game_state.highest_bet - player.current_bet
+        if cost_to_call <= 0:
+            return None
+
+        # Check pot significance
+        pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+        player_stack = player.stack + player.current_bet  # Effective stack
+        if player_stack <= 0:
+            return None
+        pot_significance = pot_total / player_stack
+        if pot_significance < self.DISCIPLINED_FOLD_MIN_POT_SIGNIFICANCE:
+            return None
+
+        # Calculate equity
+        equity = self._calculate_fold_equity(player.hand, community_cards)
+        if equity is None or equity < self.DISCIPLINED_FOLD_MIN_EQUITY:
+            return None
+
+        # All conditions met
+        self._disciplined_fold_last_hand[player_name] = hand_number
+        return ("disciplined_fold", [player_name])
 
     # === Streak-based event detection ===
 
@@ -482,6 +566,93 @@ class PressureEventDetector:
             # Player lost and their nemesis won
             elif player_name in loser_names and nemesis in winner_names:
                 events.append(("nemesis_loss", [player_name]))
+
+        return events
+
+    # === Disciplined fold equity calculation ===
+
+    def _calculate_fold_equity(self, hole_cards, community_cards, num_simulations: int = 200) -> Optional[float]:
+        """Quick equity estimate for disciplined fold detection.
+
+        Uses eval7 Monte Carlo simulation against one random opponent.
+        Returns equity as 0.0-1.0, or None if calculation fails.
+        """
+        try:
+            import eval7
+            from .card_utils import normalize_card_string
+        except ImportError:
+            return None
+
+        if not hole_cards or not community_cards:
+            return None
+
+        try:
+            hand = [eval7.Card(normalize_card_string(str(c))) for c in hole_cards]
+            board = [eval7.Card(normalize_card_string(str(c))) for c in community_cards]
+
+            wins = 0
+            for _ in range(num_simulations):
+                deck = eval7.Deck()
+                for c in hand + board:
+                    deck.cards.remove(c)
+                deck.shuffle()
+
+                opp_hand = list(deck.deal(2))
+                remaining = 5 - len(board)
+                full_board = board + list(deck.deal(remaining))
+
+                hero_score = eval7.evaluate(hand + full_board)
+                opp_score = eval7.evaluate(opp_hand + full_board)
+
+                if hero_score > opp_score:
+                    wins += 1
+                elif hero_score == opp_score:
+                    wins += 0.5
+
+            return wins / num_simulations
+        except Exception:
+            return None
+
+    # === Short-stack survival event detection ===
+
+    def detect_short_stack_survival_events(
+        self,
+        current_short_stack: Set[str],
+        hand_number: int,
+    ) -> List[Tuple[str, List[str]]]:
+        """Detect short_stack_survival: player stayed short-stacked without going all-in.
+
+        Called once per hand completion. Increments the survival counter for
+        players who are currently short-stacked, and fires the event when
+        the threshold is met (subject to cooldown).
+
+        Args:
+            current_short_stack: Set of player names currently short-stacked
+            hand_number: Current hand number (for cooldown tracking)
+
+        Returns:
+            List of (event_name, [player_name]) tuples
+        """
+        events = []
+
+        # Remove players who are no longer short-stacked
+        for player_name in list(self._short_stack_hands_survived.keys()):
+            if player_name not in current_short_stack:
+                self._short_stack_hands_survived.pop(player_name, None)
+
+        # Increment survival counter for current short-stack players
+        for player_name in current_short_stack:
+            count = self._short_stack_hands_survived.get(player_name, 0) + 1
+            self._short_stack_hands_survived[player_name] = count
+
+            # Check if threshold met and cooldown expired
+            if count >= self.SHORT_STACK_SURVIVAL_HANDS:
+                last_fired = self._short_stack_survival_last_hand.get(player_name, -999)
+                if hand_number - last_fired >= self.SHORT_STACK_SURVIVAL_COOLDOWN:
+                    events.append(("short_stack_survival", [player_name]))
+                    self._short_stack_survival_last_hand[player_name] = hand_number
+                    # Reset counter after firing
+                    self._short_stack_hands_survived[player_name] = 0
 
         return events
 
