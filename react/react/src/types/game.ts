@@ -47,6 +47,7 @@ export interface GameState {
   betting_context?: BettingContext;
   newly_dealt_count?: number;
   awaiting_action?: boolean;
+  run_it_out?: boolean;
 }
 
 /** Player's showdown hand information */

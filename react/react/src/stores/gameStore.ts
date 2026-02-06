@@ -25,6 +25,7 @@ interface GameStore {
   bettingContext: BettingContext | null;
   newlyDealtCount: number | undefined;
   awaitingAction: boolean | undefined;
+  runItOut: boolean | undefined;
 
   // Actions
   applyGameState: (state: GameState) => void;
@@ -51,6 +52,7 @@ const initialState = {
   bettingContext: null as BettingContext | null,
   newlyDealtCount: undefined as number | undefined,
   awaitingAction: undefined as boolean | undefined,
+  runItOut: undefined as boolean | undefined,
 };
 
 /** Compare two Player objects field-by-field, including nested objects. */
@@ -146,6 +148,7 @@ export const useGameStore = create<GameStore>((set) => ({
         bettingContext: state.betting_context ?? null,
         newlyDealtCount: state.newly_dealt_count,
         awaitingAction: state.awaiting_action,
+        runItOut: state.run_it_out,
       };
     });
   },
@@ -190,5 +193,6 @@ export function selectGameState(state: GameStore): GameState | null {
     betting_context: state.bettingContext ?? undefined,
     newly_dealt_count: state.newlyDealtCount,
     awaiting_action: state.awaitingAction,
+    run_it_out: state.runItOut,
   };
 }

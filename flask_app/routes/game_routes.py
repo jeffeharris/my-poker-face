@@ -549,7 +549,7 @@ def api_game_state(game_id):
         'current_dealer_idx': game_state.current_dealer_idx,
         'small_blind_idx': game_state.small_blind_idx,
         'big_blind_idx': game_state.big_blind_idx,
-        'phase': str(state_machine.current_phase).split('.')[-1],
+        'phase': state_machine.current_phase.name,
         'highest_bet': game_state.highest_bet,
         'player_options': list(game_state.current_player_options) if game_state.current_player_options else [],
         'min_raise': game_state.min_raise_amount,
@@ -1095,7 +1095,7 @@ def api_retry_game(game_id):
 
     diagnostic = {
         'game_id': game_id,
-        'phase': str(state_machine.current_phase).split('.')[-1],
+        'phase': state_machine.current_phase.name,
         'awaiting_action': game_state.awaiting_action,
         'current_player': current_player.name,
         'current_player_is_human': current_player.is_human,
