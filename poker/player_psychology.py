@@ -15,7 +15,8 @@ Architecture (3 layers):
 3. Expression Layer (Filtered Output) - what the opponent sees
    - Avatar emotion, table talk, tempo
 
-Phase 1 implements Identity + State layers. Energy is static (= baseline_energy).
+All three layers are implemented. Energy is dynamic (24 events modify it,
+recovery includes edge springs toward baseline_energy).
 """
 
 import json
@@ -1709,7 +1710,7 @@ class PlayerPsychology:
     2. State Layer (axes) - dynamic emotional state
     3. Expression Layer - filtered output (Phase 2+)
 
-    Phase 1: Confidence + Composure dynamic, Energy = baseline_energy (static).
+    All three axes (confidence, composure, energy) are dynamic.
     """
 
     # Identity
@@ -1800,11 +1801,10 @@ class PlayerPsychology:
         baseline_comp = compute_baseline_composure(anchors)
 
         # Initialize axes at personality-specific baselines
-        # Phase 1: energy is static = baseline_energy
         axes = EmotionalAxes(
-            confidence=baseline_conf,  # Start at personality baseline
-            composure=baseline_comp,   # Start at personality baseline
-            energy=anchors.baseline_energy,  # Static in Phase 1
+            confidence=baseline_conf,
+            composure=baseline_comp,
+            energy=anchors.baseline_energy,
         )
 
         # Create initial emotional state
