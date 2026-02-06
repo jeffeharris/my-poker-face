@@ -5,6 +5,7 @@ decay) and their integration with PlayerPsychology and display emotions.
 """
 
 import unittest
+from dataclasses import dataclass
 
 from poker.emotional_state import (
     compute_baseline_mood,
@@ -14,17 +15,23 @@ from poker.emotional_state import (
     EMOTIONAL_NARRATION_SCHEMA,
     _clamp,
 )
-from poker.elasticity_manager import ElasticTrait
+
+
+@dataclass
+class _MockTrait:
+    """Minimal stand-in for ElasticTrait; only .value and .anchor are used."""
+    value: float
+    anchor: float
 
 
 def _make_traits(aggression=0.5, bluff=0.5, chat=0.5, emoji=0.3,
                  agg_anchor=0.5, bluff_anchor=0.5, chat_anchor=0.5, emoji_anchor=0.3):
     """Helper to build elastic traits dict for testing."""
     return {
-        'aggression': ElasticTrait(value=aggression, anchor=agg_anchor, elasticity=0.3),
-        'bluff_tendency': ElasticTrait(value=bluff, anchor=bluff_anchor, elasticity=0.2),
-        'chattiness': ElasticTrait(value=chat, anchor=chat_anchor, elasticity=0.3),
-        'emoji_usage': ElasticTrait(value=emoji, anchor=emoji_anchor, elasticity=0.1),
+        'aggression': _MockTrait(value=aggression, anchor=agg_anchor),
+        'bluff_tendency': _MockTrait(value=bluff, anchor=bluff_anchor),
+        'chattiness': _MockTrait(value=chat, anchor=chat_anchor),
+        'emoji_usage': _MockTrait(value=emoji, anchor=emoji_anchor),
     }
 
 
