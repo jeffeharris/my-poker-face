@@ -112,7 +112,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
         <p className="shuffle-loading-submessage">{submessage}</p>
       )}
 
-      {/* Hand number badge (interhand only) */}
+      {/* Hand number badge */}
       {handNumber != null && handNumber > 0 && (
         <div className="shuffle-loading-badge">
           <span className="shuffle-loading-badge-label">Next Hand</span>

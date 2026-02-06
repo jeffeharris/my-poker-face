@@ -206,17 +206,16 @@ export function MobilePokerTable({
   }, [currentPlayerIdx, currentPlayer?.name]);
 
   // Sort opponents by their position relative to the human player in turn order
-  const players = storePlayers;
   const opponents = useMemo(() => {
-    if (!players) return [];
-    const humanIndex = players.findIndex(p => p.is_human);
-    const totalPlayers = players.length;
+    if (!storePlayers) return [];
+    const humanIndex = storePlayers.findIndex(p => p.is_human);
+    const totalPlayers = storePlayers.length;
 
-    return players
+    return storePlayers
       .filter(p => !p.is_human)
       .sort((a, b) => {
-        const idxA = players.findIndex(p => p.name === a.name);
-        const idxB = players.findIndex(p => p.name === b.name);
+        const idxA = storePlayers.findIndex(p => p.name === a.name);
+        const idxB = storePlayers.findIndex(p => p.name === b.name);
 
         // Calculate clockwise distance from human (wrapping around)
         const distA = (idxA - humanIndex + totalPlayers) % totalPlayers;
@@ -224,16 +223,14 @@ export function MobilePokerTable({
 
         return distA - distB;
       });
-  }, [players]);
+  }, [storePlayers]);
 
   // Separate active and folded opponents
   const activeOpponents = useMemo(() => opponents.filter(p => !p.is_folded), [opponents]);
   const foldedOpponents = useMemo(() => opponents.filter(p => p.is_folded), [opponents]);
 
   // During showdown, hide folded players so active players have more room
-  const hasRevealedCards = revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
-  const isInShowdown = hasRevealedCards;
-
+  const isInShowdown = revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
 
   // Stable map of player name → avatar URL for FloatingChat
   const playerAvatars = useMemo(() => {
@@ -421,7 +418,7 @@ export function MobilePokerTable({
           ref={opponentsContainerRef}
         >
         {(isInShowdown ? activeOpponents : opponents).map((opponent) => {
-          const opponentIdx = storePlayers?.findIndex(p => p.name === opponent.name) ?? -1;
+          const opponentIdx = storePlayers!.findIndex(p => p.name === opponent.name);
           const isCurrentPlayer = shouldHighlightActivePlayer && opponentIdx === currentPlayerIdx;
           const isDealer = opponentIdx === dealerIdx;
 
@@ -504,7 +501,7 @@ export function MobilePokerTable({
 
       {/* Floating Pot Display - between opponents and community cards */}
       <div className="mobile-floating-pot" data-testid="mobile-pot">
-        <PotDisplay total={pot?.total ?? 0} />
+        <PotDisplay total={pot!.total} />
       </div>
 
       {/* Community Cards - Always show 5 slots */}
@@ -641,7 +638,7 @@ export function MobilePokerTable({
             currentPlayerBet={currentPlayer.bet}
             minRaise={minRaise}
             bigBlind={bigBlind}
-            potSize={pot?.total ?? 0}
+            potSize={pot!.total}
             onAction={handlePlayerAction}
             onQuickChat={openChatSheet}
             bettingContext={bettingContext ?? undefined}

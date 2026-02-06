@@ -327,12 +327,12 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state_dict['big_blind_idx'] = game_state.big_blind_idx
     game_state_dict['highest_bet'] = game_state.highest_bet
     # Clear player options during run-it-out or non-betting phases (no actions possible)
-    state_machine = current_game_data.get('state_machine')
+    state_machine = current_game_data['state_machine']
     should_clear = should_clear_player_options(game_state, state_machine)
     game_state_dict['player_options'] = [] if should_clear else (list(game_state.current_player_options) if game_state.current_player_options else [])
     game_state_dict['min_raise'] = game_state.min_raise_amount
     game_state_dict['big_blind'] = game_state.current_ante
-    game_state_dict['phase'] = current_game_data['state_machine'].current_phase.name
+    game_state_dict['phase'] = state_machine.current_phase.name
     memory_manager = current_game_data.get('memory_manager')
     game_state_dict['hand_number'] = memory_manager.hand_count if memory_manager else 0
 
@@ -1196,8 +1196,8 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         if hasattr(controller, 'psychology') and controller.psychology:
             controller.psychology.recover(recovery_rate=0.1)
 
-    # Clear hole cards and emit state to trigger frontend exit animation
-    # This ensures old card values are removed before new cards are dealt
+    # Clear hole cards and set phase to HAND_OVER. Prevents stale cards
+    # from flashing and triggers frontend exit animation + shuffle overlay.
     try:
         cleared_players = tuple(p.update(hand=()) for p in game_state.players)
         cleared_game_state = game_state.update(players=cleared_players)
@@ -1212,7 +1212,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             'error': 'Failed to transition between hands',
             'recoverable': True
         }, to=game_id)
-        return game_state, False  # Early return to prevent corrupted state
+        return state_machine.game_state, False  # Early return to prevent corrupted state
 
     # Brief delay for frontend to process cleared state and start exit animation
     try:
@@ -1239,7 +1239,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             'error': 'Failed to start new hand',
             'recoverable': True
         }, to=game_id)
-        return game_state, False
+        return state_machine.game_state, False
 
     # Start recording new hand AFTER cards are dealt
     if 'memory_manager' in game_data:

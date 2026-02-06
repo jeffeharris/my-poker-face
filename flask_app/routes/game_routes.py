@@ -861,7 +861,7 @@ def api_new_game():
         ai_player_names = get_celebrities(shuffled=True)[:opponent_count]
 
     # Check for duplicate names (e.g., AI personality matching human player name)
-    if player_name in ai_player_names:
+    if player_name.lower() in [n.lower() for n in ai_player_names]:
         return jsonify({
             'error': f'An opponent has the same name as you ("{player_name}"). Please choose a different player name or remove that opponent.',
             'code': 'DUPLICATE_PLAYER_NAME'
