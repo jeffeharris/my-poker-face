@@ -295,6 +295,7 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
    | `EXPERIMENT_ANALYSIS` | Assistant | |
    | `DEBUG_REPLAY` | User-specified | |
    | `DEBUG_INTERROGATE` | User-specified | |
+   | `COACHING` | Default | |
 
 5. **Tracking Data**: All API calls are logged to `api_usage` table with:
    - Token counts (input, output, cached, reasoning)

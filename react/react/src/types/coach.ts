@@ -50,6 +50,7 @@ export interface FeedbackPromptData {
   position: string;
   range_target: number;
   hand_number: number;
+  context?: Record<string, unknown>;
 }
 
 export interface CoachMessage {

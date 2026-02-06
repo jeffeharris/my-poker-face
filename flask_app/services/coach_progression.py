@@ -8,7 +8,7 @@ import logging
 from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypedDict
 
 from poker.coach_models import (
     CoachingDecision, CoachingMode, GateProgress, PlayerSkillState,
@@ -20,6 +20,15 @@ from .skill_evaluator import SkillEvaluation, SkillEvaluator
 from .range_targets import DEFAULT_RANGE_TARGETS, expand_ranges_for_gate, get_expanded_ranges
 
 logger = logging.getLogger(__name__)
+
+
+class FeedbackPromptDict(TypedDict, total=False):
+    """Typed dict for feedback prompt data sent to frontend."""
+    hand: str
+    position: str
+    range_target: float
+    hand_number: int
+    context: Dict
 
 
 class SessionMemory:
@@ -34,7 +43,7 @@ class SessionMemory:
         self.concept_count: Dict[str, int] = defaultdict(int)
         self.current_hand_number: int = 0
         self.hand_evaluations: Dict[int, list] = defaultdict(list)
-        self.pending_feedback_prompt: Optional[Dict] = None
+        self.pending_feedback_prompt: Optional[FeedbackPromptDict] = None
         self.player_feedback: Dict[int, list] = defaultdict(list)
 
     def new_hand(self, hand_number: int) -> None:
@@ -77,11 +86,11 @@ class SessionMemory:
         # Clear the pending feedback prompt once feedback is recorded
         self.pending_feedback_prompt = None
 
-    def set_feedback_prompt(self, prompt_data: Dict) -> None:
+    def set_feedback_prompt(self, prompt_data: FeedbackPromptDict) -> None:
         """Set a pending feedback prompt to show the player."""
         self.pending_feedback_prompt = prompt_data
 
-    def get_feedback_prompt(self) -> Optional[Dict]:
+    def get_feedback_prompt(self) -> Optional[FeedbackPromptDict]:
         """Get the pending feedback prompt (if any)."""
         return self.pending_feedback_prompt
 

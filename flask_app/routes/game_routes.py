@@ -180,7 +180,13 @@ def analyze_player_decision(
 def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
                                  amount: int, game_data: dict,
                                  pre_action_state) -> None:
-    """Post-action hook: evaluate the human player's action against skill targets."""
+    """Post-action hook: evaluate the human player's action against skill targets.
+
+    Uses a broad try/except intentionally: this entire function is a non-critical
+    post-action hook. Any failure must not disrupt the game flow. The phases
+    (data loading, classification/evaluation, feedback prompt generation) are kept
+    in one block to avoid partial state from early failures.
+    """
     try:
         from flask_app.services.coach_engine import compute_coaching_data
         from flask_app.services.coach_progression import CoachProgressionService, SessionMemory

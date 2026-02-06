@@ -326,10 +326,32 @@ def coach_feedback(game_id: str):
 
     if not reason:
         return jsonify({'error': 'No reason provided'}), 400
+    if len(reason) > 500:
+        return jsonify({'error': 'Reason too long (max 500 characters)'}), 400
+    if len(hand) > 10:
+        return jsonify({'error': 'Invalid hand value'}), 400
+    if len(position) > 30:
+        return jsonify({'error': 'Invalid position value'}), 400
+    if hand_number is not None and not isinstance(hand_number, int):
+        try:
+            hand_number = int(hand_number)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid hand_number'}), 400
 
     try:
-        # Store feedback in session memory for context
         game_data = game_state_service.get_game(game_id)
+
+        # Read context BEFORE recording feedback (which clears pending_feedback_prompt)
+        hand_context = None
+        if game_data:
+            session_memory = game_data.get('coach_session_memory')
+            if session_memory:
+                feedback_prompt = session_memory.get_feedback_prompt()
+                if feedback_prompt:
+                    hand_context = feedback_prompt.get('context')
+
+        # Store feedback in session memory
+        feedback_stored = False
         if game_data:
             session_memory = game_data.get('coach_session_memory')
             if session_memory:
@@ -342,20 +364,12 @@ def coach_feedback(game_id: str):
                         'reason': reason,
                     }
                 )
+                feedback_stored = True
 
         logger.info(
             f"Coach feedback recorded: user={user_id}, hand={hand}, "
             f"position={position}, action={action}, reason={reason}"
         )
-
-        # Get stored context from session memory
-        hand_context = None
-        if game_data:
-            session_memory = game_data.get('coach_session_memory')
-            if session_memory:
-                feedback_prompt = session_memory.get_feedback_prompt()
-                if feedback_prompt:
-                    hand_context = feedback_prompt.get('context')
 
         # Generate response - canned for presets, LLM for custom
         if reason in _FEEDBACK_RESPONSES:
@@ -364,7 +378,7 @@ def coach_feedback(game_id: str):
             # Custom reason - generate LLM response with hand context
             response = _generate_feedback_response(hand, position, reason, hand_context)
 
-        return jsonify({'status': 'ok', 'response': response})
+        return jsonify({'status': 'ok', 'response': response, 'feedback_stored': feedback_stored})
     except Exception as e:
         logger.error(f"Coach feedback failed: {e}", exc_info=True)
         return jsonify({'error': 'Could not record feedback'}), 500
@@ -373,6 +387,11 @@ def coach_feedback(game_id: str):
 def _generate_feedback_response(hand: str, position: str, reason: str, context: dict = None) -> str:
     """Generate a brief coach response to custom feedback using LLM."""
     from core.llm import LLMClient, CallType
+
+    # Sanitize inputs: strip control characters and enforce length limits
+    reason = ''.join(ch for ch in reason if ch.isprintable() or ch in ('\n', ' '))[:500]
+    hand = ''.join(ch for ch in hand if ch.isprintable())[:10]
+    position = ''.join(ch for ch in position if ch.isprintable())[:30]
 
     try:
         client = LLMClient()

@@ -4,7 +4,10 @@ Provides default ranges, position normalization, and gate-based expansion
 for the personalized range coaching system.
 """
 
+import logging
 from typing import Dict
+
+logger = logging.getLogger(__name__)
 
 # Default ranges for complete beginners (Gate 1)
 # These are intentionally tight to teach discipline first
@@ -18,7 +21,7 @@ DEFAULT_RANGE_TARGETS: Dict[str, float] = {
 }
 
 # Range expansions when gates unlock
-# Each gate adds to the previous ranges
+# Each gate defines complete ranges that replace the previous
 GATE_EXPANSIONS: Dict[int, Dict[str, float]] = {
     2: {
         # Gate 2 (postflop basics): modest expansion
@@ -62,6 +65,7 @@ def normalize_position(position: str) -> str:
         Normalized key: UTG, UTG+1, MP, CO, BTN, or BB
     """
     if not position:
+        logger.info("normalize_position: empty position, falling back to 'MP'")
         return 'MP'  # Conservative fallback
 
     pos_lower = position.lower().replace('_', ' ').replace('-', ' ')
@@ -87,6 +91,7 @@ def normalize_position(position: str) -> str:
         return 'BB'
 
     # Fallback to middle position (conservative)
+    logger.info("normalize_position: unrecognized position '%s', falling back to 'MP'", position)
     return 'MP'
 
 
