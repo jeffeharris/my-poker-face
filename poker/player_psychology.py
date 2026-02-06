@@ -1310,10 +1310,6 @@ def compute_modifiers(
     )
 
 
-# Legacy trait names for backward compatibility
-TRAIT_NAMES = ['tightness', 'aggression', 'confidence', 'composure', 'table_talk']
-
-
 # === PHASE 6: ZONE-BASED PROMPT MODIFICATION ===
 
 # Intrusive thoughts injected based on pressure source (TILTED zone)
@@ -1516,23 +1512,6 @@ PENALTY_STRATEGY = {
         'moderate': "They probably have you beat. Why risk it?",
         'severe': "Fold. They have it. They always have it.",
     },
-}
-
-# Legacy strategy overrides for backward compatibility
-COMPOSURE_STRATEGY = {
-    'slightly_rattled': (
-        "You're feeling the pressure. Trust your gut more than the math. "
-        "Sometimes you just need to make a play."
-    ),
-    'tilted': (
-        "Forget the textbook plays. You need to make something happen. "
-        "Being passive got you here - time to take control."
-    ),
-    'severely_tilted': (
-        "You're behind and you know it. Stop playing scared. "
-        "Big hands or big bluffs - that's how you get back in this. "
-        "Don't fold unless you have absolutely nothing."
-    ),
 }
 
 # Phrases to remove by zone (degrade strategic info)
@@ -2452,21 +2431,6 @@ class PlayerPsychology:
         self._last_zone_effects_instrumentation = instrumentation
 
         return modified
-
-    def apply_composure_effects(self, prompt: str) -> str:
-        """
-        Apply composure-based prompt modifications.
-
-        Phase 6: Now delegates to apply_zone_effects() for full zone awareness.
-        Kept for backward compatibility.
-
-        Args:
-            prompt: Original prompt
-
-        Returns:
-            Modified prompt with zone effects
-        """
-        return self.apply_zone_effects(prompt)
 
     def apply_tilt_effects(self, prompt: str) -> str:
         """Backward compatibility alias for apply_zone_effects."""
