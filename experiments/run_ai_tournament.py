@@ -891,12 +891,7 @@ class AITournamentRunner:
         showdown_events = self.pressure_detector.detect_showdown_events(game_state, winner_info)
         all_events.extend(showdown_events)
 
-        # 2. Phase events (showdown_involved, big_pot_involved, not_in_hand)
-        active_player_names = [p.name for p in game_state.players if not p.is_folded]
-        phase_events = self.pressure_detector.detect_phase_events(
-            game_state, 'SHOWDOWN', active_player_names
-        )
-        all_events.extend(phase_events)
+        # 2. Phase events — individual detectors cover showdown/stack/streak below
 
         # 3. Stack events (double_up, crippled, short_stack)
         current_short = was_short_stack or set()
