@@ -7,7 +7,10 @@ into a single place used by SituationClassifier and SkillEvaluator.
 from collections import defaultdict
 from typing import Dict, Optional
 
-from poker.hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
+from poker.hand_tiers import (
+    PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS,
+    is_hand_in_range,
+)
 
 
 RANK_VALUES = {
@@ -56,11 +59,19 @@ def _has_real_draw(coaching_data: Dict) -> bool:
     return has_flush_draw or has_straight_draw
 
 
-def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
+def build_poker_context(
+    coaching_data: Dict,
+    range_targets: Optional[Dict[str, float]] = None
+) -> Optional[Dict]:
     """Build a standardised context dict from coaching_data.
 
     Used by both SituationClassifier and SkillEvaluator so the
     hand-parsing / position / tier logic lives in one place.
+
+    Args:
+        coaching_data: Dict from compute_coaching_data() with game state
+        range_targets: Optional personal range targets dict (position -> percentage)
+                       If provided, adds is_in_personal_range to context
 
     Returns None when there is no phase (nothing to evaluate).
     """
@@ -92,6 +103,14 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
     is_top10 = canonical and canonical in TOP_10_HANDS
     is_top20 = canonical and canonical in TOP_20_HANDS
     is_playable = canonical and canonical in TOP_35_HANDS
+
+    # Personal range check (if range_targets provided)
+    is_in_personal_range = False
+    personal_range_target = None
+    if range_targets and canonical:
+        from .range_targets import get_range_target
+        personal_range_target = get_range_target(range_targets, position)
+        is_in_personal_range = is_hand_in_range(canonical, personal_range_target)
 
     # Post-flop hand strength (from HandEvaluator via coaching_data)
     # hand_rank: 1=Royal Flush, 2=Straight Flush, 3=Four of a Kind, 4=Full House,
@@ -181,4 +200,7 @@ def build_poker_context(coaching_data: Dict) -> Optional[Dict]:
         'required_equity': required_equity,
         # Bet sizing
         'bet_to_pot_ratio': bet_to_pot_ratio,
+        # Personal range (if range_targets provided)
+        'is_in_personal_range': is_in_personal_range,
+        'personal_range_target': personal_range_target,
     }

@@ -703,7 +703,10 @@ export function MobilePokerTable({
           />
 
           <CoachBubble
-            isVisible={coach.mode === 'proactive' && !!showActionButtons && !!coach.proactiveTip && !showCoachPanel}
+            isVisible={
+              !showCoachPanel &&
+              coach.mode === 'proactive' && !!showActionButtons && !!coach.proactiveTip
+            }
             tip={coach.proactiveTip}
             stats={coach.stats}
             onTap={openCoachPanel}

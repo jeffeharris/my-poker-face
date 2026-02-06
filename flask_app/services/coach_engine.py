@@ -822,10 +822,12 @@ def compute_coaching_data_with_progression(
 
         skill_states = player_state['skill_states']
         gate_progress = player_state['gate_progress']
+        profile = player_state.get('profile', {})
+        range_targets = profile.get('range_targets') if profile else None
 
         # Get coaching decision
         decision = service.get_coaching_decision(
-            user_id, data, skill_states, gate_progress
+            user_id, data, skill_states, gate_progress, range_targets=range_targets
         )
 
         # Attach progression context to coaching data
@@ -846,6 +848,7 @@ def compute_coaching_data_with_progression(
                 }
                 for sid, ss in skill_states.items()
             },
+            'range_targets': range_targets,
         }
     except Exception as e:
         logger.error(f"Coach progression enrichment failed: {e}", exc_info=True)
