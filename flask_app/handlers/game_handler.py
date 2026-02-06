@@ -326,10 +326,14 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state_dict['small_blind_idx'] = game_state.small_blind_idx
     game_state_dict['big_blind_idx'] = game_state.big_blind_idx
     game_state_dict['highest_bet'] = game_state.highest_bet
-    # Clear player options during run-it-out or non-betting phases (no actions possible)
+    # Clear player options during run-it-out or non-betting phases (no actions possible).
+    # This prevents stale action buttons from appearing in the frontend between hands.
     state_machine = current_game_data['state_machine']
     should_clear = should_clear_player_options(game_state, state_machine)
-    game_state_dict['player_options'] = [] if should_clear else (list(game_state.current_player_options) if game_state.current_player_options else [])
+    if should_clear or not game_state.current_player_options:
+        game_state_dict['player_options'] = []
+    else:
+        game_state_dict['player_options'] = list(game_state.current_player_options)
     game_state_dict['min_raise'] = game_state.min_raise_amount
     game_state_dict['big_blind'] = game_state.current_ante
     game_state_dict['phase'] = state_machine.current_phase.name
@@ -1206,18 +1210,20 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         game_data['state_machine'] = state_machine
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         logger.error(f"Failed to clear hole cards for game {game_id}: {e}", exc_info=True)
+        # Persist whatever state we have to prevent inconsistency
+        game_state_service.set_game(game_id, game_data)
         socketio.emit('game_error', {
             'error': 'Failed to transition between hands',
             'recoverable': True
         }, to=game_id)
-        return state_machine.game_state, False  # Early return to prevent corrupted state
+        return state_machine.game_state, False
 
-    # Brief delay for frontend to process cleared state and start exit animation
+    # Brief delay (150ms at 1x speed) for frontend to receive cleared state and begin card exit animation
     try:
         socketio.sleep(0.15 * config.ANIMATION_SPEED)
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.warning(f"Sleep interrupted for game {game_id}: {e}")
 
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
@@ -1233,8 +1239,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         game_data['state_machine'] = state_machine
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError, OSError) as e:
         logger.error(f"Failed to advance to next hand for game {game_id}: {e}", exc_info=True)
+        # Persist whatever state we have to prevent inconsistency
+        game_state_service.set_game(game_id, game_data)
         socketio.emit('game_error', {
             'error': 'Failed to start new hand',
             'recoverable': True
@@ -1269,9 +1277,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     limit_reached = _track_guest_hand(game_id, game_data)
     if limit_reached:
-        return game_state, True
+        return state_machine.game_state, True
 
-    return game_state, False
+    return state_machine.game_state, False
 
 
 def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:

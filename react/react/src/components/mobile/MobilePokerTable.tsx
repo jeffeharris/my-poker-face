@@ -134,10 +134,13 @@ export function MobilePokerTable({
   const handleTournamentComplete = useCallback(async () => {
     if (gameId) {
       try {
-        await fetch(`${config.API_URL}/api/end_game/${gameId}`, {
+        const res = await fetch(`${config.API_URL}/api/end_game/${gameId}`, {
           method: 'POST',
           credentials: 'include',
         });
+        if (!res.ok) {
+          logger.error(`Failed to end game for gameId=${gameId}: HTTP ${res.status}`);
+        }
       } catch (err) {
         logger.error(`Failed to end game for gameId=${gameId}:`, err);
       }
@@ -229,7 +232,7 @@ export function MobilePokerTable({
   const activeOpponents = useMemo(() => opponents.filter(p => !p.is_folded), [opponents]);
   const foldedOpponents = useMemo(() => opponents.filter(p => p.is_folded), [opponents]);
 
-  // During showdown, hide folded players so active players have more room
+  // During showdown, move folded players to the ghost rail so active players have more room in the main row
   const isInShowdown = revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
 
   // Stable map of player name → avatar URL for FloatingChat
@@ -262,17 +265,8 @@ export function MobilePokerTable({
   // - Proactive mode: Show coach's recommendation after proactive tip (coachAction)
   // - Reactive mode: Only show recommendation after player asks a question (coachAction)
   // - Off mode: No highlighting
-  const recommendedAction = useMemo(() => {
-    if (coach.mode === 'off') return null;
-    // Use coach's explicit recommendation (set when /ask returns)
-    // This ensures reactive mode doesn't show GTO recommendation proactively
-    return coach.coachAction;
-  }, [coach.mode, coach.coachAction]);
-
-  const raiseToAmount = useMemo(() => {
-    if (coach.mode === 'off') return null;
-    return coach.coachRaiseTo;
-  }, [coach.mode, coach.coachRaiseTo]);
+  const recommendedAction = coach.mode === 'off' ? null : coach.coachAction;
+  const raiseToAmount = coach.mode === 'off' ? null : coach.coachRaiseTo;
 
   const menuBarCenter = useMemo(() => (
     <GameInfoDisplay
@@ -294,8 +288,8 @@ export function MobilePokerTable({
         const previous = localStorage.getItem('coach_mode_before_off');
         coach.setMode((previous === 'proactive' || previous === 'reactive') ? previous : 'reactive');
       }
-    } catch {
-      // localStorage unavailable — just toggle mode without persisting
+    } catch (err) {
+      logger.warn('localStorage unavailable for coach mode toggle:', err);
       coach.setMode(coachEnabled ? 'off' : 'reactive');
     }
   }, [coachEnabled, coach]);
@@ -413,7 +407,11 @@ export function MobilePokerTable({
 
         {/* Opponents Row - shows only active players during showdown */}
         <div
-          className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`}
+          className={[
+            'mobile-opponents',
+            isHeadsUp && 'heads-up-mode',
+            isTwoOpponents && 'two-opponents-mode',
+          ].filter(Boolean).join(' ')}
           data-testid="mobile-opponents"
           ref={opponentsContainerRef}
         >
@@ -421,6 +419,7 @@ export function MobilePokerTable({
           const opponentIdx = storePlayers!.findIndex(p => p.name === opponent.name);
           const isCurrentPlayer = shouldHighlightActivePlayer && opponentIdx === currentPlayerIdx;
           const isDealer = opponentIdx === dealerIdx;
+          const isDebugEnabled = config.ENABLE_AI_DEBUG && !!opponent.llm_debug;
 
           return (
             <div
@@ -432,15 +431,22 @@ export function MobilePokerTable({
                   opponentRefs.current.delete(opponent.name);
                 }
               }}
-              className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''} ${isHeadsUp ? 'heads-up-avatar' : ''} ${isTwoOpponents ? 'two-opponents-avatar' : ''}`}
+              className={[
+                'mobile-opponent',
+                opponent.is_folded && 'folded',
+                opponent.is_all_in && 'all-in',
+                isCurrentPlayer && 'thinking',
+                isHeadsUp && 'heads-up-avatar',
+                isTwoOpponents && 'two-opponents-avatar',
+              ].filter(Boolean).join(' ')}
               data-testid="mobile-opponent"
             >
               <div
-                className={`opponent-avatar ${config.ENABLE_AI_DEBUG && opponent.llm_debug ? 'debug-enabled' : ''}`}
-                onClick={config.ENABLE_AI_DEBUG && opponent.llm_debug ? () => setDebugModalPlayer(opponent) : undefined}
-                role={config.ENABLE_AI_DEBUG && opponent.llm_debug ? 'button' : undefined}
-                tabIndex={config.ENABLE_AI_DEBUG && opponent.llm_debug ? 0 : undefined}
-                aria-label={config.ENABLE_AI_DEBUG && opponent.llm_debug ? `View ${opponent.name}'s AI model info` : undefined}
+                className={`opponent-avatar ${isDebugEnabled ? 'debug-enabled' : ''}`}
+                onClick={isDebugEnabled ? () => setDebugModalPlayer(opponent) : undefined}
+                role={isDebugEnabled ? 'button' : undefined}
+                tabIndex={isDebugEnabled ? 0 : undefined}
+                aria-label={isDebugEnabled ? `View ${opponent.name}'s AI model info` : undefined}
               >
                 {opponent.avatar_url ? (
                   <img
@@ -543,7 +549,11 @@ export function MobilePokerTable({
       />
 
       {/* Hero Section - Your Cards */}
-      <div className={`mobile-hero ${currentPlayer?.is_human ? 'active-turn' : ''} ${humanPlayer?.is_folded ? 'folded' : ''}`} data-testid="mobile-hero">
+      <div className={[
+        'mobile-hero',
+        currentPlayer?.is_human && 'active-turn',
+        humanPlayer?.is_folded && 'folded',
+      ].filter(Boolean).join(' ')} data-testid="mobile-hero">
         {/* Dealer chip - positioned in upper right */}
         {storePlayers?.findIndex(p => p.is_human) === dealerIdx && (
           <span className="dealer-chip">D</span>
@@ -699,7 +709,7 @@ export function MobilePokerTable({
         />
       )}
 
-      {/* Shuffle animation during end-of-hand phases (winner announcement layers above) */}
+      {/* Shuffle animation during end-of-hand phases. Winner announcement renders at a higher z-index so it appears on top. */}
       <ShuffleLoading
         isVisible={phase === 'EVALUATING_HAND' || phase === 'HAND_OVER'}
         message="Shuffling"

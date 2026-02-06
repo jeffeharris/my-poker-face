@@ -165,7 +165,7 @@ test.describe('End-of-hand UI flow', () => {
 
   test.describe('ShuffleLoading visibility', () => {
 
-    test('InterhandTransition visible during HAND_OVER phase', async ({ page }) => {
+    test('ShuffleLoading visible during HAND_OVER phase', async ({ page }) => {
       const gameState = buildGameState([], {
         phase: 'HAND_OVER',
         player_options: [],

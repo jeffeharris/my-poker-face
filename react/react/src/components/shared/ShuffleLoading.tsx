@@ -77,7 +77,6 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
   const content = (
     <div className={`shuffle-loading-content ${showContent ? 'visible' : ''}`}>
-      {/* Animated card deck shuffle */}
       <div className="shuffle-loading-deck">
         {SHUFFLE_CARDS.map((card) => (
           <div
@@ -97,7 +96,6 @@ export const ShuffleLoading = memo(function ShuffleLoading({
         ))}
       </div>
 
-      {/* Status text with shimmer */}
       <div className="shuffle-loading-status">
         <span className="shuffle-loading-text">{message}</span>
         <div className="shuffle-loading-dots">
@@ -107,7 +105,6 @@ export const ShuffleLoading = memo(function ShuffleLoading({
         </div>
       </div>
 
-      {/* Submessage */}
       {submessage && (
         <p className="shuffle-loading-submessage">{submessage}</p>
       )}
