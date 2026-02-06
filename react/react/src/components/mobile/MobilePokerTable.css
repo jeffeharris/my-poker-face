@@ -111,6 +111,91 @@
     min-height: calc(56px + env(safe-area-inset-top, 0px));
 }
 
+/* =========================================
+   OPPONENTS WRAPPER
+   ========================================= */
+
+.opponents-wrapper {
+    position: relative;
+    height: 35dvh;
+    min-height: 35dvh;
+    max-height: 35dvh;
+}
+
+/* =========================================
+   GHOST RAIL - Folded Players During Showdown
+   Positioned BEHIND the active players row
+   ========================================= */
+
+.ghost-rail {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 0; /* Behind the main row */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+}
+
+/* Individual ghost avatar - small circle */
+.ghost-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    overflow: hidden;
+    /* Faded/spectral effect */
+    opacity: 0.35;
+    filter: saturate(0.25) brightness(0.7);
+    /* Subtle border */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    /* For fallback initial */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    /* Entry animation */
+    animation: ghostEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes ghostEnter {
+    0% {
+        opacity: 0;
+        transform: scale(1.8) translateY(20px);
+        filter: saturate(0.8) brightness(1);
+    }
+    100% {
+        opacity: 0.35;
+        transform: scale(1) translateY(0);
+        filter: saturate(0.25) brightness(0.7);
+    }
+}
+
+.ghost-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 30%;
+}
+
+.ghost-avatar .ghost-initial {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+/* Main opponents row sits above the ghost rail */
+.opponents-wrapper .mobile-opponents {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    min-height: 100%;
+    max-height: 100%;
+}
+
 /* Opponents Strip - 35% of viewport */
 .mobile-opponents {
     display: flex;
@@ -132,6 +217,7 @@
     position: relative;
     z-index: var(--z-dropdown); /* 100 */
 }
+
 
 /* Spacers that auto-expand to center content when it fits, collapse when it overflows */
 .mobile-opponents::before,
@@ -255,8 +341,29 @@
     }
 }
 
+/* Folded players collapse in place with spectral effect */
 .mobile-opponent.folded {
-    opacity: 0.5;
+    width: 14vw;
+    min-width: 14vw;
+    opacity: 0.4;
+    filter: saturate(0.3) brightness(0.85);
+    transition:
+        width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        min-width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        opacity 0.3s ease-out,
+        filter 0.3s ease-out;
+}
+
+/* Hide info section for collapsed folded players */
+.mobile-opponent.folded .opponent-info {
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+/* Hide bet chip for folded players */
+.mobile-opponent.folded .opponent-bet {
+    display: none;
 }
 
 .mobile-opponent.all-in {
@@ -970,4 +1077,5 @@
     transform: translateX(0) translateY(0) rotate(0deg) scale(1);
   }
 }
+
 

@@ -860,6 +860,13 @@ def api_new_game():
         opponent_count = max(1, min(9, data.get('opponent_count', 3)))
         ai_player_names = get_celebrities(shuffled=True)[:opponent_count]
 
+    # Check for duplicate names (e.g., AI personality matching human player name)
+    if player_name.lower() in [n.lower() for n in ai_player_names]:
+        return jsonify({
+            'error': f'An opponent has the same name as you ("{player_name}"). Please choose a different player name or remove that opponent.',
+            'code': 'DUPLICATE_PLAYER_NAME'
+        }), 400
+
     # Enforce guest opponent limit
     if current_user and is_guest(current_user):
         allowed, error_msg = validate_guest_opponent_count(current_user, len(ai_player_names))

@@ -163,9 +163,9 @@ test.describe('End-of-hand UI flow', () => {
 
   });
 
-  test.describe('InterhandTransition visibility', () => {
+  test.describe('ShuffleLoading visibility', () => {
 
-    test('InterhandTransition visible during HAND_OVER phase', async ({ page }) => {
+    test('ShuffleLoading visible during HAND_OVER phase', async ({ page }) => {
       const gameState = buildGameState([], {
         phase: 'HAND_OVER',
         player_options: [],
@@ -192,7 +192,7 @@ test.describe('End-of-hand UI flow', () => {
       await expect(transition).not.toBeVisible();
     });
 
-    test('ShuffleLoading NOT visible during EVALUATING_HAND phase', async ({ page }) => {
+    test('ShuffleLoading visible during EVALUATING_HAND phase', async ({ page }) => {
       const gameState = buildGameState([], {
         phase: 'EVALUATING_HAND',
         player_options: [],
@@ -200,9 +200,9 @@ test.describe('End-of-hand UI flow', () => {
       const ctx = await mockGamePageRoutes(page, { gameState });
       await navigateToGamePage(page, { mockContext: ctx });
 
-      // ShuffleLoading should NOT be visible during evaluation (only during HAND_OVER)
+      // ShuffleLoading is visible during both EVALUATING_HAND and HAND_OVER
       const transition = page.getByTestId('shuffle-loading');
-      await expect(transition).not.toBeVisible();
+      await expect(transition).toBeVisible();
     });
 
     test('ShuffleLoading shows hand number during HAND_OVER', async ({ page }) => {
@@ -213,9 +213,6 @@ test.describe('End-of-hand UI flow', () => {
       });
       const ctx = await mockGamePageRoutes(page, { gameState });
       await navigateToGamePage(page, { mockContext: ctx });
-
-      // Wait for content visibility delay
-      await page.waitForTimeout(150);
 
       // Should show "Next Hand" label and hand number #6 (5 + 1)
       await expect(page.getByText('Next Hand')).toBeVisible();

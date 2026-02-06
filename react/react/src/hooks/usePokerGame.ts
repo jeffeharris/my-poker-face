@@ -498,15 +498,17 @@ export function usePokerGame({
 
     socket.on('game_error', (data: { error: string; details?: string; recoverable: boolean }) => {
       logger.error(`Game error: ${data.error}`, data.details ?? '');
-      toast.error(data.error);
 
       if (data.recoverable) {
+        toast.error(data.error);
         const now = Date.now();
         if (now - lastErrorRefreshRef.current > 5000) {
           lastErrorRefreshRef.current = now;
           const gId = gameIdRef.current;
           if (gId) refreshGameStateRef.current(gId, true);
         }
+      } else {
+        toast.error(`${data.error}. Please refresh the page.`, { duration: 10000 });
       }
     });
 
@@ -565,6 +567,7 @@ export function usePokerGame({
       const data = await res.json();
 
       if (data.error || !data.players || data.players.length === 0) {
+        logger.error('Game state refresh failed:', data.error ?? 'No players in response');
         return false;
       }
 

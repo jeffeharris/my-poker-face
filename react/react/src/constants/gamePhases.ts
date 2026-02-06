@@ -1,6 +1,8 @@
 /**
  * Phases during which no betting actions are possible.
  * Active player highlighting and action buttons should be suppressed during these phases.
+ * Transitional phases (INITIALIZING_GAME, INITIALIZING_HAND, etc.) are not included
+ * because they are consumed server-side before state is emitted to the client.
  *
  * Backend source: poker/poker_state_machine.py (PokerPhase enum)
  */
