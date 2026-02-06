@@ -23,11 +23,20 @@ describe('ShuffleLoading', () => {
       expect(container.firstChild).toBeNull();
     });
 
-    it('removes content when isVisible changes from true to false', () => {
+    it('fades out then unmounts when isVisible changes from true to false', async () => {
       const { rerender } = render(<ShuffleLoading isVisible={true} message="Loading" />);
       expect(screen.getByTestId('shuffle-loading')).toBeTruthy();
 
       rerender(<ShuffleLoading isVisible={false} message="Loading" />);
+
+      // Still mounted during fade-out with fade-out class
+      const el = screen.getByTestId('shuffle-loading');
+      expect(el.classList.contains('shuffle-loading-fade-out')).toBe(true);
+
+      // Unmounted after fade-out completes
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
       expect(screen.queryByTestId('shuffle-loading')).toBeNull();
     });
   });
@@ -158,14 +167,20 @@ describe('ShuffleLoading', () => {
       expect(updatedContent?.classList.contains('visible')).toBe(true);
     });
 
-    it('content visibility resets when isVisible becomes false', async () => {
+    it('content visibility resets when isVisible becomes false and remounts', async () => {
       const { rerender } = render(<ShuffleLoading isVisible={true} message="Loading" />);
 
       await act(async () => {
         vi.advanceTimersByTime(100);
       });
 
+      // Hide and wait for full unmount
       rerender(<ShuffleLoading isVisible={false} message="Loading" />);
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+
+      // Show again
       rerender(<ShuffleLoading isVisible={true} message="Loading" />);
 
       const content = document.querySelector('.shuffle-loading-content');

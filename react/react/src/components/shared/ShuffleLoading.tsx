@@ -9,6 +9,8 @@ const SHUFFLE_CARDS = Array.from({ length: 8 }, (_, i) => ({
   rotation: (i - 3.5) * 2,
 }));
 
+const FADE_OUT_MS = 400;
+
 interface ShuffleLoadingProps {
   isVisible: boolean;
   message: string;
@@ -34,6 +36,24 @@ export const ShuffleLoading = memo(function ShuffleLoading({
   variant = 'overlay',
 }: ShuffleLoadingProps) {
   const [showContent, setShowContent] = useState(false);
+  // Keep component mounted during fade-out
+  const [mounted, setMounted] = useState(false);
+  const [fadingOut, setFadingOut] = useState(false);
+
+  // Mount immediately when visible; fade out then unmount when hidden
+  useEffect(() => {
+    if (isVisible) {
+      setMounted(true);
+      setFadingOut(false);
+    } else if (mounted) {
+      setFadingOut(true);
+      const timer = setTimeout(() => {
+        setMounted(false);
+        setFadingOut(false);
+      }, FADE_OUT_MS);
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible]);
 
   // Stagger content appearance for dramatic effect
   useEffect(() => {
@@ -45,7 +65,9 @@ export const ShuffleLoading = memo(function ShuffleLoading({
     }
   }, [isVisible]);
 
-  if (!isVisible) return null;
+  if (!mounted) return null;
+
+  const fadeClass = fadingOut ? ' shuffle-loading-fade-out' : '';
 
   const content = (
     <div className={`shuffle-loading-content ${showContent ? 'visible' : ''}`}>
@@ -98,12 +120,12 @@ export const ShuffleLoading = memo(function ShuffleLoading({
     return (
       <>
         {/* LAYER 1: Dim background - BELOW avatars */}
-        <div className="shuffle-loading-dim" data-testid="shuffle-loading">
+        <div className={`shuffle-loading-dim${fadeClass}`} data-testid="shuffle-loading">
           <div className="shuffle-loading-vignette" />
         </div>
 
         {/* LAYER 2: Content - ABOVE avatars */}
-        <div className="shuffle-loading-content-layer">
+        <div className={`shuffle-loading-content-layer${fadeClass}`}>
           {content}
         </div>
       </>
@@ -112,7 +134,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
   // overlay variant: single full-screen layer
   return (
-    <div className="shuffle-loading-overlay" data-testid="shuffle-loading">
+    <div className={`shuffle-loading-overlay${fadeClass}`} data-testid="shuffle-loading">
       {content}
     </div>
   );
