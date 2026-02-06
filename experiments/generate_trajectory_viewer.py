@@ -206,6 +206,118 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
     }
 
 
+def extract_data_for_game(db_path: str, game_id: str) -> dict:
+    """Extract trajectory data for a single game (no experiment required).
+
+    Like extract_data() but skips the experiment_games join and zone_params
+    overrides. Used by the debug tools to visualize player-played games.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Check that we have psychology data for this game
+    count = conn.execute('''
+        SELECT COUNT(*) as cnt
+        FROM player_decision_analysis
+        WHERE game_id = ? AND zone_confidence IS NOT NULL
+    ''', (game_id,)).fetchone()['cnt']
+
+    if count == 0:
+        conn.close()
+        return None
+
+    # Use default zone config (no experiment-level overrides)
+    sweet_spots = json.loads(json.dumps(DEFAULT_SWEET_SPOTS))
+    penalty_thresholds = dict(DEFAULT_PENALTY_THRESHOLDS)
+
+    # Get first decision per hand per player (earliest id wins)
+    rows = conn.execute('''
+        SELECT pda.*
+        FROM player_decision_analysis pda
+        INNER JOIN (
+            SELECT player_name, hand_number, MIN(id) as min_id
+            FROM player_decision_analysis
+            WHERE game_id = ? AND zone_confidence IS NOT NULL
+            GROUP BY player_name, hand_number
+        ) first ON pda.id = first.min_id
+        ORDER BY pda.hand_number, pda.player_name
+    ''', (game_id,)).fetchall()
+
+    # Organize by player
+    players = []
+    trajectories = {}
+
+    for row in rows:
+        name = row['player_name']
+        if name not in trajectories:
+            players.append(name)
+            trajectories[name] = []
+
+        trajectories[name].append({
+            'hand': row['hand_number'],
+            'conf': round(row['zone_confidence'], 4),
+            'comp': round(row['zone_composure'], 4),
+            'energy': round(row['zone_energy'] or 0.5, 4),
+            'sweet_spot': row['zone_primary_sweet_spot'],
+            'penalty': row['zone_primary_penalty'],
+            'penalty_strength': round(row['zone_total_penalty_strength'] or 0, 4),
+            'stack': row['player_stack'] or 0,
+            'action': row['action_taken'],
+            'intrusive': bool(row['zone_intrusive_thoughts_injected']),
+        })
+
+    # Get pressure events for this game
+    pressure_events = {}
+    try:
+        pe_rows = conn.execute('''
+            SELECT player_name, hand_number, event_type, details_json
+            FROM pressure_events
+            WHERE game_id = ? AND hand_number IS NOT NULL
+            ORDER BY hand_number, id
+        ''', (game_id,)).fetchall()
+
+        for row in pe_rows:
+            name = row['player_name']
+            hand = row['hand_number']
+            if name not in pressure_events:
+                pressure_events[name] = {}
+            if hand not in pressure_events[name]:
+                pressure_events[name][hand] = []
+
+            details = json.loads(row['details_json']) if row['details_json'] else {}
+            pressure_events[name][hand].append({
+                'type': row['event_type'],
+                'details': details,
+            })
+    except Exception:
+        pass
+
+    # Assign colors and initials
+    player_colors = {}
+    player_initials = {}
+    for i, name in enumerate(players):
+        player_colors[name] = PLAYER_COLORS[i % len(PLAYER_COLORS)]
+        parts = name.split()
+        player_initials[name] = (parts[0][0] + parts[-1][0]) if len(parts) >= 2 else name[:2].upper()
+
+    conn.close()
+
+    return {
+        'experiment_id': None,
+        'game_id': game_id,
+        'games': [{'game_id': game_id, 'hands': len(rows)}],
+        'players': players,
+        'player_colors': player_colors,
+        'player_initials': player_initials,
+        'trajectories': trajectories,
+        'pressure_events': pressure_events,
+        'zone_config': {
+            'sweet_spots': sweet_spots,
+            'penalty_thresholds': penalty_thresholds,
+        },
+    }
+
+
 def generate_html(data: dict) -> str:
     """Generate self-contained HTML viewer with embedded data."""
     data_json = json.dumps(data, separators=(',', ':'))
@@ -982,7 +1094,8 @@ function setupControls() {
   slider.value = 0;
 
   document.getElementById('meta').textContent =
-    'Experiment ' + DATA.experiment_id + ' | Game ' + DATA.game_id.substring(0, 12) +
+    (DATA.experiment_id ? 'Experiment ' + DATA.experiment_id + ' | ' : '') +
+    'Game ' + DATA.game_id.substring(0, 12) +
     '... | ' + DATA.players.length + ' players, ' + maxHands + ' hands';
 
   updateHandInfo(0);

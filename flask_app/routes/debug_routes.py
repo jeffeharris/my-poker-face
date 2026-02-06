@@ -1,10 +1,11 @@
 """Debug and diagnostic routes."""
 
 import logging
-from flask import Blueprint, jsonify, request, redirect
+from flask import Blueprint, jsonify, request, redirect, Response
 
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
+from ..extensions import persistence_db_path
 from .. import config
 
 logger = logging.getLogger(__name__)
@@ -309,3 +310,18 @@ def get_psychology_debug(game_id):
         'player_count': len(psychology_data),
         'players': psychology_data
     })
+
+
+@debug_bp.route('/api/game/<game_id>/trajectory-viewer', methods=['GET'])
+def game_trajectory_viewer(game_id):
+    """Generate and serve interactive psychology trajectory viewer for any game."""
+    try:
+        from experiments.generate_trajectory_viewer import extract_data_for_game, generate_html
+        data = extract_data_for_game(persistence_db_path, game_id)
+        if not data:
+            return jsonify({'error': f'No psychology data for game {game_id}'}), 404
+        html = generate_html(data)
+        return Response(html, mimetype='text/html')
+    except Exception as e:
+        logger.error(f"Error generating trajectory viewer for game {game_id}: {e}")
+        return jsonify({'error': str(e)}), 500

@@ -25,7 +25,7 @@ from poker.equity_tracker import EquityTracker
 from poker.equity_snapshot import HandEquityHistory
 from core.card import Card
 
-from ..extensions import socketio, game_repo, guest_tracking_repo, tournament_repo, hand_history_repo, personality_repo, capture_label_repo, decision_analysis_repo, coach_repo
+from ..extensions import socketio, game_repo, guest_tracking_repo, tournament_repo, hand_history_repo, personality_repo, capture_label_repo, decision_analysis_repo, coach_repo, event_repository
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..services.ai_debug_service import get_all_players_llm_stats
@@ -35,6 +35,12 @@ from poker.game_helpers import should_clear_player_options
 from poker.guest_limits import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
 
 logger = logging.getLogger(__name__)
+
+
+def _get_hand_number(game_data: dict) -> int:
+    """Get the current hand number from game_data's memory manager."""
+    mm = game_data.get('memory_manager')
+    return mm.hand_count if mm else 0
 
 
 def _track_guest_hand(game_id: str, game_data: dict) -> bool:
@@ -512,10 +518,32 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
             if player_name in ai_controllers:
                 player_events.setdefault(player_name, []).append(event_name)
 
+    hand_number = _get_hand_number(game_data)
+
     for player_name, player_event_list in player_events.items():
         controller = ai_controllers[player_name]
         opponent = winning_player_names[0] if winning_player_names and player_name not in winning_player_names else None
-        controller.psychology.resolve_hand_events(player_event_list, opponent)
+        result = controller.psychology.resolve_hand_events(player_event_list, opponent)
+
+        # Persist resolved events for trajectory viewer
+        if event_repository:
+            for event_name in result['events_applied']:
+                event_repository.save_event(
+                    game_id=game_id,
+                    player_name=player_name,
+                    event_type=event_name,
+                    hand_number=hand_number,
+                    details={
+                        'conf_delta': result['conf_delta'],
+                        'comp_delta': result['comp_delta'],
+                        'energy_delta': result['energy_delta'],
+                        'conf_after': result['conf_after'],
+                        'comp_after': result['comp_after'],
+                        'energy_after': result['energy_after'],
+                        'opponent': opponent,
+                        'resolved_from': player_event_list,
+                    },
+                )
 
     # Emit elasticity update from psychology state
     if ai_controllers:
@@ -1230,10 +1258,26 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     # Apply psychology recovery between hands — elastic traits drift toward
     # anchor, tilt naturally decays, emotional state decays toward baseline
+    hand_number = _get_hand_number(game_data)
     ai_controllers = game_data.get('ai_controllers', {})
-    for controller in ai_controllers.values():
+    for player_name, controller in ai_controllers.items():
         if hasattr(controller, 'psychology') and controller.psychology:
-            controller.psychology.recover(recovery_rate=0.1)
+            recovery_info = controller.psychology.recover(recovery_rate=0.1)
+
+            # Persist recovery force for trajectory viewer
+            if event_repository and recovery_info:
+                if abs(recovery_info['recovery_conf']) > 0.001 or abs(recovery_info['recovery_comp']) > 0.001:
+                    event_repository.save_event(
+                        game_id=game_id,
+                        player_name=player_name,
+                        event_type='_recovery',
+                        hand_number=hand_number,
+                        details={
+                            'conf_delta': recovery_info['recovery_conf'],
+                            'comp_delta': recovery_info['recovery_comp'],
+                            'energy_delta': recovery_info['recovery_energy'],
+                        },
+                    )
 
     # Clear hole cards and emit state to trigger frontend exit animation
     # This ensures old card values are removed before new cards are dealt
@@ -1647,11 +1691,30 @@ def handle_ai_action(game_id: str) -> None:
             action=action,
             amount=amount,
         )
-        # Apply energy events to player psychology
+        # Apply energy events to player psychology and persist
         if action_events and current_player.name in ai_controllers:
             controller = ai_controllers[current_player.name]
-            for event_name, _ in action_events:
-                controller.psychology.apply_pressure_event(event_name)
+            hand_number = _get_hand_number(current_game_data)
+            for event_name, affected_players in action_events:
+                for pname in affected_players:
+                    ctrl = ai_controllers.get(pname)
+                    if ctrl and hasattr(ctrl, 'psychology'):
+                        e_before = ctrl.psychology.energy
+                        c_before = ctrl.psychology.confidence
+                        m_before = ctrl.psychology.composure
+                        ctrl.psychology.apply_pressure_event(event_name)
+                        if event_repository:
+                            event_repository.save_event(
+                                game_id=game_id,
+                                player_name=pname,
+                                event_type=event_name,
+                                hand_number=hand_number,
+                                details={
+                                    'conf_delta': round(ctrl.psychology.confidence - c_before, 6),
+                                    'comp_delta': round(ctrl.psychology.composure - m_before, 6),
+                                    'energy_delta': round(ctrl.psychology.energy - e_before, 6),
+                                },
+                            )
             logger.debug(f"[Energy] Applied action events for {current_player.name}: {[e[0] for e in action_events]}")
 
     game_state = play_turn(state_machine.game_state, action, amount)
