@@ -52,7 +52,7 @@ class TestHoleCardClearing(unittest.TestCase):
         """Hole cards should be empty tuples after clearing."""
         game_state = self._create_game_state_with_hands()
 
-        # Clear hole cards using the same pattern as game_handler.py:1206-1207
+        # Clear hole cards using the same pattern as handle_evaluating_hand_phase()
         cleared_players = tuple(p.update(hand=()) for p in game_state.players)
         cleared_game_state = game_state.update(players=cleared_players)
 

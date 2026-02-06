@@ -409,7 +409,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       </Suspense>
       </ErrorBoundary>
 
-      {/* Loading Overlay - blocks all interaction during game creation */}
+      {/* ShuffleLoading overlay - blocks all interaction during game creation */}
       <ShuffleLoading
         isVisible={isCreatingGame}
         message="Setting up your game"
