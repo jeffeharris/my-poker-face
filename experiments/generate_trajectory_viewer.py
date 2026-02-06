@@ -326,6 +326,31 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 <script>
 const DATA = __DATA_JSON__;
 
+// --- Global hand list: all players share the same hand sequence ---
+const allHandSet = new Set();
+for (const p of DATA.players)
+  for (const e of DATA.trajectories[p]) allHandSet.add(e.hand);
+const allHands = [...allHandSet].sort((a, b) => a - b);
+
+// Per-player trajectory indexed by hand number
+const trajByHand = {};
+for (const p of DATA.players) {
+  trajByHand[p] = {};
+  for (const e of DATA.trajectories[p]) trajByHand[p][e.hand] = e;
+}
+
+// Find player state at a given hand (exact match or most recent before)
+function getPlayerState(player, handNum) {
+  if (trajByHand[player][handNum]) return trajByHand[player][handNum];
+  const traj = DATA.trajectories[player];
+  let best = null;
+  for (const entry of traj) {
+    if (entry.hand <= handNum) best = entry;
+    else break;
+  }
+  return best;
+}
+
 // --- Zone config from embedded data ---
 const SWEET_SPOTS = DATA.zone_config.sweet_spots;
 const PENALTIES = DATA.zone_config.penalty_thresholds;
@@ -595,25 +620,29 @@ function drawBaselines() {
 
 let highlightedPlayer = null;
 
-function drawTrails(currentIdx) {
+function drawTrails(globalIdx) {
   const trailLen = 20;
+  const currentHand = allHands[globalIdx];
   for (const player of DATA.players) {
     const traj = DATA.trajectories[player];
     if (!traj || traj.length === 0) continue;
     const color = DATA.player_colors[player];
     const dimmed = highlightedPlayer && highlightedPlayer !== player;
     const baseAlpha = dimmed ? 0.04 : 1.0;
-    const start = Math.max(0, currentIdx - trailLen);
-    const end = Math.min(currentIdx, traj.length - 1);
 
-    for (let i = start; i < end; i++) {
-      const progress = (i - start) / Math.max(1, end - start);
+    // Get player's trajectory points up to current hand
+    const visible = traj.filter(t => t.hand <= currentHand);
+    const start = Math.max(0, visible.length - trailLen - 1);
+    const points = visible.slice(start);
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const progress = i / Math.max(1, points.length - 2);
       const alpha = (0.08 + 0.45 * progress) * baseAlpha;
       ctx.strokeStyle = hexAlpha(color, alpha);
       ctx.lineWidth = dimmed ? 1 : 2;
       ctx.beginPath();
-      const [x1, y1] = toCanvas(traj[i].conf, traj[i].comp);
-      const [x2, y2] = toCanvas(traj[i + 1].conf, traj[i + 1].comp);
+      const [x1, y1] = toCanvas(points[i].conf, points[i].comp);
+      const [x2, y2] = toCanvas(points[i + 1].conf, points[i + 1].comp);
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
       ctx.stroke();
@@ -621,17 +650,18 @@ function drawTrails(currentIdx) {
   }
 }
 
-function drawDots(handIdx) {
+function drawDots(globalIdx) {
+  const currentHand = allHands[globalIdx];
   for (const player of DATA.players) {
-    const traj = DATA.trajectories[player];
-    if (!traj || handIdx >= traj.length) continue;
-    const point = traj[handIdx];
+    const point = getPlayerState(player, currentHand);
+    if (!point) continue;
     const color = DATA.player_colors[player];
     const dimmed = highlightedPlayer && highlightedPlayer !== player;
+    const eliminated = point.hand < currentHand; // last entry is from an earlier hand
     const [x, y] = toCanvas(point.conf, point.comp);
 
-    if (dimmed) {
-      ctx.fillStyle = hexAlpha(color, 0.15);
+    if (dimmed || eliminated) {
+      ctx.fillStyle = hexAlpha(color, eliminated ? 0.08 : 0.15);
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fill();
@@ -740,14 +770,15 @@ function toggleHighlight(player) {
   render(parseInt(document.getElementById('slider').value));
 }
 
-function updatePlayerCards(handIdx) {
+function updatePlayerCards(globalIdx) {
+  const currentHand = allHands[globalIdx];
+  const prevHand = globalIdx > 0 ? allHands[globalIdx - 1] : null;
+
   for (const player of DATA.players) {
-    const traj = DATA.trajectories[player];
-    if (!traj || traj.length === 0) continue;
-    const eliminated = handIdx >= traj.length;
-    const effectiveIdx = eliminated ? traj.length - 1 : handIdx;
-    const current = traj[effectiveIdx];
-    const prev = effectiveIdx > 0 ? traj[effectiveIdx - 1] : null;
+    const current = getPlayerState(player, currentHand);
+    if (!current) continue;
+    const prev = prevHand ? getPlayerState(player, prevHand) : null;
+    const eliminated = current.hand < currentHand;
     const sid = sanitize(player);
 
     // Bars
@@ -760,7 +791,7 @@ function updatePlayerCards(handIdx) {
     el(sid, 'comp-val').textContent = current.comp.toFixed(2);
     el(sid, 'energy-val').textContent = current.energy.toFixed(2);
 
-    // Deltas
+    // Deltas (only if player was active this hand and prev exists)
     if (prev && !eliminated) {
       setDelta(sid, 'conf', current.conf - prev.conf);
       setDelta(sid, 'comp', current.comp - prev.comp);
@@ -777,7 +808,7 @@ function updatePlayerCards(handIdx) {
     if (eliminated) {
       evEl.innerHTML = '<span class="event-badge loss">Eliminated</span>';
     } else {
-      evEl.innerHTML = computeEvents(player, current, prev);
+      evEl.innerHTML = computeEvents(player, currentHand, prevHand, current, prev);
     }
   }
 }
@@ -827,13 +858,20 @@ function fmtDelta(v) {
   return {text: sign + v.toFixed(3), cls: v > 0 ? 'force-pos' : 'force-neg'};
 }
 
-function computeEvents(playerName, current, prev) {
-  if (!prev) return '<span class="event-badge neutral">Baseline</span>';
+function computeEvents(playerName, currentHand, prevHand, current, prev) {
+  if (!prev || !prevHand) return '<span class="event-badge neutral">Baseline</span>';
 
   const pe = DATA.pressure_events || {};
   const playerEvents = pe[playerName] || {};
-  // Events applied after prev hand caused the movement to current position
-  const handEvents = playerEvents[prev.hand] || [];
+  // Collect events from all hands between prev.hand (inclusive) and current.hand (exclusive).
+  // When a player skips hands (e.g. all-in), prev.hand may be earlier than prevHand,
+  // so we need events from multiple hands to explain the full movement.
+  let handEvents = [];
+  for (const h of Object.keys(playerEvents).map(Number).sort((a,b) => a-b)) {
+    if (h >= prev.hand && h < current.hand) {
+      handEvents = handEvents.concat(playerEvents[h]);
+    }
+  }
 
   // Separate events into force rows (have deltas) and badges (no deltas)
   const forceRows = [];
@@ -938,10 +976,7 @@ function setupControls() {
   const prevBtn = document.getElementById('prev-btn');
   const nextBtn = document.getElementById('next-btn');
 
-  maxHands = 0;
-  for (const player of DATA.players) {
-    maxHands = Math.max(maxHands, DATA.trajectories[player].length);
-  }
+  maxHands = allHands.length;
 
   slider.max = maxHands - 1;
   slider.value = 0;
@@ -1024,8 +1059,7 @@ function setupControls() {
 }
 
 function updateHandInfo(idx) {
-  const traj = DATA.trajectories[DATA.players[0]];
-  const hand = traj && idx < traj.length ? traj[idx].hand : idx + 1;
+  const hand = allHands[idx] || (idx + 1);
   document.getElementById('hand-info').textContent =
     'Hand ' + hand + ' (' + (idx + 1) + '/' + maxHands + ')';
 }
