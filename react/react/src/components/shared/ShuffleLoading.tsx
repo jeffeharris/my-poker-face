@@ -70,6 +70,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
   if (!mounted) return null;
 
+  const enterClass = exitStyle === 'slide' ? ' shuffle-loading-slide-in' : '';
   const exitClass = fadingOut
     ? (exitStyle === 'slide' ? ' shuffle-loading-slide-out' : ' shuffle-loading-fade-out')
     : '';
@@ -139,7 +140,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
   // overlay variant: single full-screen layer
   return (
-    <div className={`shuffle-loading-overlay${exitClass}`} data-testid="shuffle-loading">
+    <div className={`shuffle-loading-overlay${enterClass}${exitClass}`} data-testid="shuffle-loading">
       {content}
     </div>
   );

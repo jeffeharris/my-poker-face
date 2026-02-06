@@ -65,6 +65,16 @@
   to { opacity: 1; }
 }
 
+/* Slide-in entrance from the left */
+.shuffle-loading-slide-in {
+  animation: shuffleLoadingSlideIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes shuffleLoadingSlideIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
 /* Fade-out transition applied to all wrapper layers */
 .shuffle-loading-fade-out {
   animation: shuffleLoadingFadeOut 0.4s ease-in forwards;
