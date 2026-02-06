@@ -56,7 +56,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
       }, EXIT_MS[exitStyle]);
       return () => clearTimeout(timer);
     }
-  }, [isVisible]);
+  }, [isVisible, mounted, exitStyle]);
 
   // Stagger content appearance for dramatic effect
   useEffect(() => {
