@@ -152,6 +152,7 @@ export function MobilePokerTable({
   const humanPlayer = storePlayers?.find(p => p.is_human);
   const isShowdown = phase?.toLowerCase() === 'showdown';
 
+
   // Card animation hook - handles dealing, exit animations, transforms
   const {
     displayCards,
@@ -219,6 +220,7 @@ export function MobilePokerTable({
         return distA - distB;
       });
   }, [players]);
+
 
   // Stable map of player name → avatar URL for FloatingChat
   const playerAvatars = useMemo(() => {
