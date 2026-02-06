@@ -7,7 +7,6 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
-
 interface UsePokerGameOptions {
   gameId: string | null;
   playerName?: string;
@@ -361,11 +360,14 @@ export function usePokerGame({
         applyStateUpdate(transformedState);
       } else {
         // GATED or REPLAYING: queue the update
+        // Clear newly_dealt_count since the card animation was already triggered
+        // by the initial state application. Without this, replayed states would
+        // re-trigger the animation hook.
         logger.debug(`[BUFFER] Queuing update during ${bufferStateRef.current}`, {
           queueLength: updateQueueRef.current.length + 1
         });
         updateQueueRef.current.push({
-          gameState: transformedState,
+          gameState: { ...transformedState, newly_dealt_count: 0 },
           timestamp: Date.now(),
           handNumber: transformedState.hand_number ?? 0
         });

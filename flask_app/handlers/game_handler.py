@@ -431,6 +431,7 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         )
         events.extend(phase_events)
 
+
     # Stack events (double_up, crippled, short_stack)
     hand_start_stacks = game_data.get('hand_start_stacks', {})
     was_short_stack = game_data.get('short_stack_players', set())
