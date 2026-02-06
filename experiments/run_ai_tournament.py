@@ -998,16 +998,18 @@ class AITournamentRunner:
                                 'energy_delta': recovery_info['recovery_energy'],
                             },
                         )
-                    # Zone gravity force
-                    if abs(recovery_info['gravity_conf']) > 0.001 or abs(recovery_info['gravity_comp']) > 0.001:
+                    # Zone gravity force (if present in recovery_info)
+                    gravity_conf = recovery_info.get('gravity_conf', 0)
+                    gravity_comp = recovery_info.get('gravity_comp', 0)
+                    if abs(gravity_conf) > 0.001 or abs(gravity_comp) > 0.001:
                         self.pressure_event_repo.save_event(
                             game_id=game_id,
                             player_name=player.name,
                             event_type='_gravity',
                             hand_number=hand_number,
                             details={
-                                'conf_delta': recovery_info['gravity_conf'],
-                                'comp_delta': recovery_info['gravity_comp'],
+                                'conf_delta': gravity_conf,
+                                'comp_delta': gravity_comp,
                             },
                         )
 
@@ -1183,7 +1185,22 @@ class AITournamentRunner:
                                 for pname in affected_players:
                                     ctrl = controllers.get(pname)
                                     if ctrl and hasattr(ctrl, 'psychology'):
+                                        e_before = ctrl.psychology.energy
+                                        c_before = ctrl.psychology.confidence
+                                        m_before = ctrl.psychology.composure
                                         ctrl.psychology.apply_pressure_event(event_name)
+                                        if self.pressure_event_repo and tournament_id:
+                                            self.pressure_event_repo.save_event(
+                                                game_id=tournament_id,
+                                                player_name=pname,
+                                                event_type=event_name,
+                                                hand_number=getattr(ctrl, 'current_hand_number', 0),
+                                                details={
+                                                    'conf_delta': round(ctrl.psychology.confidence - c_before, 6),
+                                                    'comp_delta': round(ctrl.psychology.composure - m_before, 6),
+                                                    'energy_delta': round(ctrl.psychology.energy - e_before, 6),
+                                                },
+                                            )
 
                         # Per-action save for resilience (enables pause/resume)
                         if tournament_id and self.experiment_id:
