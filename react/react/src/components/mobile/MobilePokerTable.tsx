@@ -664,9 +664,9 @@ export function MobilePokerTable({
         />
       )}
 
-      {/* Interhand transition - background layer during end-of-hand phases */}
+      {/* Shuffle animation during end-of-hand phases (winner announcement layers above) */}
       <ShuffleLoading
-        isVisible={phase === 'HAND_OVER'}
+        isVisible={phase === 'EVALUATING_HAND' || phase === 'HAND_OVER'}
         message="Shuffling"
         handNumber={handNumber}
         variant="interhand"
