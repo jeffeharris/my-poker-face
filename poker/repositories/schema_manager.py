@@ -38,9 +38,12 @@ logger = logging.getLogger(__name__)
 # v67: Add range tracking columns to player_decision_analysis for coach integration
 # v68: Add onboarding_completed_at to player_coach_profile for reliable onboarding tracking
 # v69: Add hand_equity table for equity-based pressure event detection
-# v70: Add new 5-trait psychology columns to player_decision_analysis
-# v71: Add zone detection and effects tracking columns to player_decision_analysis
-SCHEMA_VERSION = 71
+# v70: Add range_targets JSON column to player_coach_profile for dynamic range coaching
+# v71: Add new 5-trait psychology columns to player_decision_analysis
+# v72: Add zone detection and effects tracking columns to player_decision_analysis
+# v73: Add hand_number column to pressure_events
+# v74: Add bet_sizing column to player_decision_analysis
+SCHEMA_VERSION = 74
 
 
 
@@ -631,6 +634,7 @@ class SchemaManager:
                     action_taken TEXT,
                     raise_amount INTEGER,
                     raise_amount_bb REAL,
+                    bet_sizing TEXT,
                     equity REAL,
                     required_equity REAL,
                     ev_call REAL,
@@ -1054,8 +1058,11 @@ class SchemaManager:
             67: (self._migrate_v67_add_range_tracking, "Add range tracking columns to player_decision_analysis"),
             68: (self._migrate_v68_add_onboarding_completed, "Add onboarding_completed_at to player_coach_profile"),
             69: (self._migrate_v69_add_hand_equity, "Add hand_equity table for equity-based pressure detection"),
-            70: (self._migrate_v70_add_5trait_columns, "Add 5-trait psychology columns to player_decision_analysis"),
-            71: (self._migrate_v71_add_zone_tracking, "Add zone detection and effects tracking columns to player_decision_analysis"),
+            70: (self._migrate_v70_add_range_targets, "Add range_targets JSON column to player_coach_profile"),
+            71: (self._migrate_v70_add_5trait_columns, "Add 5-trait psychology columns to player_decision_analysis"),
+            72: (self._migrate_v71_add_zone_tracking, "Add zone detection and effects tracking columns to player_decision_analysis"),
+            73: (self._migrate_v73_pressure_events_hand_number, "Add hand_number column to pressure_events"),
+            74: (self._migrate_v74_add_bet_sizing, "Add bet_sizing column to player_decision_analysis"),
         }
 
         with self._get_connection() as conn:
@@ -3182,8 +3189,29 @@ class SchemaManager:
 
         logger.info("Migration v69 complete: hand_equity table added")
 
+    def _migrate_v70_add_range_targets(self, conn: sqlite3.Connection) -> None:
+        """Migration v70: Add range_targets JSON column to player_coach_profile.
+
+        Stores personalized range targets per position as JSON:
+        {"UTG": 0.10, "UTG+1": 0.12, "MP": 0.15, "CO": 0.22, "BTN": 0.30, "BB": 0.30}
+
+        Range targets evolve as players progress through gates, starting tight
+        and expanding as they demonstrate skill mastery.
+        """
+        columns = [row[1] for row in conn.execute(
+            "PRAGMA table_info(player_coach_profile)"
+        ).fetchall()]
+
+        if 'range_targets' not in columns:
+            conn.execute(
+                "ALTER TABLE player_coach_profile "
+                "ADD COLUMN range_targets TEXT DEFAULT NULL"
+            )
+
+        logger.info("Migration v70 complete: range_targets column added to player_coach_profile")
+
     def _migrate_v70_add_5trait_columns(self, conn: sqlite3.Connection) -> None:
-        """Migration v70: Add new 5-trait psychology columns to player_decision_analysis.
+        """Migration v71: Add new 5-trait psychology columns to player_decision_analysis.
 
         The new poker-native psychology model uses 5 traits:
         - tightness: Range selectivity (0=loose, 1=tight)
@@ -3212,10 +3240,10 @@ class SchemaManager:
                 conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
                 logger.debug(f"Added column {col_name} to player_decision_analysis")
 
-        logger.info("Migration v70 complete: 5-trait psychology columns added")
+        logger.info("Migration v71 complete: 5-trait psychology columns added")
 
     def _migrate_v71_add_zone_tracking(self, conn: sqlite3.Connection) -> None:
-        """Migration v71: Add zone detection and effects tracking columns.
+        """Migration v72: Add zone detection and effects tracking columns.
 
         Adds columns to player_decision_analysis for tracking:
         - Zone detection state (confidence, composure, energy, manifestation)
@@ -3259,5 +3287,36 @@ class SchemaManager:
         except Exception as e:
             logger.debug(f"Index creation failed (may already exist): {e}")
 
-        logger.info("Migration v71 complete: zone tracking columns added")
+        logger.info("Migration v72 complete: zone tracking columns added")
+
+    def _migrate_v73_pressure_events_hand_number(self, conn: sqlite3.Connection) -> None:
+        """Migration v73: Add hand_number column to pressure_events table."""
+        cursor = conn.execute("PRAGMA table_info(pressure_events)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'hand_number' not in existing_columns:
+            conn.execute("ALTER TABLE pressure_events ADD COLUMN hand_number INTEGER")
+            logger.debug("Added hand_number column to pressure_events")
+
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_hand ON pressure_events(game_id, hand_number)")
+        except Exception as e:
+            logger.debug(f"Index creation failed (may already exist): {e}")
+
+        logger.info("Migration v73 complete: pressure_events hand_number added")
+
+    def _migrate_v74_add_bet_sizing(self, conn: sqlite3.Connection) -> None:
+        """Migration v74: Add bet_sizing to player_decision_analysis.
+
+        Stores the AI's stated sizing strategy (e.g., '2/3 pot value bet')
+        to track whether explicit sizing reasoning improves bet quality.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'bet_sizing' not in existing_columns:
+            conn.execute("ALTER TABLE player_decision_analysis ADD COLUMN bet_sizing TEXT")
+            logger.debug("Added bet_sizing column to player_decision_analysis")
+
+        logger.info("Migration v74 complete: bet_sizing added to player_decision_analysis")
 

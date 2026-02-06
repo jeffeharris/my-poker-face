@@ -68,7 +68,7 @@ pressure_events = {
 - `poker/elasticity_manager.py` - Core elasticity system
 - `poker/pressure_detector.py` - Event detection and pressure application
 - `tests/test_elasticity.py` - Comprehensive test suite
-- `docs/ELASTICITY_SYSTEM.md` - Detailed documentation
+- `docs/technical/PSYCHOLOGY_OVERVIEW.md` - Psychology system documentation
 - `elasticity_demo.py` - Full game integration demo
 - `simple_elasticity_demo.py` - Simple trait change demo
 - `test_elasticity_integration.py` - Integration tests
@@ -82,7 +82,7 @@ pressure_events = {
 - `README.md` - Added feature to key features list
 
 ### Documentation
-- Comprehensive system documentation in `/docs/ELASTICITY_SYSTEM.md`
+- Comprehensive system documentation in `/docs/technical/PSYCHOLOGY_OVERVIEW.md`
 - Integration notes in `/docs/AI_PLAYER_SYSTEM.md`
 - Usage examples in `CLAUDE.md`
 - Test coverage with 10 passing unit tests

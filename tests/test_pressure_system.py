@@ -431,31 +431,29 @@ class TestNemesisEvents(unittest.TestCase):
         self.detector = PressureEventDetector()
 
     def test_nemesis_win_detection(self):
-        """nemesis_win fires when player beats their nemesis in big pot."""
+        """nemesis_win fires when player beats their nemesis."""
         # Alice's nemesis is Bob
         nemesis_map = {"Alice": "Bob", "Bob": None, "Charlie": None}
 
-        # Alice wins, Bob loses (big pot required for nemesis events)
+        # Alice wins, Bob loses
         events = self.detector.detect_nemesis_events(
             winner_names=["Alice"],
             loser_names=["Bob", "Charlie"],
-            player_nemesis_map=nemesis_map,
-            is_big_pot=True,  # Phase 2: nemesis events gated behind big pot
+            player_nemesis_map=nemesis_map
         )
 
         self.assertEqual(events, [("nemesis_win", ["Alice"])])
 
     def test_nemesis_loss_detection(self):
-        """nemesis_loss fires when player loses to their nemesis in big pot."""
+        """nemesis_loss fires when player loses to their nemesis."""
         # Alice's nemesis is Bob
         nemesis_map = {"Alice": "Bob", "Bob": None, "Charlie": None}
 
-        # Bob wins, Alice loses (big pot required for nemesis events)
+        # Bob wins, Alice loses
         events = self.detector.detect_nemesis_events(
             winner_names=["Bob"],
             loser_names=["Alice", "Charlie"],
-            player_nemesis_map=nemesis_map,
-            is_big_pot=True,  # Phase 2: nemesis events gated behind big pot
+            player_nemesis_map=nemesis_map
         )
 
         self.assertEqual(events, [("nemesis_loss", ["Alice"])])
@@ -490,12 +488,11 @@ class TestNemesisEvents(unittest.TestCase):
         # Alice's nemesis is Bob, Bob's nemesis is Alice
         nemesis_map = {"Alice": "Bob", "Bob": "Alice"}
 
-        # Alice wins, Bob loses (big pot required for nemesis events)
+        # Alice wins, Bob loses
         events = self.detector.detect_nemesis_events(
             winner_names=["Alice"],
             loser_names=["Bob"],
-            player_nemesis_map=nemesis_map,
-            is_big_pot=True,  # Phase 2: nemesis events gated behind big pot
+            player_nemesis_map=nemesis_map
         )
 
         event_types = [e[0] for e in events]
@@ -503,20 +500,6 @@ class TestNemesisEvents(unittest.TestCase):
         self.assertIn("nemesis_win", event_types)
         # Bob lost to his nemesis
         self.assertIn("nemesis_loss", event_types)
-
-    def test_no_nemesis_event_small_pot(self):
-        """No nemesis events fire on small pots (Phase 2 gating)."""
-        nemesis_map = {"Alice": "Bob", "Bob": None}
-
-        # Alice wins, Bob loses - but small pot
-        events = self.detector.detect_nemesis_events(
-            winner_names=["Alice"],
-            loser_names=["Bob"],
-            player_nemesis_map=nemesis_map,
-            is_big_pot=False,  # Small pot - should not fire
-        )
-
-        self.assertEqual(events, [])
 
 
 if __name__ == '__main__':

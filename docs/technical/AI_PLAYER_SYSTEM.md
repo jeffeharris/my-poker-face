@@ -291,7 +291,7 @@ AI decisions reflect lower aggression
 Over time, trait recovers toward 0.95
 ```
 
-For full details, see [ELASTICITY_SYSTEM.md](ELASTICITY_SYSTEM.md).
+For full details, see [PSYCHOLOGY_OVERVIEW.md](PSYCHOLOGY_OVERVIEW.md).
 
 ## Future Enhancements
 

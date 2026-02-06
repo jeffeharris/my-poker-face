@@ -10,8 +10,11 @@ Tests cover:
 """
 
 import unittest
+import pytest
 
 from poker.poker_game import determine_winner, award_pot_winnings, PokerGameState, Player, Card
+
+pytestmark = pytest.mark.slow
 
 
 class TestSplitPots(unittest.TestCase):

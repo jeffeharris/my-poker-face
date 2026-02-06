@@ -6,12 +6,15 @@ import os
 import sys
 import unittest
 import tempfile
+import pytest
 from unittest.mock import patch, MagicMock
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from experiments.run_ai_tournament import ExperimentConfig, TournamentResult
 from experiments.variant_config import build_effective_variant_config, VariantConfig, ControlConfig
+
+pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
 
 def _mock_authorization_service(user=None, has_admin_permission=True):

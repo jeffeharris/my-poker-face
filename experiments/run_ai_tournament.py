@@ -568,8 +568,9 @@ class AITournamentRunner:
         self.hand_history_repo = repos['hand_history_repo']
         self.all_personalities = get_celebrities()
 
-        # Pressure event detection for psychology system
+        # Pressure event detection and persistence for psychology system
         self.pressure_detector = PressureEventDetector()
+        self.pressure_event_repo = repos.get('pressure_event_repo')
 
         # Experiment tracking
         self.experiment_id: Optional[int] = None
@@ -890,12 +891,7 @@ class AITournamentRunner:
         showdown_events = self.pressure_detector.detect_showdown_events(game_state, winner_info)
         all_events.extend(showdown_events)
 
-        # 2. Phase events (showdown_involved, big_pot_involved, not_in_hand)
-        active_player_names = [p.name for p in game_state.players if not p.is_folded]
-        phase_events = self.pressure_detector.detect_phase_events(
-            game_state, 'SHOWDOWN', active_player_names
-        )
-        all_events.extend(phase_events)
+        # 2. Phase events — individual detectors cover showdown/stack/streak below
 
         # 3. Stack events (double_up, crippled, short_stack)
         current_short = was_short_stack or set()
@@ -933,6 +929,20 @@ class AITournamentRunner:
                         f"Conf={controller.psychology.confidence:.2f}, "
                         f"Comp={controller.psychology.composure:.2f}"
                     )
+                    # Persist pressure event for trajectory viewer
+                    if self.pressure_event_repo:
+                        self.pressure_event_repo.save_event(
+                            game_id=game_id,
+                            player_name=player_name,
+                            event_type=event_name,
+                            hand_number=hand_number,
+                            details={
+                                'conf_after': round(controller.psychology.confidence, 4),
+                                'comp_after': round(controller.psychology.composure, 4),
+                                'energy_after': round(controller.psychology.energy, 4),
+                                'opponent': opponent,
+                            },
+                        )
                 except Exception as e:
                     logger.warning(f"Failed to apply pressure event '{event_name}' to {player_name}: {e}")
 
@@ -946,8 +956,40 @@ class AITournamentRunner:
                 continue
 
             try:
+                # Capture state before recovery for force tracking
+                pre_conf = controller.psychology.confidence
+                pre_comp = controller.psychology.composure
+
                 # Apply recovery between hands (drift toward baseline)
-                controller.psychology.recover()
+                recovery_info = controller.psychology.recover()
+
+                # Persist recovery and gravity as force events
+                if self.pressure_event_repo and recovery_info:
+                    # Recovery force (anchor gravity toward baseline)
+                    if abs(recovery_info['recovery_conf']) > 0.001 or abs(recovery_info['recovery_comp']) > 0.001:
+                        self.pressure_event_repo.save_event(
+                            game_id=game_id,
+                            player_name=player.name,
+                            event_type='_recovery',
+                            hand_number=hand_number,
+                            details={
+                                'conf_delta': recovery_info['recovery_conf'],
+                                'comp_delta': recovery_info['recovery_comp'],
+                                'energy_delta': recovery_info['recovery_energy'],
+                            },
+                        )
+                    # Zone gravity force
+                    if abs(recovery_info['gravity_conf']) > 0.001 or abs(recovery_info['gravity_comp']) > 0.001:
+                        self.pressure_event_repo.save_event(
+                            game_id=game_id,
+                            player_name=player.name,
+                            event_type='_gravity',
+                            hand_number=hand_number,
+                            details={
+                                'conf_delta': recovery_info['gravity_conf'],
+                                'comp_delta': recovery_info['gravity_comp'],
+                            },
+                        )
 
                 # Save psychology state to database for live monitoring
                 psychology_dict = controller.psychology.to_dict()

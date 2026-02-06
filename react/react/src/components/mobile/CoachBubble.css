@@ -152,36 +152,3 @@
   color: var(--color-gold, #d4a574);
 }
 
-/* Mode-aware accents */
-.coach-bubble--learn {
-  border-color: rgba(52, 211, 153, 0.25);
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.5),
-    0 0 12px rgba(52, 211, 153, 0.1);
-}
-
-.coach-bubble--learn .coach-bubble-icon {
-  background: var(--color-emerald-muted, rgba(52, 211, 153, 0.15));
-  color: var(--color-emerald, #34d399);
-}
-
-.coach-bubble--compete {
-  border-color: rgba(212, 165, 116, 0.25);
-}
-
-.coach-bubble__mode-label {
-  font-family: var(--font-display, sans-serif);
-  font-size: 9px;
-  font-weight: var(--font-weight-semibold, 600);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--color-text-muted, #777);
-}
-
-.coach-bubble--learn .coach-bubble__mode-label {
-  color: var(--color-emerald, #34d399);
-}
-
-.coach-bubble--compete .coach-bubble__mode-label {
-  color: var(--color-gold, #d4a574);
-}

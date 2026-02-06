@@ -1,5 +1,6 @@
 """Coach routes — REST endpoints for the poker coaching feature."""
 
+import json
 import logging
 import os
 from typing import Optional

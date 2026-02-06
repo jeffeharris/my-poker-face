@@ -8,6 +8,9 @@ import tempfile
 import pytest
 from unittest.mock import patch
 
+# Requires Flask app import for route module initialization.
+pytestmark = pytest.mark.flask
+
 # Set testing environment before importing flask modules
 os.environ['TESTING'] = '1'
 

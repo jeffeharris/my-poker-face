@@ -265,12 +265,12 @@ class EquityTracker:
             if action.action == 'fold':
                 cumulative_folded.add(action.player_name)
 
-            # Update folded set for subsequent streets only
+            # Update folded set for current and subsequent streets
             action_street = action.phase
             if action_street in STREET_ORDER:
                 idx = STREET_ORDER.index(action_street)
-                # Mark as folded starting from NEXT street (player was active until they folded)
-                for i in range(idx + 1, len(STREET_ORDER)):
+                # Include current street (idx) since fold happened during this street
+                for i in range(idx, len(STREET_ORDER)):
                     folded_by_street[STREET_ORDER[i]] = cumulative_folded.copy()
 
         return folded_by_street
@@ -297,12 +297,12 @@ class EquityTracker:
             if action.action == 'fold':
                 cumulative_folded.add(action.player_name)
 
-            # Update folded set for subsequent streets only
+            # Update folded set for current and subsequent streets
             action_street = action.phase
             if action_street in STREET_ORDER:
                 idx = STREET_ORDER.index(action_street)
-                # Mark as folded starting from NEXT street (player was active until they folded)
-                for i in range(idx + 1, len(STREET_ORDER)):
+                # Include current street (idx) since fold happened during this street
+                for i in range(idx, len(STREET_ORDER)):
                     folded_by_street[STREET_ORDER[i]] = cumulative_folded.copy()
 
         return folded_by_street

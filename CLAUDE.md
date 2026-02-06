@@ -8,7 +8,7 @@ Comprehensive documentation about the game's vision and planned features can be 
 - `/docs/vision/GAME_VISION.md` - Overall game vision and philosophy
 - `/docs/vision/FEATURE_IDEAS.md` - Detailed feature brainstorming
 - `/docs/vision/QUICK_WINS.md` - High-impact, low-effort features
-- `/docs/technical/PERSONALITY_ELASTICITY.md` - Dynamic personality system (implemented)
+- `/docs/technical/PSYCHOLOGY_OVERVIEW.md` - AI psychology system (anchors, axes, zones)
 
 ## Personality Testing Tools
 
@@ -295,6 +295,7 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
    | `EXPERIMENT_ANALYSIS` | Assistant | |
    | `DEBUG_REPLAY` | User-specified | |
    | `DEBUG_INTERROGATE` | User-specified | |
+   | `COACHING` | Default | |
 
 5. **Tracking Data**: All API calls are logged to `api_usage` table with:
    - Token counts (input, output, cached, reasoning)

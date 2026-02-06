@@ -99,6 +99,7 @@ class DecisionAnalysis:
     action_taken: Optional[str] = None
     raise_amount: Optional[int] = None
     raise_amount_bb: Optional[float] = None  # BB amount when BB mode is active
+    bet_sizing: Optional[str] = None  # AI's stated sizing strategy (e.g., "2/3 pot value bet")
 
     # Equity analysis
     equity: Optional[float] = None
@@ -229,6 +230,7 @@ class DecisionAnalyzer:
         action_taken: str,
         raise_amount: Optional[int] = None,
         raise_amount_bb: Optional[float] = None,
+        bet_sizing: Optional[str] = None,
         request_id: Optional[str] = None,
         capture_id: Optional[int] = None,
         player_position: Optional[str] = None,
@@ -288,6 +290,7 @@ class DecisionAnalyzer:
             action_taken=action_taken,
             raise_amount=raise_amount,
             raise_amount_bb=raise_amount_bb,
+            bet_sizing=bet_sizing,
             analyzer_version=self.VERSION,
         )
 

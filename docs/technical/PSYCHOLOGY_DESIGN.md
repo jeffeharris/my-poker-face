@@ -1,18 +1,6 @@
 # Psychology System Design
 
-> **⚠️ DEPRECATED**: This document describes the legacy 5-trait model.
-> The system has been updated to v2.1 with a 9-anchor + 3-axis architecture.
-> See **[PSYCHOLOGY_PRD_v2.md](./PSYCHOLOGY_PRD_v2.md)** for the current design.
->
-> Key changes in v2.1:
-> - 9 static anchors (identity layer) instead of 5 elastic traits
-> - 3 dynamic axes (confidence, composure, energy) instead of 4D emotional model
-> - Quadrant-based emotions (Commanding, Overheated, Guarded, Shaken)
-> - Derived aggression/looseness from anchors + emotional modifiers
-
----
-
-## Purpose (Legacy)
+## Purpose
 
 The psychology system exists to create **novelty and variety** in AI poker play, not to simulate human psychology accurately. Every hand should feel a bit different - the AI isn't a solved GTO bot playing optimal strategy.
 
@@ -37,16 +25,15 @@ PERSONALITY (personalities.json)
     │  (e.g., aggression: 0.7 ± 0.3)
     │
     ▼
-ELASTIC TRAITS (runtime state - 5-trait poker-native model)
+ELASTIC TRAITS (runtime state)
     │
     │  Pressure events push values within bounds
     │  Modified by: difficulty_multiplier
     │
-    ├── tightness (0-1)    Range selectivity: 0=loose, 1=tight
-    ├── aggression (0-1)   Bet frequency: 0=passive, 1=aggressive
-    ├── confidence (0-1)   Sizing/commitment: 0=scared, 1=fearless
-    ├── composure (0-1)    Decision quality: 0=tilted, 1=focused
-    └── table_talk (0-1)   Chat frequency: 0=silent, 1=chatty
+    ├── aggression (0-1)
+    ├── bluff_tendency (0-1)
+    ├── chattiness (0-1)
+    └── emoji_usage (0-1)
     │
     ▼
 EMOTIONAL DIMENSIONS (computed, stateless)
@@ -54,8 +41,8 @@ EMOTIONAL DIMENSIONS (computed, stateless)
     │  Deterministic functions of trait values:
     │  valence = f(avg_trait_drift)
     │  arousal = f(aggression, drift)
-    │  control = f(composure, drift)
-    │  focus = f(table_talk, drift)
+    │  control = f(drift)
+    │  focus = f(chattiness, drift)
     │
     ▼
 AVATAR EMOTION (deterministic mapping)
@@ -68,13 +55,11 @@ IMAGE SHOWN TO USER
 
 **Key insight:** The only mutable state is elastic trait values. Everything downstream is derived deterministically.
 
-**Composure replaces tilt:** Composure is now a trait (0=tilted, 1=focused). Low composure triggers intrusive thoughts and prompt degradation.
+**Tilt is separate:** It has its own state (0-1 level) and directly modifies AI prompts (hiding information, adding intrusive thoughts).
 
 ---
 
-## Difficulty Scaling (Planned)
-
-> **Note:** This feature is not yet implemented. The design below describes planned functionality.
+## Difficulty Scaling
 
 Psychology's influence on AI behavior is controlled by a `difficulty_multiplier`:
 
@@ -195,10 +180,12 @@ GROUP BY tilt_band
 **Target Distribution:**
 | Band | Target % |
 |------|----------|
-| Low (<0.3) | 40-50% |
-| Medium (0.3-0.6) | 25-35% |
-| High (0.6-0.9) | 15-20% |
-| Full (0.9+) | 5-10% |
+| Low (<0.3) | 70-85% |
+| Medium (0.3-0.6) | 10-20% |
+| High (0.6-0.9) | 2-7% |
+| Full (0.9+) | 0-2% |
+
+*Note: These targets reflect realistic poker psychology. Players should be calm most of the time - being tilted frequently would be unrealistic.*
 
 ### 5. Personality Distinctiveness
 
@@ -221,20 +208,20 @@ GROUP BY player_name
 
 ## Pressure Events
 
-Events that modify psychological state (all 5 traits including composure).
+Events that modify psychological state. See [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) for full catalog.
 
 ### Event Categories
 
 | Category | Examples | Typical Effect |
 |----------|----------|----------------|
-| Outcome | win, big_win, big_loss | Moderate trait changes, composure ±0.15-0.25 |
-| Bluff | successful_bluff, bluff_called | Large confidence/aggression changes |
-| Luck | suckout, got_sucked_out, cooler | Large composure changes (-0.30 to -0.35) |
+| Outcome | win, big_win, big_loss | Moderate trait/tilt changes |
+| Bluff | successful_bluff, bluff_called | Large bluff_tendency changes |
+| Luck | suckout, got_sucked_out, cooler | Large tilt changes |
 | Position | headsup_win, headsup_loss | Small-medium changes |
-| Streak | winning_streak, losing_streak | Cumulative effects, composure ±0.10-0.20 |
-| Stack | double_up, crippled, short_stack | Situational changes, confidence affected |
-| Social | friendly_chat, rivalry_trigger | Small trait changes, composure ±0.05-0.10 |
-| Rivalry | nemesis_win, nemesis_loss | Targeted composure effects (±0.10-0.15) |
+| Streak | winning_streak, losing_streak | Cumulative effects |
+| Stack | double_up, crippled, short_stack | Situational changes |
+| Social | friendly_chat, rivalry_trigger | Small trait changes |
+| Rivalry | nemesis_win, nemesis_loss | Targeted tilt effects |
 
 ### Effect Magnitudes
 
@@ -251,28 +238,27 @@ Base effects are tuned so that at Normal (1.0x):
 
 ---
 
-## Composure System (Replaces Tilt)
+## Tilt System
 
-Composure is now a trait in the 5-trait model, not a separate system. Low composure degrades AI decision-making.
+Tilt is a separate track that directly degrades AI decision-making.
 
-### Composure Levels
+### Tilt Levels
 
-| Composure | Category | Effects |
-|-----------|----------|---------|
-| 0.8-1.0 | Focused | Normal play |
-| 0.6-0.8 | Alert | Intrusive thoughts in prompt |
-| 0.4-0.6 | Rattled | Strategy advice degraded, some info hidden |
-| 0.0-0.4 | Tilted | Most strategic advice removed |
+| Level | Range | Effects |
+|-------|-------|---------|
+| None | 0.0-0.2 | Normal play |
+| Mild | 0.2-0.4 | Intrusive thoughts in prompt |
+| Moderate | 0.4-0.7 | Strategy advice degraded, some info hidden |
+| Severe | 0.7-1.0 | Most strategic advice removed |
 
-### Pressure Sources
+### Tilt Sources
 
-Tracked in `ComposureState` for intrusive thought selection:
+Tracked for narrative purposes:
 - `bad_beat` - Lost with strong hand
 - `bluff_called` - Bluff failed
-- `big_loss` - Significant chip loss
-- `got_sucked_out` - Was ahead, lost to luck
 - `losing_streak` - 3+ consecutive losses
 - `nemesis` - Specific opponent causing problems
+- `got_sucked_out` - Was ahead, lost to luck
 
 ---
 
@@ -280,8 +266,8 @@ Tracked in `ComposureState` for intrusive thought selection:
 
 Before shipping psychology changes:
 
-1. **Run composure distribution query** - Verify target distribution (40-50% focused, 25-35% alert, 15-20% rattled, 5-10% tilted)
-2. **Check composure→mistake correlation** - Should be 2-3x at low composure
+1. **Run tilt distribution query** - Verify target distribution
+2. **Check tilt→mistake correlation** - Should be 2-3x at high tilt
 3. **Verify personality distinctiveness** - Different characters, different behaviors
 4. **Test difficulty scaling** - Easy should feel exploitable, hard should feel stable
 5. **Playtest for "feel"** - Does it add novelty without feeling random?
@@ -290,5 +276,7 @@ Before shipping psychology changes:
 
 ## Related Documentation
 
+- [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) - Event catalog and detection
 - [AI_PSYCHOLOGY_SYSTEMS.md](AI_PSYCHOLOGY_SYSTEMS.md) - System architecture
 - [ELASTICITY_SYSTEM.md](ELASTICITY_SYSTEM.md) - Trait mechanics
+- [EQUITY_PRESSURE_DETECTION.md](EQUITY_PRESSURE_DETECTION.md) - Equity-based events

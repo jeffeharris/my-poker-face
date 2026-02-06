@@ -2,7 +2,7 @@
 Unit tests for Psychology System Phase 5: Zone Detection.
 
 Tests the zone detection system:
-- Sweet spot detection (circular geometry with cosine falloff)
+- Sweet spot detection (inner-radius full strength + linear outer falloff)
 - Penalty zone detection (edge-based geometry)
 - Zone blending and normalization
 - Energy manifestation
@@ -76,26 +76,42 @@ class TestSweetSpotStrength:
         radius = 0.15
 
         strength_at_center = _calculate_sweet_spot_strength(0.5, 0.7, center, radius)
-        strength_at_quarter = _calculate_sweet_spot_strength(
-            0.5 + radius * 0.25, 0.7, center, radius
-        )
+        # 50% of radius is in the linear falloff region (inner_radius = 40%)
         strength_at_half = _calculate_sweet_spot_strength(
             0.5 + radius * 0.5, 0.7, center, radius
         )
+        # 80% of radius is deep in the falloff region
+        strength_at_80pct = _calculate_sweet_spot_strength(
+            0.5 + radius * 0.8, 0.7, center, radius
+        )
 
-        assert strength_at_center > strength_at_quarter > strength_at_half
+        assert strength_at_center > strength_at_half > strength_at_80pct
 
-    def test_cosine_falloff_at_half_radius(self):
-        """At half radius, strength should be approximately 0.5 (cosine property)."""
+    def test_full_strength_within_inner_radius(self):
+        """Strength should be 1.0 within inner radius (40% of radius)."""
         center = (0.5, 0.7)
         radius = 0.15
 
-        half_radius_point = (0.5 + radius * 0.5, 0.7)
+        # 25% of radius is within inner_radius (40%)
+        inner_point = (0.5 + radius * 0.25, 0.7)
         strength = _calculate_sweet_spot_strength(
-            half_radius_point[0], half_radius_point[1], center, radius
+            inner_point[0], inner_point[1], center, radius
+        )
+        assert strength == pytest.approx(1.0, abs=0.001)
+
+    def test_linear_falloff_in_outer_region(self):
+        """Between inner_radius and radius, falloff should be linear."""
+        center = (0.5, 0.7)
+        radius = 0.15
+
+        # 70% of radius is the midpoint of the falloff region (40% to 100%)
+        mid_falloff = (0.5 + radius * 0.7, 0.7)
+        strength = _calculate_sweet_spot_strength(
+            mid_falloff[0], mid_falloff[1], center, radius
         )
 
-        # cos(π * 0.5) = 0, so strength = 0.5 + 0.5 * 0 = 0.5
+        # At 70% of radius, distance from inner = 0.3*radius, falloff range = 0.6*radius
+        # strength = 1.0 - 0.3/0.6 = 0.5
         assert strength == pytest.approx(0.5, abs=0.01)
 
 

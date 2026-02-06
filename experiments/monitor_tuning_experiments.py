@@ -42,10 +42,10 @@ def generate_comparison_report(db_path, experiment_ids):
 
     # PRD Targets
     print("\nPRD TARGETS:")
-    print(f"  Baseline:   {PRD_TARGETS['baseline']['min']:.0%} - {PRD_TARGETS['baseline']['max']:.0%}")
-    print(f"  Medium:     {PRD_TARGETS['medium']['min']:.0%} - {PRD_TARGETS['medium']['max']:.0%}")
-    print(f"  High:       {PRD_TARGETS['high']['min']:.0%} - {PRD_TARGETS['high']['max']:.0%}")
-    print(f"  Full Tilt:  {PRD_TARGETS['full_tilt']['min']:.0%} - {PRD_TARGETS['full_tilt']['max']:.0%}")
+    print(f"  Baseline:   {PRD_TARGETS['baseline'][0]:.0%} - {PRD_TARGETS['baseline'][1]:.0%}")
+    print(f"  Medium:     {PRD_TARGETS['medium'][0]:.0%} - {PRD_TARGETS['medium'][1]:.0%}")
+    print(f"  High:       {PRD_TARGETS['high'][0]:.0%} - {PRD_TARGETS['high'][1]:.0%}")
+    print(f"  Full Tilt:  {PRD_TARGETS['full_tilt'][0]:.0%} - {PRD_TARGETS['full_tilt'][1]:.0%}")
 
     results = []
     for exp_id in experiment_ids:
@@ -76,8 +76,8 @@ def generate_comparison_report(db_path, experiment_ids):
 
         # Format with status indicators
         def fmt(band, value):
-            target = PRD_TARGETS[band]
-            if target['min'] <= value <= target['max']:
+            target_min, target_max = PRD_TARGETS[band]
+            if target_min <= value <= target_max:
                 return f"{value:>8.1%} ✓"
             return f"{value:>8.1%} ✗"
 
@@ -90,14 +90,14 @@ def generate_comparison_report(db_path, experiment_ids):
 
     metrics = ['baseline', 'medium', 'high', 'full_tilt']
     for metric in metrics:
-        target = PRD_TARGETS[metric]
+        target_min, target_max = PRD_TARGETS[metric]
         best = None
         best_distance = float('inf')
 
         for r in results:
             tilt = r['tilt']
             value = getattr(tilt, metric)
-            target_mid = (target['min'] + target['max']) / 2
+            target_mid = (target_min + target_max) / 2
             distance = abs(value - target_mid)
             if distance < best_distance:
                 best_distance = distance
@@ -105,7 +105,7 @@ def generate_comparison_report(db_path, experiment_ids):
 
         if best:
             value = getattr(best['tilt'], metric)
-            status = "✓" if target['min'] <= value <= target['max'] else "✗"
+            status = "✓" if target_min <= value <= target_max else "✗"
             name = best['name'].split('_')[2] if '_' in best['name'] else best['name'][:20]
             print(f"  Best {metric}: {name} ({value:.1%}) {status}")
 

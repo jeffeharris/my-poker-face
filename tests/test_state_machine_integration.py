@@ -1,7 +1,10 @@
 """Integration tests for the refactored state machine."""
 import unittest
+import pytest
 from poker.poker_game import initialize_game_state, player_fold, player_call
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
+
+pytestmark = pytest.mark.integration
 
 
 class TestStateMachineIntegration(unittest.TestCase):

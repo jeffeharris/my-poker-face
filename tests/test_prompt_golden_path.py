@@ -2,6 +2,7 @@
 """Golden path test simulating actual gameplay with the prompt system."""
 
 import unittest
+import pytest
 import json
 import sys
 import os
@@ -13,6 +14,8 @@ from poker.poker_player import AIPokerPlayer
 from poker.controllers import AIPlayerController
 from poker.prompt_manager import PromptManager
 from tests.conftest import load_personality_from_json
+
+pytestmark = pytest.mark.llm
 
 
 class TestGoldenPath(unittest.TestCase):

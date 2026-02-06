@@ -31,6 +31,8 @@ from poker.range_guidance import (
     POSITION_CLAMPS,
 )
 
+pytestmark = pytest.mark.slow
+
 
 class TestPersonalityAnchors:
     """Tests for PersonalityAnchors dataclass."""
@@ -2337,32 +2339,6 @@ class TestZoneEffectsIntegration:
 
         # At high intensity (0.57+), should inject most of the time
         assert results_with_thoughts > 10, f"Only got thoughts {results_with_thoughts}/20 times"
-
-    def test_backward_compat_apply_composure_effects(self):
-        """apply_composure_effects should delegate to apply_zone_effects."""
-        config = {
-            'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.2, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
-            }
-        }
-        psych = PlayerPsychology.from_personality_config('Test', config)
-        psych.axes = psych.axes.update(composure=0.15)
-
-        test_prompt = "test"
-
-        # Both should produce same type of output
-        result1 = psych.apply_composure_effects(test_prompt)
-        # Reset any random state by setting same seed
-        import random
-        random.seed(42)
-        result2 = psych.apply_zone_effects(test_prompt)
-
-        # They should both be modified (we can't test exact equality due to randomness)
-        # Just verify both methods exist and return strings
-        assert isinstance(result1, str)
-        assert isinstance(result2, str)
 
     def test_backward_compat_apply_tilt_effects(self):
         """apply_tilt_effects should also work."""

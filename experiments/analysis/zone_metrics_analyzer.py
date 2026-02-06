@@ -6,10 +6,13 @@ experiment data stored in player_decision_analysis table.
 """
 
 import json
+import logging
 import sqlite3
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -329,8 +332,8 @@ class ZoneMetricsAnalyzer:
                             thoughts = json.loads(row['zone_intrusive_thoughts_json'])
                             for thought in thoughts:
                                 stats['thought_counts'][thought] += 1
-                        except (json.JSONDecodeError, TypeError):
-                            pass
+                        except (json.JSONDecodeError, TypeError) as e:
+                            logger.debug(f"Failed to parse intrusive thoughts JSON for {player}: {e}")
 
             # Calculate rates
             result = {}

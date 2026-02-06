@@ -39,7 +39,7 @@ def api_game_diagnostic(game_id):
         current_player = game_state.current_player
 
         diagnostic.update({
-            'phase': str(state_machine.current_phase).split('.')[-1],
+            'phase': state_machine.current_phase.name,
             'awaiting_action': game_state.awaiting_action,
             'current_player': current_player.name,
             'current_player_is_human': current_player.is_human,

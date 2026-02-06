@@ -10,7 +10,7 @@ import uuid
 from dataclasses import asdict
 from typing import Dict, Any, Optional, List
 
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request, session, Response
 
 from core.llm import LLMClient, CallType
 from poker.authorization import require_permission
@@ -2767,7 +2767,6 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                         llm_config=llm_config,
                         game_id=game_id,
                         owner_id=f"experiment_{exp_config.name}",
-                        experiment_repo=experiment_repo,
                         debug_capture=exp_config.capture_prompts,
                         prompt_config=prompt_config,
                     )
@@ -2845,7 +2844,6 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                                         llm_config=llm_config,
                                         game_id=game_id,
                                         owner_id=f"experiment_{exp_config.name}",
-                                        experiment_repo=experiment_repo,
                                         debug_capture=exp_config.capture_prompts,
                                         prompt_config=prompt_config,
                                     )
@@ -3051,3 +3049,21 @@ def _check_and_complete_experiment(experiment_id: int):
 
     except Exception as e:
         logger.error(f"Error checking experiment completion: {e}")
+
+
+# === Trajectory Viewer ===
+
+@experiment_bp.route('/api/experiments/<int:experiment_id>/trajectory-viewer', methods=['GET'])
+def trajectory_viewer(experiment_id):
+    """Generate and serve interactive psychology trajectory viewer."""
+    game_id = request.args.get('game')
+    try:
+        from experiments.generate_trajectory_viewer import extract_data, generate_html
+        data = extract_data(persistence_db_path, experiment_id, game_id)
+        if not data:
+            return jsonify({'error': f'No trajectory data for experiment {experiment_id}'}), 404
+        html = generate_html(data)
+        return Response(html, mimetype='text/html')
+    except Exception as e:
+        logger.error(f"Error generating trajectory viewer: {e}")
+        return jsonify({'error': str(e)}), 500

@@ -267,7 +267,7 @@ def parse_json_response(response_text: str) -> Dict[str, Any]:
                 result = json.loads(fixed_text)
                 logger.info("Fixed JSON by replacing single quotes")
                 return result
-            except:
+            except (json.JSONDecodeError, ValueError):
                 pass
         
         # Try to extract just the JSON object if there's extra text
@@ -278,7 +278,7 @@ def parse_json_response(response_text: str) -> Dict[str, Any]:
                 result = json.loads(json_match.group())
                 logger.info("Extracted JSON object from text")
                 return result
-            except:
+            except (json.JSONDecodeError, ValueError):
                 pass
         
         raise AIResponseError(f"Could not parse JSON response: {e}") from e

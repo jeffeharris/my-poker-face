@@ -217,7 +217,13 @@ def analyze_player_decision(
 def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
                                  amount: int, game_data: dict,
                                  pre_action_state) -> None:
-    """Post-action hook: evaluate the human player's action against skill targets."""
+    """Post-action hook: evaluate the human player's action against skill targets.
+
+    Uses a broad try/except intentionally: this entire function is a non-critical
+    post-action hook. Any failure must not disrupt the game flow. The phases
+    (data loading, classification/evaluation, feedback prompt generation) are kept
+    in one block to avoid partial state from early failures.
+    """
     try:
         from flask_app.services.coach_engine import compute_coaching_data
         from flask_app.services.coach_progression import CoachProgressionService, SessionMemory
@@ -248,15 +254,21 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
         service = CoachProgressionService(coach_repo)
         player_state = service.get_or_initialize_player(user_id)
 
+        # Get range targets from player profile
+        profile = player_state.get('profile', {})
+        range_targets = profile.get('range_targets') if profile else None
+
         classifier = SituationClassifier()
         unlocked = [g for g, gp in player_state['gate_progress'].items() if gp.unlocked]
         classification = classifier.classify(
-            coaching_data, unlocked, player_state['skill_states']
+            coaching_data, unlocked, player_state['skill_states'],
+            range_targets=range_targets
         )
 
         if classification.relevant_skills:
             evaluations = service.evaluate_and_update(
-                user_id, action, coaching_data, classification
+                user_id, action, coaching_data, classification,
+                range_targets=range_targets
             )
             if evaluations:
                 logger.debug(
@@ -565,7 +577,7 @@ def api_game_state(game_id):
         'current_dealer_idx': game_state.current_dealer_idx,
         'small_blind_idx': game_state.small_blind_idx,
         'big_blind_idx': game_state.big_blind_idx,
-        'phase': str(state_machine.current_phase).split('.')[-1],
+        'phase': state_machine.current_phase.name,
         'highest_bet': game_state.highest_bet,
         'player_options': list(game_state.current_player_options) if game_state.current_player_options else [],
         'min_raise': game_state.min_raise_amount,
@@ -1125,7 +1137,7 @@ def api_retry_game(game_id):
 
     diagnostic = {
         'game_id': game_id,
-        'phase': str(state_machine.current_phase).split('.')[-1],
+        'phase': state_machine.current_phase.name,
         'awaiting_action': game_state.awaiting_action,
         'current_player': current_player.name,
         'current_player_is_human': current_player.is_human,

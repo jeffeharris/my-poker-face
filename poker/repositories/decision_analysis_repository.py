@@ -38,7 +38,7 @@ class DecisionAnalysisRepository(BaseRepository):
                     game_id, player_name, hand_number, phase, player_position,
                     pot_total, cost_to_call, player_stack, num_opponents,
                     player_hand, community_cards,
-                    action_taken, raise_amount, raise_amount_bb,
+                    action_taken, raise_amount, raise_amount_bb, bet_sizing,
                     equity, required_equity, ev_call,
                     optimal_action, decision_quality, ev_lost,
                     hand_rank, relative_strength,
@@ -56,7 +56,7 @@ class DecisionAnalysisRepository(BaseRepository):
                     zone_intrusive_thoughts_injected, zone_intrusive_thoughts_json,
                     zone_penalty_strategy_applied, zone_info_degraded, zone_strategy_selected,
                     analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -74,6 +74,7 @@ class DecisionAnalysisRepository(BaseRepository):
                 data.get('action_taken'),
                 data.get('raise_amount'),
                 data.get('raise_amount_bb'),
+                data.get('bet_sizing'),
                 data.get('equity'),
                 data.get('required_equity'),
                 data.get('ev_call'),

@@ -27,6 +27,13 @@ from core.llm_categorizer import (
 logger = logging.getLogger(__name__)
 
 
+class _SimpleAttr:
+    """Lightweight attribute bag used to bridge old duck-typed interfaces."""
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
 # Layer 1: Baseline mood from elastic traits (deterministic)
 #
 # Updated for 5-trait poker-native model:
@@ -491,42 +498,85 @@ dimensions tell you the intensity — your job is to give it personality."""
         personality_name: str,
         personality_config: Dict[str, Any],
         hand_outcome: Dict[str, Any],
-        elastic_traits: Dict[str, Any],
-        tilt_state: Any,  # TiltState
-        session_context: Dict[str, Any],
-        hand_number: int,
+        elastic_traits: Optional[Dict[str, Any]] = None,
+        tilt_state: Any = None,
+        session_context: Optional[Dict[str, Any]] = None,
+        hand_number: int = 0,
         # Tracking context for cost analysis
         game_id: Optional[str] = None,
         owner_id: Optional[str] = None,
         big_blind: int = 100,
+        # New-model params (v2.1): when provided, elastic_traits/tilt_state are ignored
+        confidence: Optional[float] = None,
+        composure: Optional[float] = None,
+        energy: Optional[float] = None,
+        baseline_anchors: Optional[Dict[str, float]] = None,
+        composure_state: Optional[Any] = None,
     ) -> EmotionalState:
         """
         Generate emotional state after a hand completes.
 
-        Dimensions are computed deterministically from elastic traits + outcome.
+        Dimensions are computed deterministically from traits + outcome.
         The LLM is called only to produce narrative text.
+
+        Supports two calling conventions:
+        1. New model (v2.1): pass confidence, composure, energy, baseline_anchors,
+           composure_state directly.
+        2. Legacy: pass elastic_traits dict and tilt_state object.
 
         Args:
             personality_name: Name of the AI player
             personality_config: Personality configuration dict
             hand_outcome: Dict with outcome, amount, key_moment, etc.
-            elastic_traits: Current elastic trait values
-            tilt_state: Current TiltState object
+            elastic_traits: (Legacy) Current elastic trait values
+            tilt_state: (Legacy) Current TiltState object
             session_context: Session memory context
             hand_number: Current hand number
             game_id: Game ID for usage tracking
             owner_id: User ID for usage tracking
             big_blind: Big blind size for spike amount normalization
+            confidence: (v2.1) Current confidence axis value
+            composure: (v2.1) Current composure axis value
+            energy: (v2.1) Current energy axis value
+            baseline_anchors: (v2.1) Dict with baseline_aggression, baseline_looseness, etc.
+            composure_state: (v2.1) ComposureState object
 
         Returns:
             EmotionalState with deterministic dimensions and LLM narrative
         """
-        # Compute dimensions deterministically (baseline + spike)
-        tilt_level = getattr(tilt_state, 'tilt_level', 0.0)
+        if session_context is None:
+            session_context = {}
+
+        # Determine tilt_level and build traits for baseline mood computation
+        if confidence is not None:
+            # New-model path: build traits from axis values
+            tilt_level = 1.0 - composure if composure is not None else 0.0
+            aggression_anchor = baseline_anchors.get('baseline_aggression', 0.5) if baseline_anchors else 0.5
+            looseness_anchor = baseline_anchors.get('baseline_looseness', 0.3) if baseline_anchors else 0.3
+            energy_anchor = baseline_anchors.get('baseline_energy', 0.5) if baseline_anchors else 0.5
+            _traits = {
+                'confidence': _SimpleAttr(value=confidence, anchor=0.5),
+                'composure': _SimpleAttr(value=composure or 0.7, anchor=0.7),
+                'aggression': _SimpleAttr(value=confidence * 0.7 + 0.15, anchor=aggression_anchor),
+                'tightness': _SimpleAttr(value=1.0 - (looseness_anchor or 0.3), anchor=1.0 - looseness_anchor),
+                'table_talk': _SimpleAttr(value=energy or 0.5, anchor=energy_anchor),
+            }
+            tilt_source = ''
+            nemesis = None
+            if composure_state is not None:
+                tilt_source = getattr(composure_state, 'pressure_source', '')
+                nemesis = getattr(composure_state, 'nemesis', None)
+        else:
+            # Legacy path: use elastic_traits and tilt_state directly
+            _traits = elastic_traits or {}
+            tilt_level = getattr(tilt_state, 'tilt_level', 0.0)
+            tilt_source = getattr(tilt_state, 'tilt_source', '')
+            nemesis = getattr(tilt_state, 'nemesis', None)
+
         outcome = hand_outcome.get('outcome', 'unknown')
         amount = hand_outcome.get('amount', 0)
 
-        baseline = compute_baseline_mood(elastic_traits)
+        baseline = compute_baseline_mood(_traits)
         spike = compute_reactive_spike(
             outcome=outcome,
             amount=amount,
@@ -541,15 +591,15 @@ dimensions tell you the intensity — your job is to give it personality."""
             personality_config=personality_config,
             hand_outcome=hand_outcome,
             dimensions=dimensions,
-            tilt_state=tilt_state,
+            tilt_state=_SimpleAttr(tilt_level=tilt_level, tilt_source=tilt_source, nemesis=nemesis),
             session_context=session_context,
         )
 
         additional = {
             'personality': personality_name,
             'personality_description': personality_config.get('play_style', ''),
-            'tilt_level': getattr(tilt_state, 'tilt_level', 0.0),
-            'tilt_source': getattr(tilt_state, 'tilt_source', ''),
+            'tilt_level': tilt_level,
+            'tilt_source': tilt_source,
         }
 
         result = self.categorizer.categorize(

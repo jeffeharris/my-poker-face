@@ -11,20 +11,22 @@ class PressureEventRepository(BaseRepository):
     """Repository for managing pressure event persistence."""
 
     def save_event(self, game_id: str, player_name: str, event_type: str,
-                   details: Optional[Dict[str, Any]] = None) -> None:
+                   details: Optional[Dict[str, Any]] = None,
+                   hand_number: Optional[int] = None) -> None:
         """Save a pressure event to the database."""
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO pressure_events
-                (game_id, player_name, event_type, details_json)
-                VALUES (?, ?, ?, ?)
+                (game_id, player_name, event_type, details_json, hand_number)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     game_id,
                     player_name,
                     event_type,
-                    json.dumps(details) if details else None
+                    json.dumps(details) if details else None,
+                    hand_number,
                 )
             )
 

@@ -105,7 +105,7 @@ export function useCoach({
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: newMode }),
-      }).catch(() => { /* non-critical */ });
+      }).catch(() => { console.warn('useCoach: failed to persist coach mode to server'); });
     }
   }, [gameId]);
 
@@ -120,7 +120,7 @@ export function useCoach({
         setProgressionFull(data as ProgressionState);
       }
     } catch {
-      /* non-critical */
+      console.warn('useCoach: failed to fetch progression');
     }
   }, [gameId]);
 
@@ -161,7 +161,7 @@ export function useCoach({
         }
       }
     } catch {
-      /* non-critical */
+      console.warn('useCoach: failed to refresh stats');
     }
   }, [gameId, mode, fetchProgression]);
 
@@ -192,7 +192,7 @@ export function useCoach({
         if (data.stats) setStats(data.stats);
       }
     } catch {
-      /* non-critical */
+      console.warn('useCoach: failed to fetch proactive tip');
     } finally {
       setIsThinking(false);
     }
@@ -276,7 +276,7 @@ export function useCoach({
         refreshStats();
       }
     } catch {
-      /* non-critical */
+      console.warn('useCoach: failed to fetch hand review');
     } finally {
       handReviewInFlightRef.current = false;
       setHandReviewPending(false);

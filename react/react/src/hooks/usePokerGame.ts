@@ -7,7 +7,6 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
-
 interface UsePokerGameOptions {
   gameId: string | null;
   playerName?: string;
@@ -110,8 +109,10 @@ export function usePokerGame({
   const [queuedAction, setQueuedAction] = useState<QueuedAction>(null);
   const queuedActionRef = useRef<QueuedAction>(null);
   const handlePlayerActionRef = useRef<(action: string, amount?: number) => Promise<void>>(() => Promise.resolve());
+  const refreshGameStateRef = useRef<(gId: string, silent?: boolean) => Promise<boolean>>(() => Promise.resolve(false));
   const aiThinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gameIdRef = useRef<string | null>(null);
+  const lastErrorRefreshRef = useRef<number>(0);
 
   // State buffer for card animation gating
   // Use refs (not useState) because socket callbacks capture values at registration time,
@@ -361,11 +362,14 @@ export function usePokerGame({
         applyStateUpdate(transformedState);
       } else {
         // GATED or REPLAYING: queue the update
+        // Clear newly_dealt_count since the card animation was already triggered
+        // by the initial state application. Without this, replayed states would
+        // re-trigger the animation hook.
         logger.debug(`[BUFFER] Queuing update during ${bufferStateRef.current}`, {
           queueLength: updateQueueRef.current.length + 1
         });
         updateQueueRef.current.push({
-          gameState: transformedState,
+          gameState: { ...transformedState, newly_dealt_count: 0 },
           timestamp: Date.now(),
           handNumber: transformedState.hand_number ?? 0
         });
@@ -492,6 +496,20 @@ export function usePokerGame({
       setGuestLimitReached(true);
     });
 
+    socket.on('game_error', (data: { error: string; details?: string; recoverable: boolean }) => {
+      logger.error(`Game error: ${data.error}`, data.details ?? '');
+      toast.error(data.error);
+
+      if (data.recoverable) {
+        const now = Date.now();
+        if (now - lastErrorRefreshRef.current > 5000) {
+          lastErrorRefreshRef.current = now;
+          const gId = gameIdRef.current;
+          if (gId) refreshGameStateRef.current(gId, true);
+        }
+      }
+    });
+
     socket.on('rate_limited', (data: { event: string; message: string }) => {
       logger.warn(`Rate limited: ${data.event}`);
       toast.error(data.message);
@@ -576,6 +594,9 @@ export function usePokerGame({
       return false;
     }
   }, [clearAiThinkingTimeout, applyGameState, resetBuffer]);
+
+  // Keep ref in sync for socket callback access
+  refreshGameStateRef.current = refreshGameState;
 
   const createSocket = useCallback((gId: string) => {
     const socket = io(config.SOCKET_URL, {

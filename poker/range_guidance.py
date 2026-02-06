@@ -11,6 +11,8 @@ Key changes in v2.1:
 
 from typing import Dict, Optional, Tuple
 
+from poker.hand_tiers import PREMIUM_HANDS, is_hand_in_range
+
 
 # Position-adjusted range clamps (PRD §18.4)
 # These ensure no personality plays unrealistic ranges
@@ -332,3 +334,122 @@ def derive_bluff_propensity(tightness: float, aggression: float) -> float:
     bluff_propensity = aggression * 0.6 + looseness * 0.4
 
     return max(0.0, min(1.0, bluff_propensity))
+
+
+# ============================================================================
+# Per-Hand Range-Relative Classification
+# ============================================================================
+
+# Bridge from hand_ranges.Position enum values to range_guidance position keys
+_POSITION_GROUP_TO_RANGE_KEY = {
+    'early': 'early',
+    'middle': 'middle',
+    'late': 'late',
+    'blind': 'big_blind',
+}
+
+# Special-case game position names that need direct mapping
+_GAME_POSITION_OVERRIDES = {
+    'button': 'button',
+    'small_blind_player': 'small_blind',
+}
+
+
+def _game_position_to_range_key(game_position: str) -> str:
+    """Convert a game position name to a range_guidance position key.
+
+    Bridges between hand_ranges.get_position_group() output and
+    the keys used by looseness_to_range_pct().
+
+    Args:
+        game_position: Game position name (e.g., 'under_the_gun', 'button')
+
+    Returns:
+        Range key for looseness_to_range_pct (e.g., 'early', 'button')
+    """
+    # Check direct overrides first
+    if game_position in _GAME_POSITION_OVERRIDES:
+        return _GAME_POSITION_OVERRIDES[game_position]
+
+    # Use hand_ranges position grouping
+    from poker.hand_ranges import get_position_group
+    pos_group = get_position_group(game_position)
+    return _POSITION_GROUP_TO_RANGE_KEY.get(pos_group.value, 'middle')
+
+
+def _position_display_name(range_key: str) -> str:
+    """Human-readable position name for prompt output.
+
+    Args:
+        range_key: Range key (e.g., 'early', 'button', 'small_blind')
+
+    Returns:
+        Display string (e.g., 'early position', 'the button')
+    """
+    display_map = {
+        'early': 'early position',
+        'middle': 'middle position',
+        'late': 'late position',
+        'button': 'the button',
+        'small_blind': 'the small blind',
+        'big_blind': 'the big blind',
+    }
+    return display_map.get(range_key, range_key)
+
+
+def classify_preflop_hand_for_player(
+    canonical: str,
+    effective_looseness: float,
+    game_position: str,
+) -> str:
+    """Classify a preflop hand relative to the player's current range.
+
+    Composes existing range/tier utilities to produce a one-line description
+    that tells the AI whether this hand fits their personality+emotional state.
+
+    Args:
+        canonical: Canonical hand string (e.g., 'AKs', 'T8o', 'QQ')
+        effective_looseness: Player's current looseness (0-1), includes emotional modifier
+        game_position: Game position name (e.g., 'under_the_gun', 'button')
+
+    Returns:
+        One-line string like 'AKs - premium hand, always in range from early position'
+        or empty string if canonical is empty
+    """
+    if not canonical:
+        return ''
+
+    range_key = _game_position_to_range_key(game_position)
+    range_pct = looseness_to_range_pct(effective_looseness, range_key)
+    pos_display = _position_display_name(range_key)
+
+    # Premium hands are always in range
+    if canonical in PREMIUM_HANDS:
+        return f"{canonical} - premium hand, always in range from {pos_display}"
+
+    in_range = is_hand_in_range(canonical, range_pct)
+    range_pct_display = f"~{range_pct * 100:.0f}%"
+
+    if in_range:
+        # Check if hand is on the edge (would drop out at range_pct - 0.05)
+        tighter_pct = max(0.0, range_pct - 0.05)
+        in_tighter = is_hand_in_range(canonical, tighter_pct)
+        if not in_tighter:
+            return (
+                f"{canonical} - on the edge of your range from {pos_display} "
+                f"(you play {range_pct_display} here)"
+            )
+        return f"{canonical} - well within your range from {pos_display}"
+    else:
+        # Check if hand is just outside (would be included at range_pct + 0.10)
+        looser_pct = min(1.0, range_pct + 0.10)
+        in_looser = is_hand_in_range(canonical, looser_pct)
+        if in_looser:
+            return (
+                f"{canonical} - just outside your range from {pos_display} "
+                f"(you play {range_pct_display} here)"
+            )
+        return (
+            f"{canonical} - outside your range from {pos_display} "
+            f"(you play {range_pct_display} here)"
+        )

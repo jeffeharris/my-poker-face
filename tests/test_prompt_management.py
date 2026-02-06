@@ -2,6 +2,7 @@
 """Golden path tests for the prompt management system."""
 
 import unittest
+import pytest
 from unittest.mock import patch, MagicMock
 import json
 import sys
@@ -12,6 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from poker.prompt_manager import PromptManager, PromptTemplate, RESPONSE_FORMAT, PERSONA_EXAMPLES
 from poker.poker_player import AIPokerPlayer
+
+pytestmark = pytest.mark.llm
 
 
 # Load personalities from JSON for mocking in tests

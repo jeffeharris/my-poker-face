@@ -42,6 +42,7 @@ from .hand_ranges import (
 )
 from .decision_analyzer import calculate_max_winnable
 from .card_utils import normalize_card_string, card_to_string
+from .range_guidance import classify_preflop_hand_for_player
 
 logger = logging.getLogger(__name__)
 
@@ -466,6 +467,28 @@ def classify_preflop_hand(hole_cards: List[str]) -> Optional[str]:
         return None
 
 
+def classify_preflop_hand_with_range(
+    hole_cards: List[str],
+    psychology: 'PlayerPsychology',
+    game_position: str,
+) -> Optional[str]:
+    """Range-aware preflop classification using player's effective looseness.
+
+    Falls back to generic classify_preflop_hand() on any error.
+    """
+    try:
+        canonical = _get_canonical_hand(hole_cards)
+        if not canonical:
+            return None
+        result = classify_preflop_hand_for_player(
+            canonical, psychology.effective_looseness, game_position,
+        )
+        return result if result else classify_preflop_hand(hole_cards)
+    except Exception as e:
+        logger.debug(f"Range-aware preflop classification failed: {e}")
+        return classify_preflop_hand(hole_cards)
+
+
 class ConsolePlayerController:
     def __init__(self, player_name, state_machine: PokerStateMachine = None):
         self.player_name = player_name
@@ -671,7 +694,9 @@ class AIPlayerController:
             game_state.current_player,
             self.state_machine.phase,
             game_messages,
-            include_hand_strength=self.prompt_config.hand_strength)
+            include_hand_strength=self.prompt_config.hand_strength,
+            psychology=self.psychology,
+            range_guidance=self.prompt_config.range_guidance)
 
         # Get valid actions early so we can include in guidance
         player_options = game_state.current_player_options
@@ -1336,6 +1361,12 @@ class AIPlayerController:
             except (ValueError, TypeError):
                 response_dict['raise_to'] = 0
 
+        # Keep bet_sizing as string, default to empty
+        if 'bet_sizing' not in response_dict:
+            response_dict['bet_sizing'] = ''
+        else:
+            response_dict['bet_sizing'] = str(response_dict['bet_sizing'])
+
         # Set defaults for missing rich fields when using simple response format
         if self.prompt_config.use_simple_response_format:
             response_dict.setdefault('inner_monologue', '')
@@ -1533,6 +1564,7 @@ class AIPlayerController:
                 action_taken=response_dict.get('action'),
                 raise_amount=response_dict.get('raise_to'),
                 raise_amount_bb=response_dict.get('_raise_to_bb'),  # BB amount if BB mode
+                bet_sizing=response_dict.get('bet_sizing', ''),
                 request_id=request_id,
                 capture_id=capture_id,
                 player_position=player_position,
@@ -1831,9 +1863,9 @@ def display_player_turn_update(ui_data, player_options: Optional[List] = None) -
         # Render the player's cards using the CardRenderer.
         rendered_hole_cards = CardRenderer().render_hole_cards(
             [ensure_card(c) for c in player_hand])
-    except:
+    except (ValueError, TypeError, KeyError) as e:
         print(f"{player_name} has no cards.")
-        raise ValueError('Missing cards. Please check your hand.')
+        raise ValueError('Missing cards. Please check your hand.') from e
 
     # Display information to the user
     if len(ui_data['community_cards']) > 0:
@@ -1856,6 +1888,8 @@ def _ensure_card(c):
 def build_base_game_state(
     game_state, player: Player, phase, messages,
     include_hand_strength: bool = True,
+    psychology: 'PlayerPsychology' = None,
+    range_guidance: bool = False,
 ) -> str:
     """
     Build BB-normalized game state prompt for AI decisions.
@@ -1870,6 +1904,8 @@ def build_base_game_state(
         phase: Current betting phase
         messages: Recent actions/chat (should already be BB-converted)
         include_hand_strength: Whether to include hand strength evaluation
+        psychology: Player psychology for range-aware preflop (optional)
+        range_guidance: Whether to use looseness-aware preflop classification
     """
     persona = player.name
     table_positions = game_state.table_positions
@@ -1911,8 +1947,14 @@ def build_base_game_state(
             if not hand_info_line and hand_strength:
                 hand_info_line = f"Your Hand Strength: {hand_strength}\n"
         else:
-            # Pre-flop: no breakdown, just classification
-            hand_strength = classify_preflop_hand(hole_cards)
+            # Pre-flop: range-aware classification if psychology available
+            hand_strength = None
+            if range_guidance and psychology and player_positions:
+                hand_strength = classify_preflop_hand_with_range(
+                    hole_cards, psychology, player_positions[0],
+                )
+            if not hand_strength:
+                hand_strength = classify_preflop_hand(hole_cards)
             hand_info_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
 
     persona_state = (

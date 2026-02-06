@@ -3,6 +3,7 @@
 import os
 import tempfile
 import unittest
+import pytest
 
 from poker.repositories import create_repos
 from poker.coach_models import GateProgress, PlayerSkillState, SkillState
@@ -10,6 +11,8 @@ from flask_app.services.skill_definitions import ALL_SKILLS
 from flask_app.services.coach_progression import CoachProgressionService, SessionMemory
 from flask_app.services.situation_classifier import SituationClassification
 from flask_app.services.skill_evaluator import SkillEvaluation
+
+pytestmark = [pytest.mark.slow, pytest.mark.integration]
 
 
 class TestCoachProgressionWithDB(unittest.TestCase):
