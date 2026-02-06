@@ -639,8 +639,9 @@ VALID ACTIONS:
 
 REQUIREMENTS:
 1. Your 'action' must be one of: {', '.join(valid_actions)}
-2. If action is 'raise', you MUST include 'raise_to' with a valid total bet amount ({fmt_bb(min_raise)} to {fmt_bb(max_raise)})
-3. Include 'inner_monologue' with your thinking
+2. If action is 'raise', include 'bet_sizing' with your sizing strategy (e.g., '2/3 pot value bet')
+3. If action is 'raise', you MUST include 'raise_to' with a valid total bet amount ({fmt_bb(min_raise)} to {fmt_bb(max_raise)})
+4. Include 'inner_monologue' with your thinking
 
 Respond with valid JSON only. No explanation or markdown, just the JSON object."""
 
@@ -656,6 +657,7 @@ RESPONSE_FORMAT = {
 
     # DECISION (Lock in your action)
     "action": "REQUIRED: Your final action from the provided options",
+    "bet_sizing": "REQUIRED if raising: Name your bet sizing BEFORE the amount (e.g., '2/3 pot value bet', 'min-raise to see cheap flop', '1.5x pot overbet bluff')",
     "raise_to": "REQUIRED if raising: Total bet amount (the amount you're raising TO, not BY)",
 
     # REACTION (Visible response after deciding)
@@ -696,6 +698,7 @@ PERSONA_EXAMPLES = {
 
             # DECISION
             "action": "raise",
+            "bet_sizing": "3/4 pot semi-bluff with flush draw equity",
             "raise_to": 150,
 
             # REACTION

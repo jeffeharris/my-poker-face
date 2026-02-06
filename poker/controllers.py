@@ -1361,6 +1361,12 @@ class AIPlayerController:
             except (ValueError, TypeError):
                 response_dict['raise_to'] = 0
 
+        # Keep bet_sizing as string, default to empty
+        if 'bet_sizing' not in response_dict:
+            response_dict['bet_sizing'] = ''
+        else:
+            response_dict['bet_sizing'] = str(response_dict['bet_sizing'])
+
         # Set defaults for missing rich fields when using simple response format
         if self.prompt_config.use_simple_response_format:
             response_dict.setdefault('inner_monologue', '')
@@ -1558,6 +1564,7 @@ class AIPlayerController:
                 action_taken=response_dict.get('action'),
                 raise_amount=response_dict.get('raise_to'),
                 raise_amount_bb=response_dict.get('_raise_to_bb'),  # BB amount if BB mode
+                bet_sizing=response_dict.get('bet_sizing', ''),
                 request_id=request_id,
                 capture_id=capture_id,
                 player_position=player_position,

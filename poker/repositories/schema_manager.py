@@ -41,7 +41,9 @@ logger = logging.getLogger(__name__)
 # v70: Add range_targets JSON column to player_coach_profile for dynamic range coaching
 # v71: Add new 5-trait psychology columns to player_decision_analysis
 # v72: Add zone detection and effects tracking columns to player_decision_analysis
-SCHEMA_VERSION = 73
+# v73: Add hand_number column to pressure_events
+# v74: Add bet_sizing column to player_decision_analysis
+SCHEMA_VERSION = 74
 
 
 
@@ -632,6 +634,7 @@ class SchemaManager:
                     action_taken TEXT,
                     raise_amount INTEGER,
                     raise_amount_bb REAL,
+                    bet_sizing TEXT,
                     equity REAL,
                     required_equity REAL,
                     ev_call REAL,
@@ -1059,6 +1062,7 @@ class SchemaManager:
             71: (self._migrate_v70_add_5trait_columns, "Add 5-trait psychology columns to player_decision_analysis"),
             72: (self._migrate_v71_add_zone_tracking, "Add zone detection and effects tracking columns to player_decision_analysis"),
             73: (self._migrate_v73_pressure_events_hand_number, "Add hand_number column to pressure_events"),
+            74: (self._migrate_v74_add_bet_sizing, "Add bet_sizing column to player_decision_analysis"),
         }
 
         with self._get_connection() as conn:
@@ -3300,4 +3304,19 @@ class SchemaManager:
             logger.debug(f"Index creation failed (may already exist): {e}")
 
         logger.info("Migration v73 complete: pressure_events hand_number added")
+
+    def _migrate_v74_add_bet_sizing(self, conn: sqlite3.Connection) -> None:
+        """Migration v74: Add bet_sizing to player_decision_analysis.
+
+        Stores the AI's stated sizing strategy (e.g., '2/3 pot value bet')
+        to track whether explicit sizing reasoning improves bet quality.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'bet_sizing' not in existing_columns:
+            conn.execute("ALTER TABLE player_decision_analysis ADD COLUMN bet_sizing TEXT")
+            logger.debug("Added bet_sizing column to player_decision_analysis")
+
+        logger.info("Migration v74 complete: bet_sizing added to player_decision_analysis")
 

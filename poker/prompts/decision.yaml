@@ -74,7 +74,7 @@ sections:
     You can check for free - no cost to see more cards.
 
   response_format_simple: |-
-    Respond with JSON: {{"action": "<your action>", "raise_to": <BB amount if raising>}}
+    Respond with JSON: {{"action": "<your action>", "bet_sizing": "<sizing strategy if raising>", "raise_to": <BB amount if raising>}}
 
   dramatic_sequence: |-
     DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats in the 'dramatic_sequence' field.
