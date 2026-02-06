@@ -14,6 +14,7 @@ import unittest
 import tempfile
 import os
 from typing import List, Dict, Any, Tuple
+import pytest
 
 from poker.poker_game import (
     Player, PokerGameState, initialize_game_state,
@@ -26,6 +27,8 @@ from poker.poker_state_machine import (
 from poker.tournament_tracker import TournamentTracker, EliminationEvent
 from poker.repositories import create_repos
 from core.card import Card
+
+pytestmark = pytest.mark.integration
 
 
 # =============================================================================

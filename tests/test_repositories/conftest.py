@@ -1,5 +1,7 @@
 """Shared fixtures for repository tests."""
 import pytest
+
+pytestmark = pytest.mark.integration
 from poker.repositories.schema_manager import SchemaManager
 
 

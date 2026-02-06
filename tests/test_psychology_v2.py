@@ -31,6 +31,8 @@ from poker.range_guidance import (
     POSITION_CLAMPS,
 )
 
+pytestmark = pytest.mark.slow
+
 
 class TestPersonalityAnchors:
     """Tests for PersonalityAnchors dataclass."""

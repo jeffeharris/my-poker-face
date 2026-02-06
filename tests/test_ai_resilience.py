@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import Mock, patch, MagicMock
 import json
 import time
+import pytest
 
 from poker.ai_resilience import (
     CircuitBreaker,
@@ -18,6 +19,8 @@ from poker.ai_resilience import (
     AIResponseError,
     AIFallbackStrategy
 )
+
+pytestmark = pytest.mark.slow
 
 
 class TestCircuitBreaker(unittest.TestCase):

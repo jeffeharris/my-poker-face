@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import flask_app.extensions as ext
 
+pytestmark = pytest.mark.flask
+
 
 @pytest.fixture(autouse=True)
 def _mock_extensions():

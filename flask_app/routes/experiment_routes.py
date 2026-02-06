@@ -2758,7 +2758,6 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                         llm_config=llm_config,
                         game_id=game_id,
                         owner_id=f"experiment_{exp_config.name}",
-                        experiment_repo=experiment_repo,
                         debug_capture=exp_config.capture_prompts,
                         prompt_config=prompt_config,
                     )
@@ -2836,7 +2835,6 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                                         llm_config=llm_config,
                                         game_id=game_id,
                                         owner_id=f"experiment_{exp_config.name}",
-                                        experiment_repo=experiment_repo,
                                         debug_capture=exp_config.capture_prompts,
                                         prompt_config=prompt_config,
                                     )

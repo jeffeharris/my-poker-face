@@ -8,6 +8,7 @@ import unittest
 import tempfile
 import json
 from datetime import datetime
+import pytest
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -16,6 +17,8 @@ from poker.poker_game import initialize_game_state, Player
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
 from core.card import Card
+
+pytestmark = pytest.mark.integration
 
 
 def _cleanup_test_db(db_path):

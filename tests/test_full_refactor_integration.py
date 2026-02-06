@@ -1,7 +1,10 @@
 """Test that all refactored components work together."""
 import unittest
+import pytest
 from poker.poker_game import initialize_game_state, player_fold, create_deck
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
+
+pytestmark = pytest.mark.integration
 
 
 class TestFullRefactorIntegration(unittest.TestCase):
