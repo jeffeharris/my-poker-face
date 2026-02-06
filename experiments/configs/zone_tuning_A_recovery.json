@@ -1,8 +1,8 @@
 {
-  "name": "zone_validation",
-  "description": "Validate psychology zone system with archetype personalities",
-  "hypothesis": "Each archetype spends majority time in home zone, penalty visits match PRD targets (Baseline 70-85%, Medium 10-20%, High 2-7%, Full Tilt 0-2%)",
-  "tags": ["psychology", "zones", "validation", "phase10"],
+  "name": "zone_tuning_A_recovery",
+  "description": "Test recovery floor increase: 0.60 -> 0.70 (recommended by auto-tuner)",
+  "hypothesis": "Faster recovery from tilt reduces full_tilt time from 4.3% to <2%",
+  "tags": ["psychology", "zones", "tuning", "recovery"],
   "num_tournaments": 5,
   "hands_per_tournament": 50,
   "reset_on_elimination": true,
@@ -14,8 +14,13 @@
   "parallel_tournaments": 4,
   "stagger_start_delay": 2.0,
   "capture_prompts": true,
+
+  "zone_params": {
+    "RECOVERY_BELOW_BASELINE_FLOOR": 0.70
+  },
+
   "control": {
-    "label": "Psychology-Enabled",
+    "label": "Recovery-Boost",
     "enable_psychology": true,
     "prompt_config": {
       "pot_odds": true,

@@ -53,6 +53,8 @@ from poker.repositories import create_repos
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
+from poker.pressure_detector import PressureEventDetector
+from poker.moment_analyzer import MomentAnalyzer
 from experiments.pause_coordinator import PauseCoordinator
 from core.llm import LLMClient, CallType
 from flask_app.config import get_assistant_model, get_assistant_provider
@@ -566,6 +568,9 @@ class AITournamentRunner:
         self.hand_history_repo = repos['hand_history_repo']
         self.all_personalities = get_celebrities()
 
+        # Pressure event detection for psychology system
+        self.pressure_detector = PressureEventDetector()
+
         # Experiment tracking
         self.experiment_id: Optional[int] = None
 
@@ -839,11 +844,17 @@ class AITournamentRunner:
         winner_info: Dict,
         winner_names: List[str],
         hand_number: int,
-        game_id: str
-    ) -> None:
-        """Process psychology updates (tilt + emotional state) for all AI players.
+        game_id: str,
+        hand_start_stacks: Optional[Dict[str, int]] = None,
+        was_short_stack: Optional[set] = None,
+    ) -> set:
+        """Process psychology updates using pressure event detection.
 
-        This mirrors the logic in game_handler.py's update_tilt_states() for experiments.
+        Detects game events (showdown, big_win, bad_beat, etc.) and applies them
+        to player psychology via apply_pressure_event(). Also applies recovery
+        between hands to drift axes back toward personality baselines.
+
+        This properly mirrors game_handler.py's handle_pressure_events() for experiments.
 
         Args:
             game_state: Current game state after pot awarded
@@ -852,6 +863,11 @@ class AITournamentRunner:
             winner_names: List of winning player names
             hand_number: Current hand number
             game_id: Game ID for persisting state
+            hand_start_stacks: Optional dict of player name -> stack at hand start
+            was_short_stack: Optional set of players who were short-stacked last hand
+
+        Returns:
+            Updated set of currently short-stacked players
         """
         # Calculate pot size from winner_info
         pot_size = 0
@@ -859,60 +875,79 @@ class AITournamentRunner:
             for winner in pot.get('winners', []):
                 pot_size += winner.get('amount', 0)
 
-        # Calculate winnings per player from pot_breakdown
-        winnings_by_player = {}
-        for pot in winner_info.get('pot_breakdown', []):
-            for winner in pot['winners']:
-                winnings_by_player[winner['name']] = winnings_by_player.get(winner['name'], 0) + winner['amount']
+        # Big blind for stack calculations
+        big_blind = game_state.current_ante or 100
 
+        # Check if this is a big pot
+        active_stacks = [p.stack for p in game_state.players if p.stack > 0]
+        avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
+        is_big_pot = MomentAnalyzer.is_big_pot(pot_size, 0, avg_stack)
+
+        # === DETECT PRESSURE EVENTS ===
+        all_events = []
+
+        # 1. Standard showdown events (big_win, big_loss, successful_bluff)
+        showdown_events = self.pressure_detector.detect_showdown_events(game_state, winner_info)
+        all_events.extend(showdown_events)
+
+        # 2. Phase events (showdown_involved, big_pot_involved, not_in_hand)
+        active_player_names = [p.name for p in game_state.players if not p.is_folded]
+        phase_events = self.pressure_detector.detect_phase_events(
+            game_state, 'SHOWDOWN', active_player_names
+        )
+        all_events.extend(phase_events)
+
+        # 3. Stack events (double_up, crippled, short_stack)
+        current_short = was_short_stack or set()
+        if hand_start_stacks:
+            stack_events, current_short = self.pressure_detector.detect_stack_events(
+                game_state, winner_names, hand_start_stacks,
+                was_short_stack or set(), big_blind
+            )
+            all_events.extend(stack_events)
+
+        # 4. Losers for nemesis tracking
+        loser_names = [p.name for p in game_state.players
+                       if not p.is_folded and p.name not in winner_names]
+
+        # === APPLY EVENTS TO EACH PLAYER'S PSYCHOLOGY ===
+        for event_name, affected_players in all_events:
+            for player_name in affected_players:
+                if player_name not in controllers:
+                    continue
+                controller = controllers[player_name]
+                if not hasattr(controller, 'psychology'):
+                    continue
+
+                # Determine opponent for this event (for nemesis tracking)
+                opponent = None
+                if player_name in winner_names and loser_names:
+                    opponent = loser_names[0]
+                elif player_name in loser_names and winner_names:
+                    opponent = winner_names[0]
+
+                try:
+                    controller.psychology.apply_pressure_event(event_name, opponent)
+                    logger.debug(
+                        f"[Psychology] {player_name}: Applied '{event_name}' event. "
+                        f"Conf={controller.psychology.confidence:.2f}, "
+                        f"Comp={controller.psychology.composure:.2f}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to apply pressure event '{event_name}' to {player_name}: {e}")
+
+        # === APPLY RECOVERY AND SAVE STATE ===
         for player in game_state.players:
             if player.name not in controllers:
                 continue
 
             controller = controllers[player.name]
-
-            # Skip if controller doesn't have psychology
             if not hasattr(controller, 'psychology'):
                 continue
 
-            # Get player's actual contribution to the pot (not total pot size)
-            player_contribution = game_state.pot.get(player.name, 0) if isinstance(game_state.pot, dict) else 0
-
-            player_won = player.name in winner_names
-            if player_won:
-                # Net profit = winnings - what they put in
-                amount = winnings_by_player.get(player.name, 0) - player_contribution
-            else:
-                # Net loss = what they actually contributed (not total pot)
-                amount = -player_contribution
-
-            # Detect bad beat (strong hand loses at showdown)
-            was_bad_beat = False
-            if not player_won and not player.is_folded:
-                hand_rank = winner_info.get('hand_rank', 0)
-                was_bad_beat = hand_rank >= 2  # Two pair or better lost
-
-            nemesis = winner_names[0] if not player_won and winner_names else None
-            outcome = 'won' if player_won else ('folded' if player.is_folded else 'lost')
-            key_moment = 'bad_beat' if was_bad_beat else None
-
-            # Call psychology update
-            big_blind = game_state.current_ante
             try:
-                controller.psychology.on_hand_complete(
-                    outcome=outcome,
-                    amount=amount,
-                    opponent=nemesis,
-                    was_bad_beat=was_bad_beat,
-                    was_bluff_called=False,
-                    session_context={},
-                    key_moment=key_moment,
-                    big_blind=big_blind,
-                )
-                logger.debug(
-                    f"Psychology update for {player.name}: "
-                    f"tilt={controller.psychology.tilt_level:.2f}, outcome={outcome}"
-                )
+                # Apply recovery between hands (drift toward baseline)
+                controller.psychology.recover()
 
                 # Save psychology state to database for live monitoring
                 psychology_dict = controller.psychology.to_dict()
@@ -931,8 +966,18 @@ class AITournamentRunner:
                         player.name,
                         controller.psychology.emotional
                     )
+
+                logger.debug(
+                    f"[Psychology] {player.name}: Post-recovery state - "
+                    f"Conf={controller.psychology.confidence:.2f}, "
+                    f"Comp={controller.psychology.composure:.2f}, "
+                    f"Energy={controller.psychology.energy:.2f}, "
+                    f"Zone={controller.psychology.quadrant.value}"
+                )
             except Exception as e:
                 logger.warning(f"Psychology state update failed for {player.name}: {e}")
+
+        return current_short
 
     def run_hand(self, state_machine: PokerStateMachine,
                  controllers: Dict[str, AIPlayerController],
@@ -1128,9 +1173,13 @@ class AITournamentRunner:
             enable_commentary = variant_config.get('enable_commentary', False) if variant_config else False
 
             if enable_psychology:
+                # Note: hand_start_stacks and was_short_stack not tracked yet
+                # Stack events will be added in a future enhancement
                 self._process_psychology(
                     game_state, controllers, winner_info, winner_names, hand_number,
-                    game_id=tournament_id
+                    game_id=tournament_id,
+                    hand_start_stacks=None,
+                    was_short_stack=None,
                 )
 
             if enable_commentary:
