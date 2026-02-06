@@ -60,7 +60,7 @@ else:
 
 ## The 2D Space
 
-See `emotional_zones_v3.svg` for the full visual diagram.
+See `emotional_zones_circular.svg` for the visual diagram.
 
 ```
                     CONFIDENCE →
@@ -1331,9 +1331,9 @@ def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
 
 ## Files
 
-- `emotional_zones_v3.svg` - Visual diagram of circular sweet spots + edge penalties
-- `psychology_balance_simulator.py` - Simulation tool for testing parameters
-- `player_psychology.py` - Core implementation
+- `emotional_zones_circular.svg` - Visual diagram of circular sweet spots + edge penalties
+- `experiments/psychology_balance_simulator.py` - Simulation tool for testing parameters
+- `poker/player_psychology.py` - Core implementation
 
 ## Open Design Questions
 

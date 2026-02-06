@@ -8,7 +8,7 @@ Comprehensive documentation about the game's vision and planned features can be 
 - `/docs/vision/GAME_VISION.md` - Overall game vision and philosophy
 - `/docs/vision/FEATURE_IDEAS.md` - Detailed feature brainstorming
 - `/docs/vision/QUICK_WINS.md` - High-impact, low-effort features
-- `/docs/technical/PERSONALITY_ELASTICITY.md` - Dynamic personality system (implemented)
+- `/docs/technical/PSYCHOLOGY_OVERVIEW.md` - AI psychology system (anchors, axes, zones)
 
 ## Personality Testing Tools
 
