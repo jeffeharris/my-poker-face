@@ -177,6 +177,69 @@ def analyze_player_decision(
         logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision for {player_name}: {e}")
 
 
+def _maybe_trigger_feedback_prompt(
+    evaluations, action: str, range_targets: dict, coaching_data: dict,
+    hand_number: int, session_memory, game_id: str,
+) -> None:
+    """If the player folded a hand in their range, set a feedback prompt.
+
+    Scans evaluations for a position_matters result indicating the fold
+    was incorrect/marginal for a hand within the player's personal range,
+    then emits a socket event so the frontend can show the prompt immediately.
+    """
+    if action != 'fold' or not range_targets:
+        return
+
+    from flask_app.services.range_targets import get_range_target
+
+    for ev in evaluations:
+        if (ev.skill_id != 'position_matters'
+                or ev.evaluation not in ('incorrect', 'marginal')
+                or not ev.in_personal_range):
+            continue
+
+        # Extract canonical form (e.g. "AKs") from hand_strength,
+        # stripping description suffix like "AKs - Suited broadway, Top 10%"
+        hand_strength = coaching_data.get('hand_strength')
+        if isinstance(hand_strength, str) and ' - ' in hand_strength:
+            hand = hand_strength.split(' - ')[0].strip()
+        elif isinstance(hand_strength, str) and hand_strength:
+            hand = hand_strength
+        else:
+            hand_cards = coaching_data.get('hand_hole_cards', [])
+            hand = ' '.join(hand_cards) if hand_cards else ''
+
+        position = coaching_data.get('position', '')
+        personal_range_target = get_range_target(range_targets, position)
+        if not personal_range_target or personal_range_target <= 0:
+            break
+
+        hand_context = {
+            'phase': coaching_data.get('phase', ''),
+            'pot_total': coaching_data.get('pot_total', 0),
+            'cost_to_call': coaching_data.get('cost_to_call', 0),
+            'equity': coaching_data.get('equity'),
+            'hand_strength': coaching_data.get('hand_strength'),
+            'hand_actions': coaching_data.get('hand_actions', []),
+            'opponent_count': len([
+                s for s in coaching_data.get('opponent_stats', [])
+                if not s.get('is_folded')
+            ]),
+        }
+        prompt_data = {
+            'hand': hand,
+            'position': position,
+            'range_target': personal_range_target,
+            'hand_number': hand_number,
+            'context': hand_context,
+        }
+        session_memory.set_feedback_prompt(prompt_data)
+
+        from flask_app.extensions import socketio
+        socketio.emit('coach_feedback_prompt', prompt_data, room=game_id)
+        break
+
+
 def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
                                  amount: int, game_data: dict,
                                  pre_action_state) -> None:
@@ -255,47 +318,10 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
                 for ev in evaluations:
                     session_memory.record_hand_evaluation(hand_number, ev)
 
-                # Check if player folded a hand in their range - trigger feedback prompt
-                if action == 'fold' and range_targets:
-                    for ev in evaluations:
-                        if (ev.skill_id == 'position_matters' and
-                            ev.evaluation in ('incorrect', 'marginal') and
-                            'in your range' in ev.reasoning.lower()):
-                            # Extract info for feedback prompt
-                            from flask_app.services.range_targets import get_range_target
-                            # Prefer canonical format (e.g. "AKs") from hand_strength,
-                            # fall back to hole cards if not available
-                            hand_strength = coaching_data.get('hand_strength')
-                            if isinstance(hand_strength, str) and hand_strength:
-                                hand = hand_strength
-                            else:
-                                hand_cards = coaching_data.get('hand_hole_cards', [])
-                                hand = ' '.join(hand_cards) if hand_cards else ''
-                            position = coaching_data.get('position', '')
-                            personal_range_target = get_range_target(range_targets, position)
-                            if personal_range_target and personal_range_target > 0:
-                                # Include hand context for meaningful feedback
-                                hand_context = {
-                                    'phase': coaching_data.get('phase', ''),
-                                    'pot_total': coaching_data.get('pot_total', 0),
-                                    'cost_to_call': coaching_data.get('cost_to_call', 0),
-                                    'equity': coaching_data.get('equity'),
-                                    'hand_strength': coaching_data.get('hand_strength'),
-                                    'hand_actions': coaching_data.get('hand_actions', []),
-                                    'opponent_count': len([s for s in coaching_data.get('opponent_stats', []) if not s.get('is_folded')]),
-                                }
-                                prompt_data = {
-                                    'hand': hand,
-                                    'position': position,
-                                    'range_target': personal_range_target,
-                                    'hand_number': hand_number,
-                                    'context': hand_context,
-                                }
-                                session_memory.set_feedback_prompt(prompt_data)
-                                # Emit via socket so frontend receives it immediately
-                                from flask_app.extensions import socketio
-                                socketio.emit('coach_feedback_prompt', prompt_data, room=game_id)
-                            break
+                _maybe_trigger_feedback_prompt(
+                    evaluations, action, range_targets, coaching_data,
+                    hand_number, session_memory, game_id,
+                )
     except Exception as e:
         logger.error(
             f"[COACH_PROGRESSION] Failed for game={game_id} player={player_name}: {e}",

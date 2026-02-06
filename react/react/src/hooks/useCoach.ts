@@ -350,6 +350,7 @@ export function useCoach({
 
   const submitFeedback = useCallback(async (reason: string) => {
     if (!gameId || !feedbackPrompt) return;
+    const prompt = feedbackPrompt; // capture before any state changes
 
     // Add user's response as a message first
     const userMsg: CoachMessage = {
@@ -360,26 +361,23 @@ export function useCoach({
     };
     setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
 
-    // Clear the prompt
-    feedbackPromptHandNumberRef.current = null;
-    setFeedbackPromptState(null);
-
     try {
       const res = await fetch(`${config.API_URL}/api/coach/${gameId}/feedback`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          hand: feedbackPrompt.hand,
-          position: feedbackPrompt.position,
+          hand: prompt.hand,
+          position: prompt.position,
           action: 'fold',
           reason,
-          hand_number: feedbackPrompt.hand_number,
+          hand_number: prompt.hand_number,
         }),
       });
 
-      // Add coach response as a message
       if (res.ok) {
+        feedbackPromptHandNumberRef.current = null;
+        setFeedbackPromptState(null);
         const data = await res.json();
         if (data.response) {
           const responseMsg: CoachMessage = {
@@ -391,9 +389,27 @@ export function useCoach({
           };
           setMessages(prev => [...prev, responseMsg].slice(-MAX_MESSAGES));
         }
+      } else {
+        feedbackPromptHandNumberRef.current = null;
+        setFeedbackPromptState(null);
+        const errorMsg: CoachMessage = {
+          id: `coach-err-${Date.now()}`,
+          role: 'coach',
+          content: 'Sorry, I couldn\'t process that feedback. Try again in a moment.',
+          timestamp: Date.now(),
+        };
+        setMessages(prev => [...prev, errorMsg].slice(-MAX_MESSAGES));
       }
     } catch {
-      console.warn('useCoach: failed to submit feedback');
+      feedbackPromptHandNumberRef.current = null;
+      setFeedbackPromptState(null);
+      const errorMsg: CoachMessage = {
+        id: `coach-err-${Date.now()}`,
+        role: 'coach',
+        content: 'Sorry, I couldn\'t process that. Try again in a moment.',
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, errorMsg].slice(-MAX_MESSAGES));
     }
   }, [gameId, feedbackPrompt]);
 

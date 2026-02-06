@@ -21,6 +21,7 @@ class SkillEvaluation:
     evaluation: str       # 'correct', 'incorrect', 'marginal', 'not_applicable'
     confidence: float     # 0.0 to 1.0
     reasoning: str
+    in_personal_range: bool = False  # True when hand is within player's personal range target
 
 
 class SkillEvaluator:
@@ -136,6 +137,16 @@ class SkillEvaluator:
             reasoning=f'Played a trash hand ({action}) instead of folding.',
         )
 
+    @staticmethod
+    def _position_reasoning(
+        has_personal_range: bool, range_str: str,
+        personal_msg: str, fallback_msg: str,
+    ) -> str:
+        """Build a reasoning string that uses personal range when available."""
+        if has_personal_range:
+            return personal_msg.format(range_str=range_str)
+        return fallback_msg
+
     def _eval_position_matters(self, action: str, ctx: Dict) -> SkillEvaluation:
         """Evaluate position_matters: position-appropriate hand selection.
 
@@ -159,24 +170,29 @@ class SkillEvaluator:
 
         # Format range as percentage string for reasoning messages
         range_str = f"top {int(range_pct * 100)}%" if has_personal_range else ""
+        _reason = lambda personal, fallback: self._position_reasoning(
+            has_personal_range, range_str, personal, fallback,
+        )
+
+        # Helper: use personal range if available, else fall back to a static tier flag
+        def in_range_for(fallback_key: str) -> bool:
+            return is_in_range if has_personal_range else ctx[fallback_key]
 
         # Early position evaluation
         if ctx['is_early']:
+            in_range = in_range_for('is_top10')
             if action == 'fold':
-                # Use personal range if available, else fall back to TOP_10
-                in_range = is_in_range if has_personal_range else ctx['is_top10']
                 if in_range:
-                    reasoning = (
-                        f'Folded a hand in your range ({range_str}) from early position.'
-                        if has_personal_range else
-                        'Folded a strong hand in early position.'
-                    )
                     return SkillEvaluation(
                         skill_id='position_matters',
                         action_taken=action,
                         evaluation='incorrect',
                         confidence=0.8,
-                        reasoning=reasoning,
+                        reasoning=_reason(
+                            'Folded a hand in your range ({range_str}) from early position.',
+                            'Folded a strong hand in early position.',
+                        ),
+                        in_personal_range=has_personal_range and is_in_range,
                     )
                 return SkillEvaluation(
                     skill_id='position_matters',
@@ -187,19 +203,16 @@ class SkillEvaluator:
                 )
 
             # Playing (raise/call) in early position
-            in_range = is_in_range if has_personal_range else ctx['is_top10']
             if in_range:
-                reasoning = (
-                    f'Played a hand in your range ({range_str}) from early position.'
-                    if has_personal_range else
-                    'Played a strong hand from early position.'
-                )
                 return SkillEvaluation(
                     skill_id='position_matters',
                     action_taken=action,
                     evaluation='correct',
                     confidence=0.9,
-                    reasoning=reasoning,
+                    reasoning=_reason(
+                        'Played a hand in your range ({range_str}) from early position.',
+                        'Played a strong hand from early position.',
+                    ),
                 )
 
             # Outside personal range (or TOP_20 marginal for fallback)
@@ -212,36 +225,32 @@ class SkillEvaluator:
                     reasoning='Borderline hand for early position; tighter is better.',
                 )
 
-            reasoning = (
-                f'Played a hand outside your range ({range_str}) from early position.'
-                if has_personal_range else
-                'Played a weak hand from early position.'
-            )
             return SkillEvaluation(
                 skill_id='position_matters',
                 action_taken=action,
                 evaluation='incorrect',
                 confidence=0.8,
-                reasoning=reasoning,
+                reasoning=_reason(
+                    'Played a hand outside your range ({range_str}) from early position.',
+                    'Played a weak hand from early position.',
+                ),
             )
 
         # Late position evaluation
         if ctx['is_late']:
+            in_range = in_range_for('is_playable')
             if action == 'fold':
-                # Use personal range if available, else fall back to is_playable (TOP_35)
-                in_range = is_in_range if has_personal_range else ctx['is_playable']
                 if in_range:
-                    reasoning = (
-                        f'Folded a hand in your range ({range_str}) from late position.'
-                        if has_personal_range else
-                        'Folded a playable hand from late position.'
-                    )
                     return SkillEvaluation(
                         skill_id='position_matters',
                         action_taken=action,
                         evaluation='incorrect',
                         confidence=0.7,
-                        reasoning=reasoning,
+                        reasoning=_reason(
+                            'Folded a hand in your range ({range_str}) from late position.',
+                            'Folded a playable hand from late position.',
+                        ),
+                        in_personal_range=has_personal_range and is_in_range,
                     )
                 return SkillEvaluation(
                     skill_id='position_matters',
@@ -252,19 +261,16 @@ class SkillEvaluator:
                 )
 
             # Playing from late position
-            in_range = is_in_range if has_personal_range else ctx['is_playable']
             if in_range:
-                reasoning = (
-                    f'Played a hand in your range ({range_str}) from late position.'
-                    if has_personal_range else
-                    'Played a reasonable hand from late position.'
-                )
                 return SkillEvaluation(
                     skill_id='position_matters',
                     action_taken=action,
                     evaluation='correct',
                     confidence=0.9,
-                    reasoning=reasoning,
+                    reasoning=_reason(
+                        'Played a hand in your range ({range_str}) from late position.',
+                        'Played a reasonable hand from late position.',
+                    ),
                 )
 
             return SkillEvaluation(
@@ -276,7 +282,7 @@ class SkillEvaluator:
             )
 
         # Middle position or blinds — moderate evaluation
-        in_range = is_in_range if has_personal_range else ctx['is_playable']
+        in_range = in_range_for('is_playable')
 
         if action == 'fold' and not in_range:
             return SkillEvaluation(
@@ -288,17 +294,16 @@ class SkillEvaluator:
             )
 
         if action == 'fold' and in_range:
-            reasoning = (
-                f'Folded a hand in your range ({range_str}) from middle/blind position.'
-                if has_personal_range else
-                'Folded a playable hand from middle/blind position.'
-            )
             return SkillEvaluation(
                 skill_id='position_matters',
                 action_taken=action,
                 evaluation='marginal',
                 confidence=0.5,
-                reasoning=reasoning,
+                reasoning=_reason(
+                    'Folded a hand in your range ({range_str}) from middle/blind position.',
+                    'Folded a playable hand from middle/blind position.',
+                ),
+                in_personal_range=has_personal_range and is_in_range,
             )
 
         if action != 'fold' and in_range:

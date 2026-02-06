@@ -208,16 +208,19 @@ class CoachRepository(BaseRepository):
     def save_range_targets(self, user_id: str, range_targets: Dict[str, float]) -> None:
         """Update only the range_targets for a user.
 
+        Uses upsert to handle both existing and new profiles.
         Useful when expanding ranges on gate unlock without modifying other fields.
         """
         now = datetime.now().isoformat()
         range_targets_json = json.dumps(range_targets)
         with self._get_connection() as conn:
             conn.execute("""
-                UPDATE player_coach_profile
-                SET range_targets = ?, updated_at = ?
-                WHERE user_id = ?
-            """, (range_targets_json, now, user_id))
+                INSERT INTO player_coach_profile (user_id, range_targets, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    range_targets = excluded.range_targets,
+                    updated_at = excluded.updated_at
+            """, (user_id, range_targets_json, now, now))
 
     def load_range_targets(self, user_id: str) -> Optional[Dict[str, float]]:
         """Load just the range_targets for a user. Returns None if not set."""

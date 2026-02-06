@@ -3,7 +3,6 @@
 Based on standard poker hand rankings (169 unique starting hands).
 """
 
-from typing import Optional
 
 PREMIUM_HANDS = {'AA', 'KK', 'QQ', 'JJ', 'AKs'}  # Top ~3%
 TOP_10_HANDS = PREMIUM_HANDS | {'TT', 'AKo', 'AQs', 'AJs', 'KQs'}  # Top ~10%
@@ -57,25 +56,3 @@ def is_hand_in_range(canonical: str, range_percentage: float) -> bool:
 
     # Very tight range (< 3%): only AA, KK
     return canonical in {'AA', 'KK'}
-
-
-def get_hand_tier(canonical: str) -> Optional[str]:
-    """Get the tier name for a hand.
-
-    Args:
-        canonical: Canonical hand string
-
-    Returns:
-        Tier name ('premium', 'top10', 'top20', 'top35', 'trash') or None
-    """
-    if not canonical:
-        return None
-    if canonical in PREMIUM_HANDS:
-        return 'premium'
-    if canonical in TOP_10_HANDS:
-        return 'top10'
-    if canonical in TOP_20_HANDS:
-        return 'top20'
-    if canonical in TOP_35_HANDS:
-        return 'top35'
-    return 'trash'
