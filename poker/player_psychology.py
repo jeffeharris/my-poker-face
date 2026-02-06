@@ -944,7 +944,7 @@ class PokerFaceZone:
 
     Players inside this zone display 'poker_face' regardless of their
     quadrant-based emotion. Players outside show their true emotional state
-    (filtered by the expression layer's visibility = expressiveness × energy).
+    (filtered by the expression layer's visibility = 0.7*expressiveness + 0.3*energy).
 
     Default center: (0.52, 0.72) - calm, balanced sweet spot
     Base radii: rc=0.25, rcomp=0.25
@@ -952,8 +952,8 @@ class PokerFaceZone:
     Membership test: ((c-0.52)/rc)² + ((comp-0.72)/rcomp)² <= 1.0
 
     Energy is handled separately by the expression filter layer:
-    - Low expressiveness × low energy = poker face via visibility dampening
-    - High expressiveness × high energy = emotions leak through
+    - Low expressiveness = poker face (expressiveness dominates visibility)
+    - High expressiveness + high energy = emotions leak through most
     """
     # Center coordinates (universal for all players)
     center_confidence: float = 0.52
@@ -1015,7 +1015,7 @@ def create_poker_face_zone(anchors: 'PersonalityAnchors') -> PokerFaceZone:
     - Risk Identity: Asymmetric - extreme values narrow one radius
 
     Energy is NOT part of zone membership. It's handled by the expression
-    filter layer (visibility = expressiveness × energy), which dampens
+    filter layer (visibility = 0.7*expressiveness + 0.3*energy), which dampens
     displayed emotion for low-visibility players.
 
     Args:
@@ -1060,8 +1060,8 @@ def compute_baseline_confidence(anchors: 'PersonalityAnchors') -> float:
     but that's handled in event impacts, not baseline.
 
     Returns:
-        Baseline confidence clamped to safe range [0.15, 0.85] to stay
-        outside penalty zones (TIMID < 0.10, OVERCONFIDENT > 0.90).
+        Baseline confidence clamped to a safe range to stay outside
+        penalty zones (TIMID and OVERCONFIDENT thresholds).
     """
     baseline = (
         0.3
@@ -1069,10 +1069,13 @@ def compute_baseline_confidence(anchors: 'PersonalityAnchors') -> float:
         + anchors.risk_identity * 0.20
         + anchors.ego * 0.25
     )
-    # Clamp to stay safely outside penalty zones
-    # TIMID threshold is 0.10, OVERCONFIDENT threshold is 0.90
-    # Use 0.15-0.85 to leave room for events to push into penalties
-    return _clamp(baseline, min_val=0.15, max_val=0.85)
+    # Clamp to stay safely outside penalty zones using tunable thresholds
+    margin = 0.05
+    timid_thresh = get_zone_param('PENALTY_TIMID_THRESHOLD')
+    overconf_thresh = get_zone_param('PENALTY_OVERCONFIDENT_THRESHOLD')
+    min_conf = min(0.45, timid_thresh + margin)
+    max_conf = max(0.55, overconf_thresh - margin)
+    return _clamp(baseline, min_val=min_conf, max_val=max_conf)
 
 
 def compute_baseline_composure(anchors: 'PersonalityAnchors') -> float:
@@ -1087,8 +1090,8 @@ def compute_baseline_composure(anchors: 'PersonalityAnchors') -> float:
             + risk_mod                    (risk-seekers comfortable with chaos)
 
     Returns:
-        Baseline composure clamped to safe range [0.40, 0.85] to stay
-        outside penalty zones (TILTED < 0.35).
+        Baseline composure clamped to a safe range to stay
+        outside the TILTED penalty threshold.
     """
     risk_mod = (anchors.risk_identity - 0.5) * 0.3
     baseline = (
@@ -1097,10 +1100,12 @@ def compute_baseline_composure(anchors: 'PersonalityAnchors') -> float:
         + (1.0 - anchors.expressiveness) * 0.15
         + risk_mod
     )
-    # Clamp to stay safely outside penalty zones
-    # TILTED threshold is 0.35
-    # Use 0.40-0.85 to leave room for events to push into penalties
-    return _clamp(baseline, min_val=0.40, max_val=0.85)
+    # Clamp to stay safely outside penalty zones using tunable thresholds
+    margin = 0.05
+    tilted_thresh = get_zone_param('PENALTY_TILTED_THRESHOLD')
+    min_comp = min(0.55, tilted_thresh + margin)
+    max_comp = 1.0 - margin
+    return _clamp(baseline, min_val=min_comp, max_val=max_comp)
 
 
 class EmotionalQuadrant(Enum):
@@ -2798,7 +2803,7 @@ class PlayerPsychology:
         3D ellipsoid zone display 'poker_face' regardless of quadrant emotion.
 
         Phase 2: For players outside the zone, applies visibility-based dampening
-        based on expressiveness × energy. Low visibility players show poker_face more often.
+        based on 0.7*expressiveness + 0.3*energy. Low visibility players show poker_face more often.
 
         Args:
             use_expression_filter: If True, apply zone check and visibility dampening.

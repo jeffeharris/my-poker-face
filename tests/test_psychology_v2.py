@@ -377,16 +377,16 @@ class TestBaselineFormulas:
         assert compute_baseline_composure(high_poise) > compute_baseline_composure(low_poise)
 
     def test_baseline_composure_floor(self):
-        """Test that baseline_composure has a floor of 0.25."""
+        """Test that baseline_composure has a floor of 0.40."""
         # Create extreme low-composure personality
         extreme = PersonalityAnchors(
             baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.0,
             expressiveness=1.0, risk_identity=0.0, adaptation_bias=0.5,
             baseline_energy=0.5, recovery_rate=0.15,
         )
-        # Even with worst anchors, composure should be >= 0.25
+        # Even with worst anchors, composure should be >= 0.40
         baseline = compute_baseline_composure(extreme)
-        assert baseline >= 0.25
+        assert baseline >= 0.40 - 1e-9
 
     def test_volatile_personality_overheated_baseline(self):
         """Test that volatile personality (low poise, high ego) rests in OVERHEATED."""
@@ -983,20 +983,20 @@ class TestExpressionFiltering:
     """Tests for Phase 2 expression filtering."""
 
     def test_calculate_visibility(self):
-        """Test visibility calculation from expressiveness × energy."""
+        """Test visibility calculation: 0.7*expressiveness + 0.3*energy."""
         from poker.expression_filter import calculate_visibility
 
-        # High expressiveness × high energy = high visibility
-        assert calculate_visibility(0.8, 0.8) == pytest.approx(0.64, 0.01)
+        # High expressiveness + high energy = high visibility
+        assert calculate_visibility(0.8, 0.8) == pytest.approx(0.80, 0.01)
 
-        # Low expressiveness × high energy = medium visibility
-        assert calculate_visibility(0.3, 0.8) == pytest.approx(0.24, 0.01)
+        # Low expressiveness + high energy = medium visibility
+        assert calculate_visibility(0.3, 0.8) == pytest.approx(0.45, 0.01)
 
-        # High expressiveness × low energy = medium visibility
-        assert calculate_visibility(0.8, 0.3) == pytest.approx(0.24, 0.01)
+        # High expressiveness + low energy = still high (expressiveness dominates)
+        assert calculate_visibility(0.8, 0.3) == pytest.approx(0.65, 0.01)
 
-        # Low expressiveness × low energy = low visibility
-        assert calculate_visibility(0.3, 0.3) == pytest.approx(0.09, 0.01)
+        # Low expressiveness + low energy = low visibility
+        assert calculate_visibility(0.3, 0.3) == pytest.approx(0.30, 0.01)
 
     def test_dampen_emotion_high_visibility(self):
         """Test that high visibility shows true emotion."""
@@ -1035,17 +1035,16 @@ class TestExpressionFiltering:
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
 
-        # Set low energy (expressiveness 0.2 × energy 0.2 = visibility 0.04)
+        # Set low energy (visibility = 0.7*0.2 + 0.3*0.2 = 0.20)
         psych.axes = psych.axes.update(energy=0.2)
 
         # Without filtering, would show true emotion based on quadrant
         true_emotion = psych.get_display_emotion(use_expression_filter=False)
         assert true_emotion != 'poker_face'  # Has some emotion
 
-        # With filtering (deterministic), should show poker_face
-        # Need to test multiple times since it might be random
+        # With filtering, should show dampened emotion
         displayed = psych.get_display_emotion(use_expression_filter=True)
-        # At visibility 0.04, we're in "low" territory and should see dampening
+        # At visibility 0.20, we're in "low" territory and should see dampening
         # The result will be poker_face or the medium-dampened version
         assert displayed in ['poker_face', 'thinking', 'frustrated', 'nervous', 'confident']
 
@@ -1105,24 +1104,24 @@ class TestExpressionFiltering:
 # === Phase 3 Tests: Poker Face Zone ===
 
 class TestPokerFaceZoneGeometry:
-    """Tests for PokerFaceZone ellipsoid geometry."""
+    """Tests for PokerFaceZone ellipse geometry."""
 
     def test_zone_center_is_inside(self):
         """Test that the zone center is inside the zone."""
         from poker.player_psychology import PokerFaceZone
 
         zone = PokerFaceZone()
-        # Center point should always be inside (Phase 5: updated to 0.52, 0.72, 0.45)
-        assert zone.contains(0.52, 0.72, 0.45)
-        assert zone.distance(0.52, 0.72, 0.45) == pytest.approx(0.0, 0.01)
+        # Center point should always be inside (Phase 5: updated to 0.52, 0.72)
+        assert zone.contains(0.52, 0.72)
+        assert zone.distance(0.52, 0.72) == pytest.approx(0.0, 0.01)
 
     def test_zone_boundary_distance(self):
         """Test that boundary points have distance ~1.0."""
         from poker.player_psychology import PokerFaceZone
 
         zone = PokerFaceZone()
-        # Move along confidence axis by radius (Phase 5: updated center to 0.52, 0.72, 0.45)
-        boundary_point = (0.52 + 0.25, 0.72, 0.45)  # (0.77, 0.72, 0.45)
+        # Move along confidence axis by radius (Phase 5: updated center to 0.52, 0.72)
+        boundary_point = (0.52 + 0.25, 0.72)  # (0.77, 0.72)
         assert zone.distance(*boundary_point) == pytest.approx(1.0, 0.01)
         assert zone.contains(*boundary_point)  # On boundary = inside
 
@@ -1131,17 +1130,17 @@ class TestPokerFaceZoneGeometry:
         from poker.player_psychology import PokerFaceZone
 
         zone = PokerFaceZone()
-        # Point well outside zone (all axes far from center)
-        assert not zone.contains(0.2, 0.3, 0.9)
-        assert zone.distance(0.2, 0.3, 0.9) > 1.0
+        # Point well outside zone (both axes far from center)
+        assert not zone.contains(0.2, 0.3)
+        assert zone.distance(0.2, 0.3) > 1.0
 
     def test_point_just_outside_boundary(self):
         """Test that points just outside boundary are detected."""
         from poker.player_psychology import PokerFaceZone
 
         zone = PokerFaceZone()
-        # Move just past boundary on confidence axis (Phase 5: updated center to 0.52, 0.72, 0.45)
-        outside_point = (0.52 + 0.26, 0.72, 0.45)  # Just past radius
+        # Move just past boundary on confidence axis (Phase 5: updated center to 0.52, 0.72)
+        outside_point = (0.52 + 0.26, 0.72)  # Just past radius
         assert not zone.contains(*outside_point)
         assert zone.distance(*outside_point) > 1.0
 
@@ -1149,31 +1148,28 @@ class TestPokerFaceZoneGeometry:
         """Test that zone is ellipsoid (different radii matter)."""
         from poker.player_psychology import PokerFaceZone
 
-        zone = PokerFaceZone()  # rc=0.25, rcomp=0.25, re=0.20
+        zone = PokerFaceZone(radius_confidence=0.30, radius_composure=0.20)
 
-        # Same deviation on confidence (radius 0.25) vs energy (radius 0.20)
-        # Energy deviation should result in larger normalized distance
-        # Phase 5: updated center to 0.52, 0.72, 0.45
-        conf_deviation = zone.distance(0.52 + 0.10, 0.72, 0.45)  # Move 0.10 on confidence
-        energy_deviation = zone.distance(0.52, 0.72, 0.45 + 0.10)  # Move 0.10 on energy
+        # Same deviation on confidence vs composure
+        # Smaller radius should result in larger normalized distance
+        conf_deviation = zone.distance(0.52 + 0.10, 0.72)  # Move 0.10 on confidence
+        comp_deviation = zone.distance(0.52, 0.72 + 0.10)  # Move 0.10 on composure
 
-        # Energy has smaller radius, so same absolute deviation = larger normalized distance
-        assert energy_deviation > conf_deviation
+        # Composure has smaller radius, so same absolute deviation = larger normalized distance
+        assert comp_deviation > conf_deviation
 
     def test_zone_serialization(self):
         """Test zone serializes and contains expected keys."""
         from poker.player_psychology import PokerFaceZone
 
-        zone = PokerFaceZone(radius_confidence=0.30, radius_composure=0.28, radius_energy=0.18)
+        zone = PokerFaceZone(radius_confidence=0.30, radius_composure=0.28)
         data = zone.to_dict()
 
-        # Phase 5: updated center to 0.52, 0.72, 0.45
+        # Phase 5: updated center to 0.52, 0.72
         assert data['center_confidence'] == 0.52
         assert data['center_composure'] == 0.72
-        assert data['center_energy'] == 0.45
         assert data['radius_confidence'] == 0.30
         assert data['radius_composure'] == 0.28
-        assert data['radius_energy'] == 0.18
 
 
 class TestPokerFaceZoneRadiusModifiers:
@@ -1218,26 +1214,6 @@ class TestPokerFaceZoneRadiusModifiers:
         zone_high = create_poker_face_zone(high_ego)
 
         assert zone_low.radius_confidence > zone_high.radius_confidence
-
-    def test_high_expressiveness_smaller_energy_radius(self):
-        """Test that high expressiveness gives smaller energy radius."""
-        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
-
-        low_express = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
-            expressiveness=0.2, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
-        )
-        high_express = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
-            expressiveness=0.9, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
-        )
-
-        zone_low = create_poker_face_zone(low_express)
-        zone_high = create_poker_face_zone(high_express)
-
-        assert zone_low.radius_energy > zone_high.radius_energy
 
     def test_risk_seeking_narrows_confidence_radius(self):
         """Test that risk-seeking (>0.5) narrows confidence radius."""
@@ -1284,22 +1260,15 @@ class TestPokerFaceZoneRadiusModifiers:
         assert zone_low.radius_composure < zone_neutral.radius_composure
 
     def test_radius_ranges(self):
-        """Test that radius modifiers produce values in expected ranges.
-
-        Note: Energy radius can be expanded by dual-path adjustments:
-        - Stoic path (low energy + low risk_identity): 1.3x multiplier
-        - Controlled path (medium+ energy + low ego): 1.4x multiplier
-        This can push max energy radius up to ~0.36 (0.26 * 1.4).
-        """
+        """Test that radius modifiers produce values in expected ranges."""
         from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
 
         # Extreme personality with all modifiers maximizing zone size
-        # Note: ego=0.0 + baseline_energy=0.5 triggers "Controlled" path (1.4x energy)
         max_zone = PersonalityAnchors(
             baseline_aggression=0.5, baseline_looseness=0.5,
-            ego=0.0,  # Max confidence radius; triggers Controlled path
+            ego=0.0,  # Max confidence radius
             poise=1.0,  # Max composure radius
-            expressiveness=0.0,  # Max energy radius
+            expressiveness=0.0,
             risk_identity=0.5,  # No asymmetric penalty
             adaptation_bias=0.5, baseline_energy=0.5, recovery_rate=0.15,
         )
@@ -1308,7 +1277,7 @@ class TestPokerFaceZoneRadiusModifiers:
             baseline_aggression=0.5, baseline_looseness=0.5,
             ego=1.0,  # Min confidence radius
             poise=0.0,  # Min composure radius
-            expressiveness=1.0,  # Min energy radius
+            expressiveness=1.0,
             risk_identity=1.0,  # Asymmetric penalty on confidence
             adaptation_bias=0.5, baseline_energy=0.5, recovery_rate=0.15,
         )
@@ -1316,16 +1285,13 @@ class TestPokerFaceZoneRadiusModifiers:
         zone_max = create_poker_face_zone(max_zone)
         zone_min = create_poker_face_zone(min_zone)
 
-        # Base ranges: rc: 0.13-0.33, rcomp: 0.13-0.33, re: 0.14-0.26
+        # Base ranges: rc: 0.13-0.33, rcomp: 0.13-0.33
         # With risk_identity=1.0, confidence gets additional 20% penalty
-        # With dual-path energy adjustment, max energy can reach 0.26 * 1.4 = 0.364
         assert 0.10 <= zone_min.radius_confidence <= 0.35
         assert 0.10 <= zone_min.radius_composure <= 0.35
-        assert 0.10 <= zone_min.radius_energy <= 0.30
 
         assert 0.25 <= zone_max.radius_confidence <= 0.35
         assert 0.25 <= zone_max.radius_composure <= 0.35
-        assert 0.20 <= zone_max.radius_energy <= 0.40  # Expanded for dual-path
 
 
 class TestPokerFaceZoneIntegration:
@@ -1558,7 +1524,7 @@ class TestPokerFaceZoneIntegration:
         # With high expressiveness and high energy, visibility is high, so true emotion shows
         display_emotion = psych.get_display_emotion(use_expression_filter=True)
         # Should be their quadrant emotion, not poker_face
-        # (expression filter visibility = 0.9 * 0.8 = 0.72, which is > 0.6 threshold)
+        # (expression filter visibility = 0.7*0.9 + 0.3*0.8 = 0.87, which is > 0.6 threshold)
         true_emotion = psych.get_display_emotion(use_expression_filter=False)
         assert display_emotion == true_emotion  # High visibility shows true emotion
 
