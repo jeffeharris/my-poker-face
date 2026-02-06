@@ -6,11 +6,20 @@ from typing import Dict
 from flask import Blueprint, jsonify, request
 
 from core.llm import LLMClient, CallType, Assistant
+from poker.authorization import require_permission
 from ..extensions import prompt_capture_repo, decision_analysis_repo, capture_label_repo
 
 logger = logging.getLogger(__name__)
 
 prompt_debug_bp = Blueprint('prompt_debug', __name__)
+_admin_required = require_permission('can_access_admin_tools')
+
+
+@prompt_debug_bp.before_request
+@_admin_required
+def _require_admin_access():
+    """Require admin permission for all prompt-debug routes."""
+    return None
 
 # In-memory session storage for interrogation conversations
 # Key: session_id, Value: Assistant instance

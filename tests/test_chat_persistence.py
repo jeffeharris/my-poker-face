@@ -15,6 +15,14 @@ from flask_app import create_app
 from poker.repositories import create_repos
 
 
+def _mock_authorization_service(user=None, has_admin_permission=True):
+    """Build a fake global authorization service for require_permission()."""
+    authz = MagicMock()
+    authz.auth_manager.get_current_user.return_value = user
+    authz.has_permission.return_value = has_admin_permission
+    return authz
+
+
 class TestChatSessionPersistence(unittest.TestCase):
     """Test cases for chat session persistence methods."""
 
@@ -333,8 +341,18 @@ class TestChatEndpoints(unittest.TestCase):
         self.app.testing = True
         self.client = self.app.test_client()
 
+        self._authz_patcher = patch(
+            'poker.authorization.authorization_service',
+            _mock_authorization_service(
+                user={'id': 'admin-user-1', 'name': 'Admin'},
+                has_admin_permission=True,
+            ),
+        )
+        self._authz_patcher.start()
+
     def tearDown(self):
         """Clean up temporary database."""
+        self._authz_patcher.stop()
         os.unlink(self.test_db.name)
 
     def test_get_latest_chat_session_empty(self):
@@ -470,6 +488,15 @@ class TestExperimentAssistantChat(unittest.TestCase):
         self.app.testing = True
         self.client = self.app.test_client()
 
+        self._authz_patcher = patch(
+            'poker.authorization.authorization_service',
+            _mock_authorization_service(
+                user={'id': 'admin-user-1', 'name': 'Admin'},
+                has_admin_permission=True,
+            ),
+        )
+        self._authz_patcher.start()
+
         # Create a test experiment
         self.exp_id = self.experiment_repo.create_experiment({
             'name': 'test_assistant_experiment',
@@ -478,6 +505,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary database."""
+        self._authz_patcher.stop()
         os.unlink(self.test_db.name)
 
     def test_get_empty_chat_history(self):

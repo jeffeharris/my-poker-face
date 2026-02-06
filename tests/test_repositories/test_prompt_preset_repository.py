@@ -58,10 +58,36 @@ class TestPromptPresets:
     def test_update_preset_not_found(self, repo):
         assert repo.update_prompt_preset(9999, name='nope') is False
 
+    def test_update_preset_for_owner(self, repo):
+        pid = repo.create_prompt_preset(name='owner-orig', owner_id='user-1')
+        updated = repo.update_prompt_preset_for_owner(pid, 'user-1', name='owner-renamed')
+        assert updated is True
+
+        loaded = repo.get_prompt_preset(pid)
+        assert loaded['name'] == 'owner-renamed'
+
+    def test_update_preset_for_owner_denied(self, repo):
+        pid = repo.create_prompt_preset(name='owner-only', owner_id='user-1')
+        updated = repo.update_prompt_preset_for_owner(pid, 'user-2', name='hijacked')
+        assert updated is False
+
+        loaded = repo.get_prompt_preset(pid)
+        assert loaded['name'] == 'owner-only'
+
     def test_delete_preset(self, repo):
         pid = repo.create_prompt_preset(name='to-delete')
         assert repo.delete_prompt_preset(pid) is True
         assert repo.get_prompt_preset(pid) is None
+
+    def test_delete_preset_for_owner(self, repo):
+        pid = repo.create_prompt_preset(name='owner-delete', owner_id='user-1')
+        assert repo.delete_prompt_preset_for_owner(pid, 'user-1') is True
+        assert repo.get_prompt_preset(pid) is None
+
+    def test_delete_preset_for_owner_denied(self, repo):
+        pid = repo.create_prompt_preset(name='owner-protected', owner_id='user-1')
+        assert repo.delete_prompt_preset_for_owner(pid, 'user-2') is False
+        assert repo.get_prompt_preset(pid) is not None
 
     def test_delete_preset_not_found(self, repo):
         assert repo.delete_prompt_preset(9999) is False

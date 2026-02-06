@@ -208,6 +208,66 @@ class PromptPresetRepository(BaseRepository):
         except sqlite3.IntegrityError:
             raise ValueError(f"Prompt preset with name '{name}' already exists")
 
+    def update_prompt_preset_for_owner(
+        self,
+        preset_id: int,
+        owner_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        prompt_config: Optional[Dict[str, Any]] = None,
+        guidance_injection: Optional[str] = None
+    ) -> bool:
+        """Update a prompt preset owned by a specific user.
+
+        Args:
+            preset_id: The preset ID to update
+            owner_id: Required owner ID for ownership enforcement
+            name: Optional new name
+            description: Optional new description
+            prompt_config: Optional new prompt config
+            guidance_injection: Optional new guidance text
+
+        Returns:
+            True if the preset was updated, False if not found or not owned by owner_id
+
+        Raises:
+            ValueError: If the new name conflicts with an existing preset
+        """
+        updates = []
+        params = []
+
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name)
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        if prompt_config is not None:
+            updates.append("prompt_config = ?")
+            params.append(json.dumps(prompt_config))
+        if guidance_injection is not None:
+            updates.append("guidance_injection = ?")
+            params.append(guidance_injection)
+
+        if not updates:
+            return False
+
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        params.extend([preset_id, owner_id])
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    f"UPDATE prompt_presets SET {', '.join(updates)} WHERE id = ? AND owner_id = ?",
+                    params
+                )
+                if cursor.rowcount > 0:
+                    logger.info(f"Updated prompt preset ID {preset_id} for owner {owner_id}")
+                    return True
+                return False
+        except sqlite3.IntegrityError:
+            raise ValueError(f"Prompt preset with name '{name}' already exists")
+
     def delete_prompt_preset(self, preset_id: int) -> bool:
         """Delete a prompt preset.
 
@@ -229,4 +289,28 @@ class PromptPresetRepository(BaseRepository):
                 return False
         except Exception as e:
             logger.error(f"Failed to delete prompt preset {preset_id}: {e}")
+            return False
+
+    def delete_prompt_preset_for_owner(self, preset_id: int, owner_id: str) -> bool:
+        """Delete a prompt preset owned by a specific user.
+
+        Args:
+            preset_id: The preset ID to delete
+            owner_id: Required owner ID for ownership enforcement
+
+        Returns:
+            True if the preset was deleted, False if not found or not owned by owner_id
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM prompt_presets WHERE id = ? AND owner_id = ?",
+                    (preset_id, owner_id)
+                )
+                if cursor.rowcount > 0:
+                    logger.info(f"Deleted prompt preset ID {preset_id} for owner {owner_id}")
+                    return True
+                return False
+        except Exception as e:
+            logger.error(f"Failed to delete prompt preset {preset_id} for owner {owner_id}: {e}")
             return False

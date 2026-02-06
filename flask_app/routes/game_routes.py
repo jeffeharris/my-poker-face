@@ -40,6 +40,7 @@ from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
 from ..validation import validate_player_action
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
+from poker.authorization import get_authorization_service
 from poker.guest_limits import (
     is_guest, check_guest_game_limit, validate_guest_opponent_count,
     check_guest_message_limit, check_guest_hands_limit
@@ -49,6 +50,42 @@ from poker.guest_limits import GUEST_MAX_HANDS, GUEST_MAX_ACTIVE_GAMES, GUEST_MA
 logger = logging.getLogger(__name__)
 
 game_bp = Blueprint('game', __name__)
+
+
+def _is_admin(user_id: str) -> bool:
+    """Check whether a user has admin tools permission."""
+    auth_service = get_authorization_service()
+    return bool(auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools'))
+
+
+def _authorize_game_access(game_id: str, current_game_data: dict = None):
+    """Authorize access to a game using owner-or-admin checks."""
+    current_user = auth_manager.get_current_user() if auth_manager else None
+    if not current_user or not current_user.get('id'):
+        return None, None, None, (
+            jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}),
+            401,
+        )
+
+    user_id = current_user['id']
+    is_admin = _is_admin(user_id)
+
+    game_exists = bool(current_game_data)
+    owner_id = current_game_data.get('owner_id') if current_game_data else None
+
+    if owner_id is None:
+        owner_info = game_repo.get_game_owner_info(game_id)
+        if owner_info is not None:
+            game_exists = True
+            owner_id = owner_info.get('owner_id')
+
+    if not game_exists:
+        return current_user, is_admin, owner_id, (jsonify({'error': 'Game not found'}), 404)
+
+    if not is_admin and owner_id != user_id:
+        return current_user, is_admin, owner_id, (jsonify({'error': 'Permission denied'}), 403)
+
+    return current_user, is_admin, owner_id, None
 
 
 def load_game_mode_preset(game_mode: str) -> PromptConfig:
@@ -351,6 +388,9 @@ def list_games():
 def api_game_state(game_id):
     """API endpoint to get current game state for React app."""
     current_game_data = game_state_service.get_game(game_id)
+    current_user, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
 
     # Auto-advance cached games that are stuck in non-action phases
     if current_game_data:
@@ -363,21 +403,9 @@ def api_game_state(game_id):
     if not current_game_data:
         # Try to load from database
         try:
-            current_user = auth_manager.get_current_user()
-            saved_games = game_repo.list_games(owner_id=current_user.get('id') if current_user else None, limit=50)
-
-            game_found = False
-            owner_id = None
-            owner_name = None
-            for saved_game in saved_games:
-                if saved_game.game_id == game_id:
-                    game_found = True
-                    owner_id = saved_game.owner_id
-                    owner_name = saved_game.owner_name
-                    break
-
-            if not game_found:
-                return jsonify({'error': 'Game not found or access denied'}), 404
+            owner_info = game_repo.get_game_owner_info(game_id) or {}
+            owner_id = owner_info.get('owner_id')
+            owner_name = owner_info.get('owner_name')
 
             base_state_machine = game_repo.load_game(game_id)
             if base_state_machine:
@@ -746,39 +774,37 @@ def api_new_game():
     """Create a new game and return the game ID."""
     data = request.json or {}
 
-    current_user = auth_manager.get_current_user()
-    if current_user:
-        player_name = data.get('playerName', current_user.get('name', 'Player'))
-        owner_id = current_user.get('id')
-        owner_name = current_user.get('name')
+    current_user = auth_manager.get_current_user() if auth_manager else None
+    if not current_user or not current_user.get('id'):
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
 
-        game_count = user_repo.count_user_games(owner_id)
+    player_name = data.get('playerName', current_user.get('name', 'Player'))
+    owner_id = current_user.get('id')
+    owner_name = current_user.get('name')
 
-        # Use guest-specific limits if applicable
-        if is_guest(current_user):
-            allowed, error_msg = check_guest_game_limit(current_user, game_count)
-            if not allowed:
-                return jsonify({
-                    'error': error_msg,
-                    'code': 'GUEST_LIMIT_GAMES'
-                }), 403
-        else:
-            max_games = 10
-            if game_count >= max_games:
-                return jsonify({
-                    'error': f'Game limit reached. You can have up to {max_games} saved games.'
-                }), 400
+    game_count = user_repo.count_user_games(owner_id)
 
-        # Prevent duplicate game creation from rapid clicks
-        last_created = user_repo.get_last_game_creation_time(owner_id)
-        if last_created is not None and (time.time() - last_created) < 3:
+    # Use guest-specific limits if applicable
+    if is_guest(current_user):
+        allowed, error_msg = check_guest_game_limit(current_user, game_count)
+        if not allowed:
             return jsonify({
-                'error': 'Please wait a moment before creating another game.'
-            }), 429
+                'error': error_msg,
+                'code': 'GUEST_LIMIT_GAMES'
+            }), 403
     else:
-        player_name = data.get('playerName', 'Player')
-        owner_id = None
-        owner_name = None
+        max_games = 10
+        if game_count >= max_games:
+            return jsonify({
+                'error': f'Game limit reached. You can have up to {max_games} saved games.'
+            }), 400
+
+    # Prevent duplicate game creation from rapid clicks
+    last_created = user_repo.get_last_game_creation_time(owner_id)
+    if last_created is not None and (time.time() - last_created) < 3:
+        return jsonify({
+            'error': 'Please wait a moment before creating another game.'
+        }), 429
 
     requested_personalities = data.get('personalities', [])
     default_llm_config = data.get('llm_config', {})
@@ -980,11 +1006,15 @@ def api_new_game():
 @limiter.limit(config.RATE_LIMIT_GAME_ACTION)
 def api_player_action(game_id):
     """Handle player action via API."""
-    data = request.json
+    data = request.json or {}
     action = data.get('action')
     amount = data.get('amount', 0)
 
     current_game_data = game_state_service.get_game(game_id)
+    current_user, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
+
     if not current_game_data:
         return jsonify({'error': 'Game not found'}), 404
 
@@ -994,7 +1024,6 @@ def api_player_action(game_id):
     if not is_valid:
         return jsonify({'error': error_message}), 400
 
-    current_user = auth_manager.get_current_user()
     if current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED:
         tracking_id = current_game_data.get('guest_tracking_id')
         if tracking_id:
@@ -1049,23 +1078,28 @@ def api_player_action(game_id):
 @game_bp.route('/api/game/<game_id>/message', methods=['POST'])
 def api_send_message(game_id):
     """Send a chat message in the game."""
-    data = request.json
+    data = request.json or {}
     message = data.get('message', '')
     sender = data.get('sender', 'Player')
 
-    current_user = auth_manager.get_current_user()
+    current_game_data = game_state_service.get_game(game_id)
+    current_user, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
+
+    if not current_game_data:
+        return jsonify({'success': False, 'error': 'Game not found in memory. Try refreshing the page first.'}), 404
+
     is_guest_user = current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED
 
     if is_guest_user:
-        current_game_data = game_state_service.get_game(game_id)
-        if current_game_data:
-            msgs_this_action = current_game_data.get('guest_messages_this_action', 0)
-            allowed, error_msg = check_guest_message_limit(current_user, msgs_this_action)
-            if not allowed:
-                return jsonify({'success': False, 'error': error_msg, 'code': 'GUEST_CHAT_LIMIT'}), 429
-            # Increment before sending to close the race window between check and send
-            current_game_data['guest_messages_this_action'] = msgs_this_action + 1
-            game_state_service.set_game(game_id, current_game_data)
+        msgs_this_action = current_game_data.get('guest_messages_this_action', 0)
+        allowed, error_msg = check_guest_message_limit(current_user, msgs_this_action)
+        if not allowed:
+            return jsonify({'success': False, 'error': error_msg, 'code': 'GUEST_CHAT_LIMIT'}), 429
+        # Increment before sending to close the race window between check and send
+        current_game_data['guest_messages_this_action'] = msgs_this_action + 1
+        game_state_service.set_game(game_id, current_game_data)
 
     if message.strip():
         send_message(game_id, sender, message.strip(), 'player')
@@ -1078,6 +1112,9 @@ def api_send_message(game_id):
 def api_retry_game(game_id):
     """Force-retry a hung game by re-triggering AI turns."""
     current_game_data = game_state_service.get_game(game_id)
+    _, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
 
     if not current_game_data:
         return jsonify({'error': 'Game not found in memory. Try refreshing the page first.'}), 404
@@ -1132,6 +1169,11 @@ def api_retry_game(game_id):
 @game_bp.route('/api/game/<game_id>', methods=['DELETE'])
 def delete_game(game_id):
     """Delete a saved game."""
+    current_game_data = game_state_service.get_game(game_id)
+    _, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
+
     try:
         game_state_service.delete_game(game_id)
         game_repo.delete_game(game_id)
@@ -1145,6 +1187,11 @@ def delete_game(game_id):
 @game_bp.route('/api/end_game/<game_id>', methods=['POST'])
 def end_game(game_id):
     """Clean up game after tournament completes or user exits."""
+    current_game_data = game_state_service.get_game(game_id)
+    _, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
+
     game_state_service.delete_game(game_id)
 
     try:
@@ -1171,6 +1218,10 @@ def new_game():
 def get_messages(game_id):
     """Get messages for a game."""
     game_data = game_state_service.get_game(game_id)
+    _, _, _, auth_error = _authorize_game_access(game_id, game_data)
+    if auth_error:
+        return auth_error
+
     if not game_data:
         return jsonify([])
     return jsonify(game_data.get('messages', []))
@@ -1180,6 +1231,9 @@ def get_messages(game_id):
 def api_game_llm_configs(game_id):
     """Get LLM configurations for all players in a game (debug endpoint)."""
     current_game_data = game_state_service.get_game(game_id)
+    _, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
 
     if not current_game_data:
         # Try to load from database
@@ -1339,9 +1393,25 @@ def register_socket_events(sio):
         sender = data.get('sender', 'Player')
         message_type = data.get('message_type', 'user')
 
-        send_message(game_id, sender, content, message_type)
+        if not game_id:
+            logger.debug("[SOCKET] send_message missing game_id")
+            return
 
         game_data = game_state_service.get_game(game_id)
+        if not game_data:
+            logger.debug(f"[SOCKET] send_message game not found: {game_id}")
+            return
+
+        # Verify the current user is the game owner or an admin
+        user = auth_manager.get_current_user() if auth_manager else None
+        owner_id = game_data.get('owner_id')
+        user_id = user.get('id') if user else None
+        if not user_id or (user_id != owner_id and not _is_admin(user_id)):
+            logger.debug(f"[SOCKET] send_message unauthorized: user={user_id}, owner={owner_id}")
+            return
+
+        send_message(game_id, sender, content, message_type)
+
         if game_data and content:
             if 'pressure_detector' in game_data and 'ai_controllers' in game_data:
                 pressure_detector = game_data['pressure_detector']
@@ -1359,4 +1429,18 @@ def register_socket_events(sio):
     @sio.on('progress_game')
     @socket_rate_limit(max_calls=5, window_seconds=10)
     def on_progress_game(game_id):
-        progress_game(game_id)
+        game_id_str = str(game_id)
+        game_data = game_state_service.get_game(game_id_str)
+        if not game_data:
+            logger.debug(f"[SOCKET] progress_game game not found: {game_id_str}")
+            return
+
+        # Verify the current user is the game owner or an admin
+        user = auth_manager.get_current_user() if auth_manager else None
+        owner_id = game_data.get('owner_id')
+        user_id = user.get('id') if user else None
+        if not user_id or (user_id != owner_id and not _is_admin(user_id)):
+            logger.debug(f"[SOCKET] progress_game unauthorized: user={user_id}, owner={owner_id}")
+            return
+
+        progress_game(game_id_str)

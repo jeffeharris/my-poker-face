@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, List
 from flask import Blueprint, jsonify, request, session
 
 from core.llm import LLMClient, CallType
+from poker.authorization import require_permission
 from poker.prompt_config import PromptConfig
 from ..extensions import limiter, experiment_repo, game_repo, personality_repo, persistence_db_path, hand_history_repo
 from .. import config
@@ -22,6 +23,14 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 experiment_bp = Blueprint('experiments', __name__)
+_admin_required = require_permission('can_access_admin_tools')
+
+
+@experiment_bp.before_request
+@_admin_required
+def _require_admin_access():
+    """Require admin permission for all experiment API routes."""
+    return None
 
 # Store active experiment threads for status checking
 _active_experiments: Dict[int, threading.Thread] = {}

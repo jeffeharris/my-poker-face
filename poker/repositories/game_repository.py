@@ -154,6 +154,29 @@ class GameRepository(BaseRepository):
 
             return json.loads(row['llm_configs_json'])
 
+    def get_game_owner_info(self, game_id: str) -> Optional[Dict[str, Optional[str]]]:
+        """Get owner metadata for a game.
+
+        Args:
+            game_id: The game identifier
+
+        Returns:
+            Dict with owner_id and owner_name, or None if game does not exist
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT owner_id, owner_name FROM games WHERE game_id = ?",
+                (game_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                'owner_id': row['owner_id'],
+                'owner_name': row['owner_name'],
+            }
+
     def save_tournament_tracker(self, game_id: str, tracker) -> None:
         """Save tournament tracker state to the database.
 

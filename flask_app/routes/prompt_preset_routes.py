@@ -8,10 +8,17 @@ import logging
 from flask import Blueprint, jsonify, request
 
 from ..extensions import prompt_preset_repo, auth_manager
+from poker.authorization import get_authorization_service
 
 logger = logging.getLogger(__name__)
 
 prompt_preset_bp = Blueprint('prompt_preset', __name__)
+
+
+def _is_admin(user_id: str) -> bool:
+    """Check whether a user has admin tools permission."""
+    auth_service = get_authorization_service()
+    return bool(auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools'))
 
 
 @prompt_preset_bp.route('/api/prompt-presets', methods=['GET'])
@@ -65,6 +72,10 @@ def create_prompt_preset():
         }
     """
     try:
+        current_user = auth_manager.get_current_user() if auth_manager else None
+        if not current_user or not current_user.get('id'):
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
         data = request.json or {}
         name = data.get('name', '').strip()
 
@@ -75,8 +86,7 @@ def create_prompt_preset():
             }), 400
 
         # Get current user for ownership
-        current_user = auth_manager.get_current_user()
-        owner_id = current_user.get('id') if current_user else None
+        owner_id = current_user['id']
 
         preset_id = prompt_preset_repo.create_prompt_preset(
             name=name,
@@ -149,6 +159,12 @@ def update_prompt_preset(preset_id: int):
         }
     """
     try:
+        current_user = auth_manager.get_current_user() if auth_manager else None
+        if not current_user or not current_user.get('id'):
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+        user_id = current_user['id']
+        is_admin = _is_admin(user_id)
+
         data = request.json or {}
 
         # Check if preset exists
@@ -164,6 +180,13 @@ def update_prompt_preset(preset_id: int):
             return jsonify({
                 'success': False,
                 'error': 'System presets cannot be edited (managed by config/game_modes.yaml)'
+            }), 403
+
+        # Enforce ownership unless admin
+        if not is_admin and existing.get('owner_id') != user_id:
+            return jsonify({
+                'success': False,
+                'error': 'Permission denied'
             }), 403
 
         # Build update kwargs from provided fields
@@ -183,7 +206,10 @@ def update_prompt_preset(preset_id: int):
                 'error': 'No fields to update'
             }), 400
 
-        updated = prompt_preset_repo.update_prompt_preset(preset_id, **update_kwargs)
+        if is_admin:
+            updated = prompt_preset_repo.update_prompt_preset(preset_id, **update_kwargs)
+        else:
+            updated = prompt_preset_repo.update_prompt_preset_for_owner(preset_id, user_id, **update_kwargs)
 
         if not updated:
             return jsonify({
@@ -217,6 +243,12 @@ def delete_prompt_preset(preset_id: int):
         }
     """
     try:
+        current_user = auth_manager.get_current_user() if auth_manager else None
+        if not current_user or not current_user.get('id'):
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+        user_id = current_user['id']
+        is_admin = _is_admin(user_id)
+
         # Check if preset exists first
         existing = prompt_preset_repo.get_prompt_preset(preset_id)
         if not existing:
@@ -232,7 +264,17 @@ def delete_prompt_preset(preset_id: int):
                 'error': 'System presets cannot be deleted (managed by config/game_modes.yaml)'
             }), 403
 
-        deleted = prompt_preset_repo.delete_prompt_preset(preset_id)
+        # Enforce ownership unless admin
+        if not is_admin and existing.get('owner_id') != user_id:
+            return jsonify({
+                'success': False,
+                'error': 'Permission denied'
+            }), 403
+
+        if is_admin:
+            deleted = prompt_preset_repo.delete_prompt_preset(preset_id)
+        else:
+            deleted = prompt_preset_repo.delete_prompt_preset_for_owner(preset_id, user_id)
 
         if not deleted:
             return jsonify({

@@ -10,11 +10,20 @@ from typing import Dict, Any
 
 from flask import Blueprint, jsonify, request
 
+from poker.authorization import require_permission
 from ..extensions import replay_experiment_repo, capture_label_repo, prompt_capture_repo
 
 logger = logging.getLogger(__name__)
 
 replay_experiment_bp = Blueprint('replay_experiments', __name__)
+_admin_required = require_permission('can_access_admin_tools')
+
+
+@replay_experiment_bp.before_request
+@_admin_required
+def _require_admin_access():
+    """Require admin permission for replay experiment APIs."""
+    return None
 
 # Store active replay experiment threads
 _active_replay_threads: Dict[int, threading.Thread] = {}

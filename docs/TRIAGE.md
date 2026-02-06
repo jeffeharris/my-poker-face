@@ -45,6 +45,12 @@ Issues that could cause incorrect behavior, crashes, or embarrassing UX for real
 | T1-18 | Unprotected WebSocket handlers | `flask_app/routes/game_routes.py:1198-1286` | `on_join`, `handle_player_action` — no auth checks. Anyone can join any game and take actions. | **FIXED** — added owner + is_human auth checks |
 | T1-19 | SECRET_KEY regenerated on restart | `flask_app/config.py:18` | Falls back to `os.urandom(32).hex()` if not set. Invalidates all sessions on restart. | **FIXED** — stable default in dev, required in prod |
 | T1-20 | SQL injection risk in admin | `flask_app/routes/admin_dashboard_routes.py:1724` | Table names via f-string interpolation. Whitelist check exists but pattern is dangerous. | **DISMISSED** — hardcoded whitelist is robust |
+| T1-22 | Missing ownership checks on game REST endpoints | `flask_app/routes/game_routes.py:350`, `flask_app/routes/game_routes.py:979`, `flask_app/routes/game_routes.py:1049`, `flask_app/routes/game_routes.py:1132`, `flask_app/routes/game_routes.py:1145`, `flask_app/routes/game_routes.py:1170`, `flask_app/routes/game_routes.py:1179` | Several state-mutating/read endpoints trust only `game_id` from URL and never verify current user owns that game. Any authenticated or unauthenticated caller with a valid game ID can read state/messages/LLM configs, submit actions/messages, or delete/end games. | **FIXED** — added shared owner-or-admin guard across game REST endpoints and aligned lifecycle by requiring auth on `/api/new-game` (prevents unreachable ownerless games). Verified by `tests/test_game_route_auth.py` (8 passed). |
+| T1-23 | Unauthenticated SocketIO handlers still allow game manipulation | `flask_app/routes/game_routes.py:1334`, `flask_app/routes/game_routes.py:1359` | `send_message` and `progress_game` socket handlers have rate limits but no owner/auth checks (unlike `join_game` and `player_action`). Clients can emit to arbitrary game IDs and force progression or inject chat. | **FIXED** — `send_message` and `progress_game` now enforce owner-or-admin authorization and game existence checks before acting. Verified by `tests/test_websocket_auth.py` (15 passed). |
+| T1-24 | Debug/experiment APIs exposed without admin authorization | `flask_app/routes/prompt_debug_routes.py:33`, `flask_app/routes/capture_label_routes.py:17`, `flask_app/routes/experiment_routes.py:1376`, `flask_app/routes/replay_experiment_routes.py:23` | Entire debug/experiment surfaces are unguarded by `require_permission('can_access_admin_tools')`. This exposes prompt captures and allows launching expensive background experiments/replays without admin access. | **FIXED** — enforced `can_access_admin_tools` at blueprint level for prompt debug, capture labels, experiments, and replay experiments. Added coverage in `tests/test_admin_experiment_route_auth.py` (6 passed) and updated experiment endpoint suites to run under admin auth mocks. |
+| T1-25 | Prompt preset write operations bypass auth and ownership | `flask_app/routes/prompt_preset_routes.py:48`, `flask_app/routes/prompt_preset_routes.py:132`, `flask_app/routes/prompt_preset_routes.py:209`, `poker/repositories/prompt_preset_repository.py:200`, `poker/repositories/prompt_preset_repository.py:223` | Preset create/update/delete endpoints have no auth requirement, and repository update/delete queries are only keyed by `id` (no `owner_id`). Any caller who knows a preset ID can modify/delete another user's preset. Anonymous callers can also create presets with `owner_id=NULL`. | **FIXED** — create/update/delete now require authenticated user, enforce owner-or-admin authorization, and use owner-scoped repository mutations for non-admin requests |
+| T1-26 | Guest identity is forgeable and collides across users | `poker/auth.py:317`, `poker/auth.py:355` | Guest ID is deterministic from display name (`guest_<sanitized_name>`) and restored from a plain `guest_id` cookie with only prefix validation. Attackers can forge guest cookies or choose the same name to assume another guest identity and access their games. | |
+| T1-27 | Experiment chat sessions leak across anonymous users | `flask_app/routes/experiment_routes.py:1640`, `flask_app/routes/experiment_routes.py:1689`, `poker/repositories/experiment_repository.py:727` | Chat sessions are stored/looked up under `owner_id = session.get('owner_id', 'anonymous')`, but `owner_id` is never set elsewhere, so unrelated anonymous users share the same owner bucket. `chat/latest` can return another user's design session and config history. | |
 
 ---
 
@@ -217,10 +223,10 @@ Issues to address once live, during ongoing development.
 
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
-| **Tier 1: Must-Fix** | 21 | 15 | 6 | 0 |
+| **Tier 1: Must-Fix** | 27 | 16 | 6 | 5 |
 | **Tier 2: Should-Fix** | 26 | 20 | 6 | 0 |
 | **Tier 3: Post-Release** | 54 | 27 | 1 | 26 |
-| **Total** | **101** | **62** | **13** | **26** |
+| **Total** | **107** | **63** | **13** | **31** |
 
 ## Key Architectural Insight
 
