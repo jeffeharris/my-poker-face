@@ -380,7 +380,7 @@ class PlayerPsychology:
             f"Confidence={self.confidence:.2f}, Composure={self.composure:.2f}"
         )
 
-    def recover(self, recovery_rate: Optional[float] = None) -> None:
+    def recover(self, recovery_rate: Optional[float] = None) -> Dict[str, Any]:
         """
         Apply recovery between hands.
 
@@ -394,48 +394,58 @@ class PlayerPsychology:
         - Above baseline: slow decay (modifier = 0.8)
 
         Zone gravity applied after anchor gravity to create zone "stickiness".
+
+        Returns:
+            Dict with force breakdown: recovery deltas, gravity deltas, before/after values
         """
         rate = recovery_rate if recovery_rate is not None else self.anchors.recovery_rate
 
+        # Capture before state
+        pre_conf = self.axes.confidence
+        pre_comp = self.axes.composure
+        pre_energy = self.axes.energy
+
         # Confidence (asymmetric)
-        current_conf = self.axes.confidence
         conf_baseline = self._baseline_confidence
 
-        if current_conf < conf_baseline:
+        if pre_conf < conf_baseline:
             floor = get_zone_param('RECOVERY_BELOW_BASELINE_FLOOR')
             range_ = get_zone_param('RECOVERY_BELOW_BASELINE_RANGE')
-            conf_modifier = floor + range_ * current_conf
+            conf_modifier = floor + range_ * pre_conf
         else:
             conf_modifier = get_zone_param('RECOVERY_ABOVE_BASELINE')
 
-        new_conf = current_conf + (conf_baseline - current_conf) * rate * conf_modifier
+        new_conf = pre_conf + (conf_baseline - pre_conf) * rate * conf_modifier
 
         # Composure (asymmetric)
-        current_comp = self.axes.composure
         comp_baseline = self._baseline_composure
 
-        if current_comp < comp_baseline:
+        if pre_comp < comp_baseline:
             floor = get_zone_param('RECOVERY_BELOW_BASELINE_FLOOR')
             range_ = get_zone_param('RECOVERY_BELOW_BASELINE_RANGE')
-            comp_modifier = floor + range_ * current_comp
+            comp_modifier = floor + range_ * pre_comp
         else:
             comp_modifier = get_zone_param('RECOVERY_ABOVE_BASELINE')
 
-        new_comp = current_comp + (comp_baseline - current_comp) * rate * comp_modifier
+        new_comp = pre_comp + (comp_baseline - pre_comp) * rate * comp_modifier
 
         # Energy (edge springs)
         energy_rate = rate
         energy_target = self.anchors.baseline_energy
-        current_energy = self.axes.energy
 
-        if current_energy < 0.15:
-            spring = (0.15 - current_energy) * 0.33
+        if pre_energy < 0.15:
+            spring = (0.15 - pre_energy) * 0.33
             energy_rate += spring
-        elif current_energy > 0.85:
-            spring = (current_energy - 0.85) * 0.33
+        elif pre_energy > 0.85:
+            spring = (pre_energy - 0.85) * 0.33
             energy_rate += spring
 
-        new_energy = current_energy + (energy_target - current_energy) * energy_rate
+        new_energy = pre_energy + (energy_target - pre_energy) * energy_rate
+
+        # Capture recovery deltas (before gravity)
+        recovery_conf = new_conf - pre_conf
+        recovery_comp = new_comp - pre_comp
+        recovery_energy = new_energy - pre_energy
 
         # Zone gravity
         zone_fx = get_zone_effects(new_conf, new_comp, new_energy)
@@ -450,6 +460,17 @@ class PlayerPsychology:
         )
 
         self._mark_updated()
+
+        return {
+            'recovery_conf': round(recovery_conf, 6),
+            'recovery_comp': round(recovery_comp, 6),
+            'recovery_energy': round(recovery_energy, 6),
+            'gravity_conf': round(gravity_conf, 6),
+            'gravity_comp': round(gravity_comp, 6),
+            'conf_after': round(new_conf, 4),
+            'comp_after': round(new_comp, 4),
+            'energy_after': round(new_energy, 4),
+        }
 
     def on_action_taken(self, action: str) -> List[str]:
         """

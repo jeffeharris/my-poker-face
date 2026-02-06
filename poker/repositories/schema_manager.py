@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # v70: Add range_targets JSON column to player_coach_profile for dynamic range coaching
 # v71: Add new 5-trait psychology columns to player_decision_analysis
 # v72: Add zone detection and effects tracking columns to player_decision_analysis
-SCHEMA_VERSION = 72
+SCHEMA_VERSION = 73
 
 
 
@@ -1058,6 +1058,7 @@ class SchemaManager:
             70: (self._migrate_v70_add_range_targets, "Add range_targets JSON column to player_coach_profile"),
             71: (self._migrate_v70_add_5trait_columns, "Add 5-trait psychology columns to player_decision_analysis"),
             72: (self._migrate_v71_add_zone_tracking, "Add zone detection and effects tracking columns to player_decision_analysis"),
+            73: (self._migrate_v73_pressure_events_hand_number, "Add hand_number column to pressure_events"),
         }
 
         with self._get_connection() as conn:
@@ -3283,4 +3284,20 @@ class SchemaManager:
             logger.debug(f"Index creation failed (may already exist): {e}")
 
         logger.info("Migration v72 complete: zone tracking columns added")
+
+    def _migrate_v73_pressure_events_hand_number(self, conn: sqlite3.Connection) -> None:
+        """Migration v73: Add hand_number column to pressure_events table."""
+        cursor = conn.execute("PRAGMA table_info(pressure_events)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'hand_number' not in existing_columns:
+            conn.execute("ALTER TABLE pressure_events ADD COLUMN hand_number INTEGER")
+            logger.debug("Added hand_number column to pressure_events")
+
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_hand ON pressure_events(game_id, hand_number)")
+        except Exception as e:
+            logger.debug(f"Index creation failed (may already exist): {e}")
+
+        logger.info("Migration v73 complete: pressure_events hand_number added")
 

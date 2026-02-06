@@ -54,6 +54,7 @@ def create_repos(db_path: str) -> dict:
         'llm_repo': LLMRepository(db_path),
         'guest_tracking_repo': GuestTrackingRepository(db_path),
         'coach_repo': CoachRepository(db_path),
+        'pressure_event_repo': PressureEventRepository(db_path),
         'db_path': db_path,
     }
 

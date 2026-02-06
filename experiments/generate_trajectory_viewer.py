@@ -154,6 +154,32 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
             'intrusive': bool(row['zone_intrusive_thoughts_injected']),
         })
 
+    # Get pressure events for this game (keyed by player → hand_number → [events])
+    pressure_events = {}
+    try:
+        pe_rows = conn.execute('''
+            SELECT player_name, hand_number, event_type, details_json
+            FROM pressure_events
+            WHERE game_id = ? AND hand_number IS NOT NULL
+            ORDER BY hand_number, id
+        ''', (selected_game,)).fetchall()
+
+        for row in pe_rows:
+            name = row['player_name']
+            hand = row['hand_number']
+            if name not in pressure_events:
+                pressure_events[name] = {}
+            if hand not in pressure_events[name]:
+                pressure_events[name][hand] = []
+
+            details = json.loads(row['details_json']) if row['details_json'] else {}
+            pressure_events[name][hand].append({
+                'type': row['event_type'],
+                'details': details,
+            })
+    except Exception:
+        pass  # Table may not have hand_number column yet
+
     # Assign colors and initials
     player_colors = {}
     player_initials = {}
@@ -172,6 +198,7 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
         'player_colors': player_colors,
         'player_initials': player_initials,
         'trajectories': trajectories,
+        'pressure_events': pressure_events,
         'zone_config': {
             'sweet_spots': sweet_spots,
             'penalty_thresholds': penalty_thresholds,
@@ -733,7 +760,7 @@ function updatePlayerCards(handIdx) {
     if (eliminated) {
       evEl.innerHTML = '<span class="event-badge loss">Eliminated</span>';
     } else {
-      evEl.innerHTML = computeEvents(current, prev);
+      evEl.innerHTML = computeEvents(player, current, prev);
     }
   }
 }
@@ -753,11 +780,57 @@ function setDelta(sid, axis, value) {
   }
 }
 
-function computeEvents(current, prev) {
+// Event type display names and CSS classes
+const EVENT_STYLES = {
+  big_win: {label: 'big win', cls: 'win'},
+  win: {label: 'win', cls: 'win'},
+  successful_bluff: {label: 'bluff worked', cls: 'win'},
+  suckout: {label: 'suckout', cls: 'win'},
+  double_up: {label: 'double up!', cls: 'win'},
+  eliminated_opponent: {label: 'eliminated opp', cls: 'win'},
+  winning_streak: {label: 'streak \u2191', cls: 'win'},
+  nemesis_win: {label: 'nemesis win', cls: 'win'},
+  big_loss: {label: 'big loss', cls: 'loss'},
+  bluff_called: {label: 'bluff called', cls: 'loss'},
+  bad_beat: {label: 'bad beat', cls: 'loss'},
+  got_sucked_out: {label: 'sucked out on', cls: 'loss'},
+  cooler: {label: 'cooler', cls: 'loss'},
+  crippled: {label: 'crippled', cls: 'loss'},
+  short_stack: {label: 'short stack', cls: 'loss'},
+  losing_streak: {label: 'streak \u2193', cls: 'loss'},
+  nemesis_loss: {label: 'nemesis loss', cls: 'loss'},
+  fold_under_pressure: {label: 'folded under pressure', cls: 'neutral'},
+  _recovery: {label: 'recovery', cls: 'zone'},
+  _gravity: {label: 'zone gravity', cls: 'thoughts'},
+};
+
+function computeEvents(playerName, current, prev) {
   if (!prev) return '<span class="event-badge neutral">Baseline</span>';
   const b = [];
 
-  // Stack change
+  // Show actual pressure events if available
+  const pe = DATA.pressure_events || {};
+  const playerEvents = pe[playerName] || {};
+  const handEvents = playerEvents[current.hand] || [];
+
+  for (const evt of handEvents) {
+    const style = EVENT_STYLES[evt.type] || {label: evt.type, cls: 'neutral'};
+    let extra = '';
+    if (evt.type === '_recovery' && evt.details) {
+      const dc = evt.details.conf_delta || 0;
+      const dm = evt.details.comp_delta || 0;
+      extra = ' c' + (dc >= 0 ? '+' : '') + dc.toFixed(3) +
+              ' m' + (dm >= 0 ? '+' : '') + dm.toFixed(3);
+    } else if (evt.type === '_gravity' && evt.details) {
+      const dc = evt.details.conf_delta || 0;
+      const dm = evt.details.comp_delta || 0;
+      extra = ' c' + (dc >= 0 ? '+' : '') + dc.toFixed(3) +
+              ' m' + (dm >= 0 ? '+' : '') + dm.toFixed(3);
+    }
+    b.push('<span class="event-badge ' + style.cls + '">' + style.label + extra + '</span>');
+  }
+
+  // Stack change (always show if changed)
   const sd = current.stack - prev.stack;
   if (sd > 0) b.push('<span class="event-badge win">+' + sd + ' chips</span>');
   else if (sd < 0) b.push('<span class="event-badge loss">' + sd + ' chips</span>');
@@ -777,7 +850,6 @@ function computeEvents(current, prev) {
     if (prev.penalty && !current.penalty)
       b.push('<span class="event-badge zone">\u2713 left ' + prev.penalty + '</span>');
   } else if (current.penalty) {
-    // Still in penalty
     b.push('<span class="event-badge penalty">' + current.penalty +
       ' (' + (current.penalty_strength * 100).toFixed(0) + '%)</span>');
   }
@@ -785,10 +857,6 @@ function computeEvents(current, prev) {
   // Intrusive thoughts
   if (current.intrusive)
     b.push('<span class="event-badge thoughts">\ud83d\udcad intrusive thoughts</span>');
-
-  // Action
-  if (current.action)
-    b.push('<span class="event-badge neutral">' + current.action + '</span>');
 
   return b.length ? b.join('') : '<span class="event-badge neutral">steady</span>';
 }
