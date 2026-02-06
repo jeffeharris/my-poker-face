@@ -7,15 +7,12 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
-import type { FeedbackPromptData } from '../types/coach';
-
 interface UsePokerGameOptions {
   gameId: string | null;
   playerName?: string;
   onGameCreated?: (gameId: string) => void;
   onNewAiMessage?: (message: ChatMessage) => void;
   onGameLoadFailed?: () => void;
-  onCoachFeedbackPrompt?: (prompt: FeedbackPromptData) => void;
 }
 
 type QueuedAction = 'check_fold' | null;
@@ -86,7 +83,6 @@ export function usePokerGame({
   onGameCreated,
   onNewAiMessage,
   onGameLoadFailed,
-  onCoachFeedbackPrompt,
 }: UsePokerGameOptions): UsePokerGameResult {
   // Game state lives in Zustand store for granular subscriptions
   const applyGameState = useGameStore(state => state.applyGameState);
@@ -498,12 +494,6 @@ export function usePokerGame({
       setGuestLimitReached(true);
     });
 
-    socket.on('coach_feedback_prompt', (data: FeedbackPromptData) => {
-      if (onCoachFeedbackPrompt) {
-        onCoachFeedbackPrompt(data);
-      }
-    });
-
     socket.on('rate_limited', (data: { event: string; message: string }) => {
       logger.warn(`Rate limited: ${data.event}`);
       toast.error(data.message);
@@ -542,7 +532,7 @@ export function usePokerGame({
         });
       });
     });
-  }, [onNewAiMessage, onCoachFeedbackPrompt, clearAiThinkingTimeout, updateStorePlayers, updateStorePlayerOptions, resetBuffer, processStateUpdate]);
+  }, [onNewAiMessage, clearAiThinkingTimeout, updateStorePlayers, updateStorePlayerOptions, resetBuffer, processStateUpdate]);
 
   // refreshGameState: silent=true means don't touch loading state (for reconnections)
   const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
