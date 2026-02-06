@@ -18,13 +18,16 @@ Architecture (3 layers):
 Phase 1 implements Identity + State layers. Energy is static (= baseline_energy).
 """
 
+import json
 import logging
 import math
+import os
 import random
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
 from .emotional_state import (
@@ -40,6 +43,132 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# === TUNABLE PARAMETER SYSTEM ===
+# Parameters can be overridden via:
+#   1. Environment variable ZONE_PARAMS_FILE pointing to a JSON config
+#   2. Default file at experiments/configs/zone_parameters.json
+#   3. Runtime override via set_zone_params()
+
+_zone_params_cache: Optional[Dict[str, Any]] = None
+_zone_params_overrides: Dict[str, float] = {}
+
+
+def _load_zone_params() -> Dict[str, Any]:
+    """Load zone parameters from config file."""
+    global _zone_params_cache
+    if _zone_params_cache is not None:
+        return _zone_params_cache
+
+    # Default values (hardcoded fallback)
+    defaults = {
+        'penalty_thresholds': {
+            'PENALTY_TILTED_THRESHOLD': 0.35,
+            'PENALTY_OVERCONFIDENT_THRESHOLD': 0.90,
+            'PENALTY_TIMID_THRESHOLD': 0.10,
+            'PENALTY_SHAKEN_CONF_THRESHOLD': 0.35,
+            'PENALTY_SHAKEN_COMP_THRESHOLD': 0.35,
+            'PENALTY_OVERHEATED_CONF_THRESHOLD': 0.65,
+            'PENALTY_OVERHEATED_COMP_THRESHOLD': 0.35,
+            'PENALTY_DETACHED_CONF_THRESHOLD': 0.35,
+            'PENALTY_DETACHED_COMP_THRESHOLD': 0.65,
+        },
+        'zone_radii': {
+            'ZONE_POKER_FACE_RADIUS': 0.16,
+            'ZONE_GUARDED_RADIUS': 0.15,
+            'ZONE_COMMANDING_RADIUS': 0.14,
+            'ZONE_AGGRO_RADIUS': 0.12,
+        },
+        'recovery': {
+            'RECOVERY_BELOW_BASELINE_FLOOR': 0.60,
+            'RECOVERY_BELOW_BASELINE_RANGE': 0.40,
+            'RECOVERY_ABOVE_BASELINE': 0.80,
+        },
+        'gravity': {
+            'GRAVITY_STRENGTH': 0.03,
+        },
+    }
+
+    # Try to load from file
+    config_path = os.environ.get('ZONE_PARAMS_FILE')
+    if not config_path:
+        # Look for default config relative to this file
+        poker_dir = Path(__file__).parent
+        project_root = poker_dir.parent
+        config_path = project_root / 'experiments' / 'configs' / 'zone_parameters.json'
+
+    try:
+        if Path(config_path).exists():
+            with open(config_path, 'r') as f:
+                loaded = json.load(f)
+                # Merge loaded values into defaults
+                for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'gravity']:
+                    if category in loaded:
+                        defaults[category].update(loaded[category])
+                logger.debug(f"Loaded zone parameters from {config_path}")
+    except Exception as e:
+        logger.warning(f"Failed to load zone parameters from {config_path}: {e}")
+
+    _zone_params_cache = defaults
+    return defaults
+
+
+def get_zone_param(name: str) -> float:
+    """
+    Get a zone parameter value.
+
+    Checks in order:
+    1. Runtime overrides (set_zone_params)
+    2. Loaded config file
+    3. Hardcoded defaults
+    """
+    # Check runtime overrides first
+    if name in _zone_params_overrides:
+        return _zone_params_overrides[name]
+
+    params = _load_zone_params()
+
+    # Search all categories for the parameter
+    for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'gravity']:
+        if name in params.get(category, {}):
+            return params[category][name]
+
+    raise KeyError(f"Unknown zone parameter: {name}")
+
+
+def set_zone_params(overrides: Dict[str, float]) -> None:
+    """
+    Set runtime parameter overrides.
+
+    Use this in experiments to test different parameter values
+    without modifying config files.
+
+    Example:
+        set_zone_params({'RECOVERY_BELOW_BASELINE_FLOOR': 0.70})
+    """
+    global _zone_params_overrides
+    _zone_params_overrides.update(overrides)
+    logger.info(f"Zone parameter overrides set: {overrides}")
+
+
+def clear_zone_params() -> None:
+    """Clear all runtime parameter overrides."""
+    global _zone_params_overrides, _zone_params_cache
+    _zone_params_overrides = {}
+    _zone_params_cache = None
+    logger.info("Zone parameter overrides cleared")
+
+
+def get_all_zone_params() -> Dict[str, float]:
+    """Get all zone parameters as a flat dict (for reporting)."""
+    params = _load_zone_params()
+    result = {}
+    for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'gravity']:
+        result.update(params.get(category, {}))
+    # Apply overrides
+    result.update(_zone_params_overrides)
+    return result
+
+
 # === PHASE 4: EVENT SENSITIVITY SYSTEM ===
 
 # Severity-based sensitivity floors
@@ -47,10 +176,12 @@ SEVERITY_MINOR = 0.20
 SEVERITY_NORMAL = 0.30
 SEVERITY_MAJOR = 0.40
 
-# Asymmetric recovery constants
-RECOVERY_BELOW_BASELINE_FLOOR = 0.6
-RECOVERY_BELOW_BASELINE_RANGE = 0.4
-RECOVERY_ABOVE_BASELINE = 0.8
+# Asymmetric recovery constants (now loaded from config via get_zone_param())
+# These module-level constants are kept for backwards compatibility
+# but actual usage should call get_zone_param() for runtime overrides
+RECOVERY_BELOW_BASELINE_FLOOR = 0.6  # Use get_zone_param('RECOVERY_BELOW_BASELINE_FLOOR')
+RECOVERY_BELOW_BASELINE_RANGE = 0.4  # Use get_zone_param('RECOVERY_BELOW_BASELINE_RANGE')
+RECOVERY_ABOVE_BASELINE = 0.8  # Use get_zone_param('RECOVERY_ABOVE_BASELINE')
 
 # Event severity categorization
 EVENT_SEVERITY = {
@@ -228,20 +359,19 @@ ENERGY_MANIFESTATION_LABELS = {
 
 # === PHASE 5: ZONE DETECTION SYSTEM ===
 
-# Sweet spot centers and radii (from PSYCHOLOGY_ZONES_MODEL.md)
+# Sweet spot centers (fixed) and radii (tunable via get_zone_param())
 ZONE_GUARDED_CENTER = (0.28, 0.72)
-ZONE_GUARDED_RADIUS = 0.15
-
 ZONE_POKER_FACE_CENTER = (0.52, 0.72)
-ZONE_POKER_FACE_RADIUS = 0.16
-
 ZONE_COMMANDING_CENTER = (0.78, 0.78)
-ZONE_COMMANDING_RADIUS = 0.14
-
 ZONE_AGGRO_CENTER = (0.68, 0.48)
+
+# Legacy constants kept for backwards compatibility - use get_zone_param() instead
+ZONE_GUARDED_RADIUS = 0.15
+ZONE_POKER_FACE_RADIUS = 0.16
+ZONE_COMMANDING_RADIUS = 0.14
 ZONE_AGGRO_RADIUS = 0.12
 
-# Penalty zone thresholds
+# Penalty zone thresholds (tunable via get_zone_param())
 PENALTY_TILTED_THRESHOLD = 0.35
 PENALTY_OVERCONFIDENT_THRESHOLD = 0.90
 PENALTY_TIMID_THRESHOLD = 0.10  # Left edge (mirror of Overconfident)
@@ -255,6 +385,29 @@ PENALTY_DETACHED_COMP_THRESHOLD = 0.65
 # Energy manifestation thresholds
 ENERGY_LOW_THRESHOLD = 0.35
 ENERGY_HIGH_THRESHOLD = 0.65
+
+# === ZONE GRAVITY CONSTANTS ===
+# Gravity strength (tunable via get_zone_param('GRAVITY_STRENGTH'))
+GRAVITY_STRENGTH = 0.03
+
+# Penalty zone gravity directions - pull toward zone extreme/edge
+# These are normalized (conf_delta, comp_delta) vectors
+PENALTY_GRAVITY_DIRECTIONS: Dict[str, Tuple[float, float]] = {
+    'tilted': (0.0, -1.0),          # Down toward composure=0
+    'shaken': (-0.707, -0.707),     # Toward (0,0) corner (normalized)
+    'overheated': (0.707, -0.707),  # Toward (1,0) corner (normalized)
+    'overconfident': (1.0, 0.0),    # Right toward confidence=1
+    'timid': (-1.0, 0.0),           # Left toward confidence=0
+    'detached': (-0.707, 0.707),    # Toward (0,1) corner (normalized)
+}
+
+# Sweet spot centers for gravity calculations (also used by _detect_sweet_spots)
+SWEET_SPOT_CENTERS: Dict[str, Tuple[float, float]] = {
+    'guarded': ZONE_GUARDED_CENTER,
+    'poker_face': ZONE_POKER_FACE_CENTER,
+    'commanding': ZONE_COMMANDING_CENTER,
+    'aggro': ZONE_AGGRO_CENTER,
+}
 
 
 # === CORE DATA STRUCTURES (Phase 1) ===
@@ -402,12 +555,12 @@ def _detect_sweet_spots(confidence: float, composure: float) -> Dict[str, float]
     """
     sweet_spots = {}
 
-    # Check each sweet spot zone
+    # Check each sweet spot zone (radii are tunable via get_zone_param())
     zones = [
-        ('guarded', ZONE_GUARDED_CENTER, ZONE_GUARDED_RADIUS),
-        ('poker_face', ZONE_POKER_FACE_CENTER, ZONE_POKER_FACE_RADIUS),
-        ('commanding', ZONE_COMMANDING_CENTER, ZONE_COMMANDING_RADIUS),
-        ('aggro', ZONE_AGGRO_CENTER, ZONE_AGGRO_RADIUS),
+        ('guarded', ZONE_GUARDED_CENTER, get_zone_param('ZONE_GUARDED_RADIUS')),
+        ('poker_face', ZONE_POKER_FACE_CENTER, get_zone_param('ZONE_POKER_FACE_RADIUS')),
+        ('commanding', ZONE_COMMANDING_CENTER, get_zone_param('ZONE_COMMANDING_RADIUS')),
+        ('aggro', ZONE_AGGRO_CENTER, get_zone_param('ZONE_AGGRO_RADIUS')),
     ]
 
     for zone_name, center, radius in zones:
@@ -441,41 +594,52 @@ def _detect_penalty_zones(confidence: float, composure: float) -> Dict[str, floa
     """
     penalties = {}
 
-    # Tilted: bottom edge (composure < 0.35)
+    # Load thresholds from tunable config
+    tilted_thresh = get_zone_param('PENALTY_TILTED_THRESHOLD')
+    overconf_thresh = get_zone_param('PENALTY_OVERCONFIDENT_THRESHOLD')
+    timid_thresh = get_zone_param('PENALTY_TIMID_THRESHOLD')
+    shaken_conf_thresh = get_zone_param('PENALTY_SHAKEN_CONF_THRESHOLD')
+    shaken_comp_thresh = get_zone_param('PENALTY_SHAKEN_COMP_THRESHOLD')
+    overheated_conf_thresh = get_zone_param('PENALTY_OVERHEATED_CONF_THRESHOLD')
+    overheated_comp_thresh = get_zone_param('PENALTY_OVERHEATED_COMP_THRESHOLD')
+    detached_conf_thresh = get_zone_param('PENALTY_DETACHED_CONF_THRESHOLD')
+    detached_comp_thresh = get_zone_param('PENALTY_DETACHED_COMP_THRESHOLD')
+
+    # Tilted: bottom edge (composure < threshold)
     # Strength increases as composure decreases
-    if composure < PENALTY_TILTED_THRESHOLD:
-        penalties['tilted'] = (PENALTY_TILTED_THRESHOLD - composure) / PENALTY_TILTED_THRESHOLD
+    if composure < tilted_thresh:
+        penalties['tilted'] = (tilted_thresh - composure) / tilted_thresh
 
-    # Overconfident: right edge (confidence > 0.90)
+    # Overconfident: right edge (confidence > threshold)
     # Strength increases as confidence approaches 1.0
-    if confidence > PENALTY_OVERCONFIDENT_THRESHOLD:
-        penalties['overconfident'] = (confidence - PENALTY_OVERCONFIDENT_THRESHOLD) / (1.0 - PENALTY_OVERCONFIDENT_THRESHOLD)
+    if confidence > overconf_thresh:
+        penalties['overconfident'] = (confidence - overconf_thresh) / (1.0 - overconf_thresh)
 
-    # Timid: left edge (confidence < 0.10) - mirror of Overconfident
+    # Timid: left edge (confidence < threshold) - mirror of Overconfident
     # Scared money, over-respects opponents, can't pull the trigger
-    if confidence < PENALTY_TIMID_THRESHOLD:
-        penalties['timid'] = (PENALTY_TIMID_THRESHOLD - confidence) / PENALTY_TIMID_THRESHOLD
+    if confidence < timid_thresh:
+        penalties['timid'] = (timid_thresh - confidence) / timid_thresh
 
     # Shaken: lower-left corner (low conf AND low comp)
     # Strength based on distance toward (0, 0) corner
-    if confidence < PENALTY_SHAKEN_CONF_THRESHOLD and composure < PENALTY_SHAKEN_COMP_THRESHOLD:
+    if confidence < shaken_conf_thresh and composure < shaken_comp_thresh:
         # Calculate how far into the corner (using Manhattan-style product)
-        conf_depth = (PENALTY_SHAKEN_CONF_THRESHOLD - confidence) / PENALTY_SHAKEN_CONF_THRESHOLD
-        comp_depth = (PENALTY_SHAKEN_COMP_THRESHOLD - composure) / PENALTY_SHAKEN_COMP_THRESHOLD
+        conf_depth = (shaken_conf_thresh - confidence) / shaken_conf_thresh
+        comp_depth = (shaken_comp_thresh - composure) / shaken_comp_thresh
         penalties['shaken'] = conf_depth * comp_depth
 
     # Overheated: lower-right corner (high conf AND low comp)
     # Manic aggression without judgment
-    if confidence > PENALTY_OVERHEATED_CONF_THRESHOLD and composure < PENALTY_OVERHEATED_COMP_THRESHOLD:
-        conf_depth = (confidence - PENALTY_OVERHEATED_CONF_THRESHOLD) / (1.0 - PENALTY_OVERHEATED_CONF_THRESHOLD)
-        comp_depth = (PENALTY_OVERHEATED_COMP_THRESHOLD - composure) / PENALTY_OVERHEATED_COMP_THRESHOLD
+    if confidence > overheated_conf_thresh and composure < overheated_comp_thresh:
+        conf_depth = (confidence - overheated_conf_thresh) / (1.0 - overheated_conf_thresh)
+        comp_depth = (overheated_comp_thresh - composure) / overheated_comp_thresh
         penalties['overheated'] = conf_depth * comp_depth
 
     # Detached: upper-left corner (low conf AND high comp)
     # Too passive, misses opportunities
-    if confidence < PENALTY_DETACHED_CONF_THRESHOLD and composure > PENALTY_DETACHED_COMP_THRESHOLD:
-        conf_depth = (PENALTY_DETACHED_CONF_THRESHOLD - confidence) / PENALTY_DETACHED_CONF_THRESHOLD
-        comp_depth = (composure - PENALTY_DETACHED_COMP_THRESHOLD) / (1.0 - PENALTY_DETACHED_COMP_THRESHOLD)
+    if confidence < detached_conf_thresh and composure > detached_comp_thresh:
+        conf_depth = (detached_conf_thresh - confidence) / detached_conf_thresh
+        comp_depth = (composure - detached_comp_thresh) / (1.0 - detached_comp_thresh)
         penalties['detached'] = conf_depth * comp_depth
 
     return penalties
@@ -556,6 +720,82 @@ def get_zone_effects(confidence: float, composure: float, energy: float) -> Zone
         composure=composure,
         energy=energy,
     )
+
+
+# === ZONE GRAVITY ===
+
+
+def _calculate_zone_gravity(
+    confidence: float,
+    composure: float,
+    zone_effects: ZoneEffects,
+) -> Tuple[float, float]:
+    """
+    Calculate zone gravity force vector.
+
+    Zone gravity creates "stickiness" - zones are harder to leave once you're in them.
+    This is a slow drift applied between hands alongside anchor gravity (recovery).
+
+    Two types of gravity:
+    - Sweet spot gravity: Pulls toward zone CENTER (stabilizing)
+    - Penalty zone gravity: Pulls toward zone EXTREME/edge (trap effect)
+
+    The total gravity force is the sum of:
+    - Weighted sweet spot pulls (normalized by strength)
+    - Weighted penalty pulls (raw strengths, can stack)
+
+    Args:
+        confidence: Current confidence value (0.0 to 1.0)
+        composure: Current composure value (0.0 to 1.0)
+        zone_effects: ZoneEffects from get_zone_effects()
+
+    Returns:
+        (conf_delta, comp_delta) gravity pull to apply
+    """
+    gravity_strength = get_zone_param('GRAVITY_STRENGTH')
+
+    total_conf_delta = 0.0
+    total_comp_delta = 0.0
+
+    # === Sweet spot gravity: pull toward center ===
+    for zone_name, strength in zone_effects.sweet_spots.items():
+        if strength <= 0:
+            continue
+
+        center = SWEET_SPOT_CENTERS.get(zone_name)
+        if not center:
+            continue
+
+        # Direction toward center
+        to_center_conf = center[0] - confidence
+        to_center_comp = center[1] - composure
+
+        # Normalize direction
+        dist = math.sqrt(to_center_conf ** 2 + to_center_comp ** 2)
+        if dist > 0.001:  # Avoid division by zero
+            dir_conf = to_center_conf / dist
+            dir_comp = to_center_comp / dist
+
+            # Apply gravity weighted by zone strength
+            pull = gravity_strength * strength
+            total_conf_delta += dir_conf * pull
+            total_comp_delta += dir_comp * pull
+
+    # === Penalty zone gravity: pull toward extreme ===
+    for zone_name, strength in zone_effects.penalties.items():
+        if strength <= 0:
+            continue
+
+        direction = PENALTY_GRAVITY_DIRECTIONS.get(zone_name)
+        if not direction:
+            continue
+
+        # Apply gravity weighted by penalty strength
+        pull = gravity_strength * strength
+        total_conf_delta += direction[0] * pull
+        total_comp_delta += direction[1] * pull
+
+    return (total_conf_delta, total_comp_delta)
 
 
 # === PHASE 7: ZONE STRATEGY SELECTION ===
@@ -700,44 +940,43 @@ def build_zone_guidance(
 @dataclass(frozen=True)
 class PokerFaceZone:
     """
-    3D ellipsoid zone in (Confidence, Composure, Energy) space.
+    2D ellipse zone in (Confidence, Composure) space.
 
     Players inside this zone display 'poker_face' regardless of their
-    quadrant-based emotion. Players outside show their true emotional state.
+    quadrant-based emotion. Players outside show their true emotional state
+    (filtered by the expression layer's visibility = expressiveness × energy).
 
-    Default center: (0.52, 0.72, 0.45) - calm, balanced sweet spot
-    Base radii: rc=0.25, rcomp=0.25, re=0.20
+    Default center: (0.52, 0.72) - calm, balanced sweet spot
+    Base radii: rc=0.25, rcomp=0.25
 
-    Membership test: ((c-0.52)/rc)² + ((comp-0.72)/rcomp)² + ((e-0.45)/re)² <= 1.0
+    Membership test: ((c-0.52)/rc)² + ((comp-0.72)/rcomp)² <= 1.0
 
-    Note: This 3D zone is used for expression filtering (avatar display).
-    The 2D Poker Face sweet spot (Phase 5) uses the same center for conf/comp.
+    Energy is handled separately by the expression filter layer:
+    - Low expressiveness × low energy = poker face via visibility dampening
+    - High expressiveness × high energy = emotions leak through
     """
     # Center coordinates (universal for all players)
     center_confidence: float = 0.52
     center_composure: float = 0.72
-    center_energy: float = 0.45
 
     # Radii (personality-adjusted via create_poker_face_zone)
     radius_confidence: float = 0.25
     radius_composure: float = 0.25
-    radius_energy: float = 0.20
 
-    def contains(self, confidence: float, composure: float, energy: float) -> bool:
+    def contains(self, confidence: float, composure: float) -> bool:
         """
-        Check if a point is inside the ellipsoid zone.
+        Check if a point is inside the ellipse zone.
 
         Args:
             confidence: Current confidence value (0.0 to 1.0)
             composure: Current composure value (0.0 to 1.0)
-            energy: Current energy value (0.0 to 1.0)
 
         Returns:
             True if point is inside or on the boundary of the zone
         """
-        return self.distance(confidence, composure, energy) <= 1.0
+        return self.distance(confidence, composure) <= 1.0
 
-    def distance(self, confidence: float, composure: float, energy: float) -> float:
+    def distance(self, confidence: float, composure: float) -> float:
         """
         Calculate normalized distance from zone center.
 
@@ -748,47 +987,36 @@ class PokerFaceZone:
         Args:
             confidence: Current confidence value (0.0 to 1.0)
             composure: Current composure value (0.0 to 1.0)
-            energy: Current energy value (0.0 to 1.0)
 
         Returns:
             Normalized distance (0.0 = at center, 1.0 = on boundary)
         """
         dc = (confidence - self.center_confidence) / self.radius_confidence
         dcomp = (composure - self.center_composure) / self.radius_composure
-        de = (energy - self.center_energy) / self.radius_energy
-        return (dc**2 + dcomp**2 + de**2) ** 0.5
+        return (dc**2 + dcomp**2) ** 0.5
 
     def to_dict(self) -> dict:
         """Serialize zone to dictionary."""
         return {
             'center_confidence': self.center_confidence,
             'center_composure': self.center_composure,
-            'center_energy': self.center_energy,
             'radius_confidence': self.radius_confidence,
             'radius_composure': self.radius_composure,
-            'radius_energy': self.radius_energy,
         }
 
 
 def create_poker_face_zone(anchors: 'PersonalityAnchors') -> PokerFaceZone:
     """
-    Create a personality-adjusted PokerFaceZone.
+    Create a personality-adjusted PokerFaceZone (2D: confidence × composure).
 
     Radius modifiers based on personality anchors:
     - Poise: High poise = larger composure radius (more tolerance for composure swings)
     - Ego: Low ego = larger confidence radius (stable, not easily shaken)
-    - Expressiveness: High expressiveness = narrower energy radius (exits zone more easily)
     - Risk Identity: Asymmetric - extreme values narrow one radius
 
-    Radius formulas:
-        rc = 0.25 * (0.7 + 0.6 * (1 - ego))
-        rcomp = 0.25 * (0.7 + 0.6 * poise)
-        re = 0.20 * (0.7 + 0.6 * (1 - expressiveness))
-
-    Risk identity asymmetric modifier:
-        risk_dev = abs(risk_identity - 0.5)
-        if risk_identity > 0.5: rc *= (1.0 - risk_dev * 0.4)
-        else: rcomp *= (1.0 - risk_dev * 0.4)
+    Energy is NOT part of zone membership. It's handled by the expression
+    filter layer (visibility = expressiveness × energy), which dampens
+    displayed emotion for low-visibility players.
 
     Args:
         anchors: PersonalityAnchors for the player
@@ -803,9 +1031,6 @@ def create_poker_face_zone(anchors: 'PersonalityAnchors') -> PokerFaceZone:
     # Composure radius: high poise = larger (composure tolerance)
     rcomp = 0.25 * (0.7 + 0.6 * anchors.poise)
 
-    # Energy radius: low expressiveness = larger (harder to exit via energy)
-    re = 0.20 * (0.7 + 0.6 * (1.0 - anchors.expressiveness))
-
     # Risk identity asymmetric modifier
     risk_dev = abs(anchors.risk_identity - 0.5)  # 0 to 0.5
     if anchors.risk_identity > 0.5:
@@ -818,7 +1043,6 @@ def create_poker_face_zone(anchors: 'PersonalityAnchors') -> PokerFaceZone:
     return PokerFaceZone(
         radius_confidence=rc,
         radius_composure=rcomp,
-        radius_energy=re,
     )
 
 
@@ -836,7 +1060,8 @@ def compute_baseline_confidence(anchors: 'PersonalityAnchors') -> float:
     but that's handled in event impacts, not baseline.
 
     Returns:
-        Baseline confidence clamped to [0.0, 1.0]
+        Baseline confidence clamped to safe range [0.15, 0.85] to stay
+        outside penalty zones (TIMID < 0.10, OVERCONFIDENT > 0.90).
     """
     baseline = (
         0.3
@@ -844,7 +1069,10 @@ def compute_baseline_confidence(anchors: 'PersonalityAnchors') -> float:
         + anchors.risk_identity * 0.20
         + anchors.ego * 0.25
     )
-    return _clamp(baseline)
+    # Clamp to stay safely outside penalty zones
+    # TIMID threshold is 0.10, OVERCONFIDENT threshold is 0.90
+    # Use 0.15-0.85 to leave room for events to push into penalties
+    return _clamp(baseline, min_val=0.15, max_val=0.85)
 
 
 def compute_baseline_composure(anchors: 'PersonalityAnchors') -> float:
@@ -859,7 +1087,8 @@ def compute_baseline_composure(anchors: 'PersonalityAnchors') -> float:
             + risk_mod                    (risk-seekers comfortable with chaos)
 
     Returns:
-        Baseline composure clamped to [0.25, 1.0]
+        Baseline composure clamped to safe range [0.40, 0.85] to stay
+        outside penalty zones (TILTED < 0.35).
     """
     risk_mod = (anchors.risk_identity - 0.5) * 0.3
     baseline = (
@@ -868,7 +1097,10 @@ def compute_baseline_composure(anchors: 'PersonalityAnchors') -> float:
         + (1.0 - anchors.expressiveness) * 0.15
         + risk_mod
     )
-    return _clamp(baseline, min_val=0.25, max_val=1.0)
+    # Clamp to stay safely outside penalty zones
+    # TILTED threshold is 0.35
+    # Use 0.40-0.85 to leave room for events to push into penalties
+    return _clamp(baseline, min_val=0.40, max_val=0.85)
 
 
 class EmotionalQuadrant(Enum):
@@ -1778,6 +2010,11 @@ class PlayerPsychology:
           Tilt is hard to escape - the deeper you are, the slower you recover
         - Above baseline: slow decay (modifier = 0.8)
           Hot streaks persist longer
+
+        Zone Gravity: After anchor gravity (recovery), zone gravity is applied:
+        - Sweet spots: Pull toward zone center (stabilizing)
+        - Penalty zones: Pull toward zone extreme (trap effect)
+        Zone gravity creates "stickiness" - zones are harder to leave.
         """
         rate = recovery_rate if recovery_rate is not None else self.anchors.recovery_rate
 
@@ -1787,10 +2024,12 @@ class PlayerPsychology:
 
         if current_conf < conf_baseline:
             # Below baseline - sticky recovery (tilt is hard to escape)
-            conf_modifier = RECOVERY_BELOW_BASELINE_FLOOR + RECOVERY_BELOW_BASELINE_RANGE * current_conf
+            floor = get_zone_param('RECOVERY_BELOW_BASELINE_FLOOR')
+            range_ = get_zone_param('RECOVERY_BELOW_BASELINE_RANGE')
+            conf_modifier = floor + range_ * current_conf
         else:
             # Above baseline - slow decay (hot streaks persist)
-            conf_modifier = RECOVERY_ABOVE_BASELINE
+            conf_modifier = get_zone_param('RECOVERY_ABOVE_BASELINE')
 
         new_conf = current_conf + (conf_baseline - current_conf) * rate * conf_modifier
 
@@ -1800,10 +2039,12 @@ class PlayerPsychology:
 
         if current_comp < comp_baseline:
             # Below baseline - tilt is sticky
-            comp_modifier = RECOVERY_BELOW_BASELINE_FLOOR + RECOVERY_BELOW_BASELINE_RANGE * current_comp
+            floor = get_zone_param('RECOVERY_BELOW_BASELINE_FLOOR')
+            range_ = get_zone_param('RECOVERY_BELOW_BASELINE_RANGE')
+            comp_modifier = floor + range_ * current_comp
         else:
             # Above baseline - calm persists
-            comp_modifier = RECOVERY_ABOVE_BASELINE
+            comp_modifier = get_zone_param('RECOVERY_ABOVE_BASELINE')
 
         new_comp = current_comp + (comp_baseline - current_comp) * rate * comp_modifier
 
@@ -1823,6 +2064,14 @@ class PlayerPsychology:
             energy_rate += spring
 
         new_energy = current_energy + (energy_target - current_energy) * energy_rate
+
+        # === ZONE GRAVITY ===
+        # Apply zone gravity after anchor gravity (recovery)
+        # This creates "stickiness" - zones are harder to leave
+        zone_effects = get_zone_effects(new_conf, new_comp, new_energy)
+        gravity_conf, gravity_comp = _calculate_zone_gravity(new_conf, new_comp, zone_effects)
+        new_conf = _clamp(new_conf + gravity_conf)
+        new_comp = _clamp(new_comp + gravity_comp)
 
         self.axes = self.axes.update(
             confidence=new_conf,
@@ -1893,17 +2142,16 @@ class PlayerPsychology:
         """
         Check if player is currently in the poker face zone.
 
-        Players inside this 3D ellipsoid display 'poker_face' regardless
-        of their quadrant-based emotion. This represents the calm, unreadable
-        sweet spot where experienced players operate.
+        Players inside this 2D ellipse (confidence × composure) display
+        'poker_face' regardless of quadrant-based emotion. Energy affects
+        expression through the separate visibility filter layer.
 
         Returns:
-            True if player's (confidence, composure, energy) is inside the zone
+            True if player's (confidence, composure) is inside the zone
         """
         return self._poker_face_zone.contains(
             self.axes.confidence,
             self.axes.composure,
-            self.axes.energy,
         )
 
     @property
@@ -1920,7 +2168,6 @@ class PlayerPsychology:
         return self._poker_face_zone.distance(
             self.axes.confidence,
             self.axes.composure,
-            self.axes.energy,
         )
 
     # === ZONE DETECTION (Phase 5) ===

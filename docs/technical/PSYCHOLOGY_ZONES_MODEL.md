@@ -2,6 +2,11 @@
 
 This document describes the zone-based mental model for the poker AI psychology system.
 
+**Implementation Status:**
+- ✅ Zone detection (sweet spots + penalties)
+- ✅ Zone effects (strategy guidance, intrusive thoughts)
+- ✅ Zone gravity (stickiness) - implemented 2026-02-06
+
 ## Core Concept
 
 The psychology system uses a 2D space defined by **Confidence** (X-axis) and **Composure** (Y-axis). Players move through this space based on game events, with recovery pulling them back toward their personality-defined anchor.

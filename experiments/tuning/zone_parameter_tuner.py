@@ -175,6 +175,16 @@ TUNABLE_PARAMETERS: Dict[str, TunableParameter] = {
         description='Recovery modifier when above baseline (hot streaks)',
         category='recovery',
     ),
+
+    # Gravity constants
+    'GRAVITY_STRENGTH': TunableParameter(
+        name='GRAVITY_STRENGTH',
+        current_value=0.03,
+        min_value=0.02,
+        max_value=0.05,
+        description='Zone gravity pull strength per tick (creates zone stickiness)',
+        category='gravity',
+    ),
 }
 
 

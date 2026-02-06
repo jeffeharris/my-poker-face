@@ -130,19 +130,8 @@ class TestPersonalityAnchors:
         assert anchors.baseline_aggression == 0.6
         assert anchors.poise == 0.8
 
-    def test_from_legacy_traits(self):
-        """Test converting legacy 5-trait format to anchors."""
-        legacy_traits = {
-            'tightness': 0.6,  # Should become looseness = 0.4
-            'aggression': 0.7,
-            'confidence': 0.8,
-            'composure': 0.9,
-            'table_talk': 0.3,
-        }
-        anchors = PersonalityAnchors.from_legacy_traits(legacy_traits)
-        assert anchors.baseline_aggression == 0.7
-        assert anchors.baseline_looseness == 0.4  # 1 - tightness
-        assert anchors.poise == 0.9  # composure -> poise
+    # Legacy trait conversion was removed - personalities now require anchors directly
+    # See: commit 4a5bd91 - "fix: remove legacy trait system, use anchors directly"
 
     def test_to_dict(self):
         """Test serializing anchors to dictionary."""
@@ -575,22 +564,9 @@ class TestPlayerPsychologyIntegration:
         assert psych.anchors.baseline_aggression == 0.8
         assert psych.anchors.baseline_looseness == 0.6
 
-    def test_create_from_legacy_config(self):
-        """Test creating PlayerPsychology from legacy traits config."""
-        config = {
-            'play_style': 'tight and cautious',
-            'personality_traits': {
-                'tightness': 0.7,
-                'aggression': 0.3,
-                'confidence': 0.6,
-                'composure': 0.8,
-                'table_talk': 0.4,
-            }
-        }
-        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
-        # Check conversion happened
-        assert psych.anchors.baseline_aggression == 0.3
-        assert psych.anchors.baseline_looseness == pytest.approx(0.3, 0.01)  # 1 - 0.7
+    # Legacy trait conversion was removed - personalities now require anchors directly
+    # Configs with personality_traits but no anchors will use defaults
+    # See: commit 4a5bd91 - "fix: remove legacy trait system, use anchors directly"
 
     def test_quadrant_property(self):
         """Test that quadrant property works correctly with personality-specific baselines."""
@@ -1308,13 +1284,20 @@ class TestPokerFaceZoneRadiusModifiers:
         assert zone_low.radius_composure < zone_neutral.radius_composure
 
     def test_radius_ranges(self):
-        """Test that radius modifiers produce values in expected ranges."""
+        """Test that radius modifiers produce values in expected ranges.
+
+        Note: Energy radius can be expanded by dual-path adjustments:
+        - Stoic path (low energy + low risk_identity): 1.3x multiplier
+        - Controlled path (medium+ energy + low ego): 1.4x multiplier
+        This can push max energy radius up to ~0.36 (0.26 * 1.4).
+        """
         from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
 
         # Extreme personality with all modifiers maximizing zone size
+        # Note: ego=0.0 + baseline_energy=0.5 triggers "Controlled" path (1.4x energy)
         max_zone = PersonalityAnchors(
             baseline_aggression=0.5, baseline_looseness=0.5,
-            ego=0.0,  # Max confidence radius
+            ego=0.0,  # Max confidence radius; triggers Controlled path
             poise=1.0,  # Max composure radius
             expressiveness=0.0,  # Max energy radius
             risk_identity=0.5,  # No asymmetric penalty
@@ -1333,15 +1316,16 @@ class TestPokerFaceZoneRadiusModifiers:
         zone_max = create_poker_face_zone(max_zone)
         zone_min = create_poker_face_zone(min_zone)
 
-        # Per plan: rc: 0.13-0.33, rcomp: 0.13-0.33, re: 0.14-0.26
-        # Note: with risk_identity=1.0, confidence gets additional 20% penalty
+        # Base ranges: rc: 0.13-0.33, rcomp: 0.13-0.33, re: 0.14-0.26
+        # With risk_identity=1.0, confidence gets additional 20% penalty
+        # With dual-path energy adjustment, max energy can reach 0.26 * 1.4 = 0.364
         assert 0.10 <= zone_min.radius_confidence <= 0.35
         assert 0.10 <= zone_min.radius_composure <= 0.35
         assert 0.10 <= zone_min.radius_energy <= 0.30
 
         assert 0.25 <= zone_max.radius_confidence <= 0.35
         assert 0.25 <= zone_max.radius_composure <= 0.35
-        assert 0.20 <= zone_max.radius_energy <= 0.30
+        assert 0.20 <= zone_max.radius_energy <= 0.40  # Expanded for dual-path
 
 
 class TestPokerFaceZoneIntegration:
@@ -1704,7 +1688,12 @@ class TestSeveritySensitivity:
 
 
 class TestAsymmetricRecovery:
-    """Tests for Phase 4 asymmetric recovery mechanics."""
+    """Tests for Phase 4 asymmetric recovery mechanics.
+
+    Note: These tests use low confidence values to stay in neutral territory
+    (no zone gravity effects), so we can test anchor recovery mechanics in isolation.
+    Zone gravity is tested separately in TestZoneGravity.
+    """
 
     def test_recovery_slower_when_deeply_tilted(self):
         """
@@ -1713,51 +1702,58 @@ class TestAsymmetricRecovery:
         The asymmetric recovery means that the MODIFIER is smaller when deeply tilted,
         making tilt "sticky". We test this by comparing the effective recovery rate
         (recovery / gap_to_baseline) rather than absolute recovery amounts.
+
+        Note: Uses low confidence (0.35) to stay in neutral territory and avoid
+        zone gravity effects from sweet spots like Aggro.
         """
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.7,  # Baseline composure around 0.675
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_aggression': 0.2, 'baseline_looseness': 0.5, 'ego': 0.2,
+                'poise': 0.7,  # Baseline composure around 0.625
+                'expressiveness': 0.5, 'risk_identity': 0.3, 'adaptation_bias': 0.5,
                 'baseline_energy': 0.5, 'recovery_rate': 0.3,  # Use same rate
             }
         }
 
-        # Deep tilt player (composure = 0.2)
+        # Both players use low confidence to stay in neutral territory
+        # Deep tilt player (composure = 0.36 - just above tilted threshold)
         psych_deep = PlayerPsychology.from_personality_config('DeepTilt', config)
-        psych_deep.axes = psych_deep.axes.update(composure=0.2)
+        psych_deep.axes = psych_deep.axes.update(confidence=0.35, composure=0.36)
         deep_baseline = psych_deep._baseline_composure
-        deep_gap = deep_baseline - 0.2
+        deep_gap = deep_baseline - 0.36
 
-        # Mild tilt player (composure = 0.5)
+        # Mild tilt player (composure = 0.50)
         psych_mild = PlayerPsychology.from_personality_config('MildTilt', config)
-        psych_mild.axes = psych_mild.axes.update(composure=0.5)
+        psych_mild.axes = psych_mild.axes.update(confidence=0.35, composure=0.50)
         mild_baseline = psych_mild._baseline_composure
-        mild_gap = mild_baseline - 0.5
+        mild_gap = mild_baseline - 0.50
 
         # Apply recovery
         psych_deep.recover()
         psych_mild.recover()
 
         # Calculate recovery as proportion of gap closed
-        deep_recovery = psych_deep.composure - 0.2
-        mild_recovery = psych_mild.composure - 0.5
+        deep_recovery = psych_deep.composure - 0.36
+        mild_recovery = psych_mild.composure - 0.50
 
         deep_rate_effective = deep_recovery / deep_gap if deep_gap > 0 else 0
         mild_rate_effective = mild_recovery / mild_gap if mild_gap > 0 else 0
 
-        # Deep tilt should have LOWER effective rate (sticky modifier = 0.6 + 0.4 × 0.2 = 0.68)
-        # Mild tilt should have HIGHER effective rate (sticky modifier = 0.6 + 0.4 × 0.5 = 0.80)
-        # Expected: deep_rate = 0.3 × 0.68 = 0.204, mild_rate = 0.3 × 0.80 = 0.24
+        # Deep tilt should have LOWER effective rate (sticky modifier = 0.6 + 0.4 × 0.36 = 0.744)
+        # Mild tilt should have HIGHER effective rate (sticky modifier = 0.6 + 0.4 × 0.50 = 0.80)
         assert deep_rate_effective < mild_rate_effective
 
     def test_hot_streak_decays_at_point_eight(self):
-        """Above-baseline states decay at fixed 0.8 modifier."""
+        """Above-baseline states decay at fixed 0.8 modifier.
+
+        Note: Uses position (0.40, 0.60) which stays in neutral territory after
+        anchor recovery (~0.55 composure with baseline ~0.52).
+        """
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5,  # Moderate baseline
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_aggression': 0.3, 'baseline_looseness': 0.5, 'ego': 0.3,
+                'poise': 0.4,  # Lower poise gives baseline composure around 0.52
+                'expressiveness': 0.5, 'risk_identity': 0.4, 'adaptation_bias': 0.5,
                 'baseline_energy': 0.5, 'recovery_rate': 0.5,  # High rate
             }
         }
@@ -1765,15 +1761,17 @@ class TestAsymmetricRecovery:
         psych = PlayerPsychology.from_personality_config('HotStreak', config)
         baseline_comp = psych._baseline_composure
 
-        # Set composure ABOVE baseline (hot streak state)
-        psych.axes = psych.axes.update(composure=0.9)
+        # Set composure ABOVE baseline (hot streak state) but not too high
+        # Use position (0.40, 0.60) which stays in neutral territory
+        psych.axes = psych.axes.update(confidence=0.40, composure=0.60)
 
         # Apply recovery
         psych.recover()
 
-        # Expected: new = 0.9 + (baseline - 0.9) × 0.5 × 0.8
-        # With baseline ~0.55: new = 0.9 + (0.55 - 0.9) × 0.5 × 0.8 = 0.9 - 0.14 = 0.76
-        expected = 0.9 + (baseline_comp - 0.9) * 0.5 * 0.8
+        # Expected: new = 0.6 + (baseline - 0.6) × 0.5 × 0.8
+        # With baseline ~0.52: new = 0.6 + (0.52 - 0.6) × 0.5 × 0.8 = 0.6 - 0.032 = 0.568
+        # Zone gravity doesn't apply because (0.40, ~0.568) is neutral territory
+        expected = 0.60 + (baseline_comp - 0.60) * 0.5 * 0.8
 
         assert psych.composure == pytest.approx(expected, 0.01)
 
@@ -1828,12 +1826,16 @@ class TestAsymmetricRecovery:
         assert psych_low.energy > 0.2  # Significant boost from edge spring
 
     def test_confidence_asymmetric_recovery(self):
-        """Confidence also uses asymmetric recovery."""
+        """Confidence also uses asymmetric recovery.
+
+        Note: Uses position (0.40, 0.55) to stay in neutral territory.
+        """
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5,
-                'ego': 0.5,  # Baseline confidence around 0.65
-                'poise': 0.7, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'baseline_aggression': 0.4, 'baseline_looseness': 0.5,
+                'ego': 0.4,  # Lower ego gives baseline confidence around 0.52
+                'poise': 0.4,  # Lower poise gives baseline composure around 0.52
+                'expressiveness': 0.5, 'risk_identity': 0.4,
                 'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.5,
             }
         }
@@ -1841,17 +1843,122 @@ class TestAsymmetricRecovery:
         psych = PlayerPsychology.from_personality_config('Test', config)
         baseline_conf = psych._baseline_confidence
 
-        # Set confidence below baseline
-        psych.axes = psych.axes.update(confidence=0.3)
+        # Set confidence below baseline, composure at 0.55 to stay neutral
+        psych.axes = psych.axes.update(confidence=0.40, composure=0.55)
 
         # Apply recovery
         psych.recover()
 
-        # Sticky modifier = 0.6 + 0.4 × 0.3 = 0.72
-        # new = 0.3 + (baseline - 0.3) × 0.5 × 0.72
-        expected = 0.3 + (baseline_conf - 0.3) * 0.5 * 0.72
+        # Sticky modifier = 0.6 + 0.4 × 0.40 = 0.76
+        # new = 0.40 + (baseline - 0.40) × 0.5 × 0.76
+        expected = 0.40 + (baseline_conf - 0.40) * 0.5 * 0.76
 
         assert psych.confidence == pytest.approx(expected, 0.01)
+
+
+# === Zone Gravity Tests ===
+
+class TestZoneGravity:
+    """Tests for zone gravity mechanics.
+
+    Zone gravity creates "stickiness" - zones are harder to leave once you're in them.
+    Sweet spots pull toward their center, penalty zones pull toward extremes.
+    """
+
+    def test_penalty_zone_gravity_pulls_toward_extreme(self):
+        """Penalty zones should pull toward their extreme/edge."""
+        from poker.player_psychology import (
+            get_zone_effects, _calculate_zone_gravity, PENALTY_GRAVITY_DIRECTIONS
+        )
+
+        # Player in tilted zone (composure < 0.35)
+        # Tilted pulls toward composure=0 (down)
+        effects = get_zone_effects(0.5, 0.25, 0.5)
+        assert 'tilted' in effects.penalties
+
+        gravity_conf, gravity_comp = _calculate_zone_gravity(0.5, 0.25, effects)
+
+        # Should pull composure DOWN (negative)
+        assert gravity_comp < 0
+        # Should not significantly affect confidence (tilted is composure-only)
+        assert abs(gravity_conf) < 0.001
+
+    def test_sweet_spot_gravity_pulls_toward_center(self):
+        """Sweet spots should pull toward their center."""
+        from poker.player_psychology import (
+            get_zone_effects, _calculate_zone_gravity, ZONE_AGGRO_CENTER
+        )
+
+        # Player in aggro zone (high conf, mid comp)
+        effects = get_zone_effects(0.70, 0.50, 0.5)
+        assert 'aggro' in effects.sweet_spots
+
+        gravity_conf, gravity_comp = _calculate_zone_gravity(0.70, 0.50, effects)
+
+        # Aggro center is (0.68, 0.48)
+        # Player at (0.70, 0.50) should be pulled slightly left and down
+        assert gravity_conf < 0  # Pull left toward 0.68
+        assert gravity_comp < 0  # Pull down toward 0.48
+
+    def test_neutral_territory_no_gravity(self):
+        """Neutral territory should have no zone gravity."""
+        from poker.player_psychology import get_zone_effects, _calculate_zone_gravity
+
+        # Position in neutral territory (no zones)
+        effects = get_zone_effects(0.45, 0.55, 0.5)
+        assert not effects.sweet_spots
+        assert not effects.penalties
+
+        gravity_conf, gravity_comp = _calculate_zone_gravity(0.45, 0.55, effects)
+
+        # No gravity in neutral territory
+        assert gravity_conf == 0.0
+        assert gravity_comp == 0.0
+
+    def test_gravity_applied_during_recovery(self):
+        """Zone gravity should be applied during recover()."""
+        from poker.player_psychology import PlayerPsychology
+
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'poise': 0.7,  # High baseline composure
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.3,
+            }
+        }
+
+        # Player in aggro zone
+        psych = PlayerPsychology.from_personality_config('Test', config)
+        psych.axes = psych.axes.update(confidence=0.70, composure=0.50)
+
+        initial_comp = psych.composure
+
+        # Recovery would normally pull composure UP toward baseline (~0.67)
+        # But aggro zone gravity pulls DOWN toward center (0.48)
+        # Net effect: slower upward movement or even downward pull
+        psych.recover()
+
+        # The composure change should be smaller than pure anchor recovery
+        # because zone gravity is fighting against it
+        # (We just verify zone gravity has an effect - detailed values tested above)
+        final_comp = psych.composure
+
+        # Due to zone gravity, final composure should be different from
+        # what pure anchor recovery would produce
+        pure_anchor_result = 0.50 + (0.67 - 0.50) * 0.3 * 0.8  # ~0.541
+        # Zone gravity pulls down, so final should be below pure anchor result
+        assert final_comp < pure_anchor_result
+
+    def test_gravity_strength_parameter(self):
+        """Zone gravity should use GRAVITY_STRENGTH parameter."""
+        from poker.player_psychology import (
+            get_zone_effects, _calculate_zone_gravity, get_zone_param
+        )
+
+        # Verify parameter exists and has reasonable value
+        strength = get_zone_param('GRAVITY_STRENGTH')
+        assert 0.02 <= strength <= 0.05  # Expected range from docs
 
 
 # === Phase 6 Tests: Zone-Based Intrusive Thoughts ===
