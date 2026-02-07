@@ -258,32 +258,37 @@ export function MobilePokerTable({
 
   // For non-showdown hands (walks/fold-outs), capture the winner line into local
   // state and immediately dismiss winnerInfo so MobileWinnerAnnouncement never mounts.
-  // The message is passed to ShuffleLoading and persists through the entire shuffle.
+  // Split into message (name + verb) and submessage (amount) for better layout.
   const [interhandMessage, setInterhandMessage] = useState<string | null>(null);
+  const [interhandSubmessage, setInterhandSubmessage] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!winnerInfo || winnerInfo.showdown) return;
-    // Compute total winnings
-    let winnings: number | null = null;
+    // Compute net profit (gross winnings minus what the winner put in)
+    let netProfit: number | null = null;
     if (winnerInfo.pot_breakdown) {
-      winnings = winnerInfo.pot_breakdown.reduce(
+      const gross = winnerInfo.pot_breakdown.reduce(
         (sum, pot) => sum + pot.winners.reduce((s, w) => s + w.amount, 0), 0,
       );
-    } else if (winnerInfo.winnings) {
-      winnings = Object.values(winnerInfo.winnings).reduce((s, a) => s + a, 0);
+      const contributions = winnerInfo.pot_contributions ?? {};
+      const winnerContrib = winnerInfo.winners.reduce(
+        (sum, name) => sum + (contributions[name] ?? 0), 0,
+      );
+      netProfit = gross - winnerContrib;
     }
     const names = winnerInfo.winners.length > 1
       ? winnerInfo.winners.join(' & ')
       : winnerInfo.winners[0];
     const verb = winnerInfo.winners.length > 1 ? 'split' : 'won';
-    const line = winnings != null ? `${names} ${verb} +$${winnings}` : `${names} ${verb}`;
-    setInterhandMessage(line);
+    setInterhandMessage(`${names} ${verb}`);
+    setInterhandSubmessage(netProfit != null && netProfit > 0 ? `+$${netProfit}` : undefined);
     clearWinnerInfo();
   }, [winnerInfo, clearWinnerInfo]);
 
   // Clear when the next hand starts
   useEffect(() => {
     setInterhandMessage(null);
+    setInterhandSubmessage(undefined);
   }, [handNumber]);
 
   // Coach hook
@@ -754,6 +759,7 @@ export function MobilePokerTable({
       <ShuffleLoading
         isVisible={isInterhandPhase}
         message={interhandMessage || 'Shuffling'}
+        submessage={interhandSubmessage}
         handNumber={handNumber}
         variant="interhand"
       />

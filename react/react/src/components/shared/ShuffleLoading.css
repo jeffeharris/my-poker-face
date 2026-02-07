@@ -231,12 +231,16 @@
 .shuffle-loading-status {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 4px;
+  flex-wrap: wrap;
+  max-width: min(90vw, 340px);
+  text-align: center;
 }
 
 .shuffle-loading-text {
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: clamp(16px, 5vw, 22px);
   font-weight: var(--font-weight-semibold);
   letter-spacing: var(--letter-spacing-wider);
   text-transform: uppercase;

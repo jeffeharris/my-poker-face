@@ -54,8 +54,8 @@ function renderWinResult(wr: WinResult): React.ReactNode {
       <span className="mcs-win-result mcs-win-foldout">
         <span className="mcs-win-headline">
           <span className="mcs-win-player">{wr.winners}</span>
-          {' took the pot of '}
-          <span className="mcs-win-pot">${wr.pot}</span>
+          {' won '}
+          <span className="mcs-win-pot">+${wr.pot}</span>
         </span>
       </span>
     );
@@ -67,7 +67,7 @@ function renderWinResult(wr: WinResult): React.ReactNode {
       <span className="mcs-win-headline">
         <span className="mcs-win-player">{wr.winners}</span>
         {' won '}
-        <span className="mcs-win-pot">${wr.pot}</span>
+        <span className="mcs-win-pot">+${wr.pot}</span>
         {wr.hand_name && (
           <>
             {' with '}
