@@ -861,6 +861,7 @@ class AITournamentRunner:
         hand_start_stacks: Optional[Dict[str, int]] = None,
         was_short_stack: Optional[set] = None,
         memory_manager: Optional['AIMemoryManager'] = None,
+        equity_history=None,
         enable_commentary: bool = False,
     ) -> set:
         """Process psychology updates using balanced event resolution model.
@@ -947,17 +948,13 @@ class AITournamentRunner:
             all_events.append(("big_pot_involved", active_player_names))
 
         # 5. Equity shock events (weighted-delta model)
-        hand_in_progress = memory_manager.hand_recorder.current_hand if memory_manager else None
-        if hand_in_progress and hand_in_progress.hole_cards and hand_start_stacks:
+        # equity_history is pre-computed by caller before on_hand_complete clears current_hand
+        if equity_history and equity_history.snapshots and hand_start_stacks:
             try:
-                from poker.equity_tracker import EquityTracker
-                equity_tracker = EquityTracker()
-                equity_history = equity_tracker.calculate_hand_equity_history(hand_in_progress)
-                if equity_history and equity_history.snapshots:
-                    equity_events = self.pressure_detector.detect_equity_shock_events(
-                        equity_history, winner_names, pot_size, hand_start_stacks
-                    )
-                    all_events.extend(equity_events)
+                equity_events = self.pressure_detector.detect_equity_shock_events(
+                    equity_history, winner_names, pot_size, hand_start_stacks
+                )
+                all_events.extend(equity_events)
             except Exception as e:
                 logger.warning(f"Equity shock detection failed: {e}")
 
@@ -1188,21 +1185,17 @@ class AITournamentRunner:
         if self.config.random_seed is not None:
             state_machine.current_hand_seed = self.config.random_seed + (tournament_number * 1000) + hand_number
 
-        # Notify memory manager of hand start (sets hand_count internally)
-        memory_manager.on_hand_start(game_state, hand_number)
-
         # Set hand number on all controllers for decision analysis
         for controller in controllers.values():
             controller.current_hand_number = hand_number
-
-        # Capture stacks at hand start for stack-based pressure events
-        hand_start_stacks = {p.name: p.stack for p in game_state.players}
 
         logger.debug(f"Hand {hand_number}: Starting with {len(active_players)} players")
 
         # Run through betting rounds
         max_actions = 100  # Safety limit per hand
         action_count = 0
+        hand_start_recorded = False
+        hand_start_stacks = {}
 
         # Track for stuck loop detection
         last_player_name = None
@@ -1212,6 +1205,12 @@ class AITournamentRunner:
             # Advance state machine
             state_machine.run_until([PokerPhase.EVALUATING_HAND])
             game_state = state_machine.game_state
+
+            # Record hand start AFTER first advance deals cards (hole_cards now available)
+            if not hand_start_recorded:
+                memory_manager.on_hand_start(game_state, hand_number)
+                hand_start_stacks = {p.name: p.stack for p in game_state.players}
+                hand_start_recorded = True
 
             # Check if hand is complete
             if state_machine.current_phase == PokerPhase.EVALUATING_HAND:
@@ -1380,6 +1379,32 @@ class AITournamentRunner:
             winner_names = [w.get('name') for w in winners if w.get('name')]
             logger.debug(f"Hand {hand_number}: Winners = {winners}")
 
+            # Calculate equity history BEFORE on_hand_complete clears current_hand
+            equity_history = None
+            enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
+            if enable_psychology:
+                hand_in_progress = memory_manager.hand_recorder.current_hand
+                if hand_in_progress and hand_in_progress.hole_cards and hand_start_stacks:
+                    # Backfill community cards from game state (not recorded per-street in experiments)
+                    cc = [str(c) for c in game_state.community_cards]
+                    if cc:
+                        if len(cc) >= 3:
+                            hand_in_progress.add_community_cards('FLOP', cc[:3])
+                        if len(cc) >= 4:
+                            hand_in_progress.add_community_cards('TURN', cc[3:4])
+                        if len(cc) >= 5:
+                            hand_in_progress.add_community_cards('RIVER', cc[4:5])
+                    # Remove folded players to avoid false equity events
+                    folded_names = {p.name for p in game_state.players if p.is_folded}
+                    for name in folded_names:
+                        hand_in_progress.hole_cards.pop(name, None)
+                    try:
+                        from poker.equity_tracker import EquityTracker
+                        equity_tracker = EquityTracker()
+                        equity_history = equity_tracker.calculate_hand_equity_history(hand_in_progress)
+                    except Exception as e:
+                        logger.warning(f"Equity calculation failed: {e}")
+
             # Record hand history to database (always, for outcome metrics)
             # This persists to hand_history table via memory_manager's persistence layer
             memory_manager.on_hand_complete(
@@ -1390,7 +1415,6 @@ class AITournamentRunner:
             )
 
             # Post-hand psychological processing (if enabled)
-            enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
             enable_commentary = variant_config.get('enable_commentary', False) if variant_config else False
 
             if enable_psychology:
@@ -1401,6 +1425,7 @@ class AITournamentRunner:
                     hand_start_stacks=hand_start_stacks,
                     was_short_stack=was_short,
                     memory_manager=memory_manager,
+                    equity_history=equity_history,
                     enable_commentary=enable_commentary,
                 )
                 self._was_short_stack = current_short
