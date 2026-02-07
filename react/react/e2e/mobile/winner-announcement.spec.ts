@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mockGamePageRoutes, navigateToGamePage, buildGameState } from '../helpers';
 
 const initialGameState = buildGameState();
+const handOverGameState = buildGameState([], { phase: 'HAND_OVER', player_options: [] });
 
 /** Showdown winner_info fixture: Batman wins with Pair of Kings */
 const showdownWinnerInfo = {
@@ -120,7 +121,7 @@ test.describe('PW-11: Winner announcement shows after hand and auto-dismisses', 
     expect(count).toBe(2);
 
     const winnerHand = overlay.locator('.player-showdown.winner');
-    await expect(winnerHand).toBeVisible();
+    await expect(winnerHand).toBeVisible({ timeout: 10000 });
   });
 
   test('showdown has Continue button', async ({ page }) => {
@@ -135,57 +136,66 @@ test.describe('PW-11: Winner announcement shows after hand and auto-dismisses', 
     expect(btnText).toContain('Continue');
   });
 
-  test('fold winner shows name, amount, and "All opponents folded"', async ({ page }) => {
-    await setupWithWinner(page, foldWinnerInfo);
+  test('fold winner does NOT show winner-overlay (handled by ShuffleLoading)', async ({ page }) => {
+    const ctx = await mockGamePageRoutes(page, {
+      gameState: initialGameState,
+      socketEvents: [
+        ['update_game_state', { game_state: initialGameState }],
+        ['winner_announcement', foldWinnerInfo],
+        ['update_game_state', { game_state: handOverGameState }],
+      ],
+    });
+    await navigateToGamePage(page, { mockContext: ctx });
+
+    // Target the interhand ShuffleLoading (uses .shuffle-loading-dim), not the
+    // initial "Setting up the table" overlay which may still be fading out.
+    const shuffle = page.locator('.shuffle-loading-dim');
+    await expect(shuffle).toBeVisible({ timeout: 15000 });
 
     const overlay = page.getByTestId('winner-overlay');
-    await expect(overlay).toBeVisible({ timeout: 15000 });
-
-    const showdownSection = overlay.getByTestId('showdown-section');
-    await expect(showdownSection).not.toBeVisible();
-
-    const noShowdown = overlay.getByTestId('no-showdown-winner');
-    await expect(noShowdown).toBeVisible();
-
-    const noShowdownName = overlay.getByTestId('no-showdown-name');
-    await expect(noShowdownName).toBeVisible();
-    const nameText = await noShowdownName.textContent();
-    expect(nameText).toContain('TestPlayer');
-
-    const noShowdownAmount = overlay.getByTestId('no-showdown-amount');
-    await expect(noShowdownAmount).toBeVisible();
-    const amountText = await noShowdownAmount.textContent();
-    expect(amountText).toContain('150');
-
-    const foldedText = overlay.getByTestId('no-showdown-text');
-    await expect(foldedText).toBeVisible();
-    const text = await foldedText.textContent();
-    expect(text).toContain('All opponents folded');
+    await expect(overlay).not.toBeVisible();
   });
 
-  test('fold winner has no showdown cards section', async ({ page }) => {
-    await setupWithWinner(page, foldWinnerInfo);
+  test('fold winner shows name and amount on ShuffleLoading', async ({ page }) => {
+    const ctx = await mockGamePageRoutes(page, {
+      gameState: initialGameState,
+      socketEvents: [
+        ['update_game_state', { game_state: initialGameState }],
+        ['winner_announcement', foldWinnerInfo],
+        ['update_game_state', { game_state: handOverGameState }],
+      ],
+    });
+    await navigateToGamePage(page, { mockContext: ctx });
 
-    const overlay = page.getByTestId('winner-overlay');
-    await expect(overlay).toBeVisible({ timeout: 15000 });
+    const shuffle = page.locator('.shuffle-loading-dim');
+    await expect(shuffle).toBeVisible({ timeout: 15000 });
 
-    const showdownSection = overlay.getByTestId('showdown-section');
-    await expect(showdownSection).not.toBeVisible();
+    // Scope to the interhand ShuffleLoading's sibling content layer
+    const contentLayer = page.locator('.shuffle-loading-content-layer');
+    const messageText = contentLayer.locator('.shuffle-loading-text');
+    await expect(messageText).toContainText('TestPlayer', { timeout: 10000 });
+    await expect(messageText).toContainText('won');
 
-    const dismissBtn = overlay.getByTestId('winner-dismiss');
-    await expect(dismissBtn).toBeVisible();
+    const submessage = contentLayer.locator('.shuffle-loading-submessage');
+    await expect(submessage).toContainText('$150', { timeout: 10000 });
   });
 
-  test('clicking Continue dismisses the winner overlay', async ({ page }) => {
-    await setupWithWinner(page, foldWinnerInfo);
+  test('fold winner has no Continue button (auto-transitions)', async ({ page }) => {
+    const ctx = await mockGamePageRoutes(page, {
+      gameState: initialGameState,
+      socketEvents: [
+        ['update_game_state', { game_state: initialGameState }],
+        ['winner_announcement', foldWinnerInfo],
+        ['update_game_state', { game_state: handOverGameState }],
+      ],
+    });
+    await navigateToGamePage(page, { mockContext: ctx });
 
-    const overlay = page.getByTestId('winner-overlay');
-    await expect(overlay).toBeVisible({ timeout: 15000 });
+    const shuffle = page.locator('.shuffle-loading-dim');
+    await expect(shuffle).toBeVisible({ timeout: 15000 });
 
-    const dismissBtn = overlay.getByTestId('winner-dismiss');
-    await dismissBtn.click();
-
-    await expect(overlay).not.toBeVisible({ timeout: 5000 });
+    const dismissBtn = page.getByTestId('winner-dismiss');
+    await expect(dismissBtn).not.toBeVisible();
   });
 
 });
