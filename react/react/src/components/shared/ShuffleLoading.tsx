@@ -123,7 +123,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
     return (
       <>
         {/* LAYER 1: Dim background - BELOW avatars */}
-        <div className={`shuffle-loading-dim${exitClass}`} data-testid="shuffle-loading">
+        <div className={`shuffle-loading-dim${exitClass}`} data-testid="shuffle-loading-interhand">
           <div className="shuffle-loading-vignette" />
         </div>
 
