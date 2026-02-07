@@ -2062,7 +2062,12 @@ def build_base_game_state(
 
     raise_guidance = ""
     if 'raise' in player_options:
-        raise_guidance = f"If raising, set raise_to between {min_raise_to_fmt} and {max_raise_to_fmt} (the total bet, not the increment).\n"
+        if current_round == 'PRE_FLOP':
+            sizing_hint = " Standard open: 2.5-3x BB. 3-bet: ~3x the open."
+        else:
+            pot_fmt = _format_money(current_pot, big_blind, True)
+            sizing_hint = f" Size relative to the pot ({pot_fmt}): half-pot to pot-sized is standard."
+        raise_guidance = f"If raising, set raise_to between {min_raise_to_fmt} and {max_raise_to_fmt} (the total bet, not the increment).{sizing_hint}\n"
 
     hand_update_message = persona_state + hand_state + pot_state + "\n" + (
         f"NOTE: All amounts are in Big Blinds (BB). When raising, set raise_to to BB amount (e.g., raise_to=8 means 8 BB).\n"

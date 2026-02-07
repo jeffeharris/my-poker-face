@@ -12,6 +12,8 @@ sections:
     - WEAK hands (no pair, missed draws, high card only): check or fold, don't bet big.
     - Your personality influences HOW you play, not WHETHER your cards justify the bet.
     - Smart aggressive players pick their spots - they don't shove garbage.
+    - PRE-FLOP: Standard opens are 2.5-3x BB. 3-bets are typically 3x the original raise.
+    - POST-FLOP: Size bets relative to the pot. Half-pot to pot-sized is standard.
 
   pot_committed: |-
     ⚠️ POT COMMITTED: You've invested {already_bet_bb} BB with only {stack_bb} BB left.
