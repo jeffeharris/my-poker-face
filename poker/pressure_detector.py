@@ -27,6 +27,9 @@ class PressureEventDetector:
     SHORT_STACK_SURVIVAL_COOLDOWN = 5  # Max once per 5 hands per player
     SHORT_STACK_SURVIVAL_HANDS = 3    # Must survive 3+ hands while short without all-in
 
+    # Self-reported bluff_likelihood >= this counts as "was bluffing"
+    BLUFF_LIKELIHOOD_THRESHOLD = 50
+
     def __init__(self):
         self.last_pot_size = 0
         self.player_hand_history: Dict[str, List[int]] = {}  # Track hand strengths
@@ -40,11 +43,25 @@ class PressureEventDetector:
         # player_name -> hand_number of last short_stack_survival fire
         self._short_stack_survival_last_hand: Dict[str, int] = {}
         
-    def detect_showdown_events(self, game_state: PokerGameState, 
-                             winner_info: Dict[str, Any]) -> List[Tuple[str, List[str]]]:
+    def _was_bluffing(self, player_name: str, hand_rank: int,
+                      player_bluff_likelihoods: Optional[Dict[str, int]] = None) -> bool:
+        """Check if a player was bluffing via hand rank OR self-reported likelihood."""
+        if hand_rank >= 9:  # One pair or high card
+            return True
+        if player_bluff_likelihoods:
+            return player_bluff_likelihoods.get(player_name, 0) >= self.BLUFF_LIKELIHOOD_THRESHOLD
+        return False
+
+    def detect_showdown_events(self, game_state: PokerGameState,
+                             winner_info: Dict[str, Any],
+                             player_bluff_likelihoods: Optional[Dict[str, int]] = None) -> List[Tuple[str, List[str]]]:
         """
         Detect pressure events from showdown results.
-        
+
+        Args:
+            player_bluff_likelihoods: Optional dict of player_name -> max bluff_likelihood (0-100)
+                from their self-reported LLM responses this hand.
+
         Returns list of (event_name, affected_players) tuples.
         """
         events = []
@@ -88,11 +105,12 @@ class PressureEventDetector:
         
         # Detect successful bluff (weak hand wins big pot when everyone folds)
         # Priority system: only ONE win-type event per winner (successful_bluff > big_win > win)
+        # Triggers on weak hand rank (pair or worse) OR self-reported bluff_likelihood >= 50
         bluff_winners = set()
-        if winner_name and winner_hand_rank >= 8 and is_big_pot and len(active_players) == 1:
-            # Winner bluffed everyone out - only reward the bluffer
-            events.append(("successful_bluff", [winner_name]))
-            bluff_winners.add(winner_name)
+        if winner_name and is_big_pot and len(active_players) == 1:
+            if self._was_bluffing(winner_name, winner_hand_rank, player_bluff_likelihoods):
+                events.append(("successful_bluff", [winner_name]))
+                bluff_winners.add(winner_name)
 
         # Track wins — only ONE of successful_bluff / big_win / win per winner
         if winner_names and pot_total > 0:
@@ -166,22 +184,28 @@ class PressureEventDetector:
                 if second_best_rank <= 4 and winner_hand_rank > second_best_rank:
                     events.append(("bad_beat", [second_best_name]))
 
-                # Bluff called: loser showed a weak hand (rank >= 9, i.e. one pair or high card) at showdown
-                # Two pair (rank 8) is a legitimate hand, not a bluff
+                # Bluff called: loser was bluffing (weak hand OR self-reported bluff_likelihood >= 50)
                 bluff_called_players = [
-                    name for name, rank in losers_with_hands if rank >= 9
+                    name for name, rank in losers_with_hands
+                    if self._was_bluffing(name, rank, player_bluff_likelihoods)
                 ]
                 if bluff_called_players:
                     events.append(("bluff_called", bluff_called_players))
 
         return events
     
-    def detect_fold_events(self, game_state: PokerGameState, 
+    def detect_fold_events(self, game_state: PokerGameState,
                           folding_player: Player,
-                          remaining_players: List[Player]) -> List[Tuple[str, List[str]]]:
-        """Detect pressure events from a fold action."""
+                          remaining_players: List[Player],
+                          winner_bluff_likelihood: int = 0) -> List[Tuple[str, List[str]]]:
+        """Detect pressure events from a fold action.
+
+        Args:
+            winner_bluff_likelihood: Self-reported bluff_likelihood (0-100) from the
+                winner's LLM responses this hand. Used alongside aggression heuristic.
+        """
         events = []
-        
+
         # If only one player remains after fold, check for bluff
         if len(remaining_players) == 1:
             winner = remaining_players[0]
@@ -189,16 +213,18 @@ class PressureEventDetector:
             avg_stack = sum(p.stack for p in game_state.players if p.stack > 0) / len(
                 [p for p in game_state.players if p.stack > 0]
             )
-            
+
             # Only count as potential bluff if pot is significant
             if pot_total > avg_stack * 0.5:
-                # We can't know for sure without seeing cards, but high aggression
-                # suggests possible bluff
-                if hasattr(winner, 'elastic_personality'):
+                # Self-reported bluff likelihood is the strongest signal (no cards shown)
+                if winner_bluff_likelihood >= self.BLUFF_LIKELIHOOD_THRESHOLD:
+                    events.append(("successful_bluff", [winner.name]))
+                # Fallback: high aggression trait suggests possible bluff
+                elif hasattr(winner, 'elastic_personality'):
                     aggression = winner.elastic_personality.get_trait_value('aggression')
                     if aggression > 0.7:
                         events.append(("successful_bluff", [winner.name]))
-        
+
         return events
     
     def detect_elimination_events(self, game_state: PokerGameState,

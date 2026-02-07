@@ -902,7 +902,14 @@ class AITournamentRunner:
         all_events = []
 
         # 1. Standard showdown events (big_win, big_loss, win, loss, successful_bluff, etc.)
-        showdown_events = self.pressure_detector.detect_showdown_events(game_state, winner_info)
+        bluff_likelihoods = {
+            name: ctrl.get_hand_bluff_likelihood()
+            for name, ctrl in controllers.items()
+            if hasattr(ctrl, 'get_hand_bluff_likelihood')
+        }
+        showdown_events = self.pressure_detector.detect_showdown_events(
+            game_state, winner_info, player_bluff_likelihoods=bluff_likelihoods
+        )
         all_events.extend(showdown_events)
 
         # 2. Stack events (crippled, short_stack)
@@ -1030,6 +1037,10 @@ class AITournamentRunner:
             controller = controllers[player.name]
             if not hasattr(controller, 'psychology'):
                 continue
+
+            # Clear per-hand bluff tracking
+            if hasattr(controller, 'clear_hand_bluff_likelihood'):
+                controller.clear_hand_bluff_likelihood()
 
             player_contribution = game_state.pot.get(player.name, 0) if isinstance(game_state.pot, dict) else 0
             player_won = player.name in winner_names

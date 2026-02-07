@@ -366,6 +366,111 @@ class TestEventPriority(unittest.TestCase):
         bluff_event = next(e for e in events if e[0] == "bluff_called")
         self.assertEqual(bluff_event[1], ["Bob"])
 
+    def test_bluff_called_via_bluff_likelihood(self):
+        """bluff_called fires when loser has decent hand but self-reported high bluff_likelihood."""
+        # Bob has two pair (rank 8) — not weak enough for hand-rank detection
+        # But his bluff_likelihood was 70, so he was bluffing
+        game_state = self.game_state.update(
+            pot={'total': 300},
+            community_cards=[
+                Card('2', 'hearts'), Card('3', 'diamonds'),
+                Card('7', 'clubs'), Card('9', 'spades'), Card('J', 'hearts')
+            ],
+            players=tuple(
+                p.update(
+                    is_folded=(p.name not in ("Alice", "Bob")),
+                    hand=[Card('7', 'spades'), Card('9', 'hearts')] if p.name == "Bob"
+                    else p.hand
+                )
+                for p in self.game_state.players
+            )
+        )
+        winner_info = {
+            'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 300}]}],
+            'winning_hand': [14, 14, 13, 12, 11],
+            'hand_rank': 3,  # Alice has trips
+        }
+
+        # Without bluff_likelihood: Bob's two pair (rank 8) should NOT trigger bluff_called
+        events_without = self.detector.detect_showdown_events(game_state, winner_info)
+        event_types_without = [e[0] for e in events_without]
+        self.assertNotIn("bluff_called", event_types_without,
+            "Two pair should not trigger bluff_called by hand rank alone")
+
+        # With bluff_likelihood >= 50: should trigger bluff_called
+        events_with = self.detector.detect_showdown_events(
+            game_state, winner_info,
+            player_bluff_likelihoods={"Bob": 70, "Alice": 10}
+        )
+        event_types_with = [e[0] for e in events_with]
+        self.assertIn("bluff_called", event_types_with,
+            "High bluff_likelihood should trigger bluff_called even with decent hand")
+
+    def test_bluff_likelihood_below_threshold_no_trigger(self):
+        """Low bluff_likelihood with decent hand should NOT trigger bluff_called."""
+        game_state = self.game_state.update(
+            pot={'total': 300},
+            community_cards=[
+                Card('2', 'hearts'), Card('3', 'diamonds'),
+                Card('7', 'clubs'), Card('9', 'spades'), Card('J', 'hearts')
+            ],
+            players=tuple(
+                p.update(
+                    is_folded=(p.name not in ("Alice", "Bob")),
+                    hand=[Card('7', 'spades'), Card('9', 'hearts')] if p.name == "Bob"
+                    else p.hand
+                )
+                for p in self.game_state.players
+            )
+        )
+        winner_info = {
+            'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 300}]}],
+            'winning_hand': [14, 14, 13, 12, 11],
+            'hand_rank': 3,
+        }
+
+        events = self.detector.detect_showdown_events(
+            game_state, winner_info,
+            player_bluff_likelihoods={"Bob": 30, "Alice": 5}
+        )
+        event_types = [e[0] for e in events]
+        self.assertNotIn("bluff_called", event_types,
+            "Low bluff_likelihood + decent hand should not trigger bluff_called")
+
+    def test_successful_bluff_via_bluff_likelihood(self):
+        """successful_bluff fires when winner has decent hand but self-reported bluffing."""
+        # Winner has a pair (rank 9) with bluff_likelihood=80 — everyone else folded
+        game_state = self.game_state.update(
+            pot={'total': 2000},
+            community_cards=[
+                Card('2', 'hearts'), Card('3', 'diamonds'),
+                Card('7', 'clubs'), Card('9', 'spades'), Card('J', 'hearts')
+            ],
+            players=tuple(
+                p.update(is_folded=(p.name != "Alice"))
+                for p in self.game_state.players
+            )
+        )
+        winner_info = {
+            'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 2000}]}],
+            'winning_hand': [14, 14, 13, 12, 11],
+            'hand_rank': 7,  # Three of a kind — not a weak hand
+        }
+
+        # Without bluff_likelihood: strong hand, no bluff
+        events_without = self.detector.detect_showdown_events(game_state, winner_info)
+        event_types_without = [e[0] for e in events_without]
+        self.assertNotIn("successful_bluff", event_types_without)
+
+        # With high bluff_likelihood: should detect bluff even with strong hand
+        events_with = self.detector.detect_showdown_events(
+            game_state, winner_info,
+            player_bluff_likelihoods={"Alice": 80}
+        )
+        event_types_with = [e[0] for e in events_with]
+        self.assertIn("successful_bluff", event_types_with,
+            "High bluff_likelihood should trigger successful_bluff regardless of hand rank")
+
 
 class TestStreakEvents(unittest.TestCase):
     """Tests for winning/losing streak event detection."""

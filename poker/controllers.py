@@ -611,6 +611,9 @@ class AIPlayerController:
 
         # Decision plans for current hand (captured during decide_action)
         self._current_hand_plans: List[DecisionPlan] = []
+
+        # Max self-reported bluff_likelihood across all actions this hand (0-100)
+        self._hand_max_bluff_likelihood: int = 0
         
     def get_current_personality_traits(self):
         """Get current trait values from psychology (elastic personality)."""
@@ -647,6 +650,14 @@ class AIPlayerController:
         plans = self._current_hand_plans.copy()
         self._current_hand_plans = []
         return plans
+
+    def get_hand_bluff_likelihood(self) -> int:
+        """Get the max self-reported bluff_likelihood for this hand (0-100)."""
+        return self._hand_max_bluff_likelihood
+
+    def clear_hand_bluff_likelihood(self):
+        """Reset bluff tracking for next hand."""
+        self._hand_max_bluff_likelihood = 0
 
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
@@ -788,6 +799,13 @@ class AIPlayerController:
             self._current_hand_plans.append(plan)
 
         logger.debug(f"[AI_DECISION] Response:\n{json.dumps(cleaned_response, indent=4)}")
+
+        # Track max bluff_likelihood across all actions this hand
+        try:
+            bl = int(cleaned_response.get('bluff_likelihood', 0))
+            self._hand_max_bluff_likelihood = max(self._hand_max_bluff_likelihood, bl)
+        except (ValueError, TypeError):
+            pass
 
         # Phase 2: Track action for consecutive fold detection (energy events)
         action = cleaned_response.get('action', '')
@@ -2063,10 +2081,10 @@ def build_base_game_state(
     raise_guidance = ""
     if 'raise' in player_options:
         if current_round == 'PRE_FLOP':
-            sizing_hint = " Standard open: 2.5-3x BB. 3-bet: ~3x the open."
+            sizing_hint = " Standard open: 2.5-3x BB. 3-bet (re-raise): 8-12 BB total."
         else:
             pot_fmt = _format_money(current_pot, big_blind, True)
-            sizing_hint = f" Size relative to the pot ({pot_fmt}): half-pot to pot-sized is standard."
+            sizing_hint = f" Size relative to the pot ({pot_fmt}): half-pot to two-thirds pot is standard."
         raise_guidance = f"If raising, set raise_to between {min_raise_to_fmt} and {max_raise_to_fmt} (the total bet, not the increment).{sizing_hint}\n"
 
     hand_update_message = persona_state + hand_state + pot_state + "\n" + (

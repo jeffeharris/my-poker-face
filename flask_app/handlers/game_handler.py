@@ -430,8 +430,17 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
     pressure_detector = game_data['pressure_detector']
     ai_controllers = game_data.get('ai_controllers', {})
 
+    # Build per-player bluff_likelihood from controller responses this hand
+    bluff_likelihoods = {
+        name: ctrl.get_hand_bluff_likelihood()
+        for name, ctrl in ai_controllers.items()
+        if hasattr(ctrl, 'get_hand_bluff_likelihood')
+    }
+
     # Standard showdown events
-    events = pressure_detector.detect_showdown_events(game_state, winner_info)
+    events = pressure_detector.detect_showdown_events(
+        game_state, winner_info, player_bluff_likelihoods=bluff_likelihoods
+    )
 
     # Equity shock events (weighted-delta model)
     hand_start_stacks = game_data.get('hand_start_stacks', {})
@@ -898,6 +907,7 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
             controller = ai_controllers[player_name]
             # Get and clear decision plans for this hand
             plans = controller.clear_decision_plans()
+            controller.clear_hand_bluff_likelihood()
             commentary.decision_plans = plans
             logger.debug(f"[Commentary] Attached {len(plans)} decision plans for {player_name}")
 

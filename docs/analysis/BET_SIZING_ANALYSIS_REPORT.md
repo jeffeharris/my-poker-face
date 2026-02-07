@@ -404,6 +404,72 @@ GROUP BY eg.experiment_id;
 
 ---
 
+## Appendix: Experiment 65 — Sizing Guidance A/B Results
+
+**Experiment 65** (gpt-5-nano, 1474 decisions, 208 raises, 12 all-ins) tested the first iteration of sizing guidance added to `decision.yaml` and `controllers.py`. Same players, model, and setup as experiment 60.
+
+### Guidance Added (v1)
+- Static (decision.yaml): "Standard opens are 2.5-3x BB. 3-bets are typically 3x the original raise."
+- Static (decision.yaml): "Size bets relative to the pot. Half-pot to pot-sized is standard."
+- Dynamic (controllers.py): Phase-aware hint with concrete pot size in BB
+
+### Pre-Flop Open Sizing Comparison
+
+| Metric | Exp 60 (Before) | Exp 65 (After) | Change |
+|--------|-----------------|----------------|--------|
+| Avg open size | 4.2 BB | 3.7 BB | -0.5 BB (closer to 3x) |
+| Standard rate (2.5-4x) | 49.5% | 64.6% | **+15.1pp** |
+| Overbet rate (>6x) | 29.1% | 26.4% | -2.7pp |
+| Min-raise rate | 6.8% | 0% | **Eliminated** |
+
+**Per-player opens:**
+
+| Player | Before | After |
+|--------|--------|-------|
+| Napoleon | 3.9 BB | 3.5 BB |
+| Sherlock | 4.2 BB | 4.2 BB |
+| Blackbeard | 4.3 BB | 3.8 BB |
+| Bob Ross | 4.5 BB | 3.6 BB |
+
+### 3-Bet Sizing (Problem Found)
+
+| Player | Before | After | Change |
+|--------|--------|-------|--------|
+| Sherlock | 8.8 BB | 19.3 BB | +10.5 (worse) |
+| Bob Ross | 10.4 BB | 13.3 BB | +2.9 |
+| Blackbeard | 13.6 BB | 11.9 BB | -1.7 (better) |
+| Napoleon | 15.8 BB | 18.0 BB | +2.2 |
+
+The "3x the open" wording caused some players to overshoot, likely computing 3x against pot totals rather than the open raise. **Fix applied:** Changed to "3-bets should be 8-12 BB total" — a concrete range instead of a multiplier.
+
+### Postflop Sizing
+
+| Street | Before (pot ratio) | After (pot ratio) |
+|--------|-------------------|-------------------|
+| Flop | 1.05x | 1.24x |
+| Turn | 1.02x | 1.02x |
+| River | 1.10x | 1.13x |
+
+Postflop sizing unchanged — "half-pot to pot-sized" was too permissive. **Fix applied:** Changed to "half-pot to two-thirds pot" to pull the anchor down.
+
+### Overall Assessment
+
+| Metric | Before | After | Verdict |
+|--------|--------|-------|---------|
+| Pre-flop opens | 4.2 BB avg | 3.7 BB avg | Improved |
+| Standard sizing rate | 49.5% | 64.6% | **Much improved** |
+| Min-raises | 6.8% | 0% | Fixed |
+| Catastrophic outliers | 1 (460 BB) | 0 | Fixed |
+| 3-bet sizing | 12.2 BB avg | 15.6 BB avg | Regressed (fix applied) |
+| Postflop pot ratio | 1.05x | 1.13x | Unchanged |
+| Raise frequency | 9.2% | 14.1% | Increased (neutral) |
+
+### Guidance v2 (Applied, Not Yet Tested)
+- 3-bet: "8-12 BB total" (concrete range, not multiplier)
+- Postflop: "half-pot to two-thirds pot" (tighter anchor)
+
+---
+
 ## Key Files
 
 | File | Purpose |
