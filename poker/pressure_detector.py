@@ -166,10 +166,10 @@ class PressureEventDetector:
                 if second_best_rank <= 4 and winner_hand_rank > second_best_rank:
                     events.append(("bad_beat", [second_best_name]))
 
-                # Bluff called: loser showed a weak hand (rank >= 8) at multi-player showdown
-                # This means they tried to bluff but got caught
+                # Bluff called: loser showed a weak hand (rank >= 9, i.e. one pair or high card) at showdown
+                # Two pair (rank 8) is a legitimate hand, not a bluff
                 bluff_called_players = [
-                    name for name, rank in losers_with_hands if rank >= 8
+                    name for name, rank in losers_with_hands if rank >= 9
                 ]
                 if bluff_called_players:
                     events.append(("bluff_called", bluff_called_players))
