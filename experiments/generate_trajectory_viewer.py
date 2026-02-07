@@ -411,10 +411,12 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 .force-table .force-zero{color:#444}
 .force-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
 
-.player-right{display:flex;flex-direction:column;gap:2px;width:100%}
+.player-bars{display:flex;gap:10px;width:100%}
+.axes-col{flex:1;display:flex;flex-direction:column;gap:2px}
+.affinity-col{flex:1;display:flex;flex-direction:column;gap:2px}
 .axis-row{display:flex;align-items:center;gap:4px;font-size:0.72rem}
 .axis-label{width:18px;color:#666;text-align:right;font-size:0.66rem}
-.axis-bar{flex:1;height:4px;background:#21262d;border-radius:2px;overflow:hidden;min-width:40px}
+.axis-bar{flex:1;height:4px;background:#21262d;border-radius:2px;overflow:hidden;min-width:30px}
 .axis-fill{height:100%;border-radius:2px;transition:width .3s ease}
 .axis-value{width:30px;text-align:right;font-variant-numeric:tabular-nums;color:#ccc;font-size:0.7rem}
 .axis-delta{width:42px;text-align:right;font-variant-numeric:tabular-nums;font-size:0.66rem}
@@ -422,10 +424,9 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 .negative{color:#ff6b6b}
 .neutral-delta{color:#444}
 
-.affinity-section{margin-top:3px;padding-top:3px;border-top:1px solid #21262d}
 .affinity-row{display:flex;align-items:center;gap:4px;height:12px;font-size:0.66rem}
 .affinity-label{width:18px;color:#666;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
-.affinity-bar-bg{flex:1;height:3px;background:#21262d;border-radius:2px;overflow:hidden;min-width:30px}
+.affinity-bar-bg{flex:1;height:3px;background:#21262d;border-radius:2px;overflow:hidden;min-width:20px}
 .affinity-bar-fill{height:100%;border-radius:2px;transition:width .3s ease}
 .affinity-pct{width:26px;text-align:right;color:#888;font-variant-numeric:tabular-nums}
 .affinity-active .affinity-label{color:#FFD700}
@@ -1035,11 +1036,13 @@ function createPlayerCards() {
         '<div class="card-summary" id="summary-' + sid + '"></div>' +
         '<button class="expand-btn" title="Show details">&#9656;</button>' +
       '</div>' +
-      '<div class="player-right">' +
-        makeAxisRow('C', sid, 'conf', color, 1) +
-        makeAxisRow('M', sid, 'comp', color, 1) +
-        makeAxisRow('E', sid, 'energy', color, 0.6) +
-        '<div class="affinity-section">' +
+      '<div class="player-bars">' +
+        '<div class="axes-col">' +
+          makeAxisRow('C', sid, 'conf', color, 1) +
+          makeAxisRow('M', sid, 'comp', color, 1) +
+          makeAxisRow('E', sid, 'energy', color, 0.6) +
+        '</div>' +
+        '<div class="affinity-col">' +
           makeAffinityRow(AFFINITY_LABELS.guarded, sid, 'guarded', AFFINITY_COLORS.guarded) +
           makeAffinityRow(AFFINITY_LABELS.poker_face, sid, 'poker_face', AFFINITY_COLORS.poker_face) +
           makeAffinityRow(AFFINITY_LABELS.commanding, sid, 'commanding', AFFINITY_COLORS.commanding) +
