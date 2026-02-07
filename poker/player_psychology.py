@@ -318,7 +318,7 @@ class PlayerPsychology:
             energy=new_energy,
         )
 
-        self.composure_state.update_from_event(event_name, opponent)
+        self.composure_state = self.composure_state.update_from_event(event_name, opponent)
         self._mark_updated()
 
         logger.debug(
@@ -358,7 +358,7 @@ class PlayerPsychology:
             'bluff_called': {'confidence': -0.25, 'composure': -0.10, 'energy': -0.05},
             'nemesis_win': {'confidence': 0.18, 'composure': 0.05, 'energy': 0.05},
             'nemesis_loss': {'confidence': -0.18, 'composure': -0.05, 'energy': -0.05},
-            # Equity Shock (at most ONE, composure-only)
+            # Equity Shock (at most ONE, composure+energy only — no confidence)
             'bad_beat': {'composure': -0.35, 'energy': -0.10},
             'cooler': {'composure': -0.20, 'energy': -0.05},
             'suckout': {'composure': 0.10, 'energy': 0.05},
@@ -491,7 +491,7 @@ class PlayerPsychology:
 
         # Update composure tracking
         for event in events_applied:
-            self.composure_state.update_from_event(event, opponent)
+            self.composure_state = self.composure_state.update_from_event(event, opponent)
 
         self._mark_updated()
 
@@ -524,7 +524,7 @@ class PlayerPsychology:
         big_blind: int = 100,
     ) -> None:
         """Called after each hand completes. Updates composure tracking and generates new emotional state."""
-        self.composure_state.update_from_hand(
+        self.composure_state = self.composure_state.update_from_hand(
             outcome=outcome,
             amount=amount,
             opponent=opponent,

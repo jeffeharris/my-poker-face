@@ -295,8 +295,8 @@ win < headsup_win < big_win < double_up < suckout
 
 ## Related Documentation
 
-- [AI_PSYCHOLOGY_SYSTEMS.md](AI_PSYCHOLOGY_SYSTEMS.md) - Overall psychology architecture
-- [ELASTICITY_SYSTEM.md](ELASTICITY_SYSTEM.md) - Trait elasticity mechanics
+- [PSYCHOLOGY_OVERVIEW.md](PSYCHOLOGY_OVERVIEW.md) - Overall psychology architecture
+- [PSYCHOLOGY_ZONES_MODEL.md](PSYCHOLOGY_ZONES_MODEL.md) - Zone mechanics
 - [PRESSURE_STATS_SYSTEM.md](PRESSURE_STATS_SYSTEM.md) - Stats tracking and display
 - [EQUITY_PRESSURE_DETECTION.md](EQUITY_PRESSURE_DETECTION.md) - Equity-based event detection
 

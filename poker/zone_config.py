@@ -52,6 +52,10 @@ def _load_zone_params() -> Dict[str, Any]:
             'RECOVERY_BELOW_BASELINE_RANGE': 0.40,
             'RECOVERY_ABOVE_BASELINE': 0.80,
         },
+        'energy_thresholds': {
+            'ENERGY_LOW_THRESHOLD': 0.35,
+            'ENERGY_HIGH_THRESHOLD': 0.65,
+        },
     }
 
     # Try to load from file
@@ -67,7 +71,7 @@ def _load_zone_params() -> Dict[str, Any]:
             with open(config_path, 'r') as f:
                 loaded = json.load(f)
                 # Merge loaded values into defaults
-                for category in ['penalty_thresholds', 'zone_radii', 'recovery']:
+                for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'energy_thresholds']:
                     if category in loaded:
                         defaults[category].update(loaded[category])
                 logger.debug(f"Loaded zone parameters from {config_path}")
@@ -94,7 +98,7 @@ def get_zone_param(name: str) -> float:
     params = _load_zone_params()
 
     # Search all categories for the parameter
-    for category in ['penalty_thresholds', 'zone_radii', 'recovery']:
+    for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'energy_thresholds']:
         if name in params.get(category, {}):
             return params[category][name]
 
@@ -128,7 +132,7 @@ def get_all_zone_params() -> Dict[str, float]:
     """Get all zone parameters as a flat dict (for reporting)."""
     params = _load_zone_params()
     result = {}
-    for category in ['penalty_thresholds', 'zone_radii', 'recovery']:
+    for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'energy_thresholds']:
         result.update(params.get(category, {}))
     # Apply overrides
     result.update(_zone_params_overrides)

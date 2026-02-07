@@ -11,7 +11,7 @@ Key changes in v2.1:
 
 from typing import Dict, Optional, Tuple
 
-from poker.hand_tiers import PREMIUM_HANDS, is_hand_in_range
+from .hand_tiers import PREMIUM_HANDS, is_hand_in_range
 
 
 # Position-adjusted range clamps (PRD §18.4)
@@ -372,7 +372,7 @@ def _game_position_to_range_key(game_position: str) -> str:
         return _GAME_POSITION_OVERRIDES[game_position]
 
     # Use hand_ranges position grouping
-    from poker.hand_ranges import get_position_group
+    from .hand_ranges import get_position_group
     pos_group = get_position_group(game_position)
     return _POSITION_GROUP_TO_RANGE_KEY.get(pos_group.value, 'middle')
 

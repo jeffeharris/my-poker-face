@@ -334,22 +334,21 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 <title>Psychology Trajectory Viewer</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0d1117;color:#e6e6e6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow-x:hidden}
-.container{max-width:1400px;margin:0 auto;padding:16px 20px}
-header{text-align:center;margin-bottom:12px}
-h1{font-size:1.3rem;font-weight:500;color:#fff;letter-spacing:-0.3px}
-.meta{color:#666;font-size:0.8rem;margin-top:2px}
-.game-selector{margin-top:6px}
-.game-selector select{background:#161b22;color:#e6e6e6;border:1px solid #30363d;padding:4px 8px;border-radius:4px;font-size:0.8rem}
+body{background:#0d1117;color:#e6e6e6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow-x:hidden;height:100dvh;overflow-y:hidden}
+.container{margin:0 auto;padding:4px 16px;display:flex;flex-direction:column;height:100dvh}
+header{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:4px;flex-shrink:0}
+h1{font-size:1.1rem;font-weight:500;color:#fff;letter-spacing:-0.3px}
+.meta{color:#666;font-size:0.75rem}
+#game-selector{background:#161b22;color:#e6e6e6;border:1px solid #30363d;padding:3px 6px;border-radius:4px;font-size:0.75rem}
 
-.main-layout{display:flex;gap:16px;align-items:flex-start}
-.left-panel{flex:1;min-width:280px;overflow-y:auto;max-height:calc(100vh - 140px)}
-.right-panel{flex:2;position:sticky;top:16px}
+.main-layout{display:flex;gap:12px;align-items:stretch;flex:1;min-height:0}
+.left-panel{flex:1;min-width:220px;overflow-y:auto}
+.right-panel{flex:1;display:flex;align-items:center;justify-content:center;min-width:0}
 
-.chart-section{display:flex;justify-content:center}
+.chart-section{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
 canvas{border-radius:8px;cursor:crosshair}
 
-.controls{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#161b22;border-radius:8px;margin-top:12px;margin-bottom:12px;border:1px solid #21262d;flex-wrap:wrap}
+.controls{display:flex;align-items:center;gap:8px;padding:5px 12px;background:#161b22;border-radius:6px;margin-top:4px;border:1px solid #21262d;flex-wrap:wrap;flex-shrink:0}
 .controls-row{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
 .control-btn{background:#21262d;border:1px solid #30363d;color:#e6e6e6;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;transition:background .15s;flex-shrink:0}
 .control-btn:hover{background:#30363d}
@@ -434,8 +433,10 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 
 @media(max-width:900px){
   .main-layout{flex-direction:column}
-  .left-panel{max-height:none;overflow-y:visible}
-  .right-panel{position:static;width:100%}
+  .left-panel{overflow-y:visible}
+  .right-panel{width:100%}
+  body{overflow-y:auto;height:auto}
+  .container{height:auto}
 }
 @media(max-width:800px){
   .player-left{min-width:120px}
@@ -448,10 +449,8 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 <div class="container">
   <header>
     <h1>Psychology Trajectory Viewer</h1>
-    <div class="meta" id="meta"></div>
-    <div class="game-selector" id="game-selector-wrap" style="display:none">
-      <select id="game-selector"></select>
-    </div>
+    <span class="meta" id="meta"></span>
+    <select id="game-selector" style="display:none"></select>
   </header>
 
   <div class="main-layout">
@@ -554,9 +553,10 @@ function toCanvas(conf, comp) {
 }
 
 function setupCanvas() {
-  const container = canvas.parentElement;
-  const maxSize = Math.min(container.clientWidth - 8, 860);
-  chartSize = Math.max(400, maxSize);
+  const section = canvas.parentElement;
+  const availW = section.clientWidth - 8;
+  const availH = section.clientHeight - 8;
+  chartSize = Math.max(360, Math.min(availW, availH));
   const dpr = window.devicePixelRatio || 1;
   canvas.width = chartSize * dpr;
   canvas.height = chartSize * dpr;
@@ -993,7 +993,7 @@ function drawLegend() {
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
   let y = PAD + 12;
-  const x = chartSize - 10;
+  const x = chartSize - PAD - 4;
   for (const player of DATA.players) {
     const color = DATA.player_colors[player];
     ctx.fillStyle = color;
@@ -1025,11 +1025,11 @@ function createPlayerCards() {
       '<div class="player-header-row">' +
         '<div class="player-left">' +
           '<div class="avatar-wrap">' +
-            '<div class="avatar" style="background:' + color + '">' + initials + '</div>' +
+            '<div class="avatar" style="background:' + color + '">' + escapeHtml(initials) + '</div>' +
             '<span class="avatar-emotion" id="avatar-emo-' + sid + '"></span>' +
           '</div>' +
           '<div class="player-name-wrap">' +
-            '<div class="player-name">' + player + '</div>' +
+            '<div class="player-name">' + escapeHtml(player) + '</div>' +
             '<span class="player-emotion-text" id="emo-text-' + sid + '"></span>' +
           '</div>' +
         '</div>' +
@@ -1463,9 +1463,8 @@ function setupControls() {
 
   // Game selector (if multiple games)
   if (DATA.games.length > 1) {
-    const wrap = document.getElementById('game-selector-wrap');
     const sel = document.getElementById('game-selector');
-    wrap.style.display = '';
+    sel.style.display = '';
     for (const g of DATA.games) {
       const opt = document.createElement('option');
       opt.value = g.game_id;
@@ -1491,6 +1490,12 @@ function updateHandInfo(idx) {
 // --- Utilities ---
 function sanitize(name) {
   return name.replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+function escapeHtml(text) {
+  var div = document.createElement('div');
+  div.appendChild(document.createTextNode(text));
+  return div.innerHTML;
 }
 
 // --- Init ---

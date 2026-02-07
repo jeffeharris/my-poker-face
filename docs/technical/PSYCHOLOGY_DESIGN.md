@@ -277,6 +277,6 @@ Before shipping psychology changes:
 ## Related Documentation
 
 - [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) - Event catalog and detection
-- [AI_PSYCHOLOGY_SYSTEMS.md](AI_PSYCHOLOGY_SYSTEMS.md) - System architecture
-- [ELASTICITY_SYSTEM.md](ELASTICITY_SYSTEM.md) - Trait mechanics
+- [PSYCHOLOGY_OVERVIEW.md](PSYCHOLOGY_OVERVIEW.md) - System architecture
+- [PSYCHOLOGY_ZONES_MODEL.md](PSYCHOLOGY_ZONES_MODEL.md) - Zone mechanics
 - [EQUITY_PRESSURE_DETECTION.md](EQUITY_PRESSURE_DETECTION.md) - Equity-based events

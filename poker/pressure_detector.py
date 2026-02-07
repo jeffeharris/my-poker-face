@@ -325,15 +325,15 @@ class PressureEventDetector:
                     and worst_swing_prev_equity >= self.BAD_BEAT_EQUITY_MIN
                     and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD):
                 event = 'bad_beat'
-            # got_sucked_out: lost AND big negative delta
-            elif (player_lost
-                  and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD):
-                event = 'got_sucked_out'
             # cooler: lost AND had 60-80% equity at worst swing AND big negative delta
             elif (player_lost
                   and self.COOLER_EQUITY_MIN <= worst_swing_prev_equity < self.BAD_BEAT_EQUITY_MIN
                   and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD):
                 event = 'cooler'
+            # got_sucked_out: lost AND big negative delta (no equity constraint)
+            elif (player_lost
+                  and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD):
+                event = 'got_sucked_out'
             # suckout: won AND big positive delta (they got lucky)
             elif (player_won
                   and max_positive_wd >= self.EQUITY_SHOCK_THRESHOLD):
@@ -420,13 +420,13 @@ class PressureEventDetector:
         if not player:
             return None
 
-        cost_to_call = game_state.highest_bet - player.current_bet
+        cost_to_call = game_state.highest_bet - player.bet
         if cost_to_call <= 0:
             return None
 
         # Check pot significance
         pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
-        player_stack = player.stack + player.current_bet  # Effective stack
+        player_stack = player.stack + player.bet  # Effective stack
         if player_stack <= 0:
             return None
         pot_significance = pot_total / player_stack

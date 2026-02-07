@@ -325,9 +325,9 @@ def _get_zone_manifestation(energy: float) -> str:
 
     Returns: 'low_energy', 'balanced', or 'high_energy'
     """
-    if energy < ENERGY_LOW_THRESHOLD:
+    if energy < get_zone_param('ENERGY_LOW_THRESHOLD'):
         return 'low_energy'
-    elif energy > ENERGY_HIGH_THRESHOLD:
+    elif energy > get_zone_param('ENERGY_HIGH_THRESHOLD'):
         return 'high_energy'
     else:
         return 'balanced'
@@ -372,7 +372,8 @@ def get_zone_effects(confidence: float, composure: float, energy: float) -> Zone
 def select_zone_strategy(
     zone_name: str,
     strength: float,
-    context: ZoneContext
+    context: ZoneContext,
+    rng: Optional[random.Random] = None,
 ) -> Optional[ZoneStrategy]:
     """
     Select a strategy for the given zone.
@@ -394,7 +395,8 @@ def select_zone_strategy(
     total = sum(weights)
     weights = [w / total for w in weights]
 
-    return random.choices(eligible, weights=weights, k=1)[0]
+    _rng = rng or random.Random()
+    return _rng.choices(eligible, weights=weights, k=1)[0]
 
 
 def build_zone_guidance(

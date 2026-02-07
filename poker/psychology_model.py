@@ -148,7 +148,7 @@ class EmotionalAxes:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ComposureState:
     """
     Tracks composure-related state (replaces TiltState).
@@ -158,19 +158,23 @@ class ComposureState:
     """
     pressure_source: str = ''    # 'bad_beat', 'bluff_called', 'big_loss', etc.
     nemesis: Optional[str] = None  # Player who caused pressure
-    recent_losses: List[Dict[str, Any]] = field(default_factory=list)
+    recent_losses: Tuple[Dict[str, Any], ...] = ()
     losing_streak: int = 0
 
-    def update_from_event(self, event_name: str, opponent: Optional[str] = None) -> None:
-        """Update composure tracking state from a pressure event."""
+    def update_from_event(self, event_name: str, opponent: Optional[str] = None) -> 'ComposureState':
+        """Return new ComposureState updated from a pressure event."""
         negative_events = {
             'bad_beat', 'bluff_called', 'big_loss', 'got_sucked_out',
             'losing_streak', 'crippled', 'nemesis_loss'
         }
         if event_name in negative_events:
-            self.pressure_source = event_name
-            if opponent:
-                self.nemesis = opponent
+            return ComposureState(
+                pressure_source=event_name,
+                nemesis=opponent if opponent else self.nemesis,
+                recent_losses=self.recent_losses,
+                losing_streak=self.losing_streak,
+            )
+        return self
 
     def update_from_hand(
         self,
@@ -179,34 +183,43 @@ class ComposureState:
         opponent: Optional[str] = None,
         was_bad_beat: bool = False,
         was_bluff_called: bool = False,
-    ) -> None:
-        """Update composure tracking from hand outcome."""
+    ) -> 'ComposureState':
+        """Return new ComposureState updated from hand outcome."""
         if outcome == 'lost' or outcome == 'folded':
-            self.losing_streak += 1
-            if self.losing_streak >= 3:
-                self.pressure_source = 'losing_streak'
+            new_streak = self.losing_streak + 1
+            if new_streak >= 3:
+                new_source = 'losing_streak'
             elif was_bad_beat:
-                self.pressure_source = 'bad_beat'
+                new_source = 'bad_beat'
             elif was_bluff_called:
-                self.pressure_source = 'bluff_called'
+                new_source = 'bluff_called'
             elif amount < -1000:  # Big loss
-                self.pressure_source = 'big_loss'
+                new_source = 'big_loss'
+            else:
+                new_source = self.pressure_source
 
-            if opponent:
-                self.nemesis = opponent
-
-            self.recent_losses.append({
+            new_losses = (self.recent_losses + ({
                 'amount': amount,
                 'opponent': opponent,
                 'was_bad_beat': was_bad_beat
-            })
-            self.recent_losses = self.recent_losses[-5:]
+            },))[-5:]
+
+            return ComposureState(
+                pressure_source=new_source,
+                nemesis=opponent if opponent else self.nemesis,
+                recent_losses=new_losses,
+                losing_streak=new_streak,
+            )
 
         elif outcome == 'won':
-            self.losing_streak = 0
-            # Clear pressure source on wins
-            if amount > 500:
-                self.pressure_source = ''
+            return ComposureState(
+                pressure_source='' if amount > 500 else self.pressure_source,
+                nemesis=self.nemesis,
+                recent_losses=self.recent_losses,
+                losing_streak=0,
+            )
+
+        return self
 
     @property
     def tilt_source(self) -> str:
@@ -218,7 +231,7 @@ class ComposureState:
         return {
             'pressure_source': self.pressure_source,
             'nemesis': self.nemesis,
-            'recent_losses': self.recent_losses,
+            'recent_losses': list(self.recent_losses),
             'losing_streak': self.losing_streak,
         }
 
@@ -228,7 +241,7 @@ class ComposureState:
         return cls(
             pressure_source=data.get('pressure_source', ''),
             nemesis=data.get('nemesis'),
-            recent_losses=data.get('recent_losses', []),
+            recent_losses=tuple(data.get('recent_losses', ())),
             losing_streak=data.get('losing_streak', 0),
         )
 
@@ -238,7 +251,7 @@ class ComposureState:
         return cls(
             pressure_source=tilt_data.get('tilt_source', ''),
             nemesis=tilt_data.get('nemesis'),
-            recent_losses=tilt_data.get('recent_losses', []),
+            recent_losses=tuple(tilt_data.get('recent_losses', ())),
             losing_streak=tilt_data.get('losing_streak', 0),
         )
 
@@ -384,11 +397,12 @@ def get_quadrant(confidence: float, composure: float) -> EmotionalQuadrant:
     Determine emotional quadrant from Confidence x Composure.
 
     Quadrant boundaries:
-    - SHAKEN: confidence < 0.35 AND composure < 0.35
     - COMMANDING: confidence > 0.5 AND composure > 0.5
     - OVERHEATED: confidence > 0.5 AND composure <= 0.5
     - GUARDED: confidence <= 0.5 AND composure > 0.5
-    - Otherwise SHAKEN (low confidence, low composure)
+    - SHAKEN: confidence <= 0.5 AND composure <= 0.5
+
+    An early check returns SHAKEN when both < 0.35 (deep SHAKEN shortcut).
     """
     if confidence < 0.35 and composure < 0.35:
         return EmotionalQuadrant.SHAKEN

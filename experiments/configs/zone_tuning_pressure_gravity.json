@@ -16,8 +16,7 @@
   "capture_prompts": true,
 
   "zone_params": {
-    "RECOVERY_BELOW_BASELINE_FLOOR": 0.70,
-    "GRAVITY_STRENGTH": 0.03
+    "RECOVERY_BELOW_BASELINE_FLOOR": 0.70
   },
 
   "control": {

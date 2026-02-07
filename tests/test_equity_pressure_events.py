@@ -248,12 +248,12 @@ class TestEquityShockDetection(unittest.TestCase):
         self.assertTrue(any(e[0] == "bad_beat" for e in batman_events))
 
     def test_got_sucked_out_detected(self):
-        """got_sucked_out: loser was ahead on turn, lost on river."""
+        """got_sucked_out: loser had <60% equity at worst swing (below cooler range)."""
         snapshots = (
-            EquitySnapshot("Batman", "FLOP", 0.65, ("Ks", "Kd"), ("Kc", "5d", "2h"), True),
-            EquitySnapshot("Joker", "FLOP", 0.35, ("6h", "7h"), ("Kc", "5d", "2h"), True),
-            EquitySnapshot("Batman", "TURN", 0.70, ("Ks", "Kd"), ("Kc", "5d", "2h", "Jc"), True),
-            EquitySnapshot("Joker", "TURN", 0.30, ("6h", "7h"), ("Kc", "5d", "2h", "Jc"), True),
+            EquitySnapshot("Batman", "FLOP", 0.55, ("Ks", "Kd"), ("Kc", "5d", "2h"), True),
+            EquitySnapshot("Joker", "FLOP", 0.45, ("6h", "7h"), ("Kc", "5d", "2h"), True),
+            EquitySnapshot("Batman", "TURN", 0.50, ("Ks", "Kd"), ("Kc", "5d", "2h", "Jc"), True),
+            EquitySnapshot("Joker", "TURN", 0.50, ("6h", "7h"), ("Kc", "5d", "2h", "Jc"), True),
             EquitySnapshot("Batman", "RIVER", 0.0, ("Ks", "Kd"), ("Kc", "5d", "2h", "Jc", "8h"), True),
             EquitySnapshot("Joker", "RIVER", 1.0, ("6h", "7h"), ("Kc", "5d", "2h", "Jc", "8h"), True),
         )
@@ -424,13 +424,10 @@ class TestEquityShockDetection(unittest.TestCase):
         )
 
         batman_events = [e for e in events if "Batman" in e[1]]
-        # Batman had 70% at worst swing (turn→river), which is in 60-80% range
-        # But got_sucked_out takes priority over cooler in our priority chain
-        # (bad_beat > got_sucked_out > cooler)
-        # Since Batman lost with big negative delta, got_sucked_out fires first
+        # Batman had 70% at worst swing (turn→river), which is in cooler range [60%, 80%)
+        # Priority: bad_beat (80%+) > cooler (60-80%) > got_sucked_out (no equity constraint)
         self.assertEqual(len(batman_events), 1)
-        # With 70% equity at worst swing (< 80%), got_sucked_out fires
-        self.assertEqual(batman_events[0][0], "got_sucked_out")
+        self.assertEqual(batman_events[0][0], "cooler")
 
 
 if __name__ == "__main__":

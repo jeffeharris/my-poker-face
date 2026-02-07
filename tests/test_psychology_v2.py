@@ -1894,7 +1894,7 @@ class TestZoneThoughtSelection:
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
-        psych.composure_state.pressure_source = 'bad_beat'
+        psych.composure_state = ComposureState(pressure_source='bad_beat')
 
         thoughts = psych._get_zone_thoughts('tilted', 'balanced', 0.5)
 
@@ -2234,7 +2234,7 @@ class TestZoneEffectsIntegration:
 
         # Force very low composure
         psych.axes = psych.axes.update(composure=0.15)
-        psych.composure_state.pressure_source = 'bad_beat'
+        psych.composure_state = ComposureState(pressure_source='bad_beat')
 
         test_prompt = "What is your move?"
 

@@ -369,4 +369,4 @@ class PokerPsychology:
 
 - [PSYCHOLOGY_DESIGN.md](/docs/technical/PSYCHOLOGY_DESIGN.md) - Current design goals
 - [PRESSURE_EVENTS.md](/docs/technical/PRESSURE_EVENTS.md) - Event catalog
-- [AI_PSYCHOLOGY_SYSTEMS.md](/docs/technical/AI_PSYCHOLOGY_SYSTEMS.md) - Current architecture
+- [PSYCHOLOGY_OVERVIEW.md](/docs/technical/PSYCHOLOGY_OVERVIEW.md) - Current architecture

@@ -260,58 +260,51 @@ This ensures:
 
 ### Confidence Anchor
 
-Confidence raw value comes from three trait contributions:
+Confidence baseline is a direct linear combination of three traits:
 
 ```python
-# Weighted blend of contributing traits (0-1 scale)
-raw_confidence = (
-    baseline_aggression × 0.35 +  # aggressive players are confident
-    risk_identity × 0.30 +        # risk-seekers expect to win
-    ego × 0.35                    # high ego = high self-regard
+baseline_confidence = (
+    0.3                              # floor
+    + baseline_aggression × 0.25     # aggressive players are confident
+    + risk_identity × 0.20           # risk-seekers expect to win
+    + ego × 0.25                     # high ego = high self-regard
 )
-# Weights sum to 1.0, so raw_confidence is always 0-1
-
-# Map to safe range
-anchor_confidence = 0.35 + 0.50 × raw_confidence
-# Range: 0.35 to 0.85
+# Range: 0.30 (all zero) to 1.00 (all one)
+# Clamped to [0.15, 0.85] to stay outside penalty zones
 ```
 
-| Trait Mix | Raw Value | Anchor Confidence |
-|-----------|-----------|-------------------|
-| All low (0.0) | 0.00 | 0.35 |
-| All mid (0.5) | 0.50 | 0.60 |
-| All high (1.0) | 1.00 | 0.85 |
-| High ego only (1.0, others 0) | 0.35 | 0.53 |
-| High aggression only | 0.35 | 0.53 |
+| Trait Mix | Baseline Confidence |
+|-----------|---------------------|
+| All low (0.0) | 0.30 |
+| All mid (0.5) | 0.65 |
+| All high (1.0) | 0.85 (clamped from 1.00) |
+| High ego only (1.0, others 0) | 0.55 |
+| High aggression only (1.0, others 0) | 0.55 |
 
 **Note:** Ego also affects *sensitivity* (how much being wrong hurts), not just baseline.
 
 ### Composure Anchor
 
-Composure raw value comes from three trait contributions:
+Composure baseline uses poise as primary driver with expressiveness and risk modifiers:
 
 ```python
-# Weighted blend of contributing traits (0-1 scale)
-# Note: expressiveness is inverted (low express = high composure)
-# Note: risk_identity centered at 0.5 (below = nervous, above = comfortable)
-raw_composure = (
-    poise × 0.55 +                      # primary driver
-    (1 - expressiveness) × 0.25 +       # low expressiveness = internal control
-    (risk_identity - 0.5 + 0.5) × 0.20  # risk-seekers comfortable with chaos
+risk_mod = (risk_identity - 0.5) × 0.3   # centered: below 0.5 = nervous, above = comfortable
+baseline_composure = (
+    0.25                                   # floor
+    + poise × 0.50                         # primary driver
+    + (1 - expressiveness) × 0.15          # low expressiveness = internal control
+    + risk_mod                             # risk-seekers comfortable with chaos
 )
-# Simplified: the risk term shifts 0-1 range, keeps weights summing to 1.0
-
-# Map to safe range
-anchor_composure = 0.35 + 0.50 × raw_composure
-# Range: 0.35 to 0.85
+# Range: ~0.10 to ~1.05
+# Clamped to [0.15, 0.85] to stay outside penalty zones
 ```
 
-| Trait Mix | Raw Value | Anchor Composure |
-|-----------|-----------|------------------|
-| Poise 0, Express 1, Risk 0 | 0.00 | 0.35 |
-| All mid (0.5) | 0.50 | 0.60 |
-| Poise 1, Express 0, Risk 1 | 1.00 | 0.85 |
-| High poise only (1.0, others 0.5) | 0.675 | 0.69 |
+| Trait Mix | Baseline Composure |
+|-----------|--------------------|
+| Poise 0, Express 1, Risk 0 | 0.15 (clamped from 0.10) |
+| All mid (0.5) | 0.58 |
+| Poise 1, Express 0, Risk 1 | 0.85 (clamped from 1.05) |
+| High poise only (1.0, others 0.5) | 0.83 |
 
 **Note:** Poise also affects *sensitivity* (how much bad outcomes hurt), not just baseline.
 
@@ -319,11 +312,11 @@ anchor_composure = 0.35 + 0.50 × raw_composure
 
 | Character | Aggression | Risk | Ego | Poise | Express | Conf Anchor | Comp Anchor | Home Zone |
 |-----------|------------|------|-----|-------|---------|-------------|-------------|-----------|
-| Batman | 0.4 | 0.3 | 0.4 | 0.8 | 0.2 | 0.53 | 0.74 | Poker Face |
-| Gordon Ramsay | 0.8 | 0.7 | 0.8 | 0.35 | 0.9 | 0.78 | 0.46 | Aggro |
-| Bob Ross | 0.2 | 0.2 | 0.3 | 0.8 | 0.6 | 0.46 | 0.68 | Guarded |
-| Napoleon | 0.7 | 0.6 | 0.85 | 0.7 | 0.5 | 0.74 | 0.66 | Commanding |
-| Tourist | 0.3 | 0.4 | 0.3 | 0.25 | 0.7 | 0.48 | 0.46 | Neutral (near Shaken) |
+| Batman | 0.4 | 0.3 | 0.4 | 0.8 | 0.2 | 0.56 | 0.71 | Poker Face |
+| Gordon Ramsay | 0.8 | 0.7 | 0.8 | 0.35 | 0.9 | 0.84 | 0.50 | Aggro |
+| Bob Ross | 0.2 | 0.2 | 0.3 | 0.8 | 0.6 | 0.47 | 0.62 | Guarded |
+| Napoleon | 0.7 | 0.6 | 0.85 | 0.7 | 0.5 | 0.81 | 0.71 | Commanding |
+| Tourist | 0.3 | 0.4 | 0.3 | 0.25 | 0.7 | 0.53 | 0.39 | Neutral (near Shaken) |
 
 ### Fallback: Independent Definition
 
@@ -1119,7 +1112,7 @@ Intrusive thoughts appear **probabilistically** based on penalty intensity, with
 
 | Penalty Intensity | Thought Probability | Notes |
 |-------------------|---------------------|-------|
-| 0-25% | 25% | Occasional distracting thought |
+| 0-25% | 10% | Occasional distracting thought |
 | 25-50% | 50% | Frequent intrusion |
 | 50-75% | 75% | Hard to ignore |
 | 75%+ | 100% | **Cliff** - always present |

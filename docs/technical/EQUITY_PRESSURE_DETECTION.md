@@ -305,6 +305,6 @@ WHERE he1.game_id = ?
 
 ## Related Documentation
 
-- [AI_PSYCHOLOGY_SYSTEMS.md](AI_PSYCHOLOGY_SYSTEMS.md) - Overall psychology architecture
-- [ELASTICITY_SYSTEM.md](ELASTICITY_SYSTEM.md) - Trait elasticity system
+- [PSYCHOLOGY_OVERVIEW.md](PSYCHOLOGY_OVERVIEW.md) - Overall psychology architecture
+- [PSYCHOLOGY_ZONES_MODEL.md](PSYCHOLOGY_ZONES_MODEL.md) - Zone-based psychology system
 - [PRESSURE_STATS_SYSTEM.md](PRESSURE_STATS_SYSTEM.md) - Pressure tracking

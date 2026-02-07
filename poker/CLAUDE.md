@@ -115,7 +115,7 @@ AI responses use the `dramatic_sequence` field for visible reactions and table t
 
 ## Pressure Detection System
 
-Located in `pressure_detector.py`. Detects post-hand events that affect AI personality elasticity.
+Located in `pressure_detector.py`. Detects post-hand events that affect AI psychology axes (confidence, composure, energy).
 
 Uses `MomentAnalyzer.is_big_pot()` for consistent threshold with drama detection.
 
