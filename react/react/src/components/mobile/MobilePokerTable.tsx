@@ -157,6 +157,7 @@ export function MobilePokerTable({
   const currentPlayer = storePlayers?.[currentPlayerIdx];
   const humanPlayer = storePlayers?.find(p => p.is_human);
   const isShowdown = phase?.toLowerCase() === 'showdown';
+  const isInterhandPhase = phase === 'EVALUATING_HAND' || phase === 'HAND_OVER';
 
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
   const shouldHighlightActivePlayer = isBettingPhase(phase, runItOut);
@@ -251,6 +252,44 @@ export function MobilePokerTable({
 
   // Two opponents mode: 2 AI opponents (3 players total)
   const isTwoOpponents = opponents.length === 2;
+  const isThreeOpponents = opponents.length === 3;
+  const isThreeOpponentsNormal = isThreeOpponents && !isInShowdown;
+  const isThreeOpponentsShowdown = isInShowdown && activeOpponents.length === 3;
+
+  // For non-showdown hands (walks/fold-outs), capture the winner line into local
+  // state and immediately dismiss winnerInfo so MobileWinnerAnnouncement never mounts.
+  // Split into message (name + verb) and submessage (amount) for better layout.
+  const [interhandMessage, setInterhandMessage] = useState<string | null>(null);
+  const [interhandSubmessage, setInterhandSubmessage] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!winnerInfo || winnerInfo.showdown) return;
+    // Compute net profit (gross winnings minus what the winner put in)
+    let netProfit: number | null = null;
+    if (winnerInfo.pot_breakdown) {
+      const gross = winnerInfo.pot_breakdown.reduce(
+        (sum, pot) => sum + pot.winners.reduce((s, w) => s + w.amount, 0), 0,
+      );
+      const contributions = winnerInfo.pot_contributions ?? {};
+      const winnerContrib = winnerInfo.winners.reduce(
+        (sum, name) => sum + (contributions[name] ?? 0), 0,
+      );
+      netProfit = gross - winnerContrib;
+    }
+    const names = winnerInfo.winners.length > 1
+      ? winnerInfo.winners.join(' & ')
+      : winnerInfo.winners[0];
+    const verb = winnerInfo.winners.length > 1 ? 'split' : 'won';
+    setInterhandMessage(`${names} ${verb}`);
+    setInterhandSubmessage(netProfit != null && netProfit > 0 ? `+$${netProfit}` : undefined);
+    clearWinnerInfo();
+  }, [winnerInfo, clearWinnerInfo]);
+
+  // Clear when the next hand starts
+  useEffect(() => {
+    setInterhandMessage(null);
+    setInterhandSubmessage(undefined);
+  }, [handNumber]);
 
   // Coach hook
   const coach = useCoach({
@@ -411,6 +450,8 @@ export function MobilePokerTable({
             'mobile-opponents',
             isHeadsUp && 'heads-up-mode',
             isTwoOpponents && 'two-opponents-mode',
+            isThreeOpponentsNormal && 'three-opponents-mode',
+            isThreeOpponentsShowdown && 'three-opponents-showdown-mode',
           ].filter(Boolean).join(' ')}
           data-testid="mobile-opponents"
           ref={opponentsContainerRef}
@@ -435,9 +476,10 @@ export function MobilePokerTable({
                 'mobile-opponent',
                 opponent.is_folded && 'folded',
                 opponent.is_all_in && 'all-in',
-                isCurrentPlayer && 'thinking',
+                isCurrentPlayer && !isInShowdown && 'thinking',
                 isHeadsUp && 'heads-up-avatar',
                 isTwoOpponents && 'two-opponents-avatar',
+                isThreeOpponents && 'three-opponents-avatar',
               ].filter(Boolean).join(' ')}
               data-testid="mobile-opponent"
             >
@@ -688,14 +730,17 @@ export function MobilePokerTable({
         )}
       </div>
 
-      {/* Winner Announcement */}
-      <MobileWinnerAnnouncement
-        winnerInfo={winnerInfo}
-        onComplete={clearWinnerInfo}
-        gameId={gameId || ''}
-        playerName={playerName || ''}
-        onSendMessage={wrappedSendMessage}
-      />
+      {/* Winner Announcement — non-showdown wins are handled by the interhand
+          message inside ShuffleLoading, so only mount for showdown wins. */}
+      {!(winnerInfo && !winnerInfo.showdown) && (
+        <MobileWinnerAnnouncement
+          winnerInfo={winnerInfo}
+          onComplete={clearWinnerInfo}
+          gameId={gameId || ''}
+          playerName={playerName || ''}
+          onSendMessage={wrappedSendMessage}
+        />
+      )}
 
       {/* Tournament Complete - only show when winner announcement is dismissed */}
       {/* This ensures winner announcement is ALWAYS shown first, then tournament complete after */}
@@ -709,10 +754,12 @@ export function MobilePokerTable({
         />
       )}
 
-      {/* Shuffle animation during end-of-hand phases. Winner announcement renders at a higher z-index so it appears on top. */}
+      {/* Shuffle animation during end-of-hand phases. For non-showdown wins the
+          shuffle message shows who won instead of "Shuffling". */}
       <ShuffleLoading
-        isVisible={phase === 'EVALUATING_HAND' || phase === 'HAND_OVER'}
-        message="Shuffling"
+        isVisible={isInterhandPhase}
+        message={interhandMessage || 'Shuffling'}
+        submessage={interhandSubmessage}
         handNumber={handNumber}
         variant="interhand"
       />

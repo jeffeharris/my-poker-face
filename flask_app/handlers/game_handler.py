@@ -1102,12 +1102,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     winner_data = prepare_showdown_data(game_state, winner_info, winning_player_names,
                                         is_final_hand, tournament_outcome)
 
-    # Calculate total pot from pot_breakdown (split-pot support)
+    # Calculate total pot and net profit from pot_breakdown (split-pot support)
     total_pot = sum(pot['total_amount'] for pot in winner_info.get('pot_breakdown', []))
+    pot_dict = game_state.pot if isinstance(game_state.pot, dict) else {}
+    winner_contributions = sum(pot_dict.get(name, 0) for name in winning_player_names)
+    net_profit = total_pot - winner_contributions
 
     if is_showdown:
         message_content = (
-            f"{winning_players_string} won the pot of ${total_pot} with {winner_info['hand_name']}. "
+            f"{winning_players_string} won ${net_profit} with {winner_info['hand_name']}. "
             f"Winning hand: {winner_info['winning_hand']}"
         )
         # Build structured win_result for rich chat rendering
@@ -1121,7 +1124,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         community_card_strings = [str(c) for c in game_state.community_cards]
         win_result = {
             'winners': winning_players_string,
-            'pot': total_pot,
+            'pot': net_profit,
             'hand_name': winner_info['hand_name'],
             'winner_cards': winner_hole_cards,
             'community_cards': community_card_strings,
@@ -1129,10 +1132,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             'is_showdown': True,
         }
     else:
-        message_content = f"{winning_players_string} took the pot of ${total_pot}."
+        message_content = f"{winning_players_string} won +${net_profit}."
         win_result = {
             'winners': winning_players_string,
-            'pot': total_pot,
+            'pot': net_profit,
             'is_showdown': False,
         }
 

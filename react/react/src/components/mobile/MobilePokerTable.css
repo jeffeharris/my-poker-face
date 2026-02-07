@@ -213,9 +213,9 @@
     /* Use flex-start to allow full scrolling, center via auto margins on pseudo-elements */
     justify-content: flex-start;
     box-sizing: border-box;
-    /* z-index layering: dim(50) < avatars(100) < shuffle content(150) < winner(1000) */
+    /* z-index layering: dim < avatars < shuffle content < hud < banner < winner */
     position: relative;
-    z-index: var(--z-dropdown); /* 100 */
+    z-index: var(--z-dropdown);
 }
 
 
@@ -361,9 +361,10 @@
     transition: opacity 0.2s ease-out, transform 0.2s ease-out;
 }
 
-/* Hide bet chip for folded players */
+/* Keep bet chip visible for folded players so committed amount remains clear */
 .mobile-opponent.folded .opponent-bet {
-    display: none;
+    opacity: 0.65;
+    filter: saturate(0.75) brightness(0.9);
 }
 
 .mobile-opponent.all-in {
@@ -576,6 +577,7 @@
 .mobile-floating-pot .mobile-pot__amount {
   font-size: var(--font-size-lg);
 }
+
 
 /* Community Cards - 21% of viewport (compact layout) */
 .mobile-community {
@@ -962,11 +964,11 @@
    ================================= */
 
 .mobile-opponents.two-opponents-mode {
-  justify-content: center;
-  gap: 12px;
+  justify-content: stretch;
+  gap: 8px;
   overflow-x: hidden; /* No scrolling needed with 2 opponents */
-  padding-left: 6vw;
-  padding-right: 6vw;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 /* Disable centering spacers in two-opponents mode */
@@ -979,13 +981,28 @@
 .mobile-opponent.two-opponents-avatar {
   width: auto;
   min-width: 0;
-  flex: 1 1 50%;
-  max-width: 100%;
-  transition: flex 0.4s ease-out;
+  flex: 1 1 0;
+  max-width: none;
+  transition:
+    flex 0.4s ease-out,
+    width 0.4s ease-out,
+    min-width 0.4s ease-out,
+    max-width 0.4s ease-out;
+}
+
+/* Preserve folded collapse and let remaining avatar expand */
+.mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar.folded {
+  width: 14vw;
+  min-width: 14vw;
+  max-width: 14vw;
+  flex: 0 0 14vw;
 }
 
 /* Active player grows, inactive shrinks */
-.mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar.thinking {
+.mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar.thinking:not(.folded) {
+  width: auto;
+  min-width: 0;
+  max-width: none;
   flex: 1.5 1 60%;
 }
 
@@ -1005,6 +1022,77 @@
 .mobile-opponents.heads-up-mode::before,
 .mobile-opponents.heads-up-mode::after {
   display: none;
+}
+
+/* =================================
+   THREE OPPONENTS MODE
+   When 3 AI opponents remain (4 players total)
+   ================================= */
+
+.mobile-opponents.three-opponents-mode {
+  justify-content: stretch;
+  gap: 8px;
+  overflow-x: hidden;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.mobile-opponents.three-opponents-mode::before,
+.mobile-opponents.three-opponents-mode::after {
+  display: none;
+}
+
+.mobile-opponent.three-opponents-avatar {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 0;
+  max-width: none;
+  transition:
+    flex 0.4s ease-out,
+    width 0.4s ease-out,
+    min-width 0.4s ease-out,
+    max-width 0.4s ease-out;
+}
+
+/* Preserve folded collapse and distribute extra space to active avatars */
+.mobile-opponents.three-opponents-mode .mobile-opponent.three-opponents-avatar.folded {
+  width: 14vw;
+  min-width: 14vw;
+  max-width: 14vw;
+  flex: 0 0 14vw;
+}
+
+/* Active player grows while other two naturally shrink */
+.mobile-opponents.three-opponents-mode .mobile-opponent.three-opponents-avatar.thinking:not(.folded) {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  flex: 1.5 1 45%;
+}
+
+/* =================================
+   THREE-WAY SHOWDOWN MODE
+   When 3 active opponents are in showdown
+   ================================= */
+
+.mobile-opponents.three-opponents-showdown-mode {
+  justify-content: stretch;
+  gap: 8px;
+  overflow-x: hidden;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.mobile-opponents.three-opponents-showdown-mode::before,
+.mobile-opponents.three-opponents-showdown-mode::after {
+  display: none;
+}
+
+.mobile-opponents.three-opponents-showdown-mode .mobile-opponent.three-opponents-avatar {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 0;
+  max-width: none;
 }
 
 /* Avatar takes 55% in heads-up, reading panel takes the remaining 45% */
@@ -1077,5 +1165,3 @@
     transform: translateX(0) translateY(0) rotate(0deg) scale(1);
   }
 }
-
-

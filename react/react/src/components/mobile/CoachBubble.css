@@ -3,7 +3,7 @@
   bottom: calc(12dvh + 29dvh + 12px);
   left: 12px;
   right: 12px;
-  z-index: 160;
+  z-index: var(--z-interhand-hud);
   display: flex;
   flex-direction: column;
   padding: 10px 12px;
