@@ -71,6 +71,39 @@ _RADIUS_MAP = {
 }
 
 
+def _extract_stack_only_players(conn, game_id: str, psychology_players: list) -> dict:
+    """Get stack trajectories for players without psychology data (e.g. human players).
+
+    Returns {player_name: [{hand, stack}, ...]} for players in pda that have
+    no zone_confidence entries.
+    """
+    if not psychology_players:
+        return {}
+
+    placeholders = ','.join('?' for _ in psychology_players)
+    rows = conn.execute(f'''
+        SELECT player_name, hand_number, player_stack
+        FROM player_decision_analysis
+        WHERE game_id = ?
+          AND player_name NOT IN ({placeholders})
+          AND player_stack IS NOT NULL
+        GROUP BY player_name, hand_number
+        HAVING id = MIN(id)
+        ORDER BY hand_number, player_name
+    ''', (game_id, *psychology_players)).fetchall()
+
+    stack_players = {}
+    for row in rows:
+        name = row['player_name']
+        if name not in stack_players:
+            stack_players[name] = []
+        stack_players[name].append({
+            'hand': row['hand_number'],
+            'stack': row['player_stack'] or 0,
+        })
+    return stack_players
+
+
 def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
     """Extract trajectory data for visualization."""
     conn = sqlite3.connect(db_path)
@@ -181,10 +214,14 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
     except Exception:
         pass  # Table may not have hand_number column yet
 
+    # Get stack-only players (human players without psychology data)
+    stack_players = _extract_stack_only_players(conn, selected_game, players)
+
     # Assign colors and initials
+    all_names = players + list(stack_players.keys())
     player_colors = {}
     player_initials = {}
-    for i, name in enumerate(players):
+    for i, name in enumerate(all_names):
         player_colors[name] = PLAYER_COLORS[i % len(PLAYER_COLORS)]
         parts = name.split()
         player_initials[name] = (parts[0][0] + parts[-1][0]) if len(parts) >= 2 else name[:2].upper()
@@ -199,6 +236,7 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
         'player_colors': player_colors,
         'player_initials': player_initials,
         'trajectories': trajectories,
+        'stack_players': stack_players,
         'pressure_events': pressure_events,
         'zone_config': {
             'sweet_spots': sweet_spots,
@@ -294,10 +332,14 @@ def extract_data_for_game(db_path: str, game_id: str) -> dict:
     except Exception:
         pass
 
+    # Get stack-only players (human players without psychology data)
+    stack_players = _extract_stack_only_players(conn, game_id, players)
+
     # Assign colors and initials
+    all_names = players + list(stack_players.keys())
     player_colors = {}
     player_initials = {}
-    for i, name in enumerate(players):
+    for i, name in enumerate(all_names):
         player_colors[name] = PLAYER_COLORS[i % len(PLAYER_COLORS)]
         parts = name.split()
         player_initials[name] = (parts[0][0] + parts[-1][0]) if len(parts) >= 2 else name[:2].upper()
@@ -314,6 +356,7 @@ def extract_data_for_game(db_path: str, game_id: str) -> dict:
         'player_colors': player_colors,
         'player_initials': player_initials,
         'trajectories': trajectories,
+        'stack_players': stack_players,
         'pressure_events': pressure_events,
         'zone_config': {
             'sweet_spots': sweet_spots,
@@ -351,16 +394,14 @@ h1{font-size:1.1rem;font-weight:500;color:#fff;letter-spacing:-0.3px}
 canvas{border-radius:8px;cursor:crosshair}
 
 .controls{display:flex;align-items:center;gap:8px;padding:5px 12px;background:#161b22;border-radius:6px;margin-top:4px;border:1px solid #21262d;flex-wrap:wrap;flex-shrink:0}
-.controls-row{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.controls-row{display:flex;align-items:center;gap:10px;min-width:0}
 .control-btn{background:#21262d;border:1px solid #30363d;color:#e6e6e6;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;transition:background .15s;flex-shrink:0}
 .control-btn:hover{background:#30363d}
 .control-btn:active{background:#3d444d}
-input[type="range"]{flex:1;-webkit-appearance:none;height:6px;background:#30363d;border-radius:3px;outline:none;min-width:100px}
-input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#58a6ff;cursor:pointer;transition:transform .1s}
-input[type="range"]::-webkit-slider-thumb:hover{transform:scale(1.2)}
-input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#58a6ff;cursor:pointer;border:none}
 .hand-info{font-size:0.85rem;white-space:nowrap;min-width:110px;text-align:right;font-variant-numeric:tabular-nums}
-.kbd-hint{color:#444;font-size:0.7rem}
+
+.stack-chart-section{flex-shrink:0;height:100px;width:100%;padding:0 16px;margin-top:4px}
+.stack-chart-section canvas{border-radius:6px;cursor:pointer;display:block}
 
 .overlay-toggles{display:flex;align-items:center;gap:6px}
 .overlay-toggle{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;border:1px solid #30363d;font-size:0.72rem;cursor:pointer;color:#666;transition:all 0.15s;user-select:none;background:transparent}
@@ -471,9 +512,7 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
       <button class="control-btn" id="prev-btn" title="Previous hand (←)">&#9664;</button>
       <button class="control-btn" id="play-btn" title="Play / Pause (Space)">&#9654;</button>
       <button class="control-btn" id="next-btn" title="Next hand (→)">&#9654;</button>
-      <input type="range" id="slider" min="0" max="0" value="0">
       <div class="hand-info" id="hand-info">Hand 1 / 1</div>
-      <span class="kbd-hint">← → Space</span>
     </div>
     <div class="overlay-toggles">
       <span class="overlay-toggle active" id="toggle-zones" style="--toggle-color:#90EE90;--toggle-bg:rgba(144,238,144,0.08)" title="Sweet spot zones">
@@ -492,6 +531,10 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
       </label>
       <button class="control-btn" id="refresh-btn" title="Refresh data (R)">↻</button>
     </span>
+  </div>
+
+  <div class="stack-chart-section">
+    <canvas id="stack-chart"></canvas>
   </div>
 </div>
 
@@ -1120,7 +1163,8 @@ function toggleHighlight(player) {
       card.classList.add(p === highlightedPlayer ? 'highlighted' : 'dimmed');
     }
   }
-  render(parseInt(document.getElementById('slider').value));
+  render(currentIdx);
+  renderStackChart(currentIdx);
 }
 
 function updatePlayerCards(globalIdx) {
@@ -1272,7 +1316,7 @@ function computeEvents(playerName, currentHand, prevHand, current, prev) {
   }
 
   // Separate events into force rows (have deltas) and badges (no deltas)
-  const forceRows = [];
+  const rawForceRows = [];
   const badges = [];
   let netConf = 0, netComp = 0, netEnergy = 0;
 
@@ -1288,9 +1332,20 @@ function computeEvents(playerName, currentHand, prevHand, current, prev) {
       netConf += cd;
       netComp += md;
       netEnergy += ed;
-      forceRows.push({label: style.label, cls: style.cls, conf: cd, comp: md, energy: ed});
+      rawForceRows.push({label: style.label, cls: style.cls, conf: cd, comp: md, energy: ed});
     } else {
       badges.push('<span class="event-badge ' + style.cls + '">' + style.label + '</span>');
+    }
+  }
+
+  // Collapse consecutive identical force rows (e.g. 12× streak ↓)
+  const forceRows = [];
+  for (const row of rawForceRows) {
+    const prev = forceRows.length > 0 ? forceRows[forceRows.length - 1] : null;
+    if (prev && prev.label === row.label && prev.conf === row.conf && prev.comp === row.comp && prev.energy === row.energy) {
+      prev.count = (prev.count || 1) + 1;
+    } else {
+      forceRows.push(Object.assign({count: 1}, row));
     }
   }
 
@@ -1303,8 +1358,9 @@ function computeEvents(playerName, currentHand, prevHand, current, prev) {
       const c = fmtDelta(row.conf);
       const m = fmtDelta(row.comp);
       const e = fmtDelta(row.energy);
+      const countLabel = row.count > 1 ? ' \u00d7' + row.count : '';
       html += '<tr>' +
-        '<td class="force-label"><span class="event-badge ' + row.cls + '" style="padding:1px 5px;font-size:0.68rem">' + row.label + '</span></td>' +
+        '<td class="force-label"><span class="event-badge ' + row.cls + '" style="padding:1px 5px;font-size:0.68rem">' + row.label + countLabel + '</span></td>' +
         '<td class="force-val ' + c.cls + '">conf ' + c.text + '</td>' +
         '<td class="force-val ' + m.cls + '">comp ' + m.text + '</td>' +
         '<td class="force-val ' + e.cls + '">nrg ' + e.text + '</td>' +
@@ -1390,21 +1446,253 @@ function computeSummary(playerName, currentHand, prevHand, current, prev, elimin
   return parts.join('') || '<span class="event-badge neutral">steady</span>';
 }
 
+// --- Stack chart ---
+const stackCanvas = document.getElementById('stack-chart');
+const stackCtx = stackCanvas.getContext('2d');
+let stackW = 800, stackH = 100;
+const STACK_PAD_L = 4, STACK_PAD_R = 40, STACK_PAD_T = 8, STACK_PAD_B = 18;
+let maxStack = 0;
+
+// Stack-only players (human) — indexed by hand for lookups
+const stackOnlyPlayers = Object.keys(DATA.stack_players || {});
+const stackOnlyByHand = {};
+for (const p of stackOnlyPlayers) {
+  stackOnlyByHand[p] = {};
+  for (const e of DATA.stack_players[p]) stackOnlyByHand[p][e.hand] = e;
+}
+
+function getStackOnlyState(player, handNum) {
+  if (stackOnlyByHand[player][handNum]) return stackOnlyByHand[player][handNum];
+  const traj = DATA.stack_players[player];
+  let best = null;
+  for (const entry of traj) {
+    if (entry.hand <= handNum) best = entry;
+    else break;
+  }
+  return best;
+}
+
+function computeMaxStack() {
+  maxStack = 0;
+  for (const p of DATA.players) {
+    for (const e of DATA.trajectories[p]) {
+      if (e.stack > maxStack) maxStack = e.stack;
+    }
+  }
+  for (const p of stackOnlyPlayers) {
+    for (const e of DATA.stack_players[p]) {
+      if (e.stack > maxStack) maxStack = e.stack;
+    }
+  }
+  if (maxStack === 0) maxStack = 1000;
+  // Round up to nice number
+  const mag = Math.pow(10, Math.floor(Math.log10(maxStack)));
+  maxStack = Math.ceil(maxStack / mag) * mag;
+}
+
+function setupStackCanvas() {
+  const section = stackCanvas.parentElement;
+  stackW = section.clientWidth;
+  stackH = section.clientHeight || 100;
+  const dpr = window.devicePixelRatio || 1;
+  stackCanvas.width = stackW * dpr;
+  stackCanvas.height = stackH * dpr;
+  stackCanvas.style.width = stackW + 'px';
+  stackCanvas.style.height = stackH + 'px';
+  stackCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function stackXForIdx(idx) {
+  const plotW = stackW - STACK_PAD_L - STACK_PAD_R;
+  const maxIdx = allHands.length - 1;
+  if (maxIdx <= 0) return STACK_PAD_L;
+  return STACK_PAD_L + (idx / maxIdx) * plotW;
+}
+
+function stackYForValue(val) {
+  const plotH = stackH - STACK_PAD_T - STACK_PAD_B;
+  return STACK_PAD_T + (1 - val / maxStack) * plotH;
+}
+
+function idxFromStackX(clientX) {
+  const rect = stackCanvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const plotW = stackW - STACK_PAD_L - STACK_PAD_R;
+  const ratio = Math.max(0, Math.min(1, (x - STACK_PAD_L) / plotW));
+  return Math.round(ratio * (allHands.length - 1));
+}
+
+function renderStackChart(idx) {
+  stackCtx.clearRect(0, 0, stackW, stackH);
+
+  // Background
+  stackCtx.fillStyle = '#0d1117';
+  stackCtx.fillRect(0, 0, stackW, stackH);
+  const plotW = stackW - STACK_PAD_L - STACK_PAD_R;
+  const plotH = stackH - STACK_PAD_T - STACK_PAD_B;
+  stackCtx.fillStyle = '#111820';
+  stackCtx.fillRect(STACK_PAD_L, STACK_PAD_T, plotW, plotH);
+
+  // Y-axis grid lines and labels
+  const ySteps = 3;
+  stackCtx.font = '9px sans-serif';
+  stackCtx.textAlign = 'left';
+  stackCtx.textBaseline = 'middle';
+  for (let i = 0; i <= ySteps; i++) {
+    const val = (i / ySteps) * maxStack;
+    const y = stackYForValue(val);
+    stackCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+    stackCtx.lineWidth = 1;
+    stackCtx.beginPath();
+    stackCtx.moveTo(STACK_PAD_L, y);
+    stackCtx.lineTo(STACK_PAD_L + plotW, y);
+    stackCtx.stroke();
+    // Label on right edge
+    if (i > 0) {
+      stackCtx.fillStyle = '#444';
+      const label = val >= 1000 ? (val / 1000).toFixed(val % 1000 === 0 ? 0 : 1) + 'k' : val.toString();
+      stackCtx.fillText(label, STACK_PAD_L + plotW + 4, y);
+    }
+  }
+
+  // X-axis hand number labels (sparse)
+  stackCtx.textAlign = 'center';
+  stackCtx.textBaseline = 'top';
+  stackCtx.fillStyle = '#444';
+  const totalHands = allHands.length;
+  const labelEvery = totalHands <= 20 ? 5 : totalHands <= 50 ? 10 : totalHands <= 100 ? 20 : 50;
+  for (let i = 0; i < totalHands; i++) {
+    const handNum = allHands[i];
+    if (handNum % labelEvery === 0 || i === 0 || i === totalHands - 1) {
+      const x = stackXForIdx(i);
+      // Thin grid line
+      stackCtx.strokeStyle = 'rgba(255,255,255,0.04)';
+      stackCtx.lineWidth = 1;
+      stackCtx.beginPath();
+      stackCtx.moveTo(x, STACK_PAD_T);
+      stackCtx.lineTo(x, STACK_PAD_T + plotH);
+      stackCtx.stroke();
+      // Label
+      stackCtx.fillText(handNum, x, STACK_PAD_T + plotH + 3);
+    }
+  }
+
+  // Player stack lines (AI players with psychology data)
+  for (const player of DATA.players) {
+    const traj = DATA.trajectories[player];
+    if (!traj || traj.length === 0) continue;
+    const color = DATA.player_colors[player];
+    const dimmed = highlightedPlayer && highlightedPlayer !== player;
+    const lastHand = traj[traj.length - 1].hand;
+
+    stackCtx.strokeStyle = hexAlpha(color, dimmed ? 0.12 : 0.8);
+    stackCtx.lineWidth = dimmed ? 1 : 1.5;
+    stackCtx.beginPath();
+
+    let started = false;
+    for (let i = 0; i < allHands.length; i++) {
+      const hand = allHands[i];
+      // Past this player's last data point — they're out
+      if (hand > lastHand) {
+        if (started) {
+          stackCtx.lineTo(stackXForIdx(i), stackYForValue(0));
+        }
+        break;
+      }
+      const state = getPlayerState(player, hand);
+      if (!state) continue;
+      const x = stackXForIdx(i);
+      const y = stackYForValue(state.stack);
+      if (!started) { stackCtx.moveTo(x, y); started = true; }
+      else stackCtx.lineTo(x, y);
+    }
+    stackCtx.stroke();
+  }
+
+  // Stack-only players (human) — dashed line
+  for (const player of stackOnlyPlayers) {
+    const traj = DATA.stack_players[player];
+    if (!traj || traj.length === 0) continue;
+    const color = DATA.player_colors[player] || '#888';
+    const dimmed = highlightedPlayer && highlightedPlayer !== player;
+    const lastHand = traj[traj.length - 1].hand;
+
+    stackCtx.strokeStyle = hexAlpha(color, dimmed ? 0.12 : 0.8);
+    stackCtx.lineWidth = dimmed ? 1 : 1.5;
+    stackCtx.setLineDash([4, 3]);
+    stackCtx.beginPath();
+
+    let started = false;
+    for (let i = 0; i < allHands.length; i++) {
+      const hand = allHands[i];
+      if (hand > lastHand) {
+        if (started) {
+          stackCtx.lineTo(stackXForIdx(i), stackYForValue(0));
+        }
+        break;
+      }
+      const state = getStackOnlyState(player, hand);
+      if (!state) continue;
+      const x = stackXForIdx(i);
+      const y = stackYForValue(state.stack);
+      if (!started) { stackCtx.moveTo(x, y); started = true; }
+      else stackCtx.lineTo(x, y);
+    }
+    stackCtx.stroke();
+    stackCtx.setLineDash([]);
+  }
+
+  // Vertical highlight bar at current position
+  const curX = stackXForIdx(idx);
+  stackCtx.fillStyle = 'rgba(88,166,255,0.15)';
+  stackCtx.fillRect(curX - 1.5, STACK_PAD_T, 3, plotH);
+  stackCtx.strokeStyle = 'rgba(88,166,255,0.6)';
+  stackCtx.lineWidth = 1;
+  stackCtx.beginPath();
+  stackCtx.moveTo(curX, STACK_PAD_T);
+  stackCtx.lineTo(curX, STACK_PAD_T + plotH);
+  stackCtx.stroke();
+}
+
+// Stack chart mouse interaction
+let stackDragging = false;
+
+stackCanvas.addEventListener('mousedown', function(e) {
+  stackDragging = true;
+  const idx = idxFromStackX(e.clientX);
+  goToIdx(idx);
+});
+
+document.addEventListener('mousemove', function(e) {
+  if (!stackDragging) return;
+  const idx = idxFromStackX(e.clientX);
+  goToIdx(idx);
+});
+
+document.addEventListener('mouseup', function() {
+  stackDragging = false;
+});
+
 // --- Controls ---
+let currentIdx = 0;
 let maxHands = 0;
 let playing = false;
 let playInterval = null;
 
+function goToIdx(idx) {
+  idx = Math.max(0, Math.min(allHands.length - 1, idx));
+  currentIdx = idx;
+  render(idx);
+  renderStackChart(idx);
+  updateHandInfo(idx);
+}
+
 function setupControls() {
-  const slider = document.getElementById('slider');
   const playBtn = document.getElementById('play-btn');
   const prevBtn = document.getElementById('prev-btn');
   const nextBtn = document.getElementById('next-btn');
 
   maxHands = allHands.length;
-
-  slider.max = maxHands - 1;
-  slider.value = 0;
 
   document.getElementById('meta').textContent =
     (DATA.experiment_id ? 'Experiment ' + DATA.experiment_id + ' | ' : '') +
@@ -1413,27 +1701,18 @@ function setupControls() {
 
   updateHandInfo(0);
 
-  slider.addEventListener('input', function() {
-    const idx = parseInt(this.value);
-    render(idx);
-    updateHandInfo(idx);
-  });
-
   playBtn.addEventListener('click', function() {
     playing = !playing;
     this.innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
     if (playing) {
       playInterval = setInterval(function() {
-        let idx = parseInt(slider.value);
-        if (idx >= maxHands - 1) {
+        if (currentIdx >= maxHands - 1) {
           playing = false;
           playBtn.innerHTML = '&#9654;';
           clearInterval(playInterval);
           return;
         }
-        slider.value = idx + 1;
-        render(idx + 1);
-        updateHandInfo(idx + 1);
+        goToIdx(currentIdx + 1);
       }, 400);
     } else {
       clearInterval(playInterval);
@@ -1441,17 +1720,11 @@ function setupControls() {
   });
 
   prevBtn.addEventListener('click', function() {
-    let idx = Math.max(0, parseInt(slider.value) - 1);
-    slider.value = idx;
-    render(idx);
-    updateHandInfo(idx);
+    goToIdx(currentIdx - 1);
   });
 
   nextBtn.addEventListener('click', function() {
-    let idx = Math.min(maxHands - 1, parseInt(slider.value) + 1);
-    slider.value = idx;
-    render(idx);
-    updateHandInfo(idx);
+    goToIdx(currentIdx + 1);
   });
 
   document.addEventListener('keydown', function(e) {
@@ -1459,8 +1732,8 @@ function setupControls() {
     if (e.key === 'ArrowLeft') { prevBtn.click(); e.preventDefault(); }
     else if (e.key === 'ArrowRight') { nextBtn.click(); e.preventDefault(); }
     else if (e.key === ' ') { playBtn.click(); e.preventDefault(); }
-    else if (e.key === 'Home') { slider.value = 0; render(0); updateHandInfo(0); e.preventDefault(); }
-    else if (e.key === 'End') { slider.value = maxHands - 1; render(maxHands - 1); updateHandInfo(maxHands - 1); e.preventDefault(); }
+    else if (e.key === 'Home') { goToIdx(0); e.preventDefault(); }
+    else if (e.key === 'End') { goToIdx(maxHands - 1); e.preventDefault(); }
   });
 
   // Game selector (if multiple games)
@@ -1475,7 +1748,6 @@ function setupControls() {
       sel.appendChild(opt);
     }
     sel.addEventListener('change', function() {
-      // Navigate to same endpoint with game parameter
       const url = new URL(window.location.href);
       url.searchParams.set('game', this.value);
       window.location.href = url.toString();
@@ -1544,24 +1816,29 @@ function setupOverlayToggles() {
       const newVal = !t.getter();
       t.setter(newVal);
       this.classList.toggle('active', newVal);
-      render(parseInt(document.getElementById('slider').value));
+      render(currentIdx);
     });
   }
 }
 
 function init() {
   setupCanvas();
+  computeMaxStack();
+  setupStackCanvas();
   createPlayerCards();
   setupControls();
   setupOverlayToggles();
   setupRefresh();
   render(0);
+  renderStackChart(0);
 }
 
 window.addEventListener('load', init);
 window.addEventListener('resize', function() {
   setupCanvas();
-  render(parseInt(document.getElementById('slider').value));
+  setupStackCanvas();
+  render(currentIdx);
+  renderStackChart(currentIdx);
 });
 </script>
 </body>
