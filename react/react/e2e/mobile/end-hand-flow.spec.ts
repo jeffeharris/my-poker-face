@@ -175,7 +175,7 @@ test.describe('End-of-hand UI flow', () => {
       await navigateToGamePage(page, { mockContext: ctx });
 
       // ShuffleLoading should be visible during HAND_OVER
-      const transition = page.getByTestId('shuffle-loading');
+      const transition = page.getByTestId('shuffle-loading-interhand');
       await expect(transition).toBeVisible();
     });
 
@@ -188,7 +188,7 @@ test.describe('End-of-hand UI flow', () => {
       await navigateToGamePage(page, { mockContext: ctx });
 
       // ShuffleLoading should NOT be visible during normal betting
-      const transition = page.getByTestId('shuffle-loading');
+      const transition = page.getByTestId('shuffle-loading-interhand');
       await expect(transition).not.toBeVisible();
     });
 
@@ -201,7 +201,7 @@ test.describe('End-of-hand UI flow', () => {
       await navigateToGamePage(page, { mockContext: ctx });
 
       // ShuffleLoading is visible during both EVALUATING_HAND and HAND_OVER
-      const transition = page.getByTestId('shuffle-loading');
+      const transition = page.getByTestId('shuffle-loading-interhand');
       await expect(transition).toBeVisible();
     });
 
