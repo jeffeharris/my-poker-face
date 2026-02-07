@@ -1,3 +1,10 @@
+---
+purpose: Zone geometry, effects, blending rules, and experiment infrastructure for the psychology system
+type: spec
+created: 2025-10-15
+last_updated: 2026-02-07
+---
+
 # Psychology System: Zones Model v3
 
 This document describes the zone-based mental model for the poker AI psychology system.
@@ -505,25 +512,29 @@ Player with anchor (0.5, 0.7), currently at (0.68, 0.48) - in Aggro zone at 60% 
 
 Events push players around the 2D space. Impacts are scaled by sensitivity.
 
-### Positive Events
-| Event | Confidence | Composure |
-|-------|------------|-----------|
-| win | +0.08 | +0.05 |
-| big_win | +0.15 | +0.10 |
-| successful_bluff | +0.20 | +0.05 |
-| double_up | +0.20 | +0.10 |
+### Current Pressure Impacts
 
-### Negative Events
-| Event | Confidence | Composure |
-|-------|------------|-----------|
-| big_loss | -0.10 | -0.15 |
-| bluff_called | -0.20 | -0.10 |
-| bad_beat | -0.05 | -0.25 |
-| got_sucked_out | -0.05 | -0.30 |
+See [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) for the full catalog. Key values (pre-sensitivity, pre-resolution):
 
-### Compounding
+| Event | Confidence | Composure | Energy | Category |
+|-------|------------|-----------|--------|----------|
+| `win` | +0.02 | — | +0.02 | Outcome (ONE) |
+| `big_win` | +0.12 | +0.02 | +0.08 | Outcome (ONE) |
+| `big_loss` | -0.15 | -0.05 | -0.08 | Outcome (ONE) |
+| `successful_bluff` | +0.20 | +0.05 | +0.05 | Ego (ONE, 50%) |
+| `bluff_called` | -0.25 | -0.10 | -0.05 | Ego (ONE, 50%) |
+| `bad_beat` | — | -0.35 | -0.10 | Equity shock (ONE) |
+| `got_sucked_out` | — | -0.30 | -0.15 | Equity shock (ONE) |
+| `losing_streak` | -0.12 | -0.20 | -0.10 | Streak (additive) |
+| `crippled` | -0.20 | -0.25 | -0.15 | Desperation (additive) |
 
-Multiple events can fire on the same hand (e.g., `bad_beat + big_loss + nemesis_loss`), creating large swings into penalty zones.
+### Resolution Rules
+
+Events don't stack freely. `resolve_hand_events()` applies priority rules:
+- **ONE outcome** (highest priority wins)
+- **At most ONE ego event** (scaled 50%)
+- **At most ONE equity shock** (no confidence delta)
+- **ALL pressure/fatigue/desperation/streak events** (additive)
 
 ## Zone Detection (Pseudocode)
 
@@ -1327,6 +1338,7 @@ def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
 - `emotional_zones_circular.svg` - Visual diagram of circular sweet spots + edge penalties
 - `experiments/psychology_balance_simulator.py` - Simulation tool for testing parameters
 - `poker/player_psychology.py` - Core implementation
+- `poker/psychology_pipeline.py` - Unified pipeline orchestrating detect → save cycle
 
 ## Open Design Questions
 
@@ -1341,13 +1353,16 @@ def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
 7. **Zone benefits design** - What each zone shows/hides, intrusive thoughts, tone, blending rules (see Zone Benefits System section)
 8. **Energy (3rd dimension)** - Energy creates zone manifestations (flavor), not new zones. Poker Face is 3D (energy extremes break the mask). See Energy and Zone Manifestations section.
 
-### Still Open (Implementation & Tuning)
+### Resolved Through Experiments
 
-1. **Zone-specific radii tuning** - Do these radii feel right during playtesting?
-2. **Penalty threshold tuning** - Are the edge thresholds (0.35 composure, 0.90 confidence) correct?
-3. **Gravity strength tuning** - Is 0.03 the right balance? Needs simulation.
-4. **Asymmetric recovery constants** - Are 0.6/0.4/0.8 the right values? Needs simulation.
-5. **Trait weight tuning** - Are the confidence/composure blend weights correct? May need adjustment.
+1. **Zone-specific radii tuning** - Validated through zone validation experiments
+2. **Penalty threshold tuning** - 0.35 composure and 0.90 confidence confirmed via PRD target analysis
+3. **Gravity strength tuning** - 0.03 validated; tunable range 0.02-0.05 via `zone_params`
+4. **Asymmetric recovery constants** - 0.6/0.4/0.8 validated through experiment metrics
+5. **Trait weight tuning** - Confidence/composure blend weights confirmed via archetype personality validation
+
+### Still Open
+
 6. **Difficulty settings relationship** - Game has difficulty settings that control what info is shown to players. Is the psychology system:
    - An **overlay** on top of difficulty (difficulty sets max info, psychology filters further)?
    - A **replacement** for difficulty (psychology IS the difficulty)?

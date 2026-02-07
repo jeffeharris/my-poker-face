@@ -1,99 +1,112 @@
+---
+purpose: Design philosophy, goals, and success metrics for the AI psychology system
+type: design
+created: 2025-06-15
+last_updated: 2026-02-07
+---
+
 # Psychology System Design
 
 ## Purpose
 
-The psychology system exists to create **novelty and variety** in AI poker play, not to simulate human psychology accurately. Every hand should feel a bit different - the AI isn't a solved GTO bot playing optimal strategy.
+The psychology system exists to create **novelty and variety** in AI poker play, not to simulate human psychology accurately. Every hand should feel a bit different — the AI isn't a solved GTO bot playing optimal strategy.
 
 ### Core Principles
 
-1. **Novelty over Realism** - We don't expect AI to feel "truly human" (that would be boring). We want texture and variety in decisions.
+1. **Novelty over Realism** — We don't expect AI to feel "truly human" (that would be boring). We want texture and variety in decisions.
 
-2. **Competitive Foundation** - Psychology adds spice, not chaos. Skilled play should still win consistently.
+2. **Competitive Foundation** — Psychology adds spice, not chaos. Skilled play should still win consistently.
 
-3. **Tight Coupling** - What you see (avatar emotion, chat tone) matches what the AI "feels" internally. No performative emotions that don't affect behavior.
+3. **Tight Coupling** — What you see (avatar emotion, chat tone) matches what the AI "feels" internally. No performative emotions that don't affect behavior.
 
-4. **Tunable Difficulty** - Psychology's influence on decisions scales with difficulty settings.
-
----
-
-## The Deterministic Chain
-
-```
-PERSONALITY (personalities.json)
-    │
-    │  Defines trait anchors + elasticity bounds
-    │  (e.g., aggression: 0.7 ± 0.3)
-    │
-    ▼
-ELASTIC TRAITS (runtime state)
-    │
-    │  Pressure events push values within bounds
-    │  Modified by: difficulty_multiplier
-    │
-    ├── aggression (0-1)
-    ├── bluff_tendency (0-1)
-    ├── chattiness (0-1)
-    └── emoji_usage (0-1)
-    │
-    ▼
-EMOTIONAL DIMENSIONS (computed, stateless)
-    │
-    │  Deterministic functions of trait values:
-    │  valence = f(avg_trait_drift)
-    │  arousal = f(aggression, drift)
-    │  control = f(drift)
-    │  focus = f(chattiness, drift)
-    │
-    ▼
-AVATAR EMOTION (deterministic mapping)
-    │
-    │  angry, sad, happy, nervous, confident, etc.
-    │
-    ▼
-IMAGE SHOWN TO USER
-```
-
-**Key insight:** The only mutable state is elastic trait values. Everything downstream is derived deterministically.
-
-**Tilt is separate:** It has its own state (0-1 level) and directly modifies AI prompts (hiding information, adding intrusive thoughts).
+4. **Readable Opponents** — Players should be able to read and exploit AI emotional states over time. Expressiveness controls how much leaks through.
 
 ---
 
-## Difficulty Scaling
+## The Three-Layer Model
 
-Psychology's influence on AI behavior is controlled by a `difficulty_multiplier`:
-
-```python
-difficulty_multiplier: float  # 0.5 (hard) to 1.5 (easy)
+```
+PERSONALITY ANCHORS (personalities.json)
+    │
+    │  9 static traits define identity
+    │  (ego, poise, baseline_aggression, etc.)
+    │
+    ▼
+EMOTIONAL AXES (runtime state)
+    │
+    │  3 dynamic axes pushed by pressure events,
+    │  filtered through sensitivity anchors:
+    │  • confidence (0-1): belief in reads/decisions
+    │  • composure (0-1): emotional regulation
+    │  • energy (0-1): engagement/intensity
+    │
+    ▼
+ZONE DETECTION (computed, stateless)
+    │
+    │  2D space (confidence × composure) defines:
+    │  • Sweet spots: Poker Face, Guarded, Commanding, Aggro
+    │  • Penalty zones: Tilted, Shaken, Overheated, etc.
+    │
+    ▼
+PROMPT MODIFICATION (information access)
+    │
+    │  Zones control what info the AI sees:
+    │  • Sweet spots grant strategic bonuses
+    │  • Penalty zones degrade decisions
+    │  • Energy flavors the manifestation
+    │
+    ▼
+EXPRESSION FILTER → AVATAR / TABLE TALK
 ```
 
-### Effects
+**Key insight:** Anchors define gravity wells, axes move freely, zones modify information access. The AI still makes its own decisions — zones shape what it knows, not what it must do.
 
-| Aspect | Easy (1.5x) | Normal (1.0x) | Hard (0.5x) |
-|--------|-------------|---------------|-------------|
-| Tilt increment | +0.23 (bad beat) | +0.15 | +0.08 |
-| Trait shift | aggression +0.30 | +0.20 | +0.10 |
-| Info hidden | At effective 0.6 tilt | At 0.4 | Rarely |
-| Recovery | Slower | Normal | Faster |
-| Exploitability | High | Medium | Low |
+**Energy is special:** It affects *how* a zone manifests (flavor/tempo), not *which* zone applies. Exception: Poker Face is a 3D ellipsoid where energy extremes break the mask.
 
-### Implementation
+For full architecture details, see [PSYCHOLOGY_OVERVIEW.md](PSYCHOLOGY_OVERVIEW.md). For zone geometry and effects, see [PSYCHOLOGY_ZONES_MODEL.md](PSYCHOLOGY_ZONES_MODEL.md).
 
-```python
-# In TiltState.apply_pressure_event()
-effective_increase = base_increase * difficulty_multiplier
+---
 
-# In ElasticTrait.apply_pressure()
-effective_pressure = amount * difficulty_multiplier
-```
+## Design Decisions
 
-### Player Experience
+### Why Anchors + Axes (Not Elastic Traits)
 
-| Difficulty | Experience |
-|------------|------------|
-| **Easy** | AI is volatile, emotional, makes exploitable mistakes when tilted. Good for casual play, learning to read opponents. |
-| **Normal** | Balanced. Psychology adds variety without overwhelming strategy. |
-| **Hard** | AI "fights through" emotional states. Stays closer to optimal play. Harder to exploit psychological weaknesses. |
+The original system used elastic traits (aggression, bluff_tendency, chattiness, emoji_usage) that were pushed within bounds by events. This was replaced because:
+
+- **Trait-based modifiers were noisy** — Four traits changing independently made behavior unpredictable in uninteresting ways
+- **No clear "emotional space"** — Couldn't map trait combinations to recognizable emotional states
+- **Tilt was bolted on** — Separate tilt system with its own float didn't integrate with personality
+
+The current anchor + axis model gives:
+- **Legible emotional states** — 2D space maps to recognizable quadrants (commanding, shaken, etc.)
+- **Personality-filtered responses** — Same event affects Batman and Gordon Ramsay differently through ego/poise sensitivity
+- **Natural recovery** — Axes drift toward personality-defined baselines, not arbitrary centers
+
+### Why Zones (Not Continuous Modifiers)
+
+Zones create **discrete, recognizable states** rather than smooth gradients:
+
+- Players can learn "Batman is tilted" or "Napoleon is commanding" — clear states to exploit
+- Zone effects (intrusive thoughts, info removal) are more impactful than small continuous modifiers
+- Sweet spots reward stability; penalty zones punish extremes — creates meaningful dynamics
+
+### Why Resolution Rules (Not Additive Stacking)
+
+Without resolution rules, a single dramatic hand could produce 5+ events that stack into extreme axis swings. The resolution model:
+
+- **ONE outcome** prevents `big_win + win + headsup_win` from triple-counting
+- **Ego events at 50%** prevents `successful_bluff + nemesis_win` from over-rewarding
+- **Equity shocks skip confidence** because luck events shouldn't make you doubt your reads
+- **Pressure events stack** because fatigue genuinely accumulates
+
+### Why a Unified Pipeline
+
+Before T3-55, the psychology cycle (detect → resolve → persist → recover → save) was implemented separately in `game_handler.py` and `run_ai_tournament.py`. This caused recurring divergences:
+- Events detected in one but not the other
+- Different recovery rates
+- Missing state persistence
+
+The unified `PsychologyPipeline` class ensures both codepaths use identical logic, with configuration flags for UI-specific concerns.
 
 ---
 
@@ -103,162 +116,112 @@ effective_pressure = amount * difficulty_multiplier
 
 **Goal:** Each AI shows meaningful decision variety, not robotic consistency.
 
-**Metric:** Action entropy per player per phase
+**Metric:** Zone distribution per player
 
 ```sql
 SELECT
     player_name,
-    phase,
-    COUNT(DISTINCT action_taken) as action_variety,
-    COUNT(*) as total_decisions
+    zone_primary_sweet_spot,
+    COUNT(*) as decisions,
+    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY player_name), 1) as pct
 FROM player_decision_analysis
-GROUP BY player_name, phase
+WHERE experiment_id = ?
+GROUP BY player_name, zone_primary_sweet_spot
 ```
 
-**Target:** Neither 95% fold (too tight) nor 33/33/33 (random). Meaningful variety that reflects personality and situation.
+**Target:** Players should spend majority time near their home zone but visit 2-3 other zones. No player should be 100% in one zone.
 
 ### 2. Competitive Foundation (Skill Matters)
 
 **Goal:** Good decisions should lead to better outcomes. Psychology adds noise, not chaos.
 
-**Metric:** Decision quality correlation with outcomes
+**Metric:** Penalty zone correlation with decision quality
 
 ```sql
 SELECT
-    decision_quality,
-    AVG(CASE WHEN outcome = 'won' THEN 1 ELSE 0 END) as win_rate
+    CASE
+        WHEN zone_total_penalty_strength >= 0.50 THEN 'high_penalty'
+        WHEN zone_total_penalty_strength >= 0.10 THEN 'moderate_penalty'
+        ELSE 'baseline'
+    END as penalty_band,
+    AVG(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake_rate,
+    COUNT(*) as decisions
 FROM player_decision_analysis
-GROUP BY decision_quality
+WHERE experiment_id = ?
+GROUP BY penalty_band
 ```
 
-**Target:** Clear positive correlation between decision quality and win rate.
+**Target:** Clear positive correlation between penalty strength and mistake rate. 2-3x baseline mistake rate at high penalty.
 
 ### 3. Tight Coupling (Emotion = Behavior)
 
 **Goal:** Visible emotional state predicts actual behavior changes.
 
-**Metric:** Tilt level correlation with mistake rate
+**Metric:** Zone state correlation with aggression and looseness modifiers
 
 ```sql
 SELECT
-    CASE
-        WHEN tilt_level >= 0.7 THEN 'severe'
-        WHEN tilt_level >= 0.4 THEN 'moderate'
-        WHEN tilt_level >= 0.2 THEN 'mild'
-        ELSE 'none'
-    END as tilt_band,
-    AVG(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake_rate,
-    COUNT(*) as decisions
+    zone_primary_sweet_spot,
+    AVG(zone_confidence) as avg_confidence,
+    AVG(zone_composure) as avg_composure,
+    AVG(CASE WHEN action_taken = 'raise' THEN 1 ELSE 0 END) as raise_rate
 FROM player_decision_analysis
-GROUP BY tilt_band
+WHERE experiment_id = ?
+GROUP BY zone_primary_sweet_spot
 ```
 
-**Target:**
-- Severe tilt: 2-3x baseline mistake rate
-- Clear gradient from none → severe
+**Target:** Commanding zone shows higher raise rate than Guarded. Tilted shows erratic patterns.
 
 ### 4. Balanced Distribution (Not Always Extreme)
 
 **Goal:** Extreme emotional states are rare and dramatic, not constant.
 
-**Metric:** Tilt level distribution
+**Metric:** Penalty strength distribution
 
 ```sql
 SELECT
     CASE
-        WHEN tilt_level >= 0.9 THEN 'full'
-        WHEN tilt_level >= 0.6 THEN 'high'
-        WHEN tilt_level >= 0.3 THEN 'medium'
-        ELSE 'low'
-    END as tilt_band,
+        WHEN zone_total_penalty_strength >= 0.75 THEN 'full_tilt'
+        WHEN zone_total_penalty_strength >= 0.50 THEN 'high'
+        WHEN zone_total_penalty_strength >= 0.10 THEN 'medium'
+        ELSE 'baseline'
+    END as band,
     COUNT(*) as cnt,
     ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) as pct
 FROM player_decision_analysis
-GROUP BY tilt_band
+WHERE experiment_id = ?
+GROUP BY band
 ```
 
-**Target Distribution:**
-| Band | Target % |
-|------|----------|
-| Low (<0.3) | 70-85% |
-| Medium (0.3-0.6) | 10-20% |
-| High (0.6-0.9) | 2-7% |
-| Full (0.9+) | 0-2% |
+**Target Distribution (PRD):**
 
-*Note: These targets reflect realistic poker psychology. Players should be calm most of the time - being tilted frequently would be unrealistic.*
+| Band | Target % | Definition |
+|------|----------|------------|
+| Baseline | 70-85% | penalty_strength < 0.10 |
+| Medium | 10-20% | 0.10 <= penalty_strength < 0.50 |
+| High | 2-7% | 0.50 <= penalty_strength < 0.75 |
+| Full Tilt | 0-2% | penalty_strength >= 0.75 |
 
 ### 5. Personality Distinctiveness
 
 **Goal:** Different AI characters behave differently.
 
-**Metric:** Trait distribution variance across personalities
+**Metric:** Home zone alignment
 
 ```sql
 SELECT
     player_name,
-    AVG(elastic_aggression) as avg_aggression,
-    STDDEV(elastic_aggression) as aggression_variance
+    zone_primary_sweet_spot,
+    COUNT(*) as cnt,
+    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY player_name), 1) as pct
 FROM player_decision_analysis
-GROUP BY player_name
+WHERE experiment_id = ?
+  AND zone_primary_sweet_spot IS NOT NULL
+GROUP BY player_name, zone_primary_sweet_spot
+ORDER BY player_name, cnt DESC
 ```
 
-**Target:** Distinct clusters per personality. Eeyore ≠ Batman ≠ Snoop Dogg.
-
----
-
-## Pressure Events
-
-Events that modify psychological state. See [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) for full catalog.
-
-### Event Categories
-
-| Category | Examples | Typical Effect |
-|----------|----------|----------------|
-| Outcome | win, big_win, big_loss | Moderate trait/tilt changes |
-| Bluff | successful_bluff, bluff_called | Large bluff_tendency changes |
-| Luck | suckout, got_sucked_out, cooler | Large tilt changes |
-| Position | headsup_win, headsup_loss | Small-medium changes |
-| Streak | winning_streak, losing_streak | Cumulative effects |
-| Stack | double_up, crippled, short_stack | Situational changes |
-| Social | friendly_chat, rivalry_trigger | Small trait changes |
-| Rivalry | nemesis_win, nemesis_loss | Targeted tilt effects |
-
-### Effect Magnitudes
-
-Effects scale with difficulty:
-
-```
-Actual Effect = Base Effect × difficulty_multiplier
-```
-
-Base effects are tuned so that at Normal (1.0x):
-- Single events don't cause extreme state changes
-- 4-5 consecutive bad events might approach high tilt
-- Recovery happens naturally over ~5-10 hands
-
----
-
-## Tilt System
-
-Tilt is a separate track that directly degrades AI decision-making.
-
-### Tilt Levels
-
-| Level | Range | Effects |
-|-------|-------|---------|
-| None | 0.0-0.2 | Normal play |
-| Mild | 0.2-0.4 | Intrusive thoughts in prompt |
-| Moderate | 0.4-0.7 | Strategy advice degraded, some info hidden |
-| Severe | 0.7-1.0 | Most strategic advice removed |
-
-### Tilt Sources
-
-Tracked for narrative purposes:
-- `bad_beat` - Lost with strong hand
-- `bluff_called` - Bluff failed
-- `losing_streak` - 3+ consecutive losses
-- `nemesis` - Specific opponent causing problems
-- `got_sucked_out` - Was ahead, lost to luck
+**Target:** Each personality spends the most time in their expected home zone. Batman → Poker Face, Gordon Ramsay → Aggro, Napoleon → Commanding, Bob Ross → Guarded.
 
 ---
 
@@ -266,17 +229,18 @@ Tracked for narrative purposes:
 
 Before shipping psychology changes:
 
-1. **Run tilt distribution query** - Verify target distribution
-2. **Check tilt→mistake correlation** - Should be 2-3x at high tilt
-3. **Verify personality distinctiveness** - Different characters, different behaviors
-4. **Test difficulty scaling** - Easy should feel exploitable, hard should feel stable
-5. **Playtest for "feel"** - Does it add novelty without feeling random?
+1. **Run penalty distribution query** — Verify target distribution (70-85% baseline)
+2. **Check penalty → mistake correlation** — Should be 2-3x at high penalty
+3. **Verify personality distinctiveness** — Different characters, different home zones
+4. **Run experiment** — `python experiments/run_from_config.py experiments/configs/zone_validation.json`
+5. **Generate report** — Use `ZoneReportGenerator` to compare against PRD targets
+6. **Playtest for "feel"** — Does it add novelty without feeling random?
 
 ---
 
 ## Related Documentation
 
-- [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) - Event catalog and detection
-- [PSYCHOLOGY_OVERVIEW.md](PSYCHOLOGY_OVERVIEW.md) - System architecture
-- [PSYCHOLOGY_ZONES_MODEL.md](PSYCHOLOGY_ZONES_MODEL.md) - Zone mechanics
-- [EQUITY_PRESSURE_DETECTION.md](EQUITY_PRESSURE_DETECTION.md) - Equity-based events
+- [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) — Event catalog, impacts, and resolution rules
+- [PSYCHOLOGY_OVERVIEW.md](PSYCHOLOGY_OVERVIEW.md) — Full system architecture
+- [PSYCHOLOGY_ZONES_MODEL.md](PSYCHOLOGY_ZONES_MODEL.md) — Zone geometry and effects
+- [EQUITY_PRESSURE_DETECTION.md](EQUITY_PRESSURE_DETECTION.md) — Equity-based events

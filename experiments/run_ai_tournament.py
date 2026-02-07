@@ -55,6 +55,7 @@ from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
 from poker.pressure_detector import PressureEventDetector
 from poker.moment_analyzer import MomentAnalyzer
+from poker.psychology_pipeline import PsychologyPipeline, PsychologyContext
 from experiments.pause_coordinator import PauseCoordinator
 from core.llm import LLMClient, CallType
 from flask_app.config import get_assistant_model, get_assistant_provider
@@ -864,23 +865,7 @@ class AITournamentRunner:
         equity_history=None,
         enable_commentary: bool = False,
     ) -> set:
-        """Process psychology updates using balanced event resolution model.
-
-        Detects all game events, then resolves per player: one outcome, at most
-        one ego modifier (scaled 50%), additive pressure/fatigue, and at most
-        one equity shock event. Also applies recovery between hands.
-
-        Args:
-            game_state: Current game state after pot awarded
-            controllers: Dict of player name -> AIPlayerController
-            winner_info: Winner determination info with pot_breakdown
-            winner_names: List of winning player names
-            hand_number: Current hand number
-            game_id: Game ID for persisting state
-            hand_start_stacks: Optional dict of player name -> stack at hand start
-            was_short_stack: Optional set of players who were short-stacked last hand
-            memory_manager: Optional memory manager for equity history access
-            enable_commentary: Whether to generate LLM emotional narration
+        """Process psychology updates via unified PsychologyPipeline.
 
         Returns:
             Updated set of currently short-stacked players
@@ -891,260 +876,34 @@ class AITournamentRunner:
             for winner in pot.get('winners', []):
                 pot_size += winner.get('amount', 0)
 
-        # Big blind for stack calculations
         big_blind = game_state.current_ante or 100
 
-        # Check if this is a big pot
-        active_stacks = [p.stack for p in game_state.players if p.stack > 0]
-        avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
-        is_big_pot = MomentAnalyzer.is_big_pot(pot_size, 0, avg_stack)
-
-        # === DETECT ALL EVENTS ===
-        all_events = []
-
-        # 1. Standard showdown events (big_win, big_loss, win, loss, successful_bluff, etc.)
-        bluff_likelihoods = {
-            name: ctrl.get_hand_bluff_likelihood()
-            for name, ctrl in controllers.items()
-            if hasattr(ctrl, 'get_hand_bluff_likelihood')
-        }
-        showdown_events = self.pressure_detector.detect_showdown_events(
-            game_state, winner_info, player_bluff_likelihoods=bluff_likelihoods
+        pipeline = PsychologyPipeline(
+            pressure_detector=self.pressure_detector,
+            pressure_event_repo=self.pressure_event_repo,
+            game_repo=self.game_repo,
+            hand_history_repo=self.hand_history_repo,
+            enable_emotional_narration=enable_commentary,
+            persist_controller_state=True,
         )
-        all_events.extend(showdown_events)
 
-        # 2. Stack events (crippled, short_stack)
-        current_short = was_short_stack or set()
-        if hand_start_stacks:
-            stack_events, current_short = self.pressure_detector.detect_stack_events(
-                game_state, winner_names, hand_start_stacks,
-                was_short_stack or set(), big_blind
-            )
-            all_events.extend(stack_events)
+        ctx = PsychologyContext(
+            game_id=game_id,
+            hand_number=hand_number,
+            game_state=game_state,
+            winner_info=winner_info,
+            winner_names=winner_names,
+            pot_size=pot_size,
+            controllers=controllers,
+            hand_start_stacks=hand_start_stacks,
+            was_short_stack=was_short_stack,
+            equity_history=equity_history,
+            memory_manager=memory_manager,
+            big_blind=big_blind,
+        )
 
-            # Short-stack survival (calm play while short-stacked)
-            survival_events = self.pressure_detector.detect_short_stack_survival_events(
-                current_short, hand_number
-            )
-            all_events.extend(survival_events)
-
-        # 3. Streak events (winning_streak, losing_streak)
-        if self.hand_history_repo:
-            for player_name in controllers:
-                try:
-                    session_stats = self.hand_history_repo.get_session_stats(
-                        game_id, player_name
-                    )
-                    streak_events = self.pressure_detector.detect_streak_events(
-                        player_name, session_stats
-                    )
-                    all_events.extend(streak_events)
-                except Exception as e:
-                    logger.warning(f"Failed to get session stats for {player_name}: {e}")
-
-        # 4. Big pot involvement (pressure/fatigue)
-        if is_big_pot:
-            active_player_names = [p.name for p in game_state.players if not p.is_folded]
-            all_events.append(("big_pot_involved", active_player_names))
-
-        # 5. Equity shock events (weighted-delta model)
-        # equity_history is pre-computed by caller before on_hand_complete clears current_hand
-        if equity_history and equity_history.snapshots and hand_start_stacks:
-            try:
-                equity_events = self.pressure_detector.detect_equity_shock_events(
-                    equity_history, winner_names, pot_size, hand_start_stacks
-                )
-                all_events.extend(equity_events)
-            except Exception as e:
-                logger.warning(f"Equity shock detection failed: {e}")
-
-        # 6. Nemesis events (from ComposureState.nemesis)
-        loser_names = [p.name for p in game_state.players
-                       if not p.is_folded and p.name not in winner_names]
-
-        player_nemesis_map = {}
-        for name, controller in controllers.items():
-            if hasattr(controller, 'psychology') and controller.psychology.tilt.nemesis:
-                player_nemesis_map[name] = controller.psychology.tilt.nemesis
-
-        if player_nemesis_map:
-            nemesis_events = self.pressure_detector.detect_nemesis_events(
-                winner_names, loser_names, player_nemesis_map, is_big_pot=is_big_pot
-            )
-            all_events.extend(nemesis_events)
-
-        # === BUILD PER-PLAYER EVENT LISTS AND RESOLVE ===
-        player_events: Dict[str, list] = {}
-        for event_name, affected_players in all_events:
-            for player_name in affected_players:
-                if player_name in controllers:
-                    player_events.setdefault(player_name, []).append(event_name)
-
-        for player_name, player_event_list in player_events.items():
-            controller = controllers[player_name]
-            if not hasattr(controller, 'psychology'):
-                continue
-
-            # Determine opponent for nemesis tracking
-            opponent = None
-            if player_name in winner_names and loser_names:
-                opponent = loser_names[0]
-            elif player_name in loser_names and winner_names:
-                opponent = winner_names[0]
-
-            try:
-                result = controller.psychology.resolve_hand_events(player_event_list, opponent)
-                logger.debug(
-                    f"[Psychology] {player_name}: Resolved {result['events_applied']}. "
-                    f"Conf={controller.psychology.confidence:.2f}, "
-                    f"Comp={controller.psychology.composure:.2f}"
-                )
-                # Persist resolved events for trajectory viewer
-                if self.pressure_event_repo:
-                    per_event_deltas = result.get('per_event_deltas', {})
-                    for event_name in result['events_applied']:
-                        event_deltas = per_event_deltas.get(event_name, {})
-                        self.pressure_event_repo.save_event(
-                            game_id=game_id,
-                            player_name=player_name,
-                            event_type=event_name,
-                            hand_number=hand_number,
-                            details={
-                                'conf_delta': event_deltas.get('conf_delta', 0),
-                                'comp_delta': event_deltas.get('comp_delta', 0),
-                                'energy_delta': event_deltas.get('energy_delta', 0),
-                                'conf_after': result['conf_after'],
-                                'comp_after': result['comp_after'],
-                                'energy_after': result['energy_after'],
-                                'opponent': opponent,
-                                'resolved_from': player_event_list,
-                            },
-                        )
-            except Exception as e:
-                logger.warning(f"Failed to resolve events for {player_name}: {e}")
-
-        # === UPDATE COMPOSURE TRACKING (on_hand_complete) ===
-        # Calculate winnings per player from pot_breakdown (split-pot support)
-        winnings_by_player = {}
-        for pot in winner_info.get('pot_breakdown', []):
-            for winner in pot.get('winners', []):
-                winnings_by_player[winner['name']] = winnings_by_player.get(winner['name'], 0) + winner.get('amount', 0)
-
-        for player in game_state.players:
-            if player.name not in controllers:
-                continue
-            controller = controllers[player.name]
-            if not hasattr(controller, 'psychology'):
-                continue
-
-            # Clear per-hand bluff tracking
-            if hasattr(controller, 'clear_hand_bluff_likelihood'):
-                controller.clear_hand_bluff_likelihood()
-
-            player_contribution = game_state.pot.get(player.name, 0) if isinstance(game_state.pot, dict) else 0
-            player_won = player.name in winner_names
-            if player_won:
-                amount = winnings_by_player.get(player.name, 0) - player_contribution
-            else:
-                amount = -player_contribution
-
-            was_bad_beat = not player_won and not player.is_folded and winner_info.get('hand_rank', 0) >= 2
-            outcome = 'won' if player_won else ('folded' if player.is_folded else 'lost')
-            opponent = winner_names[0] if not player_won and winner_names else None
-
-            try:
-                if enable_commentary:
-                    # Full on_hand_complete: composure tracking + LLM emotional narration
-                    controller.psychology.on_hand_complete(
-                        outcome=outcome, amount=amount, opponent=opponent,
-                        was_bad_beat=was_bad_beat, was_bluff_called=False,
-                        big_blind=big_blind,
-                    )
-                else:
-                    # Lightweight: composure tracking only (no LLM call)
-                    controller.psychology.composure_state.update_from_hand(
-                        outcome=outcome, amount=amount, opponent=opponent,
-                        was_bad_beat=was_bad_beat, was_bluff_called=False,
-                    )
-            except Exception as e:
-                logger.warning(f"on_hand_complete failed for {player.name}: {e}")
-
-        # === APPLY RECOVERY AND SAVE STATE ===
-        for player in game_state.players:
-            if player.name not in controllers:
-                continue
-
-            controller = controllers[player.name]
-            if not hasattr(controller, 'psychology'):
-                continue
-
-            try:
-                # Capture state before recovery for force tracking
-                pre_conf = controller.psychology.confidence
-                pre_comp = controller.psychology.composure
-
-                # Apply recovery between hands (drift toward baseline)
-                recovery_info = controller.psychology.recover()
-
-                # Persist recovery and gravity as force events
-                if self.pressure_event_repo and recovery_info:
-                    # Recovery force (anchor gravity toward baseline)
-                    if abs(recovery_info['recovery_conf']) > 0.001 or abs(recovery_info['recovery_comp']) > 0.001:
-                        self.pressure_event_repo.save_event(
-                            game_id=game_id,
-                            player_name=player.name,
-                            event_type='_recovery',
-                            hand_number=hand_number,
-                            details={
-                                'conf_delta': recovery_info['recovery_conf'],
-                                'comp_delta': recovery_info['recovery_comp'],
-                                'energy_delta': recovery_info['recovery_energy'],
-                            },
-                        )
-                    # Zone gravity force (if present in recovery_info)
-                    gravity_conf = recovery_info.get('gravity_conf', 0)
-                    gravity_comp = recovery_info.get('gravity_comp', 0)
-                    if abs(gravity_conf) > 0.001 or abs(gravity_comp) > 0.001:
-                        self.pressure_event_repo.save_event(
-                            game_id=game_id,
-                            player_name=player.name,
-                            event_type='_gravity',
-                            hand_number=hand_number,
-                            details={
-                                'conf_delta': gravity_conf,
-                                'comp_delta': gravity_comp,
-                            },
-                        )
-
-                # Save psychology state to database for live monitoring
-                psychology_dict = controller.psychology.to_dict()
-                prompt_config_dict = controller.prompt_config.to_dict() if hasattr(controller, 'prompt_config') and controller.prompt_config else None
-                self.game_repo.save_controller_state(
-                    game_id,
-                    player.name,
-                    psychology=psychology_dict,
-                    prompt_config=prompt_config_dict
-                )
-
-                # Save emotional state if available
-                if controller.psychology.emotional:
-                    self.game_repo.save_emotional_state(
-                        game_id,
-                        player.name,
-                        controller.psychology.emotional
-                    )
-
-                logger.debug(
-                    f"[Psychology] {player.name}: Post-recovery state - "
-                    f"Conf={controller.psychology.confidence:.2f}, "
-                    f"Comp={controller.psychology.composure:.2f}, "
-                    f"Energy={controller.psychology.energy:.2f}, "
-                    f"Zone={controller.psychology.quadrant.value}"
-                )
-            except Exception as e:
-                logger.warning(f"Psychology state update failed for {player.name}: {e}")
-
-        return current_short
+        result = pipeline.process_hand(ctx)
+        return result.current_short_stack
 
     def run_hand(self, state_machine: PokerStateMachine,
                  controllers: Dict[str, AIPlayerController],

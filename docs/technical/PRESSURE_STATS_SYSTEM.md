@@ -1,3 +1,10 @@
+---
+purpose: Pressure stats tracking system for dramatic event statistics and leaderboards
+type: reference
+created: 2025-06-15
+last_updated: 2026-02-07
+---
+
 # Pressure Stats System
 
 ## Overview
@@ -9,15 +16,15 @@ The Pressure Stats System tracks and persists dramatic game events, providing pl
 ### Components
 
 1. **PressureEventDetector** (`poker/pressure_detector.py`)
-   - Detects pressure events during gameplay (wins, bluffs, bad beats)
-   - Integrates with the elasticity system to track emotional impact
+   - Detects pressure events during gameplay (wins, bluffs, bad beats, equity shocks, etc.)
+   - Pure detection — no side effects or state mutation
 
 2. **PressureStatsTracker** (`poker/pressure_stats.py`)
    - Maintains in-memory statistics for active games
    - Optionally persists events to database
    - Provides aggregated stats and leaderboards
 
-3. **PressureEventEntity** and persistence (`poker/repositories/sqlite/emotional_state_repository.py`)
+3. **PressureEventRepository** (`poker/repositories/sqlite/pressure_event_repository.py`)
    - Handles database operations for pressure events
    - Supports querying by game or player
    - Provides aggregated statistics
@@ -29,17 +36,7 @@ The Pressure Stats System tracks and persists dramatic game events, providing pl
 
 ### Event Types
 
-The system tracks the following pressure events:
-
-- **win** - Any pot won
-- **big_win** - Pot > 75% of average stack
-- **big_loss** - Major pot lost
-- **successful_bluff** - Won with weak hand
-- **bluff_called** - Bluff attempt failed
-- **bad_beat** - Lost with strong hand
-- **eliminated_opponent** - Knocked out another player
-- **fold_under_pressure** - Folded to aggression
-- **aggressive_bet** - Made large bet/raise
+See [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) for the full event catalog with detection rules, axis impacts, and resolution logic.
 
 ## Implementation Details
 
@@ -151,5 +148,5 @@ The React frontend displays stats via the `PressureStats` component:
 
 - Stats are designed for entertainment, not serious poker analysis
 - Focus on dramatic moments rather than optimal play
-- Personality traits affect how events are detected
-- System integrates with elasticity for emotional tracking
+- Events are processed through the unified `PsychologyPipeline` (poker/psychology_pipeline.py)
+- The psychology system (axes, zones, sensitivity) is separate from stats display
