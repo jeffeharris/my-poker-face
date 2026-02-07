@@ -32,7 +32,7 @@
 .shuffle-loading-dim {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: var(--z-interhand-dim);
   background: radial-gradient(
     ellipse 120% 100% at 50% 40%,
     rgba(15, 17, 24, 0.88) 0%,
@@ -47,7 +47,7 @@
 .shuffle-loading-content-layer {
   position: fixed;
   inset: 0;
-  z-index: var(--z-sticky); /* 150 */
+  z-index: var(--z-sticky);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -58,6 +58,15 @@
 
 .shuffle-loading-content-layer .shuffle-loading-content {
   pointer-events: auto;
+}
+
+.shuffle-loading-content-layer-top {
+  justify-content: flex-start;
+  padding-top: max(88px, calc(env(safe-area-inset-top, 0px) + 72px));
+}
+
+.shuffle-loading-content-layer-top .shuffle-loading-content {
+  gap: 14px;
 }
 
 @keyframes shuffleLoadingFadeIn {

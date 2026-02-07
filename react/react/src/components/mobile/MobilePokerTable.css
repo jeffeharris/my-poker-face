@@ -213,9 +213,9 @@
     /* Use flex-start to allow full scrolling, center via auto margins on pseudo-elements */
     justify-content: flex-start;
     box-sizing: border-box;
-    /* z-index layering: dim(50) < avatars(100) < shuffle content(150) < winner(1000) */
+    /* z-index layering: dim < avatars < shuffle content < hud < banner < winner */
     position: relative;
-    z-index: var(--z-dropdown); /* 100 */
+    z-index: var(--z-dropdown);
 }
 
 
@@ -576,6 +576,28 @@
 
 .mobile-floating-pot .mobile-pot__amount {
   font-size: var(--font-size-lg);
+}
+
+/* No-showdown winner line during interhand shuffle */
+.mobile-interhand-winner-banner {
+    position: fixed;
+    top: max(10px, calc(env(safe-area-inset-top, 0px) + 6px));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--z-interhand-banner);
+    max-width: calc(100vw - 24px);
+    text-align: center;
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-gold-bright);
+    background: rgba(10, 11, 16, 0.82);
+    border: 1px solid rgba(212, 165, 116, 0.5);
+    border-radius: var(--radius-full);
+    padding: 7px 12px;
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(6px);
+    pointer-events: none;
 }
 
 /* Community Cards - 21% of viewport (compact layout) */
@@ -982,7 +1004,11 @@
   min-width: 0;
   flex: 1 1 0;
   max-width: none;
-  transition: flex 0.4s ease-out;
+  transition:
+    flex 0.4s ease-out,
+    width 0.4s ease-out,
+    min-width 0.4s ease-out,
+    max-width 0.4s ease-out;
 }
 
 /* Preserve folded collapse and let remaining avatar expand */
@@ -995,6 +1021,9 @@
 
 /* Active player grows, inactive shrinks */
 .mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar.thinking:not(.folded) {
+  width: auto;
+  min-width: 0;
+  max-width: none;
   flex: 1.5 1 60%;
 }
 
@@ -1034,16 +1063,20 @@
   display: none;
 }
 
-.mobile-opponents.three-opponents-mode .mobile-opponent {
+.mobile-opponent.three-opponents-avatar {
   width: auto;
   min-width: 0;
   flex: 1 1 0;
   max-width: none;
-  transition: flex 0.35s ease-out;
+  transition:
+    flex 0.4s ease-out,
+    width 0.4s ease-out,
+    min-width 0.4s ease-out,
+    max-width 0.4s ease-out;
 }
 
 /* Preserve folded collapse and distribute extra space to active avatars */
-.mobile-opponents.three-opponents-mode .mobile-opponent.folded {
+.mobile-opponents.three-opponents-mode .mobile-opponent.three-opponents-avatar.folded {
   width: 14vw;
   min-width: 14vw;
   max-width: 14vw;
@@ -1051,7 +1084,10 @@
 }
 
 /* Active player grows while other two naturally shrink */
-.mobile-opponents.three-opponents-mode .mobile-opponent.thinking:not(.folded) {
+.mobile-opponents.three-opponents-mode .mobile-opponent.three-opponents-avatar.thinking:not(.folded) {
+  width: auto;
+  min-width: 0;
+  max-width: none;
   flex: 1.5 1 45%;
 }
 
@@ -1073,7 +1109,7 @@
   display: none;
 }
 
-.mobile-opponents.three-opponents-showdown-mode .mobile-opponent {
+.mobile-opponents.three-opponents-showdown-mode .mobile-opponent.three-opponents-avatar {
   width: auto;
   min-width: 0;
   flex: 1 1 0;

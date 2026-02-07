@@ -289,8 +289,11 @@
      Z-INDEX SCALE
      =========================================== */
   --z-base: 1;
+  --z-interhand-dim: 50;
   --z-dropdown: 100;
   --z-sticky: 150;
+  --z-interhand-hud: 160;
+  --z-interhand-banner: 170;
   --z-modal: 200;
   --z-toast: 300;
   --z-nav: 400;

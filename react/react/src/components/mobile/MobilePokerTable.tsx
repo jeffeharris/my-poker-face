@@ -157,6 +157,7 @@ export function MobilePokerTable({
   const currentPlayer = storePlayers?.[currentPlayerIdx];
   const humanPlayer = storePlayers?.find(p => p.is_human);
   const isShowdown = phase?.toLowerCase() === 'showdown';
+  const isInterhandPhase = phase === 'EVALUATING_HAND' || phase === 'HAND_OVER';
 
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
   const shouldHighlightActivePlayer = isBettingPhase(phase, runItOut);
@@ -254,6 +255,41 @@ export function MobilePokerTable({
   const isThreeOpponents = opponents.length === 3;
   const isThreeOpponentsNormal = isThreeOpponents && !isInShowdown;
   const isThreeOpponentsShowdown = isInShowdown && activeOpponents.length === 3;
+
+  // For non-showdown hands (walks/fold-outs), use ShuffleLoading as the single transition overlay.
+  const useShuffleAsWinnerOverlay = Boolean(winnerInfo && !winnerInfo.showdown && isInterhandPhase);
+
+  const noShowdownWinnings = useMemo(() => {
+    if (!winnerInfo || winnerInfo.showdown) return null;
+    if (winnerInfo.pot_breakdown) {
+      return winnerInfo.pot_breakdown.reduce(
+        (sum, pot) => sum + pot.winners.reduce((potSum, w) => potSum + w.amount, 0),
+        0,
+      );
+    }
+    if (winnerInfo.winnings) {
+      return Object.values(winnerInfo.winnings).reduce((sum, amount) => sum + amount, 0);
+    }
+    return null;
+  }, [winnerInfo]);
+
+  const topWinnerLine = useMemo(() => {
+    if (!useShuffleAsWinnerOverlay || !winnerInfo) return null;
+    if (winnerInfo.winners.length > 1) {
+      const names = winnerInfo.winners.join(' & ');
+      return noShowdownWinnings != null ? `${names} split +$${noShowdownWinnings}` : `${names} split`;
+    }
+    const winnerName = winnerInfo.winners[0];
+    return noShowdownWinnings != null ? `${winnerName} won +$${noShowdownWinnings}` : `${winnerName} won`;
+  }, [useShuffleAsWinnerOverlay, winnerInfo, noShowdownWinnings]);
+
+  // Mirror MobileWinnerAnnouncement's auto-dismiss behavior for no-showdown hands
+  // when ShuffleLoading is used as the only transition overlay.
+  useEffect(() => {
+    if (!useShuffleAsWinnerOverlay) return;
+    const timer = setTimeout(() => clearWinnerInfo(), 2600);
+    return () => clearTimeout(timer);
+  }, [useShuffleAsWinnerOverlay, clearWinnerInfo]);
 
   // Coach hook
   const coach = useCoach({
@@ -443,6 +479,7 @@ export function MobilePokerTable({
                 isCurrentPlayer && !isInShowdown && 'thinking',
                 isHeadsUp && 'heads-up-avatar',
                 isTwoOpponents && 'two-opponents-avatar',
+                isThreeOpponents && 'three-opponents-avatar',
               ].filter(Boolean).join(' ')}
               data-testid="mobile-opponent"
             >
@@ -694,13 +731,15 @@ export function MobilePokerTable({
       </div>
 
       {/* Winner Announcement */}
-      <MobileWinnerAnnouncement
-        winnerInfo={winnerInfo}
-        onComplete={clearWinnerInfo}
-        gameId={gameId || ''}
-        playerName={playerName || ''}
-        onSendMessage={wrappedSendMessage}
-      />
+      {!useShuffleAsWinnerOverlay && (
+        <MobileWinnerAnnouncement
+          winnerInfo={winnerInfo}
+          onComplete={clearWinnerInfo}
+          gameId={gameId || ''}
+          playerName={playerName || ''}
+          onSendMessage={wrappedSendMessage}
+        />
+      )}
 
       {/* Tournament Complete - only show when winner announcement is dismissed */}
       {/* This ensures winner announcement is ALWAYS shown first, then tournament complete after */}
@@ -714,9 +753,15 @@ export function MobilePokerTable({
         />
       )}
 
+      {topWinnerLine && (
+        <div className="mobile-interhand-winner-banner" data-testid="mobile-interhand-winner-banner">
+          {topWinnerLine}
+        </div>
+      )}
+
       {/* Shuffle animation during end-of-hand phases. Winner announcement renders at a higher z-index so it appears on top. */}
       <ShuffleLoading
-        isVisible={phase === 'EVALUATING_HAND' || phase === 'HAND_OVER'}
+        isVisible={isInterhandPhase}
         message="Shuffling"
         handNumber={handNumber}
         variant="interhand"

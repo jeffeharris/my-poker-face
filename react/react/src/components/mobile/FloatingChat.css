@@ -8,7 +8,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: var(--z-dropdown);
+  z-index: var(--z-interhand-hud);
 }
 
 .floating-chat {
