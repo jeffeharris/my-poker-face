@@ -7,6 +7,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from flask_app import create_app
+from flask_app.game_adapter import StateMachineAdapter
+from flask_app.services import game_state_service
 from poker.poker_game import initialize_game_state
 from poker.poker_state_machine import PokerStateMachine
 from poker.repositories import create_repos
@@ -78,6 +80,8 @@ class TestGameRouteAuth(unittest.TestCase):
             patcher.start()
 
     def tearDown(self):
+        for game_id in game_state_service.list_game_ids():
+            game_state_service.delete_game(game_id)
         for patcher in getattr(self, '_route_patchers', []):
             patcher.stop()
         for repo in self.repos.values():
@@ -144,6 +148,38 @@ class TestGameRouteAuth(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.get_json().get('error'), 'Permission denied')
+
+    def test_game_state_allows_new_owner_after_db_transfer_with_stale_cache(self):
+        game_id = 'game-auth-transfer-1'
+        guest_owner = 'guest_owner_1'
+        new_owner = 'google_owner_1'
+        self._seed_game(game_id=game_id, owner_id=guest_owner)
+
+        stale_cached_state = StateMachineAdapter(
+            PokerStateMachine(initialize_game_state(['AI Opponent'], human_name='Player'))
+        )
+        game_state_service.set_game(game_id, {
+            'state_machine': stale_cached_state,
+            'owner_id': guest_owner,
+            'owner_name': 'Guest Owner',
+            'messages': [],
+            'game_started': True,
+        })
+
+        transferred = self.repos['user_repo'].transfer_game_ownership(
+            guest_owner,
+            new_owner,
+            'New Owner',
+        )
+        self.assertEqual(transferred, 1)
+
+        user = {'id': new_owner, 'name': 'New Owner'}
+        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)), \
+             patch('flask_app.routes.game_routes.get_authorization_service', return_value=self._admin_authz(False)):
+            response = self.client.get(f'/api/game-state/{game_id}')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(game_state_service.get_game(game_id).get('owner_id'), new_owner)
 
     def test_delete_forbidden_for_non_owner(self):
         game_id = self._seed_game()

@@ -13,12 +13,12 @@ from typing import Dict, Any, Optional, List
 from flask import Blueprint, jsonify, request, session, Response
 
 from core.llm import LLMClient, CallType
-from poker.authorization import require_permission
 from poker.prompt_config import PromptConfig
-from ..extensions import limiter, experiment_repo, game_repo, personality_repo, persistence_db_path, hand_history_repo
+from ..extensions import limiter, experiment_repo, game_repo, personality_repo, persistence_db_path, hand_history_repo, auth_manager
 from .. import config
 from experiments.pause_coordinator import pause_coordinator
 from datetime import datetime, timedelta
+from poker.authorization import require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +27,13 @@ _admin_required = require_permission('can_access_admin_tools')
 
 
 @experiment_bp.before_request
-@_admin_required
 def _require_admin_access():
-    """Require admin permission for all experiment API routes."""
-    return None
+    """Require admin permission for experiment routes, excluding CORS preflight."""
+    if request.method == 'OPTIONS':
+        return None
+
+    admin_check = _admin_required(lambda: None)
+    return admin_check()
 
 # Store active experiment threads for status checking
 _active_experiments: Dict[int, threading.Thread] = {}
@@ -1382,6 +1385,15 @@ def _format_failed_tournaments(failed_tournaments: List[Dict]) -> str:
     return "\n".join(lines)
 
 
+def _get_chat_owner_id() -> str:
+    """Get owner ID for experiment chat session persistence."""
+    user = auth_manager.get_current_user() if auth_manager else None
+    user_id = user.get('id') if user else None
+    if not user_id:
+        raise PermissionError("Authentication required")
+    return user_id
+
+
 @experiment_bp.route('/api/experiments/chat', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_CHAT_SUGGESTIONS)
 def chat_experiment_design():
@@ -1646,7 +1658,7 @@ Be CONCISE. Ask what they want to test and suggest the appropriate experiment ty
         }
 
         # Persist session to database for resume functionality
-        owner_id = session.get('owner_id', 'anonymous')
+        owner_id = _get_chat_owner_id()
         # Convert history to frontend-compatible format (with configDiff)
         # Preserve reasoning_content for DeepSeek thinking mode compatibility
         ui_messages = []
@@ -1695,7 +1707,7 @@ def get_latest_chat_session():
     Returns the session data if one exists, allowing users to resume their work.
     """
     try:
-        owner_id = session.get('owner_id', 'anonymous')
+        owner_id = _get_chat_owner_id()
         session_data = experiment_repo.get_latest_chat_session(owner_id)
 
         if session_data:

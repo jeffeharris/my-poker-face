@@ -4,6 +4,7 @@ import time
 import json
 import logging
 import secrets
+import sqlite3
 from datetime import datetime
 from typing import Dict
 
@@ -58,6 +59,24 @@ def _is_admin(user_id: str) -> bool:
     return bool(auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools'))
 
 
+def _sync_cached_owner_from_db(game_id: str, current_game_data: dict, owner_info: dict) -> None:
+    """Keep cached game owner metadata aligned with persisted ownership."""
+    if not current_game_data or not owner_info:
+        return
+
+    persistent_owner_id = owner_info.get('owner_id')
+    persistent_owner_name = owner_info.get('owner_name')
+    if (
+        current_game_data.get('owner_id') == persistent_owner_id
+        and current_game_data.get('owner_name') == persistent_owner_name
+    ):
+        return
+
+    current_game_data['owner_id'] = persistent_owner_id
+    current_game_data['owner_name'] = persistent_owner_name
+    game_state_service.set_game(game_id, current_game_data)
+
+
 def _authorize_game_access(game_id: str, current_game_data: dict = None):
     """Authorize access to a game using owner-or-admin checks."""
     current_user = auth_manager.get_current_user() if auth_manager else None
@@ -72,18 +91,28 @@ def _authorize_game_access(game_id: str, current_game_data: dict = None):
 
     game_exists = bool(current_game_data)
     owner_id = current_game_data.get('owner_id') if current_game_data else None
+    owner_info = None
 
     if owner_id is None:
         owner_info = game_repo.get_game_owner_info(game_id)
         if owner_info is not None:
             game_exists = True
             owner_id = owner_info.get('owner_id')
+            _sync_cached_owner_from_db(game_id, current_game_data, owner_info)
 
     if not game_exists:
         return current_user, is_admin, owner_id, (jsonify({'error': 'Game not found'}), 404)
 
     if not is_admin and owner_id != user_id:
-        return current_user, is_admin, owner_id, (jsonify({'error': 'Permission denied'}), 403)
+        # Cached owner data can be stale after guest->user ownership transfer.
+        # Re-check persistence before denying access.
+        if owner_info is None:
+            owner_info = game_repo.get_game_owner_info(game_id)
+        if owner_info is not None:
+            owner_id = owner_info.get('owner_id')
+            _sync_cached_owner_from_db(game_id, current_game_data, owner_info)
+        if owner_id != user_id:
+            return current_user, is_admin, owner_id, (jsonify({'error': 'Permission denied'}), 403)
 
     return current_user, is_admin, owner_id, None
 
@@ -303,6 +332,36 @@ def generate_game_id() -> str:
     return secrets.token_urlsafe(16)
 
 
+def _get_game_owner_id(game_id: str, current_game_data: dict | None = None) -> str | None:
+    """Return the owner_id for a game from memory first, then database."""
+    if current_game_data:
+        return current_game_data.get('owner_id')
+
+    try:
+        with sqlite3.connect(persistence_db_path) as conn:
+            cursor = conn.execute("SELECT owner_id FROM games WHERE game_id = ?", (game_id,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _require_game_owner(game_id: str, current_game_data: dict | None = None):
+    """Enforce that the current authenticated user owns the game."""
+    user = auth_manager.get_current_user() if auth_manager else None
+    if not user:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    owner_id = _get_game_owner_id(game_id, current_game_data)
+    if not owner_id:
+        return jsonify({'error': 'Game not found or access denied'}), 404
+
+    if user.get('id') != owner_id:
+        return jsonify({'error': 'Forbidden', 'code': 'FORBIDDEN'}), 403
+
+    return None
+
+
 @game_bp.route('/api/usage-stats')
 def get_usage_stats():
     """Get guest usage stats (hands played, limits)."""
@@ -401,6 +460,10 @@ def api_game_state(game_id):
     """API endpoint to get current game state for React app."""
     current_game_data = game_state_service.get_game(game_id)
     current_user, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
+
+    auth_error = _require_game_owner(game_id, current_game_data)
     if auth_error:
         return auth_error
 
@@ -1030,6 +1093,10 @@ def api_player_action(game_id):
     if not current_game_data:
         return jsonify({'error': 'Game not found'}), 404
 
+    auth_error = _require_game_owner(game_id, current_game_data)
+    if auth_error:
+        return auth_error
+
     state_machine = current_game_data['state_machine']
 
     is_valid, error_message = validate_player_action(state_machine.game_state, action, amount)
@@ -1131,6 +1198,10 @@ def api_retry_game(game_id):
     if not current_game_data:
         return jsonify({'error': 'Game not found in memory. Try refreshing the page first.'}), 404
 
+    auth_error = _require_game_owner(game_id, current_game_data)
+    if auth_error:
+        return auth_error
+
     state_machine = current_game_data['state_machine']
     game_state = state_machine.game_state
     current_player = game_state.current_player
@@ -1187,6 +1258,10 @@ def delete_game(game_id):
         return auth_error
 
     try:
+        auth_error = _require_game_owner(game_id, game_state_service.get_game(game_id))
+        if auth_error:
+            return auth_error
+
         game_state_service.delete_game(game_id)
         game_repo.delete_game(game_id)
 
@@ -1244,6 +1319,10 @@ def api_game_llm_configs(game_id):
     """Get LLM configurations for all players in a game (debug endpoint)."""
     current_game_data = game_state_service.get_game(game_id)
     _, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
+
+    auth_error = _require_game_owner(game_id, current_game_data)
     if auth_error:
         return auth_error
 
@@ -1423,7 +1502,6 @@ def register_socket_events(sio):
             return
 
         send_message(game_id, sender, content, message_type)
-
         if game_data and content:
             if 'pressure_detector' in game_data and 'ai_controllers' in game_data:
                 pressure_detector = game_data['pressure_detector']

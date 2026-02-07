@@ -91,6 +91,19 @@ class TestAdminExperimentRouteAuth(unittest.TestCase):
                 self.assertEqual(response.status_code, 403, f"Expected 403 for GET {path}")
                 self.assertEqual(response.get_json().get('code'), 'PERMISSION_DENIED')
 
+    def test_experiment_options_preflight_skips_admin_permission_check(self):
+        with self._auth_patch(None, False):
+            response = self.client.options(
+                '/api/experiments/validate',
+                headers={
+                    'Origin': 'http://localhost:3000',
+                    'Access-Control-Request-Method': 'POST',
+                    'Access-Control-Request-Headers': 'content-type',
+                },
+            )
+
+        self.assertIn(response.status_code, [200, 204])
+
     def test_admin_can_access_experiment_routes(self):
         with self._auth_patch({'id': 'admin-1', 'name': 'Admin'}, True):
             response = self.client.get('/api/experiments/quick-prompts')
