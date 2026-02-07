@@ -355,7 +355,7 @@ def compute_baseline_confidence(anchors: PersonalityAnchors) -> float:
         + anchors.ego * 0.25
     )
     # Clamp to stay safely outside penalty zones using tunable thresholds
-    margin = 0.05
+    margin = 0.10
     timid_thresh = get_zone_param('PENALTY_TIMID_THRESHOLD')
     overconf_thresh = get_zone_param('PENALTY_OVERCONFIDENT_THRESHOLD')
     min_conf = min(0.45, timid_thresh + margin)
