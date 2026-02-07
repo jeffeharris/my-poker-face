@@ -1,3 +1,10 @@
+---
+purpose: Equity-based pressure event detection system for coolers, suckouts, and bad beats
+type: spec
+created: 2025-06-15
+last_updated: 2026-02-07
+---
+
 # Equity-Based Pressure Event Detection
 
 ## Overview
@@ -45,12 +52,14 @@ handle_evaluating_hand_phase()
     ├─► HandEquityRepository.save_hand_equity_history()
     │       Save to hand_equity table for analytics
     │
-    └─► handle_pressure_events()
+    └─► PsychologyPipeline.process_hand()
             │
-            └─► PressureEventDetector.detect_showdown_events(equity_history)
-                    Detect: cooler, suckout, got_sucked_out
-                    │
-                    └─► ElasticityManager.apply_game_event()
+            ├─► PressureEventDetector.detect_equity_shock_events(equity_history)
+            │       Detect: bad_beat, cooler, suckout, got_sucked_out
+            │       Uses weighted-delta model (see below)
+            │
+            └─► PlayerPsychology.resolve_hand_events()
+                    Apply to composure/energy axes (no confidence — luck events)
 ```
 
 ---
@@ -112,12 +121,22 @@ This shows a cooler: AA vs KK, King on turn gives Joker trips.
 
 ## Event Detection Thresholds
 
-| Event | Threshold | Description |
-|-------|-----------|-------------|
-| `cooler` | Both players ≥30% pre-flop equity, loser hand_rank ≤4 | Unavoidable loss with strong hand |
-| `suckout` | Winner <30% equity on any earlier street | Got lucky to win |
-| `got_sucked_out` | Loser >70% equity on any earlier street | Was ahead, lost to luck |
-| `bad_beat` (enhanced) | Loser >70% equity + hand_rank ≤4 | Strong hand + big favorite, lost |
+The current implementation uses a **weighted-delta model** rather than simple per-street threshold checking:
+
+```
+weighted_delta = equity_delta × pot_significance × street_weight
+```
+
+Street weights: FLOP = 1.0, TURN = 1.2, RIVER = 1.4
+
+| Event | Detection Criteria | Description |
+|-------|-------------------|-------------|
+| `bad_beat` | Loser had ≥80% equity at worst swing, weighted delta ≥ 0.30 | Strong hand + big favorite, lost |
+| `cooler` | Loser had 60-80% equity, weighted delta ≥ 0.30 | Unavoidable loss with strong hand |
+| `suckout` | Winner was behind (opponent had ≥80% equity) | Got lucky to win |
+| `got_sucked_out` | Loser had ≥80% equity on earlier street, lost | Was ahead, lost to luck |
+
+Additional thresholds: `POT_SIGNIFICANCE_MIN = 0.15` (ignore trivial pots), priority: bad_beat > got_sucked_out > cooler > suckout.
 
 ---
 
@@ -298,8 +317,8 @@ WHERE he1.game_id = ?
 | `poker/equity_tracker.py` | Calculation + event detection |
 | `poker/repositories/hand_equity_repository.py` | Database persistence |
 | `poker/repositories/schema_manager.py` | Schema migration v68 |
-| `poker/pressure_detector.py` | Integration point |
-| `flask_app/handlers/game_handler.py` | Orchestration |
+| `poker/pressure_detector.py` | Integration point (detect_equity_shock_events) |
+| `poker/psychology_pipeline.py` | Orchestration (unified pipeline) |
 
 ---
 

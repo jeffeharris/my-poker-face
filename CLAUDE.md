@@ -2,6 +2,39 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation Standards
+
+All `.md` documentation files (excluding CLAUDE.md itself) MUST include a YAML-style header block at the top. Claude MUST always update the `last_updated` date when making any changes to a doc.
+
+### Required Header Format
+
+```markdown
+---
+purpose: One-line description of what this document covers
+type: <one of the types below>
+created: YYYY-MM-DD
+last_updated: YYYY-MM-DD
+---
+```
+
+### Document Types
+
+| Type | Use For |
+|------|---------|
+| `architecture` | System structure, component relationships, data flow diagrams |
+| `design` | Design decisions, trade-offs, philosophy, "why we do it this way" |
+| `spec` | Detailed specifications, formulas, algorithms, models |
+| `reference` | Technical reference material, event catalogs, schemas, API docs |
+| `guide` | How-to guides, setup instructions, workflows, runbooks |
+| `vision` | Product vision, feature ideas, roadmap, brainstorming |
+
+### Rules
+
+- Claude MUST add this header when creating any new `.md` file
+- Claude MUST update `last_updated` whenever editing an existing doc
+- If an existing doc is missing the header, add it when making other changes
+- The `purpose` should be a single concise sentence
+
 ## Vision & Feature Documentation
 
 Comprehensive documentation about the game's vision and planned features can be found in:
