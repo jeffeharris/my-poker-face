@@ -36,17 +36,7 @@ The Pressure Stats System tracks and persists dramatic game events, providing pl
 
 ### Event Types
 
-The system tracks the following pressure events:
-
-- **win** - Any pot won
-- **big_win** - Pot > 75% of average stack
-- **big_loss** - Major pot lost
-- **successful_bluff** - Won with weak hand
-- **bluff_called** - Bluff attempt failed
-- **bad_beat** - Lost with strong hand
-- **eliminated_opponent** - Knocked out another player
-- **fold_under_pressure** - Folded to aggression
-- **aggressive_bet** - Made large bet/raise
+See [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) for the full event catalog with detection rules, axis impacts, and resolution logic.
 
 ## Implementation Details
 

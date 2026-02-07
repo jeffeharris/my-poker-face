@@ -906,6 +906,11 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     ai_controllers = game_data.get('ai_controllers', {})
     hand_number = _get_hand_number(game_data)
 
+    if 'pressure_detector' not in game_data:
+        logger.warning(f"[Game {game_id}] No pressure_detector, skipping psychology pipeline")
+    elif not ai_controllers:
+        logger.debug(f"[Game {game_id}] No AI controllers, skipping psychology pipeline")
+
     if 'pressure_detector' in game_data and ai_controllers:
         hand_history_repo_for_pipeline = None
         if memory_manager:
@@ -961,9 +966,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
         # Save emotional states (since persist_controller_state=False skips full save)
         for player_name, controller in ai_controllers.items():
-            if hasattr(controller, 'psychology') and controller.psychology.emotional:
-                game_repo.save_emotional_state(
-                    game_id, player_name, controller.psychology.emotional
+            try:
+                if hasattr(controller, 'psychology') and controller.psychology.emotional:
+                    game_repo.save_emotional_state(
+                        game_id, player_name, controller.psychology.emotional
+                    )
+            except Exception as e:
+                logger.error(
+                    f"[Game {game_id}] Failed to save emotional state for {player_name}: {e}",
+                    exc_info=True,
                 )
 
     # Start async commentary (genuinely slow — multiple LLM calls)

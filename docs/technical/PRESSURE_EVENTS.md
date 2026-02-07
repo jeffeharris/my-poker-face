@@ -151,17 +151,31 @@ The highest severity across all events in a hand determines the floor used.
 
 ### Detector Methods
 
+Methods called by `PsychologyPipeline._detect_events()` (post-hand):
+
 | Method | Events Detected |
 |--------|----------------|
-| `detect_showdown_events()` | win, loss, big_win, big_loss, headsup_win, headsup_loss, bluff_called |
-| `detect_fold_events()` | successful_bluff (inferred from weak hand winning without showdown) |
+| `detect_showdown_events()` | win, loss, big_win, big_loss, headsup_win, headsup_loss, successful_bluff |
 | `detect_equity_shock_events()` | bad_beat, cooler, suckout, got_sucked_out |
-| `detect_stack_events()` | short_stack, crippled, short_stack_survival |
+| `detect_stack_events()` | short_stack, crippled |
+| `detect_short_stack_survival_events()` | short_stack_survival |
 | `detect_streak_events()` | winning_streak, losing_streak |
 | `detect_nemesis_events()` | nemesis_win, nemesis_loss |
-| `detect_big_pot_events()` | big_pot_involved, all_in_moment |
-| `detect_fatigue_events()` | card_dead_5, consecutive_folds_3, not_in_hand, disciplined_fold |
-| `detect_fold_pressure_events()` | fold_under_pressure |
+| Inline in `_detect_events()` | big_pot_involved |
+
+Methods called per-action (not post-hand):
+
+| Method | Events Detected |
+|--------|----------------|
+| `detect_action_events()` | all_in_moment, disciplined_fold |
+
+Events generated inside `resolve_hand_events()` (not by detector):
+
+| Event | Condition |
+|-------|-----------|
+| `card_dead_5` | 5+ hands without playable cards |
+| `consecutive_folds_3` | 3+ consecutive folds |
+| `not_in_hand` | Folded before showdown |
 
 ### Equity Shock Detection Model
 

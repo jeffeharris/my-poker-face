@@ -9,13 +9,13 @@ UI concerns (socket emissions, animation delays) stay in callers via callbacks.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from poker.controllers import AIPlayerController
-from poker.equity_snapshot import HandEquityHistory
-from poker.moment_analyzer import MomentAnalyzer
-from poker.pressure_detector import PressureEventDetector
+from .controllers import AIPlayerController
+from .equity_snapshot import HandEquityHistory
+from .moment_analyzer import MomentAnalyzer
+from .pressure_detector import PressureEventDetector
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class PsychologyResult:
 class PsychologyPipeline:
     """Runs the full post-hand psychology pipeline.
 
-    Stages: detect -> resolve -> persist -> callback -> update -> recover -> save.
+    Stages: detect -> resolve -> persist -> callback -> update_composure -> recover -> save.
 
     Args:
         pressure_detector: Detects showdown, equity, stack, streak, nemesis events.
@@ -87,12 +87,12 @@ class PsychologyPipeline:
         *,
         on_events_resolved: Optional[Callable] = None,
     ) -> PsychologyResult:
-        """Run full pipeline: detect -> resolve -> persist -> update -> recover -> save.
+        """Run full pipeline: detect -> resolve -> persist -> callback -> update_composure -> recover -> save.
 
         Args:
             ctx: All context needed for processing.
             on_events_resolved: Optional callback fired after events are resolved
-                and persisted. Receives (all_events, player_resolved_results,
+                and persisted. Receives (all_events, resolved_results,
                 controllers) — callers use this for UI updates (emit elasticity,
                 pressure_stats recording, debug messages).
 
@@ -103,18 +103,7 @@ class PsychologyPipeline:
         controllers = ctx.controllers
         game_state = ctx.game_state
 
-        # === 1. DETECT ALL EVENTS ===
-        all_events = self._detect_events(ctx)
-
-        if not all_events:
-            return PsychologyResult(
-                current_short_stack=ctx.was_short_stack or set(),
-                detected_events=[],
-                resolved_results={},
-                recovery_infos={},
-            )
-
-        # === 2. BUILD PER-PLAYER EVENT LISTS AND RESOLVE ===
+        # Pre-compute winner/loser names (needed by detection and steps 2-5)
         winner_names = ctx.winner_names
         loser_names = [
             p.name
@@ -122,91 +111,99 @@ class PsychologyPipeline:
             if not p.is_folded and p.name not in winner_names
         ]
 
-        player_events: Dict[str, list] = {}
-        for event_name, affected_players in all_events:
-            for player_name in affected_players:
-                if player_name in controllers:
-                    player_events.setdefault(player_name, []).append(event_name)
+        # === 1. DETECT ALL EVENTS ===
+        all_events, current_short = self._detect_events(ctx, loser_names)
 
+        # Steps 2-4 only run when events were detected
         resolved_results = {}
-        for player_name, player_event_list in player_events.items():
-            controller = controllers[player_name]
-            if not hasattr(controller, 'psychology'):
-                continue
+        if all_events:
+            # === 2. BUILD PER-PLAYER EVENT LISTS AND RESOLVE ===
+            player_events: Dict[str, list] = {}
+            for event_name, affected_players in all_events:
+                for player_name in affected_players:
+                    if player_name in controllers:
+                        player_events.setdefault(player_name, []).append(event_name)
 
-            # Opponent logic: both winners and losers get opponents
-            opponent = None
-            if player_name in winner_names and loser_names:
-                opponent = loser_names[0]
-            elif player_name in loser_names and winner_names:
-                opponent = winner_names[0]
-
-            try:
-                result = controller.psychology.resolve_hand_events(
-                    player_event_list, opponent
-                )
-                resolved_results[player_name] = result
-                logger.debug(
-                    f"[Psychology] {player_name}: Resolved {result['events_applied']}. "
-                    f"Conf={controller.psychology.confidence:.2f}, "
-                    f"Comp={controller.psychology.composure:.2f}"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to resolve events for {player_name}: {e}")
-
-        # === 3. PERSIST RESOLVED EVENTS ===
-        if self.pressure_event_repo:
-            for player_name, result in resolved_results.items():
-                per_event_deltas = result.get('per_event_deltas', {})
-                player_event_list = player_events.get(player_name, [])
-                # Determine opponent (same logic as above)
+            # Compute opponent for each player once
+            player_opponents: Dict[str, Optional[str]] = {}
+            for player_name in player_events:
                 opponent = None
                 if player_name in winner_names and loser_names:
                     opponent = loser_names[0]
                 elif player_name in loser_names and winner_names:
                     opponent = winner_names[0]
+                player_opponents[player_name] = opponent
 
-                for event_name in result['events_applied']:
-                    event_deltas = per_event_deltas.get(event_name, {})
-                    self.pressure_event_repo.save_event(
-                        game_id=ctx.game_id,
-                        player_name=player_name,
-                        event_type=event_name,
-                        hand_number=ctx.hand_number,
-                        details={
-                            'conf_delta': event_deltas.get('conf_delta', 0),
-                            'comp_delta': event_deltas.get('comp_delta', 0),
-                            'energy_delta': event_deltas.get('energy_delta', 0),
-                            'conf_after': result['conf_after'],
-                            'comp_after': result['comp_after'],
-                            'energy_after': result['energy_after'],
-                            'opponent': opponent,
-                            'resolved_from': player_event_list,
-                        },
+            for player_name, player_event_list in player_events.items():
+                controller = controllers[player_name]
+                if not hasattr(controller, 'psychology'):
+                    continue
+
+                try:
+                    result = controller.psychology.resolve_hand_events(
+                        player_event_list, player_opponents[player_name]
+                    )
+                    resolved_results[player_name] = result
+                    logger.debug(
+                        f"[Psychology] {player_name}: Resolved {result['events_applied']}. "
+                        f"Conf={controller.psychology.confidence:.2f}, "
+                        f"Comp={controller.psychology.composure:.2f}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to resolve events for {player_name}: {e}",
+                        exc_info=True,
                     )
 
-        # === 4. FIRE CALLBACK ===
-        if on_events_resolved:
-            try:
-                on_events_resolved(all_events, resolved_results, controllers)
-            except Exception as e:
-                logger.warning(f"on_events_resolved callback failed: {e}")
+            # === 3. PERSIST RESOLVED EVENTS ===
+            if self.pressure_event_repo:
+                try:
+                    for player_name, result in resolved_results.items():
+                        per_event_deltas = result.get('per_event_deltas', {})
+                        player_event_list = player_events.get(player_name, [])
+                        opponent = player_opponents.get(player_name)
 
-        # === 5. UPDATE COMPOSURE / EMOTIONAL STATE ===
+                        for event_name in result['events_applied']:
+                            event_deltas = per_event_deltas.get(event_name, {})
+                            self.pressure_event_repo.save_event(
+                                game_id=ctx.game_id,
+                                player_name=player_name,
+                                event_type=event_name,
+                                hand_number=ctx.hand_number,
+                                details={
+                                    'conf_delta': event_deltas.get('conf_delta', 0),
+                                    'comp_delta': event_deltas.get('comp_delta', 0),
+                                    'energy_delta': event_deltas.get('energy_delta', 0),
+                                    'conf_after': result['conf_after'],
+                                    'comp_after': result['comp_after'],
+                                    'energy_after': result['energy_after'],
+                                    'opponent': opponent,
+                                    'resolved_from': player_event_list,
+                                },
+                            )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to persist pressure events: {e}", exc_info=True
+                    )
+
+            # === 4. FIRE CALLBACK ===
+            if on_events_resolved:
+                try:
+                    on_events_resolved(all_events, resolved_results, controllers)
+                except Exception as e:
+                    logger.warning(
+                        f"on_events_resolved callback failed: {e}", exc_info=True
+                    )
+
+        # === 5. UPDATE COMPOSURE / EMOTIONAL STATE === (always runs)
         self._update_composure(ctx, winner_names)
 
-        # === 6. APPLY RECOVERY ===
+        # === 6. APPLY RECOVERY === (always runs)
         recovery_infos = self._apply_recovery(ctx)
 
-        # === 7. SAVE STATE ===
+        # === 7. SAVE STATE === (always runs)
         if self.persist_controller_state and self.game_repo:
-            self._save_state(ctx, recovery_infos)
-
-        # Compute current_short_stack from detection
-        current_short = ctx.was_short_stack or set()
-        # Stack event detection already updates current_short via _detect_events;
-        # we capture it there and return it here.
-        current_short = getattr(self, '_current_short_stack', current_short)
+            self._save_state(ctx)
 
         return PsychologyResult(
             current_short_stack=current_short,
@@ -217,8 +214,18 @@ class PsychologyPipeline:
 
     # === PRIVATE: DETECTION ===
 
-    def _detect_events(self, ctx: PsychologyContext) -> List[Tuple[str, List[str]]]:
-        """Detect all post-hand events."""
+    def _detect_events(
+        self, ctx: PsychologyContext, loser_names: List[str]
+    ) -> Tuple[List[Tuple[str, List[str]]], Set[str]]:
+        """Detect all post-hand events.
+
+        Args:
+            ctx: Psychology context for the hand.
+            loser_names: Non-folded players who didn't win.
+
+        Returns:
+            Tuple of (all_events, current_short_stack).
+        """
         all_events = []
         controllers = ctx.controllers
         game_state = ctx.game_state
@@ -258,7 +265,9 @@ class PsychologyPipeline:
                 )
                 all_events.extend(equity_events)
             except Exception as e:
-                logger.warning(f"Equity shock detection failed: {e}")
+                logger.warning(
+                    f"Equity shock detection failed: {e}", exc_info=True
+                )
 
         # 3. Stack events (crippled, short_stack)
         current_short = ctx.was_short_stack or set()
@@ -280,9 +289,6 @@ class PsychologyPipeline:
             )
             all_events.extend(survival_events)
 
-        # Store current_short for return value
-        self._current_short_stack = current_short
-
         # 4. Streak events (from DB-backed session stats)
         hand_history_repo = self.hand_history_repo
         if hand_history_repo:
@@ -296,16 +302,12 @@ class PsychologyPipeline:
                     )
                     all_events.extend(streak_events)
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to get session stats for {player_name}: {e}"
+                    logger.error(
+                        f"Failed to get session stats for {player_name}: {e}",
+                        exc_info=True,
                     )
 
         # 5. Nemesis events
-        loser_names = [
-            p.name
-            for p in game_state.players
-            if not p.is_folded and p.name not in ctx.winner_names
-        ]
         player_nemesis_map = {}
         for name, controller in controllers.items():
             if (
@@ -330,7 +332,7 @@ class PsychologyPipeline:
             ]
             all_events.append(("big_pot_involved", active_player_names))
 
-        return all_events
+        return all_events, current_short
 
     # === PRIVATE: COMPOSURE UPDATE ===
 
@@ -381,18 +383,13 @@ class PsychologyPipeline:
                 and not player.is_folded
                 and ctx.winner_info.get('hand_rank', 0) >= 2
             )
-            was_bluff_called = False
             outcome = (
                 'won'
                 if player_won
                 else ('folded' if player.is_folded else 'lost')
             )
             nemesis = winner_names[0] if not player_won and winner_names else None
-            key_moment = (
-                'bad_beat'
-                if was_bad_beat
-                else ('bluff_called' if was_bluff_called else None)
-            )
+            key_moment = 'bad_beat' if was_bad_beat else None
 
             # Build session_context from memory_manager when available
             session_context = {}
@@ -413,7 +410,7 @@ class PsychologyPipeline:
                         amount=amount,
                         opponent=nemesis,
                         was_bad_beat=was_bad_beat,
-                        was_bluff_called=was_bluff_called,
+                        was_bluff_called=False,
                         session_context=session_context,
                         key_moment=key_moment,
                         big_blind=ctx.big_blind,
@@ -425,11 +422,12 @@ class PsychologyPipeline:
                         amount=amount,
                         opponent=nemesis,
                         was_bad_beat=was_bad_beat,
-                        was_bluff_called=was_bluff_called,
+                        was_bluff_called=False,
                     )
             except Exception as e:
                 logger.warning(
-                    f"Psychology state update failed for {player.name}: {e}"
+                    f"Psychology state update failed for {player.name}: {e}",
+                    exc_info=True,
                 )
 
     # === PRIVATE: RECOVERY ===
@@ -442,11 +440,20 @@ class PsychologyPipeline:
             if not hasattr(controller, 'psychology') or not controller.psychology:
                 continue
 
+            # Recovery computation is critical — must not be swallowed
             try:
                 recovery_info = controller.psychology.recover()
                 recovery_infos[player_name] = recovery_info
+            except Exception as e:
+                logger.error(
+                    f"Psychology recovery failed for {player_name}: {e}",
+                    exc_info=True,
+                )
+                continue
 
-                if self.pressure_event_repo and recovery_info:
+            # Persistence is best-effort analytics
+            if self.pressure_event_repo and recovery_info:
+                try:
                     # Recovery force
                     if (
                         abs(recovery_info['recovery_conf']) > 0.001
@@ -477,16 +484,17 @@ class PsychologyPipeline:
                                 'comp_delta': gravity_comp,
                             },
                         )
-            except Exception as e:
-                logger.warning(
-                    f"Psychology recovery failed for {player_name}: {e}"
-                )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to persist recovery events for {player_name}: {e}",
+                        exc_info=True,
+                    )
 
         return recovery_infos
 
     # === PRIVATE: SAVE STATE ===
 
-    def _save_state(self, ctx: PsychologyContext, recovery_infos: dict) -> None:
+    def _save_state(self, ctx: PsychologyContext) -> None:
         """Save psychology and emotional state to database."""
         for player_name, controller in ctx.controllers.items():
             if not hasattr(controller, 'psychology') or not controller.psychology:
@@ -515,6 +523,7 @@ class PsychologyPipeline:
                         controller.psychology.emotional,
                     )
             except Exception as e:
-                logger.warning(
-                    f"Failed to save psychology state for {player_name}: {e}"
+                logger.error(
+                    f"Failed to save psychology state for {player_name}: {e}",
+                    exc_info=True,
                 )
