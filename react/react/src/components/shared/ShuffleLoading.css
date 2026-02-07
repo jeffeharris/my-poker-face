@@ -60,14 +60,6 @@
   pointer-events: auto;
 }
 
-.shuffle-loading-content-layer-top {
-  justify-content: flex-start;
-  padding-top: max(88px, calc(env(safe-area-inset-top, 0px) + 72px));
-}
-
-.shuffle-loading-content-layer-top .shuffle-loading-content {
-  gap: 14px;
-}
 
 @keyframes shuffleLoadingFadeIn {
   from { opacity: 0; }

@@ -21,8 +21,6 @@ interface ShuffleLoadingProps {
   variant?: 'overlay' | 'interhand';
   /** 'fade' (default): opacity fade-out. 'slide': slide off screen to the left. */
   exitStyle?: 'fade' | 'slide';
-  /** Content alignment within overlay/layer. */
-  position?: 'center' | 'top';
 }
 
 /**
@@ -39,7 +37,6 @@ export const ShuffleLoading = memo(function ShuffleLoading({
   handNumber,
   variant = 'overlay',
   exitStyle = 'fade',
-  position = 'center',
 }: ShuffleLoadingProps) {
   const [showContent, setShowContent] = useState(false);
   // Keep component mounted during fade-out
@@ -123,7 +120,6 @@ export const ShuffleLoading = memo(function ShuffleLoading({
   );
 
   if (variant === 'interhand') {
-    const positionClass = position === 'top' ? ' shuffle-loading-content-layer-top' : '';
     return (
       <>
         {/* LAYER 1: Dim background - BELOW avatars */}
@@ -132,7 +128,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
         </div>
 
         {/* LAYER 2: Content - ABOVE avatars */}
-        <div className={`shuffle-loading-content-layer${positionClass}${exitClass}`}>
+        <div className={`shuffle-loading-content-layer${exitClass}`}>
           {content}
         </div>
       </>

@@ -256,40 +256,35 @@ export function MobilePokerTable({
   const isThreeOpponentsNormal = isThreeOpponents && !isInShowdown;
   const isThreeOpponentsShowdown = isInShowdown && activeOpponents.length === 3;
 
-  // For non-showdown hands (walks/fold-outs), use ShuffleLoading as the single transition overlay.
-  const useShuffleAsWinnerOverlay = Boolean(winnerInfo && !winnerInfo.showdown && isInterhandPhase);
+  // For non-showdown hands (walks/fold-outs), capture the winner line into local
+  // state and immediately dismiss winnerInfo so MobileWinnerAnnouncement never mounts.
+  // The message is passed to ShuffleLoading and persists through the entire shuffle.
+  const [interhandMessage, setInterhandMessage] = useState<string | null>(null);
 
-  const noShowdownWinnings = useMemo(() => {
-    if (!winnerInfo || winnerInfo.showdown) return null;
-    if (winnerInfo.pot_breakdown) {
-      return winnerInfo.pot_breakdown.reduce(
-        (sum, pot) => sum + pot.winners.reduce((potSum, w) => potSum + w.amount, 0),
-        0,
-      );
-    }
-    if (winnerInfo.winnings) {
-      return Object.values(winnerInfo.winnings).reduce((sum, amount) => sum + amount, 0);
-    }
-    return null;
-  }, [winnerInfo]);
-
-  const topWinnerLine = useMemo(() => {
-    if (!useShuffleAsWinnerOverlay || !winnerInfo) return null;
-    if (winnerInfo.winners.length > 1) {
-      const names = winnerInfo.winners.join(' & ');
-      return noShowdownWinnings != null ? `${names} split +$${noShowdownWinnings}` : `${names} split`;
-    }
-    const winnerName = winnerInfo.winners[0];
-    return noShowdownWinnings != null ? `${winnerName} won +$${noShowdownWinnings}` : `${winnerName} won`;
-  }, [useShuffleAsWinnerOverlay, winnerInfo, noShowdownWinnings]);
-
-  // Mirror MobileWinnerAnnouncement's auto-dismiss behavior for no-showdown hands
-  // when ShuffleLoading is used as the only transition overlay.
   useEffect(() => {
-    if (!useShuffleAsWinnerOverlay) return;
-    const timer = setTimeout(() => clearWinnerInfo(), 2600);
-    return () => clearTimeout(timer);
-  }, [useShuffleAsWinnerOverlay, clearWinnerInfo]);
+    if (!winnerInfo || winnerInfo.showdown) return;
+    // Compute total winnings
+    let winnings: number | null = null;
+    if (winnerInfo.pot_breakdown) {
+      winnings = winnerInfo.pot_breakdown.reduce(
+        (sum, pot) => sum + pot.winners.reduce((s, w) => s + w.amount, 0), 0,
+      );
+    } else if (winnerInfo.winnings) {
+      winnings = Object.values(winnerInfo.winnings).reduce((s, a) => s + a, 0);
+    }
+    const names = winnerInfo.winners.length > 1
+      ? winnerInfo.winners.join(' & ')
+      : winnerInfo.winners[0];
+    const verb = winnerInfo.winners.length > 1 ? 'split' : 'won';
+    const line = winnings != null ? `${names} ${verb} +$${winnings}` : `${names} ${verb}`;
+    setInterhandMessage(line);
+    clearWinnerInfo();
+  }, [winnerInfo, clearWinnerInfo]);
+
+  // Clear when the next hand starts
+  useEffect(() => {
+    setInterhandMessage(null);
+  }, [handNumber]);
 
   // Coach hook
   const coach = useCoach({
@@ -730,8 +725,9 @@ export function MobilePokerTable({
         )}
       </div>
 
-      {/* Winner Announcement */}
-      {!useShuffleAsWinnerOverlay && (
+      {/* Winner Announcement — non-showdown wins are handled by the interhand
+          message inside ShuffleLoading, so only mount for showdown wins. */}
+      {!(winnerInfo && !winnerInfo.showdown) && (
         <MobileWinnerAnnouncement
           winnerInfo={winnerInfo}
           onComplete={clearWinnerInfo}
@@ -753,16 +749,11 @@ export function MobilePokerTable({
         />
       )}
 
-      {topWinnerLine && (
-        <div className="mobile-interhand-winner-banner" data-testid="mobile-interhand-winner-banner">
-          {topWinnerLine}
-        </div>
-      )}
-
-      {/* Shuffle animation during end-of-hand phases. Winner announcement renders at a higher z-index so it appears on top. */}
+      {/* Shuffle animation during end-of-hand phases. For non-showdown wins the
+          shuffle message shows who won instead of "Shuffling". */}
       <ShuffleLoading
         isVisible={isInterhandPhase}
-        message="Shuffling"
+        message={interhandMessage || 'Shuffling'}
         handNumber={handNumber}
         variant="interhand"
       />
