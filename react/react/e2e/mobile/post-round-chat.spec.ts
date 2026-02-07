@@ -46,18 +46,45 @@ const showdownWinnerInfo = {
   is_final_hand: false,
 };
 
-/** Fold winner: TestPlayer wins — human won → show gloat/humble tones */
-const foldWinnerInfo = {
+/** Showdown winner: TestPlayer wins — human won → show gloat/humble tones */
+const showdownWinnerInfoHumanWins = {
   winners: ['TestPlayer'],
-  hand_name: undefined,
-  showdown: false,
+  hand_name: 'Pair of Aces',
+  showdown: true,
   pot_breakdown: [
     {
       pot_name: 'Main Pot',
-      total_amount: 150,
-      winners: [{ name: 'TestPlayer', amount: 150 }],
-      hand_name: '',
+      total_amount: 300,
+      winners: [{ name: 'TestPlayer', amount: 300 }],
+      hand_name: 'Pair of Aces',
     },
+  ],
+  players_showdown: {
+    TestPlayer: {
+      cards: [
+        { rank: 'A', suit: 'spades' },
+        { rank: 'A', suit: 'hearts' },
+      ],
+      hand_name: 'Pair of Aces',
+      hand_rank: 3,
+      kickers: ['K', 'Q'],
+    },
+    Batman: {
+      cards: [
+        { rank: 'K', suit: 'spades' },
+        { rank: 'Q', suit: 'hearts' },
+      ],
+      hand_name: 'King High',
+      hand_rank: 9,
+      kickers: ['Q', 'J', '9'],
+    },
+  },
+  community_cards: [
+    { rank: '7', suit: 'diamonds' },
+    { rank: 'Q', suit: 'clubs' },
+    { rank: '3', suit: 'hearts' },
+    { rank: '9', suit: 'spades' },
+    { rank: '2', suit: 'diamonds' },
   ],
   is_final_hand: false,
 };
@@ -117,7 +144,7 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
   });
 
   test('winner sees Gloat and Humble tone buttons', async ({ page }) => {
-    await setupWithWinner(page, { winnerPayload: foldWinnerInfo });
+    await setupWithWinner(page, { winnerPayload: showdownWinnerInfoHumanWins });
 
     const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
