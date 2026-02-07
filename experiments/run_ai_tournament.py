@@ -1004,16 +1004,18 @@ class AITournamentRunner:
                 )
                 # Persist resolved events for trajectory viewer
                 if self.pressure_event_repo:
+                    per_event_deltas = result.get('per_event_deltas', {})
                     for event_name in result['events_applied']:
+                        event_deltas = per_event_deltas.get(event_name, {})
                         self.pressure_event_repo.save_event(
                             game_id=game_id,
                             player_name=player_name,
                             event_type=event_name,
                             hand_number=hand_number,
                             details={
-                                'conf_delta': result['conf_delta'],
-                                'comp_delta': result['comp_delta'],
-                                'energy_delta': result['energy_delta'],
+                                'conf_delta': event_deltas.get('conf_delta', 0),
+                                'comp_delta': event_deltas.get('comp_delta', 0),
+                                'energy_delta': event_deltas.get('energy_delta', 0),
                                 'conf_after': result['conf_after'],
                                 'comp_after': result['comp_after'],
                                 'energy_after': result['energy_after'],

@@ -304,10 +304,12 @@ def extract_data_for_game(db_path: str, game_id: str) -> dict:
 
     conn.close()
 
+    distinct_hands = len(set(row['hand_number'] for row in rows))
+
     return {
         'experiment_id': None,
         'game_id': game_id,
-        'games': [{'game_id': game_id, 'hands': len(rows)}],
+        'games': [{'game_id': game_id, 'hands': distinct_hands}],
         'players': players,
         'player_colors': player_colors,
         'player_initials': player_initials,
@@ -951,7 +953,7 @@ function drawDots(globalIdx) {
     if (!point) continue;
     const color = DATA.player_colors[player];
     const dimmed = highlightedPlayer && highlightedPlayer !== player;
-    const eliminated = point.hand < currentHand; // last entry is from an earlier hand
+    const eliminated = point.hand < currentHand && point.stack <= 0;
     const [x, y] = toCanvas(point.conf, point.comp);
 
     if (dimmed || eliminated) {
@@ -1129,7 +1131,7 @@ function updatePlayerCards(globalIdx) {
     const current = getPlayerState(player, currentHand);
     if (!current) continue;
     const prev = prevHand ? getPlayerState(player, prevHand) : null;
-    const eliminated = current.hand < currentHand;
+    const eliminated = current.hand < currentHand && current.stack <= 0;
     const sid = sanitize(player);
 
     // Bars

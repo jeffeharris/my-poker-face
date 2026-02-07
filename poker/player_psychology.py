@@ -406,56 +406,67 @@ class PlayerPsychology:
             Dict with events_applied, per-axis deltas, and final values
         """
         events_applied = []
+        # Track per-event raw deltas so callers can persist accurate breakdowns
+        per_event_raw = []  # parallel to events_applied: (conf, comp, energy)
         total_conf_delta = 0.0
         total_comp_delta = 0.0
         total_energy_delta = 0.0
+
+        def _record_event(name: str, conf: float, comp: float, energy: float):
+            nonlocal total_conf_delta, total_comp_delta, total_energy_delta
+            total_conf_delta += conf
+            total_comp_delta += comp
+            total_energy_delta += energy
+            events_applied.append(name)
+            per_event_raw.append((conf, comp, energy))
 
         # 1. Select ONE outcome (highest priority wins)
         outcome_events = [e for e in events if e in self.OUTCOME_EVENTS]
         if outcome_events:
             best_outcome = max(outcome_events, key=lambda e: self.OUTCOME_PRIORITY.index(e))
             impacts = self._get_pressure_impacts(best_outcome)
-            total_conf_delta += impacts.get('confidence', 0)
-            total_comp_delta += impacts.get('composure', 0)
-            total_energy_delta += impacts.get('energy', 0)
-            events_applied.append(best_outcome)
+            _record_event(best_outcome,
+                          impacts.get('confidence', 0),
+                          impacts.get('composure', 0),
+                          impacts.get('energy', 0))
 
         # 2. At most ONE ego/agency modifier, scaled 50%
         ego_events = [e for e in events if e in self.EGO_EVENTS]
         if ego_events:
             ego_event = ego_events[0]  # Take first detected
             impacts = self._get_pressure_impacts(ego_event)
-            total_conf_delta += impacts.get('confidence', 0) * 0.5
-            total_comp_delta += impacts.get('composure', 0) * 0.5
-            total_energy_delta += impacts.get('energy', 0) * 0.5
-            events_applied.append(ego_event)
+            _record_event(ego_event,
+                          impacts.get('confidence', 0) * 0.5,
+                          impacts.get('composure', 0) * 0.5,
+                          impacts.get('energy', 0) * 0.5)
 
         # 3. ALL pressure/fatigue events (additive)
         for event in events:
             if event in self.PRESSURE_EVENTS:
                 impacts = self._get_pressure_impacts(event)
-                total_conf_delta += impacts.get('confidence', 0)
-                total_comp_delta += impacts.get('composure', 0)
-                total_energy_delta += impacts.get('energy', 0)
-                events_applied.append(event)
+                _record_event(event,
+                              impacts.get('confidence', 0),
+                              impacts.get('composure', 0),
+                              impacts.get('energy', 0))
 
         # 4. ALL desperation + streak events (additive)
         for event in events:
             if event in self.DESPERATION_EVENTS or event in self.STREAK_EVENTS:
                 impacts = self._get_pressure_impacts(event)
-                total_conf_delta += impacts.get('confidence', 0)
-                total_comp_delta += impacts.get('composure', 0)
-                total_energy_delta += impacts.get('energy', 0)
-                events_applied.append(event)
+                _record_event(event,
+                              impacts.get('confidence', 0),
+                              impacts.get('composure', 0),
+                              impacts.get('energy', 0))
 
         # 5. At most ONE equity shock event (highest priority)
         shock_events = [e for e in events if e in self.EQUITY_SHOCK_EVENTS]
         if shock_events:
             best_shock = max(shock_events, key=lambda e: self.EQUITY_SHOCK_PRIORITY.index(e))
             impacts = self._get_pressure_impacts(best_shock)
-            total_comp_delta += impacts.get('composure', 0)
-            total_energy_delta += impacts.get('energy', 0)
-            events_applied.append(best_shock)
+            _record_event(best_shock,
+                          0,  # equity shocks don't affect confidence
+                          impacts.get('composure', 0),
+                          impacts.get('energy', 0))
 
         # Apply deltas through sensitivity system
         pre_conf = self.axes.confidence
@@ -472,13 +483,16 @@ class PlayerPsychology:
         new_comp = pre_comp
         new_energy = pre_energy
 
+        # Compute per-axis sensitivities (linear multipliers applied to raw deltas)
+        conf_sensitivity = 1.0
+        comp_sensitivity = 1.0
         if total_conf_delta != 0:
-            sensitivity = _calculate_sensitivity(self.anchors.ego, floor)
-            new_conf = pre_conf + total_conf_delta * sensitivity
+            conf_sensitivity = _calculate_sensitivity(self.anchors.ego, floor)
+            new_conf = pre_conf + total_conf_delta * conf_sensitivity
 
         if total_comp_delta != 0:
-            sensitivity = _calculate_sensitivity(1.0 - self.anchors.poise, floor)
-            new_comp = pre_comp + total_comp_delta * sensitivity
+            comp_sensitivity = _calculate_sensitivity(1.0 - self.anchors.poise, floor)
+            new_comp = pre_comp + total_comp_delta * comp_sensitivity
 
         if total_energy_delta != 0:
             new_energy = pre_energy + total_energy_delta
@@ -488,6 +502,17 @@ class PlayerPsychology:
             composure=new_comp,
             energy=new_energy,
         )
+
+        # Build per-event deltas with sensitivity applied
+        # Since sensitivity is a linear multiplier, per-event deltas sum to the total
+        per_event_deltas = {}
+        for i, event_name in enumerate(events_applied):
+            raw_conf, raw_comp, raw_energy = per_event_raw[i]
+            per_event_deltas[event_name] = {
+                'conf_delta': round(raw_conf * conf_sensitivity, 6),
+                'comp_delta': round(raw_comp * comp_sensitivity, 6),
+                'energy_delta': round(raw_energy, 6),
+            }
 
         # Update composure tracking
         for event in events_applied:
@@ -504,6 +529,7 @@ class PlayerPsychology:
 
         return {
             'events_applied': events_applied,
+            'per_event_deltas': per_event_deltas,
             'conf_delta': round(new_conf - pre_conf, 6),
             'comp_delta': round(new_comp - pre_comp, 6),
             'energy_delta': round(new_energy - pre_energy, 6),
