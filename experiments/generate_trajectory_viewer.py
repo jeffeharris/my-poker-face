@@ -342,8 +342,8 @@ h1{font-size:1.1rem;font-weight:500;color:#fff;letter-spacing:-0.3px}
 #game-selector{background:#161b22;color:#e6e6e6;border:1px solid #30363d;padding:3px 6px;border-radius:4px;font-size:0.75rem}
 
 .main-layout{display:flex;gap:12px;align-items:stretch;flex:1;min-height:0}
-.left-panel{flex:1;min-width:220px;overflow-y:auto}
-.right-panel{flex:1;display:flex;align-items:center;justify-content:center;min-width:0}
+.left-panel{flex:1;min-width:220px;overflow-y:auto;display:flex;align-items:center}
+.right-panel{flex:1;display:flex;align-items:flex-start;justify-content:center;min-width:0}
 
 .chart-section{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
 canvas{border-radius:8px;cursor:crosshair}
@@ -367,7 +367,7 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 .overlay-dot{width:6px;height:6px;border-radius:50%;background:var(--toggle-color);opacity:0.5}
 .overlay-toggle.active .overlay-dot{opacity:1}
 
-.player-grid{display:flex;flex-direction:column;gap:6px}
+.player-grid{display:flex;flex-direction:column;gap:6px;width:100%}
 .player-card{display:flex;flex-direction:column;gap:4px;padding:8px 10px;background:#161b22;border-radius:6px;border-left:3px solid transparent;border:1px solid #21262d;cursor:pointer;transition:background .15s,border-color .15s}
 .player-card:hover{background:#1c2129}
 .player-card.highlighted{border-color:#58a6ff !important;background:#1c2433}
