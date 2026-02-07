@@ -361,9 +361,10 @@
     transition: opacity 0.2s ease-out, transform 0.2s ease-out;
 }
 
-/* Hide bet chip for folded players */
+/* Keep bet chip visible for folded players so committed amount remains clear */
 .mobile-opponent.folded .opponent-bet {
-    display: none;
+    opacity: 0.65;
+    filter: saturate(0.75) brightness(0.9);
 }
 
 .mobile-opponent.all-in {
@@ -984,8 +985,16 @@
   transition: flex 0.4s ease-out;
 }
 
+/* Preserve folded collapse and let remaining avatar expand */
+.mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar.folded {
+  width: 14vw;
+  min-width: 14vw;
+  max-width: 14vw;
+  flex: 0 0 14vw;
+}
+
 /* Active player grows, inactive shrinks */
-.mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar.thinking {
+.mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar.thinking:not(.folded) {
   flex: 1.5 1 60%;
 }
 
@@ -1033,8 +1042,16 @@
   transition: flex 0.35s ease-out;
 }
 
+/* Preserve folded collapse and distribute extra space to active avatars */
+.mobile-opponents.three-opponents-mode .mobile-opponent.folded {
+  width: 14vw;
+  min-width: 14vw;
+  max-width: 14vw;
+  flex: 0 0 14vw;
+}
+
 /* Active player grows while other two naturally shrink */
-.mobile-opponents.three-opponents-mode .mobile-opponent.thinking {
+.mobile-opponents.three-opponents-mode .mobile-opponent.thinking:not(.folded) {
   flex: 1.5 1 45%;
 }
 
