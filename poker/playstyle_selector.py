@@ -107,6 +107,14 @@ RISK_STANCES = {
     'guarded': "Keep pots small without the nuts.",
 }
 
+# Planning prompts (used at medium+ engagement, encourages multi-street thinking)
+PLANNING_PROMPTS = {
+    'aggro': "If you're betting as a bluff, commit to a plan — what will you do on the next street if called?",
+    'commanding': "Think multi-street: if you bet for value here, plan the next street too.",
+    'poker_face': "Consider: what's your plan if called? If raised?",
+    'guarded': "",  # Guarded is reactive by nature
+}
+
 
 # === DATA CLASSES ===
 
@@ -326,6 +334,71 @@ def compute_exploit_scores(
     return {s: min(v, 0.30) for s, v in scores.items()}
 
 
+def build_exploit_tips(
+    active_playstyle: str,
+    engagement: str,
+    threat_model: Optional['OpponentModel'] = None,
+    focal_model: Optional['OpponentModel'] = None,
+) -> str:
+    """
+    Build 0-2 short, actionable exploit tips from opponent data.
+
+    Tips come from two sources:
+    - The biggest threat at the table (strategic awareness)
+    - The focal opponent in the current hand (tactical advice)
+
+    Only at medium+ engagement, only when opponent has enough observed hands.
+    Returns empty string if no tips apply.
+    """
+    if engagement == 'basic':
+        return ""
+
+    tips = []
+
+    for model in [threat_model, focal_model]:
+        if model is None:
+            continue
+        if model.tendencies.hands_observed < MIN_THREAT_HANDS:
+            continue
+        # Skip duplicate (same opponent as threat and focal)
+        if tips and model is threat_model:
+            continue
+        if len(tips) >= 2:
+            break
+
+        t = model.tendencies
+        name = model.opponent
+
+        if active_playstyle in ('aggro', 'commanding'):
+            if t.fold_to_cbet > 0.60:
+                tips.append(f"{name} folds to c-bets {t.fold_to_cbet:.0%} — c-bet as a bluff, they'll fold.")
+                continue
+            if t.aggression_factor < 0.8:
+                tips.append(f"{name} is passive — bet thin for value, they won't raise without the nuts.")
+                continue
+
+        if active_playstyle == 'aggro' and t.vpip < 0.20:
+            tips.append(f"{name} is tight — steal their blinds, they fold too much.")
+            continue
+
+        if active_playstyle == 'commanding' and t.vpip > 0.45:
+            tips.append(f"{name} plays too many hands — value bet wider, they'll call with worse.")
+            continue
+
+        if active_playstyle in ('guarded', 'poker_face'):
+            if t.aggression_factor > 2.0:
+                tips.append(f"{name} is hyper-aggressive — let them bluff into your strong hands.")
+                continue
+            if t.fold_to_cbet < 0.30:
+                tips.append(f"{name} never folds to c-bets — skip the bluff, value bet relentlessly.")
+                continue
+
+        if t.bluff_frequency > 0.50:
+            tips.append(f"{name} bluffs often — call down lighter.")
+
+    return "\n".join(tips)
+
+
 def _determine_engagement(active_affinity: float) -> str:
     """Determine engagement tier from raw Gaussian affinity of active style."""
     if active_affinity >= ENGAGEMENT_FULL_THRESHOLD:
@@ -537,6 +610,8 @@ def build_playstyle_briefing(
     big_blind: int = 100,
     threat_name: Optional[str] = None,
     threat_summary: Optional[str] = None,
+    threat_model: Optional['OpponentModel'] = None,
+    focal_model: Optional['OpponentModel'] = None,
 ) -> PlaystyleBriefing:
     """
     Build a PlaystyleBriefing with zone guidance, curated stats, framing, and suppressions.
@@ -584,6 +659,13 @@ def build_playstyle_briefing(
         if stat_lines:
             parts.append(stat_lines)
 
+    # Medium+ engagement: exploit tips from opponent data
+    exploit_tips = build_exploit_tips(
+        active_playstyle, engagement, threat_model, focal_model,
+    )
+    if exploit_tips:
+        parts.append(exploit_tips)
+
     # Zone strategy template
     if zone_guidance:
         parts.append("---")
@@ -600,6 +682,11 @@ def build_playstyle_briefing(
         if risk:
             focus_parts.append(risk)
         parts.append("Focus: " + " ".join(focus_parts))
+
+    # Planning prompt (medium+ engagement, encourages multi-street thinking)
+    planning = PLANNING_PROMPTS.get(active_playstyle, '')
+    if planning:
+        parts.append(planning)
 
     guidance = "\n".join(parts)
 

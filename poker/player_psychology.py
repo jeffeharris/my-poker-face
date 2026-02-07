@@ -556,6 +556,7 @@ class PlayerPsychology:
             opponent=opponent,
             was_bad_beat=was_bad_beat,
             was_bluff_called=was_bluff_called,
+            big_blind=big_blind,
         )
 
         self._generate_emotional_state(

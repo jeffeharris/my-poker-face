@@ -183,8 +183,13 @@ class ComposureState:
         opponent: Optional[str] = None,
         was_bad_beat: bool = False,
         was_bluff_called: bool = False,
+        big_blind: int = 100,
     ) -> 'ComposureState':
         """Return new ComposureState updated from hand outcome."""
+        # Folding blinds (< 3 BB invested) is routine — doesn't count as a loss
+        if outcome == 'folded' and abs(amount) < 3 * big_blind:
+            return self
+
         if outcome == 'lost' or outcome == 'folded':
             new_streak = self.losing_streak + 1
             if new_streak >= 3:

@@ -29,6 +29,7 @@ from poker.playstyle_selector import (
     compute_election_interval,
     select_playstyle,
     build_playstyle_briefing,
+    build_exploit_tips,
     _select_biggest_threat,
     _determine_engagement,
     _detect_emotional_shock,
@@ -38,6 +39,7 @@ from poker.playstyle_selector import (
     PRIMARY_STYLE_BONUS,
     ADJACENT_STYLE_BONUS,
     STYLE_ADJACENCY,
+    PLANNING_PROMPTS,
 )
 from poker.zone_detection import (
     ZONE_GUARDED_CENTER,
@@ -83,6 +85,7 @@ def make_opponent_model(
     pfr=0.3,
     aggression_factor=1.0,
     fold_to_cbet=0.5,
+    bluff_frequency=0.3,
 ):
     """Create a mock OpponentModel with given tendencies."""
     model = MagicMock()
@@ -93,6 +96,7 @@ def make_opponent_model(
     model.tendencies.pfr = pfr
     model.tendencies.aggression_factor = aggression_factor
     model.tendencies.fold_to_cbet = fold_to_cbet
+    model.tendencies.bluff_frequency = bluff_frequency
     model.tendencies.get_summary.return_value = f"AF={aggression_factor:.1f}, VPIP={vpip:.0%}"
     return model
 
@@ -1008,3 +1012,202 @@ class TestPlaystyleIntegration:
         )
         # Low confidence, high composure -> guarded
         assert psych.playstyle_state.primary_playstyle in ('guarded', 'poker_face')
+
+
+class TestExploitTips:
+    """Tests for build_exploit_tips() and planning prompts."""
+
+    def test_empty_at_basic_engagement(self):
+        """No tips at basic engagement."""
+        threat = make_opponent_model(fold_to_cbet=0.75)
+        result = build_exploit_tips('aggro', 'basic', threat_model=threat)
+        assert result == ""
+
+    def test_empty_without_models(self):
+        """No tips when no models provided."""
+        result = build_exploit_tips('aggro', 'medium')
+        assert result == ""
+
+    def test_empty_insufficient_hands(self):
+        """No tips when opponent has too few observed hands."""
+        threat = make_opponent_model(hands_observed=1, fold_to_cbet=0.75)
+        result = build_exploit_tips('aggro', 'medium', threat_model=threat)
+        assert result == ""
+
+    def test_aggro_fold_to_cbet(self):
+        """Aggro gets c-bet bluff tip when opponent folds to c-bets."""
+        threat = make_opponent_model(name='Fish', fold_to_cbet=0.72)
+        result = build_exploit_tips('aggro', 'medium', threat_model=threat)
+        assert 'Fish' in result
+        assert 'c-bet' in result.lower()
+        assert '72%' in result
+
+    def test_commanding_fold_to_cbet(self):
+        """Commanding also gets c-bet tip for high fold-to-cbet opponents."""
+        threat = make_opponent_model(name='Nit', fold_to_cbet=0.65)
+        result = build_exploit_tips('commanding', 'medium', threat_model=threat)
+        assert 'Nit' in result
+        assert 'c-bet' in result.lower()
+
+    def test_aggro_passive_opponent(self):
+        """Aggro gets value bet tip against passive opponents."""
+        threat = make_opponent_model(name='Rock', aggression_factor=0.5, fold_to_cbet=0.4)
+        result = build_exploit_tips('aggro', 'medium', threat_model=threat)
+        assert 'Rock' in result
+        assert 'passive' in result.lower()
+
+    def test_aggro_tight_opponent(self):
+        """Aggro gets steal tip against tight opponents."""
+        threat = make_opponent_model(name='Nit', vpip=0.15, aggression_factor=1.5, fold_to_cbet=0.4)
+        result = build_exploit_tips('aggro', 'medium', threat_model=threat)
+        assert 'Nit' in result
+        assert 'tight' in result.lower()
+
+    def test_commanding_loose_opponent(self):
+        """Commanding gets wide value bet tip against loose opponents."""
+        threat = make_opponent_model(name='Maniac', vpip=0.55, aggression_factor=1.5, fold_to_cbet=0.4)
+        result = build_exploit_tips('commanding', 'medium', threat_model=threat)
+        assert 'Maniac' in result
+        assert 'too many hands' in result.lower()
+
+    def test_guarded_hyperaggressive(self):
+        """Guarded gets trap tip against hyper-aggressive opponents."""
+        threat = make_opponent_model(name='LAG', aggression_factor=2.5, fold_to_cbet=0.4)
+        result = build_exploit_tips('guarded', 'medium', threat_model=threat)
+        assert 'LAG' in result
+        assert 'hyper-aggressive' in result.lower()
+
+    def test_poker_face_hyperaggressive(self):
+        """Poker face also gets trap tip against hyper-aggressive opponents."""
+        threat = make_opponent_model(name='LAG', aggression_factor=2.5, fold_to_cbet=0.4)
+        result = build_exploit_tips('poker_face', 'medium', threat_model=threat)
+        assert 'LAG' in result
+        assert 'hyper-aggressive' in result.lower()
+
+    def test_guarded_never_folds(self):
+        """Guarded gets value bet tip against opponent who never folds to c-bets."""
+        threat = make_opponent_model(name='Station', aggression_factor=0.5, fold_to_cbet=0.20)
+        result = build_exploit_tips('guarded', 'medium', threat_model=threat)
+        assert 'Station' in result
+        assert 'never folds' in result.lower()
+
+    def test_bluff_frequency_tip(self):
+        """Any style gets call-down tip against frequent bluffers."""
+        # Use a style combo that won't match other rules first
+        threat = make_opponent_model(
+            name='Bluffer', bluff_frequency=0.60,
+            aggression_factor=1.5, fold_to_cbet=0.4, vpip=0.35,
+        )
+        result = build_exploit_tips('poker_face', 'medium', threat_model=threat)
+        assert 'Bluffer' in result
+        assert 'bluffs often' in result.lower()
+
+    def test_two_tips_from_different_opponents(self):
+        """Gets up to 2 tips: one from threat, one from focal."""
+        threat = make_opponent_model(name='Threat', fold_to_cbet=0.75)
+        focal = make_opponent_model(name='Focal', aggression_factor=0.5, fold_to_cbet=0.4)
+        result = build_exploit_tips('aggro', 'full', threat_model=threat, focal_model=focal)
+        assert 'Threat' in result
+        assert 'Focal' in result
+        lines = result.strip().split('\n')
+        assert len(lines) == 2
+
+    def test_max_two_tips(self):
+        """Never produces more than 2 tips."""
+        threat = make_opponent_model(name='T', fold_to_cbet=0.75)
+        focal = make_opponent_model(name='F', aggression_factor=0.5, fold_to_cbet=0.4)
+        result = build_exploit_tips('commanding', 'full', threat_model=threat, focal_model=focal)
+        lines = [l for l in result.strip().split('\n') if l.strip()]
+        assert len(lines) <= 2
+
+    def test_works_at_full_engagement(self):
+        """Tips work at full engagement too."""
+        threat = make_opponent_model(name='Fish', fold_to_cbet=0.80)
+        result = build_exploit_tips('aggro', 'full', threat_model=threat)
+        assert 'Fish' in result
+
+    def test_planning_prompts_in_briefing(self):
+        """Planning prompt appears in medium+ engagement briefing."""
+        zone_effects = ZoneEffects(
+            sweet_spots={}, penalties={}, manifestation='balanced',
+            confidence=0.5, composure=0.7, energy=0.5,
+        )
+        pm = MagicMock()
+        pm.get_template.return_value = None
+
+        briefing = build_playstyle_briefing(
+            active_playstyle='aggro',
+            zone_effects=zone_effects,
+            zone_context=ZoneContext(),
+            prompt_manager=pm,
+            engagement='medium',
+            active_affinity=0.35,
+        )
+        assert "commit to a plan" in briefing.guidance
+
+    def test_guarded_no_planning_prompt(self):
+        """Guarded style has no planning prompt (reactive by nature)."""
+        zone_effects = ZoneEffects(
+            sweet_spots={}, penalties={}, manifestation='balanced',
+            confidence=0.3, composure=0.7, energy=0.5,
+        )
+        pm = MagicMock()
+        pm.get_template.return_value = None
+
+        briefing = build_playstyle_briefing(
+            active_playstyle='guarded',
+            zone_effects=zone_effects,
+            zone_context=ZoneContext(),
+            prompt_manager=pm,
+            engagement='medium',
+            active_affinity=0.35,
+        )
+        assert "commit to a plan" not in briefing.guidance
+        assert "plan the next street" not in briefing.guidance
+
+    def test_exploit_tips_in_briefing(self):
+        """Exploit tips appear in the full briefing output."""
+        zone_effects = ZoneEffects(
+            sweet_spots={}, penalties={}, manifestation='balanced',
+            confidence=0.5, composure=0.7, energy=0.5,
+        )
+        pm = MagicMock()
+        pm.get_template.return_value = None
+
+        threat = make_opponent_model(name='Napoleon', fold_to_cbet=0.72)
+
+        briefing = build_playstyle_briefing(
+            active_playstyle='aggro',
+            zone_effects=zone_effects,
+            zone_context=ZoneContext(),
+            prompt_manager=pm,
+            engagement='full',
+            active_affinity=0.7,
+            threat_name='Napoleon',
+            threat_summary='folds to pressure',
+            threat_model=threat,
+        )
+        assert 'Napoleon' in briefing.guidance
+        assert 'c-bet' in briefing.guidance.lower()
+
+    def test_no_exploit_tips_at_basic(self):
+        """No exploit tips at basic engagement even with models."""
+        zone_effects = ZoneEffects(
+            sweet_spots={}, penalties={}, manifestation='balanced',
+            confidence=0.5, composure=0.7, energy=0.5,
+        )
+        pm = MagicMock()
+        pm.get_template.return_value = None
+
+        threat = make_opponent_model(name='Fish', fold_to_cbet=0.80)
+
+        briefing = build_playstyle_briefing(
+            active_playstyle='aggro',
+            zone_effects=zone_effects,
+            zone_context=ZoneContext(),
+            prompt_manager=pm,
+            engagement='basic',
+            active_affinity=0.15,
+            threat_model=threat,
+        )
+        assert 'c-bet' not in briefing.guidance.lower()

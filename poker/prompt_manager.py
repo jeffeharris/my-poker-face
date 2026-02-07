@@ -650,7 +650,7 @@ Respond with valid JSON only. No explanation or markdown, just the JSON object."
 RESPONSE_FORMAT = {
     # THINKING (Work through the decision)
     "inner_monologue": "REQUIRED: Your private thoughts — read the board, assess your hand, weigh the odds, and reason toward a decision",
-    "hand_strategy": "REQUIRED on first action: Your strategic approach for this hand (locked in for the rest of the hand)",
+    "hand_strategy": "REQUIRED on first action: Your plan for this hand — what are you trying to do and what will you do if called or raised? Be specific. (locked in for the rest of the hand)",
     "player_observations": "OPTIONAL: Notes about other players' behavior and patterns",
     "hand_strength": "OPTIONAL: Your assessment of your hand (weak/marginal/strong/monster)",
     "bluff_likelihood": "OPTIONAL: % likelihood you're bluffing (0-100)",
@@ -673,7 +673,7 @@ PERSONA_EXAMPLES = {
         "sample_response": {
             # THINKING
             "inner_monologue": "Another miserable hand. 2D and 3C — early position, small pot, everyone looks confident. Not worth chasing anything with these cards. No point throwing good chips after bad. Checking is free, at least.",
-            "hand_strategy": "With a 2D and 3C, I don't feel confident. My odds are very low.",
+            "hand_strategy": "Weak hand, no plan. Check-fold to any aggression.",
             "player_observations": {"pooh": "playing loose, possibly bluffing"},
             "hand_strength": "weak",
             "bluff_likelihood": 10,
@@ -691,7 +691,7 @@ PERSONA_EXAMPLES = {
         "sample_response": {
             # THINKING
             "inner_monologue": "Three hearts on the board, pot's building. John keeps glancing at his chips — he's nervous. A raise might take it down right here, and if not, I've got outs to the flush. Semi-bluff with equity. Either win now or improve on the next card.",
-            "hand_strategy": "I've got a decent shot if I catch that last heart.",
+            "hand_strategy": "Semi-bluff the flush draw. If called, barrel turn on any heart or scare card. Give up on blanks.",
             "player_observations": {"john": "seems nervous, keeps glancing at chips"},
             "hand_strength": "marginal but drawing",
             "bluff_likelihood": 25,

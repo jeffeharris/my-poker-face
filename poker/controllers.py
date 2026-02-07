@@ -1354,6 +1354,7 @@ class AIPlayerController:
 
             # Extract threat info from exploit scoring
             threat_name, threat_summary = None, None
+            threat_model = None
             if opponent_models:
                 from .playstyle_selector import _select_biggest_threat
                 nemesis = self.psychology.composure_state.nemesis if self.psychology.composure_state else None
@@ -1361,6 +1362,14 @@ class AIPlayerController:
                 if threat_model:
                     threat_name = threat_model.opponent
                     threat_summary = threat_model.tendencies.get_summary()
+
+            # Get focal opponent model for exploit tips
+            focal_opp_model = None
+            if self.opponent_model_manager and focal_opponent:
+                focal_opp_model = self.opponent_model_manager.get_model(self.player_name, focal_opponent.name)
+                # Avoid duplicate if focal is the same as threat
+                if focal_opp_model and threat_model and focal_opp_model.opponent == threat_model.opponent:
+                    focal_opp_model = None
 
             # Suppress opponent emotion display for poker_face at full engagement
             if (playstyle_state.active_playstyle == 'poker_face'
@@ -1380,6 +1389,8 @@ class AIPlayerController:
                 big_blind=game_state.current_ante or 100,
                 threat_name=threat_name,
                 threat_summary=threat_summary,
+                threat_model=threat_model,
+                focal_model=focal_opp_model,
             )
             zone_guidance = playstyle_briefing.guidance
 
@@ -1857,28 +1868,28 @@ class AIPlayerController:
             opp_model = self.opponent_model_manager.get_model(self.player_name, focal_opponent.name)
             if opp_model and opp_model.tendencies:
                 tendencies = opp_model.tendencies
-                fold_pct = getattr(tendencies, 'fold_frequency', None)
-                aggression = getattr(tendencies, 'aggression_factor', None)
 
-                # Build opponent stats string
-                if fold_pct is not None or aggression is not None:
-                    parts = []
-                    if fold_pct is not None:
-                        parts.append(f"folds {fold_pct:.0%}")
-                    if aggression is not None:
-                        parts.append(f"aggression {aggression:.1f}")
+                # Build opponent stats string (for commanding templates)
+                parts = []
+                if tendencies.fold_to_cbet is not None:
+                    parts.append(f"folds to c-bets {tendencies.fold_to_cbet:.0%}")
+                if tendencies.aggression_factor is not None:
+                    parts.append(f"aggression {tendencies.aggression_factor:.1f}")
+                if parts:
                     context.opponent_stats = f"{focal_opponent.name}: {', '.join(parts)}"
 
                 # Build opponent analysis (more detailed) for Aggro zone
-                if hasattr(tendencies, 'to_dict'):
-                    stats = tendencies.to_dict()
-                    analysis_parts = []
-                    if stats.get('river_fold_to_bet'):
-                        analysis_parts.append(f"folds to river bets {stats['river_fold_to_bet']:.0%}")
-                    if stats.get('bluff_frequency'):
-                        analysis_parts.append(f"bluffs {stats['bluff_frequency']:.0%}")
-                    if analysis_parts:
-                        context.opponent_analysis = f"{focal_opponent.name} {', '.join(analysis_parts)}"
+                analysis_parts = []
+                if tendencies.fold_to_cbet > 0.6:
+                    analysis_parts.append(f"folds to c-bets {tendencies.fold_to_cbet:.0%}")
+                if tendencies.vpip > 0.45:
+                    analysis_parts.append(f"plays {tendencies.vpip:.0%} of hands")
+                elif tendencies.vpip < 0.20:
+                    analysis_parts.append(f"very tight ({tendencies.vpip:.0%} VPIP)")
+                if tendencies.bluff_frequency > 0.4:
+                    analysis_parts.append(f"bluffs {tendencies.bluff_frequency:.0%}")
+                if analysis_parts:
+                    context.opponent_analysis = f"{focal_opponent.name}: {', '.join(analysis_parts)}"
 
         # Check for weak player based on displayed emotion
         if context.opponent_displayed_emotion in ['nervous', 'shaken', 'panicking', 'shocked']:
