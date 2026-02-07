@@ -251,6 +251,9 @@ export function MobilePokerTable({
 
   // Two opponents mode: 2 AI opponents (3 players total)
   const isTwoOpponents = opponents.length === 2;
+  const isThreeOpponents = opponents.length === 3;
+  const isThreeOpponentsNormal = isThreeOpponents && !isInShowdown;
+  const isThreeOpponentsShowdown = isInShowdown && activeOpponents.length === 3;
 
   // Coach hook
   const coach = useCoach({
@@ -411,6 +414,8 @@ export function MobilePokerTable({
             'mobile-opponents',
             isHeadsUp && 'heads-up-mode',
             isTwoOpponents && 'two-opponents-mode',
+            isThreeOpponentsNormal && 'three-opponents-mode',
+            isThreeOpponentsShowdown && 'three-opponents-showdown-mode',
           ].filter(Boolean).join(' ')}
           data-testid="mobile-opponents"
           ref={opponentsContainerRef}
@@ -435,7 +440,7 @@ export function MobilePokerTable({
                 'mobile-opponent',
                 opponent.is_folded && 'folded',
                 opponent.is_all_in && 'all-in',
-                isCurrentPlayer && 'thinking',
+                isCurrentPlayer && !isInShowdown && 'thinking',
                 isHeadsUp && 'heads-up-avatar',
                 isTwoOpponents && 'two-opponents-avatar',
               ].filter(Boolean).join(' ')}
