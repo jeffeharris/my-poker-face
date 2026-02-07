@@ -1596,10 +1596,26 @@ def detect_and_apply_pressure(game_id: str, event_type: str, **kwargs) -> None:
     events = []
 
     if event_type == 'fold':
-        folding_player = kwargs.get('player_name')
-        pot_size = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
-        if pot_size > 100:
-            events.append(('fold_under_pressure', [folding_player]))
+        folding_player_name = kwargs.get('player_name')
+        folding_player = next(
+            (p for p in game_state.players if p.name == folding_player_name), None
+        )
+        if folding_player:
+            pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+            cost_to_call = game_state.highest_bet - folding_player.bet
+
+            # Overbet: the bet they're facing exceeds the pot before it was placed
+            pot_before_bet = pot_total - cost_to_call
+            is_overbet = cost_to_call > 0 and cost_to_call > pot_before_bet
+
+            # Shove: an opponent went all-in
+            is_facing_shove = any(
+                p.is_all_in for p in game_state.players
+                if p.name != folding_player_name and not p.is_folded
+            )
+
+            if is_overbet or is_facing_shove:
+                events.append(('fold_under_pressure', [folding_player_name]))
 
     elif event_type == 'big_bet':
         betting_player = kwargs.get('player_name')
