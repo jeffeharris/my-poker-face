@@ -843,3 +843,155 @@ curl -X POST http://localhost:5005/api/experiments/42/variants/<variant_id>/resu
 - `flask_app/routes/experiment_routes.py` - API endpoints
 - `poker/controllers.py` - AIPlayerController
 - `poker/player_psychology.py` - Tilt and emotional state
+- `poker/rule_based_controller.py` - Rule-based bot strategies
+
+---
+
+## Rule-Based Bots
+
+Rule-based bots are deterministic players that make decisions based on simple rules instead of LLM calls. They're useful for:
+- Testing if AI can exploit specific strategies
+- Baseline comparisons
+- Stress-testing game logic with predictable behavior
+
+### Available Bot Strategies
+
+| Strategy | Bot Name | Description |
+|----------|----------|-------------|
+| `always_fold` | FoldBot | Folds everything (checks when free) |
+| `always_call` | CallStation | Calls any bet (checks when free) |
+| `always_raise` | AggBot | Raises max whenever possible |
+| `always_all_in` | YOLOBot | Goes all-in every hand |
+| `abc` | ABCBot | Simple ABC poker (raise premium, fold weak) |
+| `position_aware` | PositionBot | Plays wider in late position, tighter early |
+| `pot_odds_robot` | GTO-Lite | Pure pot odds math, no personality |
+| `maniac` | ManiacBot | Hyper-aggressive, 75% pot bets constantly |
+| `bluffbot` | BluffBot | Selective river bluffs with weak hands |
+
+### Using Bots in Experiments
+
+Add bots to any experiment via the `player_types` field:
+
+```json
+{
+  "name": "ai_vs_callstation",
+  "num_tournaments": 3,
+  "hands_per_tournament": 30,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "CallStation"],
+  "player_types": {
+    "CallStation": {"type": "rule_bot", "strategy": "always_call"}
+  }
+}
+```
+
+**Key points:**
+- Include the bot name in `personalities` list
+- Map the bot name to its strategy in `player_types`
+- Bot names must match exactly (case-sensitive)
+
+### Bot Strategy Details
+
+#### ManiacBot (`maniac`)
+
+Hyper-aggressive strategy for testing if AI can call down light.
+
+**Behavior:**
+- Raises 75% pot on almost every hand
+- Only checks with complete air (<20% equity)
+- Calls with any hand that has 25%+ equity
+
+**Use case:** Test if AI players can identify over-aggression and trap with medium-strength hands.
+
+**Experiment results:** ManiacBot was eliminated on hand 4 in testing - highly exploitable.
+
+```json
+{
+  "name": "ai_vs_maniac",
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "ManiacBot"],
+  "player_types": {
+    "ManiacBot": {"type": "rule_bot", "strategy": "maniac"}
+  }
+}
+```
+
+#### BluffBot (`bluffbot`)
+
+Selective river bluffer for testing bluff detection.
+
+**Behavior:**
+- Checks early streets with weak hands
+- Fires pot-sized bet on river with weak hands (<35% equity)
+- Value bets 66% pot with strong hands (60%+ equity)
+- Uses pot odds to decide whether to call bets
+
+**Use case:** Test if AI can detect bluffs on scary river cards and make hero calls.
+
+**Experiment results:** BluffBot won 1/3 tournaments - more competitive than ManiacBot.
+
+```json
+{
+  "name": "ai_vs_bluffbot",
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "BluffBot"],
+  "player_types": {
+    "BluffBot": {"type": "rule_bot", "strategy": "bluffbot"}
+  }
+}
+```
+
+#### GTO-Lite (`pot_odds_robot`)
+
+Pure mathematical player with no personality.
+
+**Behavior:**
+- Only calls when pot odds justify it (equity >= required equity)
+- Value bets 67% pot with 65%+ equity
+- Value raises 75% pot with 70%+ equity
+- Never bluffs
+
+**Use case:** Baseline comparison - tests if personality-driven AI outperforms pure math.
+
+```json
+{
+  "name": "ai_vs_gto_lite",
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "GTO-Lite"],
+  "player_types": {
+    "GTO-Lite": {"type": "rule_bot", "strategy": "pot_odds_robot"}
+  }
+}
+```
+
+### Custom Rule Strategies
+
+For advanced use, create custom rule-based strategies:
+
+```json
+{
+  "player_types": {
+    "CustomBot": {
+      "type": "rule_bot",
+      "strategy": "custom",
+      "rules": [
+        {"condition": "equity >= 0.80", "action": "raise", "raise_size": "pot"},
+        {"condition": "pot_odds >= 3 and equity >= 0.30", "action": "call"},
+        {"condition": "cost_to_call == 0", "action": "check"},
+        {"condition": "default", "action": "fold"}
+      ]
+    }
+  }
+}
+```
+
+**Available condition variables:**
+- `equity` - Hand equity (0.0-1.0)
+- `pot_odds` - Pot odds ratio
+- `cost_to_call` - Chips needed to call
+- `pot_total` - Total pot size
+- `player_stack` - Current stack
+- `stack_bb` - Stack in big blinds
+- `phase` - PRE_FLOP, FLOP, TURN, RIVER
+- `is_premium` - AA, KK, QQ, AKs
+- `is_top_10`, `is_top_20`, `is_top_35` - Hand ranking tiers
+
+**Raise size options:** `min`, `half_pot`, `pot`, `all_in`, or `3x` (multiplier)
