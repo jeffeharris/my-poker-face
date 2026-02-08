@@ -62,6 +62,7 @@ class PromptConfig:
     # Template instruction components
     mind_games: bool = True
     dramatic_sequence: bool = True
+    betting_discipline: bool = True  # BETTING DISCIPLINE block in every decision prompt
 
     # Situational guidance components (coaching for specific game states)
     situational_guidance: bool = True  # pot_committed, short_stack, made_hand

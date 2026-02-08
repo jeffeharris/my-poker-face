@@ -183,6 +183,7 @@ Issues to address once live, during ongoing development.
 | T3-46 | `admin_dashboard_routes.py` oversized | `flask_app/routes/admin_dashboard_routes.py` | 1,794 lines, 34 endpoints mixing admin UI redirects, analytics, model management, data export, and complex SQL query builders (~400 lines). Move analytics to dedicated service layer; extract model management to separate route file. | |
 | T3-47 | `game_handler.py` mixed responsibilities | `flask_app/handlers/game_handler.py` | 1,465 lines, 21 top-level functions. Named "handler" but contains game loop logic, avatar reactions, pressure detection, tournament completion, AI commentary generation. **Hotspot**: `handle_evaluating_hand_phase()` is 215 lines doing 14+ operations (winner determination, pot award, showdown prep, async commentary spawn, pressure events, memory update, coaching progression, eliminations, tournament check, psychology recovery, new hand setup, guest tracking). `progress_game()` is 165 lines with ~100 lines of run-it-out logic (nested conditionals, sleep delays, reaction scheduling). **Split into**: `game_loop.py` (progress_game, phase transitions), `hand_completion.py` (handle_evaluating_hand_phase, showdown, winners), `ai_action_handler.py` (handle_ai_action, decision execution), `tournament_handler.py` (eliminations, completion), `runout_handler.py` (run-it-out reveals, reaction scheduling), `commentary_handler.py` (generate_ai_commentary, memory feeding). | |
 | T3-55 | Duplicated psychology pipeline between experiments and game handler | `poker/psychology_pipeline.py` | **FIXED**: Removed ~480 lines of duplicated code across two files; replaced with shared 520-line module. Both `game_handler.py` and `run_ai_tournament.py` invoke the unified `PsychologyPipeline`. Unified divergences: opponent logic, session_context, key_moment, clear_hand_bluff_likelihood, and state persistence. | FIXED |
+| T3-56 | Per-action wiring duplicated between experiment runner and Flask | `experiments/run_ai_tournament.py:1078`, `flask_app/handlers/message_handler.py:74` | `memory_manager.on_action()` (opponent model tracking, c-bet detection) is called in two separate places with duplicated logic for extracting phase name, active players, and pot total from game state. Same for `controller.opponent_model_manager` wiring (3 places in Flask game_routes, 1 in experiment runner). Any new per-action hook (e.g., bet sizing patterns) must be added in both places. Extract into a shared `on_player_action(memory_manager, player_name, action, amount, game_state, state_machine)` function. | |
 
 ### Frontend Code Organization
 
@@ -228,8 +229,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 21 | 15 | 6 | 0 |
 | **Tier 2: Should-Fix** | 27 | 20 | 6 | 1 |
-| **Tier 3: Post-Release** | 55 | 27 | 1 | 27 |
-| **Total** | **103** | **62** | **13** | **28** |
+| **Tier 3: Post-Release** | 56 | 27 | 1 | 28 |
+| **Total** | **104** | **62** | **13** | **29** |
 
 ## Key Architectural Insight
 

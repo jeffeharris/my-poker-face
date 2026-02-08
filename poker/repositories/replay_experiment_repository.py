@@ -188,6 +188,33 @@ class ReplayExperimentRepository(BaseRepository):
             ))
             return cursor.lastrowid
 
+    def update_experiment_status(
+        self,
+        experiment_id: int,
+        status: str,
+        error_message: Optional[str] = None
+    ) -> None:
+        """Update experiment status."""
+        with self._get_connection() as conn:
+            if error_message:
+                conn.execute(
+                    "UPDATE experiments SET status = ?, notes = ? WHERE id = ?",
+                    (status, error_message, experiment_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE experiments SET status = ? WHERE id = ?",
+                    (status, experiment_id)
+                )
+
+    def complete_experiment(self, experiment_id: int, summary: Dict[str, Any]) -> None:
+        """Mark experiment as completed and store summary."""
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE experiments SET status = 'completed', summary_json = ? WHERE id = ?",
+                (json.dumps(summary), experiment_id)
+            )
+
     def get_replay_experiment(self, experiment_id: int) -> Optional[Dict[str, Any]]:
         """Get a replay experiment with its captures and progress.
 

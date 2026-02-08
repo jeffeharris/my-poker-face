@@ -437,6 +437,7 @@ class PromptManager:
         message: str,
         include_mind_games: bool = True,
         include_dramatic_sequence: bool = True,
+        include_betting_discipline: bool = True,
         pot_committed_info: dict | None = None,
         short_stack_info: dict | None = None,
         made_hand_info: dict | None = None,
@@ -477,6 +478,10 @@ class PromptManager:
         # Always include base section with message substitution
         if 'base' in template.sections:
             sections_to_render.append(template.sections['base'].format(message=message))
+
+        # Include betting discipline block (toggleable — may cause over-cautious play in small models)
+        if include_betting_discipline and 'betting_discipline' in template.sections:
+            sections_to_render.append(template.sections['betting_discipline'])
 
         # Phase 7: Include zone-based strategy guidance (early to frame the decision)
         if zone_guidance:
