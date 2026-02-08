@@ -338,6 +338,12 @@ def _strategy_case_based(context: Dict) -> Dict:
     """
     Case-based strategy using pattern matching on game state.
     Balances value betting, bluffing, and pot odds by situation.
+
+    Adaptive features (v2):
+    - Bluffs more vs high-fold opponents (fold_to_cbet > 60%)
+    - Bluffs less vs calling stations (fold_to_cbet < 30%)
+    - Calls lighter vs aggressive opponents (aggression > 2.0)
+    - Calls tighter vs passive opponents (aggression < 0.5)
     """
     equity = context['equity']
     cost = context['cost_to_call']
@@ -347,6 +353,31 @@ def _strategy_case_based(context: Dict) -> Dict:
     stack_bb = context.get('stack_bb', 100)
     spr = context.get('spr', 10)
     valid = context['valid_actions']
+
+    # Opponent modeling stats
+    opp_fold_rate = context.get('opp_fold_to_cbet', 0.5)
+    opp_aggression = context.get('opp_aggression', 1.0)
+    opp_hands = context.get('opp_hands_observed', 0)
+
+    # Calculate adjustments based on opponent tendencies
+    # Only adapt if we have enough observations (5+ hands)
+    bluff_adjust = 1.0  # Multiplier for bluff frequency
+    call_adjust = 0.0   # Additive adjustment to equity threshold
+
+    if opp_hands >= 5:
+        # Adjust bluff threshold based on opponent fold rate
+        # If they fold > 60%, bluffs are more profitable
+        if opp_fold_rate > 0.6:
+            bluff_adjust = 1.5  # Bluff more
+        elif opp_fold_rate < 0.3:
+            bluff_adjust = 0.5  # Bluff less (calling station)
+
+        # Adjust calling threshold based on aggression
+        # High aggression = they bluff more = call lighter
+        if opp_aggression > 2.0:
+            call_adjust = -0.08  # Need 8% less equity to call
+        elif opp_aggression < 0.5:
+            call_adjust = 0.05  # Need more equity (they're not bluffing)
 
     # Categorize inputs
     pos = _position_category(position)
@@ -382,14 +413,15 @@ def _strategy_case_based(context: Dict) -> Dict:
             return {'action': 'raise', 'raise_to': context['max_raise']}
         return call()
 
-    # Pot odds calculation
+    # Pot odds calculation with opponent adjustment
     pot_odds_needed = cost / (pot + cost) if cost > 0 else 0
+    adjusted_pot_odds = pot_odds_needed + call_adjust
 
     # === LOW SPR: Commit or fold ===
     if spr < 3:
         if hand in ['premium', 'strong']:
             return shove()
-        if facing == 'bet' and hand == 'medium' and equity >= pot_odds_needed:
+        if facing == 'bet' and hand == 'medium' and equity >= adjusted_pot_odds:
             return call()
         if facing == 'check':
             return check()
@@ -399,7 +431,7 @@ def _strategy_case_based(context: Dict) -> Dict:
     if stack == 'short':
         if hand in ['premium', 'strong']:
             return shove()
-        if facing == 'bet' and equity >= pot_odds_needed:
+        if facing == 'bet' and equity >= adjusted_pot_odds:
             return call()
         if facing == 'check':
             return check()
@@ -417,12 +449,12 @@ def _strategy_case_based(context: Dict) -> Dict:
                 return bet(0.67)  # Raise flop IP
             return call()
 
-        # Medium: call if pot odds are right
-        if hand == 'medium' and equity >= pot_odds_needed:
+        # Medium: call if pot odds are right (adjusted for opponent tendencies)
+        if hand == 'medium' and equity >= adjusted_pot_odds:
             return call()
 
-        # Weak with odds: call
-        if hand == 'weak' and equity >= pot_odds_needed * 0.9:
+        # Weak with odds: call (adjusted for opponent tendencies)
+        if hand == 'weak' and equity >= adjusted_pot_odds * 0.9:
             return call()
 
         return fold()
@@ -449,12 +481,20 @@ def _strategy_case_based(context: Dict) -> Dict:
     if hand == 'weak':
         return check()
 
-    # Air: bluff in position on river
+    # Air: bluff in position on river (adjusted by opponent fold rate)
     if hand == 'air':
-        if pos == 'late' and phase == 'RIVER':
+        # Bluff more vs folders, less vs calling stations
+        should_bluff_river = pos == 'late' and phase == 'RIVER' and bluff_adjust >= 1.0
+        should_bluff_earlier = (
+            pos == 'late' and
+            phase in ['FLOP', 'TURN'] and
+            equity > 0.15 and
+            bluff_adjust >= 0.75
+        )
+
+        if should_bluff_river:
             return bet(0.67)
-        # Semi-bluff earlier streets in position
-        if pos == 'late' and phase in ['FLOP', 'TURN'] and equity > 0.15:
+        if should_bluff_earlier:
             return bet(0.5)
         return check()
 
@@ -611,6 +651,9 @@ class RuleBasedController:
         # Track decision history for analysis
         self.decision_history: List[Dict] = []
 
+        # Opponent model manager - set externally by experiment runner
+        self.opponent_model_manager = None
+
     def decide_action(self, game_messages=None) -> Dict:
         """
         Make a decision based on rules.
@@ -643,6 +686,40 @@ class RuleBasedController:
         self._log_decision(context, decision)
 
         return decision
+
+    def _get_opponent_stats(self, opponents: List, player_name: str) -> Dict:
+        """Get aggregated stats for opponents at the table.
+
+        Returns weighted averages of opponent tendencies based on hands observed.
+        Used by adaptive strategies like case_based to adjust play.
+        """
+        if not self.opponent_model_manager or not opponents:
+            return {}
+
+        # Aggregate stats across all opponents
+        total_hands = 0
+        weighted_vpip = 0.0
+        weighted_aggression = 0.0
+        weighted_fold_to_cbet = 0.0
+
+        for opp in opponents:
+            model = self.opponent_model_manager.get_model(player_name, opp.name)
+            hands = model.tendencies.hands_observed
+            if hands > 0:
+                total_hands += hands
+                weighted_vpip += model.tendencies.vpip * hands
+                weighted_aggression += model.tendencies.aggression_factor * hands
+                weighted_fold_to_cbet += model.tendencies.fold_to_cbet * hands
+
+        if total_hands == 0:
+            return {'vpip': 0.5, 'aggression': 1.0, 'fold_to_cbet': 0.5, 'hands_observed': 0}
+
+        return {
+            'vpip': weighted_vpip / total_hands,
+            'aggression': weighted_aggression / total_hands,
+            'fold_to_cbet': weighted_fold_to_cbet / total_hands,
+            'hands_observed': total_hands,
+        }
 
     def _build_context(self, game_state, player) -> Dict:
         """Build context dictionary for rule evaluation."""
@@ -708,6 +785,9 @@ class RuleBasedController:
         # Get phase
         phase = self.state_machine.current_phase.name if self.state_machine.current_phase else 'PRE_FLOP'
 
+        # Get opponent stats if available (for adaptive strategies)
+        opp_stats = self._get_opponent_stats(opponents, player.name)
+
         return {
             'player_name': player.name,
             'player_stack': player.stack,
@@ -730,6 +810,11 @@ class RuleBasedController:
             'effective_stack_bb': effective_stack_bb,
             'spr': spr,
             'valid_actions': game_state.current_player_options,
+            # Opponent modeling stats (for adaptive strategies)
+            'opp_vpip': opp_stats.get('vpip', 0.5),
+            'opp_aggression': opp_stats.get('aggression', 1.0),
+            'opp_fold_to_cbet': opp_stats.get('fold_to_cbet', 0.5),
+            'opp_hands_observed': opp_stats.get('hands_observed', 0),
         }
 
     def _fallback_action(self, decision: Dict, valid_actions: List[str], context: Dict) -> Dict:

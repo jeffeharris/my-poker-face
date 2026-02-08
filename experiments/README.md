@@ -1,3 +1,10 @@
+---
+purpose: Documentation for AI-only poker tournament experiments and rule-based bot strategies
+type: guide
+created: 2024-01-01
+last_updated: 2026-02-08
+---
+
 # AI Tournament Experiments
 
 This module provides tools for running AI-only poker tournaments to test different configurations, models, and strategies.
@@ -867,6 +874,7 @@ Rule-based bots are deterministic players that make decisions based on simple ru
 | `pot_odds_robot` | GTO-Lite | Pure pot odds math, no personality |
 | `maniac` | ManiacBot | Hyper-aggressive, 75% pot bets constantly |
 | `bluffbot` | BluffBot | Selective river bluffs with weak hands |
+| `case_based` | CaseBot | Case-based reasoning with adaptive opponent modeling |
 
 ### Using Bots in Experiments
 
@@ -958,6 +966,41 @@ Pure mathematical player with no personality.
   "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "GTO-Lite"],
   "player_types": {
     "GTO-Lite": {"type": "rule_bot", "strategy": "pot_odds_robot"}
+  }
+}
+```
+
+#### CaseBot (`case_based`)
+
+Case-based reasoning strategy with **adaptive opponent modeling**. Uses pattern matching on game state combined with real-time opponent tendency adjustments.
+
+**Behavior:**
+- Categorizes situations by position (late/early/blind), stack depth (short/mid/deep), and hand strength (premium/strong/medium/weak/air)
+- Commits to pots at low SPR (<3) with strong hands
+- Uses push/fold with short stacks (<15 BB)
+- Value bets in position, checks OOP with marginal hands
+- Bluffs on river with air in late position
+
+**Adaptive Features (v2):**
+After observing 5+ hands, CaseBot adjusts strategy based on opponent tendencies:
+
+| Opponent Type | Adaptation |
+|--------------|------------|
+| High folder (>60% fold to cbet) | Bluffs more often (1.5x) |
+| Calling station (<30% fold) | Reduces bluffs (0.5x) |
+| Aggressive (>2.0 AF) | Calls with 8% less equity |
+| Passive (<0.5 AF) | Needs 5% more equity to call |
+
+**Use case:** Tests if a sophisticated rule-based strategy with opponent adaptation can compete with LLM-powered players.
+
+**Experiment results:** CaseBot achieves ~40% win rate vs Groq Llama 8B AI personalities.
+
+```json
+{
+  "name": "ai_vs_casebot",
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "CaseBot"],
+  "player_types": {
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
   }
 }
 ```
