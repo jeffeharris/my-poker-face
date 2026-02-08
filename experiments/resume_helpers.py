@@ -94,6 +94,14 @@ def create_controllers_for_resume(
     from poker.controllers import AIPlayerController
 
     controllers = {}
+
+    # Create memory manager for opponent tracking
+    from poker.memory import AIMemoryManager
+    memory_manager = AIMemoryManager(
+        game_id=game_id,
+        owner_id=f"experiment_{exp_config.name}",
+    )
+
     for player in state_machine.game_state.players:
         controller = AIPlayerController(
             player_name=player.name,
@@ -104,7 +112,11 @@ def create_controllers_for_resume(
             experiment_repo=experiment_repo,
             debug_capture=exp_config.capture_prompts,
             prompt_config=prompt_config,
+            session_memory=memory_manager.get_session_memory(player.name),
+            opponent_model_manager=memory_manager.get_opponent_model_manager(),
         )
+        # Initialize memory for this player
+        memory_manager.initialize_for_player(player.name)
 
         # Restore conversation history if available
         if player.name in ai_states:

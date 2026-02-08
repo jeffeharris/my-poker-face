@@ -49,6 +49,7 @@ from poker.poker_game import (
 )
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.controllers import AIPlayerController
+from poker.rule_based_controller import RuleBasedController, RuleConfig, CHAOS_BOTS
 from poker.repositories import create_repos
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
@@ -219,6 +220,8 @@ class ExperimentConfig:
     rate_limit_backoff_seconds: float = 30.0  # Base backoff on rate limit detection
     # Tournament reset behavior
     reset_on_elimination: bool = False  # If true, reset all stacks when 1 player remains
+    # Rule-based bot support (chaos monkeys)
+    player_types: Optional[Dict[str, Dict]] = None  # {player_name: {"type": "rule_bot", "strategy": "always_fold"}}
 
     def __post_init__(self):
         """Validate control/variants structure."""
@@ -834,17 +837,45 @@ class AITournamentRunner:
             else:
                 player_prompt_config = prompt_config
 
-            controller = AIPlayerController(
-                player_name=player.name,
-                state_machine=state_machine,
-                llm_config=player_llm_config,
-                game_id=tournament_id,
-                owner_id=self._owner_id,
-                debug_capture=self.config.capture_prompts,
-                prompt_config=player_prompt_config,
-                capture_label_repo=self.capture_label_repo,
-                decision_analysis_repo=self.decision_analysis_repo,
-            )
+            # Check if this player should use a rule-based controller (chaos bot)
+            player_type_config = (self.config.player_types or {}).get(player.name, {})
+            if player_type_config.get('type') == 'rule_bot':
+                # Create a rule-based controller instead of AI
+                strategy = player_type_config.get('strategy', 'always_fold')
+                config_path = player_type_config.get('config_path')
+
+                if config_path:
+                    # Load from config file
+                    rule_config = RuleConfig.from_json_file(config_path)
+                elif strategy in CHAOS_BOTS:
+                    # Use built-in strategy
+                    rule_config = CHAOS_BOTS[strategy]
+                else:
+                    # Custom strategy name - try to use it directly
+                    rule_config = RuleConfig(strategy=strategy, name=player.name)
+
+                controller = RuleBasedController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    config=rule_config,
+                    game_id=tournament_id,
+                )
+                logger.info(f"Player {player.name} using rule-based controller: {strategy}")
+            else:
+                # Use standard AI controller
+                controller = AIPlayerController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=player_llm_config,
+                    game_id=tournament_id,
+                    owner_id=self._owner_id,
+                    debug_capture=self.config.capture_prompts,
+                    prompt_config=player_prompt_config,
+                    capture_label_repo=self.capture_label_repo,
+                    decision_analysis_repo=self.decision_analysis_repo,
+                    session_memory=memory_manager.get_session_memory(player.name),
+                    opponent_model_manager=memory_manager.get_opponent_model_manager(),
+                )
             controllers[player.name] = controller
             # Initialize memory manager for this player
             memory_manager.initialize_for_player(player.name)
@@ -1057,6 +1088,21 @@ class AITournamentRunner:
 
                         # Apply action
                         game_state = play_turn(game_state, action, amount)
+
+                        # Record action for opponent modeling
+                        active_player_names = [
+                            p.name for p in game_state.players
+                            if not p.is_folded and p.stack > 0
+                        ]
+                        memory_manager.on_action(
+                            player_name=current_player.name,
+                            action=action,
+                            amount=amount,
+                            phase=state_machine.current_phase.name,
+                            pot_total=game_state.pot['total'],
+                            active_players=active_player_names
+                        )
+
                         advanced_state = advance_to_next_active_player(game_state)
                         # If None, no active players remain - keep current state, state machine handles phase transition
                         if advanced_state is not None:
@@ -1136,6 +1182,21 @@ class AITournamentRunner:
                     except Exception as e:
                         logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
                         game_state = play_turn(game_state, 'fold', 0)
+
+                        # Record fallback fold action
+                        active_player_names = [
+                            p.name for p in game_state.players
+                            if not p.is_folded and p.stack > 0
+                        ]
+                        memory_manager.on_action(
+                            player_name=current_player.name,
+                            action='fold',
+                            amount=0,
+                            phase=state_machine.current_phase.name,
+                            pot_total=game_state.pot['total'],
+                            active_players=active_player_names
+                        )
+
                         advanced_state = advance_to_next_active_player(game_state)
                         # If None, no active players remain - keep current state, state machine handles phase transition
                         if advanced_state is not None:

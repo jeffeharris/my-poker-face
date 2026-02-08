@@ -300,6 +300,167 @@ def _strategy_bluffbot(context: Dict) -> Dict:
     return {'action': 'fold', 'raise_to': 0}
 
 
+def _position_category(position: str) -> str:
+    """Categorize position for case matching."""
+    pos = position.lower() if position else ''
+    if pos in ['button', 'cutoff']:
+        return 'late'
+    elif pos in ['under_the_gun', 'middle_position_1']:
+        return 'early'
+    elif pos in ['small_blind_player', 'big_blind_player']:
+        return 'blind'
+    return 'middle'
+
+
+def _stack_category(stack_bb: float) -> str:
+    """Categorize stack depth."""
+    if stack_bb <= 15:
+        return 'short'
+    elif stack_bb <= 40:
+        return 'mid'
+    return 'deep'
+
+
+def _equity_category(equity: float) -> str:
+    """Categorize hand strength."""
+    if equity >= 0.75:
+        return 'premium'
+    elif equity >= 0.60:
+        return 'strong'
+    elif equity >= 0.45:
+        return 'medium'
+    elif equity >= 0.25:
+        return 'weak'
+    return 'air'
+
+
+def _strategy_case_based(context: Dict) -> Dict:
+    """
+    Case-based strategy using pattern matching on game state.
+    Balances value betting, bluffing, and pot odds by situation.
+    """
+    equity = context['equity']
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    phase = context['phase']
+    position = context.get('position', '')
+    stack_bb = context.get('stack_bb', 100)
+    spr = context.get('spr', 10)
+    valid = context['valid_actions']
+
+    # Categorize inputs
+    pos = _position_category(position)
+    stack = _stack_category(stack_bb)
+    hand = _equity_category(equity)
+    facing = 'bet' if cost > 0 else 'check'
+
+    # Helpers
+    def bet(fraction):
+        size = int(pot * fraction)
+        size = max(context['min_raise'], min(size, context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        return {'action': 'check', 'raise_to': 0}
+
+    def call():
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0}
+
+    def check():
+        if 'check' in valid:
+            return {'action': 'check', 'raise_to': 0}
+        return {'action': 'fold', 'raise_to': 0}
+
+    def fold():
+        return {'action': 'fold', 'raise_to': 0}
+
+    def shove():
+        if 'all_in' in valid:
+            return {'action': 'all_in', 'raise_to': 0}
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': context['max_raise']}
+        return call()
+
+    # Pot odds calculation
+    pot_odds_needed = cost / (pot + cost) if cost > 0 else 0
+
+    # === LOW SPR: Commit or fold ===
+    if spr < 3:
+        if hand in ['premium', 'strong']:
+            return shove()
+        if facing == 'bet' and hand == 'medium' and equity >= pot_odds_needed:
+            return call()
+        if facing == 'check':
+            return check()
+        return fold()
+
+    # === SHORT STACK: Push/fold ===
+    if stack == 'short':
+        if hand in ['premium', 'strong']:
+            return shove()
+        if facing == 'bet' and equity >= pot_odds_needed:
+            return call()
+        if facing == 'check':
+            return check()
+        return fold()
+
+    # === FACING BET ===
+    if facing == 'bet':
+        # Premium: raise for value
+        if hand == 'premium':
+            return bet(0.75)
+
+        # Strong: call (raise sometimes in position)
+        if hand == 'strong':
+            if pos == 'late' and phase == 'FLOP':
+                return bet(0.67)  # Raise flop IP
+            return call()
+
+        # Medium: call if pot odds are right
+        if hand == 'medium' and equity >= pot_odds_needed:
+            return call()
+
+        # Weak with odds: call
+        if hand == 'weak' and equity >= pot_odds_needed * 0.9:
+            return call()
+
+        return fold()
+
+    # === CAN BET (checked to us) ===
+
+    # Premium: bet big for value
+    if hand == 'premium':
+        return bet(0.75)
+
+    # Strong: bet for value, size by position
+    if hand == 'strong':
+        if pos == 'late':
+            return bet(0.67)
+        return bet(0.5)
+
+    # Medium: bet in position, check OOP
+    if hand == 'medium':
+        if pos == 'late':
+            return bet(0.5)
+        return check()
+
+    # Weak: check (no showdown value but not pure air)
+    if hand == 'weak':
+        return check()
+
+    # Air: bluff in position on river
+    if hand == 'air':
+        if pos == 'late' and phase == 'RIVER':
+            return bet(0.67)
+        # Semi-bluff earlier streets in position
+        if pos == 'late' and phase in ['FLOP', 'TURN'] and equity > 0.15:
+            return bet(0.5)
+        return check()
+
+    return check()
+
+
 BUILT_IN_STRATEGIES = {
     'always_fold': _strategy_always_fold,
     'always_call': _strategy_always_call,
@@ -310,6 +471,7 @@ BUILT_IN_STRATEGIES = {
     'pot_odds_robot': _strategy_pot_odds_robot,
     'maniac': _strategy_maniac,
     'bluffbot': _strategy_bluffbot,
+    'case_based': _strategy_case_based,
 }
 
 
@@ -499,6 +661,14 @@ class RuleBasedController:
         opponents = [p for p in game_state.players if not p.is_folded and p.name != player.name]
         num_opponents = len(opponents)
 
+        # Effective stack (min of ours and largest opponent)
+        opponent_stacks = [p.stack for p in opponents]
+        effective_stack = min(player.stack, max(opponent_stacks)) if opponent_stacks else player.stack
+        effective_stack_bb = effective_stack / big_blind if big_blind > 0 else 100
+
+        # Stack-to-pot ratio
+        spr = effective_stack / pot_total if pot_total > 0 else float('inf')
+
         # Get equity (post-flop) or estimate (pre-flop)
         if community_cards:
             equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents) or 0.5
@@ -556,6 +726,9 @@ class RuleBasedController:
             'phase': phase,
             'position': position,
             'num_opponents': num_opponents,
+            'effective_stack': effective_stack,
+            'effective_stack_bb': effective_stack_bb,
+            'spr': spr,
             'valid_actions': game_state.current_player_options,
         }
 
@@ -639,4 +812,5 @@ CHAOS_BOTS = {
     'pot_odds_robot': RuleConfig(strategy='pot_odds_robot', name='GTO-Lite'),
     'maniac': RuleConfig(strategy='maniac', name='ManiacBot'),
     'bluffbot': RuleConfig(strategy='bluffbot', name='BluffBot'),
+    'case_based': RuleConfig(strategy='case_based', name='CaseBot'),
 }
