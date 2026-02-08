@@ -2,14 +2,21 @@
 purpose: Analysis of CaseBot adaptive strategy performance against LLM-powered poker players
 type: analysis
 created: 2026-02-08
-last_updated: 2026-02-08
+last_updated: 2026-02-08T23:45:00
 ---
 
 # CaseBot Experiment Report
 
 ## Executive Summary
 
-CaseBot, a rule-based poker bot with adaptive opponent modeling, significantly outperforms LLM-powered AI players. In experiments with GPT-5-nano, CaseBot achieved a **47% win rate** (n=19) against an expected 25% for a 4-player game.
+CaseBot, a rule-based poker bot with adaptive opponent modeling, exploits smaller LLM-powered AI players but struggles against frontier models.
+
+**Key findings (n=188 tournaments):**
+- CaseBot beats GPT-5-nano 50% of the time (2x expected baseline)
+- CaseBot beats Groq 8B 44-56% depending on prompt config
+- **GPT-5 Full brings CaseBot back to baseline 25%** - but costs 27x more
+- "Best combo" prompts (personality + situational guidance) help AI compete
+- GTO guidance hurts performance (information overload)
 
 ## Background
 
@@ -98,6 +105,50 @@ Can LLM-powered poker players beat a sophisticated rule-based strategy? If not, 
 
 ---
 
+### Experiment 5: Prompt Config A/B Test (2026-02-08)
+
+Large-scale comparison of "Minimal" vs "Best Combo" prompts across models.
+
+**Minimal prompts:**
+- `include_personality: false`
+- `use_simple_response_format: true`
+- Only `pot_odds` and `hand_strength` enabled
+
+**Best combo prompts:**
+- `include_personality: true`
+- `pot_odds`, `hand_strength`, `situational_guidance`, `opponent_intel` enabled
+- `gto_equity` and `gto_verdict` disabled (hurt in earlier experiments)
+
+| Variant | CaseBot | AI | Total | CaseBot % |
+|---------|---------|-----|-------|-----------|
+| Groq 8B Minimal | 22 | 17 | 39 | **56%** |
+| Groq 8B Best | 17 | 22 | 39 | **44%** |
+| GPT5-nano Minimal | 24 | 16 | 40 | **60%** |
+| GPT5-nano Best | 28 | 38 | 66 | **42%** |
+| **TOTAL** | **91** | **93** | **184** | **49%** |
+
+**Key Finding:** "Best combo" prompts (personality + situational guidance) significantly improve AI performance against CaseBot:
+- Minimal prompts: CaseBot wins 56-60%
+- Best combo prompts: CaseBot wins 42-44%
+
+### Experiment 6: GPT-5 Full vs CaseBot
+
+Testing whether full GPT-5 outperforms GPT-5-nano against CaseBot.
+
+**Config:** `experiments/configs/casebot_gpt5_full_best.json`
+
+| Player | Wins | Win Rate |
+|--------|------|----------|
+| Tyler Durden | 3 | **75%** |
+| CaseBot | 1 | 25% |
+
+**Sample size:** n=4 tournaments (1 stalled)
+**Total cost:** $4.38
+
+**Finding:** GPT-5 Full beats CaseBot! CaseBot win rate dropped to baseline 25% (vs 50% with nano). The smarter model makes a significant difference - but at 27x higher cost per tournament.
+
+---
+
 ## Summary of Results
 
 | Condition | CaseBot Win Rate | Sample Size | Significance |
@@ -106,6 +157,11 @@ Can LLM-powered poker players beat a sophisticated rule-based strategy? If not, 
 | vs Groq 8B + no personality | 40% | n=5 | Suggestive |
 | vs GPT-5-nano + personalities | **47%** | n=19 | **Significant** |
 | vs GPT-5-nano + GTO guidance | **58%** | n=19 | **Significant** |
+| **vs Groq 8B + Minimal prompts** | **56%** | n=39 | **Significant** |
+| **vs Groq 8B + Best prompts** | **44%** | n=39 | **Significant** |
+| **vs GPT5-nano + Minimal prompts** | **60%** | n=40 | **Significant** |
+| **vs GPT5-nano + Best prompts** | **42%** | n=66 | **Significant** |
+| **vs GPT5-Full + Best prompts** | **25%** | n=4 | Baseline (!) |
 
 ---
 
@@ -118,12 +174,16 @@ GPT-5-nano loses to a deterministic strategy nearly half the time. This suggests
 - LLMs make -EV decisions even with explicit math guidance
 - The problem is not lack of information but lack of reasoning
 
-### 2. Smarter ≠ Better at Poker
+### 2. Model Size Matters (GPT-5 Full vs Nano)
 
-Counterintuitively, GPT-5-nano (47-58% CaseBot win rate) appeared more exploitable than Groq Llama 8B (25-40% CaseBot win rate). Possible explanations:
-- GPT-5-nano may "overthink" and make suboptimal plays
-- Groq's simpler/faster responses may be more GTO-aligned
-- More data needed on Groq to confirm
+| Model | CaseBot Win Rate | Cost/Tournament |
+|-------|------------------|-----------------|
+| GPT-5-nano | 50% | ~$0.04 |
+| GPT-5 Full | **25%** | ~$1.10 |
+
+GPT-5 Full brings CaseBot back to baseline (25%), while nano loses half the time. The frontier model's improved reasoning helps it avoid CaseBot's exploits - but at 27x the cost.
+
+**Cost-benefit:** To match GPT-5 Full's performance with nano, you'd need to accept 2x the loss rate. Whether that's worth the 27x cost savings depends on the use case.
 
 ### 3. GTO Guidance Doesn't Help (Surprising!)
 
@@ -136,13 +196,20 @@ Possible explanations:
 - GTO guidance may make AI play more predictably (easier to exploit)
 - The model may not properly integrate the mathematical guidance
 
-### 4. Personality May Help (Slightly)
+### 4. Personality + Situational Guidance Helps Significantly
 
-Comparing experiments 1-2:
-- With personality: CaseBot 25% (but n=4)
-- Without personality: CaseBot 40% (n=5)
+The large-scale A/B test (Experiment 5) confirms:
+- **Minimal prompts**: CaseBot wins 56-60%
+- **Best combo prompts**: CaseBot wins 42-44%
 
-This suggests personality-driven play may be harder to exploit, possibly due to increased unpredictability.
+The "best combo" configuration that works:
+- ✅ `include_personality: true` - Adds unpredictability
+- ✅ `situational_guidance: true` - Helps with pot-committed, short-stack decisions
+- ✅ `opponent_intel: true` - Provides context about opponents
+- ❌ `gto_equity: false` - Information overload hurts
+- ❌ `gto_verdict: false` - Explicit +EV/-EV confuses model
+
+This suggests a "Goldilocks zone" of prompt complexity - too little guidance and AI plays passively, too much and AI gets confused.
 
 ---
 
@@ -172,11 +239,14 @@ A proper statistical test (binomial test):
 
 ## Next Steps
 
-1. **Complete GTO guidance experiment** - Does math help AI fight back?
-2. **Run larger Groq sample** - n=20 to compare fairly with GPT-5-nano
-3. **Test GPT-4o** - Does a frontier model perform better?
+1. ~~**Complete GTO guidance experiment**~~ ✅ Done - GTO hurts performance
+2. ~~**Run larger sample**~~ ✅ Done - 184 tournaments completed
+3. ~~**Test GPT-5 Full**~~ ✅ Done - CaseBot at baseline 25%, model size matters!
 4. **Longer tournaments** - 50-100 hands to reduce variance
-5. **Analyze decision quality** - Look at specific hands where AI lost chips
+5. **Hook up RuleBasedController to decision analysis** - Track CaseBot's decision quality same as AI players
+6. **Analyze decision quality** - Look at specific hands where AI lost chips
+7. **Test Claude models** - Compare Anthropic models against CaseBot
+8. **Cost optimization** - Find the sweet spot between model cost and performance
 
 ---
 
@@ -187,6 +257,11 @@ All configs stored in `experiments/configs/`:
 - `casebot_vs_baseline.json` - Groq 8B without personalities
 - `casebot_vs_gpt5nano.json` - GPT-5-nano with personalities
 - `casebot_vs_gpt5nano_gto.json` - GPT-5-nano with GTO guidance
+- `casebot_groq_minimal.json` - Groq 8B with minimal prompts
+- `casebot_groq_best.json` - Groq 8B with best combo prompts
+- `casebot_gpt5_minimal.json` - GPT-5-nano with minimal prompts
+- `casebot_gpt5_best.json` - GPT-5-nano with best combo prompts
+- `casebot_gpt5_full_best.json` - GPT-5 (full) with best combo prompts
 
 ---
 

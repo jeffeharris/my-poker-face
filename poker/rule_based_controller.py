@@ -884,6 +884,9 @@ class RuleBasedController:
         """Stub: RuleBots don't have emotional state."""
         return None
 
+    # Attribute stub for game handler compatibility
+    current_hand_number = 0
+
 
 # ============================================================================
 # Factory Functions
