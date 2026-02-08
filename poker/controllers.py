@@ -707,7 +707,8 @@ class AIPlayerController:
             game_messages,
             include_hand_strength=self.prompt_config.hand_strength,
             psychology=self.psychology,
-            range_guidance=self.prompt_config.range_guidance)
+            range_guidance=self.prompt_config.range_guidance,
+            include_persona=self.prompt_config.include_personality)
 
         # Get valid actions early so we can include in guidance
         player_options = game_state.current_player_options
@@ -898,8 +899,13 @@ class AIPlayerController:
         if not self.prompt_config.include_personality:
             original_system_message = self.assistant.system_message
             self.assistant.system_message = (
-                "You are a poker player. Analyze the situation and "
-                "respond with your action in JSON format."
+                "You are an expert poker player in a tournament. "
+                "Make mathematically sound decisions based on hand strength, pot odds, position, and opponent tendencies.\n\n"
+                "All amounts are in Big Blinds (BB).\n\n"
+                "Respond with JSON only:\n"
+                '{"action": "<fold|check|call|raise|all_in>", "raise_to": <BB amount if raising>}\n\n'
+                "When the prompt tells you your hand strength and equity, trust those evaluations — "
+                "they are calculated from actual card combinations, not estimates."
             )
 
         # ========== ATTEMPT 1: Initial AI call ==========
@@ -1310,7 +1316,7 @@ class AIPlayerController:
                     'pot_odds_extra': pot_odds_extra,
                 }
             else:
-                pot_odds_info = {'free': True}
+                pot_odds_info = None  # Model already sees cost_to_call: 0.00 BB
 
         # Phase 2: Add expression filtering guidance (visibility + tempo)
         expression_guidance = None
@@ -1400,16 +1406,21 @@ class AIPlayerController:
             if playstyle_briefing.suppress_pot_odds:
                 pot_odds_info = None
 
+        # Suppress drama context in prompt when using simple response format
+        # (still return full drama_context in tuple for capture enrichment)
+        prompt_drama_context = None if self.prompt_config.use_simple_response_format else drama_context
+
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         prompt = self.prompt_manager.render_decision_prompt(
             message=message,
             include_mind_games=self.prompt_config.mind_games,
             include_dramatic_sequence=self.prompt_config.dramatic_sequence,
+            include_betting_discipline=self.prompt_config.betting_discipline,
             pot_committed_info=pot_committed_info,
             short_stack_info=short_stack_info,
             made_hand_info=made_hand_info,
             equity_verdict_info=equity_verdict_info,
-            drama_context=drama_context,
+            drama_context=prompt_drama_context,
             include_pot_odds=self.prompt_config.pot_odds,
             pot_odds_info=pot_odds_info,
             use_simple_response_format=self.prompt_config.use_simple_response_format,
@@ -1976,6 +1987,7 @@ def build_base_game_state(
     include_hand_strength: bool = True,
     psychology: 'PlayerPsychology' = None,
     range_guidance: bool = False,
+    include_persona: bool = True,
 ) -> str:
     """
     Build BB-normalized game state prompt for AI decisions.
@@ -1992,6 +2004,7 @@ def build_base_game_state(
         include_hand_strength: Whether to include hand strength evaluation
         psychology: Player psychology for range-aware preflop (optional)
         range_guidance: Whether to use looseness-aware preflop classification
+        include_persona: Whether to include persona name in prompt (False for lean experiments)
     """
     persona = player.name
     table_positions = game_state.table_positions
@@ -2043,8 +2056,9 @@ def build_base_game_state(
                 hand_strength = classify_preflop_hand(hole_cards)
             hand_info_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
 
+    persona_line = f"Persona: {persona}\n" if include_persona else ""
     persona_state = (
-        f"Persona: {persona}\n"
+        f"{persona_line}"
         f"Your Cards: {hole_cards}\n"
         f"{hand_info_line}"
         f"Your Stack: {_format_money(player_money, big_blind, True)}\n"
@@ -2104,7 +2118,7 @@ def build_base_game_state(
         f"{raise_guidance}"
         f"You must select from these options: {player_options}\n"
         f"Your table position: {player_positions}\n"
-        f"What is your move, {persona}?\n\n"
+        f"What is your move{', ' + persona if include_persona else ''}?\n\n"
     )
 
     return hand_update_message

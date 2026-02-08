@@ -6,6 +6,7 @@ sections:
     Please only respond with the JSON, not the text with back quotes.
     CRITICAL: When raising, 'raise_to' is the TOTAL amount you want to bet (not an increment).
 
+  betting_discipline: |-
     BETTING DISCIPLINE (ALL STREETS):
     - Your equity % tells you your chance of winning. 0-10% equity = you cannot win. FOLD.
     - BIG BETS (raises, all-in) require hand strength. Don't bluff big with nothing.
@@ -76,7 +77,7 @@ sections:
     You can check for free - no cost to see more cards.
 
   response_format_simple: |-
-    Respond with JSON: {{"action": "<your action>", "bet_sizing": "<sizing strategy if raising>", "raise_to": <BB amount if raising>}}
+    Respond with JSON: {{"action": "<fold|check|call|raise|all_in>", "raise_to": <BB amount if raising>}}
 
   dramatic_sequence: |-
     DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats in the 'dramatic_sequence' field.

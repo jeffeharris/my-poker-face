@@ -29,7 +29,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 21)  # 19 bool + 1 int + 1 str (added range_guidance)
+        self.assertEqual(len(d), 22)  # 20 bool + 1 int + 1 str (added betting_discipline)
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('dramatic_sequence', d)
@@ -373,6 +373,150 @@ class TestZoneToggles(unittest.TestCase):
         self.assertIn('zone_benefits', data)
         self.assertIn('tilt_effects', data)
         self.assertFalse(data['tilt_effects'])
+
+
+class TestTrueLeanPrompt(unittest.TestCase):
+    """Verify that the lean prompt config produces a truly clean prompt with no noise."""
+
+    def test_render_decision_prompt_no_noise(self):
+        """Lean config should produce a prompt with NONE of the character/drama sections."""
+        from poker.prompt_manager import PromptManager
+
+        pm = PromptManager()
+        result = pm.render_decision_prompt(
+            message="Test game state message",
+            include_mind_games=False,
+            include_dramatic_sequence=False,
+            include_betting_discipline=False,
+            pot_committed_info=None,
+            short_stack_info=None,
+            made_hand_info=None,
+            equity_verdict_info=None,
+            drama_context=None,
+            include_pot_odds=True,
+            pot_odds_info=None,  # No free check noise
+            use_simple_response_format=True,
+            expression_guidance=None,
+            zone_guidance=None,
+        )
+
+        # Should contain the game state and base instruction
+        self.assertIn("Test game state message", result)
+        self.assertIn("CRITICAL", result)
+
+        # Should NOT contain any character/drama noise
+        noise_strings = [
+            'MIND GAMES',
+            'DRAMATIC SEQUENCE',
+            'BETTING DISCIPLINE',
+            'RESPONSE STYLE',
+            'POKER FACE MODE',
+            'EMOTIONAL STATE',
+            'bet_sizing',
+            'check for free',
+        ]
+        for noise in noise_strings:
+            self.assertNotIn(noise, result, f"Lean prompt should not contain '{noise}'")
+
+    def test_simple_response_format_no_bet_sizing(self):
+        """Simple response format should not ask for bet_sizing field."""
+        from poker.prompt_manager import PromptManager
+
+        pm = PromptManager()
+        result = pm.render_decision_prompt(
+            message="Test message",
+            include_mind_games=False,
+            include_dramatic_sequence=False,
+            use_simple_response_format=True,
+        )
+
+        self.assertNotIn('bet_sizing', result)
+        self.assertIn('action', result)
+        self.assertIn('raise_to', result)
+
+    def test_simple_response_format_suppresses_drama_context(self):
+        """Even if drama_context is passed, simple format should not include it."""
+        from poker.prompt_manager import PromptManager
+
+        # Note: the suppression happens in controllers.py _build_decision_prompt(),
+        # which sets drama_context=None before calling render. We verify that
+        # when drama_context IS None, no RESPONSE STYLE text appears.
+        pm = PromptManager()
+        result = pm.render_decision_prompt(
+            message="Test message",
+            include_mind_games=False,
+            include_dramatic_sequence=False,
+            use_simple_response_format=True,
+            drama_context=None,
+        )
+        self.assertNotIn('RESPONSE STYLE', result)
+
+    def test_build_base_game_state_no_persona(self):
+        """build_base_game_state with include_persona=False should omit persona name."""
+        from unittest.mock import MagicMock
+        from poker.controllers import build_base_game_state
+
+        # Create minimal mock game state
+        player = MagicMock()
+        player.name = "Napoleon"
+        player.stack = 1500
+        player.hand = [{'rank': 'A', 'suit': 'Hearts'}, {'rank': 'K', 'suit': 'Spades'}]
+        player.bet = 50
+        player.is_folded = False
+        player.is_all_in = False
+
+        game_state = MagicMock()
+        game_state.current_player = player
+        game_state.players = [player]
+        game_state.community_cards = []
+        game_state.pot = {'total': 150}
+        game_state.highest_bet = 100
+        game_state.current_ante = 50
+        game_state.table_positions = {'BTN': 'Napoleon'}
+        game_state.current_player_options = ['fold', 'call', 'raise']
+        game_state.min_raise_amount = 100
+
+        result = build_base_game_state(
+            game_state, player, 'PRE_FLOP', 'Recent actions...',
+            include_hand_strength=False,
+            include_persona=False,
+        )
+
+        self.assertNotIn('Persona:', result)
+        self.assertNotIn('What is your move, Napoleon', result)
+        self.assertIn('What is your move?', result)
+
+    def test_build_base_game_state_with_persona(self):
+        """build_base_game_state with include_persona=True (default) should include persona name."""
+        from unittest.mock import MagicMock
+        from poker.controllers import build_base_game_state
+
+        player = MagicMock()
+        player.name = "Napoleon"
+        player.stack = 1500
+        player.hand = [{'rank': 'A', 'suit': 'Hearts'}, {'rank': 'K', 'suit': 'Spades'}]
+        player.bet = 50
+        player.is_folded = False
+        player.is_all_in = False
+
+        game_state = MagicMock()
+        game_state.current_player = player
+        game_state.players = [player]
+        game_state.community_cards = []
+        game_state.pot = {'total': 150}
+        game_state.highest_bet = 100
+        game_state.current_ante = 50
+        game_state.table_positions = {'BTN': 'Napoleon'}
+        game_state.current_player_options = ['fold', 'call', 'raise']
+        game_state.min_raise_amount = 100
+
+        result = build_base_game_state(
+            game_state, player, 'PRE_FLOP', 'Recent actions...',
+            include_hand_strength=False,
+        )
+
+        self.assertIn('Persona: Napoleon', result)
+        self.assertIn('What is your move, Napoleon', result)
 
 
 if __name__ == '__main__':

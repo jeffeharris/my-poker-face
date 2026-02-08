@@ -1,0 +1,83 @@
+{
+  "name": "personality_ab_test",
+  "description": "Does the personality system prompt help or hurt decision quality? Exp 78 accidentally had personality ON with lean toggles and showed better postflop aggression (13.4%) vs exp 80 with personality OFF (8.1%). This test isolates the variable cleanly: lean toggles held constant, personality ON vs OFF, with and without guidance injection.",
+  "hypothesis": "Personality ON with lean toggles will produce higher postflop aggression and better VPIP differentiation than personality OFF, because character identity gives the model a reason to be aggressive. Guidance injection may help personality-OFF more than personality-ON since the model needs external motivation without a character.",
+  "tags": ["personality", "system-prompt", "aggression", "postflop", "ab-test"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 40,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "starting_stack": 1500,
+  "big_blind": 50,
+  "capture_prompts": true,
+  "personalities": [
+    {"name": "Napoleon"},
+    {"name": "Abraham Lincoln"},
+    {"name": "King Henry VIII"},
+    {"name": "Sherlock Holmes"}
+  ],
+  "control": {
+    "label": "full-prompt",
+    "model": "gpt-5-nano",
+    "provider": "openai",
+    "enable_psychology": true,
+    "prompt_config": {}
+  },
+  "variants": [
+    {
+      "label": "personality-lean",
+      "enable_psychology": true,
+      "prompt_config": {
+        "betting_discipline": false,
+        "mind_games": false,
+        "dramatic_sequence": false,
+        "expression_filtering": false,
+        "chattiness": false,
+        "include_personality": true,
+        "use_simple_response_format": true
+      }
+    },
+    {
+      "label": "personality-lean-guidance",
+      "enable_psychology": true,
+      "prompt_config": {
+        "betting_discipline": false,
+        "mind_games": false,
+        "dramatic_sequence": false,
+        "expression_filtering": false,
+        "chattiness": false,
+        "include_personality": true,
+        "use_simple_response_format": true,
+        "guidance_injection": "THINK STEP BY STEP before deciding: 1) What is my hand strength? 2) What are the pot odds? 3) What sizing makes sense? Pre-flop opens: 2.5-3x BB. 3-bets: 8-12 BB. Post-flop bets: 50-75% of pot. Only overbet with the nuts or as a polarized bluff."
+      }
+    },
+    {
+      "label": "generic-lean",
+      "enable_psychology": true,
+      "prompt_config": {
+        "betting_discipline": false,
+        "mind_games": false,
+        "dramatic_sequence": false,
+        "expression_filtering": false,
+        "chattiness": false,
+        "include_personality": false,
+        "use_simple_response_format": true
+      }
+    },
+    {
+      "label": "generic-lean-guidance",
+      "enable_psychology": true,
+      "prompt_config": {
+        "betting_discipline": false,
+        "mind_games": false,
+        "dramatic_sequence": false,
+        "expression_filtering": false,
+        "chattiness": false,
+        "include_personality": false,
+        "use_simple_response_format": true,
+        "guidance_injection": "THINK STEP BY STEP before deciding: 1) What is my hand strength? 2) What are the pot odds? 3) What sizing makes sense? Pre-flop opens: 2.5-3x BB. 3-bets: 8-12 BB. Post-flop bets: 50-75% of pot. Only overbet with the nuts or as a polarized bluff."
+      }
+    }
+  ],
+  "random_seed": 42
+}
