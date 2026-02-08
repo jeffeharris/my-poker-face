@@ -2,7 +2,7 @@
   "name": "casebot_gpt5_full_best",
   "description": "CaseBot vs GPT-5 (full) with best decision prompts (personality + situational, no GTO)",
   "hypothesis": "Full GPT-5 should outperform nano against CaseBot with best prompt config",
-  "num_tournaments": 20,
+  "num_tournaments": 5,
   "hands_per_tournament": 30,
   "num_players": 4,
   "starting_stack": 5000,
