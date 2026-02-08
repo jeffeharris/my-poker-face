@@ -187,3 +187,11 @@ poker_games.db
 # Local dev worktrees
 .dev/
 .playwright-mcp/
+
+# Temp artifacts
+game-screen.png
+progress.md
+react/progress.md
+react/react/output/
+react/react/test-results/
+*.json.tmp
