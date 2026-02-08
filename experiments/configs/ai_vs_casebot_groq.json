@@ -1,0 +1,19 @@
+{
+  "name": "ai_vs_casebot_groq_8b",
+  "description": "Case-based strategy bot vs Groq Llama 8B AI personalities",
+  "hypothesis": "CaseBot's balanced approach (position-aware value/bluff decisions) may beat simpler LLM decision-making",
+  "num_tournaments": 5,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "llama-3.1-8b-instant",
+  "provider": "groq",
+  "random_seed": 42,
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "CaseBot"],
+  "player_types": {
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "capture_prompts": true,
+  "parallel_tournaments": 5
+}

@@ -1,0 +1,16 @@
+{
+  "name": "AI vs CaseBot",
+  "description": "Test case-based strategy bot against AI personalities",
+  "tournaments": 5,
+  "hands_per_tournament": 30,
+  "starting_chips": 1000,
+  "small_blind": 5,
+  "big_blind": 10,
+  "model": "openai/gpt-4o-mini",
+  "players": [
+    {"name": "CaseBot", "type": "rule_based", "preset": "case_based"},
+    {"name": "Gordon Ramsay", "type": "ai", "personality": "gordon_ramsay"},
+    {"name": "Batman", "type": "ai", "personality": "batman"},
+    {"name": "Tyler Durden", "type": "ai", "personality": "tyler_durden"}
+  ]
+}

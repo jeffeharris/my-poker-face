@@ -1,0 +1,37 @@
+{
+  "name": "casebot_groq_minimal",
+  "description": "CaseBot vs Groq 8B with minimal prompts",
+  "hypothesis": "Minimal prompts reduce confusion and improve AI decision quality",
+  "num_tournaments": 20,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "llama-3.1-8b-instant",
+  "provider": "groq",
+  "random_seed": 42,
+  "personalities": ["Player1", "Player2", "Player3", "CaseBot"],
+  "player_types": {
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "Minimal",
+    "prompt_config": {
+      "include_personality": false,
+      "use_simple_response_format": true,
+      "pot_odds": true,
+      "hand_strength": true,
+      "chattiness": false,
+      "dramatic_sequence": false,
+      "mind_games": false,
+      "emotional_state": false,
+      "tilt_effects": false,
+      "session_memory": false,
+      "opponent_intel": false,
+      "strategic_reflection": false,
+      "situational_guidance": false
+    }
+  },
+  "capture_prompts": false,
+  "parallel_tournaments": 5
+}

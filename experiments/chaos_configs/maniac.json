@@ -1,0 +1,10 @@
+{
+  "name": "Maniac",
+  "strategy": "custom",
+  "description": "All-in or fold. No middle ground. Pure chaos.",
+  "rules": [
+    {"condition": "is_top_35 or equity >= 0.45", "action": "raise", "raise_size": "all_in"},
+    {"condition": "cost_to_call == 0", "action": "check"},
+    {"condition": "default", "action": "fold"}
+  ]
+}

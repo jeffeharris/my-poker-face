@@ -1,0 +1,11 @@
+{
+  "name": "TheRock",
+  "strategy": "custom",
+  "description": "Ultra-tight. Only plays premium hands, folds everything else.",
+  "rules": [
+    {"condition": "is_premium and equity >= 0.70", "action": "raise", "raise_size": "pot"},
+    {"condition": "is_premium", "action": "call"},
+    {"condition": "cost_to_call == 0", "action": "check"},
+    {"condition": "default", "action": "fold"}
+  ]
+}

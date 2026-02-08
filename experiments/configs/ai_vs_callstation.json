@@ -1,0 +1,17 @@
+{
+  "name": "ai_vs_callstation",
+  "description": "3 AI players vs 1 CallStation - testing value betting exploitation",
+  "hypothesis": "AI should profit by value betting heavily since CallStation never folds",
+  "num_tournaments": 1,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "CallStation"],
+  "player_types": {
+    "CallStation": {"type": "rule_bot", "strategy": "always_call"}
+  },
+  "capture_prompts": true
+}

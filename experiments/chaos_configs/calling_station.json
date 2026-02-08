@@ -1,0 +1,9 @@
+{
+  "name": "CallingStation",
+  "strategy": "custom",
+  "description": "Never raise, never fold. Call everything. Classic fish behavior.",
+  "rules": [
+    {"condition": "cost_to_call == 0", "action": "check"},
+    {"condition": "default", "action": "call"}
+  ]
+}

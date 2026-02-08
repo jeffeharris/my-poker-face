@@ -1,0 +1,24 @@
+{
+  "name": "chaos_bot_exploitation_test",
+  "description": "Test AI players against rule-based chaos bots to validate exploitation",
+  "hypothesis": "AI should exploit predictable strategies like always-fold and always-call",
+  "num_tournaments": 1,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Batman", "FoldBot", "CallStation", "Tyler Durden"],
+  "player_types": {
+    "FoldBot": {
+      "type": "rule_bot",
+      "strategy": "always_fold"
+    },
+    "CallStation": {
+      "type": "rule_bot",
+      "strategy": "always_call"
+    }
+  },
+  "capture_prompts": true
+}

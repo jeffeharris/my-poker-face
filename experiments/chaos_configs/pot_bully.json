@@ -1,0 +1,11 @@
+{
+  "name": "PotBully",
+  "strategy": "custom",
+  "description": "Bets big when checked to, folds to aggression. Tests bet sizing tells.",
+  "rules": [
+    {"condition": "cost_to_call == 0 and equity >= 0.35", "action": "raise", "raise_size": "pot"},
+    {"condition": "cost_to_call == 0", "action": "check"},
+    {"condition": "is_premium and pot_odds >= 1.5", "action": "call"},
+    {"condition": "default", "action": "fold"}
+  ]
+}

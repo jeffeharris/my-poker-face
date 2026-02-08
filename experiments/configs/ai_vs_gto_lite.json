@@ -1,0 +1,18 @@
+{
+  "name": "ai_vs_gto_lite",
+  "description": "AI players vs GTO-Lite bot that uses pot odds",
+  "hypothesis": "GTO-Lite should be harder to exploit than CallStation since it makes mathematically sound decisions",
+  "num_tournaments": 3,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "random_seed": 42,
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "GTO-Lite"],
+  "player_types": {
+    "GTO-Lite": {"type": "rule_bot", "strategy": "pot_odds_robot"}
+  },
+  "capture_prompts": true
+}
