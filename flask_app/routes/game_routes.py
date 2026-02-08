@@ -401,7 +401,8 @@ def api_game_state(game_id):
                     owner_id=owner_id,
                     player_llm_configs=llm_configs.get('player_llm_configs'),
                     default_llm_config=llm_configs.get('default_llm_config'),
-                    capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo
+                    capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo,
+                    bot_types=llm_configs.get('bot_types')
                 )
                 db_messages = game_repo.load_messages(game_id)
 

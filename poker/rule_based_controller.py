@@ -862,6 +862,28 @@ class RuleBasedController:
             f"pot_odds={context['pot_odds']:.1f})"
         )
 
+    # ========================================================================
+    # Compatibility stubs for game handler (matches AIPlayerController interface)
+    # ========================================================================
+
+    def clear_decision_plans(self) -> List[Dict]:
+        """Stub: RuleBots don't track decision plans."""
+        return []
+
+    def clear_hand_bluff_likelihood(self) -> None:
+        """Stub: RuleBots don't track bluff likelihood."""
+        pass
+
+    @property
+    def psychology(self):
+        """Stub: RuleBots don't have psychology (no emotional state)."""
+        return None
+
+    @property
+    def emotional_state(self):
+        """Stub: RuleBots don't have emotional state."""
+        return None
+
 
 # ============================================================================
 # Factory Functions

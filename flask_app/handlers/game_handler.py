@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 from poker.controllers import AIPlayerController
+from poker.rule_based_controller import RuleBasedController, RuleConfig
 from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
 from poker.betting_context import BettingContext
 from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
@@ -166,7 +167,8 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
                            player_llm_configs: Dict[str, Dict] = None,
                            default_llm_config: Dict = None,
                            capture_label_repo=None,
-                           decision_analysis_repo=None) -> Dict[str, AIPlayerController]:
+                           decision_analysis_repo=None,
+                           bot_types: Dict[str, str] = None) -> Dict[str, Any]:
     """Restore AI controllers with their saved state.
 
     Args:
@@ -178,14 +180,16 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
         default_llm_config: Default LLM config for players without specific config
         capture_label_repo: CaptureLabelRepository for auto-labeling
         decision_analysis_repo: DecisionAnalysisRepository for decision tracking
+        bot_types: Dict mapping player name to rule-based bot strategy (e.g., {"CaseBot": "case_based"})
 
     Returns:
-        Dictionary mapping player names to their AI controllers
+        Dictionary mapping player names to their controllers (AIPlayerController or RuleBasedController)
     """
     ai_controllers = {}
     ai_states = game_repo.load_ai_player_states(game_id)
     player_llm_configs = player_llm_configs or {}
     default_llm_config = default_llm_config or {}
+    bot_types = bot_types or {}
 
     controller_states = {}
     emotional_states = {}
@@ -197,6 +201,20 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
 
     for player in state_machine.game_state.players:
         if not player.is_human:
+            # Check if this player should use a rule-based controller
+            if player.name in bot_types:
+                strategy = bot_types[player.name]
+                config = RuleConfig(strategy=strategy, name=player.name)
+                controller = RuleBasedController(
+                    player_name=player.name,
+                    state_machine=state_machine._state_machine if hasattr(state_machine, '_state_machine') else state_machine,
+                    config=config,
+                    game_id=game_id,
+                )
+                logger.info(f"[RESTORE] Created RuleBasedController for {player.name} with strategy '{strategy}'")
+                ai_controllers[player.name] = controller
+                continue
+
             # Get player-specific llm_config or fall back to default
             llm_config = player_llm_configs.get(player.name, default_llm_config)
             controller = AIPlayerController(
@@ -286,29 +304,34 @@ def update_and_emit_game_state(game_id: str) -> None:
             runout_overrides = current_game_data.get('runout_emotion_overrides', {})
             if player_name in runout_overrides:
                 display_emotion = runout_overrides[player_name]
-            else:
+            elif controller.psychology is not None:
                 display_emotion = controller.psychology.get_display_emotion()
+            else:
+                display_emotion = 'confident'  # Default for RuleBots
             avatar_url = get_avatar_url_with_fallback(game_id, player_name, display_emotion)
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
 
             # Add nickname from personality config (for compact UI display)
-            nickname = controller.ai_player.personality_config.get('nickname')
-            if nickname:
-                player_dict['nickname'] = nickname
+            # RuleBasedController has no ai_player, so check first
+            if hasattr(controller, 'ai_player') and controller.ai_player:
+                nickname = controller.ai_player.personality_config.get('nickname')
+                if nickname:
+                    player_dict['nickname'] = nickname
 
-            # Add psychology data for heads-up mode display
+            # Add psychology data for heads-up mode display (skip for RuleBots)
             psych = controller.psychology
-            psych_data = {
-                'narrative': psych.emotional.narrative if psych.emotional else None,
-                'inner_voice': psych.emotional.inner_voice if psych.emotional else None,
-                'tilt_level': psych.tilt_level,
-                'tilt_category': psych.tilt_category,
-                'tilt_source': psych.tilt.tilt_source if psych.tilt else None,
-                'losing_streak': psych.tilt.losing_streak if psych.tilt else 0,
-            }
-            player_dict['psychology'] = psych_data
-            logger.debug(f"[HeadsUp] Psychology for {player_name}: {psych_data}")
+            if psych is not None:
+                psych_data = {
+                    'narrative': psych.emotional.narrative if psych.emotional else None,
+                    'inner_voice': psych.emotional.inner_voice if psych.emotional else None,
+                    'tilt_level': psych.tilt_level,
+                    'tilt_category': psych.tilt_category,
+                    'tilt_source': psych.tilt.tilt_source if psych.tilt else None,
+                    'losing_streak': psych.tilt.losing_streak if psych.tilt else 0,
+                }
+                player_dict['psychology'] = psych_data
+                logger.debug(f"[HeadsUp] Psychology for {player_name}: {psych_data}")
 
     # Add LLM debug info for AI players (when enabled)
     if config.enable_ai_debug:
@@ -1405,8 +1428,9 @@ def detect_and_apply_pressure(game_id: str, event_type: str, **kwargs) -> None:
         for player_name in affected_players:
             if player_name in ai_controllers:
                 controller = ai_controllers[player_name]
-                # No specific opponent for mid-game events
-                controller.psychology.apply_pressure_event(event_name, opponent=None)
+                # RuleBasedController has no psychology - skip pressure events
+                if controller.psychology is not None:
+                    controller.psychology.apply_pressure_event(event_name, opponent=None)
 
     # Emit elasticity update from psychology state
     if ai_controllers:
