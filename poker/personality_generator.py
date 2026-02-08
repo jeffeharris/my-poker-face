@@ -22,10 +22,12 @@ class PersonalityGenerator:
 You are creating a personality profile for an AI poker player named "{name}".
 {description}
 
-Generate a unique personality configuration that includes:
-1. play_style: A brief description of their poker playing style (e.g., "aggressive and unpredictable", "tight and mathematical")
-2. default_confidence: Their baseline confidence level (e.g., "overconfident", "cautious", "steady")
-3. default_attitude: Their general demeanor (e.g., "friendly", "intimidating", "mysterious")
+Generate a unique personality configuration with TWO sections:
+
+SECTION 1 — BEHAVIORAL TRAITS:
+1. play_style: Brief poker playing style (e.g., "aggressive and unpredictable")
+2. default_confidence: Baseline confidence (e.g., "overconfident", "cautious", "steady")
+3. default_attitude: General demeanor (e.g., "friendly", "intimidating", "mysterious")
 4. personality_traits: Numeric values between 0.0 and 1.0 for:
    - bluff_tendency: How often they bluff (0=never, 1=always)
    - aggression: How aggressive their betting is (0=passive, 1=very aggressive)
@@ -42,7 +44,24 @@ Generate a unique personality configuration that includes:
 7. physical_tics: List of 2-4 physical actions/gestures they might do (in *asterisks*)
 8. nickname: (OPTIONAL) A short display name (1-2 words max) for compact UI display. Only include this if the full name is long or would look bad truncated. For example: "The Hulk" -> "Hulk", "Dr. Seuss" -> "Dr. Seuss", "Ruth Bader Ginsburg" -> "RBG". Omit this field for names that already work well as-is (e.g., "Batman", "Socrates").
 
-Consider the character's name and any cultural/fictional associations. Make the personality feel authentic and interesting.
+SECTION 2 — VISUAL IDENTITY (for avatar image generation):
+9. visual_identity: An object with three fields:
+   - identity: Their name PLUS a brief description of who they are / what they're known for.
+     Always include the name. Image models often don't recognize names alone, so the description
+     gives the model enough context to render the right person.
+     Examples:
+       "Batman, the dark knight vigilante of Gotham City"
+       "Lizzo, a bold energetic plus-size pop star and flutist"
+       "Abraham Lincoln, the tall bearded 16th US President"
+       "Zeus, the mighty king of the Greek gods"
+   - appearance: Physical features in 10-15 words.
+     Include: build/body type, hair style and color, facial hair, distinctive facial features, skin tone, approximate age.
+     Example: "lean athletic build, short dark hair, clean-shaven, sharp angular features, medium skin tone, middle-aged"
+   - apparel: Clothing and accessories in 8-12 words. Should be IN CHARACTER — not everyone in a suit!
+     Include: outfit style, key colors, distinctive accessories.
+     Example: "black tactical suit with armored chest plate, utility belt, dark cape"
+
+Consider {name}'s cultural/fictional associations. Make it authentic, visually distinctive, and interesting.
 
 Respond with ONLY a JSON object in this exact format:
 {{
@@ -66,7 +85,12 @@ Respond with ONLY a JSON object in this exact format:
         "recovery_rate": 0.1
     }},
     "verbal_tics": ["phrase 1", "phrase 2", "phrase 3"],
-    "physical_tics": ["*action 1*", "*action 2*"]
+    "physical_tics": ["*action 1*", "*action 2*"],
+    "visual_identity": {{
+        "identity": "Name, brief description of who they are",
+        "appearance": "physical features in 10-15 words",
+        "apparel": "clothing and accessories in 8-12 words"
+    }}
 }}
 """
     
@@ -182,11 +206,20 @@ Respond with ONLY a JSON object in this exact format:
 
             # Validate the response has required fields
             required_fields = ['play_style', 'default_confidence', 'default_attitude', 'personality_traits']
-            if all(field in result for field in required_fields):
-                return result
-            else:
-                # Fall back to default if generation fails
+            if not all(field in result for field in required_fields):
                 return self._create_default_personality(name)
+
+            # Ensure visual_identity exists with non-empty required subfields
+            vi = result.get('visual_identity', {})
+            if not all(vi.get(k) for k in ['identity', 'appearance', 'apparel']):
+                logger.warning(f"[PERSONALITY] Missing visual_identity fields for {name}, using name as identity")
+                result['visual_identity'] = {
+                    'identity': name,
+                    'appearance': vi.get('appearance'),
+                    'apparel': vi.get('apparel'),
+                }
+
+            return result
 
         except Exception as e:
             logger.info(f"[PERSONALITY] Error generating personality for {name}: {e}")
