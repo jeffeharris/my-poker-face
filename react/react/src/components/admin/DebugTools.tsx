@@ -7,7 +7,7 @@ import './DebugTools.css';
 // Types
 // ============================================
 
-type DebugTab = 'diagnostic' | 'psychology' | 'tilt' | 'memory' | 'elasticity' | 'pressure';
+type DebugTab = 'diagnostic' | 'psychology' | 'tilt' | 'memory' | 'elasticity' | 'pressure' | 'trajectory';
 
 interface AlertState {
   type: 'success' | 'error' | 'info';
@@ -45,6 +45,7 @@ const TABS: { id: DebugTab; label: string; endpoint: string }[] = [
   { id: 'memory', label: 'Memory', endpoint: 'memory-debug' },
   { id: 'elasticity', label: 'Elasticity', endpoint: 'elasticity' },
   { id: 'pressure', label: 'Pressure Stats', endpoint: 'pressure-stats' },
+  { id: 'trajectory', label: 'Trajectory', endpoint: 'trajectory-viewer' },
 ];
 
 // ============================================
@@ -253,7 +254,19 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
 
       {/* Result Display */}
       <div className="dt-result">
-        {loading ? (
+        {activeTab === 'trajectory' ? (
+          gameId.trim() ? (
+            <iframe
+              src={`${config.API_URL}/api/game/${gameId}/trajectory-viewer`}
+              style={{ width: '100%', height: '800px', border: 'none', borderRadius: '8px' }}
+              title="Psychology Trajectory Viewer"
+            />
+          ) : (
+            <div className="dt-result__empty">
+              Select a game to view psychology trajectories
+            </div>
+          )
+        ) : loading ? (
           <div className="dt-result__loading">
             <div className="dt-loading__spinner" />
             <span>Loading...</span>

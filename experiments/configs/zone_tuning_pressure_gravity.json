@@ -1,0 +1,63 @@
+{
+  "name": "zone_tuning_pressure_WITH_gravity",
+  "description": "Increased pressure magnitudes WITH zone gravity (0.03). Compare against no-gravity run.",
+  "hypothesis": "With gravity, players should stick in zones longer. May cluster too much if gravity is too strong.",
+  "tags": ["psychology", "zones", "tuning", "pressure", "gravity"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 50,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "starting_stack": 1500,
+  "big_blind": 50,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "parallel_tournaments": 4,
+  "stagger_start_delay": 2.0,
+  "capture_prompts": true,
+
+  "zone_params": {
+    "RECOVERY_BELOW_BASELINE_FLOOR": 0.70
+  },
+
+  "control": {
+    "label": "Pressure+Gravity",
+    "enable_psychology": true,
+    "prompt_config": {
+      "pot_odds": true,
+      "hand_strength": true,
+      "gto_equity": true,
+      "gto_verdict": true,
+      "situational_guidance": true,
+      "session_memory": true,
+      "opponent_intel": true,
+      "strategic_reflection": false,
+      "chattiness": true,
+      "emotional_state": true,
+      "tilt_effects": true,
+      "mind_games": true,
+      "dramatic_sequence": true
+    }
+  },
+  "personalities": [
+    {
+      "name": "Bob Ross",
+      "expected_home_zone": "poker_face",
+      "description": "ego=0.50, poise=0.85 - Calm, stable, low aggression"
+    },
+    {
+      "name": "Winston Churchill",
+      "expected_home_zone": "commanding",
+      "description": "ego=0.42, poise=0.72 - Balanced, moderate aggression"
+    },
+    {
+      "name": "Nikola Tesla",
+      "expected_home_zone": "poker_face",
+      "description": "ego=0.40, poise=0.60 - Moderate, analytical"
+    },
+    {
+      "name": "Shakespeare",
+      "expected_home_zone": "guarded",
+      "description": "ego=0.38, poise=0.70 - Low ego, expressive"
+    }
+  ]
+}

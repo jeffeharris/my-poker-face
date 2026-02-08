@@ -1,6 +1,9 @@
 """
 Chattiness Manager for AI poker players.
+
 Determines when players should speak based on personality traits and context.
+Uses the `table_talk` trait from the 5-trait poker-native model (or legacy
+`chattiness` trait for backward compatibility).
 """
 import random
 import logging

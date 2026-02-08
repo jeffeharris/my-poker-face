@@ -15,8 +15,8 @@ This document describes the different systems that work together to create promp
   │       (prompt_manager.py)           │          │         (45+ personas)           │
   │         << UTILITY >>               │          ├──────────────────────────────────┤
   ├─────────────────────────────────────┤          │  • play_style, confidence        │
-  │                                     │          │  • attitude, bluff_tendency      │
-  │  Templates:                         │          │  • aggression, chattiness        │
+  │                                     │          │  • 5-trait model: tightness,     │
+  │  Templates:                         │          │    aggression, confidence,       │
   │  ┌─────────────────────────────┐    │          │  • verbal_tics, physical_tics    │
   │  │ 'poker_player' (system msg)│    │          │  • elasticity_config             │
   │  │  • persona_details         │    │          └───────────────┬──────────────────┘
@@ -71,12 +71,12 @@ This document describes the different systems that work together to create promp
 │   │  • valence, arousal, control, focus • narrative • display_emotion   │           │
 │   └─────────────────────────────────────────────────────────────────────┘           │
 │   ┌─────────────────────────────────────────────────────────────────────┐           │
-│   │  psychology.apply_tilt_effects() → Prompt Modifiers                 │           │
+│   │  psychology.apply_composure_effects() → Prompt Modifiers            │           │
 │   │  • intrusive thoughts • tilted advice • degraded strategy           │           │
 │   └─────────────────────────────────────────────────────────────────────┘           │
 │   ┌─────────────────────────────────────────────────────────────────────┐           │
-│   │  psychology.traits → Current Trait Values                           │           │
-│   │  • bluff_tendency • aggression • chattiness • emoji_usage           │           │
+│   │  psychology.traits → Current Trait Values (5-trait model)           │           │
+│   │  • tightness • aggression • confidence • composure • table_talk     │           │
 │   └─────────────────────────────────────────────────────────────────────┘           │
 │                                                                                      │
 │   3. ADDITIONAL CONTEXT                                                              │
@@ -105,18 +105,18 @@ This document describes the different systems that work together to create promp
 │   ├──────────────────────────────────────────────────────────────────────┤          │   │
 │   │                                                                      │          │   │
 │   │  Consolidates:                                                       │          │   │
-│   │  • ElasticPersonality (dynamic traits with pressure/recovery)        │          │   │
+│   │  • ElasticPersonality (5-trait model with pressure/recovery)         │          │   │
 │   │  • EmotionalState (deterministic dimensions + LLM-narrated text)     │          │   │
-│   │  • TiltState (tilt level, source, nemesis tracking)                  │          │   │
+│   │  • ComposureState (pressure source, nemesis - composure is a trait)  │          │   │
 │   │                                                                      │          │   │
 │   │  Events:                                                             │          │   │
-│   │  • apply_pressure_event(event, opponent) → updates elastic + tilt    │          │   │
-│   │  • on_hand_complete(...) → updates tilt + generates emotional state  │          │   │
-│   │  • recover() → drift traits to anchor, decay tilt                    │          │   │
+│   │  • apply_pressure_event(event, opponent) → updates all 5 traits      │          │   │
+│   │  • on_hand_complete(...) → updates composure, generates emotion      │          │   │
+│   │  • recover() → drift all traits to anchor                            │          │   │
 │   │                                                                      │          │   │
 │   │  Prompt Building:                                                    │          │   │
 │   │  • get_prompt_section() → emotional state for injection              │          │   │
-│   │  • apply_tilt_effects(prompt) → tilt-based prompt modifications      │          │   │
+│   │  • apply_composure_effects(prompt) → low-composure modifications     │          │   │
 │   │  • get_display_emotion() → avatar emotion selection                  │          │   │
 │   └──────────────────────────────────────────────────────────────────────┘          │   │
 │                                                                                      │   │
@@ -251,10 +251,10 @@ game_state ──► AIPlayerController ──► render 'decision' ──► us
                     │
                     └── injects context:
                         ├── psychology.get_prompt_section() (emotional state)
-                        ├── psychology.apply_tilt_effects() (tilt modifiers)
-                        ├── psychology.traits (bluff, aggression, chattiness)
+                        ├── psychology.apply_composure_effects() (composure modifiers)
+                        ├── psychology.traits (5-trait: tightness, aggression, etc.)
                         ├── memory context
-                        ├── chattiness guidance
+                        ├── table_talk guidance (was: chattiness)
                         └── game context flags
 ```
 
@@ -266,24 +266,23 @@ Pressure Event (bluff_called, bad_beat, etc.)
     ▼
 AIPlayerController.psychology.apply_pressure_event(event, opponent)
     │
-    ├──► ElasticPersonality.apply_pressure_event() ──► traits shift
-    │
-    └──► TiltState.apply_pressure_event() ──► tilt increases
+    └──► ElasticPersonality.apply_pressure_event() ──► all 5 traits shift
+         (including composure - replaces separate TiltState)
 
 Hand Complete
     │
     ▼
 AIPlayerController.psychology.on_hand_complete(outcome, amount, ...)
     │
-    ├──► TiltState.update_from_hand() ──► tilt updated from outcome
+    ├──► ComposureState.update_from_hand() ──► tracks pressure source, nemesis
     │
     └──► Two-layer emotional state generation:
          │
          ├──► Layer 1: compute_baseline_mood(elastic_traits) ──► slow-moving session mood
          │    (deterministic, from current trait values vs anchors)
          │
-         ├──► Layer 2: compute_reactive_spike(outcome, amount, tilt) ──► fast hand reaction
-         │    (deterministic, amount normalized by big_blind, amplified by tilt)
+         ├──► Layer 2: compute_reactive_spike(outcome, amount, composure) ──► fast reaction
+         │    (deterministic, amount normalized by big_blind, amplified by low composure)
          │
          ├──► blend_emotional_state(baseline, spike) ──► final dimensions
          │
@@ -295,9 +294,8 @@ Recovery (between hands)
     ▼
 AIPlayerController.psychology.recover()
     │
-    ├──► ElasticPersonality.recover_traits() ──► traits drift to anchor
-    │
-    ├──► TiltState.decay() ──► tilt naturally decreases
+    ├──► ElasticPersonality.recover_traits() ──► all 5 traits drift to anchor
+    │    (including composure - recovers toward focused state)
     │
     └──► EmotionalState.decay_toward_baseline() ──► spike fades toward elastic baseline
          (not toward hardcoded neutral — toward personality-specific resting state)

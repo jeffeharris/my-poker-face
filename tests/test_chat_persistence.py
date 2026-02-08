@@ -7,12 +7,15 @@ import sys
 import unittest
 import tempfile
 import json
+import pytest
 from unittest.mock import patch, MagicMock
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from flask_app import create_app
 from poker.repositories import create_repos
+
+pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
 
 class TestChatSessionPersistence(unittest.TestCase):

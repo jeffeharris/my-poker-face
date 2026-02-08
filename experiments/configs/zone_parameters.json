@@ -1,0 +1,34 @@
+{
+  "_comment": "Tunable parameters for psychology zone system. Changes here override defaults in player_psychology.py",
+  "_prd_targets": {
+    "baseline": "70-85%",
+    "medium": "10-20%",
+    "high": "2-7%",
+    "full_tilt": "0-2%"
+  },
+
+  "penalty_thresholds": {
+    "PENALTY_TILTED_THRESHOLD": 0.35,
+    "PENALTY_OVERCONFIDENT_THRESHOLD": 0.95,
+    "PENALTY_TIMID_THRESHOLD": 0.10,
+    "PENALTY_SHAKEN_CONF_THRESHOLD": 0.35,
+    "PENALTY_SHAKEN_COMP_THRESHOLD": 0.35,
+    "PENALTY_OVERHEATED_CONF_THRESHOLD": 0.65,
+    "PENALTY_OVERHEATED_COMP_THRESHOLD": 0.35,
+    "PENALTY_DETACHED_CONF_THRESHOLD": 0.35,
+    "PENALTY_DETACHED_COMP_THRESHOLD": 0.65
+  },
+
+  "zone_radii": {
+    "ZONE_POKER_FACE_RADIUS": 0.16,
+    "ZONE_GUARDED_RADIUS": 0.15,
+    "ZONE_COMMANDING_RADIUS": 0.14,
+    "ZONE_AGGRO_RADIUS": 0.12
+  },
+
+  "recovery": {
+    "RECOVERY_BELOW_BASELINE_FLOOR": 0.60,
+    "RECOVERY_BELOW_BASELINE_RANGE": 0.40,
+    "RECOVERY_ABOVE_BASELINE": 0.80
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "name": "range_guidance_demo",
+  "description": "Demo looseness-aware preflop range guidance with diverse looseness personalities",
+  "hypothesis": "AI preflop prompts show range-relative language (premium/well within/edge/outside) that varies by personality looseness and position",
+  "tags": ["range_guidance", "preflop", "psychology", "demo"],
+  "num_tournaments": 1,
+  "hands_per_tournament": 20,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "starting_stack": 1500,
+  "big_blind": 50,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "parallel_tournaments": 1,
+  "capture_prompts": true,
+  "control": {
+    "label": "Range-Guidance-Enabled",
+    "enable_psychology": true,
+    "prompt_config": {
+      "pot_odds": true,
+      "hand_strength": true,
+      "range_guidance": true,
+      "gto_equity": false,
+      "gto_verdict": false,
+      "situational_guidance": true,
+      "session_memory": true,
+      "opponent_intel": true,
+      "strategic_reflection": false,
+      "chattiness": true,
+      "emotional_state": true,
+      "tilt_effects": true,
+      "mind_games": true,
+      "dramatic_sequence": true
+    }
+  },
+  "personalities": [
+    {
+      "name": "Bob Ross",
+      "description": "TIGHT: looseness=0.38, poise=0.85 - plays few hands, very stable"
+    },
+    {
+      "name": "Sherlock Holmes",
+      "description": "MEDIUM: looseness=0.58, poise=0.85 - standard range, analytical"
+    },
+    {
+      "name": "Napoleon",
+      "description": "LOOSE: looseness=0.79, ego=0.86 - wide range, aggressive"
+    },
+    {
+      "name": "Blackbeard",
+      "description": "VERY LOOSE: looseness=0.87 - widest range, plays almost anything"
+    }
+  ]
+}

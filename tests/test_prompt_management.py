@@ -2,6 +2,7 @@
 """Golden path tests for the prompt management system."""
 
 import unittest
+import pytest
 from unittest.mock import patch, MagicMock
 import json
 import sys
@@ -12,6 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from poker.prompt_manager import PromptManager, PromptTemplate, RESPONSE_FORMAT, PERSONA_EXAMPLES
 from poker.poker_player import AIPokerPlayer
+
+pytestmark = pytest.mark.llm
 
 
 # Load personalities from JSON for mocking in tests
@@ -147,7 +150,7 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
     @patch.object(AIPokerPlayer, '_load_personality_config')
     def test_personality_loading(self, mock_load_config):
         """Test that personalities load correctly from JSON."""
-        # Mock to return the Eeyore personality from our fixtures
+        # Mock to return the Scrooge personality from our fixtures
         mock_load_config.return_value = PERSONALITIES_FIXTURE['Ebenezer Scrooge']
 
         # Test known personality
@@ -156,23 +159,48 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         self.assertEqual(player.confidence, 'pessimistic')
         self.assertEqual(player.attitude, 'grumpy and suspicious')
 
-        # Test personality traits
-        traits = player.personality_config['personality_traits']
-        self.assertEqual(traits['bluff_tendency'], 0.2)
-        self.assertEqual(traits['aggression'], 0.2)
-        self.assertEqual(traits['chattiness'], 0.5)
-        self.assertEqual(traits['emoji_usage'], 0.0)
+        # Test personality anchors (v2.1 9-anchor model) or legacy traits
+        if 'anchors' in player.personality_config:
+            anchors = player.personality_config['anchors']
+            # v2.1 model anchors - Scrooge is tight and passive
+            self.assertIn('baseline_aggression', anchors)
+            self.assertIn('baseline_looseness', anchors)
+            self.assertIn('ego', anchors)
+            self.assertIn('poise', anchors)
+            self.assertIn('expressiveness', anchors)
+            # Verify anchor values are in valid range
+            for anchor_name, anchor_value in anchors.items():
+                self.assertGreaterEqual(anchor_value, 0.0)
+                self.assertLessEqual(anchor_value, 1.0)
+        else:
+            # Legacy 5-trait model
+            traits = player.personality_config['personality_traits']
+            self.assertIn('tightness', traits)
+            self.assertIn('aggression', traits)
+            for trait_name, trait_value in traits.items():
+                self.assertGreaterEqual(trait_value, 0.0)
+                self.assertLessEqual(trait_value, 1.0)
     
     def test_unknown_personality_gets_default(self):
         """Test that unknown personalities get default config."""
         player = AIPokerPlayer(name='Unknown Celebrity', starting_money=10000)
         self.assertIn('play_style', player.personality_config)
-        self.assertIn('personality_traits', player.personality_config)
-        
-        # Should have valid trait values
-        traits = player.personality_config['personality_traits']
-        self.assertGreaterEqual(traits['bluff_tendency'], 0)
-        self.assertLessEqual(traits['bluff_tendency'], 1)
+        # v2.1: Should have anchors or legacy personality_traits
+        has_anchors = 'anchors' in player.personality_config
+        has_traits = 'personality_traits' in player.personality_config
+        self.assertTrue(has_anchors or has_traits)
+
+        # Should have valid values
+        if has_anchors:
+            anchors = player.personality_config['anchors']
+            for anchor_name, anchor_value in anchors.items():
+                self.assertGreaterEqual(anchor_value, 0.0)
+                self.assertLessEqual(anchor_value, 1.0)
+        else:
+            traits = player.personality_config['personality_traits']
+            for trait_name, trait_value in traits.items():
+                self.assertGreaterEqual(trait_value, 0.0)
+                self.assertLessEqual(trait_value, 1.0)
     
     def test_persona_prompt_generation(self):
         """Test persona prompt generation."""
@@ -193,12 +221,11 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
     def test_personality_modifiers(self, mock_load_config):
         """Test personality modifier generation based on archetype matrix.
 
-        The get_personality_modifier method uses a unified strategy matrix
-        combining aggression and bluff_tendency into poker archetypes:
-        - High aggression + high bluff = LAG (Loose-Aggressive)
-        - Low aggression + low bluff = Tight-Passive (rock)
+        The get_personality_modifier method uses the 5-trait poker-native model:
+        - Low tightness + high aggression = LAG (Loose-Aggressive)
+        - High tightness + low aggression = Tight-Passive (rock)
         """
-        # Blackbeard: high bluff (0.8) + high aggression (0.9) = LAG archetype
+        # Blackbeard: low tightness + high aggression = LAG archetype
         mock_load_config.return_value = PERSONALITIES_FIXTURE['Blackbeard']
         bluffer = AIPokerPlayer(name='Blackbeard', starting_money=10000)
         bluffer_mod = bluffer.get_personality_modifier()

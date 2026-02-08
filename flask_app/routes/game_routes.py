@@ -16,7 +16,7 @@ from poker.prompt_config import PromptConfig
 from poker.betting_context import BettingContext
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
-from poker.tilt_modifier import TiltState
+# TiltState removed - now using ComposureState from player_psychology
 from poker.emotional_state import EmotionalState
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
@@ -970,7 +970,12 @@ def api_new_game():
             'content': '***   GAME START   ***',
             'timestamp': datetime.now().isoformat(),
             'type': 'table'
-        }]
+        }],
+        # Stack tracking for pressure events (double_up, crippled, short_stack)
+        'hand_start_stacks': {
+            p.name: p.stack for p in state_machine.game_state.players
+        },
+        'short_stack_players': set(),  # No one is short at game start
     }
     game_state_service.set_game(game_id, game_data)
 
@@ -1244,7 +1249,7 @@ def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""
 
     @sio.on('join_game')
-    @socket_rate_limit(max_calls=5, window_seconds=10)
+    @socket_rate_limit(max_calls=20, window_seconds=10)
     def on_join(game_id):
         game_id_str = str(game_id)
         game_data = game_state_service.get_game(game_id_str)

@@ -24,6 +24,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, print_summary
+from poker.player_psychology import set_zone_params, clear_zone_params, get_all_zone_params
 
 
 def load_config(config_path: str) -> dict:
@@ -94,16 +95,32 @@ def run_experiment_from_config(
         print(f"Variants: {variants}")
 
     print(f"Database: {db_path}")
+
+    # Apply zone parameter overrides if specified
+    zone_params = config_dict.pop('zone_params', None)
+    if zone_params:
+        print(f"Zone parameter overrides: {zone_params}")
+        set_zone_params(zone_params)
+        # Show effective values
+        effective = get_all_zone_params()
+        for param, value in zone_params.items():
+            print(f"  {param}: {effective[param]}")
+
     print("-" * 60)
 
-    # Create config object
-    config = ExperimentConfig(**config_dict)
+    try:
+        # Create config object
+        config = ExperimentConfig(**config_dict)
 
-    # Run experiment
-    runner = AITournamentRunner(config, db_path=db_path)
-    results = runner.run_experiment()
+        # Run experiment
+        runner = AITournamentRunner(config, db_path=db_path)
+        results = runner.run_experiment()
 
-    print_summary(results)
+        print_summary(results)
+    finally:
+        # Always clear zone param overrides after experiment
+        if zone_params:
+            clear_zone_params()
 
     # Print experiment ID for reference
     if runner.experiment_id:

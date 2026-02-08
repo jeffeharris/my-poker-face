@@ -39,7 +39,11 @@ logger = logging.getLogger(__name__)
 # v68: Add onboarding_completed_at to player_coach_profile for reliable onboarding tracking
 # v69: Add hand_equity table for equity-based pressure event detection
 # v70: Add range_targets JSON column to player_coach_profile for dynamic range coaching
-SCHEMA_VERSION = 70
+# v71: Add new 5-trait psychology columns to player_decision_analysis
+# v72: Add zone detection and effects tracking columns to player_decision_analysis
+# v73: Add hand_number column to pressure_events
+# v74: Add bet_sizing column to player_decision_analysis
+SCHEMA_VERSION = 74
 
 
 
@@ -610,7 +614,7 @@ class SchemaManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
 
-            # 22. Player decision analysis (v20, v22, v23, v67)
+            # 22. Player decision analysis (v20, v22, v23, v67, v70, v71)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS player_decision_analysis (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -630,6 +634,7 @@ class SchemaManager:
                     action_taken TEXT,
                     raise_amount INTEGER,
                     raise_amount_bb REAL,
+                    bet_sizing TEXT,
                     equity REAL,
                     required_equity REAL,
                     ev_call REAL,
@@ -650,6 +655,10 @@ class SchemaManager:
                     display_emotion TEXT,
                     elastic_aggression REAL,
                     elastic_bluff_tendency REAL,
+                    elastic_tightness REAL,
+                    elastic_confidence REAL,
+                    elastic_composure REAL,
+                    elastic_table_talk REAL,
                     opponent_ranges_json TEXT,
                     board_texture_json TEXT,
                     player_hand_canonical TEXT,
@@ -658,6 +667,21 @@ class SchemaManager:
                     standard_range_pct REAL,
                     analyzer_version TEXT,
                     processing_time_ms INTEGER,
+                    zone_confidence REAL,
+                    zone_composure REAL,
+                    zone_energy REAL,
+                    zone_manifestation TEXT,
+                    zone_sweet_spots_json TEXT,
+                    zone_penalties_json TEXT,
+                    zone_primary_sweet_spot TEXT,
+                    zone_primary_penalty TEXT,
+                    zone_total_penalty_strength REAL,
+                    zone_in_neutral_territory BOOLEAN,
+                    zone_intrusive_thoughts_injected BOOLEAN,
+                    zone_intrusive_thoughts_json TEXT,
+                    zone_penalty_strategy_applied TEXT,
+                    zone_info_degraded BOOLEAN,
+                    zone_strategy_selected TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
                 )
             """)
@@ -666,6 +690,12 @@ class SchemaManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_quality ON player_decision_analysis(decision_quality)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_ev_lost ON player_decision_analysis(ev_lost DESC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_player ON player_decision_analysis(player_name)")
+            # Zone indexes may fail on existing databases before migration v71 adds columns
+            try:
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_penalty ON player_decision_analysis(zone_primary_penalty)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_sweet_spot ON player_decision_analysis(zone_primary_sweet_spot)")
+            except Exception:
+                pass  # Columns will be added by migration v71, which creates these indexes
 
             # 23. Tournament tracker (v29)
             conn.execute("""
@@ -1029,6 +1059,10 @@ class SchemaManager:
             68: (self._migrate_v68_add_onboarding_completed, "Add onboarding_completed_at to player_coach_profile"),
             69: (self._migrate_v69_add_hand_equity, "Add hand_equity table for equity-based pressure detection"),
             70: (self._migrate_v70_add_range_targets, "Add range_targets JSON column to player_coach_profile"),
+            71: (self._migrate_v70_add_5trait_columns, "Add 5-trait psychology columns to player_decision_analysis"),
+            72: (self._migrate_v71_add_zone_tracking, "Add zone detection and effects tracking columns to player_decision_analysis"),
+            73: (self._migrate_v73_pressure_events_hand_number, "Add hand_number column to pressure_events"),
+            74: (self._migrate_v74_add_bet_sizing, "Add bet_sizing column to player_decision_analysis"),
         }
 
         with self._get_connection() as conn:
@@ -3175,4 +3209,114 @@ class SchemaManager:
             )
 
         logger.info("Migration v70 complete: range_targets column added to player_coach_profile")
+
+    def _migrate_v70_add_5trait_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v71: Add new 5-trait psychology columns to player_decision_analysis.
+
+        The new poker-native psychology model uses 5 traits:
+        - tightness: Range selectivity (0=loose, 1=tight)
+        - aggression: Bet frequency (0=passive, 1=aggressive)
+        - confidence: Sizing/commitment (0=scared, 1=fearless)
+        - composure: Decision quality (0=tilted, 1=focused)
+        - table_talk: Chat frequency (0=silent, 1=chatty)
+
+        This migration adds the elastic_* columns for the new traits while
+        keeping elastic_bluff_tendency for backward compatibility with historical data.
+        """
+        # Get existing columns
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        # Add new trait columns
+        new_columns = [
+            ('elastic_tightness', 'REAL'),
+            ('elastic_confidence', 'REAL'),
+            ('elastic_composure', 'REAL'),
+            ('elastic_table_talk', 'REAL'),
+        ]
+
+        for col_name, col_type in new_columns:
+            if col_name not in existing_columns:
+                conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
+                logger.debug(f"Added column {col_name} to player_decision_analysis")
+
+        logger.info("Migration v71 complete: 5-trait psychology columns added")
+
+    def _migrate_v71_add_zone_tracking(self, conn: sqlite3.Connection) -> None:
+        """Migration v72: Add zone detection and effects tracking columns.
+
+        Adds columns to player_decision_analysis for tracking:
+        - Zone detection state (confidence, composure, energy, manifestation)
+        - Sweet spot and penalty zone membership (JSON dicts + primary values)
+        - Zone effects instrumentation (intrusive thoughts, bad advice, info degradation)
+
+        This enables experiment analysis of the psychology zone system.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        new_columns = [
+            # Zone detection state
+            ('zone_confidence', 'REAL'),
+            ('zone_composure', 'REAL'),
+            ('zone_energy', 'REAL'),
+            ('zone_manifestation', 'TEXT'),
+            ('zone_sweet_spots_json', 'TEXT'),
+            ('zone_penalties_json', 'TEXT'),
+            ('zone_primary_sweet_spot', 'TEXT'),
+            ('zone_primary_penalty', 'TEXT'),
+            ('zone_total_penalty_strength', 'REAL'),
+            ('zone_in_neutral_territory', 'BOOLEAN'),
+            # Zone effects instrumentation
+            ('zone_intrusive_thoughts_injected', 'BOOLEAN'),
+            ('zone_intrusive_thoughts_json', 'TEXT'),
+            ('zone_penalty_strategy_applied', 'TEXT'),
+            ('zone_info_degraded', 'BOOLEAN'),
+            ('zone_strategy_selected', 'TEXT'),
+        ]
+
+        for col_name, col_type in new_columns:
+            if col_name not in existing_columns:
+                conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
+                logger.debug(f"Added column {col_name} to player_decision_analysis")
+
+        # Add indexes for fast aggregation queries
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_penalty ON player_decision_analysis(zone_primary_penalty)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_sweet_spot ON player_decision_analysis(zone_primary_sweet_spot)")
+        except Exception as e:
+            logger.debug(f"Index creation failed (may already exist): {e}")
+
+        logger.info("Migration v72 complete: zone tracking columns added")
+
+    def _migrate_v73_pressure_events_hand_number(self, conn: sqlite3.Connection) -> None:
+        """Migration v73: Add hand_number column to pressure_events table."""
+        cursor = conn.execute("PRAGMA table_info(pressure_events)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'hand_number' not in existing_columns:
+            conn.execute("ALTER TABLE pressure_events ADD COLUMN hand_number INTEGER")
+            logger.debug("Added hand_number column to pressure_events")
+
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_hand ON pressure_events(game_id, hand_number)")
+        except Exception as e:
+            logger.debug(f"Index creation failed (may already exist): {e}")
+
+        logger.info("Migration v73 complete: pressure_events hand_number added")
+
+    def _migrate_v74_add_bet_sizing(self, conn: sqlite3.Connection) -> None:
+        """Migration v74: Add bet_sizing to player_decision_analysis.
+
+        Stores the AI's stated sizing strategy (e.g., '2/3 pot value bet')
+        to track whether explicit sizing reasoning improves bet quality.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'bet_sizing' not in existing_columns:
+            conn.execute("ALTER TABLE player_decision_analysis ADD COLUMN bet_sizing TEXT")
+            logger.debug("Added bet_sizing column to player_decision_analysis")
+
+        logger.info("Migration v74 complete: bet_sizing added to player_decision_analysis")
 

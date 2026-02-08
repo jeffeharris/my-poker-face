@@ -445,6 +445,8 @@ class PromptManager:
         include_pot_odds: bool = True,
         pot_odds_info: dict | None = None,
         use_simple_response_format: bool = False,
+        expression_guidance: str | None = None,
+        zone_guidance: str | None = None,
     ) -> str:
         """Render the decision prompt with toggleable components from YAML.
 
@@ -463,6 +465,8 @@ class PromptManager:
             pot_odds_info: Dict with {pot_odds, equity_needed, pot_fmt, call_fmt, pot_odds_extra}
                            or {'free': True} for free check. None means no pot odds section.
             use_simple_response_format: If True, use simple JSON response format instead of dramatic_sequence
+            expression_guidance: Phase 2 visibility-based expression/tempo guidance string
+            zone_guidance: Phase 7 zone-based strategy guidance string
 
         Returns:
             Rendered decision prompt
@@ -473,6 +477,10 @@ class PromptManager:
         # Always include base section with message substitution
         if 'base' in template.sections:
             sections_to_render.append(template.sections['base'].format(message=message))
+
+        # Phase 7: Include zone-based strategy guidance (early to frame the decision)
+        if zone_guidance:
+            sections_to_render.append(zone_guidance)
 
         # Include pot-committed warning if applicable (high priority - insert before other guidance)
         if pot_committed_info and 'pot_committed' in template.sections:
@@ -565,6 +573,10 @@ class PromptManager:
             if drama_text:
                 rendered = f"{rendered}\n\n{drama_text}{tone_modifier}"
 
+        # Phase 2: Append expression guidance (visibility + tempo)
+        if expression_guidance:
+            rendered = f"{rendered}\n\n{expression_guidance}"
+
         return rendered
 
     def render_correction_prompt(
@@ -627,8 +639,9 @@ VALID ACTIONS:
 
 REQUIREMENTS:
 1. Your 'action' must be one of: {', '.join(valid_actions)}
-2. If action is 'raise', you MUST include 'raise_to' with a valid total bet amount ({fmt_bb(min_raise)} to {fmt_bb(max_raise)})
-3. Include 'inner_monologue' with your thinking
+2. If action is 'raise', include 'bet_sizing' with your sizing strategy (e.g., '2/3 pot value bet')
+3. If action is 'raise', you MUST include 'raise_to' with a valid total bet amount ({fmt_bb(min_raise)} to {fmt_bb(max_raise)})
+4. Include 'inner_monologue' with your thinking
 
 Respond with valid JSON only. No explanation or markdown, just the JSON object."""
 
@@ -637,13 +650,14 @@ Respond with valid JSON only. No explanation or markdown, just the JSON object."
 RESPONSE_FORMAT = {
     # THINKING (Work through the decision)
     "inner_monologue": "REQUIRED: Your private thoughts — read the board, assess your hand, weigh the odds, and reason toward a decision",
-    "hand_strategy": "REQUIRED on first action: Your strategic approach for this hand (locked in for the rest of the hand)",
+    "hand_strategy": "REQUIRED on first action: Your plan for this hand — what are you trying to do and what will you do if called or raised? Be specific. (locked in for the rest of the hand)",
     "player_observations": "OPTIONAL: Notes about other players' behavior and patterns",
     "hand_strength": "OPTIONAL: Your assessment of your hand (weak/marginal/strong/monster)",
     "bluff_likelihood": "OPTIONAL: % likelihood you're bluffing (0-100)",
 
     # DECISION (Lock in your action)
     "action": "REQUIRED: Your final action from the provided options",
+    "bet_sizing": "REQUIRED if raising: Name your bet sizing BEFORE the amount (e.g., '2/3 pot value bet', 'min-raise to see cheap flop', '1.5x pot overbet bluff')",
     "raise_to": "REQUIRED if raising: Total bet amount (the amount you're raising TO, not BY)",
 
     # REACTION (Visible response after deciding)
@@ -659,7 +673,7 @@ PERSONA_EXAMPLES = {
         "sample_response": {
             # THINKING
             "inner_monologue": "Another miserable hand. 2D and 3C — early position, small pot, everyone looks confident. Not worth chasing anything with these cards. No point throwing good chips after bad. Checking is free, at least.",
-            "hand_strategy": "With a 2D and 3C, I don't feel confident. My odds are very low.",
+            "hand_strategy": "Weak hand, no plan. Check-fold to any aggression.",
             "player_observations": {"pooh": "playing loose, possibly bluffing"},
             "hand_strength": "weak",
             "bluff_likelihood": 10,
@@ -677,13 +691,14 @@ PERSONA_EXAMPLES = {
         "sample_response": {
             # THINKING
             "inner_monologue": "Three hearts on the board, pot's building. John keeps glancing at his chips — he's nervous. A raise might take it down right here, and if not, I've got outs to the flush. Semi-bluff with equity. Either win now or improve on the next card.",
-            "hand_strategy": "I've got a decent shot if I catch that last heart.",
+            "hand_strategy": "Semi-bluff the flush draw. If called, barrel turn on any heart or scare card. Give up on blanks.",
             "player_observations": {"john": "seems nervous, keeps glancing at chips"},
             "hand_strength": "marginal but drawing",
             "bluff_likelihood": 25,
 
             # DECISION
             "action": "raise",
+            "bet_sizing": "3/4 pot semi-bluff with flush draw equity",
             "raise_to": 150,
 
             # REACTION

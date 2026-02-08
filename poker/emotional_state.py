@@ -1,24 +1,15 @@
 """
-Emotional State System for AI Poker Players.
+Emotional State System for AI Poker Players (v2.1).
 
-Two-layer emotional model:
+In v2.1, emotional state is simplified:
+- The 4D model (valence, arousal, control, focus) is DEPRECATED
+- Emotion labels come from the quadrant model (Commanding, Overheated, Guarded, Shaken)
+- This module now primarily handles LLM narration (narrative + inner_voice)
 
-Layer 1 - Baseline mood: Deterministically computed from elastic personality
-traits. Moves slowly as traits shift under pressure and recover. No LLM needed.
-
-Layer 2 - Reactive spike: Computed from hand outcomes (won/lost/folded, amount)
-amplified by tilt level. Fast math, no LLM. Decays toward baseline between hands.
-
-The avatar emotion is derived from the blended state (baseline + spike).
-
-The LLM's role is narration only: given the computed dimensions, it produces
+The LLM's role is narration only: given the quadrant and axes, it produces
 personality-authentic narrative text and inner_voice.
 
-Dimensional model:
-- Valence: Negative to positive feeling (-1 to 1)
-- Arousal: Calm to agitated (0 to 1)
-- Control: Losing grip to in command (0 to 1)
-- Focus: Tunnel vision to clear-headed (0 to 1)
+Legacy 4D model is kept for backward compatibility but will be removed in future.
 """
 
 import json
@@ -36,15 +27,32 @@ from core.llm_categorizer import (
 logger = logging.getLogger(__name__)
 
 
+class _SimpleAttr:
+    """Lightweight attribute bag used to bridge old duck-typed interfaces."""
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
 # Layer 1: Baseline mood from elastic traits (deterministic)
+#
+# Updated for 5-trait poker-native model:
+# - Valence: confidence × composure (overall positivity)
+# - Arousal: aggression + inverse composure (energy/agitation)
+# - Control: directly from composure
+# - Focus: composure with table_talk modifier
 
 def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
     """
     Compute baseline emotional dimensions from current elastic trait values.
 
-    This is the slow-moving "session mood" — it reflects accumulated pressure
-    and recovery across many hands. Moves only as fast as the elastic traits
-    themselves shift.
+    For 5-trait poker-native model:
+    - confidence × composure → valence (mood)
+    - aggression + (1 - composure) → arousal
+    - composure → control
+    - composure - table_talk → focus
+
+    Also supports old 4-trait model for backward compatibility.
 
     Args:
         elastic_traits: Dict of trait name -> ElasticTrait (or dict with
@@ -68,31 +76,43 @@ def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
     def _trait_drift(name: str) -> float:
         return _trait_val(name) - _trait_anchor(name)
 
-    aggression = _trait_val('aggression')
-    chattiness = _trait_val('chattiness')
-    emoji = _trait_val('emoji_usage')
+    # Detect trait format (new 5-trait vs old 4-trait)
+    is_new_format = 'composure' in elastic_traits or 'confidence' in elastic_traits
 
-    # Average drift from anchor across all traits — positive means the session
-    # has been going well (traits pushed up by wins), negative means pressure
-    avg_drift = sum(_trait_drift(t) for t in elastic_traits) / max(len(elastic_traits), 1)
+    if is_new_format:
+        # New 5-trait poker-native model
+        confidence = _trait_val('confidence', 0.5)
+        composure = _trait_val('composure', 0.7)
+        aggression = _trait_val('aggression', 0.5)
+        table_talk = _trait_val('table_talk', 0.5)
 
-    # Valence: overall mood. Driven by whether traits are above or below anchor.
-    # High aggression + high bluff = feeling bold (positive).
-    # Traits below anchor = things have been going badly (negative).
-    valence = _clamp(avg_drift * 3.0, -1.0, 1.0)
+        # Valence: confidence × composure drives overall mood
+        # High confidence + high composure = positive
+        # Low of either = negative
+        valence = _clamp((confidence * 0.6 + composure * 0.4) * 2 - 1, -1.0, 1.0)
 
-    # Arousal: energy level. High aggression and chattiness = high energy.
-    # Measured as absolute distance from anchor (any big shift = more aroused).
-    avg_abs_drift = sum(abs(_trait_drift(t)) for t in elastic_traits) / max(len(elastic_traits), 1)
-    arousal = _clamp(0.35 + aggression * 0.25 + avg_abs_drift * 2.0, 0.0, 1.0)
+        # Arousal: aggression + inverse composure (tilted = more aroused)
+        arousal = _clamp(aggression * 0.4 + (1.0 - composure) * 0.4 + 0.2, 0.0, 1.0)
 
-    # Control: sense of command. Large trait drifts = less control (being pushed
-    # around by events). Traits near anchor = steady and in control.
-    control = _clamp(0.7 - avg_abs_drift * 3.0, 0.0, 1.0)
+        # Control: directly from composure
+        control = _clamp(composure, 0.0, 1.0)
 
-    # Focus: mental clarity. High chattiness + emoji = more scattered.
-    # Low arousal + small drift = clear-headed.
-    focus = _clamp(0.7 - chattiness * 0.15 - emoji * 0.1 - avg_abs_drift * 1.5, 0.0, 1.0)
+        # Focus: composure dominates, table_talk slightly reduces
+        focus = _clamp(composure * 0.85 - table_talk * 0.1, 0.0, 1.0)
+    else:
+        # Old 4-trait model (backward compatibility)
+        aggression = _trait_val('aggression')
+        chattiness = _trait_val('chattiness', 0.5)
+        emoji = _trait_val('emoji_usage', 0.3)
+
+        # Average drift from anchor across all traits
+        avg_drift = sum(_trait_drift(t) for t in elastic_traits) / max(len(elastic_traits), 1)
+        avg_abs_drift = sum(abs(_trait_drift(t)) for t in elastic_traits) / max(len(elastic_traits), 1)
+
+        valence = _clamp(avg_drift * 3.0, -1.0, 1.0)
+        arousal = _clamp(0.35 + aggression * 0.25 + avg_abs_drift * 2.0, 0.0, 1.0)
+        control = _clamp(0.7 - avg_abs_drift * 3.0, 0.0, 1.0)
+        focus = _clamp(0.7 - chattiness * 0.15 - emoji * 0.1 - avg_abs_drift * 1.5, 0.0, 1.0)
 
     return {
         'valence': round(valence, 3),
@@ -212,15 +232,26 @@ EMOTIONAL_NARRATION_SCHEMA = CategorizationSchema(
 
 @dataclass
 class EmotionalState:
-    """Represents a player's emotional state at a point in time."""
+    """
+    Represents a player's emotional state at a point in time.
 
-    # Dimensional scores
+    v2.1 NOTE: The 4D dimensional model (valence, arousal, control, focus)
+    is DEPRECATED. New code should use quadrant-based emotion from
+    PlayerPsychology.quadrant. These fields are kept for backward
+    compatibility with existing saved games and display code.
+
+    The primary use of EmotionalState in v2.1 is for LLM narration
+    (narrative + inner_voice fields).
+    """
+
+    # DEPRECATED: Dimensional scores (kept for backward compat)
+    # In v2.1, emotion is determined by quadrant from PlayerPsychology
     valence: float = 0.0      # -1 (miserable) to 1 (elated)
     arousal: float = 0.5      # 0 (calm) to 1 (agitated)
     control: float = 0.5      # 0 (losing grip) to 1 (in command)
     focus: float = 0.5        # 0 (tunnel vision) to 1 (clear-headed)
 
-    # Narrative elements (LLM-generated)
+    # Narrative elements (LLM-generated) - KEPT FOR v2.1
     narrative: str = ""       # Third person description
     inner_voice: str = ""     # First person thought
 
@@ -467,42 +498,85 @@ dimensions tell you the intensity — your job is to give it personality."""
         personality_name: str,
         personality_config: Dict[str, Any],
         hand_outcome: Dict[str, Any],
-        elastic_traits: Dict[str, Any],
-        tilt_state: Any,  # TiltState
-        session_context: Dict[str, Any],
-        hand_number: int,
+        elastic_traits: Optional[Dict[str, Any]] = None,
+        tilt_state: Any = None,
+        session_context: Optional[Dict[str, Any]] = None,
+        hand_number: int = 0,
         # Tracking context for cost analysis
         game_id: Optional[str] = None,
         owner_id: Optional[str] = None,
         big_blind: int = 100,
+        # New-model params (v2.1): when provided, elastic_traits/tilt_state are ignored
+        confidence: Optional[float] = None,
+        composure: Optional[float] = None,
+        energy: Optional[float] = None,
+        baseline_anchors: Optional[Dict[str, float]] = None,
+        composure_state: Optional[Any] = None,
     ) -> EmotionalState:
         """
         Generate emotional state after a hand completes.
 
-        Dimensions are computed deterministically from elastic traits + outcome.
+        Dimensions are computed deterministically from traits + outcome.
         The LLM is called only to produce narrative text.
+
+        Supports two calling conventions:
+        1. New model (v2.1): pass confidence, composure, energy, baseline_anchors,
+           composure_state directly.
+        2. Legacy: pass elastic_traits dict and tilt_state object.
 
         Args:
             personality_name: Name of the AI player
             personality_config: Personality configuration dict
             hand_outcome: Dict with outcome, amount, key_moment, etc.
-            elastic_traits: Current elastic trait values
-            tilt_state: Current TiltState object
+            elastic_traits: (Legacy) Current elastic trait values
+            tilt_state: (Legacy) Current TiltState object
             session_context: Session memory context
             hand_number: Current hand number
             game_id: Game ID for usage tracking
             owner_id: User ID for usage tracking
             big_blind: Big blind size for spike amount normalization
+            confidence: (v2.1) Current confidence axis value
+            composure: (v2.1) Current composure axis value
+            energy: (v2.1) Current energy axis value
+            baseline_anchors: (v2.1) Dict with baseline_aggression, baseline_looseness, etc.
+            composure_state: (v2.1) ComposureState object
 
         Returns:
             EmotionalState with deterministic dimensions and LLM narrative
         """
-        # Compute dimensions deterministically (baseline + spike)
-        tilt_level = getattr(tilt_state, 'tilt_level', 0.0)
+        if session_context is None:
+            session_context = {}
+
+        # Determine tilt_level and build traits for baseline mood computation
+        if confidence is not None:
+            # New-model path: build traits from axis values
+            tilt_level = 1.0 - composure if composure is not None else 0.0
+            aggression_anchor = baseline_anchors.get('baseline_aggression', 0.5) if baseline_anchors else 0.5
+            looseness_anchor = baseline_anchors.get('baseline_looseness', 0.3) if baseline_anchors else 0.3
+            energy_anchor = baseline_anchors.get('baseline_energy', 0.5) if baseline_anchors else 0.5
+            _traits = {
+                'confidence': _SimpleAttr(value=confidence, anchor=0.5),
+                'composure': _SimpleAttr(value=composure or 0.7, anchor=0.7),
+                'aggression': _SimpleAttr(value=confidence * 0.7 + 0.15, anchor=aggression_anchor),
+                'tightness': _SimpleAttr(value=1.0 - (looseness_anchor or 0.3), anchor=1.0 - looseness_anchor),
+                'table_talk': _SimpleAttr(value=energy or 0.5, anchor=energy_anchor),
+            }
+            tilt_source = ''
+            nemesis = None
+            if composure_state is not None:
+                tilt_source = getattr(composure_state, 'pressure_source', '')
+                nemesis = getattr(composure_state, 'nemesis', None)
+        else:
+            # Legacy path: use elastic_traits and tilt_state directly
+            _traits = elastic_traits or {}
+            tilt_level = getattr(tilt_state, 'tilt_level', 0.0)
+            tilt_source = getattr(tilt_state, 'tilt_source', '')
+            nemesis = getattr(tilt_state, 'nemesis', None)
+
         outcome = hand_outcome.get('outcome', 'unknown')
         amount = hand_outcome.get('amount', 0)
 
-        baseline = compute_baseline_mood(elastic_traits)
+        baseline = compute_baseline_mood(_traits)
         spike = compute_reactive_spike(
             outcome=outcome,
             amount=amount,
@@ -517,15 +591,15 @@ dimensions tell you the intensity — your job is to give it personality."""
             personality_config=personality_config,
             hand_outcome=hand_outcome,
             dimensions=dimensions,
-            tilt_state=tilt_state,
+            tilt_state=_SimpleAttr(tilt_level=tilt_level, tilt_source=tilt_source, nemesis=nemesis),
             session_context=session_context,
         )
 
         additional = {
             'personality': personality_name,
             'personality_description': personality_config.get('play_style', ''),
-            'tilt_level': getattr(tilt_state, 'tilt_level', 0.0),
-            'tilt_source': getattr(tilt_state, 'tilt_source', ''),
+            'tilt_level': tilt_level,
+            'tilt_source': tilt_source,
         }
 
         result = self.categorizer.categorize(

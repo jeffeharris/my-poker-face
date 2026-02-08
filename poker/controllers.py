@@ -27,7 +27,7 @@ from .ai_resilience import (
     describe_response_error,
     FallbackActionSelector,
 )
-from .player_psychology import PlayerPsychology
+from .player_psychology import PlayerPsychology, ZoneContext, build_zone_guidance, build_playstyle_briefing
 from .hand_narrator import narrate_hand_breakdown
 from .memory.commentary_generator import DecisionPlan
 from .minimal_prompt import (
@@ -42,6 +42,7 @@ from .hand_ranges import (
 )
 from .decision_analyzer import calculate_max_winnable
 from .card_utils import normalize_card_string, card_to_string
+from .range_guidance import classify_preflop_hand_for_player
 
 logger = logging.getLogger(__name__)
 
@@ -466,6 +467,28 @@ def classify_preflop_hand(hole_cards: List[str]) -> Optional[str]:
         return None
 
 
+def classify_preflop_hand_with_range(
+    hole_cards: List[str],
+    psychology: 'PlayerPsychology',
+    game_position: str,
+) -> Optional[str]:
+    """Range-aware preflop classification using player's effective looseness.
+
+    Falls back to generic classify_preflop_hand() on any error.
+    """
+    try:
+        canonical = _get_canonical_hand(hole_cards)
+        if not canonical:
+            return None
+        result = classify_preflop_hand_for_player(
+            canonical, psychology.effective_looseness, game_position,
+        )
+        return result if result else classify_preflop_hand(hole_cards)
+    except Exception as e:
+        logger.debug(f"Range-aware preflop classification failed: {e}")
+        return classify_preflop_hand(hole_cards)
+
+
 class ConsolePlayerController:
     def __init__(self, player_name, state_machine: PokerStateMachine = None):
         self.player_name = player_name
@@ -588,6 +611,9 @@ class AIPlayerController:
 
         # Decision plans for current hand (captured during decide_action)
         self._current_hand_plans: List[DecisionPlan] = []
+
+        # Max self-reported bluff_likelihood across all actions this hand (0-100)
+        self._hand_max_bluff_likelihood: int = 0
         
     def get_current_personality_traits(self):
         """Get current trait values from psychology (elastic personality)."""
@@ -625,6 +651,14 @@ class AIPlayerController:
         self._current_hand_plans = []
         return plans
 
+    def get_hand_bluff_likelihood(self) -> int:
+        """Get the max self-reported bluff_likelihood for this hand (0-100)."""
+        return self._hand_max_bluff_likelihood
+
+    def clear_hand_bluff_likelihood(self):
+        """Reset bluff tracking for next hand."""
+        self._hand_max_bluff_likelihood = 0
+
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
 
@@ -654,14 +688,14 @@ class AIPlayerController:
         big_blind = game_state.current_ante or 100
         game_messages = _convert_messages_to_bb(game_messages, big_blind)
 
-        # Get current chattiness and determine if should speak
+        # Get current table_talk trait and determine if should speak
         current_traits = self.get_current_personality_traits()
-        chattiness = current_traits.get('chattiness', 0.5)
+        table_talk = current_traits.get('table_talk', current_traits.get('chattiness', 0.5))
 
         # Build game context for chattiness decision (use original messages for address detection)
         game_context = self._build_game_context(game_state, original_messages)
         should_speak = self.chattiness_manager.should_speak(
-            self.player_name, chattiness, game_context
+            self.player_name, table_talk, game_context
         )
         speaking_context = self.chattiness_manager.get_speaking_context(self.player_name)
 
@@ -671,7 +705,9 @@ class AIPlayerController:
             game_state.current_player,
             self.state_machine.phase,
             game_messages,
-            include_hand_strength=self.prompt_config.hand_strength)
+            include_hand_strength=self.prompt_config.hand_strength,
+            psychology=self.psychology,
+            range_guidance=self.prompt_config.range_guidance)
 
         # Get valid actions early so we can include in guidance
         player_options = game_state.current_player_options
@@ -688,7 +724,7 @@ class AIPlayerController:
         # Add chattiness guidance to message (if enabled)
         if self.prompt_config.chattiness:
             chattiness_guidance = self._build_chattiness_guidance(
-                chattiness, should_speak, speaking_context, player_options
+                table_talk, should_speak, speaking_context, player_options
             )
             message = message + "\n\n" + chattiness_guidance
 
@@ -763,8 +799,22 @@ class AIPlayerController:
             self._current_hand_plans.append(plan)
 
         logger.debug(f"[AI_DECISION] Response:\n{json.dumps(cleaned_response, indent=4)}")
+
+        # Track max bluff_likelihood across all actions this hand
+        try:
+            bl = int(cleaned_response.get('bluff_likelihood', 0))
+            self._hand_max_bluff_likelihood = max(self._hand_max_bluff_likelihood, bl)
+        except (ValueError, TypeError):
+            pass
+
+        # Phase 2: Track action for consecutive fold detection (energy events)
+        action = cleaned_response.get('action', '')
+        self.last_energy_events = []
+        if action and self.psychology:
+            self.last_energy_events = self.psychology.on_action_taken(action)
+
         return cleaned_response
-    
+
     def _get_ai_decision(self, message: str, **context) -> Dict:
         """Get AI decision with automatic error recovery and fallback.
 
@@ -1262,6 +1312,94 @@ class AIPlayerController:
             else:
                 pot_odds_info = {'free': True}
 
+        # Phase 2: Add expression filtering guidance (visibility + tempo)
+        expression_guidance = None
+        if self.prompt_config.expression_filtering and self.psychology:
+            from .expression_filter import get_expression_guidance
+            expression_guidance = get_expression_guidance(
+                expressiveness=self.psychology.anchors.expressiveness,
+                energy=self.psychology.energy,
+                include_tempo=True,
+            )
+
+        # Playstyle selection + briefing (replaces Phase 7 zone guidance)
+        zone_guidance = None
+        playstyle_briefing = None
+        if self.prompt_config.zone_benefits and self.psychology:
+            # 1. Get opponent models
+            opponent_models = {}
+            if self.opponent_model_manager:
+                opponent_models = self.opponent_model_manager.get_all_models_for_observer(self.player_name)
+
+            # 2. Select playstyle
+            playstyle_state = self.psychology.update_playstyle(
+                opponent_models=opponent_models,
+                hand_number=self.current_hand_number,
+            )
+
+            # 3. Build briefing with curated stats + framing + suppression flags
+            focal_opponent = None
+            active_opponents = [
+                p for p in game_state.players
+                if not p.is_folded and p.name != player.name
+            ]
+            if active_opponents:
+                focal_opponent = active_opponents[0]
+
+            zone_context = self._build_zone_context(game_state, focal_opponent)
+
+            # Compute game stats for briefing
+            active_stacks = [p.stack for p in game_state.players if not p.is_folded]
+            avg_stack = sum(active_stacks) / max(len(active_stacks), 1)
+
+            # Extract threat info from exploit scoring
+            threat_name, threat_summary = None, None
+            threat_model = None
+            if opponent_models:
+                from .playstyle_selector import _select_biggest_threat
+                nemesis = self.psychology.composure_state.nemesis if self.psychology.composure_state else None
+                threat_model = _select_biggest_threat(opponent_models, nemesis)
+                if threat_model:
+                    threat_name = threat_model.opponent
+                    threat_summary = threat_model.tendencies.get_summary()
+
+            # Get focal opponent model for exploit tips
+            focal_opp_model = None
+            if self.opponent_model_manager and focal_opponent:
+                focal_opp_model = self.opponent_model_manager.get_model(self.player_name, focal_opponent.name)
+                # Avoid duplicate if focal is the same as threat
+                if focal_opp_model and threat_model and focal_opp_model.opponent == threat_model.opponent:
+                    focal_opp_model = None
+
+            # Suppress opponent emotion display for poker_face at full engagement
+            if (playstyle_state.active_playstyle == 'poker_face'
+                    and playstyle_state.engagement == 'full'):
+                zone_context.opponent_displayed_emotion = None
+
+            playstyle_briefing = build_playstyle_briefing(
+                active_playstyle=playstyle_state.active_playstyle,
+                zone_effects=self.psychology.zone_effects,
+                zone_context=zone_context,
+                prompt_manager=self.prompt_manager,
+                active_affinity=playstyle_state.active_affinity,
+                engagement=playstyle_state.engagement,
+                player_stack=player.stack,
+                avg_stack=avg_stack,
+                pot_total=game_state.pot.get('total', 0),
+                big_blind=game_state.current_ante or 100,
+                threat_name=threat_name,
+                threat_summary=threat_summary,
+                threat_model=threat_model,
+                focal_model=focal_opp_model,
+            )
+            zone_guidance = playstyle_briefing.guidance
+
+            # 4. Apply suppressions to this decision's prompt args
+            if playstyle_briefing.suppress_equity_verdict:
+                equity_verdict_info = None
+            if playstyle_briefing.suppress_pot_odds:
+                pot_odds_info = None
+
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         prompt = self.prompt_manager.render_decision_prompt(
             message=message,
@@ -1275,6 +1413,8 @@ class AIPlayerController:
             include_pot_odds=self.prompt_config.pot_odds,
             pot_odds_info=pot_odds_info,
             use_simple_response_format=self.prompt_config.use_simple_response_format,
+            expression_guidance=expression_guidance,
+            zone_guidance=zone_guidance,
         )
 
         return (prompt, drama_context)
@@ -1296,6 +1436,12 @@ class AIPlayerController:
                 response_dict['raise_to'] = float(response_dict['raise_to'])
             except (ValueError, TypeError):
                 response_dict['raise_to'] = 0
+
+        # Keep bet_sizing as string, default to empty
+        if 'bet_sizing' not in response_dict:
+            response_dict['bet_sizing'] = ''
+        else:
+            response_dict['bet_sizing'] = str(response_dict['bet_sizing'])
 
         # Set defaults for missing rich fields when using simple response format
         if self.prompt_config.use_simple_response_format:
@@ -1446,8 +1592,47 @@ class AIPlayerController:
                     snapshot['focus'] = psych.emotional.focus
                     snapshot['display_emotion'] = psych.get_display_emotion()
                 traits = psych.traits
+                # New 5-trait model
                 snapshot['elastic_aggression'] = traits.get('aggression')
+                snapshot['elastic_tightness'] = traits.get('tightness')
+                snapshot['elastic_confidence'] = traits.get('confidence')
+                snapshot['elastic_composure'] = traits.get('composure')
+                snapshot['elastic_table_talk'] = traits.get('table_talk')
+                # Backward compatibility: also include old trait name if present
                 snapshot['elastic_bluff_tendency'] = traits.get('bluff_tendency')
+
+                # Zone detection data (Phase 10)
+                zone_effects = psych.zone_effects
+                snapshot['zone_confidence'] = zone_effects.confidence
+                snapshot['zone_composure'] = zone_effects.composure
+                snapshot['zone_energy'] = zone_effects.energy
+                snapshot['zone_manifestation'] = zone_effects.manifestation
+                snapshot['zone_sweet_spots_json'] = json.dumps(zone_effects.sweet_spots)
+                snapshot['zone_penalties_json'] = json.dumps(zone_effects.penalties)
+                snapshot['zone_primary_sweet_spot'] = zone_effects.primary_sweet_spot
+                snapshot['zone_primary_penalty'] = zone_effects.primary_penalty
+                snapshot['zone_total_penalty_strength'] = zone_effects.total_penalty_strength
+                snapshot['zone_in_neutral_territory'] = zone_effects.in_neutral_territory
+
+                # Zone effects instrumentation (Phase 10)
+                instr = getattr(psych, '_last_zone_effects_instrumentation', None)
+                if instr:
+                    snapshot['zone_intrusive_thoughts_injected'] = instr.get('intrusive_thoughts_injected')
+                    snapshot['zone_intrusive_thoughts_json'] = json.dumps(instr.get('intrusive_thoughts', []))
+                    snapshot['zone_penalty_strategy_applied'] = instr.get('penalty_strategy_applied')
+                    snapshot['zone_info_degraded'] = instr.get('info_degraded')
+                    snapshot['zone_strategy_selected'] = instr.get('strategy_selected')
+
+                # Playstyle tracking
+                if psych.playstyle_state:
+                    ps = psych.playstyle_state
+                    snapshot['playstyle_active'] = ps.active_playstyle
+                    snapshot['playstyle_primary'] = ps.primary_playstyle
+                    snapshot['playstyle_scores_json'] = json.dumps(ps.style_scores)
+                    snapshot['playstyle_effective_adaptation'] = ps.last_effective_adaptation
+                    snapshot['playstyle_engagement'] = ps.engagement
+                    snapshot['playstyle_active_affinity'] = ps.active_affinity
+
                 psychology_snapshot = snapshot
 
             analyzer = get_analyzer()
@@ -1465,6 +1650,7 @@ class AIPlayerController:
                 action_taken=response_dict.get('action'),
                 raise_amount=response_dict.get('raise_to'),
                 raise_amount_bb=response_dict.get('_raise_to_bb'),  # BB amount if BB mode
+                bet_sizing=response_dict.get('bet_sizing', ''),
                 request_id=request_id,
                 capture_id=capture_id,
                 player_position=player_position,
@@ -1658,6 +1844,64 @@ class AIPlayerController:
 
         return guidance
 
+    def _build_zone_context(self, game_state, focal_opponent=None) -> ZoneContext:
+        """
+        Build ZoneContext from game state and memory for zone-based strategy guidance.
+
+        Args:
+            game_state: Current game state
+            focal_opponent: Primary opponent to gather intel on (optional)
+
+        Returns:
+            ZoneContext with available data populated
+        """
+        context = ZoneContext()
+
+        # Get opponent's displayed emotion if available
+        if focal_opponent and hasattr(focal_opponent, '_controller'):
+            controller = focal_opponent._controller
+            if hasattr(controller, 'psychology') and controller.psychology:
+                context.opponent_displayed_emotion = controller.psychology.get_display_emotion()
+
+        # Add opponent stats if available from opponent model manager
+        if self.opponent_model_manager and focal_opponent:
+            opp_model = self.opponent_model_manager.get_model(self.player_name, focal_opponent.name)
+            if opp_model and opp_model.tendencies:
+                tendencies = opp_model.tendencies
+
+                # Build opponent stats string (for commanding templates)
+                parts = []
+                if tendencies.fold_to_cbet is not None:
+                    parts.append(f"folds to c-bets {tendencies.fold_to_cbet:.0%}")
+                if tendencies.aggression_factor is not None:
+                    parts.append(f"aggression {tendencies.aggression_factor:.1f}")
+                if parts:
+                    context.opponent_stats = f"{focal_opponent.name}: {', '.join(parts)}"
+
+                # Build opponent analysis (more detailed) for Aggro zone
+                analysis_parts = []
+                if tendencies.fold_to_cbet > 0.6:
+                    analysis_parts.append(f"folds to c-bets {tendencies.fold_to_cbet:.0%}")
+                if tendencies.vpip > 0.45:
+                    analysis_parts.append(f"plays {tendencies.vpip:.0%} of hands")
+                elif tendencies.vpip < 0.20:
+                    analysis_parts.append(f"very tight ({tendencies.vpip:.0%} VPIP)")
+                if tendencies.bluff_frequency > 0.4:
+                    analysis_parts.append(f"bluffs {tendencies.bluff_frequency:.0%}")
+                if analysis_parts:
+                    context.opponent_analysis = f"{focal_opponent.name}: {', '.join(analysis_parts)}"
+
+        # Check for weak player based on displayed emotion
+        if context.opponent_displayed_emotion in ['nervous', 'shaken', 'panicking', 'shocked']:
+            if focal_opponent:
+                context.weak_player_note = f"{focal_opponent.name} appears {context.opponent_displayed_emotion}"
+
+        # Add equity vs ranges if available (stored during equity calculation)
+        if hasattr(self, '_equity_info') and self._equity_info:
+            context.equity_vs_ranges = self._equity_info
+
+        return context
+
 
 def human_player_action(ui_data: dict, player_options: List[str]) -> Dict:
     """
@@ -1705,9 +1949,9 @@ def display_player_turn_update(ui_data, player_options: Optional[List] = None) -
         # Render the player's cards using the CardRenderer.
         rendered_hole_cards = CardRenderer().render_hole_cards(
             [ensure_card(c) for c in player_hand])
-    except:
+    except (ValueError, TypeError, KeyError) as e:
         print(f"{player_name} has no cards.")
-        raise ValueError('Missing cards. Please check your hand.')
+        raise ValueError('Missing cards. Please check your hand.') from e
 
     # Display information to the user
     if len(ui_data['community_cards']) > 0:
@@ -1730,6 +1974,8 @@ def _ensure_card(c):
 def build_base_game_state(
     game_state, player: Player, phase, messages,
     include_hand_strength: bool = True,
+    psychology: 'PlayerPsychology' = None,
+    range_guidance: bool = False,
 ) -> str:
     """
     Build BB-normalized game state prompt for AI decisions.
@@ -1744,6 +1990,8 @@ def build_base_game_state(
         phase: Current betting phase
         messages: Recent actions/chat (should already be BB-converted)
         include_hand_strength: Whether to include hand strength evaluation
+        psychology: Player psychology for range-aware preflop (optional)
+        range_guidance: Whether to use looseness-aware preflop classification
     """
     persona = player.name
     table_positions = game_state.table_positions
@@ -1785,8 +2033,14 @@ def build_base_game_state(
             if not hand_info_line and hand_strength:
                 hand_info_line = f"Your Hand Strength: {hand_strength}\n"
         else:
-            # Pre-flop: no breakdown, just classification
-            hand_strength = classify_preflop_hand(hole_cards)
+            # Pre-flop: range-aware classification if psychology available
+            hand_strength = None
+            if range_guidance and psychology and player_positions:
+                hand_strength = classify_preflop_hand_with_range(
+                    hole_cards, psychology, player_positions[0],
+                )
+            if not hand_strength:
+                hand_strength = classify_preflop_hand(hole_cards)
             hand_info_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
 
     persona_state = (
@@ -1837,7 +2091,12 @@ def build_base_game_state(
 
     raise_guidance = ""
     if 'raise' in player_options:
-        raise_guidance = f"If raising, set raise_to between {min_raise_to_fmt} and {max_raise_to_fmt} (the total bet, not the increment).\n"
+        if current_round == 'PRE_FLOP':
+            sizing_hint = " Standard open: 2.5-3x BB. 3-bet (re-raise): 8-12 BB total."
+        else:
+            pot_fmt = _format_money(current_pot, big_blind, True)
+            sizing_hint = f" Size relative to the pot ({pot_fmt}): half-pot to two-thirds pot is standard."
+        raise_guidance = f"If raising, set raise_to between {min_raise_to_fmt} and {max_raise_to_fmt} (the total bet, not the increment).{sizing_hint}\n"
 
     hand_update_message = persona_state + hand_state + pot_state + "\n" + (
         f"NOTE: All amounts are in Big Blinds (BB). When raising, set raise_to to BB amount (e.g., raise_to=8 means 8 BB).\n"

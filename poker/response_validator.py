@@ -82,6 +82,7 @@ class ResponseValidator:
     
     # Fields required conditionally
     CONDITIONALLY_REQUIRED = {
+        "bet_sizing": lambda response: response.get("action") in ["raise"],
         "raise_to": lambda response: response.get("action") in ["raise", "all-in"],
         "hand_strategy": lambda context: context.get("hand_action_count", 0) == 1
     }
@@ -91,6 +92,8 @@ class ResponseValidator:
     OPTIONAL_FIELDS = {
         # Thinking
         "player_observations", "hand_strength", "bluff_likelihood",
+        # Decision
+        "bet_sizing",
         # Reaction
         "dramatic_sequence",
         # Legacy fields (accepted but ignored)
@@ -127,7 +130,10 @@ class ResponseValidator:
         
         # Check conditionally required fields
         for field, condition in self.CONDITIONALLY_REQUIRED.items():
-            if field == "raise_to" and condition(response):
+            if field == "bet_sizing" and condition(response):
+                if field not in response:
+                    self.errors.append(f"Missing required field: {field} (required when action is raise)")
+            elif field == "raise_to" and condition(response):
                 if field not in response:
                     self.errors.append(f"Missing required field: {field} (required when action is raise/all-in)")
             elif field == "hand_strategy" and condition(context):
@@ -225,6 +231,7 @@ class ResponseValidator:
             messages.append("- hand_strategy (your approach for this entire hand)")
         
         messages.append("\nConditionally required:")
+        messages.append("- bet_sizing (if you raise: name your sizing strategy)")
         messages.append("- raise_to (if you raise or go all-in)")
         
         return "\n".join(messages)

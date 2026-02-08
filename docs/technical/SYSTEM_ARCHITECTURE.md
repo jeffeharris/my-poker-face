@@ -184,41 +184,44 @@ Dynamic personality system where traits vary based on game state.
 | File | Responsibility |
 |------|----------------|
 | `personalities.json` | 200+ celebrity/character personalities |
-| `elasticity_manager.py` | Runtime trait variance based on game events |
-| `emotional_state.py` | Fear, excitement, frustration, confidence, regret |
-| `tilt_modifier.py` | Tilt mechanics (bad beat, variance, pressure) |
-| `player_psychology.py` | Inner voice, narrative generation |
+| `elasticity_manager.py` | Runtime 5-trait variance based on game events |
+| `emotional_state.py` | Two-layer emotional model (baseline + spike) |
+| `player_psychology.py` | Orchestrator: elastic traits, emotional state, composure |
+| `trait_converter.py` | Auto-converts old 4-trait to new 5-trait format |
 | `moment_analyzer.py` | Drama detection (routine → climactic) |
-| `pressure_detector.py` | Bad beats, coolers, streaks |
+| `pressure_detector.py` | Bad beats, coolers, streaks (detection-only) |
 
-### Personality Traits
+### Personality Traits (5-Trait Poker-Native Model)
 
 ```json
 {
   "play_style": "aggressive",
   "confidence": 0.8,
   "personality_traits": {
-    "bluff_tendency": 0.7,
-    "aggression": 0.8,
-    "chattiness": 0.6,
-    "emoji_usage": 0.3
+    "tightness": 0.5,      // Range selectivity (0=loose, 1=tight)
+    "aggression": 0.8,     // Bet frequency (0=passive, 1=aggressive)
+    "confidence": 0.7,     // Sizing/commitment (0=scared, 1=fearless)
+    "composure": 0.8,      // Decision quality (0=tilted, 1=focused)
+    "table_talk": 0.6      // Chat frequency (0=silent, 1=chatty)
   },
   "elasticity_config": {
-    "trait_elasticity": 0.3,
+    "trait_elasticity": {"tightness": 0.3, "aggression": 0.5, "composure": 0.4},
     "mood_elasticity": 0.4,
     "recovery_rate": 0.1
   }
 }
 ```
 
+> Note: Old 4-trait personalities (bluff_tendency, chattiness, emoji_usage) are auto-converted.
+
 ### Psychology Flow
 
 ```
-Game Event → Pressure Detector → Emotional State Update
+Game Event → Pressure Detector → PlayerPsychology.apply_pressure_event()
                                         ↓
-                              Elasticity Manager
+                              ElasticPersonality.apply_pressure_event()
                                         ↓
-                              Trait Modification
+                              All 5 traits modified (incl. composure)
                                         ↓
                               AI Decision Influenced
 ```
@@ -537,6 +540,6 @@ src/
 
 - [Game Vision](/docs/vision/GAME_VISION.md)
 - [Feature Ideas](/docs/vision/FEATURE_IDEAS.md)
-- [Personality Elasticity](/docs/technical/PERSONALITY_ELASTICITY.md)
+- [Psychology Overview](/docs/technical/PSYCHOLOGY_OVERVIEW.md)
 - [Scaling Guide](/docs/technical/SCALING.md)
 - [DevOps & Deployment](/docs/DEVOPS.md)

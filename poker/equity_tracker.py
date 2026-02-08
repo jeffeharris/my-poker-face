@@ -180,10 +180,8 @@ class EquityTracker:
                     active_equities = result.equities
             except Exception as e:
                 logger.error(f"Equity calculation failed for street {street}: {e}")
-                # Fallback: equal equity for active players
-                num_active = len(active_hole_cards)
-                if num_active > 0:
-                    active_equities = {name: 1.0 / num_active for name in active_hole_cards}
+                # Return empty - don't fabricate equity data
+                return []
         elif len(active_hole_cards) == 1:
             # Only one player left - they have 100% equity
             active_equities = {list(active_hole_cards.keys())[0]: 1.0}

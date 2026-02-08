@@ -477,7 +477,7 @@ class AIMemoryManager:
 
         Args:
             player_name: Name of the AI player
-            elastic_personality: The player's ElasticPersonality object
+            elastic_personality: The player's personality object (unused, pass None)
         """
         if not elastic_personality:
             return
@@ -513,12 +513,19 @@ class AIMemoryManager:
             elastic_personality.apply_learned_adjustment(avg_tendencies)
 
     def _get_chattiness(self, ai_player: Any) -> float:
-        """Extract chattiness from AI player."""
+        """Extract chattiness/table_talk from AI player.
+
+        Checks for new 'table_talk' trait first, falls back to 'chattiness'.
+        """
         if hasattr(ai_player, 'elastic_personality'):
-            return ai_player.elastic_personality.get_trait_value('chattiness')
+            # Try new trait name first, fall back to old
+            value = ai_player.elastic_personality.get_trait_value('table_talk')
+            if value is None:
+                value = ai_player.elastic_personality.get_trait_value('chattiness')
+            return value if value is not None else 0.5
         if hasattr(ai_player, 'personality_config'):
             traits = ai_player.personality_config.get('personality_traits', {})
-            return traits.get('chattiness', 0.5)
+            return traits.get('table_talk', traits.get('chattiness', 0.5))
         return 0.5
 
     def to_dict(self) -> Dict[str, Any]:

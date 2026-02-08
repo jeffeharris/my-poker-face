@@ -136,7 +136,12 @@ export interface DecisionAnalysis {
   focus: number | null;
   display_emotion: string | null;
   elastic_aggression: number | null;
-  elastic_bluff_tendency: number | null;
+  elastic_bluff_tendency: number | null;  // Legacy - kept for historical data
+  // New 5-trait poker-native model
+  elastic_tightness: number | null;
+  elastic_confidence: number | null;
+  elastic_composure: number | null;
+  elastic_table_talk: number | null;
 }
 
 export interface DecisionAnalysisStats {

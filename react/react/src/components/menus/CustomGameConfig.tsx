@@ -19,7 +19,20 @@ import './CustomGameConfig.css';
 interface Personality {
   name: string;
   play_style: string;
-  personality_traits: {
+  // New 9-anchor format
+  anchors?: {
+    baseline_aggression: number;
+    baseline_looseness: number;
+    ego: number;
+    poise: number;
+    expressiveness: number;
+    risk_identity: number;
+    adaptation_bias: number;
+    baseline_energy: number;
+    recovery_rate: number;
+  };
+  // Legacy 4-trait format (for backward compat)
+  personality_traits?: {
     bluff_tendency: number;
     aggression: number;
     chattiness: number;
@@ -576,8 +589,8 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
                 <p className="player-card__style">{p.play_style}</p>
 
                 <div className="player-card__traits">
-                  <TraitBar label="Bluff" value={p.personality_traits.bluff_tendency} />
-                  <TraitBar label="Aggro" value={p.personality_traits.aggression} />
+                  <TraitBar label="Loose" value={p.anchors?.baseline_looseness ?? p.personality_traits?.bluff_tendency ?? 0.5} />
+                  <TraitBar label="Aggro" value={p.anchors?.baseline_aggression ?? p.personality_traits?.aggression ?? 0.5} />
                 </div>
 
               </div>

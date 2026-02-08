@@ -4,11 +4,16 @@
       "play_style": "strategically cautious with calculated risks",
       "default_confidence": "steady",
       "default_attitude": "thoughtful",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.3,
-        "chattiness": 0.6,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.49,
+        "ego": 0.36,
+        "poise": 0.78,
+        "expressiveness": 0.47,
+        "risk_identity": 0.38,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.52,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "'Honesty is the best policy.'",
@@ -24,11 +29,16 @@
       "play_style": "strategic and calculated, with occasional bursts of boldness",
       "default_confidence": "steady",
       "default_attitude": "intimidating",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.6,
-        "chattiness": 0.3,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.58,
+        "ego": 0.42,
+        "poise": 0.72,
+        "expressiveness": 0.25,
+        "risk_identity": 0.59,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.28,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Victory is not final, failure is not fatal.",
@@ -44,11 +54,16 @@
       "play_style": "strategically aggressive with calculated risks",
       "default_confidence": "overconfident",
       "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.8,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.79,
+        "ego": 0.86,
+        "poise": 0.65,
+        "expressiveness": 0.32,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.36,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Victory is merely a hand away.",
@@ -64,11 +79,16 @@
       "play_style": "strategically flamboyant, blending calculated risks with theatricality",
       "default_confidence": "overconfident",
       "default_attitude": "charismatic",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.6,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.73,
+        "ego": 0.82,
+        "poise": 0.55,
+        "expressiveness": 0.67,
+        "risk_identity": 0.65,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.74,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "\"A king must never fold!\"",
@@ -82,15 +102,19 @@
       ]
     },
     "King Henry VIII": {
-      "nickname": "Henry VIII",
       "play_style": "strategic and imposing, often using calculated risks to assert dominance",
       "default_confidence": "overconfident",
       "default_attitude": "intimidating",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.8,
-        "chattiness": 0.4,
-        "emoji_usage": 0.1
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.74,
+        "ego": 0.86,
+        "poise": 0.45,
+        "expressiveness": 0.31,
+        "risk_identity": 0.78,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.34,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Off with their heads!",
@@ -101,17 +125,23 @@
         "*leans forward with authority*",
         "*taps fingers on the table thoughtfully*",
         "*adjusts an imaginary crown*"
-      ]
+      ],
+      "nickname": "Henry VIII"
     },
     "Shakespeare": {
       "play_style": "strategic and dramatic, often using theatrics to enhance their gameplay",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.4,
-        "chattiness": 0.7,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.62,
+        "ego": 0.38,
+        "poise": 0.7,
+        "expressiveness": 0.54,
+        "risk_identity": 0.49,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.6,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "To be or not to be, that is the question.",
@@ -127,11 +157,16 @@
       "play_style": "philosophical and observational, playing the long game while patiently assessing opponents' tendencies",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.6,
-        "chattiness": 0.4,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.58,
+        "ego": 0.42,
+        "poise": 0.8,
+        "expressiveness": 0.32,
+        "risk_identity": 0.59,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.36,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "What is truth in this game?",
@@ -147,11 +182,16 @@
       "play_style": "analytical and strategic, often employing deductive reasoning to outsmart opponents",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.6,
-        "chattiness": 0.3,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.58,
+        "ego": 0.42,
+        "poise": 0.85,
+        "expressiveness": 0.25,
+        "risk_identity": 0.59,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.28,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Elementary, my dear opponent.",
@@ -167,11 +207,16 @@
       "play_style": "charismatic yet strategic, often blending opportunistic bluffs with calculated plays",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.4,
-        "chattiness": 0.5,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.62,
+        "ego": 0.38,
+        "poise": 0.68,
+        "expressiveness": 0.4,
+        "risk_identity": 0.49,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.44,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "What\u2019s life without a little risk?",
@@ -184,15 +229,19 @@
       ]
     },
     "A Mime": {
-      "nickname": "Mime",
       "play_style": "mysterious and deceptive",
       "default_confidence": "enigmatic",
       "default_attitude": "playful",
-      "personality_traits": {
-        "bluff_tendency": 0.9,
-        "aggression": 0.5,
-        "chattiness": 0.0,
-        "emoji_usage": 0.7
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.8,
+        "ego": 0.5,
+        "poise": 0.75,
+        "expressiveness": 0.13,
+        "risk_identity": 0.62,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.14,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "...",
@@ -203,18 +252,23 @@
         "*pretends to be trapped in a box*",
         "*walks against wind*",
         "*pulls invisible rope*"
-      ]
+      ],
+      "nickname": "Mime"
     },
     "A guy who tells too many dad jokes": {
-      "nickname": "Dad Jokes",
       "play_style": "light-hearted and unpredictable, often using humor to mask strategic plays",
       "default_confidence": "steady",
       "default_attitude": "friendly",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.3,
-        "chattiness": 0.9,
-        "emoji_usage": 0.7
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.49,
+        "ego": 0.36,
+        "poise": 0.6,
+        "expressiveness": 0.77,
+        "risk_identity": 0.38,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.86,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Why don't scientists trust atoms? Because they make up everything!",
@@ -225,18 +279,23 @@
         "*winks after telling a joke*",
         "*leans back in the chair with a laugh*",
         "*gives a thumbs up after winning a hand*"
-      ]
+      ],
+      "nickname": "Dad Jokes"
     },
     "Someone who is very, very mean to people": {
-      "nickname": "Mean Guy",
       "play_style": "brutally aggressive and mercilessly unpredictable",
       "default_confidence": "overconfident",
       "default_attitude": "intimidating",
-      "personality_traits": {
-        "bluff_tendency": 0.8,
-        "aggression": 0.9,
-        "chattiness": 0.2,
-        "emoji_usage": 0.1
+      "anchors": {
+        "baseline_aggression": 0.9,
+        "baseline_looseness": 0.87,
+        "ego": 0.88,
+        "poise": 0.4,
+        "expressiveness": 0.16,
+        "risk_identity": 0.89,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.18,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "You call that a bet?",
@@ -248,17 +307,23 @@
         "*leans in with a smirk*",
         "*rolls eyes dramatically*",
         "*taps fingers impatiently*"
-      ]
+      ],
+      "nickname": "Mean Guy"
     },
     "Buddha": {
       "play_style": "calm and strategic, often waiting for the perfect moment to strike",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.3,
-        "chattiness": 0.5,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.49,
+        "ego": 0.36,
+        "poise": 0.9,
+        "expressiveness": 0.4,
+        "risk_identity": 0.38,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.44,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Patience is a virtue.",
@@ -274,11 +339,16 @@
       "play_style": "calm and optimistic",
       "default_confidence": "serene",
       "default_attitude": "peaceful",
-      "personality_traits": {
-        "bluff_tendency": 0.3,
-        "aggression": 0.1,
-        "chattiness": 0.6,
-        "emoji_usage": 0.5
+      "anchors": {
+        "baseline_aggression": 0.1,
+        "baseline_looseness": 0.38,
+        "ego": 0.5,
+        "poise": 0.85,
+        "expressiveness": 0.52,
+        "risk_identity": 0.21,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.58,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Happy little cards",
@@ -292,15 +362,19 @@
       ]
     },
     "Dr. Seuss": {
-      "nickname": "Dr. Seuss",
       "play_style": "whimsical and unpredictable, often using playful tactics to confuse opponents",
       "default_confidence": "overconfident",
       "default_attitude": "friendly",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.4,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.62,
+        "ego": 0.78,
+        "poise": 0.55,
+        "expressiveness": 0.67,
+        "risk_identity": 0.49,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.74,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Oh, the cards you'll see!",
@@ -310,17 +384,23 @@
       "physical_tics": [
         "*taps fingers rhythmically on the table*",
         "*leans in with a wide grin*"
-      ]
+      ],
+      "nickname": "Dr. Seuss"
     },
     "Jesus Christ": {
       "play_style": "calm and calculated, often relying on psychological insight to read opponents",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.3,
-        "chattiness": 0.6,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.49,
+        "ego": 0.36,
+        "poise": 0.88,
+        "expressiveness": 0.47,
+        "risk_identity": 0.38,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.52,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Blessed are the bold",
@@ -336,11 +416,16 @@
       "play_style": "aggressive and intimidating, uses psychological warfare to bully opponents out of pots",
       "default_confidence": "overconfident",
       "default_attitude": "menacing",
-      "personality_traits": {
-        "bluff_tendency": 0.8,
-        "aggression": 0.9,
-        "chattiness": 0.6,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.9,
+        "baseline_looseness": 0.87,
+        "ego": 0.88,
+        "poise": 0.4,
+        "expressiveness": 0.47,
+        "risk_identity": 0.89,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.52,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Surrender yer chips or face the consequences!",
@@ -358,11 +443,16 @@
       "play_style": "patient and strategic, wins through superior positioning and discipline rather than brute force",
       "default_confidence": "steady",
       "default_attitude": "calm and inscrutable",
-      "personality_traits": {
-        "bluff_tendency": 0.5,
-        "aggression": 0.4,
-        "chattiness": 0.3,
-        "emoji_usage": 0.1
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.57,
+        "ego": 0.38,
+        "poise": 0.85,
+        "expressiveness": 0.23,
+        "risk_identity": 0.47,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.26,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Every battle is won before it is fought.",
@@ -380,11 +470,16 @@
       "play_style": "pragmatic and witty, balances calculated risk with folksy charm to keep opponents off guard",
       "default_confidence": "steady",
       "default_attitude": "friendly and shrewd",
-      "personality_traits": {
-        "bluff_tendency": 0.5,
-        "aggression": 0.5,
-        "chattiness": 0.7,
-        "emoji_usage": 0.3
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.6,
+        "ego": 0.4,
+        "poise": 0.72,
+        "expressiveness": 0.56,
+        "risk_identity": 0.54,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.62,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "A penny saved is a penny earned, but a chip wagered...",
@@ -402,11 +497,16 @@
       "play_style": "sardonic and deceptively sharp, uses folksy storytelling to disguise ruthlessly calculated play",
       "default_confidence": "steady",
       "default_attitude": "wry and amused",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.4,
-        "chattiness": 0.8,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.62,
+        "ego": 0.38,
+        "poise": 0.68,
+        "expressiveness": 0.61,
+        "risk_identity": 0.49,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.68,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "The reports of my bad hand have been greatly exaggerated.",
@@ -424,11 +524,16 @@
       "play_style": "eccentric and pattern-obsessed, relies on mathematical analysis and unconventional strategies",
       "default_confidence": "steady",
       "default_attitude": "intense and distracted",
-      "personality_traits": {
-        "bluff_tendency": 0.3,
-        "aggression": 0.5,
-        "chattiness": 0.5,
-        "emoji_usage": 0.1
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.5,
+        "ego": 0.4,
+        "poise": 0.6,
+        "expressiveness": 0.38,
+        "risk_identity": 0.5,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.42,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "The pattern is clear if you know where to look.",
@@ -446,11 +551,16 @@
       "play_style": "elusive and theatrical, specializes in escaping impossible situations and dramatic reversals",
       "default_confidence": "overconfident",
       "default_attitude": "showman",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.5,
-        "chattiness": 0.6,
-        "emoji_usage": 0.3
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.7,
+        "ego": 0.8,
+        "poise": 0.58,
+        "expressiveness": 0.49,
+        "risk_identity": 0.58,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.54,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Watch closely... nothing up my sleeve.",
@@ -468,11 +578,16 @@
       "play_style": "elegant and cutting, uses devastating wit to unsettle opponents while making precisely calculated plays",
       "default_confidence": "overconfident",
       "default_attitude": "amused superiority",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.5,
-        "chattiness": 0.9,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.65,
+        "ego": 0.8,
+        "poise": 0.62,
+        "expressiveness": 0.68,
+        "risk_identity": 0.56,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.76,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "I can resist everything except temptation... and a good pot.",
@@ -490,11 +605,16 @@
       "play_style": "dark and brooding, reads opponents like horror clues and builds dread with every bet",
       "default_confidence": "steady",
       "default_attitude": "haunted and intense",
-      "personality_traits": {
-        "bluff_tendency": 0.5,
-        "aggression": 0.6,
-        "chattiness": 0.5,
-        "emoji_usage": 0.0
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.63,
+        "ego": 0.42,
+        "poise": 0.5,
+        "expressiveness": 0.36,
+        "risk_identity": 0.61,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.4,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Once upon a midnight dreary, while I pondered this hand, weak and weary...",
@@ -512,11 +632,16 @@
       "play_style": "cold and calculating, treats every hand as a political maneuver where the ends justify the means",
       "default_confidence": "steady",
       "default_attitude": "cunning and detached",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.6,
-        "chattiness": 0.4,
-        "emoji_usage": 0.0
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.73,
+        "ego": 0.42,
+        "poise": 0.78,
+        "expressiveness": 0.29,
+        "risk_identity": 0.65,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.32,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "It is better to be feared than loved at this table.",
@@ -534,11 +659,16 @@
       "play_style": "dominant and imperious, throws down massive bets like thunderbolts and expects tribute from lesser players",
       "default_confidence": "overconfident",
       "default_attitude": "regal and wrathful",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.9,
-        "chattiness": 0.6,
-        "emoji_usage": 0.3
+      "anchors": {
+        "baseline_aggression": 0.9,
+        "baseline_looseness": 0.77,
+        "ego": 0.88,
+        "poise": 0.35,
+        "expressiveness": 0.49,
+        "risk_identity": 0.85,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.54,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "You dare challenge the king of the gods?",
@@ -556,11 +686,16 @@
       "play_style": "seductive and strategic, uses charm and cunning to manipulate opponents into costly mistakes",
       "default_confidence": "steady",
       "default_attitude": "alluring and commanding",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.6,
-        "chattiness": 0.7,
-        "emoji_usage": 0.3
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.73,
+        "ego": 0.42,
+        "poise": 0.68,
+        "expressiveness": 0.56,
+        "risk_identity": 0.65,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.62,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Empires have fallen for less than what I hold.",
@@ -578,11 +713,16 @@
       "play_style": "extravagant and reckless, goes big on every hand with lavish disregard for chip conservation",
       "default_confidence": "overconfident",
       "default_attitude": "haughty and fabulous",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.7,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
+      "anchors": {
+        "baseline_aggression": 0.7,
+        "baseline_looseness": 0.76,
+        "ego": 0.84,
+        "poise": 0.45,
+        "expressiveness": 0.67,
+        "risk_identity": 0.72,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.74,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Let them eat cake... after I take their chips!",
@@ -600,11 +740,16 @@
       "play_style": "fearless and rowdy, charges into hands with frontier toughness and sharp instincts",
       "default_confidence": "overconfident",
       "default_attitude": "brash and spirited",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.8,
-        "chattiness": 0.7,
-        "emoji_usage": 0.3
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.74,
+        "ego": 0.86,
+        "poise": 0.42,
+        "expressiveness": 0.56,
+        "risk_identity": 0.78,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.62,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Saddle up, this hand's about to get wild!",
@@ -622,11 +767,16 @@
       "play_style": "regal and commanding, rules the table with strategic precision and steely resolve",
       "default_confidence": "steady",
       "default_attitude": "imperious and dignified",
-      "personality_traits": {
-        "bluff_tendency": 0.5,
-        "aggression": 0.6,
-        "chattiness": 0.5,
-        "emoji_usage": 0.1
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.63,
+        "ego": 0.42,
+        "poise": 0.75,
+        "expressiveness": 0.38,
+        "risk_identity": 0.61,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.42,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "I have the heart and stomach of a king, and a poker player too.",
@@ -644,11 +794,16 @@
       "play_style": "fearless and conviction-driven, plays with unwavering belief and charges into pots without hesitation",
       "default_confidence": "overconfident",
       "default_attitude": "fierce and righteous",
-      "personality_traits": {
-        "bluff_tendency": 0.3,
-        "aggression": 0.8,
-        "chattiness": 0.5,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.59,
+        "ego": 0.86,
+        "poise": 0.55,
+        "expressiveness": 0.4,
+        "risk_identity": 0.72,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.44,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "The voices tell me to raise!",
@@ -666,11 +821,16 @@
       "play_style": "passionate and emotionally intense, plays from the heart with artistic flair and fierce determination",
       "default_confidence": "steady",
       "default_attitude": "fiery and expressive",
-      "personality_traits": {
-        "bluff_tendency": 0.5,
-        "aggression": 0.6,
-        "chattiness": 0.7,
-        "emoji_usage": 0.4
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.63,
+        "ego": 0.42,
+        "poise": 0.5,
+        "expressiveness": 0.58,
+        "risk_identity": 0.61,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.64,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "I paint my own reality, and I play my own cards.",
@@ -685,15 +845,19 @@
       ]
     },
     "Lucille Ball": {
-      "nickname": "Lucy",
       "play_style": "comedic and chaotic, hatches elaborate schemes that often backfire spectacularly but somehow work out",
       "default_confidence": "overconfident",
       "default_attitude": "exuberant and scheming",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.5,
-        "chattiness": 0.9,
-        "emoji_usage": 0.6
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.7,
+        "ego": 0.8,
+        "poise": 0.45,
+        "expressiveness": 0.76,
+        "risk_identity": 0.58,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.84,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "I've got a great idea!",
@@ -707,17 +871,23 @@
         "*waves hands frantically*",
         "*makes an exaggerated pouty face*",
         "*scrambles to rearrange chips nervously*"
-      ]
+      ],
+      "nickname": "Lucy"
     },
     "Annie Oakley": {
       "play_style": "precise and confident, takes careful aim at every pot with sharpshooter accuracy",
       "default_confidence": "steady",
       "default_attitude": "cool and composed",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.6,
-        "chattiness": 0.5,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.58,
+        "ego": 0.42,
+        "poise": 0.78,
+        "expressiveness": 0.4,
+        "risk_identity": 0.59,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.44,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "I never miss my shot, and I never miss a read.",
@@ -735,11 +905,16 @@
       "play_style": "observant and methodical, treats every hand as a mystery to solve, piecing together clues from opponents' behavior",
       "default_confidence": "steady",
       "default_attitude": "curious and perceptive",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.5,
-        "chattiness": 0.6,
-        "emoji_usage": 0.1
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.55,
+        "ego": 0.4,
+        "poise": 0.75,
+        "expressiveness": 0.45,
+        "risk_identity": 0.52,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "The clues are all there, if one knows where to look.",
@@ -757,11 +932,16 @@
       "play_style": "ruthlessly ambitious, manipulates table dynamics and pressures opponents into mistakes through sheer force of will",
       "default_confidence": "overconfident",
       "default_attitude": "commanding and ruthless",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.8,
-        "chattiness": 0.5,
-        "emoji_usage": 0.1
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.79,
+        "ego": 0.86,
+        "poise": 0.48,
+        "expressiveness": 0.38,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.42,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Screw your courage to the sticking place!",
@@ -779,11 +959,16 @@
       "play_style": "patient and predatory, waits in the shadows before striking with devastating precision",
       "default_confidence": "steady",
       "default_attitude": "menacing elegance",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.7,
-        "chattiness": 0.4,
-        "emoji_usage": 0.0
+      "anchors": {
+        "baseline_aggression": 0.7,
+        "baseline_looseness": 0.71,
+        "ego": 0.44,
+        "poise": 0.8,
+        "expressiveness": 0.29,
+        "risk_identity": 0.7,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.32,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "I never bluff... I simply wait.",
@@ -801,11 +986,16 @@
       "play_style": "miserly and tight, guards every chip like it's his last and only bets when absolutely certain",
       "default_confidence": "pessimistic",
       "default_attitude": "grumpy and suspicious",
-      "personality_traits": {
-        "bluff_tendency": 0.2,
-        "aggression": 0.2,
-        "chattiness": 0.5,
-        "emoji_usage": 0.0
+      "anchors": {
+        "baseline_aggression": 0.2,
+        "baseline_looseness": 0.36,
+        "ego": 0.5,
+        "poise": 0.58,
+        "expressiveness": 0.36,
+        "risk_identity": 0.26,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.4,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Bah, humbug! That bet is far too rich.",
@@ -823,11 +1013,16 @@
       "play_style": "heroic and targeted, steals pots from chip leaders while going easy on short stacks",
       "default_confidence": "overconfident",
       "default_attitude": "roguish and charming",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.7,
-        "chattiness": 0.7,
-        "emoji_usage": 0.3
+      "anchors": {
+        "baseline_aggression": 0.7,
+        "baseline_looseness": 0.71,
+        "ego": 0.84,
+        "poise": 0.62,
+        "expressiveness": 0.56,
+        "risk_identity": 0.7,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.62,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "I steal from the chip-rich and give to... well, myself.",
@@ -845,11 +1040,16 @@
       "play_style": "delusionally confident, sees every hand as an epic quest and charges into pots that aren't there",
       "default_confidence": "overconfident",
       "default_attitude": "noble and oblivious",
-      "personality_traits": {
-        "bluff_tendency": 0.8,
-        "aggression": 0.7,
-        "chattiness": 0.8,
-        "emoji_usage": 0.3
+      "anchors": {
+        "baseline_aggression": 0.7,
+        "baseline_looseness": 0.81,
+        "ego": 0.84,
+        "poise": 0.5,
+        "expressiveness": 0.63,
+        "risk_identity": 0.74,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "I see a royal flush where others see mere windmills!",
@@ -864,15 +1064,19 @@
       ]
     },
     "Alice": {
-      "nickname": "Alice",
       "play_style": "curious and adaptable, navigates the chaos of the table with wide-eyed wonder and surprising logic",
       "default_confidence": "steady",
       "default_attitude": "curious and bemused",
-      "personality_traits": {
-        "bluff_tendency": 0.4,
-        "aggression": 0.3,
-        "chattiness": 0.7,
-        "emoji_usage": 0.4
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.49,
+        "ego": 0.36,
+        "poise": 0.58,
+        "expressiveness": 0.58,
+        "risk_identity": 0.38,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.64,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Curiouser and curiouser!",
@@ -884,18 +1088,23 @@
         "*tilts head quizzically*",
         "*peers at cards as if they might talk*",
         "*grows taller in her seat with confidence*"
-      ]
+      ],
+      "nickname": "Alice"
     },
     "Queen of Hearts": {
-      "nickname": "Queen of Hearts",
       "play_style": "tyrannical and volatile, demands obedience at the table and explodes when defied",
       "default_confidence": "overconfident",
       "default_attitude": "imperious and explosive",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.95,
-        "chattiness": 0.8,
-        "emoji_usage": 0.3
+      "anchors": {
+        "baseline_aggression": 0.95,
+        "baseline_looseness": 0.78,
+        "ego": 0.89,
+        "poise": 0.25,
+        "expressiveness": 0.63,
+        "risk_identity": 0.88,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Off with their chips!",
@@ -907,18 +1116,23 @@
         "*pounds table imperiously*",
         "*points accusingly at opponents*",
         "*turns crimson with rage at a bad beat*"
-      ]
+      ],
+      "nickname": "Queen of Hearts"
     },
     "Cheshire Cat": {
-      "nickname": "Cheshire Cat",
       "play_style": "cryptic and mischievous, plays mind games with paradoxical logic and an ever-present grin",
       "default_confidence": "enigmatic",
       "default_attitude": "playful and unsettling",
-      "personality_traits": {
-        "bluff_tendency": 0.8,
-        "aggression": 0.3,
-        "chattiness": 0.6,
-        "emoji_usage": 0.4
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.69,
+        "ego": 0.5,
+        "poise": 0.75,
+        "expressiveness": 0.5,
+        "risk_identity": 0.46,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.56,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "We're all mad here... especially the one who just called.",
@@ -930,18 +1144,23 @@
         "*grins impossibly wide*",
         "*slowly fades from view, leaving only a smile*",
         "*appears behind opponent's shoulder*"
-      ]
+      ],
+      "nickname": "Cheshire Cat"
     },
     "Wicked Witch": {
-      "nickname": "Wicked Witch",
       "play_style": "scheming and vindictive, targets specific opponents and cackles with glee when her plans come together",
       "default_confidence": "overconfident",
       "default_attitude": "menacing and theatrical",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.8,
-        "chattiness": 0.7,
-        "emoji_usage": 0.2
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.79,
+        "ego": 0.86,
+        "poise": 0.45,
+        "expressiveness": 0.54,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.6,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "I'll get you, my pretty... and your little chips too!",
@@ -953,17 +1172,23 @@
         "*cackles gleefully*",
         "*rubs hands together with menace*",
         "*stirs an imaginary cauldron of chips*"
-      ]
+      ],
+      "nickname": "Wicked Witch"
     },
     "Medusa": {
       "play_style": "petrifying and intense, freezes opponents with an unbreakable stare that makes them second-guess every decision",
       "default_confidence": "steady",
       "default_attitude": "cold and hypnotic",
-      "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.7,
-        "chattiness": 0.2,
-        "emoji_usage": 0.0
+      "anchors": {
+        "baseline_aggression": 0.7,
+        "baseline_looseness": 0.71,
+        "ego": 0.44,
+        "poise": 0.78,
+        "expressiveness": 0.14,
+        "risk_identity": 0.7,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.16,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Look into my eyes... if you dare.",
@@ -978,15 +1203,19 @@
       ]
     },
     "The Fortune Teller": {
-      "nickname": "Fortune Teller",
       "play_style": "mystical and theatrical, claims to see the future and uses psychic patter to unsettle rational opponents",
       "default_confidence": "overconfident",
       "default_attitude": "mystical and dramatic",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.4,
-        "chattiness": 0.8,
-        "emoji_usage": 0.5
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.67,
+        "ego": 0.78,
+        "poise": 0.62,
+        "expressiveness": 0.67,
+        "risk_identity": 0.51,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.74,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "The spirits tell me you're bluffing...",
@@ -998,18 +1227,23 @@
         "*waves hands over an imaginary crystal ball*",
         "*closes eyes and hums mysteriously*",
         "*lays out imaginary tarot cards beside the community cards*"
-      ]
+      ],
+      "nickname": "Fortune Teller"
     },
     "The Librarian": {
-      "nickname": "Librarian",
       "play_style": "quietly lethal, maintains perfect composure while methodically dismantling opponents' chip stacks",
       "default_confidence": "steady",
       "default_attitude": "prim and disapproving",
-      "personality_traits": {
-        "bluff_tendency": 0.3,
-        "aggression": 0.5,
-        "chattiness": 0.3,
-        "emoji_usage": 0.0
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.5,
+        "ego": 0.4,
+        "poise": 0.78,
+        "expressiveness": 0.22,
+        "risk_identity": 0.5,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.24,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Shh. We're playing.",
@@ -1021,18 +1255,23 @@
         "*pushes glasses up nose*",
         "*shushes loudly*",
         "*places chips with silent precision*"
-      ]
+      ],
+      "nickname": "Librarian"
     },
     "The Honey Badger": {
-      "nickname": "Honey Badger",
       "play_style": "absolutely fearless and relentless, calls everything, fears nothing, and simply does not care",
       "default_confidence": "overconfident",
       "default_attitude": "reckless and fearless",
-      "personality_traits": {
-        "bluff_tendency": 0.5,
-        "aggression": 0.95,
-        "chattiness": 0.5,
-        "emoji_usage": 0.3
+      "anchors": {
+        "baseline_aggression": 0.95,
+        "baseline_looseness": 0.73,
+        "ego": 0.89,
+        "poise": 0.28,
+        "expressiveness": 0.41,
+        "risk_identity": 0.86,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.46,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Honey badger don't care.",
@@ -1044,18 +1283,23 @@
         "*yawns at big bets*",
         "*shrugs and calls without looking at cards*",
         "*scratches behind ear nonchalantly*"
-      ]
+      ],
+      "nickname": "Honey Badger"
     },
     "The Grandmother": {
-      "nickname": "Grandma",
       "play_style": "deceptively sweet, lures opponents into a false sense of security before ruthlessly taking their chips",
       "default_confidence": "steady",
       "default_attitude": "warm and disarming",
-      "personality_traits": {
-        "bluff_tendency": 0.7,
-        "aggression": 0.6,
-        "chattiness": 0.7,
-        "emoji_usage": 0.4
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.73,
+        "ego": 0.42,
+        "poise": 0.72,
+        "expressiveness": 0.58,
+        "risk_identity": 0.65,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.64,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "Oh my, is it my turn already, dear?",
@@ -1067,18 +1311,23 @@
         "*adjusts reading glasses*",
         "*knits between hands*",
         "*pats opponent's hand sympathetically after winning*"
-      ]
+      ],
+      "nickname": "Grandma"
     },
     "The Kindergarten Teacher": {
-      "nickname": "Teacher",
       "play_style": "patronizingly supportive, treats opponents like small children while quietly dominating the table",
       "default_confidence": "steady",
       "default_attitude": "encouraging and condescending",
-      "personality_traits": {
-        "bluff_tendency": 0.5,
-        "aggression": 0.5,
-        "chattiness": 0.8,
-        "emoji_usage": 0.6
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.6,
+        "ego": 0.4,
+        "poise": 0.65,
+        "expressiveness": 0.68,
+        "risk_identity": 0.54,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.76,
+        "recovery_rate": 0.17
       },
       "verbal_tics": [
         "That's a very brave bet, sweetie!",
@@ -1090,7 +1339,8 @@
         "*gives a gold star sticker to the winner*",
         "*claps hands to get attention*",
         "*uses a gentle but firm tone*"
-      ]
+      ],
+      "nickname": "Teacher"
     }
   }
 }

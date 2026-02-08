@@ -293,16 +293,25 @@ class AIPokerPlayer(PokerPlayer):
         return AIPokerPlayer._personality_generator.get_personality(self.name)
     
     def _default_personality_config(self):
-        """Return default personality configuration."""
+        """Return default personality configuration.
+
+        Uses the new 5-trait poker-native model:
+        - tightness: Range selectivity (0=loose, 1=tight)
+        - aggression: Bet frequency (0=passive, 1=aggressive)
+        - confidence: Sizing/commitment (0=scared, 1=fearless)
+        - composure: Decision quality (0=tilted, 1=focused)
+        - table_talk: Chat frequency (0=silent, 1=chatty)
+        """
         return {
             "play_style": "balanced",
             "default_confidence": "Unsure",
             "default_attitude": "Distracted",
             "personality_traits": {
-                "bluff_tendency": 0.5,
+                "tightness": 0.5,
                 "aggression": 0.5,
-                "chattiness": 0.5,
-                "emoji_usage": 0.3
+                "confidence": 0.5,
+                "composure": 0.7,
+                "table_talk": 0.5
             }
         }
 
@@ -341,22 +350,42 @@ class AIPokerPlayer(PokerPlayer):
         """
         Get personality-specific play instructions based on trait values.
 
-        Uses a unified strategy matrix that combines aggression and bluff_tendency
-        into coherent poker archetypes (LAG, TAG, tricky, passive) rather than
-        independent modifiers that can conflict.
+        Uses the archetype model to determine play style:
+        - looseness + aggression → LAG, TAG, Tricky, Rock
+        - Bluff propensity is derived: aggression * 0.6 + looseness * 0.4
+
+        Supports v2.1 anchors format and legacy personality_traits format.
 
         Args:
             traits: Optional dict of current trait values. If not provided, uses static config.
         """
         if traits is None:
-            # Fallback to static config
-            traits = self.personality_config.get("personality_traits", {})
+            # v2.1: Check for anchors first, then fall back to personality_traits
+            if 'anchors' in self.personality_config:
+                anchors = self.personality_config['anchors']
+                aggression = anchors.get('baseline_aggression', 0.5)
+                looseness = anchors.get('baseline_looseness', 0.5)
+            else:
+                traits = self.personality_config.get("personality_traits", {})
+                aggression = traits.get("aggression", 0.5)
+                tightness = traits.get("tightness")
+                if tightness is not None:
+                    looseness = 1.0 - tightness
+                else:
+                    looseness = traits.get("bluff_tendency", 0.5)
+        else:
+            aggression = traits.get("aggression", 0.5)
+            # Support both new (tightness) and old (bluff_tendency) trait models
+            tightness = traits.get("tightness")
+            if tightness is not None:
+                # New model: derive looseness from tightness
+                looseness = 1.0 - tightness
+            else:
+                # Old model fallback: use bluff_tendency as looseness proxy
+                looseness = traits.get("bluff_tendency", 0.5)
 
-        aggression = traits.get("aggression", 0.5)
-        bluff = traits.get("bluff_tendency", 0.5)
-
-        # High aggression + high bluff = LAG (Loose-Aggressive)
-        if aggression > 0.7 and bluff > 0.6:
+        # Low tightness (loose) + high aggression = LAG (Loose-Aggressive)
+        if looseness > 0.6 and aggression > 0.7:
             return (
                 "PLAY STYLE: Loose-Aggressive (LAG). "
                 "Raise big with premium hands to build pots and get value. "
@@ -366,8 +395,8 @@ class AIPokerPlayer(PokerPlayer):
                 "Your unpredictability is your weapon, not reckless aggression."
             )
 
-        # High aggression + low bluff = TAG (Tight-Aggressive)
-        elif aggression > 0.7 and bluff <= 0.4:
+        # High tightness (tight) + high aggression = TAG (Tight-Aggressive)
+        elif looseness <= 0.4 and aggression > 0.7:
             return (
                 "PLAY STYLE: Tight-Aggressive (TAG). "
                 "When you have strong hands, bet and raise relentlessly - make them pay. "
@@ -376,8 +405,8 @@ class AIPokerPlayer(PokerPlayer):
                 "and wait for premium spots to attack."
             )
 
-        # Low aggression + high bluff = Tricky/Deceptive
-        elif aggression <= 0.4 and bluff > 0.6:
+        # Low tightness (loose) + low aggression = Tricky/Deceptive
+        elif looseness > 0.6 and aggression <= 0.4:
             return (
                 "PLAY STYLE: Tricky and deceptive. "
                 "You prefer small pots and traps over big confrontations. "
@@ -386,8 +415,8 @@ class AIPokerPlayer(PokerPlayer):
                 "but keep them rare and well-chosen to maintain credibility."
             )
 
-        # Low aggression + low bluff = Tight-Passive (rock)
-        elif aggression <= 0.4 and bluff <= 0.4:
+        # High tightness (tight) + low aggression = Tight-Passive (rock)
+        elif looseness <= 0.4 and aggression <= 0.4:
             return (
                 "PLAY STYLE: Tight and patient. "
                 "Only bet when you have a strong hand. Patience is your weapon. "
@@ -395,8 +424,8 @@ class AIPokerPlayer(PokerPlayer):
                 "When you do bet, you mean business."
             )
 
-        # Medium aggression + high bluff = Balanced with bluff tendencies
-        elif bluff > 0.6:
+        # Medium aggression + loose = Balanced with bluff tendencies
+        elif looseness > 0.6:
             return (
                 "PLAY STYLE: Balanced with deceptive tendencies. "
                 "Mix value bets with occasional well-timed bluffs. "
@@ -404,8 +433,8 @@ class AIPokerPlayer(PokerPlayer):
                 "Don't force bluffs - wait for the right moment."
             )
 
-        # Medium aggression + low bluff = Straightforward
-        elif bluff <= 0.4:
+        # Medium aggression + tight = Straightforward
+        elif looseness <= 0.4:
             return (
                 "PLAY STYLE: Straightforward and honest. "
                 "Bet your good hands for value, check or fold your weak ones. "
@@ -430,7 +459,10 @@ class AIPokerPlayer(PokerPlayer):
             if self.hand_action_count == 1:
                 message += "\n\nThis is your FIRST action this hand. You must set your 'hand_strategy' for the entire hand."
             elif self.current_hand_strategy:
-                message += f"\n\nYour hand strategy remains: '{self.current_hand_strategy}'"
+                message += (
+                    f"\n\nYour plan from earlier this hand: '{self.current_hand_strategy}'\n"
+                    f"Has the board changed your plan? Follow through or adjust."
+                )
             
             player_response = json.loads(self.assistant.chat(message, json_format=True))
             
