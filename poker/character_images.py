@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw
 from core.llm import LLMClient, CallType
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
 from core.llm.settings import get_default_model, get_default_provider, get_image_model, get_image_provider
+from .image_prompt_config import ImagePromptConfig
 
 if TYPE_CHECKING:
     from .repositories import PersonalityRepository
@@ -366,32 +367,6 @@ class CharacterImageService:
         results["success"] = results["failed"] == 0
         return results
 
-    def _generate_description_for_celebrity(self, llm_client: LLMClient, name: str,
-                                            game_id: Optional[str] = None) -> str:
-        """Use a text LLM to generate a physical description for a real person.
-
-        This generates ONLY the physical description - style, background, and emotion
-        are added by the prompt template.
-        """
-        logger.info(f"Auto-generating physical description for {name}")
-        prompt = (
-            f"Describe {name}'s physical appearance in 15-20 words for a cartoon portrait. "
-            f"Include: gender, build, hair style/color, skin tone, and 2-3 distinctive features. "
-            f"Output ONLY the physical description, no style or setting details. "
-            f"Format: 'a [physical description] character'. Do NOT use their name."
-        )
-        text_client = LLMClient(model=get_default_model(), provider=get_default_provider())
-        response = text_client.complete(
-            messages=[{"role": "user", "content": prompt}],
-            call_type=CallType.IMAGE_DESCRIPTION,
-            game_id=game_id,
-            player_name=name,
-            prompt_template='image_description',
-        )
-        description = response.content.strip()
-        logger.info(f"Generated description for {name}: {description}")
-        return description
-
     def _get_description(self, personality_name: str) -> Optional[str]:
         """Get description for a personality from PersonalityGenerator."""
         if self._personality_generator:
@@ -403,7 +378,11 @@ class CharacterImageService:
                                 seed_image_url: Optional[str] = None,
                                 strength: float = 0.75,
                                 reference_image_id: Optional[str] = None) -> bytes:
-        """Generate a single image using DALL-E and return raw bytes.
+        """Generate a single image and return raw bytes.
+
+        Uses ImagePromptConfig to assemble structured prompts from personality
+        visual identity data. Falls back to legacy templates if no personality
+        generator is available.
 
         Args:
             llm_client: LLMClient for tracked API calls
@@ -420,21 +399,21 @@ class CharacterImageService:
         """
         emotion_detail = EMOTION_DETAILS.get(emotion, EMOTION_DETAILS["confident"])
 
-        # Check if we have a description (pre-defined or cached)
-        description = self._get_description(personality_name)
+        # Build prompt using ImagePromptConfig
+        personality = None
+        if self._personality_generator:
+            personality = self._personality_generator.get_personality(personality_name)
 
-        if description:
-            prompt = PROMPT_TEMPLATE_DESCRIPTION.format(
-                description=description,
-                emotion_detail=emotion_detail
+        if personality:
+            prompt_config = ImagePromptConfig.from_personality(
+                personality, personality_name, emotion_detail
             )
-            logger.debug(f"Using description-based prompt for {personality_name}")
+            prompt = prompt_config.assemble_prompt()
         else:
-            # Try with name directly (works for fictional characters)
-            prompt = PROMPT_TEMPLATE_FICTIONAL.format(
-                character=personality_name,
-                emotion_detail=emotion_detail
-            )
+            # Legacy fallback when no personality generator available
+            prompt = self._build_legacy_prompt(personality_name, emotion_detail)
+
+        logger.debug(f"Image prompt for {personality_name}/{emotion}: {prompt}")
 
         try:
             image_response = llm_client.generate_image(
@@ -451,20 +430,23 @@ class CharacterImageService:
                 negative_prompt=NEGATIVE_PROMPT,
             )
             if image_response.is_error:
-                # Check for content policy violation before raising
-                if image_response.error_code == "content_policy_violation" and not description:
-                    logger.info(f"Content policy blocked {personality_name}, generating description...")
-                    description = self._generate_description_for_celebrity(llm_client, personality_name, game_id=game_id)
-
-                    # Save the generated description to PersonalityGenerator
-                    if self._personality_generator:
-                        self._personality_generator.set_avatar_description(personality_name, description)
-
-                    # Retry with description-based prompt
-                    prompt = PROMPT_TEMPLATE_DESCRIPTION.format(
-                        description=description,
-                        emotion_detail=emotion_detail
+                if image_response.error_code == "content_policy_violation" and personality and self._personality_generator:
+                    # Generate archetype-based visual identity and retry
+                    logger.info(f"Content policy blocked {personality_name}, generating archetype identity...")
+                    archetype = self._generate_archetype_identity(llm_client, personality_name, game_id=game_id)
+                    personality['visual_identity'] = archetype
+                    self._personality_generator.personality_repo.save_personality(
+                        personality_name, personality, source='updated'
                     )
+                    # Invalidate cache so next call picks up new identity
+                    self._personality_generator._cache.pop(personality_name, None)
+
+                    prompt_config = ImagePromptConfig.from_personality(
+                        personality, personality_name, emotion_detail
+                    )
+                    prompt = prompt_config.assemble_prompt()
+                    logger.debug(f"Retry prompt for {personality_name}/{emotion}: {prompt}")
+
                     image_response = llm_client.generate_image(
                         prompt=prompt,
                         size=FULL_IMAGE_SIZE,
@@ -477,12 +459,11 @@ class CharacterImageService:
                     )
                     if image_response.is_error:
                         logger.error(f"Second attempt also failed for {personality_name}/{emotion}: {image_response.error_message}")
-                        raise Exception(f"Image generation failed for {personality_name} ({emotion}) after content policy fallback: {image_response.error_message or 'Unknown error'}")
+                        raise Exception(f"Image generation failed for {personality_name} ({emotion}) after archetype fallback: {image_response.error_message or 'Unknown error'}")
                 else:
                     raise Exception(image_response.error_message or image_response.error_code or "Image generation failed")
             image_url = image_response.url
-        except Exception as e:
-            # Re-raise any other exceptions
+        except Exception:
             raise
 
         # Download image to bytes (not to filesystem)
@@ -491,6 +472,47 @@ class CharacterImageService:
 
         logger.debug(f"Downloaded image for {personality_name} - {emotion} ({len(image_bytes)} bytes)")
         return image_bytes
+
+    def _generate_archetype_identity(self, llm_client: LLMClient, name: str,
+                                      game_id: Optional[str] = None) -> Dict[str, str]:
+        """Generate archetype-based visual identity for content policy workaround.
+
+        When an image provider blocks a character name, this generates a
+        description-based identity (appearance + apparel) without using the name.
+        """
+        import json
+        logger.info(f"Generating archetype identity for {name}")
+        prompt = (
+            f"Create a visual description for a character inspired by {name}, "
+            f"described as an archetype to avoid naming real people.\n\n"
+            f"Respond with JSON containing:\n"
+            f'- identity: An archetype description (e.g., "a tall distinguished 19th-century statesman")\n'
+            f"- appearance: Physical features in 10-15 words (build, hair, face, skin tone, age)\n"
+            f"- apparel: Clothing and accessories in 8-12 words (in character, not a generic suit)"
+        )
+        text_client = LLMClient(model=get_default_model(), provider=get_default_provider())
+        response = text_client.complete(
+            messages=[{"role": "user", "content": prompt}],
+            json_format=True,
+            call_type=CallType.IMAGE_DESCRIPTION,
+            game_id=game_id,
+            player_name=name,
+            prompt_template='archetype_generation',
+        )
+        result = json.loads(response.content)
+        logger.info(f"Generated archetype for {name}: {result.get('identity', 'unknown')}")
+        return result
+
+    def _build_legacy_prompt(self, personality_name: str, emotion_detail: str) -> str:
+        """Build prompt using legacy templates (fallback when no personality data)."""
+        description = self._get_description(personality_name)
+        if description:
+            return PROMPT_TEMPLATE_DESCRIPTION.format(
+                description=description, emotion_detail=emotion_detail
+            )
+        return PROMPT_TEMPLATE_FICTIONAL.format(
+            character=personality_name, emotion_detail=emotion_detail
+        )
 
     def _process_to_icon_and_save(self, personality_name: str, emotion: str, raw_image_bytes: bytes) -> bytes:
         """Process raw image bytes to a circular icon and save both full and icon to database.
