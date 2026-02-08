@@ -1,5 +1,6 @@
 services:
   backend:
+    hostname: poker-backend
     build:
       context: .
       dockerfile: Dockerfile
@@ -47,8 +48,10 @@ services:
       start_period: 40s
     networks:
       - poker-network
+      - web
 
   frontend:
+    hostname: poker-frontend
     build:
       context: ./react/react
       dockerfile: Dockerfile
@@ -61,6 +64,7 @@ services:
       start_period: 10s
     networks:
       - poker-network
+      - web
 
   redis:
     image: redis:7-alpine
@@ -76,28 +80,12 @@ services:
     networks:
       - poker-network
 
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - backend
-      - frontend
-    networks:
-      - poker-network
-
 
 volumes:
   redis-data:
-  caddy-data:
-  caddy-config:
 
 networks:
   poker-network:
     driver: bridge
+  web:
+    external: true

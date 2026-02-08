@@ -342,7 +342,7 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
 
 ## DevOps & Production
 
-Production deployment documentation: `/docs/DEVOPS.md`
+Server infrastructure docs: `~/projects/hetzner-infra/README.md`
 
 ### Quick Commands
 ```bash
@@ -365,7 +365,6 @@ ssh root@178.156.202.136 "cd /opt/poker && docker compose -f docker-compose.prod
 
 ### Key Files
 - `docker-compose.prod.yml` - Production container orchestration
-- `Caddyfile` - Reverse proxy with auto-SSL
 - `deploy.sh` - Deployment script
 
 ## GitHub CLI Usage
