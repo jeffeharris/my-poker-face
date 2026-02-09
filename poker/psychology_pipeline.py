@@ -136,7 +136,7 @@ class PsychologyPipeline:
 
             for player_name, player_event_list in player_events.items():
                 controller = controllers[player_name]
-                if not hasattr(controller, 'psychology'):
+                if not hasattr(controller, 'psychology') or controller.psychology is None:
                     continue
 
                 try:
@@ -312,6 +312,8 @@ class PsychologyPipeline:
         for name, controller in controllers.items():
             if (
                 hasattr(controller, 'psychology')
+                and controller.psychology is not None
+                and controller.psychology.tilt
                 and controller.psychology.tilt.nemesis
             ):
                 player_nemesis_map[name] = controller.psychology.tilt.nemesis
@@ -358,7 +360,7 @@ class PsychologyPipeline:
                 continue
 
             controller = controllers[player.name]
-            if not hasattr(controller, 'psychology'):
+            if not hasattr(controller, 'psychology') or controller.psychology is None:
                 continue
 
             # Clear per-hand bluff tracking (always, regardless of narration mode)

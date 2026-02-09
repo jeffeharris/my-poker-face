@@ -1374,7 +1374,8 @@ def register_socket_events(sio):
                     for player_name in affected_players:
                         if player_name in ai_controllers:
                             controller = ai_controllers[player_name]
-                            controller.psychology.apply_pressure_event(event_name, sender)
+                            if controller.psychology is not None:
+                                controller.psychology.apply_pressure_event(event_name, sender)
 
     @sio.on('progress_game')
     @socket_rate_limit(max_calls=5, window_seconds=10)

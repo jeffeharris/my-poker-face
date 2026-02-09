@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List
 
 from poker.controllers import AIPlayerController
 from poker.rule_based_controller import RuleBasedController, RuleConfig
+from poker.rule_bot_controller import RuleBotController
 from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
 from poker.betting_context import BettingContext
 from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
@@ -201,17 +202,22 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
 
     for player in state_machine.game_state.players:
         if not player.is_human:
-            # Check if this player should use a rule-based controller
+            # Check if this player should use a rule-based controller with psychology
             if player.name in bot_types:
                 strategy = bot_types[player.name]
-                config = RuleConfig(strategy=strategy, name=player.name)
-                controller = RuleBasedController(
+                # Get player-specific llm_config or fall back to default (for personality loading)
+                llm_config = player_llm_configs.get(player.name, default_llm_config)
+                controller = RuleBotController(
                     player_name=player.name,
-                    state_machine=state_machine._state_machine if hasattr(state_machine, '_state_machine') else state_machine,
-                    config=config,
+                    state_machine=state_machine,
+                    strategy=strategy,
+                    llm_config=llm_config,
                     game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
                 )
-                logger.info(f"[RESTORE] Created RuleBasedController for {player.name} with strategy '{strategy}'")
+                logger.info(f"[RESTORE] Created RuleBotController for {player.name} with strategy '{strategy}'")
                 ai_controllers[player.name] = controller
                 continue
 
@@ -990,7 +996,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         # Save emotional states (since persist_controller_state=False skips full save)
         for player_name, controller in ai_controllers.items():
             try:
-                if hasattr(controller, 'psychology') and controller.psychology.emotional:
+                if hasattr(controller, 'psychology') and controller.psychology and controller.psychology.emotional:
                     game_repo.save_emotional_state(
                         game_id, player_name, controller.psychology.emotional
                     )

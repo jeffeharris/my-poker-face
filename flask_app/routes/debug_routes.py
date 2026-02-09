@@ -146,6 +146,8 @@ def get_tilt_debug(game_id):
 
     tilt_info = {}
     for player_name, controller in ai_controllers.items():
+        if controller.psychology is None:
+            continue
         tilt = controller.psychology.tilt
         tilt_info[player_name] = {
             'tilt_level': round(tilt.tilt_level, 2),
@@ -177,6 +179,9 @@ def set_tilt_debug(game_id, player_name):
         }), 404
 
     controller = ai_controllers[player_name]
+    if controller.psychology is None:
+        return jsonify({'error': f'Player "{player_name}" is a RuleBot with no psychology'}), 400
+
     data = request.get_json() or {}
     tilt = controller.psychology.tilt
 
