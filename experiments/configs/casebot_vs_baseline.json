@@ -1,0 +1,31 @@
+{
+  "name": "casebot_vs_baseline",
+  "description": "CaseBot vs AI players with simplified prompts (no personality)",
+  "hypothesis": "CaseBot's case-based reasoning may outperform vanilla LLM decision-making without personality guidance",
+  "num_tournaments": 5,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "llama-3.1-8b-instant",
+  "provider": "groq",
+  "random_seed": 42,
+  "personalities": ["Player1", "Player2", "Player3", "CaseBot"],
+  "player_types": {
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "Baseline (no personality)",
+    "prompt_config": {
+      "include_personality": false,
+      "use_simple_response_format": true,
+      "chattiness": false,
+      "dramatic_sequence": false,
+      "mind_games": false,
+      "emotional_state": false,
+      "tilt_effects": false
+    }
+  },
+  "capture_prompts": true,
+  "parallel_tournaments": 5
+}

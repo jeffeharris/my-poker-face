@@ -1,3 +1,10 @@
+---
+purpose: Single reference for the psychology system architecture, axes, zones, and effects
+type: architecture
+created: 2025-10-15
+last_updated: 2026-02-07
+---
+
 # Poker AI Psychology System Overview
 
 This document is the single reference for the psychology system's design and mechanics. For detailed zone geometry and pseudocode, see [`PSYCHOLOGY_ZONES_MODEL.md`](PSYCHOLOGY_ZONES_MODEL.md).
@@ -317,6 +324,7 @@ python experiments/run_from_config.py experiments/configs/zone_validation.json
 | File | Purpose |
 |------|---------|
 | `poker/player_psychology.py` | Core system: anchors, axes, zones, zone effects, recovery, gravity |
+| `poker/psychology_pipeline.py` | Unified pipeline: detect → resolve → persist → recover → save |
 | `poker/expression_filter.py` | Visibility calculation, emotion dampening |
 | `poker/range_guidance.py` | Looseness-to-range mapping, position clamps |
 | `poker/prompt_config.py` | `zone_benefits` and `tilt_effects` toggles |

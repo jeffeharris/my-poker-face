@@ -1,0 +1,19 @@
+{
+  "name": "casebot_vs_gpt5nano",
+  "description": "CaseBot vs GPT-5-nano AI players with personalities",
+  "hypothesis": "GPT-5-nano may perform better against CaseBot than Groq Llama 8B due to stronger reasoning",
+  "num_tournaments": 20,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "random_seed": 42,
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "CaseBot"],
+  "player_types": {
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "capture_prompts": false,
+  "parallel_tournaments": 5
+}

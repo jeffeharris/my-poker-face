@@ -492,7 +492,8 @@ def api_game_state(game_id):
                     owner_id=owner_id,
                     player_llm_configs=llm_configs.get('player_llm_configs'),
                     default_llm_config=llm_configs.get('default_llm_config'),
-                    capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo
+                    capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo,
+                    bot_types=llm_configs.get('bot_types')
                 )
                 db_messages = game_repo.load_messages(game_id)
 
@@ -1378,7 +1379,7 @@ def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""
 
     @sio.on('join_game')
-    @socket_rate_limit(max_calls=5, window_seconds=10)
+    @socket_rate_limit(max_calls=20, window_seconds=10)
     def on_join(game_id):
         game_id_str = str(game_id)
         game_data = game_state_service.get_game(game_id_str)
@@ -1517,7 +1518,8 @@ def register_socket_events(sio):
                     for player_name in affected_players:
                         if player_name in ai_controllers:
                             controller = ai_controllers[player_name]
-                            controller.psychology.apply_pressure_event(event_name, sender)
+                            if controller.psychology is not None:
+                                controller.psychology.apply_pressure_event(event_name, sender)
 
     @sio.on('progress_game')
     @socket_rate_limit(max_calls=5, window_seconds=10)

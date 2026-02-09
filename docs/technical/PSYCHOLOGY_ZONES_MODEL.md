@@ -1,3 +1,10 @@
+---
+purpose: Zone geometry, effects, blending rules, and experiment infrastructure for the psychology system
+type: spec
+created: 2025-10-15
+last_updated: 2026-02-07
+---
+
 # Psychology System: Zones Model v3
 
 This document describes the zone-based mental model for the poker AI psychology system.
@@ -260,58 +267,51 @@ This ensures:
 
 ### Confidence Anchor
 
-Confidence raw value comes from three trait contributions:
+Confidence baseline is a direct linear combination of three traits:
 
 ```python
-# Weighted blend of contributing traits (0-1 scale)
-raw_confidence = (
-    baseline_aggression × 0.35 +  # aggressive players are confident
-    risk_identity × 0.30 +        # risk-seekers expect to win
-    ego × 0.35                    # high ego = high self-regard
+baseline_confidence = (
+    0.3                              # floor
+    + baseline_aggression × 0.25     # aggressive players are confident
+    + risk_identity × 0.20           # risk-seekers expect to win
+    + ego × 0.25                     # high ego = high self-regard
 )
-# Weights sum to 1.0, so raw_confidence is always 0-1
-
-# Map to safe range
-anchor_confidence = 0.35 + 0.50 × raw_confidence
-# Range: 0.35 to 0.85
+# Range: 0.30 (all zero) to 1.00 (all one)
+# Clamped to [0.15, 0.85] to stay outside penalty zones
 ```
 
-| Trait Mix | Raw Value | Anchor Confidence |
-|-----------|-----------|-------------------|
-| All low (0.0) | 0.00 | 0.35 |
-| All mid (0.5) | 0.50 | 0.60 |
-| All high (1.0) | 1.00 | 0.85 |
-| High ego only (1.0, others 0) | 0.35 | 0.53 |
-| High aggression only | 0.35 | 0.53 |
+| Trait Mix | Baseline Confidence |
+|-----------|---------------------|
+| All low (0.0) | 0.30 |
+| All mid (0.5) | 0.65 |
+| All high (1.0) | 0.85 (clamped from 1.00) |
+| High ego only (1.0, others 0) | 0.55 |
+| High aggression only (1.0, others 0) | 0.55 |
 
 **Note:** Ego also affects *sensitivity* (how much being wrong hurts), not just baseline.
 
 ### Composure Anchor
 
-Composure raw value comes from three trait contributions:
+Composure baseline uses poise as primary driver with expressiveness and risk modifiers:
 
 ```python
-# Weighted blend of contributing traits (0-1 scale)
-# Note: expressiveness is inverted (low express = high composure)
-# Note: risk_identity centered at 0.5 (below = nervous, above = comfortable)
-raw_composure = (
-    poise × 0.55 +                      # primary driver
-    (1 - expressiveness) × 0.25 +       # low expressiveness = internal control
-    (risk_identity - 0.5 + 0.5) × 0.20  # risk-seekers comfortable with chaos
+risk_mod = (risk_identity - 0.5) × 0.3   # centered: below 0.5 = nervous, above = comfortable
+baseline_composure = (
+    0.25                                   # floor
+    + poise × 0.50                         # primary driver
+    + (1 - expressiveness) × 0.15          # low expressiveness = internal control
+    + risk_mod                             # risk-seekers comfortable with chaos
 )
-# Simplified: the risk term shifts 0-1 range, keeps weights summing to 1.0
-
-# Map to safe range
-anchor_composure = 0.35 + 0.50 × raw_composure
-# Range: 0.35 to 0.85
+# Range: ~0.10 to ~1.05
+# Clamped to [0.15, 0.85] to stay outside penalty zones
 ```
 
-| Trait Mix | Raw Value | Anchor Composure |
-|-----------|-----------|------------------|
-| Poise 0, Express 1, Risk 0 | 0.00 | 0.35 |
-| All mid (0.5) | 0.50 | 0.60 |
-| Poise 1, Express 0, Risk 1 | 1.00 | 0.85 |
-| High poise only (1.0, others 0.5) | 0.675 | 0.69 |
+| Trait Mix | Baseline Composure |
+|-----------|--------------------|
+| Poise 0, Express 1, Risk 0 | 0.15 (clamped from 0.10) |
+| All mid (0.5) | 0.58 |
+| Poise 1, Express 0, Risk 1 | 0.85 (clamped from 1.05) |
+| High poise only (1.0, others 0.5) | 0.83 |
 
 **Note:** Poise also affects *sensitivity* (how much bad outcomes hurt), not just baseline.
 
@@ -319,11 +319,11 @@ anchor_composure = 0.35 + 0.50 × raw_composure
 
 | Character | Aggression | Risk | Ego | Poise | Express | Conf Anchor | Comp Anchor | Home Zone |
 |-----------|------------|------|-----|-------|---------|-------------|-------------|-----------|
-| Batman | 0.4 | 0.3 | 0.4 | 0.8 | 0.2 | 0.53 | 0.74 | Poker Face |
-| Gordon Ramsay | 0.8 | 0.7 | 0.8 | 0.35 | 0.9 | 0.78 | 0.46 | Aggro |
-| Bob Ross | 0.2 | 0.2 | 0.3 | 0.8 | 0.6 | 0.46 | 0.68 | Guarded |
-| Napoleon | 0.7 | 0.6 | 0.85 | 0.7 | 0.5 | 0.74 | 0.66 | Commanding |
-| Tourist | 0.3 | 0.4 | 0.3 | 0.25 | 0.7 | 0.48 | 0.46 | Neutral (near Shaken) |
+| Batman | 0.4 | 0.3 | 0.4 | 0.8 | 0.2 | 0.56 | 0.71 | Poker Face |
+| Gordon Ramsay | 0.8 | 0.7 | 0.8 | 0.35 | 0.9 | 0.84 | 0.50 | Aggro |
+| Bob Ross | 0.2 | 0.2 | 0.3 | 0.8 | 0.6 | 0.47 | 0.62 | Guarded |
+| Napoleon | 0.7 | 0.6 | 0.85 | 0.7 | 0.5 | 0.81 | 0.71 | Commanding |
+| Tourist | 0.3 | 0.4 | 0.3 | 0.25 | 0.7 | 0.53 | 0.39 | Neutral (near Shaken) |
 
 ### Fallback: Independent Definition
 
@@ -512,25 +512,29 @@ Player with anchor (0.5, 0.7), currently at (0.68, 0.48) - in Aggro zone at 60% 
 
 Events push players around the 2D space. Impacts are scaled by sensitivity.
 
-### Positive Events
-| Event | Confidence | Composure |
-|-------|------------|-----------|
-| win | +0.08 | +0.05 |
-| big_win | +0.15 | +0.10 |
-| successful_bluff | +0.20 | +0.05 |
-| double_up | +0.20 | +0.10 |
+### Current Pressure Impacts
 
-### Negative Events
-| Event | Confidence | Composure |
-|-------|------------|-----------|
-| big_loss | -0.10 | -0.15 |
-| bluff_called | -0.20 | -0.10 |
-| bad_beat | -0.05 | -0.25 |
-| got_sucked_out | -0.05 | -0.30 |
+See [PRESSURE_EVENTS.md](PRESSURE_EVENTS.md) for the full catalog. Key values (pre-sensitivity, pre-resolution):
 
-### Compounding
+| Event | Confidence | Composure | Energy | Category |
+|-------|------------|-----------|--------|----------|
+| `win` | +0.02 | — | +0.02 | Outcome (ONE) |
+| `big_win` | +0.12 | +0.02 | +0.08 | Outcome (ONE) |
+| `big_loss` | -0.15 | -0.05 | -0.08 | Outcome (ONE) |
+| `successful_bluff` | +0.20 | +0.05 | +0.05 | Ego (ONE, 50%) |
+| `bluff_called` | -0.25 | -0.10 | -0.05 | Ego (ONE, 50%) |
+| `bad_beat` | — | -0.35 | -0.10 | Equity shock (ONE) |
+| `got_sucked_out` | — | -0.30 | -0.15 | Equity shock (ONE) |
+| `losing_streak` | -0.12 | -0.20 | -0.10 | Streak (additive) |
+| `crippled` | -0.20 | -0.25 | -0.15 | Desperation (additive) |
 
-Multiple events can fire on the same hand (e.g., `bad_beat + big_loss + nemesis_loss`), creating large swings into penalty zones.
+### Resolution Rules
+
+Events don't stack freely. `resolve_hand_events()` applies priority rules:
+- **ONE outcome** (highest priority wins)
+- **At most ONE ego event** (scaled 50%)
+- **At most ONE equity shock** (no confidence delta)
+- **ALL pressure/fatigue/desperation/streak events** (additive)
 
 ## Zone Detection (Pseudocode)
 
@@ -1119,7 +1123,7 @@ Intrusive thoughts appear **probabilistically** based on penalty intensity, with
 
 | Penalty Intensity | Thought Probability | Notes |
 |-------------------|---------------------|-------|
-| 0-25% | 25% | Occasional distracting thought |
+| 0-25% | 10% | Occasional distracting thought |
 | 25-50% | 50% | Frequent intrusion |
 | 50-75% | 75% | Hard to ignore |
 | 75%+ | 100% | **Cliff** - always present |
@@ -1334,6 +1338,7 @@ def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
 - `emotional_zones_circular.svg` - Visual diagram of circular sweet spots + edge penalties
 - `experiments/psychology_balance_simulator.py` - Simulation tool for testing parameters
 - `poker/player_psychology.py` - Core implementation
+- `poker/psychology_pipeline.py` - Unified pipeline orchestrating detect → save cycle
 
 ## Open Design Questions
 
@@ -1348,13 +1353,16 @@ def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
 7. **Zone benefits design** - What each zone shows/hides, intrusive thoughts, tone, blending rules (see Zone Benefits System section)
 8. **Energy (3rd dimension)** - Energy creates zone manifestations (flavor), not new zones. Poker Face is 3D (energy extremes break the mask). See Energy and Zone Manifestations section.
 
-### Still Open (Implementation & Tuning)
+### Resolved Through Experiments
 
-1. **Zone-specific radii tuning** - Do these radii feel right during playtesting?
-2. **Penalty threshold tuning** - Are the edge thresholds (0.35 composure, 0.90 confidence) correct?
-3. **Gravity strength tuning** - Is 0.03 the right balance? Needs simulation.
-4. **Asymmetric recovery constants** - Are 0.6/0.4/0.8 the right values? Needs simulation.
-5. **Trait weight tuning** - Are the confidence/composure blend weights correct? May need adjustment.
+1. **Zone-specific radii tuning** - Validated through zone validation experiments
+2. **Penalty threshold tuning** - 0.35 composure and 0.90 confidence confirmed via PRD target analysis
+3. **Gravity strength tuning** - 0.03 validated; tunable range 0.02-0.05 via `zone_params`
+4. **Asymmetric recovery constants** - 0.6/0.4/0.8 validated through experiment metrics
+5. **Trait weight tuning** - Confidence/composure blend weights confirmed via archetype personality validation
+
+### Still Open
+
 6. **Difficulty settings relationship** - Game has difficulty settings that control what info is shown to players. Is the psychology system:
    - An **overlay** on top of difficulty (difficulty sets max info, psychology filters further)?
    - A **replacement** for difficulty (psychology IS the difficulty)?

@@ -6,12 +6,15 @@ sections:
     Please only respond with the JSON, not the text with back quotes.
     CRITICAL: When raising, 'raise_to' is the TOTAL amount you want to bet (not an increment).
 
+  betting_discipline: |-
     BETTING DISCIPLINE (ALL STREETS):
     - Your equity % tells you your chance of winning. 0-10% equity = you cannot win. FOLD.
     - BIG BETS (raises, all-in) require hand strength. Don't bluff big with nothing.
     - WEAK hands (no pair, missed draws, high card only): check or fold, don't bet big.
     - Your personality influences HOW you play, not WHETHER your cards justify the bet.
     - Smart aggressive players pick their spots - they don't shove garbage.
+    - PRE-FLOP: Standard opens are 2.5-3x BB. 3-bets (re-raises) should be 8-12 BB total.
+    - POST-FLOP: Size bets relative to the pot. Half-pot to two-thirds pot is standard.
 
   pot_committed: |-
     ⚠️ POT COMMITTED: You've invested {already_bet_bb} BB with only {stack_bb} BB left.
@@ -74,7 +77,7 @@ sections:
     You can check for free - no cost to see more cards.
 
   response_format_simple: |-
-    Respond with JSON: {{"action": "<your action>", "bet_sizing": "<sizing strategy if raising>", "raise_to": <BB amount if raising>}}
+    Respond with JSON: {{"action": "<fold|check|call|raise|all_in>", "raise_to": <BB amount if raising>}}
 
   dramatic_sequence: |-
     DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats in the 'dramatic_sequence' field.

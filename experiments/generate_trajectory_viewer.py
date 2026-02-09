@@ -71,6 +71,39 @@ _RADIUS_MAP = {
 }
 
 
+def _extract_stack_only_players(conn, game_id: str, psychology_players: list) -> dict:
+    """Get stack trajectories for players without psychology data (e.g. human players).
+
+    Returns {player_name: [{hand, stack}, ...]} for players in pda that have
+    no zone_confidence entries.
+    """
+    if not psychology_players:
+        return {}
+
+    placeholders = ','.join('?' for _ in psychology_players)
+    rows = conn.execute(f'''
+        SELECT player_name, hand_number, player_stack
+        FROM player_decision_analysis
+        WHERE game_id = ?
+          AND player_name NOT IN ({placeholders})
+          AND player_stack IS NOT NULL
+        GROUP BY player_name, hand_number
+        HAVING id = MIN(id)
+        ORDER BY hand_number, player_name
+    ''', (game_id, *psychology_players)).fetchall()
+
+    stack_players = {}
+    for row in rows:
+        name = row['player_name']
+        if name not in stack_players:
+            stack_players[name] = []
+        stack_players[name].append({
+            'hand': row['hand_number'],
+            'stack': row['player_stack'] or 0,
+        })
+    return stack_players
+
+
 def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
     """Extract trajectory data for visualization."""
     conn = sqlite3.connect(db_path)
@@ -152,6 +185,7 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
             'stack': row['player_stack'] or 0,
             'action': row['action_taken'],
             'intrusive': bool(row['zone_intrusive_thoughts_injected']),
+            'emotion': row['display_emotion'] or 'poker_face',
         })
 
     # Get pressure events for this game (keyed by player → hand_number → [events])
@@ -180,10 +214,14 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
     except Exception:
         pass  # Table may not have hand_number column yet
 
+    # Get stack-only players (human players without psychology data)
+    stack_players = _extract_stack_only_players(conn, selected_game, players)
+
     # Assign colors and initials
+    all_names = players + list(stack_players.keys())
     player_colors = {}
     player_initials = {}
-    for i, name in enumerate(players):
+    for i, name in enumerate(all_names):
         player_colors[name] = PLAYER_COLORS[i % len(PLAYER_COLORS)]
         parts = name.split()
         player_initials[name] = (parts[0][0] + parts[-1][0]) if len(parts) >= 2 else name[:2].upper()
@@ -198,6 +236,127 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
         'player_colors': player_colors,
         'player_initials': player_initials,
         'trajectories': trajectories,
+        'stack_players': stack_players,
+        'pressure_events': pressure_events,
+        'zone_config': {
+            'sweet_spots': sweet_spots,
+            'penalty_thresholds': penalty_thresholds,
+        },
+    }
+
+
+def extract_data_for_game(db_path: str, game_id: str) -> dict:
+    """Extract trajectory data for a single game (no experiment required).
+
+    Like extract_data() but skips the experiment_games join and zone_params
+    overrides. Used by the debug tools to visualize player-played games.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Check that we have psychology data for this game
+    count = conn.execute('''
+        SELECT COUNT(*) as cnt
+        FROM player_decision_analysis
+        WHERE game_id = ? AND zone_confidence IS NOT NULL
+    ''', (game_id,)).fetchone()['cnt']
+
+    if count == 0:
+        conn.close()
+        return None
+
+    # Use default zone config (no experiment-level overrides)
+    sweet_spots = json.loads(json.dumps(DEFAULT_SWEET_SPOTS))
+    penalty_thresholds = dict(DEFAULT_PENALTY_THRESHOLDS)
+
+    # Get first decision per hand per player (earliest id wins)
+    rows = conn.execute('''
+        SELECT pda.*
+        FROM player_decision_analysis pda
+        INNER JOIN (
+            SELECT player_name, hand_number, MIN(id) as min_id
+            FROM player_decision_analysis
+            WHERE game_id = ? AND zone_confidence IS NOT NULL
+            GROUP BY player_name, hand_number
+        ) first ON pda.id = first.min_id
+        ORDER BY pda.hand_number, pda.player_name
+    ''', (game_id,)).fetchall()
+
+    # Organize by player
+    players = []
+    trajectories = {}
+
+    for row in rows:
+        name = row['player_name']
+        if name not in trajectories:
+            players.append(name)
+            trajectories[name] = []
+
+        trajectories[name].append({
+            'hand': row['hand_number'],
+            'conf': round(row['zone_confidence'], 4),
+            'comp': round(row['zone_composure'], 4),
+            'energy': round(row['zone_energy'] or 0.5, 4),
+            'sweet_spot': row['zone_primary_sweet_spot'],
+            'penalty': row['zone_primary_penalty'],
+            'penalty_strength': round(row['zone_total_penalty_strength'] or 0, 4),
+            'stack': row['player_stack'] or 0,
+            'action': row['action_taken'],
+            'intrusive': bool(row['zone_intrusive_thoughts_injected']),
+            'emotion': row['display_emotion'] or 'poker_face',
+        })
+
+    # Get pressure events for this game
+    pressure_events = {}
+    try:
+        pe_rows = conn.execute('''
+            SELECT player_name, hand_number, event_type, details_json
+            FROM pressure_events
+            WHERE game_id = ? AND hand_number IS NOT NULL
+            ORDER BY hand_number, id
+        ''', (game_id,)).fetchall()
+
+        for row in pe_rows:
+            name = row['player_name']
+            hand = row['hand_number']
+            if name not in pressure_events:
+                pressure_events[name] = {}
+            if hand not in pressure_events[name]:
+                pressure_events[name][hand] = []
+
+            details = json.loads(row['details_json']) if row['details_json'] else {}
+            pressure_events[name][hand].append({
+                'type': row['event_type'],
+                'details': details,
+            })
+    except Exception:
+        pass
+
+    # Get stack-only players (human players without psychology data)
+    stack_players = _extract_stack_only_players(conn, game_id, players)
+
+    # Assign colors and initials
+    all_names = players + list(stack_players.keys())
+    player_colors = {}
+    player_initials = {}
+    for i, name in enumerate(all_names):
+        player_colors[name] = PLAYER_COLORS[i % len(PLAYER_COLORS)]
+        parts = name.split()
+        player_initials[name] = (parts[0][0] + parts[-1][0]) if len(parts) >= 2 else name[:2].upper()
+
+    conn.close()
+
+    distinct_hands = len(set(row['hand_number'] for row in rows))
+
+    return {
+        'experiment_id': None,
+        'game_id': game_id,
+        'games': [{'game_id': game_id, 'hands': distinct_hands}],
+        'players': players,
+        'player_colors': player_colors,
+        'player_initials': player_initials,
+        'trajectories': trajectories,
+        'stack_players': stack_players,
         'pressure_events': pressure_events,
         'zone_config': {
             'sweet_spots': sweet_spots,
@@ -220,40 +379,61 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 <title>Psychology Trajectory Viewer</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0d1117;color:#e6e6e6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow-x:hidden}
-.container{max-width:1100px;margin:0 auto;padding:16px 20px}
-header{text-align:center;margin-bottom:12px}
-h1{font-size:1.3rem;font-weight:500;color:#fff;letter-spacing:-0.3px}
-.meta{color:#666;font-size:0.8rem;margin-top:2px}
-.game-selector{margin-top:6px}
-.game-selector select{background:#161b22;color:#e6e6e6;border:1px solid #30363d;padding:4px 8px;border-radius:4px;font-size:0.8rem}
+body{background:#0d1117;color:#e6e6e6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow-x:hidden;height:100dvh;overflow-y:hidden}
+.container{margin:0 auto;padding:4px 16px;display:flex;flex-direction:column;height:100dvh}
+header{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:4px;flex-shrink:0}
+h1{font-size:1.1rem;font-weight:500;color:#fff;letter-spacing:-0.3px}
+.meta{color:#666;font-size:0.75rem}
+#game-selector{background:#161b22;color:#e6e6e6;border:1px solid #30363d;padding:3px 6px;border-radius:4px;font-size:0.75rem}
 
-.chart-section{display:flex;justify-content:center;margin-bottom:12px}
+.main-layout{display:flex;gap:12px;align-items:stretch;flex:1;min-height:0}
+.left-panel{flex:1;min-width:220px;overflow-y:auto;display:flex;align-items:center}
+.right-panel{flex:1;display:flex;align-items:flex-start;justify-content:center;min-width:0}
+
+.chart-section{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
 canvas{border-radius:8px;cursor:crosshair}
 
-.controls{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#161b22;border-radius:8px;margin-bottom:12px;border:1px solid #21262d}
-.control-btn{background:#21262d;border:1px solid #30363d;color:#e6e6e6;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.controls{display:flex;align-items:center;gap:8px;padding:5px 12px;background:#161b22;border-radius:6px;margin-top:4px;border:1px solid #21262d;flex-wrap:wrap;flex-shrink:0}
+.controls-row{display:flex;align-items:center;gap:10px;min-width:0}
+.control-btn{background:#21262d;border:1px solid #30363d;color:#e6e6e6;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;transition:background .15s;flex-shrink:0}
 .control-btn:hover{background:#30363d}
 .control-btn:active{background:#3d444d}
-input[type="range"]{flex:1;-webkit-appearance:none;height:6px;background:#30363d;border-radius:3px;outline:none}
-input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#58a6ff;cursor:pointer;transition:transform .1s}
-input[type="range"]::-webkit-slider-thumb:hover{transform:scale(1.2)}
-input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#58a6ff;cursor:pointer;border:none}
 .hand-info{font-size:0.85rem;white-space:nowrap;min-width:110px;text-align:right;font-variant-numeric:tabular-nums}
-.kbd-hint{color:#444;font-size:0.7rem;margin-left:auto}
 
-.player-grid{display:flex;flex-direction:column;gap:6px}
-.player-card{display:flex;align-items:center;gap:14px;padding:10px 14px;background:#161b22;border-radius:8px;border-left:3px solid transparent;border:1px solid #21262d;cursor:pointer;transition:background .15s,border-color .15s}
+.stack-chart-section{flex-shrink:0;height:100px;width:100%;padding:0 16px;margin-top:4px}
+.stack-chart-section canvas{border-radius:6px;cursor:pointer;display:block}
+
+.overlay-toggles{display:flex;align-items:center;gap:6px}
+.overlay-toggle{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;border:1px solid #30363d;font-size:0.72rem;cursor:pointer;color:#666;transition:all 0.15s;user-select:none;background:transparent}
+.overlay-toggle:hover{border-color:#444}
+.overlay-toggle.active{color:var(--toggle-color);border-color:var(--toggle-color);background:var(--toggle-bg)}
+.overlay-dot{width:6px;height:6px;border-radius:50%;background:var(--toggle-color);opacity:0.5}
+.overlay-toggle.active .overlay-dot{opacity:1}
+
+.player-grid{display:flex;flex-direction:column;gap:6px;width:100%}
+.player-card{display:flex;flex-direction:column;gap:4px;padding:8px 10px;background:#161b22;border-radius:6px;border-left:3px solid transparent;border:1px solid #21262d;cursor:pointer;transition:background .15s,border-color .15s}
 .player-card:hover{background:#1c2129}
 .player-card.highlighted{border-color:#58a6ff !important;background:#1c2433}
 .player-card.dimmed{opacity:0.35}
 
-.player-left{display:flex;align-items:center;gap:10px;min-width:160px}
-.avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#000;flex-shrink:0}
-.player-name{font-weight:500;font-size:0.88rem;white-space:nowrap}
+.player-header-row{display:flex;align-items:center;gap:8px;width:100%}
+.player-left{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.avatar-wrap{position:relative;flex-shrink:0}
+.avatar{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10px;color:#000;flex-shrink:0}
+.avatar-emotion{position:absolute;bottom:-2px;right:-4px;font-size:12px;line-height:1;filter:drop-shadow(0 0 2px rgba(0,0,0,0.8));display:none}
+.player-name-wrap{display:flex;align-items:baseline;gap:6px;min-width:0}
+.player-name{font-weight:500;font-size:0.82rem;white-space:nowrap}
+.player-emotion-text{font-size:0.66rem;display:none}
+.card-summary{display:flex;flex-wrap:wrap;gap:3px;flex:1;min-width:0;justify-content:flex-end}
+.expand-btn{background:none;border:none;color:#555;font-size:11px;cursor:pointer;padding:2px 4px;transition:color .15s,transform .15s;flex-shrink:0}
+.expand-btn:hover{color:#999}
+.player-card.expanded .expand-btn{transform:rotate(90deg)}
 
-.player-middle{flex:1;min-width:0}
-.events{display:flex;flex-wrap:wrap;gap:4px;min-height:24px}
+.card-details{max-height:0;overflow:hidden;transition:max-height .25s ease}
+.player-card.expanded .card-details{max-height:500px}
+
+.player-middle{min-width:0;overflow:hidden}
+.events{min-height:16px}
 .event-badge{padding:2px 7px;border-radius:3px;font-size:0.72rem;font-weight:500;white-space:nowrap}
 .event-badge.win{background:rgba(0,184,148,0.13);color:#00b894}
 .event-badge.loss{background:rgba(255,107,107,0.13);color:#ff6b6b}
@@ -262,17 +442,45 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 .event-badge.neutral{background:rgba(150,150,150,0.1);color:#888}
 .event-badge.thoughts{background:rgba(255,230,109,0.15);color:#ffe66d}
 
-.player-right{display:flex;flex-direction:column;gap:3px;min-width:220px}
-.axis-row{display:flex;align-items:center;gap:6px;font-size:0.78rem}
-.axis-label{width:46px;color:#666;text-align:right}
-.axis-bar{flex:1;height:5px;background:#21262d;border-radius:2px;overflow:hidden;min-width:60px}
+.force-table{width:100%;font-size:0.72rem;font-variant-numeric:tabular-nums;border-collapse:collapse}
+.force-table td{padding:1px 4px;white-space:nowrap}
+.force-table .force-label{color:#888;text-align:left;width:100px}
+.force-table .force-val{text-align:right;width:72px;font-family:monospace}
+.force-table .force-net{border-top:1px solid #30363d}
+.force-table .force-net .force-label{color:#ccc;font-weight:600}
+.force-table .force-pos{color:#00b894}
+.force-table .force-neg{color:#ff6b6b}
+.force-table .force-zero{color:#444}
+.force-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+
+.player-bars{display:flex;gap:10px;width:100%}
+.axes-col{flex:1;display:flex;flex-direction:column;gap:2px}
+.affinity-col{flex:1;display:flex;flex-direction:column;gap:2px}
+.axis-row{display:flex;align-items:center;gap:4px;font-size:0.72rem}
+.axis-label{width:18px;color:#666;text-align:right;font-size:0.66rem}
+.axis-bar{flex:1;height:4px;background:#21262d;border-radius:2px;overflow:hidden;min-width:30px}
 .axis-fill{height:100%;border-radius:2px;transition:width .3s ease}
-.axis-value{width:32px;text-align:right;font-variant-numeric:tabular-nums;color:#ccc}
-.axis-delta{width:48px;text-align:right;font-variant-numeric:tabular-nums;font-size:0.72rem}
+.axis-value{width:30px;text-align:right;font-variant-numeric:tabular-nums;color:#ccc;font-size:0.7rem}
+.axis-delta{width:42px;text-align:right;font-variant-numeric:tabular-nums;font-size:0.66rem}
 .positive{color:#00b894}
 .negative{color:#ff6b6b}
 .neutral-delta{color:#444}
 
+.affinity-row{display:flex;align-items:center;gap:4px;height:12px;font-size:0.66rem}
+.affinity-label{width:18px;color:#666;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
+.affinity-bar-bg{flex:1;height:3px;background:#21262d;border-radius:2px;overflow:hidden;min-width:20px}
+.affinity-bar-fill{height:100%;border-radius:2px;transition:width .3s ease}
+.affinity-pct{width:26px;text-align:right;color:#888;font-variant-numeric:tabular-nums}
+.affinity-active .affinity-label{color:#FFD700}
+.affinity-active .affinity-pct{color:#FFD700}
+
+@media(max-width:900px){
+  .main-layout{flex-direction:column}
+  .left-panel{overflow-y:visible}
+  .right-panel{width:100%}
+  body{overflow-y:auto;height:auto}
+  .container{height:auto}
+}
 @media(max-width:800px){
   .player-left{min-width:120px}
   .player-right{min-width:160px}
@@ -284,24 +492,40 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
 <div class="container">
   <header>
     <h1>Psychology Trajectory Viewer</h1>
-    <div class="meta" id="meta"></div>
-    <div class="game-selector" id="game-selector-wrap" style="display:none">
-      <select id="game-selector"></select>
-    </div>
+    <span class="meta" id="meta"></span>
+    <select id="game-selector" style="display:none"></select>
   </header>
 
-  <div class="chart-section">
-    <canvas id="chart"></canvas>
+  <div class="main-layout">
+    <div class="left-panel">
+      <div class="player-grid" id="player-grid"></div>
+    </div>
+    <div class="right-panel">
+      <div class="chart-section">
+        <canvas id="chart"></canvas>
+      </div>
+    </div>
   </div>
 
   <div class="controls">
-    <button class="control-btn" id="prev-btn" title="Previous hand (←)">&#9664;</button>
-    <button class="control-btn" id="play-btn" title="Play / Pause (Space)">&#9654;</button>
-    <button class="control-btn" id="next-btn" title="Next hand (→)">&#9654;</button>
-    <input type="range" id="slider" min="0" max="0" value="0">
-    <div class="hand-info" id="hand-info">Hand 1 / 1</div>
-    <span class="kbd-hint">← → Space</span>
-    <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+    <div class="controls-row">
+      <button class="control-btn" id="prev-btn" title="Previous hand (←)">&#9664;</button>
+      <button class="control-btn" id="play-btn" title="Play / Pause (Space)">&#9654;</button>
+      <button class="control-btn" id="next-btn" title="Next hand (→)">&#9654;</button>
+      <div class="hand-info" id="hand-info">Hand 1 / 1</div>
+    </div>
+    <div class="overlay-toggles">
+      <span class="overlay-toggle active" id="toggle-zones" style="--toggle-color:#90EE90;--toggle-bg:rgba(144,238,144,0.08)" title="Sweet spot zones">
+        <span class="overlay-dot"></span>Zones
+      </span>
+      <span class="overlay-toggle active" id="toggle-penalties" style="--toggle-color:#ff6b6b;--toggle-bg:rgba(255,107,107,0.08)" title="Penalty zones">
+        <span class="overlay-dot"></span>Penalties
+      </span>
+      <span class="overlay-toggle" id="toggle-emotions" style="--toggle-color:#FFD700;--toggle-bg:rgba(255,215,0,0.08)" title="Emotion quadrants">
+        <span class="overlay-dot"></span>Emotions
+      </span>
+    </div>
+    <span style="display:flex;align-items:center;gap:6px">
       <label style="font-size:0.75rem;color:#666;cursor:pointer;display:flex;align-items:center;gap:4px">
         <input type="checkbox" id="auto-refresh"> Live
       </label>
@@ -309,11 +533,38 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;b
     </span>
   </div>
 
-  <div class="player-grid" id="player-grid"></div>
+  <div class="stack-chart-section">
+    <canvas id="stack-chart"></canvas>
+  </div>
 </div>
 
 <script>
 const DATA = __DATA_JSON__;
+
+// --- Global hand list: all players share the same hand sequence ---
+const allHandSet = new Set();
+for (const p of DATA.players)
+  for (const e of DATA.trajectories[p]) allHandSet.add(e.hand);
+const allHands = [...allHandSet].sort((a, b) => a - b);
+
+// Per-player trajectory indexed by hand number
+const trajByHand = {};
+for (const p of DATA.players) {
+  trajByHand[p] = {};
+  for (const e of DATA.trajectories[p]) trajByHand[p][e.hand] = e;
+}
+
+// Find player state at a given hand (exact match or most recent before)
+function getPlayerState(player, handNum) {
+  if (trajByHand[player][handNum]) return trajByHand[player][handNum];
+  const traj = DATA.trajectories[player];
+  let best = null;
+  for (const entry of traj) {
+    if (entry.hand <= handNum) best = entry;
+    else break;
+  }
+  return best;
+}
 
 // --- Zone config from embedded data ---
 const SWEET_SPOTS = DATA.zone_config.sweet_spots;
@@ -347,9 +598,10 @@ function toCanvas(conf, comp) {
 }
 
 function setupCanvas() {
-  const container = canvas.parentElement;
-  const maxSize = Math.min(container.clientWidth - 8, 640);
-  chartSize = Math.max(400, maxSize);
+  const section = canvas.parentElement;
+  const availW = section.clientWidth - 8;
+  const availH = section.clientHeight - 8;
+  chartSize = Math.max(360, Math.min(availW, availH));
   const dpr = window.devicePixelRatio || 1;
   canvas.width = chartSize * dpr;
   canvas.height = chartSize * dpr;
@@ -366,18 +618,25 @@ function hexAlpha(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
+// --- Overlay toggles ---
+let showZones = true;
+let showPenalties = true;
+let showEmotions = false;
+
 // --- Drawing ---
 function render(idx) {
   ctx.clearRect(0, 0, chartSize, chartSize);
   drawBackground();
-  drawPenaltyZones();
+  if (showPenalties) drawPenaltyZones();
   drawGrid();
-  drawSweetSpots();
-  drawPenaltyLabels();
+  if (showZones) drawSweetSpots();
+  if (showPenalties) drawPenaltyLabels();
+  if (showEmotions) drawEmotionZones();
   drawAxes();
   drawBaselines();
   drawTrails(idx);
   drawDots(idx);
+  if (showEmotions) drawEmotionLabels(idx);
   drawLegend();
   updatePlayerCards(idx);
 }
@@ -528,6 +787,122 @@ function drawSweetSpots() {
   }
 }
 
+// --- Emotion overlay ---
+const EMOTION_EMOJI = {
+  poker_face: '\u{1F610}', confident: '\u{1F60F}', smug: '\u{1F60E}',
+  angry: '\u{1F621}', frustrated: '\u{1F624}', nervous: '\u{1F630}',
+  thinking: '\u{1F914}', shocked: '\u{1F631}', elated: '\u{1F929}', happy: '\u{1F60A}',
+};
+
+const QUADRANT_COLORS = {
+  commanding: '#FFD700',
+  overheated: '#FF6347',
+  guarded:    '#6495ED',
+  shaken:     '#FF8C00',
+};
+
+function drawEmotionZones() {
+  const ds = chartSize - 2 * PAD;
+  // Quadrant boundary lines at conf=0.5, comp=0.5
+  const [mx, _my1] = toCanvas(0.5, 0);
+  const [_mx2, my] = toCanvas(0, 0.5);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1;
+  // Vertical line at conf=0.5
+  ctx.beginPath(); ctx.moveTo(mx, PAD); ctx.lineTo(mx, PAD + ds); ctx.stroke();
+  // Horizontal line at comp=0.5
+  ctx.beginPath(); ctx.moveTo(PAD, my); ctx.lineTo(PAD + ds, my); ctx.stroke();
+
+  // SHAKEN corner highlight (conf<0.35, comp<0.35)
+  const [shX, _] = toCanvas(0.35, 0);
+  const [__, shY] = toCanvas(0, 0.35);
+  ctx.strokeStyle = 'rgba(255,140,0,0.15)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(shX, PAD + ds); ctx.lineTo(shX, shY); ctx.lineTo(PAD + ds, shY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Quadrant emoji labels
+  ctx.font = '10px sans-serif';
+  ctx.textBaseline = 'middle';
+  const labelPad = 8;
+
+  // COMMANDING (upper-right): conf>0.5, comp>0.5
+  ctx.fillStyle = 'rgba(255,215,0,0.45)';
+  ctx.textAlign = 'right';
+  ctx.fillText('COMMANDING \u{1F60E}\u{1F60F}', PAD + ds - labelPad, PAD + labelPad + 4);
+
+  // OVERHEATED (lower-right): conf>0.5, comp<=0.5
+  ctx.fillStyle = 'rgba(255,99,71,0.45)';
+  ctx.textAlign = 'right';
+  ctx.fillText('OVERHEATED \u{1F621}\u{1F624}', PAD + ds - labelPad, PAD + ds - labelPad);
+
+  // GUARDED (upper-left): conf<=0.5, comp>0.5
+  ctx.fillStyle = 'rgba(100,149,237,0.45)';
+  ctx.textAlign = 'left';
+  ctx.fillText('\u{1F914}\u{1F630} GUARDED', PAD + labelPad, PAD + labelPad + 4);
+
+  // SHAKEN (lower-left): conf<0.35, comp<0.35
+  ctx.fillStyle = 'rgba(255,140,0,0.45)';
+  ctx.textAlign = 'left';
+  ctx.fillText('\u{1F631}\u{1F630} SHAKEN', PAD + labelPad, PAD + ds - labelPad);
+
+  ctx.restore();
+}
+
+function drawEmotionLabels(globalIdx) {
+  const currentHand = allHands[globalIdx];
+  const positions = []; // track drawn positions to avoid overlap
+
+  for (const player of DATA.players) {
+    const point = getPlayerState(player, currentHand);
+    if (!point) continue;
+    const dimmed = highlightedPlayer && highlightedPlayer !== player;
+    const eliminated = point.hand < currentHand;
+    if (dimmed || eliminated) continue;
+
+    const emotion = point.emotion || 'poker_face';
+    const emoji = EMOTION_EMOJI[emotion] || EMOTION_EMOJI.poker_face;
+    const [x, y] = toCanvas(point.conf, point.comp);
+
+    // Offset: above-right of dot, shift right for overlapping players
+    let ox = x + 12;
+    let oy = y - 12;
+    for (const pos of positions) {
+      if (Math.abs(ox - pos[0]) < 22 && Math.abs(oy - pos[1]) < 16) {
+        ox += 22;
+      }
+    }
+    positions.push([ox, oy]);
+
+    // Dark pill background
+    const pillW = 20, pillH = 18;
+    ctx.fillStyle = 'rgba(13,17,23,0.85)';
+    ctx.beginPath();
+    const r = 4;
+    ctx.moveTo(ox - pillW/2 + r, oy - pillH/2);
+    ctx.lineTo(ox + pillW/2 - r, oy - pillH/2);
+    ctx.quadraticCurveTo(ox + pillW/2, oy - pillH/2, ox + pillW/2, oy - pillH/2 + r);
+    ctx.lineTo(ox + pillW/2, oy + pillH/2 - r);
+    ctx.quadraticCurveTo(ox + pillW/2, oy + pillH/2, ox + pillW/2 - r, oy + pillH/2);
+    ctx.lineTo(ox - pillW/2 + r, oy + pillH/2);
+    ctx.quadraticCurveTo(ox - pillW/2, oy + pillH/2, ox - pillW/2, oy + pillH/2 - r);
+    ctx.lineTo(ox - pillW/2, oy - pillH/2 + r);
+    ctx.quadraticCurveTo(ox - pillW/2, oy - pillH/2, ox - pillW/2 + r, oy - pillH/2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Emoji
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(emoji, ox, oy);
+  }
+}
+
 function drawAxes() {
   const ds = chartSize - 2 * PAD;
   ctx.fillStyle = '#666';
@@ -584,25 +959,29 @@ function drawBaselines() {
 
 let highlightedPlayer = null;
 
-function drawTrails(currentIdx) {
+function drawTrails(globalIdx) {
   const trailLen = 20;
+  const currentHand = allHands[globalIdx];
   for (const player of DATA.players) {
     const traj = DATA.trajectories[player];
     if (!traj || traj.length === 0) continue;
     const color = DATA.player_colors[player];
     const dimmed = highlightedPlayer && highlightedPlayer !== player;
     const baseAlpha = dimmed ? 0.04 : 1.0;
-    const start = Math.max(0, currentIdx - trailLen);
-    const end = Math.min(currentIdx, traj.length - 1);
 
-    for (let i = start; i < end; i++) {
-      const progress = (i - start) / Math.max(1, end - start);
+    // Get player's trajectory points up to current hand
+    const visible = traj.filter(t => t.hand <= currentHand);
+    const start = Math.max(0, visible.length - trailLen - 1);
+    const points = visible.slice(start);
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const progress = i / Math.max(1, points.length - 2);
       const alpha = (0.08 + 0.45 * progress) * baseAlpha;
       ctx.strokeStyle = hexAlpha(color, alpha);
       ctx.lineWidth = dimmed ? 1 : 2;
       ctx.beginPath();
-      const [x1, y1] = toCanvas(traj[i].conf, traj[i].comp);
-      const [x2, y2] = toCanvas(traj[i + 1].conf, traj[i + 1].comp);
+      const [x1, y1] = toCanvas(points[i].conf, points[i].comp);
+      const [x2, y2] = toCanvas(points[i + 1].conf, points[i + 1].comp);
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
       ctx.stroke();
@@ -610,17 +989,18 @@ function drawTrails(currentIdx) {
   }
 }
 
-function drawDots(handIdx) {
+function drawDots(globalIdx) {
+  const currentHand = allHands[globalIdx];
   for (const player of DATA.players) {
-    const traj = DATA.trajectories[player];
-    if (!traj || handIdx >= traj.length) continue;
-    const point = traj[handIdx];
+    const point = getPlayerState(player, currentHand);
+    if (!point) continue;
     const color = DATA.player_colors[player];
     const dimmed = highlightedPlayer && highlightedPlayer !== player;
+    const eliminated = point.hand < currentHand && point.stack <= 0;
     const [x, y] = toCanvas(point.conf, point.comp);
 
-    if (dimmed) {
-      ctx.fillStyle = hexAlpha(color, 0.15);
+    if (dimmed || eliminated) {
+      ctx.fillStyle = hexAlpha(color, eliminated ? 0.08 : 0.15);
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fill();
@@ -658,7 +1038,7 @@ function drawLegend() {
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
   let y = PAD + 12;
-  const x = chartSize - 10;
+  const x = chartSize - PAD - 4;
   for (const player of DATA.players) {
     const color = DATA.player_colors[player];
     ctx.fillStyle = color;
@@ -687,19 +1067,45 @@ function createPlayerCards() {
     card.style.borderLeftColor = color;
 
     card.innerHTML =
-      '<div class="player-left">' +
-        '<div class="avatar" style="background:' + color + '">' + initials + '</div>' +
-        '<div class="player-name">' + player + '</div>' +
+      '<div class="player-header-row">' +
+        '<div class="player-left">' +
+          '<div class="avatar-wrap">' +
+            '<div class="avatar" style="background:' + color + '">' + escapeHtml(initials) + '</div>' +
+            '<span class="avatar-emotion" id="avatar-emo-' + sid + '"></span>' +
+          '</div>' +
+          '<div class="player-name-wrap">' +
+            '<div class="player-name">' + escapeHtml(player) + '</div>' +
+            '<span class="player-emotion-text" id="emo-text-' + sid + '"></span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="card-summary" id="summary-' + sid + '"></div>' +
+        '<button class="expand-btn" title="Show details">&#9656;</button>' +
       '</div>' +
-      '<div class="player-middle">' +
-        '<div class="events" id="events-' + sid + '"></div>' +
+      '<div class="player-bars">' +
+        '<div class="axes-col">' +
+          makeAxisRow('C', sid, 'conf', color, 1) +
+          makeAxisRow('M', sid, 'comp', color, 1) +
+          makeAxisRow('E', sid, 'energy', color, 0.6) +
+        '</div>' +
+        '<div class="affinity-col">' +
+          makeAffinityRow(AFFINITY_LABELS.guarded, sid, 'guarded', AFFINITY_COLORS.guarded) +
+          makeAffinityRow(AFFINITY_LABELS.poker_face, sid, 'poker_face', AFFINITY_COLORS.poker_face) +
+          makeAffinityRow(AFFINITY_LABELS.commanding, sid, 'commanding', AFFINITY_COLORS.commanding) +
+          makeAffinityRow(AFFINITY_LABELS.aggro, sid, 'aggro', AFFINITY_COLORS.aggro) +
+        '</div>' +
       '</div>' +
-      '<div class="player-right">' +
-        makeAxisRow('Conf', sid, 'conf', color, 1) +
-        makeAxisRow('Comp', sid, 'comp', color, 1) +
-        makeAxisRow('Energy', sid, 'energy', color, 0.6) +
+      '<div class="card-details">' +
+        '<div class="player-middle">' +
+          '<div class="events" id="events-' + sid + '"></div>' +
+        '</div>' +
       '</div>';
 
+    // Expand button toggles details
+    card.querySelector('.expand-btn').addEventListener('click', function(e) {
+      e.stopPropagation();
+      card.classList.toggle('expanded');
+    });
+    // Card click highlights on chart
     card.addEventListener('click', () => toggleHighlight(player));
     grid.appendChild(card);
   }
@@ -715,6 +1121,37 @@ function makeAxisRow(label, sid, axis, color, opacity) {
   '</div>';
 }
 
+// --- Affinity computation (mirrors playstyle_selector.py) ---
+const AFFINITY_SIGMA = 0.25;
+const AFFINITY_STYLES = ['guarded', 'poker_face', 'commanding', 'aggro'];
+const AFFINITY_LABELS = {guarded: 'GU', poker_face: 'PF', commanding: 'CM', aggro: 'AG'};
+const AFFINITY_COLORS = {guarded: '#87CEEB', poker_face: '#90EE90', commanding: '#FFD700', aggro: '#FFA500'};
+
+function computeAffinities(conf, comp) {
+  const raw = {};
+  let total = 0;
+  for (const style of AFFINITY_STYLES) {
+    const center = SWEET_SPOTS[style].center;
+    const dSq = (conf - center[0]) ** 2 + (comp - center[1]) ** 2;
+    const v = Math.exp(-dSq / (2 * AFFINITY_SIGMA ** 2));
+    raw[style] = v;
+    total += v;
+  }
+  if (total === 0) return {guarded: 0.25, poker_face: 0.25, commanding: 0.25, aggro: 0.25};
+  const result = {};
+  for (const s of AFFINITY_STYLES) result[s] = raw[s] / total;
+  return result;
+}
+
+function makeAffinityRow(label, sid, style, color) {
+  return '<div class="affinity-row" id="aff-row-' + style + '-' + sid + '">' +
+    '<span class="affinity-label">' + label + '</span>' +
+    '<div class="affinity-bar-bg"><div class="affinity-bar-fill" id="aff-bar-' + style + '-' + sid + '" ' +
+      'style="background:' + color + '"></div></div>' +
+    '<span class="affinity-pct" id="aff-pct-' + style + '-' + sid + '">0%</span>' +
+  '</div>';
+}
+
 function toggleHighlight(player) {
   highlightedPlayer = (highlightedPlayer === player) ? null : player;
   // Update card classes
@@ -726,17 +1163,19 @@ function toggleHighlight(player) {
       card.classList.add(p === highlightedPlayer ? 'highlighted' : 'dimmed');
     }
   }
-  render(parseInt(document.getElementById('slider').value));
+  render(currentIdx);
+  renderStackChart(currentIdx);
 }
 
-function updatePlayerCards(handIdx) {
+function updatePlayerCards(globalIdx) {
+  const currentHand = allHands[globalIdx];
+  const prevHand = globalIdx > 0 ? allHands[globalIdx - 1] : null;
+
   for (const player of DATA.players) {
-    const traj = DATA.trajectories[player];
-    if (!traj || traj.length === 0) continue;
-    const eliminated = handIdx >= traj.length;
-    const effectiveIdx = eliminated ? traj.length - 1 : handIdx;
-    const current = traj[effectiveIdx];
-    const prev = effectiveIdx > 0 ? traj[effectiveIdx - 1] : null;
+    const current = getPlayerState(player, currentHand);
+    if (!current) continue;
+    const prev = prevHand ? getPlayerState(player, prevHand) : null;
+    const eliminated = current.hand < currentHand && current.stack <= 0;
     const sid = sanitize(player);
 
     // Bars
@@ -749,7 +1188,7 @@ function updatePlayerCards(handIdx) {
     el(sid, 'comp-val').textContent = current.comp.toFixed(2);
     el(sid, 'energy-val').textContent = current.energy.toFixed(2);
 
-    // Deltas
+    // Deltas (only if player was active this hand and prev exists)
     if (prev && !eliminated) {
       setDelta(sid, 'conf', current.conf - prev.conf);
       setDelta(sid, 'comp', current.comp - prev.comp);
@@ -761,14 +1200,59 @@ function updatePlayerCards(handIdx) {
       }
     }
 
-    // Events
+    // Affinities
+    const affinities = computeAffinities(current.conf, current.comp);
+    for (const style of AFFINITY_STYLES) {
+      const pct = affinities[style];
+      const barEl = document.getElementById('aff-bar-' + style + '-' + sid);
+      const pctEl = document.getElementById('aff-pct-' + style + '-' + sid);
+      const rowEl = document.getElementById('aff-row-' + style + '-' + sid);
+      if (barEl) barEl.style.width = (pct * 100) + '%';
+      if (pctEl) pctEl.textContent = Math.round(pct * 100) + '%';
+      if (rowEl) {
+        if (current.sweet_spot === style) rowEl.classList.add('affinity-active');
+        else rowEl.classList.remove('affinity-active');
+      }
+    }
+
+    // Events (in details)
     const evEl = document.getElementById('events-' + sid);
     if (eliminated) {
       evEl.innerHTML = '<span class="event-badge loss">Eliminated</span>';
     } else {
-      evEl.innerHTML = computeEvents(player, current, prev);
+      evEl.innerHTML = computeEvents(player, currentHand, prevHand, current, prev);
+    }
+
+    // Summary badges (always visible in header row)
+    const summaryEl = document.getElementById('summary-' + sid);
+    if (summaryEl) {
+      summaryEl.innerHTML = computeSummary(player, currentHand, prevHand, current, prev, eliminated);
+    }
+
+    // Emotion indicator on card (visible when emotions overlay active)
+    const emotion = current.emotion || 'poker_face';
+    const emoji = EMOTION_EMOJI[emotion] || EMOTION_EMOJI.poker_face;
+    const avatarEmo = document.getElementById('avatar-emo-' + sid);
+    const emoText = document.getElementById('emo-text-' + sid);
+    if (avatarEmo) {
+      avatarEmo.textContent = emoji;
+      avatarEmo.style.display = showEmotions ? '' : 'none';
+    }
+    if (emoText) {
+      const quadrant = getQuadrant(current.conf, current.comp);
+      const qColor = QUADRANT_COLORS[quadrant] || '#888';
+      emoText.textContent = emotion.replace('_', ' ');
+      emoText.style.color = qColor;
+      emoText.style.display = showEmotions ? '' : 'none';
     }
   }
+}
+
+function getQuadrant(conf, comp) {
+  if (conf > 0.5 && comp > 0.5) return 'commanding';
+  if (conf > 0.5 && comp <= 0.5) return 'overheated';
+  if (conf <= 0.5 && comp > 0.5) return 'guarded';
+  return 'shaken';
 }
 
 function el(sid, prefix) {
@@ -810,109 +1294,425 @@ const EVENT_STYLES = {
   _gravity: {label: 'zone gravity', cls: 'thoughts'},
 };
 
-function computeEvents(playerName, current, prev) {
-  if (!prev) return '<span class="event-badge neutral">Baseline</span>';
-  const b = [];
+function fmtDelta(v) {
+  if (Math.abs(v) < 0.0005) return {text: '\u2014', cls: 'force-zero'};
+  const sign = v > 0 ? '+' : '';
+  return {text: sign + v.toFixed(3), cls: v > 0 ? 'force-pos' : 'force-neg'};
+}
 
-  // Show actual pressure events if available
+function computeEvents(playerName, currentHand, prevHand, current, prev) {
+  if (!prev || !prevHand) return '<span class="event-badge neutral">Baseline</span>';
+
   const pe = DATA.pressure_events || {};
   const playerEvents = pe[playerName] || {};
-  const handEvents = playerEvents[current.hand] || [];
+  // Collect events from all hands between prev.hand (inclusive) and current.hand (exclusive).
+  // When a player skips hands (e.g. all-in), prev.hand may be earlier than prevHand,
+  // so we need events from multiple hands to explain the full movement.
+  let handEvents = [];
+  for (const h of Object.keys(playerEvents).map(Number).sort((a,b) => a-b)) {
+    if (h >= prev.hand && h < current.hand) {
+      handEvents = handEvents.concat(playerEvents[h]);
+    }
+  }
+
+  // Separate events into force rows (have deltas) and badges (no deltas)
+  const rawForceRows = [];
+  const badges = [];
+  let netConf = 0, netComp = 0, netEnergy = 0;
 
   for (const evt of handEvents) {
     const style = EVENT_STYLES[evt.type] || {label: evt.type, cls: 'neutral'};
-    let extra = '';
-    if (evt.type === '_recovery' && evt.details) {
-      const dc = evt.details.conf_delta || 0;
-      const dm = evt.details.comp_delta || 0;
-      extra = ' c' + (dc >= 0 ? '+' : '') + dc.toFixed(3) +
-              ' m' + (dm >= 0 ? '+' : '') + dm.toFixed(3);
-    } else if (evt.type === '_gravity' && evt.details) {
-      const dc = evt.details.conf_delta || 0;
-      const dm = evt.details.comp_delta || 0;
-      extra = ' c' + (dc >= 0 ? '+' : '') + dc.toFixed(3) +
-              ' m' + (dm >= 0 ? '+' : '') + dm.toFixed(3);
+    const d = evt.details || {};
+    const hasDeltas = d.conf_delta !== undefined || d.comp_delta !== undefined;
+
+    if (hasDeltas) {
+      const cd = d.conf_delta || 0;
+      const md = d.comp_delta || 0;
+      const ed = d.energy_delta || 0;
+      netConf += cd;
+      netComp += md;
+      netEnergy += ed;
+      rawForceRows.push({label: style.label, cls: style.cls, conf: cd, comp: md, energy: ed});
+    } else {
+      badges.push('<span class="event-badge ' + style.cls + '">' + style.label + '</span>');
     }
-    b.push('<span class="event-badge ' + style.cls + '">' + style.label + extra + '</span>');
   }
 
-  // Stack change (always show if changed)
+  // Collapse consecutive identical force rows (e.g. 12× streak ↓)
+  const forceRows = [];
+  for (const row of rawForceRows) {
+    const prev = forceRows.length > 0 ? forceRows[forceRows.length - 1] : null;
+    if (prev && prev.label === row.label && prev.conf === row.conf && prev.comp === row.comp && prev.energy === row.energy) {
+      prev.count = (prev.count || 1) + 1;
+    } else {
+      forceRows.push(Object.assign({count: 1}, row));
+    }
+  }
+
+  let html = '';
+
+  // Force breakdown table
+  if (forceRows.length > 0) {
+    html += '<table class="force-table">';
+    for (const row of forceRows) {
+      const c = fmtDelta(row.conf);
+      const m = fmtDelta(row.comp);
+      const e = fmtDelta(row.energy);
+      const countLabel = row.count > 1 ? ' \u00d7' + row.count : '';
+      html += '<tr>' +
+        '<td class="force-label"><span class="event-badge ' + row.cls + '" style="padding:1px 5px;font-size:0.68rem">' + row.label + countLabel + '</span></td>' +
+        '<td class="force-val ' + c.cls + '">conf ' + c.text + '</td>' +
+        '<td class="force-val ' + m.cls + '">comp ' + m.text + '</td>' +
+        '<td class="force-val ' + e.cls + '">nrg ' + e.text + '</td>' +
+        '</tr>';
+    }
+    // Net row (only if multiple forces)
+    if (forceRows.length > 1) {
+      const nc = fmtDelta(netConf);
+      const nm = fmtDelta(netComp);
+      const ne = fmtDelta(netEnergy);
+      html += '<tr class="force-net">' +
+        '<td class="force-label">net</td>' +
+        '<td class="force-val ' + nc.cls + '">conf ' + nc.text + '</td>' +
+        '<td class="force-val ' + nm.cls + '">comp ' + nm.text + '</td>' +
+        '<td class="force-val ' + ne.cls + '">nrg ' + ne.text + '</td>' +
+        '</tr>';
+    }
+    html += '</table>';
+  }
+
+  // Badge section (zone transitions, penalties, old events without deltas)
+  const badgeParts = badges.slice();
+
+  // Stack change
   const sd = current.stack - prev.stack;
-  if (sd > 0) b.push('<span class="event-badge win">+' + sd + ' chips</span>');
-  else if (sd < 0) b.push('<span class="event-badge loss">' + sd + ' chips</span>');
+  if (sd > 0) badgeParts.push('<span class="event-badge win">+' + sd + ' chips</span>');
+  else if (sd < 0) badgeParts.push('<span class="event-badge loss">' + sd + ' chips</span>');
 
   // Zone transitions
   if (current.sweet_spot !== prev.sweet_spot) {
     if (current.sweet_spot)
-      b.push('<span class="event-badge zone">\u2192 ' + current.sweet_spot + '</span>');
+      badgeParts.push('<span class="event-badge zone">\u2192 ' + current.sweet_spot + '</span>');
     if (prev.sweet_spot && !current.sweet_spot)
-      b.push('<span class="event-badge neutral">left ' + prev.sweet_spot + '</span>');
+      badgeParts.push('<span class="event-badge neutral">left ' + prev.sweet_spot + '</span>');
   }
 
   // Penalty changes
   if (current.penalty !== prev.penalty) {
     if (current.penalty)
-      b.push('<span class="event-badge penalty">\u26a0 ' + current.penalty + '</span>');
+      badgeParts.push('<span class="event-badge penalty">\u26a0 ' + current.penalty + '</span>');
     if (prev.penalty && !current.penalty)
-      b.push('<span class="event-badge zone">\u2713 left ' + prev.penalty + '</span>');
+      badgeParts.push('<span class="event-badge zone">\u2713 left ' + prev.penalty + '</span>');
   } else if (current.penalty) {
-    b.push('<span class="event-badge penalty">' + current.penalty +
+    badgeParts.push('<span class="event-badge penalty">' + current.penalty +
       ' (' + (current.penalty_strength * 100).toFixed(0) + '%)</span>');
   }
 
   // Intrusive thoughts
   if (current.intrusive)
-    b.push('<span class="event-badge thoughts">\ud83d\udcad intrusive thoughts</span>');
+    badgeParts.push('<span class="event-badge thoughts">\ud83d\udcad intrusive thoughts</span>');
 
-  return b.length ? b.join('') : '<span class="event-badge neutral">steady</span>';
+  if (badgeParts.length > 0) {
+    html += '<div class="force-badges">' + badgeParts.join('') + '</div>';
+  }
+
+  return html || '<span class="event-badge neutral">steady</span>';
 }
 
+function computeSummary(playerName, currentHand, prevHand, current, prev, eliminated) {
+  if (eliminated) return '<span class="event-badge loss">Eliminated</span>';
+  if (!prev || !prevHand) return '<span class="event-badge neutral">Baseline</span>';
+
+  const parts = [];
+
+  // Stack change
+  const sd = current.stack - prev.stack;
+  if (sd > 0) parts.push('<span class="event-badge win">+' + sd + '</span>');
+  else if (sd < 0) parts.push('<span class="event-badge loss">' + sd + '</span>');
+
+  // Zone transition
+  if (current.sweet_spot !== prev.sweet_spot && current.sweet_spot) {
+    parts.push('<span class="event-badge zone">\u2192 ' + current.sweet_spot + '</span>');
+  }
+
+  // Penalty
+  if (current.penalty) {
+    parts.push('<span class="event-badge penalty">\u26a0 ' + current.penalty + '</span>');
+  }
+
+  // Intrusive thoughts
+  if (current.intrusive) parts.push('<span class="event-badge thoughts">\ud83d\udcad</span>');
+
+  return parts.join('') || '<span class="event-badge neutral">steady</span>';
+}
+
+// --- Stack chart ---
+const stackCanvas = document.getElementById('stack-chart');
+const stackCtx = stackCanvas.getContext('2d');
+let stackW = 800, stackH = 100;
+const STACK_PAD_L = 4, STACK_PAD_R = 40, STACK_PAD_T = 8, STACK_PAD_B = 18;
+let maxStack = 0;
+
+// Stack-only players (human) — indexed by hand for lookups
+const stackOnlyPlayers = Object.keys(DATA.stack_players || {});
+const stackOnlyByHand = {};
+for (const p of stackOnlyPlayers) {
+  stackOnlyByHand[p] = {};
+  for (const e of DATA.stack_players[p]) stackOnlyByHand[p][e.hand] = e;
+}
+
+function getStackOnlyState(player, handNum) {
+  if (stackOnlyByHand[player][handNum]) return stackOnlyByHand[player][handNum];
+  const traj = DATA.stack_players[player];
+  let best = null;
+  for (const entry of traj) {
+    if (entry.hand <= handNum) best = entry;
+    else break;
+  }
+  return best;
+}
+
+function computeMaxStack() {
+  maxStack = 0;
+  for (const p of DATA.players) {
+    for (const e of DATA.trajectories[p]) {
+      if (e.stack > maxStack) maxStack = e.stack;
+    }
+  }
+  for (const p of stackOnlyPlayers) {
+    for (const e of DATA.stack_players[p]) {
+      if (e.stack > maxStack) maxStack = e.stack;
+    }
+  }
+  if (maxStack === 0) maxStack = 1000;
+  // Round up to nice number
+  const mag = Math.pow(10, Math.floor(Math.log10(maxStack)));
+  maxStack = Math.ceil(maxStack / mag) * mag;
+}
+
+function setupStackCanvas() {
+  const section = stackCanvas.parentElement;
+  stackW = section.clientWidth;
+  stackH = section.clientHeight || 100;
+  const dpr = window.devicePixelRatio || 1;
+  stackCanvas.width = stackW * dpr;
+  stackCanvas.height = stackH * dpr;
+  stackCanvas.style.width = stackW + 'px';
+  stackCanvas.style.height = stackH + 'px';
+  stackCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function stackXForIdx(idx) {
+  const plotW = stackW - STACK_PAD_L - STACK_PAD_R;
+  const maxIdx = allHands.length - 1;
+  if (maxIdx <= 0) return STACK_PAD_L;
+  return STACK_PAD_L + (idx / maxIdx) * plotW;
+}
+
+function stackYForValue(val) {
+  const plotH = stackH - STACK_PAD_T - STACK_PAD_B;
+  return STACK_PAD_T + (1 - val / maxStack) * plotH;
+}
+
+function idxFromStackX(clientX) {
+  const rect = stackCanvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const plotW = stackW - STACK_PAD_L - STACK_PAD_R;
+  const ratio = Math.max(0, Math.min(1, (x - STACK_PAD_L) / plotW));
+  return Math.round(ratio * (allHands.length - 1));
+}
+
+function renderStackChart(idx) {
+  stackCtx.clearRect(0, 0, stackW, stackH);
+
+  // Background
+  stackCtx.fillStyle = '#0d1117';
+  stackCtx.fillRect(0, 0, stackW, stackH);
+  const plotW = stackW - STACK_PAD_L - STACK_PAD_R;
+  const plotH = stackH - STACK_PAD_T - STACK_PAD_B;
+  stackCtx.fillStyle = '#111820';
+  stackCtx.fillRect(STACK_PAD_L, STACK_PAD_T, plotW, plotH);
+
+  // Y-axis grid lines and labels
+  const ySteps = 3;
+  stackCtx.font = '9px sans-serif';
+  stackCtx.textAlign = 'left';
+  stackCtx.textBaseline = 'middle';
+  for (let i = 0; i <= ySteps; i++) {
+    const val = (i / ySteps) * maxStack;
+    const y = stackYForValue(val);
+    stackCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+    stackCtx.lineWidth = 1;
+    stackCtx.beginPath();
+    stackCtx.moveTo(STACK_PAD_L, y);
+    stackCtx.lineTo(STACK_PAD_L + plotW, y);
+    stackCtx.stroke();
+    // Label on right edge
+    if (i > 0) {
+      stackCtx.fillStyle = '#444';
+      const label = val >= 1000 ? (val / 1000).toFixed(val % 1000 === 0 ? 0 : 1) + 'k' : val.toString();
+      stackCtx.fillText(label, STACK_PAD_L + plotW + 4, y);
+    }
+  }
+
+  // X-axis hand number labels (sparse)
+  stackCtx.textAlign = 'center';
+  stackCtx.textBaseline = 'top';
+  stackCtx.fillStyle = '#444';
+  const totalHands = allHands.length;
+  const labelEvery = totalHands <= 20 ? 5 : totalHands <= 50 ? 10 : totalHands <= 100 ? 20 : 50;
+  for (let i = 0; i < totalHands; i++) {
+    const handNum = allHands[i];
+    if (handNum % labelEvery === 0 || i === 0 || i === totalHands - 1) {
+      const x = stackXForIdx(i);
+      // Thin grid line
+      stackCtx.strokeStyle = 'rgba(255,255,255,0.04)';
+      stackCtx.lineWidth = 1;
+      stackCtx.beginPath();
+      stackCtx.moveTo(x, STACK_PAD_T);
+      stackCtx.lineTo(x, STACK_PAD_T + plotH);
+      stackCtx.stroke();
+      // Label
+      stackCtx.fillText(handNum, x, STACK_PAD_T + plotH + 3);
+    }
+  }
+
+  // Player stack lines (AI players with psychology data)
+  for (const player of DATA.players) {
+    const traj = DATA.trajectories[player];
+    if (!traj || traj.length === 0) continue;
+    const color = DATA.player_colors[player];
+    const dimmed = highlightedPlayer && highlightedPlayer !== player;
+    const lastHand = traj[traj.length - 1].hand;
+
+    stackCtx.strokeStyle = hexAlpha(color, dimmed ? 0.12 : 0.8);
+    stackCtx.lineWidth = dimmed ? 1 : 1.5;
+    stackCtx.beginPath();
+
+    let started = false;
+    for (let i = 0; i < allHands.length; i++) {
+      const hand = allHands[i];
+      // Past this player's last data point — they're out
+      if (hand > lastHand) {
+        if (started) {
+          stackCtx.lineTo(stackXForIdx(i), stackYForValue(0));
+        }
+        break;
+      }
+      const state = getPlayerState(player, hand);
+      if (!state) continue;
+      const x = stackXForIdx(i);
+      const y = stackYForValue(state.stack);
+      if (!started) { stackCtx.moveTo(x, y); started = true; }
+      else stackCtx.lineTo(x, y);
+    }
+    stackCtx.stroke();
+  }
+
+  // Stack-only players (human) — dashed line
+  for (const player of stackOnlyPlayers) {
+    const traj = DATA.stack_players[player];
+    if (!traj || traj.length === 0) continue;
+    const color = DATA.player_colors[player] || '#888';
+    const dimmed = highlightedPlayer && highlightedPlayer !== player;
+    const lastHand = traj[traj.length - 1].hand;
+
+    stackCtx.strokeStyle = hexAlpha(color, dimmed ? 0.12 : 0.8);
+    stackCtx.lineWidth = dimmed ? 1 : 1.5;
+    stackCtx.setLineDash([4, 3]);
+    stackCtx.beginPath();
+
+    let started = false;
+    for (let i = 0; i < allHands.length; i++) {
+      const hand = allHands[i];
+      if (hand > lastHand) {
+        if (started) {
+          stackCtx.lineTo(stackXForIdx(i), stackYForValue(0));
+        }
+        break;
+      }
+      const state = getStackOnlyState(player, hand);
+      if (!state) continue;
+      const x = stackXForIdx(i);
+      const y = stackYForValue(state.stack);
+      if (!started) { stackCtx.moveTo(x, y); started = true; }
+      else stackCtx.lineTo(x, y);
+    }
+    stackCtx.stroke();
+    stackCtx.setLineDash([]);
+  }
+
+  // Vertical highlight bar at current position
+  const curX = stackXForIdx(idx);
+  stackCtx.fillStyle = 'rgba(88,166,255,0.15)';
+  stackCtx.fillRect(curX - 1.5, STACK_PAD_T, 3, plotH);
+  stackCtx.strokeStyle = 'rgba(88,166,255,0.6)';
+  stackCtx.lineWidth = 1;
+  stackCtx.beginPath();
+  stackCtx.moveTo(curX, STACK_PAD_T);
+  stackCtx.lineTo(curX, STACK_PAD_T + plotH);
+  stackCtx.stroke();
+}
+
+// Stack chart mouse interaction
+let stackDragging = false;
+
+stackCanvas.addEventListener('mousedown', function(e) {
+  stackDragging = true;
+  const idx = idxFromStackX(e.clientX);
+  goToIdx(idx);
+});
+
+document.addEventListener('mousemove', function(e) {
+  if (!stackDragging) return;
+  const idx = idxFromStackX(e.clientX);
+  goToIdx(idx);
+});
+
+document.addEventListener('mouseup', function() {
+  stackDragging = false;
+});
+
 // --- Controls ---
+let currentIdx = 0;
 let maxHands = 0;
 let playing = false;
 let playInterval = null;
 
+function goToIdx(idx) {
+  idx = Math.max(0, Math.min(allHands.length - 1, idx));
+  currentIdx = idx;
+  render(idx);
+  renderStackChart(idx);
+  updateHandInfo(idx);
+}
+
 function setupControls() {
-  const slider = document.getElementById('slider');
   const playBtn = document.getElementById('play-btn');
   const prevBtn = document.getElementById('prev-btn');
   const nextBtn = document.getElementById('next-btn');
 
-  maxHands = 0;
-  for (const player of DATA.players) {
-    maxHands = Math.max(maxHands, DATA.trajectories[player].length);
-  }
-
-  slider.max = maxHands - 1;
-  slider.value = 0;
+  maxHands = allHands.length;
 
   document.getElementById('meta').textContent =
-    'Experiment ' + DATA.experiment_id + ' | Game ' + DATA.game_id.substring(0, 12) +
+    (DATA.experiment_id ? 'Experiment ' + DATA.experiment_id + ' | ' : '') +
+    'Game ' + DATA.game_id.substring(0, 12) +
     '... | ' + DATA.players.length + ' players, ' + maxHands + ' hands';
 
   updateHandInfo(0);
-
-  slider.addEventListener('input', function() {
-    const idx = parseInt(this.value);
-    render(idx);
-    updateHandInfo(idx);
-  });
 
   playBtn.addEventListener('click', function() {
     playing = !playing;
     this.innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
     if (playing) {
       playInterval = setInterval(function() {
-        let idx = parseInt(slider.value);
-        if (idx >= maxHands - 1) {
+        if (currentIdx >= maxHands - 1) {
           playing = false;
           playBtn.innerHTML = '&#9654;';
           clearInterval(playInterval);
           return;
         }
-        slider.value = idx + 1;
-        render(idx + 1);
-        updateHandInfo(idx + 1);
+        goToIdx(currentIdx + 1);
       }, 400);
     } else {
       clearInterval(playInterval);
@@ -920,17 +1720,11 @@ function setupControls() {
   });
 
   prevBtn.addEventListener('click', function() {
-    let idx = Math.max(0, parseInt(slider.value) - 1);
-    slider.value = idx;
-    render(idx);
-    updateHandInfo(idx);
+    goToIdx(currentIdx - 1);
   });
 
   nextBtn.addEventListener('click', function() {
-    let idx = Math.min(maxHands - 1, parseInt(slider.value) + 1);
-    slider.value = idx;
-    render(idx);
-    updateHandInfo(idx);
+    goToIdx(currentIdx + 1);
   });
 
   document.addEventListener('keydown', function(e) {
@@ -938,15 +1732,14 @@ function setupControls() {
     if (e.key === 'ArrowLeft') { prevBtn.click(); e.preventDefault(); }
     else if (e.key === 'ArrowRight') { nextBtn.click(); e.preventDefault(); }
     else if (e.key === ' ') { playBtn.click(); e.preventDefault(); }
-    else if (e.key === 'Home') { slider.value = 0; render(0); updateHandInfo(0); e.preventDefault(); }
-    else if (e.key === 'End') { slider.value = maxHands - 1; render(maxHands - 1); updateHandInfo(maxHands - 1); e.preventDefault(); }
+    else if (e.key === 'Home') { goToIdx(0); e.preventDefault(); }
+    else if (e.key === 'End') { goToIdx(maxHands - 1); e.preventDefault(); }
   });
 
   // Game selector (if multiple games)
   if (DATA.games.length > 1) {
-    const wrap = document.getElementById('game-selector-wrap');
     const sel = document.getElementById('game-selector');
-    wrap.style.display = '';
+    sel.style.display = '';
     for (const g of DATA.games) {
       const opt = document.createElement('option');
       opt.value = g.game_id;
@@ -955,7 +1748,6 @@ function setupControls() {
       sel.appendChild(opt);
     }
     sel.addEventListener('change', function() {
-      // Navigate to same endpoint with game parameter
       const url = new URL(window.location.href);
       url.searchParams.set('game', this.value);
       window.location.href = url.toString();
@@ -964,8 +1756,7 @@ function setupControls() {
 }
 
 function updateHandInfo(idx) {
-  const traj = DATA.trajectories[DATA.players[0]];
-  const hand = traj && idx < traj.length ? traj[idx].hand : idx + 1;
+  const hand = allHands[idx] || (idx + 1);
   document.getElementById('hand-info').textContent =
     'Hand ' + hand + ' (' + (idx + 1) + '/' + maxHands + ')';
 }
@@ -973,6 +1764,12 @@ function updateHandInfo(idx) {
 // --- Utilities ---
 function sanitize(name) {
   return name.replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+function escapeHtml(text) {
+  var div = document.createElement('div');
+  div.appendChild(document.createTextNode(text));
+  return div.innerHTML;
 }
 
 // --- Init ---
@@ -1007,18 +1804,41 @@ function setupRefresh() {
   });
 }
 
+function setupOverlayToggles() {
+  const toggles = [
+    {id: 'toggle-zones', getter: () => showZones, setter: v => { showZones = v; }},
+    {id: 'toggle-penalties', getter: () => showPenalties, setter: v => { showPenalties = v; }},
+    {id: 'toggle-emotions', getter: () => showEmotions, setter: v => { showEmotions = v; }},
+  ];
+  for (const t of toggles) {
+    const el = document.getElementById(t.id);
+    el.addEventListener('click', function() {
+      const newVal = !t.getter();
+      t.setter(newVal);
+      this.classList.toggle('active', newVal);
+      render(currentIdx);
+    });
+  }
+}
+
 function init() {
   setupCanvas();
+  computeMaxStack();
+  setupStackCanvas();
   createPlayerCards();
   setupControls();
+  setupOverlayToggles();
   setupRefresh();
   render(0);
+  renderStackChart(0);
 }
 
 window.addEventListener('load', init);
 window.addEventListener('resize', function() {
   setupCanvas();
-  render(parseInt(document.getElementById('slider').value));
+  setupStackCanvas();
+  render(currentIdx);
+  renderStackChart(currentIdx);
 });
 </script>
 </body>

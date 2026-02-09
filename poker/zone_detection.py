@@ -1,5 +1,5 @@
 """
-Zone detection system: sweet spots, penalties, gravity, and strategy guidance.
+Zone detection system: sweet spots, penalties, and strategy guidance.
 
 Detects which zones a player occupies based on confidence/composure/energy,
 computes zone effects, and builds strategy guidance for prompts.
@@ -49,28 +49,6 @@ PENALTY_DETACHED_COMP_THRESHOLD = 0.65
 # Energy manifestation thresholds
 ENERGY_LOW_THRESHOLD = 0.35
 ENERGY_HIGH_THRESHOLD = 0.65
-
-# Zone gravity strength (tunable via get_zone_param('GRAVITY_STRENGTH'))
-GRAVITY_STRENGTH = 0.03
-
-# Penalty zone gravity directions - pull toward zone extreme/edge
-PENALTY_GRAVITY_DIRECTIONS: Dict[str, Tuple[float, float]] = {
-    'tilted': (0.0, -1.0),          # Down toward composure=0
-    'shaken': (-0.707, -0.707),     # Toward (0,0) corner (normalized)
-    'overheated': (0.707, -0.707),  # Toward (1,0) corner (normalized)
-    'overconfident': (1.0, 0.0),    # Right toward confidence=1
-    'timid': (-1.0, 0.0),           # Left toward confidence=0
-    'detached': (-0.707, 0.707),    # Toward (0,1) corner (normalized)
-}
-
-# Sweet spot centers for gravity calculations
-SWEET_SPOT_CENTERS: Dict[str, Tuple[float, float]] = {
-    'guarded': ZONE_GUARDED_CENTER,
-    'poker_face': ZONE_POKER_FACE_CENTER,
-    'commanding': ZONE_COMMANDING_CENTER,
-    'aggro': ZONE_AGGRO_CENTER,
-}
-
 
 # === ZONE STRATEGY SYSTEM ===
 
@@ -347,9 +325,9 @@ def _get_zone_manifestation(energy: float) -> str:
 
     Returns: 'low_energy', 'balanced', or 'high_energy'
     """
-    if energy < ENERGY_LOW_THRESHOLD:
+    if energy < get_zone_param('ENERGY_LOW_THRESHOLD'):
         return 'low_energy'
-    elif energy > ENERGY_HIGH_THRESHOLD:
+    elif energy > get_zone_param('ENERGY_HIGH_THRESHOLD'):
         return 'high_energy'
     else:
         return 'balanced'
@@ -389,71 +367,13 @@ def get_zone_effects(confidence: float, composure: float, energy: float) -> Zone
     )
 
 
-# === ZONE GRAVITY ===
-
-def _calculate_zone_gravity(
-    confidence: float,
-    composure: float,
-    zone_effects: ZoneEffects,
-) -> Tuple[float, float]:
-    """
-    Calculate zone gravity force vector.
-
-    Zone gravity creates "stickiness" - zones are harder to leave once you're in them.
-    - Sweet spot gravity: Pulls toward zone CENTER (stabilizing)
-    - Penalty zone gravity: Pulls toward zone EXTREME/edge (trap effect)
-
-    Returns:
-        (conf_delta, comp_delta) gravity pull to apply
-    """
-    gravity_strength = get_zone_param('GRAVITY_STRENGTH')
-
-    total_conf_delta = 0.0
-    total_comp_delta = 0.0
-
-    # Sweet spot gravity: pull toward center
-    for zone_name, strength in zone_effects.sweet_spots.items():
-        if strength <= 0:
-            continue
-
-        center = SWEET_SPOT_CENTERS.get(zone_name)
-        if not center:
-            continue
-
-        to_center_conf = center[0] - confidence
-        to_center_comp = center[1] - composure
-
-        dist = math.sqrt(to_center_conf ** 2 + to_center_comp ** 2)
-        if dist > 0.001:
-            dir_conf = to_center_conf / dist
-            dir_comp = to_center_comp / dist
-
-            pull = gravity_strength * strength
-            total_conf_delta += dir_conf * pull
-            total_comp_delta += dir_comp * pull
-
-    # Penalty zone gravity: pull toward extreme
-    for zone_name, strength in zone_effects.penalties.items():
-        if strength <= 0:
-            continue
-
-        direction = PENALTY_GRAVITY_DIRECTIONS.get(zone_name)
-        if not direction:
-            continue
-
-        pull = gravity_strength * strength
-        total_conf_delta += direction[0] * pull
-        total_comp_delta += direction[1] * pull
-
-    return (total_conf_delta, total_comp_delta)
-
-
 # === ZONE STRATEGY SELECTION ===
 
 def select_zone_strategy(
     zone_name: str,
     strength: float,
-    context: ZoneContext
+    context: ZoneContext,
+    rng: Optional[random.Random] = None,
 ) -> Optional[ZoneStrategy]:
     """
     Select a strategy for the given zone.
@@ -475,7 +395,8 @@ def select_zone_strategy(
     total = sum(weights)
     weights = [w / total for w in weights]
 
-    return random.choices(eligible, weights=weights, k=1)[0]
+    _rng = rng or random.Random()
+    return _rng.choices(eligible, weights=weights, k=1)[0]
 
 
 def build_zone_guidance(

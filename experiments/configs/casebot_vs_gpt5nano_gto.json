@@ -1,0 +1,26 @@
+{
+  "name": "casebot_vs_gpt5nano_gto",
+  "description": "CaseBot vs GPT-5-nano with GTO guidance enabled",
+  "hypothesis": "GTO equity and verdict guidance will help AI players make better decisions against CaseBot",
+  "num_tournaments": 20,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "random_seed": 42,
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "CaseBot"],
+  "player_types": {
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "GTO Guidance",
+    "prompt_config": {
+      "gto_equity": true,
+      "gto_verdict": true
+    }
+  },
+  "capture_prompts": false,
+  "parallel_tournaments": 5
+}

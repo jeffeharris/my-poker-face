@@ -91,9 +91,6 @@ from .zone_detection import (  # noqa: F401
     PENALTY_DETACHED_COMP_THRESHOLD,
     ENERGY_LOW_THRESHOLD,
     ENERGY_HIGH_THRESHOLD,
-    GRAVITY_STRENGTH,
-    PENALTY_GRAVITY_DIRECTIONS,
-    SWEET_SPOT_CENTERS,
     ZoneStrategy,
     ZoneContext,
     ZONE_STRATEGIES,
@@ -104,9 +101,21 @@ from .zone_detection import (  # noqa: F401
     _detect_penalty_zones,
     _get_zone_manifestation,
     get_zone_effects,
-    _calculate_zone_gravity,
     select_zone_strategy,
     build_zone_guidance,
+)
+
+# From playstyle_selector
+from .playstyle_selector import (  # noqa: F401
+    PlaystyleState,
+    PlaystyleBriefing,
+    compute_playstyle_affinities,
+    derive_primary_playstyle,
+    compute_identity_bias,
+    compute_exploit_scores,
+    compute_election_interval,
+    select_playstyle,
+    build_playstyle_briefing,
 )
 
 # From zone_effects
@@ -177,6 +186,10 @@ class PlayerPsychology:
     _baseline_confidence: Optional[float] = field(default=None, repr=False)
     _baseline_composure: Optional[float] = field(default=None, repr=False)
 
+    # Playstyle selection state
+    _playstyle_state: Optional[PlaystyleState] = field(default=None, repr=False)
+    _identity_biases: Optional[Dict[str, float]] = field(default=None, repr=False)
+
     def __post_init__(self):
         """Initialize emotional state generator, compute baselines, and create poker face zone."""
         if self._emotional_generator is None:
@@ -191,6 +204,18 @@ class PlayerPsychology:
         # Create personality-adjusted poker face zone
         if self._poker_face_zone is None:
             object.__setattr__(self, '_poker_face_zone', create_poker_face_zone(self.anchors))
+
+        # Initialize playstyle from baseline axes
+        if self._playstyle_state is None:
+            primary = derive_primary_playstyle(self._baseline_confidence, self._baseline_composure)
+            object.__setattr__(self, '_playstyle_state', PlaystyleState(
+                active_playstyle=primary,
+                primary_playstyle=primary,
+            ))
+        if self._identity_biases is None:
+            object.__setattr__(self, '_identity_biases', compute_identity_bias(
+                self._playstyle_state.primary_playstyle
+            ))
 
     @classmethod
     def from_personality_config(
@@ -296,7 +321,7 @@ class PlayerPsychology:
             energy=new_energy,
         )
 
-        self.composure_state.update_from_event(event_name, opponent)
+        self.composure_state = self.composure_state.update_from_event(event_name, opponent)
         self._mark_updated()
 
         logger.debug(
@@ -305,46 +330,216 @@ class PlayerPsychology:
             f"Energy={self.energy:.2f}, Quadrant={self.quadrant.value}"
         )
 
+    # === EVENT RESOLUTION CONSTANTS ===
+
+    # Event categories for resolve_hand_events()
+    OUTCOME_EVENTS = {'win', 'loss', 'big_win', 'big_loss', 'headsup_win', 'headsup_loss'}
+    EGO_EVENTS = {'successful_bluff', 'bluff_called', 'nemesis_win', 'nemesis_loss'}
+    EQUITY_SHOCK_EVENTS = {'bad_beat', 'cooler', 'suckout', 'got_sucked_out'}
+    PRESSURE_EVENTS = {'big_pot_involved', 'all_in_moment', 'card_dead_5', 'consecutive_folds_3', 'not_in_hand', 'disciplined_fold', 'short_stack_survival'}
+    DESPERATION_EVENTS = {'short_stack', 'crippled', 'fold_under_pressure'}
+    STREAK_EVENTS = {'winning_streak', 'losing_streak'}
+
+    # Outcome priority (higher index = higher priority)
+    OUTCOME_PRIORITY = ['loss', 'win', 'headsup_loss', 'headsup_win', 'big_loss', 'big_win']
+
+    # Equity shock priority (higher index = higher priority)
+    EQUITY_SHOCK_PRIORITY = ['suckout', 'cooler', 'got_sucked_out', 'bad_beat']
+
     def _get_pressure_impacts(self, event_name: str) -> Dict[str, float]:
         """Get axis impacts for a pressure event."""
         pressure_events = {
-            # Win events - primarily boost CONFIDENCE (skill validation)
-            # Composure only changes when the win has emotional weight
-            'big_win': {'confidence': 0.20, 'composure': 0.03, 'energy': 0.12},
-            'win': {'confidence': 0.08, 'composure': 0.02},
-            'successful_bluff': {'confidence': 0.28, 'composure': 0.0, 'energy': 0.12},
-            'suckout': {'confidence': -0.05, 'composure': 0.10, 'energy': 0.10},  # Lucky win: relief but you know it
-            'double_up': {'confidence': 0.22, 'composure': 0.05, 'energy': 0.18},
-            'eliminated_opponent': {'confidence': 0.15, 'composure': 0.0, 'energy': 0.14},
-            # Loss events - bad luck hits COMPOSURE, outplay hits CONFIDENCE
-            'big_loss': {'confidence': -0.06, 'composure': -0.25, 'energy': -0.12},
-            'bluff_called': {'confidence': -0.30, 'composure': -0.05, 'energy': -0.12},  # Outplayed = ego hit
-            'bad_beat': {'confidence': 0.0, 'composure': -0.38, 'energy': -0.15},  # Played right, got unlucky
-            'got_sucked_out': {'confidence': 0.0, 'composure': -0.42, 'energy': -0.22},  # Pure variance = pure composure
-            'cooler': {'confidence': 0.0, 'composure': -0.08, 'energy': -0.10},
-            'crippled': {'confidence': -0.18, 'composure': -0.25, 'energy': -0.22},
-            'short_stack': {'confidence': -0.08, 'composure': -0.18, 'energy': -0.12},
-            # Streak events - winning streak = getting cocky (conf up, comp DOWN)
-            'winning_streak': {'confidence': 0.20, 'composure': -0.05, 'energy': 0.10},
-            'losing_streak': {'confidence': -0.12, 'composure': -0.30, 'energy': -0.18},
-            # Social/rivalry - ego events hit confidence primarily
-            'nemesis_win': {'confidence': 0.22, 'composure': 0.05, 'energy': 0.14},
-            'nemesis_loss': {'confidence': -0.22, 'composure': -0.08, 'energy': -0.12},
-            'rivalry_trigger': {'confidence': 0.0, 'composure': -0.15, 'energy': 0.06},
-            # Engagement events (energy only)
-            'all_in_moment': {'energy': 0.15},
-            'showdown_involved': {'energy': 0.05},
-            'big_pot_involved': {'energy': 0.05},
-            'heads_up': {'energy': 0.05},
-            # Disengagement events (energy only)
-            'consecutive_folds_3': {'energy': -0.08},
-            'card_dead_5': {'energy': -0.12},
+            # Outcomes (pick ONE via resolve_hand_events)
+            'win': {'confidence': 0.02, 'energy': 0.02},
+            'loss': {'confidence': -0.02, 'energy': -0.02},
+            'big_win': {'confidence': 0.12, 'composure': 0.02, 'energy': 0.08},
+            'big_loss': {'confidence': -0.15, 'composure': -0.05, 'energy': -0.08},
+            'headsup_win': {'confidence': 0.06, 'composure': 0.02, 'energy': 0.05},
+            'headsup_loss': {'confidence': -0.06, 'composure': -0.02, 'energy': -0.05},
+            # Ego/Agency (at most ONE, scaled 50% via resolve_hand_events)
+            'successful_bluff': {'confidence': 0.20, 'composure': 0.05, 'energy': 0.05},
+            'bluff_called': {'confidence': -0.25, 'composure': -0.10, 'energy': -0.05},
+            'nemesis_win': {'confidence': 0.18, 'composure': 0.05, 'energy': 0.05},
+            'nemesis_loss': {'confidence': -0.18, 'composure': -0.05, 'energy': -0.05},
+            # Equity Shock (at most ONE, composure+energy only — no confidence)
+            'bad_beat': {'composure': -0.35, 'energy': -0.10},
+            'cooler': {'composure': -0.20, 'energy': -0.05},
+            'suckout': {'composure': 0.10, 'energy': 0.05},
+            'got_sucked_out': {'composure': -0.30, 'energy': -0.15},
+            # Streaks (additive)
+            'winning_streak': {'confidence': 0.10, 'composure': -0.05, 'energy': 0.05},
+            'losing_streak': {'confidence': -0.12, 'composure': -0.20, 'energy': -0.10},
+            # Pressure/Fatigue (additive, no confidence)
+            'big_pot_involved': {'composure': -0.05, 'energy': -0.05},
+            'all_in_moment': {'composure': -0.08, 'energy': -0.08},
+            'card_dead_5': {'confidence': -0.03, 'composure': 0.03, 'energy': -0.10},
+            'consecutive_folds_3': {'composure': -0.05, 'energy': -0.08},
             'not_in_hand': {'energy': -0.02},
-            # Other - folding under pressure = shaken confidence but showed discipline
-            'fold_under_pressure': {'confidence': -0.12, 'composure': 0.05},
+            'disciplined_fold': {'confidence': -0.06, 'composure': 0.12, 'energy': -0.02},
+            'short_stack_survival': {'confidence': -0.04, 'composure': 0.06, 'energy': -0.05},
+            # Desperation (additive)
+            'short_stack': {'confidence': -0.08, 'composure': -0.15, 'energy': -0.10},
+            'crippled': {'confidence': -0.20, 'composure': -0.25, 'energy': -0.15},
+            'fold_under_pressure': {'confidence': -0.10, 'composure': 0.05},
         }
 
         return pressure_events.get(event_name, {})
+
+    def resolve_hand_events(
+        self,
+        events: List[str],
+        opponent: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Resolve a set of detected events into a single psychological update.
+
+        Resolution rules:
+        1. Select ONE outcome event (highest priority) -> full strength
+        2. Apply at most ONE ego/agency modifier -> scaled 50%
+        3. Apply ALL pressure/fatigue events -> additive
+        4. Apply ALL desperation + streak events -> additive
+        5. Apply at most ONE equity shock event -> full strength (composure-only)
+        6. Clamp axes
+
+        Args:
+            events: List of event names detected for this player
+            opponent: Optional opponent name for composure tracking
+
+        Returns:
+            Dict with events_applied, per-axis deltas, and final values
+        """
+        events_applied = []
+        # Track per-event raw deltas so callers can persist accurate breakdowns
+        per_event_raw = []  # parallel to events_applied: (conf, comp, energy)
+        total_conf_delta = 0.0
+        total_comp_delta = 0.0
+        total_energy_delta = 0.0
+
+        def _record_event(name: str, conf: float, comp: float, energy: float):
+            nonlocal total_conf_delta, total_comp_delta, total_energy_delta
+            total_conf_delta += conf
+            total_comp_delta += comp
+            total_energy_delta += energy
+            events_applied.append(name)
+            per_event_raw.append((conf, comp, energy))
+
+        # 1. Select ONE outcome (highest priority wins)
+        outcome_events = [e for e in events if e in self.OUTCOME_EVENTS]
+        if outcome_events:
+            best_outcome = max(outcome_events, key=lambda e: self.OUTCOME_PRIORITY.index(e))
+            impacts = self._get_pressure_impacts(best_outcome)
+            _record_event(best_outcome,
+                          impacts.get('confidence', 0),
+                          impacts.get('composure', 0),
+                          impacts.get('energy', 0))
+
+        # 2. At most ONE ego/agency modifier, scaled 50%
+        ego_events = [e for e in events if e in self.EGO_EVENTS]
+        if ego_events:
+            ego_event = ego_events[0]  # Take first detected
+            impacts = self._get_pressure_impacts(ego_event)
+            _record_event(ego_event,
+                          impacts.get('confidence', 0) * 0.5,
+                          impacts.get('composure', 0) * 0.5,
+                          impacts.get('energy', 0) * 0.5)
+
+        # 3. ALL pressure/fatigue events (additive)
+        for event in events:
+            if event in self.PRESSURE_EVENTS:
+                impacts = self._get_pressure_impacts(event)
+                _record_event(event,
+                              impacts.get('confidence', 0),
+                              impacts.get('composure', 0),
+                              impacts.get('energy', 0))
+
+        # 4. ALL desperation + streak events (additive)
+        for event in events:
+            if event in self.DESPERATION_EVENTS or event in self.STREAK_EVENTS:
+                impacts = self._get_pressure_impacts(event)
+                _record_event(event,
+                              impacts.get('confidence', 0),
+                              impacts.get('composure', 0),
+                              impacts.get('energy', 0))
+
+        # 5. At most ONE equity shock event (highest priority)
+        shock_events = [e for e in events if e in self.EQUITY_SHOCK_EVENTS]
+        if shock_events:
+            best_shock = max(shock_events, key=lambda e: self.EQUITY_SHOCK_PRIORITY.index(e))
+            impacts = self._get_pressure_impacts(best_shock)
+            _record_event(best_shock,
+                          0,  # equity shocks don't affect confidence
+                          impacts.get('composure', 0),
+                          impacts.get('energy', 0))
+
+        # Apply deltas through sensitivity system
+        pre_conf = self.axes.confidence
+        pre_comp = self.axes.composure
+        pre_energy = self.axes.energy
+
+        # Use a blended severity floor based on the most impactful event
+        floor = max(
+            (_get_severity_floor(e) for e in events_applied),
+            default=SEVERITY_NORMAL,
+        )
+
+        new_conf = pre_conf
+        new_comp = pre_comp
+        new_energy = pre_energy
+
+        # Compute per-axis sensitivities (linear multipliers applied to raw deltas)
+        conf_sensitivity = 1.0
+        comp_sensitivity = 1.0
+        if total_conf_delta != 0:
+            conf_sensitivity = _calculate_sensitivity(self.anchors.ego, floor)
+            new_conf = pre_conf + total_conf_delta * conf_sensitivity
+
+        if total_comp_delta != 0:
+            comp_sensitivity = _calculate_sensitivity(1.0 - self.anchors.poise, floor)
+            new_comp = pre_comp + total_comp_delta * comp_sensitivity
+
+        if total_energy_delta != 0:
+            new_energy = pre_energy + total_energy_delta
+
+        self.axes = self.axes.update(
+            confidence=new_conf,
+            composure=new_comp,
+            energy=new_energy,
+        )
+
+        # Build per-event deltas with sensitivity applied
+        # Since sensitivity is a linear multiplier, per-event deltas sum to the total
+        per_event_deltas = {}
+        for i, event_name in enumerate(events_applied):
+            raw_conf, raw_comp, raw_energy = per_event_raw[i]
+            per_event_deltas[event_name] = {
+                'conf_delta': round(raw_conf * conf_sensitivity, 6),
+                'comp_delta': round(raw_comp * comp_sensitivity, 6),
+                'energy_delta': round(raw_energy, 6),
+            }
+
+        # Update composure tracking
+        for event in events_applied:
+            self.composure_state = self.composure_state.update_from_event(event, opponent)
+
+        self._mark_updated()
+
+        logger.debug(
+            f"{self.player_name}: Resolved {len(events_applied)} events {events_applied}. "
+            f"Conf={self.confidence:.2f} (d={total_conf_delta:+.3f}), "
+            f"Comp={self.composure:.2f} (d={total_comp_delta:+.3f}), "
+            f"Energy={self.energy:.2f} (d={total_energy_delta:+.3f})"
+        )
+
+        return {
+            'events_applied': events_applied,
+            'per_event_deltas': per_event_deltas,
+            'conf_delta': round(new_conf - pre_conf, 6),
+            'comp_delta': round(new_comp - pre_comp, 6),
+            'energy_delta': round(new_energy - pre_energy, 6),
+            'conf_after': round(self.confidence, 4),
+            'comp_after': round(self.composure, 4),
+            'energy_after': round(self.energy, 4),
+        }
 
     def on_hand_complete(
         self,
@@ -358,12 +553,13 @@ class PlayerPsychology:
         big_blind: int = 100,
     ) -> None:
         """Called after each hand completes. Updates composure tracking and generates new emotional state."""
-        self.composure_state.update_from_hand(
+        self.composure_state = self.composure_state.update_from_hand(
             outcome=outcome,
             amount=amount,
             opponent=opponent,
             was_bad_beat=was_bad_beat,
             was_bluff_called=was_bluff_called,
+            big_blind=big_blind,
         )
 
         self._generate_emotional_state(
@@ -397,10 +593,8 @@ class PlayerPsychology:
         - Below baseline: sticky recovery (modifier = floor + range * current)
         - Above baseline: slow decay (modifier = 0.8)
 
-        Zone gravity applied after anchor gravity to create zone "stickiness".
-
         Returns:
-            Dict with force breakdown: recovery deltas, gravity deltas, before/after values
+            Dict with recovery deltas and before/after values
         """
         rate = recovery_rate if recovery_rate is not None else self.anchors.recovery_rate
 
@@ -446,17 +640,6 @@ class PlayerPsychology:
 
         new_energy = pre_energy + (energy_target - pre_energy) * energy_rate
 
-        # Capture recovery deltas (before gravity)
-        recovery_conf = new_conf - pre_conf
-        recovery_comp = new_comp - pre_comp
-        recovery_energy = new_energy - pre_energy
-
-        # Zone gravity
-        zone_fx = get_zone_effects(new_conf, new_comp, new_energy)
-        gravity_conf, gravity_comp = _calculate_zone_gravity(new_conf, new_comp, zone_fx)
-        new_conf = _clamp(new_conf + gravity_conf)
-        new_comp = _clamp(new_comp + gravity_comp)
-
         self.axes = self.axes.update(
             confidence=new_conf,
             composure=new_comp,
@@ -466,11 +649,9 @@ class PlayerPsychology:
         self._mark_updated()
 
         return {
-            'recovery_conf': round(recovery_conf, 6),
-            'recovery_comp': round(recovery_comp, 6),
-            'recovery_energy': round(recovery_energy, 6),
-            'gravity_conf': round(gravity_conf, 6),
-            'gravity_comp': round(gravity_comp, 6),
+            'recovery_conf': round(new_conf - pre_conf, 6),
+            'recovery_comp': round(new_comp - pre_comp, 6),
+            'recovery_energy': round(new_energy - pre_energy, 6),
             'conf_after': round(new_conf, 4),
             'comp_after': round(new_comp, 4),
             'energy_after': round(new_energy, 4),
@@ -562,6 +743,45 @@ class PlayerPsychology:
             return effects.primary_sweet_spot
 
         return 'neutral'
+
+    # === PLAYSTYLE SELECTION ===
+
+    def update_playstyle(
+        self,
+        opponent_models: Optional[Dict[str, Any]] = None,
+        hand_number: int = 0,
+    ) -> PlaystyleState:
+        """
+        Select the appropriate playstyle based on current emotional state,
+        identity, and opponent exploitation opportunities.
+
+        Updates internal _playstyle_state and returns it.
+        """
+        nemesis = self.composure_state.nemesis if self.composure_state else None
+
+        self._playstyle_state = select_playstyle(
+            current_state=self._playstyle_state,
+            confidence=self.confidence,
+            composure=self.composure,
+            energy=self.energy,
+            adaptation_bias=self.anchors.adaptation_bias,
+            identity_biases=self._identity_biases,
+            opponent_models=opponent_models,
+            nemesis=nemesis,
+            hand_number=hand_number,
+        )
+
+        return self._playstyle_state
+
+    @property
+    def playstyle_state(self) -> PlaystyleState:
+        """Get current playstyle state."""
+        return self._playstyle_state
+
+    @property
+    def active_playstyle(self) -> str:
+        """Get current active playstyle name."""
+        return self._playstyle_state.active_playstyle
 
     # === DERIVED VALUES ===
 
@@ -992,6 +1212,7 @@ class PlayerPsychology:
             'zone_distance': self.zone_distance,
             'zone_effects': self.zone_effects.to_dict(),
             'primary_zone': self.primary_zone,
+            'playstyle_state': self._playstyle_state.to_dict() if self._playstyle_state else None,
         }
 
     @classmethod
@@ -1066,6 +1287,13 @@ class PlayerPsychology:
         psychology.hand_count = data.get('hand_count', 0)
         psychology.last_updated = data.get('last_updated')
         psychology.consecutive_folds = data.get('consecutive_folds', 0)
+
+        # Restore playstyle state if saved; otherwise __post_init__ already derived it
+        if data.get('playstyle_state'):
+            psychology._playstyle_state = PlaystyleState.from_dict(data['playstyle_state'])
+            psychology._identity_biases = compute_identity_bias(
+                psychology._playstyle_state.primary_playstyle
+            )
 
         return psychology
 

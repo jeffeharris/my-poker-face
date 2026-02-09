@@ -1,0 +1,45 @@
+{
+  "name": "bet_sizing_guidance_test",
+  "description": "Test bet sizing after adding preflop open/3bet and postflop pot-relative sizing guidance. Compare results against experiment 60 baseline.",
+  "hypothesis": "Sizing guidance reduces preflop overbet rate from 29% to <15% and anchors postflop bets to 50-100% pot range",
+  "tags": ["bet_sizing", "prompt_guidance", "psychology"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 50,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "starting_stack": 1500,
+  "big_blind": 50,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "parallel_tournaments": 4,
+  "stagger_start_delay": 2.0,
+  "capture_prompts": true,
+  "random_seed": 42,
+  "control": {
+    "label": "Sizing-Guidance",
+    "description": "Preflop open/3bet sizing + postflop pot-relative sizing guidance added to prompt",
+    "enable_psychology": true,
+    "prompt_config": {
+      "pot_odds": true,
+      "hand_strength": true,
+      "range_guidance": true,
+      "gto_equity": false,
+      "gto_verdict": false,
+      "situational_guidance": true,
+      "session_memory": true,
+      "opponent_intel": true,
+      "strategic_reflection": false,
+      "chattiness": true,
+      "emotional_state": true,
+      "tilt_effects": true,
+      "mind_games": true,
+      "dramatic_sequence": true
+    }
+  },
+  "personalities": [
+    {"name": "Bob Ross", "description": "TIGHT: looseness=0.38"},
+    {"name": "Sherlock Holmes", "description": "MEDIUM: looseness=0.58"},
+    {"name": "Napoleon", "description": "LOOSE: looseness=0.79"},
+    {"name": "Blackbeard", "description": "VERY LOOSE: looseness=0.87"}
+  ]
+}

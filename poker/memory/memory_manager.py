@@ -366,6 +366,11 @@ class AIMemoryManager:
                 is_eliminated = False
                 spectator_context = None
 
+            # Skip RuleBots - they don't use LLM commentary
+            if getattr(ai_player, 'is_rule_based', False):
+                logger.debug(f"Skipping commentary for {player_name}: RuleBot (no LLM)")
+                continue
+
             session_memory = self.session_memories[player_name]
 
             # Capture all data needed for commentary generation

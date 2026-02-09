@@ -1,0 +1,35 @@
+{
+  "name": "groq_8b_emotional_range",
+  "description": "Emotional range study - volatile vs zen personalities with Groq 8b",
+  "hypothesis": "Gather more emotional tracking data to validate tilt/decision patterns",
+  "tags": ["groq", "llama-8b", "psychology", "emotional-tracking", "tilt-study"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 100,
+  "num_players": 6,
+  "starting_stack": 2000,
+  "big_blind": 40,
+  "reset_on_elimination": true,
+  "model": "llama-3.1-8b-instant",
+  "provider": "groq",
+  "parallel_tournaments": 5,
+  "stagger_start_delay": 0.5,
+  "capture_prompts": true,
+  "personalities": ["Lady Gaga", "Gordon Ramsay", "Bob Ross", "Eeyore", "Winston Churchill", "Buddha"],
+  "control": {
+    "label": "Groq8b-EmotionalRange",
+    "enable_psychology": true,
+    "prompt_config": {
+      "include_personality": true,
+      "pot_odds": true,
+      "hand_strength": true,
+      "gto_equity": true,
+      "gto_verdict": true,
+      "situational_guidance": true,
+      "session_memory": true,
+      "opponent_intel": true,
+      "emotional_state": true,
+      "tilt_effects": true
+    }
+  },
+  "variants": []
+}

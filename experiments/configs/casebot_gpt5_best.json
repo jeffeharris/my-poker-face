@@ -1,0 +1,33 @@
+{
+  "name": "casebot_gpt5_best",
+  "description": "CaseBot vs GPT-5-nano with best decision prompts (personality + situational, no GTO)",
+  "hypothesis": "Personality + situational guidance without GTO overload is optimal",
+  "num_tournaments": 20,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "random_seed": 42,
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "CaseBot"],
+  "player_types": {
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "Best Combo",
+    "prompt_config": {
+      "include_personality": true,
+      "pot_odds": true,
+      "hand_strength": true,
+      "situational_guidance": true,
+      "opponent_intel": true,
+      "gto_equity": false,
+      "gto_verdict": false,
+      "chattiness": false,
+      "dramatic_sequence": false
+    }
+  },
+  "capture_prompts": false,
+  "parallel_tournaments": 5
+}

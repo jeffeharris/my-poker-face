@@ -28,6 +28,9 @@ def format_elasticity_data(ai_controllers: Dict[str, Any]) -> Dict[str, Any]:
             continue
 
         psych = controller.psychology
+        # RuleBasedController returns None for psychology
+        if psych is None:
+            continue
 
         # Map new system to old trait format for frontend compatibility
         # The frontend expects: current, anchor, elasticity, pressure, min, max

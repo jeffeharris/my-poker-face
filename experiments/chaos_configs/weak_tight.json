@@ -1,0 +1,11 @@
+{
+  "name": "WeakTight",
+  "strategy": "custom",
+  "description": "Plays premium hands but never raises. Easy to push around.",
+  "rules": [
+    {"condition": "is_premium and pot_odds >= 2", "action": "call"},
+    {"condition": "is_top_10 and pot_odds >= 3", "action": "call"},
+    {"condition": "cost_to_call == 0", "action": "check"},
+    {"condition": "default", "action": "fold"}
+  ]
+}

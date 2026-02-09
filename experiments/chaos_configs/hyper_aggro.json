@@ -1,0 +1,10 @@
+{
+  "name": "HyperAggro",
+  "strategy": "custom",
+  "description": "Raise every hand, never fold. Tests if pure aggression is exploitable.",
+  "rules": [
+    {"condition": "is_premium", "action": "raise", "raise_size": "all_in"},
+    {"condition": "is_top_20", "action": "raise", "raise_size": "pot"},
+    {"condition": "default", "action": "raise", "raise_size": "min"}
+  ]
+}

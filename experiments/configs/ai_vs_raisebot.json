@@ -1,0 +1,17 @@
+{
+  "name": "ai_vs_raisebot",
+  "description": "3 AI players vs 1 AlwaysRaise bot - testing if AI can trap aggressive play",
+  "hypothesis": "AI should profit by calling/trapping with strong hands since RaiseBot always bets",
+  "num_tournaments": 1,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "RaiseBot"],
+  "player_types": {
+    "RaiseBot": {"type": "rule_bot", "strategy": "always_raise"}
+  },
+  "capture_prompts": true
+}

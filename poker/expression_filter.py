@@ -58,7 +58,7 @@ def calculate_visibility(expressiveness: float, energy: float) -> float:
     return 0.7 * expressiveness + 0.3 * energy
 
 
-def dampen_emotion(true_emotion: str, visibility: float, use_random: bool = True) -> str:
+def dampen_emotion(true_emotion: str, visibility: float, use_random: bool = True, rng: Optional[random.Random] = None) -> str:
     """
     Dampen emotion based on visibility level.
 
@@ -92,7 +92,8 @@ def dampen_emotion(true_emotion: str, visibility: float, use_random: bool = True
 
     # Low visibility: mostly poker_face, occasionally dampened
     if use_random:
-        if random.random() < LOW_VISIBILITY_POKER_FACE_RATIO:
+        _rng = rng or random.Random()
+        if _rng.random() < LOW_VISIBILITY_POKER_FACE_RATIO:
             return 'poker_face'
         return medium_emotion
 

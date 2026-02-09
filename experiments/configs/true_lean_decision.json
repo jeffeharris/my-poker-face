@@ -1,0 +1,78 @@
+{
+  "name": "true_lean_decision",
+  "description": "Test truly clean lean prompts after fixing prompt leakage (persona name, drama context, pot_odds_free, bet_sizing). Compare: noisy baseline (exp 80 repro) vs true lean (everything off) vs true lean + coaching.",
+  "hypothesis": "Fixing prompt leakage (persona name, drama context, free check nudge, bet_sizing field) will further improve decision quality vs the exp 78/80 'lean' config that still contained noise. Re-enabling situational_guidance (pot-committed, short-stack, made-hand coaching) should help without hurting.",
+  "tags": ["prompt-leakage", "lean-prompt", "decision-chain", "coaching"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 40,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "starting_stack": 1500,
+  "big_blind": 50,
+  "capture_prompts": true,
+  "personalities": [
+    {"name": "Napoleon"},
+    {"name": "Abraham Lincoln"},
+    {"name": "King Henry VIII"},
+    {"name": "Sherlock Holmes"}
+  ],
+  "control": {
+    "label": "decision-with-reasoning-old",
+    "model": "gpt-5-nano",
+    "provider": "openai",
+    "enable_psychology": true,
+    "prompt_config": {
+      "betting_discipline": false,
+      "mind_games": false,
+      "dramatic_sequence": false,
+      "expression_filtering": false,
+      "chattiness": false,
+      "include_personality": false,
+      "use_simple_response_format": true,
+      "guidance_injection": "THINK STEP BY STEP before deciding: 1) What is my hand strength? 2) What are the pot odds? 3) What sizing makes sense? Pre-flop opens: 2.5-3x BB. 3-bets: 8-12 BB. Post-flop bets: 50-75% of pot. Only overbet with the nuts or as a polarized bluff."
+    }
+  },
+  "variants": [
+    {
+      "label": "true-lean",
+      "enable_psychology": true,
+      "prompt_config": {
+        "betting_discipline": false,
+        "mind_games": false,
+        "dramatic_sequence": false,
+        "expression_filtering": false,
+        "chattiness": false,
+        "emotional_state": false,
+        "tilt_effects": false,
+        "zone_benefits": false,
+        "situational_guidance": false,
+        "session_memory": false,
+        "opponent_intel": false,
+        "include_personality": false,
+        "use_simple_response_format": true,
+        "guidance_injection": "THINK STEP BY STEP before deciding: 1) What is my hand strength? 2) What are the pot odds? 3) What sizing makes sense? Pre-flop opens: 2.5-3x BB. 3-bets: 8-12 BB. Post-flop bets: 50-75% of pot. Only overbet with the nuts or as a polarized bluff."
+      }
+    },
+    {
+      "label": "true-lean-with-coaching",
+      "enable_psychology": true,
+      "prompt_config": {
+        "betting_discipline": false,
+        "mind_games": false,
+        "dramatic_sequence": false,
+        "expression_filtering": false,
+        "chattiness": false,
+        "emotional_state": false,
+        "tilt_effects": false,
+        "zone_benefits": false,
+        "situational_guidance": true,
+        "session_memory": false,
+        "opponent_intel": false,
+        "include_personality": false,
+        "use_simple_response_format": true,
+        "guidance_injection": "THINK STEP BY STEP before deciding: 1) What is my hand strength? 2) What are the pot odds? 3) What sizing makes sense? Pre-flop opens: 2.5-3x BB. 3-bets: 8-12 BB. Post-flop bets: 50-75% of pot. Only overbet with the nuts or as a polarized bluff."
+      }
+    }
+  ],
+  "random_seed": 42
+}

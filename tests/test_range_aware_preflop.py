@@ -48,13 +48,13 @@ class TestPositionDisplayName:
 
 
 class TestPremiumHands:
-    """Premium hands should always be 'in range' regardless of looseness/position."""
+    """Premium hands should always show raise/re-raise guidance."""
 
     @pytest.mark.parametrize('hand', ['AA', 'KK', 'QQ', 'JJ', 'AKs'])
-    def test_premium_always_in_range(self, hand):
+    def test_premium_always_raise(self, hand):
         result = classify_preflop_hand_for_player(hand, 0.1, 'under_the_gun')
         assert 'premium hand' in result
-        assert 'always in range' in result
+        assert 'raise' in result
 
     @pytest.mark.parametrize('looseness', [0.0, 0.5, 1.0])
     def test_premium_regardless_of_looseness(self, looseness):
@@ -62,57 +62,86 @@ class TestPremiumHands:
         assert 'premium hand' in result
 
 
-class TestWellWithinRange:
-    """Strong hands for loose players should be 'well within'."""
+class TestSolidHands:
+    """Strong hands in range should be 'raise-worthy'."""
 
     def test_strong_hand_loose_player_button(self):
-        # TT at looseness=0.7 from button → well within range
         result = classify_preflop_hand_for_player('TT', 0.7, 'button')
-        assert 'well within' in result
+        assert 'raise-worthy' in result
 
     def test_aqo_medium_looseness_late(self):
         result = classify_preflop_hand_for_player('AQo', 0.5, 'cutoff')
-        assert 'well within' in result
+        assert 'raise-worthy' in result
 
 
 class TestOutsideRange:
-    """Trash hands for tight players in early position should be 'outside'."""
+    """Trash hands should get fold guidance scaled by looseness."""
 
-    def test_trash_hand_tight_early(self):
-        # 72o is never in range for tight player in early position
+    def test_trash_tight_player_strong_fold(self):
+        # Tight player (0.1) should get "you should fold this"
         result = classify_preflop_hand_for_player('72o', 0.1, 'under_the_gun')
-        assert 'outside' in result
-        assert '~' in result  # should include range percentage
+        assert 'should fold' in result
+        assert '~' in result
 
-    def test_trash_hand_even_loose_button(self):
-        # 72o is outside range even for loose player on button
-        # looseness 0.9 → button range ~60% → 72o still outside top 60%
+    def test_trash_medium_player_moderate_fold(self):
+        # Medium player (0.5) should get "fold from here"
+        result = classify_preflop_hand_for_player('72o', 0.5, 'under_the_gun')
+        assert 'fold' in result.lower()
+
+    def test_trash_loose_player_soft_nudge(self):
+        # Loose player (0.9) should get "speculative at best", NOT "should fold"
         result = classify_preflop_hand_for_player('72o', 0.9, 'button')
-        assert 'outside' in result
+        assert 'speculative' in result
+        assert 'should fold' not in result
+
+
+class TestLoosenesScaling:
+    """Verify that wording strength scales with looseness."""
+
+    def test_tight_player_gets_strong_language(self):
+        result = classify_preflop_hand_for_player('T8o', 0.2, 'under_the_gun')
+        # Should contain "should fold" or "fold unless"
+        assert 'fold' in result.lower()
+
+    def test_medium_player_gets_moderate_language(self):
+        result = classify_preflop_hand_for_player('T8o', 0.5, 'under_the_gun')
+        assert 'fold' in result.lower()
+        assert 'should fold' not in result  # not the strongest form
+
+    def test_loose_player_gets_soft_language(self):
+        result = classify_preflop_hand_for_player('T8o', 0.8, 'under_the_gun')
+        # Should NOT say "should fold" or "fold from here"
+        assert 'should fold' not in result
+        assert 'fold from here' not in result
+
+    def test_same_hand_different_looseness(self):
+        # Same hand, same position, but different looseness → different wording
+        tight_result = classify_preflop_hand_for_player('J6o', 0.2, 'button')
+        loose_result = classify_preflop_hand_for_player('J6o', 0.8, 'button')
+        # Both should mention the hand but with different tones
+        assert 'J6o' in tight_result
+        assert 'J6o' in loose_result
+        assert tight_result != loose_result
 
 
 class TestBoundaryHands:
-    """Hands near the range boundary should be 'on the edge' or 'just outside'."""
+    """Hands near the range boundary should get appropriate guidance."""
 
     def test_edge_of_range(self):
-        # J9s is in TOP_35 but not TOP_25 — with looseness that gives ~35% range
-        # it should be on the edge
         result = classify_preflop_hand_for_player('J9s', 0.5, 'button')
-        # At looseness 0.5, button range is ~40%. J9s is in TOP_35.
-        # At range - 0.05 = ~35%, J9s is still in. So it's "well within".
-        # Let's just verify it classifies without error
         assert result
         assert 'J9s' in result
 
-    def test_just_outside_range(self):
-        # A hand that's not in the current range but would be in range_pct + 0.10
-        # T8o is not in TOP_20 but is it in TOP_35? No, T8o is not in any tier set.
-        # Let's use K9s which is in TOP_25 but not TOP_20
-        # At looseness=0.3 early position → range ~16%, K9s not in TOP_15
-        # At 16%+10% = 26% → K9s IS in TOP_25 → "just outside"
+    def test_just_outside_tight_player(self):
+        # K9s at looseness=0.3 early → just outside, tight player
         result = classify_preflop_hand_for_player('K9s', 0.3, 'under_the_gun')
-        assert 'just outside' in result or 'outside' in result
+        assert 'fold' in result.lower()
+
+    def test_just_outside_loose_player(self):
+        # Same hand but for loose player → softer language
+        result = classify_preflop_hand_for_player('K9s', 0.7, 'under_the_gun')
         assert 'K9s' in result
+        assert 'should fold' not in result
 
 
 class TestEmptyInput:
@@ -121,9 +150,8 @@ class TestEmptyInput:
     def test_empty_canonical(self):
         assert classify_preflop_hand_for_player('', 0.5, 'button') == ''
 
-    def test_none_is_not_accepted(self):
-        # None should be caught by the caller, but empty string is handled
-        assert classify_preflop_hand_for_player('', 0.5, 'under_the_gun') == ''
+    def test_empty_canonical_tight(self):
+        assert classify_preflop_hand_for_player('', 0.2, 'under_the_gun') == ''
 
 
 class TestOutputFormat:
@@ -133,10 +161,9 @@ class TestOutputFormat:
         result = classify_preflop_hand_for_player('AA', 0.5, 'button')
         assert result.startswith('AA - ')
 
-    def test_in_range_no_percentage(self):
-        # "well within" messages don't include percentage
+    def test_solid_no_percentage(self):
         result = classify_preflop_hand_for_player('AQs', 0.7, 'button')
-        assert 'well within' in result
+        assert 'raise-worthy' in result
         assert '%' not in result
 
     def test_outside_range_includes_percentage(self):
@@ -144,14 +171,7 @@ class TestOutputFormat:
         assert '~' in result
         assert '%' in result
 
-    def test_edge_includes_percentage(self):
-        # Find a hand that's on the edge: need in_range=True but in_tighter=False
-        # 98s is in TOP_25 but not TOP_20
-        # At looseness=0.5, middle → range ~28%. At 28%-5%=23% → 98s in TOP_25? No, >= 0.25 check
-        # 98s at 28% → in TOP_25 (28 >= 25). At 23% → TOP_20? 23 >= 20 → yes if in TOP_20.
-        # 98s is in TOP_25 but NOT in TOP_20. So at 28%, in_range=True (TOP_25).
-        # At 23%, is_hand_in_range checks >= 0.20 → TOP_20 → 98s not in TOP_20 → False
-        # So this IS on the edge!
+    def test_marginal_includes_percentage(self):
         result = classify_preflop_hand_for_player('98s', 0.5, 'middle_position_1')
-        if 'on the edge' in result:
+        if 'marginal' in result:
             assert '%' in result

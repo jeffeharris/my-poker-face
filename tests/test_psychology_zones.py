@@ -193,16 +193,22 @@ class TestPenaltyZoneDetection:
         assert 'tilted' not in penalties
 
     def test_detect_overconfident_when_high_confidence(self):
-        """Should detect Overconfident penalty when confidence > 0.90."""
-        penalties = _detect_penalty_zones(0.95, 0.7)
+        """Should detect Overconfident penalty when confidence exceeds threshold."""
+        from poker.zone_config import get_zone_param
+        threshold = get_zone_param('PENALTY_OVERCONFIDENT_THRESHOLD')
+        # Use a value clearly above the threshold
+        test_conf = min(threshold + 0.03, 0.99)
+        penalties = _detect_penalty_zones(test_conf, 0.7)
 
         assert 'overconfident' in penalties
-        # Strength = (0.95 - 0.90) / 0.10 = 0.5
-        assert penalties['overconfident'] == pytest.approx(0.5, abs=0.01)
+        expected_strength = (test_conf - threshold) / (1.0 - threshold)
+        assert penalties['overconfident'] == pytest.approx(expected_strength, abs=0.01)
 
     def test_no_overconfident_when_confidence_below_threshold(self):
-        """Should not detect Overconfident when confidence <= 0.90."""
-        penalties = _detect_penalty_zones(0.85, 0.7)
+        """Should not detect Overconfident when confidence is below threshold."""
+        from poker.zone_config import get_zone_param
+        threshold = get_zone_param('PENALTY_OVERCONFIDENT_THRESHOLD')
+        penalties = _detect_penalty_zones(threshold - 0.05, 0.7)
 
         assert 'overconfident' not in penalties
 
@@ -465,8 +471,8 @@ class TestPlayerPsychologyIntegration:
         config = {'anchors': batman_anchors.to_dict()}
         psych = PlayerPsychology.from_personality_config('Batman', config)
 
-        # Push into overconfident state
-        psych.axes = EmotionalAxes(confidence=0.95, composure=0.7, energy=0.5)
+        # Push into overconfident state (must exceed tunable threshold)
+        psych.axes = EmotionalAxes(confidence=0.99, composure=0.7, energy=0.5)
 
         effects = psych.zone_effects
         assert 'overconfident' in effects.penalties

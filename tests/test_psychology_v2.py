@@ -765,12 +765,30 @@ class TestEnergyImpacts:
         initial_comp = psych.composure
         initial_energy = psych.energy
 
-        # All-in moment is energy-only
-        psych.apply_pressure_event('all_in_moment')
+        # not_in_hand is energy-only
+        psych.apply_pressure_event('not_in_hand')
 
         assert psych.confidence == pytest.approx(initial_conf, 0.001)
         assert psych.composure == pytest.approx(initial_comp, 0.001)
-        assert psych.energy > initial_energy
+        assert psych.energy < initial_energy
+
+    def test_pressure_events_affect_composure(self):
+        """Test that pressure events (all_in_moment) affect both composure and energy."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.3,
+                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
+                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        psych = PlayerPsychology.from_personality_config('TestPlayer', config)
+        initial_comp = psych.composure
+        initial_energy = psych.energy
+
+        psych.apply_pressure_event('all_in_moment')
+
+        assert psych.composure < initial_comp
+        assert psych.energy < initial_energy
 
     def test_energy_direct_application_no_sensitivity(self):
         """Test that energy changes are applied directly without sensitivity filter."""
@@ -793,9 +811,9 @@ class TestEnergyImpacts:
         psych_low = PlayerPsychology.from_personality_config('LowSens', low_sens_config)
         psych_high = PlayerPsychology.from_personality_config('HighSens', high_sens_config)
 
-        # Both should get the SAME energy change
-        psych_low.apply_pressure_event('all_in_moment')
-        psych_high.apply_pressure_event('all_in_moment')
+        # Both should get the SAME energy change (not_in_hand is energy-only)
+        psych_low.apply_pressure_event('not_in_hand')
+        psych_high.apply_pressure_event('not_in_hand')
 
         assert psych_low.energy == psych_high.energy
 
@@ -1605,10 +1623,10 @@ class TestSeveritySensitivity:
         psych_minor.apply_pressure_event('win')  # Minor event
         minor_delta = psych_minor.confidence - initial_conf
 
-        # Test major event (double_up) - similar base impact but higher floor
+        # Test major event (nemesis_win) - higher floor means more impact
         psych_major = PlayerPsychology.from_personality_config('TestMajor', config)
         initial_conf_major = psych_major.confidence
-        psych_major.apply_pressure_event('double_up')  # Major event
+        psych_major.apply_pressure_event('nemesis_win')  # Major event
         major_delta = psych_major.confidence - initial_conf_major
 
         # Major event should have larger impact due to higher floor
@@ -1656,12 +1674,7 @@ class TestSeveritySensitivity:
 
 
 class TestAsymmetricRecovery:
-    """Tests for Phase 4 asymmetric recovery mechanics.
-
-    Note: These tests use low confidence values to stay in neutral territory
-    (no zone gravity effects), so we can test anchor recovery mechanics in isolation.
-    Zone gravity is tested separately in TestZoneGravity.
-    """
+    """Tests for Phase 4 asymmetric recovery mechanics."""
 
     def test_recovery_slower_when_deeply_tilted(self):
         """
@@ -1671,8 +1684,6 @@ class TestAsymmetricRecovery:
         making tilt "sticky". We test this by comparing the effective recovery rate
         (recovery / gap_to_baseline) rather than absolute recovery amounts.
 
-        Note: Uses low confidence (0.35) to stay in neutral territory and avoid
-        zone gravity effects from sweet spots like Aggro.
         """
         config = {
             'anchors': {
@@ -1826,109 +1837,6 @@ class TestAsymmetricRecovery:
 
 # === Zone Gravity Tests ===
 
-class TestZoneGravity:
-    """Tests for zone gravity mechanics.
-
-    Zone gravity creates "stickiness" - zones are harder to leave once you're in them.
-    Sweet spots pull toward their center, penalty zones pull toward extremes.
-    """
-
-    def test_penalty_zone_gravity_pulls_toward_extreme(self):
-        """Penalty zones should pull toward their extreme/edge."""
-        from poker.player_psychology import (
-            get_zone_effects, _calculate_zone_gravity, PENALTY_GRAVITY_DIRECTIONS
-        )
-
-        # Player in tilted zone (composure < 0.35)
-        # Tilted pulls toward composure=0 (down)
-        effects = get_zone_effects(0.5, 0.25, 0.5)
-        assert 'tilted' in effects.penalties
-
-        gravity_conf, gravity_comp = _calculate_zone_gravity(0.5, 0.25, effects)
-
-        # Should pull composure DOWN (negative)
-        assert gravity_comp < 0
-        # Should not significantly affect confidence (tilted is composure-only)
-        assert abs(gravity_conf) < 0.001
-
-    def test_sweet_spot_gravity_pulls_toward_center(self):
-        """Sweet spots should pull toward their center."""
-        from poker.player_psychology import (
-            get_zone_effects, _calculate_zone_gravity, ZONE_AGGRO_CENTER
-        )
-
-        # Player in aggro zone (high conf, mid comp)
-        effects = get_zone_effects(0.70, 0.50, 0.5)
-        assert 'aggro' in effects.sweet_spots
-
-        gravity_conf, gravity_comp = _calculate_zone_gravity(0.70, 0.50, effects)
-
-        # Aggro center is (0.68, 0.48)
-        # Player at (0.70, 0.50) should be pulled slightly left and down
-        assert gravity_conf < 0  # Pull left toward 0.68
-        assert gravity_comp < 0  # Pull down toward 0.48
-
-    def test_neutral_territory_no_gravity(self):
-        """Neutral territory should have no zone gravity."""
-        from poker.player_psychology import get_zone_effects, _calculate_zone_gravity
-
-        # Position in neutral territory (no zones)
-        effects = get_zone_effects(0.45, 0.55, 0.5)
-        assert not effects.sweet_spots
-        assert not effects.penalties
-
-        gravity_conf, gravity_comp = _calculate_zone_gravity(0.45, 0.55, effects)
-
-        # No gravity in neutral territory
-        assert gravity_conf == 0.0
-        assert gravity_comp == 0.0
-
-    def test_gravity_applied_during_recovery(self):
-        """Zone gravity should be applied during recover()."""
-        from poker.player_psychology import PlayerPsychology
-
-        config = {
-            'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.7,  # High baseline composure
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.3,
-            }
-        }
-
-        # Player in aggro zone
-        psych = PlayerPsychology.from_personality_config('Test', config)
-        psych.axes = psych.axes.update(confidence=0.70, composure=0.50)
-
-        initial_comp = psych.composure
-
-        # Recovery would normally pull composure UP toward baseline (~0.67)
-        # But aggro zone gravity pulls DOWN toward center (0.48)
-        # Net effect: slower upward movement or even downward pull
-        psych.recover()
-
-        # The composure change should be smaller than pure anchor recovery
-        # because zone gravity is fighting against it
-        # (We just verify zone gravity has an effect - detailed values tested above)
-        final_comp = psych.composure
-
-        # Due to zone gravity, final composure should be different from
-        # what pure anchor recovery would produce
-        pure_anchor_result = 0.50 + (0.67 - 0.50) * 0.3 * 0.8  # ~0.541
-        # Zone gravity pulls down, so final should be below pure anchor result
-        assert final_comp < pure_anchor_result
-
-    def test_gravity_strength_parameter(self):
-        """Zone gravity should use GRAVITY_STRENGTH parameter."""
-        from poker.player_psychology import (
-            get_zone_effects, _calculate_zone_gravity, get_zone_param
-        )
-
-        # Verify parameter exists and has reasonable value
-        strength = get_zone_param('GRAVITY_STRENGTH')
-        assert 0.02 <= strength <= 0.05  # Expected range from docs
-
-
 # === Phase 6 Tests: Zone-Based Intrusive Thoughts ===
 
 class TestProbabilisticInjection:
@@ -1986,7 +1894,7 @@ class TestZoneThoughtSelection:
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
-        psych.composure_state.pressure_source = 'bad_beat'
+        psych.composure_state = ComposureState(pressure_source='bad_beat')
 
         thoughts = psych._get_zone_thoughts('tilted', 'balanced', 0.5)
 
@@ -2326,7 +2234,7 @@ class TestZoneEffectsIntegration:
 
         # Force very low composure
         psych.axes = psych.axes.update(composure=0.15)
-        psych.composure_state.pressure_source = 'bad_beat'
+        psych.composure_state = ComposureState(pressure_source='bad_beat')
 
         test_prompt = "What is your move?"
 
@@ -2376,3 +2284,141 @@ class TestZoneEffectsIntegration:
         # Should be in multiple penalty zones
         assert len(zone_effects.penalties) >= 1  # At least tilted
         assert zone_effects.total_penalty_strength > 0.5  # Combined significant
+
+
+class TestHandEventResolution:
+    """Tests for the balanced event resolution model (resolve_hand_events)."""
+
+    def _make_psych(self, ego=0.5, poise=0.5):
+        """Helper to create a psychology instance for testing."""
+        config = {
+            'anchors': {
+                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': ego,
+                'poise': poise, 'expressiveness': 0.5, 'risk_identity': 0.5,
+                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+            }
+        }
+        return PlayerPsychology.from_personality_config('TestPlayer', config)
+
+    def test_big_win_replaces_win(self):
+        """big_win should be selected over win (no stacking)."""
+        psych = self._make_psych()
+        initial_conf = psych.confidence
+
+        result = psych.resolve_hand_events(['win', 'big_win'])
+
+        # Only big_win should be applied (higher priority)
+        assert 'big_win' in result['events_applied']
+        assert 'win' not in result['events_applied']
+        # Confidence should increase by big_win amount (0.12), not win+big_win
+        assert psych.confidence > initial_conf
+
+    def test_only_one_ego_modifier_scaled_50pct(self):
+        """At most one ego modifier, scaled to 50%."""
+        psych = self._make_psych(ego=1.0)  # Max sensitivity for clean math
+        initial_conf = psych.confidence
+
+        # Both ego events present, only first should apply
+        result = psych.resolve_hand_events(['successful_bluff', 'nemesis_win'])
+
+        ego_events_applied = [e for e in result['events_applied']
+                              if e in PlayerPsychology.EGO_EVENTS]
+        assert len(ego_events_applied) == 1
+
+        # The delta should reflect 50% scaling
+        # successful_bluff confidence = +0.20, at 50% = +0.10, sensitivity=1.0
+        assert result['conf_delta'] > 0
+
+    def test_equity_shock_separate_from_ego(self):
+        """Equity shock and ego events both apply (different categories)."""
+        psych = self._make_psych()
+
+        result = psych.resolve_hand_events(['big_loss', 'bluff_called', 'bad_beat'])
+
+        # Should have outcome, ego, AND equity shock
+        assert 'big_loss' in result['events_applied']
+        assert 'bluff_called' in result['events_applied']
+        assert 'bad_beat' in result['events_applied']
+
+    def test_multiple_pressure_events_stack(self):
+        """Multiple pressure events should all apply additively."""
+        psych = self._make_psych()
+        initial_energy = psych.energy
+
+        result = psych.resolve_hand_events(['big_pot_involved', 'all_in_moment'])
+
+        # Both should be in events_applied
+        assert 'big_pot_involved' in result['events_applied']
+        assert 'all_in_moment' in result['events_applied']
+        # Energy should drop by sum of both
+        assert psych.energy < initial_energy
+
+    def test_loss_event_has_small_impact(self):
+        """loss event should have a small negative impact on confidence."""
+        psych = self._make_psych()
+        initial_conf = psych.confidence
+
+        result = psych.resolve_hand_events(['loss'])
+
+        assert 'loss' in result['events_applied']
+        assert psych.confidence < initial_conf
+        # Should be a small change (base -0.02)
+        assert abs(result['conf_delta']) < 0.05
+
+    def test_outcome_priority_order(self):
+        """big_loss should take priority over loss."""
+        psych = self._make_psych()
+
+        result = psych.resolve_hand_events(['loss', 'big_loss'])
+
+        assert 'big_loss' in result['events_applied']
+        assert 'loss' not in result['events_applied']
+
+    def test_equity_shock_priority(self):
+        """bad_beat should take priority over got_sucked_out."""
+        psych = self._make_psych()
+
+        result = psych.resolve_hand_events(['got_sucked_out', 'bad_beat'])
+
+        assert 'bad_beat' in result['events_applied']
+        assert 'got_sucked_out' not in result['events_applied']
+
+    def test_routine_win_loss_nearly_cancels(self):
+        """Win followed by loss should nearly cancel out in confidence."""
+        psych = self._make_psych()
+        initial_conf = psych.confidence
+
+        psych.resolve_hand_events(['win'])
+        conf_after_win = psych.confidence
+
+        psych.resolve_hand_events(['loss'])
+
+        # Should be close to initial (win=+0.02, loss=-0.02 base)
+        drift = abs(psych.confidence - initial_conf)
+        assert drift < 0.02  # Very small net drift
+
+    def test_resolve_returns_correct_structure(self):
+        """resolve_hand_events should return dict with expected keys."""
+        psych = self._make_psych()
+
+        result = psych.resolve_hand_events(['win', 'big_pot_involved'])
+
+        assert 'events_applied' in result
+        assert 'conf_delta' in result
+        assert 'comp_delta' in result
+        assert 'energy_delta' in result
+        assert 'conf_after' in result
+        assert 'comp_after' in result
+        assert 'energy_after' in result
+
+    def test_desperation_events_additive(self):
+        """Desperation events should stack additively."""
+        psych = self._make_psych()
+        initial_conf = psych.confidence
+
+        result = psych.resolve_hand_events(['short_stack', 'crippled'])
+
+        assert 'short_stack' in result['events_applied']
+        assert 'crippled' in result['events_applied']
+        # Both reduce confidence
+        assert psych.confidence < initial_conf

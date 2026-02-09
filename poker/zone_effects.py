@@ -6,7 +6,7 @@ and the probabilistic injection function.
 """
 
 import random
-from typing import Dict, List
+from typing import Dict, Optional
 
 
 # === INTRUSIVE THOUGHTS ===
@@ -258,7 +258,7 @@ PHRASES_TO_REMOVE_BY_ZONE = {
 }
 
 
-def _should_inject_thoughts(penalty_intensity: float) -> bool:
+def _should_inject_thoughts(penalty_intensity: float, rng: Optional[random.Random] = None) -> bool:
     """
     Determine if intrusive thoughts should be injected based on penalty intensity.
 
@@ -275,9 +275,10 @@ def _should_inject_thoughts(penalty_intensity: float) -> bool:
         return False
     elif penalty_intensity >= 0.75:
         return True  # Cliff - always inject
-    elif penalty_intensity >= 0.50:
-        return random.random() < 0.75
+    _rng = rng or random.Random()
+    if penalty_intensity >= 0.50:
+        return _rng.random() < 0.75
     elif penalty_intensity >= 0.25:
-        return random.random() < 0.50
+        return _rng.random() < 0.50
     else:
-        return random.random() < 0.10  # Minimum 10%
+        return _rng.random() < 0.10  # Minimum 10%

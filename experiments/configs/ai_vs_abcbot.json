@@ -1,0 +1,17 @@
+{
+  "name": "ai_vs_abcbot",
+  "description": "3 AI players vs ABC bot - testing if AI can exploit tight-passive fundamentals",
+  "hypothesis": "AI should profit by bluffing ABC bot off medium hands and not paying off its value bets",
+  "num_tournaments": 1,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "ABCBot"],
+  "player_types": {
+    "ABCBot": {"type": "rule_bot", "strategy": "abc"}
+  },
+  "capture_prompts": true
+}

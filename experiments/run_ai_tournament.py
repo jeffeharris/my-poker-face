@@ -49,12 +49,14 @@ from poker.poker_game import (
 )
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.controllers import AIPlayerController
+from poker.rule_based_controller import RuleBasedController, RuleConfig, CHAOS_BOTS
 from poker.repositories import create_repos
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
 from poker.pressure_detector import PressureEventDetector
 from poker.moment_analyzer import MomentAnalyzer
+from poker.psychology_pipeline import PsychologyPipeline, PsychologyContext
 from experiments.pause_coordinator import PauseCoordinator
 from core.llm import LLMClient, CallType
 from flask_app.config import get_assistant_model, get_assistant_provider
@@ -170,6 +172,7 @@ class ControlConfig:
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
     enable_psychology: bool = False  # Enable tilt + emotional state generation
+    enable_playstyle: Optional[bool] = None  # None=inherit from enable_psychology, True/False=override
     enable_commentary: bool = False  # Enable commentary generation
     reasoning_effort: Optional[str] = None  # 'minimal', 'low', 'medium', 'high'
 
@@ -186,6 +189,7 @@ class VariantConfig:
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
     enable_psychology: bool = False  # Enable tilt + emotional state generation
+    enable_playstyle: Optional[bool] = None  # None=inherit from enable_psychology, True/False=override
     enable_commentary: bool = False  # Enable commentary generation
     reasoning_effort: Optional[str] = None  # Inherits from control if None
 
@@ -216,6 +220,8 @@ class ExperimentConfig:
     rate_limit_backoff_seconds: float = 30.0  # Base backoff on rate limit detection
     # Tournament reset behavior
     reset_on_elimination: bool = False  # If true, reset all stacks when 1 player remains
+    # Rule-based bot support (chaos monkeys)
+    player_types: Optional[Dict[str, Dict]] = None  # {player_name: {"type": "rule_bot", "strategy": "always_fold"}}
 
     def __post_init__(self):
         """Validate control/variants structure."""
@@ -273,6 +279,7 @@ class ExperimentConfig:
             'game_mode': self.control.get('game_mode'),
             'prompt_config': self.control.get('prompt_config'),
             'enable_psychology': self.control.get('enable_psychology', False),
+            'enable_playstyle': self.control.get('enable_playstyle'),
             'enable_commentary': self.control.get('enable_commentary', False),
             'reasoning_effort': self.control.get('reasoning_effort'),
             # New fields for enhanced variant support
@@ -294,6 +301,7 @@ class ExperimentConfig:
                 'prompt_config': variant.get('prompt_config') if 'prompt_config' in variant else control_config.get('prompt_config'),
                 # Psychology flags - inherit from control if not specified
                 'enable_psychology': variant.get('enable_psychology', control_config.get('enable_psychology', False)),
+                'enable_playstyle': variant.get('enable_playstyle') if 'enable_playstyle' in variant else control_config.get('enable_playstyle'),
                 'enable_commentary': variant.get('enable_commentary', control_config.get('enable_commentary', False)),
                 # Reasoning effort - inherit from control if not specified
                 'reasoning_effort': variant.get('reasoning_effort') if 'reasoning_effort' in variant else control_config.get('reasoning_effort'),
@@ -787,6 +795,14 @@ class AITournamentRunner:
         elif guidance_injection:
             prompt_config = PromptConfig(guidance_injection=guidance_injection)
 
+        # Apply enable_playstyle toggle (controls zone_benefits on prompt_config)
+        enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
+        enable_playstyle = variant_config.get('enable_playstyle') if variant_config else None
+        if enable_playstyle is None:
+            enable_playstyle = enable_psychology  # Inherit from psychology flag
+        if not enable_playstyle:
+            prompt_config = prompt_config.copy(zone_benefits=False)
+
         controllers = {}
         for player in game_state.players:
             # Check for per-player config override
@@ -821,20 +837,49 @@ class AITournamentRunner:
             else:
                 player_prompt_config = prompt_config
 
-            controller = AIPlayerController(
-                player_name=player.name,
-                state_machine=state_machine,
-                llm_config=player_llm_config,
-                game_id=tournament_id,
-                owner_id=self._owner_id,
-                debug_capture=self.config.capture_prompts,
-                prompt_config=player_prompt_config,
-                capture_label_repo=self.capture_label_repo,
-                decision_analysis_repo=self.decision_analysis_repo,
-            )
+            # Check if this player should use a rule-based controller (chaos bot)
+            player_type_config = (self.config.player_types or {}).get(player.name, {})
+            if player_type_config.get('type') == 'rule_bot':
+                # Create a rule-based controller instead of AI
+                strategy = player_type_config.get('strategy', 'always_fold')
+                config_path = player_type_config.get('config_path')
+
+                if config_path:
+                    # Load from config file
+                    rule_config = RuleConfig.from_json_file(config_path)
+                elif strategy in CHAOS_BOTS:
+                    # Use built-in strategy
+                    rule_config = CHAOS_BOTS[strategy]
+                else:
+                    # Custom strategy name - try to use it directly
+                    rule_config = RuleConfig(strategy=strategy, name=player.name)
+
+                controller = RuleBasedController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    config=rule_config,
+                    game_id=tournament_id,
+                )
+                logger.info(f"Player {player.name} using rule-based controller: {strategy}")
+            else:
+                # Use standard AI controller
+                controller = AIPlayerController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=player_llm_config,
+                    game_id=tournament_id,
+                    owner_id=self._owner_id,
+                    debug_capture=self.config.capture_prompts,
+                    prompt_config=player_prompt_config,
+                    capture_label_repo=self.capture_label_repo,
+                    decision_analysis_repo=self.decision_analysis_repo,
+                    session_memory=memory_manager.get_session_memory(player.name),
+                    opponent_model_manager=memory_manager.get_opponent_model_manager(),
+                )
             controllers[player.name] = controller
             # Initialize memory manager for this player
             memory_manager.initialize_for_player(player.name)
+            controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
 
         return state_machine, controllers, memory_manager
 
@@ -848,24 +893,11 @@ class AITournamentRunner:
         game_id: str,
         hand_start_stacks: Optional[Dict[str, int]] = None,
         was_short_stack: Optional[set] = None,
+        memory_manager: Optional['AIMemoryManager'] = None,
+        equity_history=None,
+        enable_commentary: bool = False,
     ) -> set:
-        """Process psychology updates using pressure event detection.
-
-        Detects game events (showdown, big_win, bad_beat, etc.) and applies them
-        to player psychology via apply_pressure_event(). Also applies recovery
-        between hands to drift axes back toward personality baselines.
-
-        This properly mirrors game_handler.py's handle_pressure_events() for experiments.
-
-        Args:
-            game_state: Current game state after pot awarded
-            controllers: Dict of player name -> AIPlayerController
-            winner_info: Winner determination info with pot_breakdown
-            winner_names: List of winning player names
-            hand_number: Current hand number
-            game_id: Game ID for persisting state
-            hand_start_stacks: Optional dict of player name -> stack at hand start
-            was_short_stack: Optional set of players who were short-stacked last hand
+        """Process psychology updates via unified PsychologyPipeline.
 
         Returns:
             Updated set of currently short-stacked players
@@ -876,150 +908,34 @@ class AITournamentRunner:
             for winner in pot.get('winners', []):
                 pot_size += winner.get('amount', 0)
 
-        # Big blind for stack calculations
         big_blind = game_state.current_ante or 100
 
-        # Check if this is a big pot
-        active_stacks = [p.stack for p in game_state.players if p.stack > 0]
-        avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
-        is_big_pot = MomentAnalyzer.is_big_pot(pot_size, 0, avg_stack)
+        pipeline = PsychologyPipeline(
+            pressure_detector=self.pressure_detector,
+            pressure_event_repo=self.pressure_event_repo,
+            game_repo=self.game_repo,
+            hand_history_repo=self.hand_history_repo,
+            enable_emotional_narration=enable_commentary,
+            persist_controller_state=True,
+        )
 
-        # === DETECT PRESSURE EVENTS ===
-        all_events = []
+        ctx = PsychologyContext(
+            game_id=game_id,
+            hand_number=hand_number,
+            game_state=game_state,
+            winner_info=winner_info,
+            winner_names=winner_names,
+            pot_size=pot_size,
+            controllers=controllers,
+            hand_start_stacks=hand_start_stacks,
+            was_short_stack=was_short_stack,
+            equity_history=equity_history,
+            memory_manager=memory_manager,
+            big_blind=big_blind,
+        )
 
-        # 1. Standard showdown events (big_win, big_loss, successful_bluff)
-        showdown_events = self.pressure_detector.detect_showdown_events(game_state, winner_info)
-        all_events.extend(showdown_events)
-
-        # 2. Phase events — individual detectors cover showdown/stack/streak below
-
-        # 3. Stack events (double_up, crippled, short_stack)
-        current_short = was_short_stack or set()
-        if hand_start_stacks:
-            stack_events, current_short = self.pressure_detector.detect_stack_events(
-                game_state, winner_names, hand_start_stacks,
-                was_short_stack or set(), big_blind
-            )
-            all_events.extend(stack_events)
-
-        # 4. Losers for nemesis tracking
-        loser_names = [p.name for p in game_state.players
-                       if not p.is_folded and p.name not in winner_names]
-
-        # === APPLY EVENTS TO EACH PLAYER'S PSYCHOLOGY ===
-        for event_name, affected_players in all_events:
-            for player_name in affected_players:
-                if player_name not in controllers:
-                    continue
-                controller = controllers[player_name]
-                if not hasattr(controller, 'psychology'):
-                    continue
-
-                # Determine opponent for this event (for nemesis tracking)
-                opponent = None
-                if player_name in winner_names and loser_names:
-                    opponent = loser_names[0]
-                elif player_name in loser_names and winner_names:
-                    opponent = winner_names[0]
-
-                try:
-                    controller.psychology.apply_pressure_event(event_name, opponent)
-                    logger.debug(
-                        f"[Psychology] {player_name}: Applied '{event_name}' event. "
-                        f"Conf={controller.psychology.confidence:.2f}, "
-                        f"Comp={controller.psychology.composure:.2f}"
-                    )
-                    # Persist pressure event for trajectory viewer
-                    if self.pressure_event_repo:
-                        self.pressure_event_repo.save_event(
-                            game_id=game_id,
-                            player_name=player_name,
-                            event_type=event_name,
-                            hand_number=hand_number,
-                            details={
-                                'conf_after': round(controller.psychology.confidence, 4),
-                                'comp_after': round(controller.psychology.composure, 4),
-                                'energy_after': round(controller.psychology.energy, 4),
-                                'opponent': opponent,
-                            },
-                        )
-                except Exception as e:
-                    logger.warning(f"Failed to apply pressure event '{event_name}' to {player_name}: {e}")
-
-        # === APPLY RECOVERY AND SAVE STATE ===
-        for player in game_state.players:
-            if player.name not in controllers:
-                continue
-
-            controller = controllers[player.name]
-            if not hasattr(controller, 'psychology'):
-                continue
-
-            try:
-                # Capture state before recovery for force tracking
-                pre_conf = controller.psychology.confidence
-                pre_comp = controller.psychology.composure
-
-                # Apply recovery between hands (drift toward baseline)
-                recovery_info = controller.psychology.recover()
-
-                # Persist recovery and gravity as force events
-                if self.pressure_event_repo and recovery_info:
-                    # Recovery force (anchor gravity toward baseline)
-                    if abs(recovery_info['recovery_conf']) > 0.001 or abs(recovery_info['recovery_comp']) > 0.001:
-                        self.pressure_event_repo.save_event(
-                            game_id=game_id,
-                            player_name=player.name,
-                            event_type='_recovery',
-                            hand_number=hand_number,
-                            details={
-                                'conf_delta': recovery_info['recovery_conf'],
-                                'comp_delta': recovery_info['recovery_comp'],
-                                'energy_delta': recovery_info['recovery_energy'],
-                            },
-                        )
-                    # Zone gravity force
-                    if abs(recovery_info['gravity_conf']) > 0.001 or abs(recovery_info['gravity_comp']) > 0.001:
-                        self.pressure_event_repo.save_event(
-                            game_id=game_id,
-                            player_name=player.name,
-                            event_type='_gravity',
-                            hand_number=hand_number,
-                            details={
-                                'conf_delta': recovery_info['gravity_conf'],
-                                'comp_delta': recovery_info['gravity_comp'],
-                            },
-                        )
-
-                # Save psychology state to database for live monitoring
-                psychology_dict = controller.psychology.to_dict()
-                prompt_config_dict = controller.prompt_config.to_dict() if hasattr(controller, 'prompt_config') and controller.prompt_config else None
-                self.game_repo.save_controller_state(
-                    game_id,
-                    player.name,
-                    psychology=psychology_dict,
-                    prompt_config=prompt_config_dict
-                )
-
-                # Save emotional state if available
-                if controller.psychology.emotional:
-                    self.game_repo.save_emotional_state(
-                        game_id,
-                        player.name,
-                        controller.psychology.emotional
-                    )
-
-                logger.debug(
-                    f"[Psychology] {player.name}: Post-recovery state - "
-                    f"Conf={controller.psychology.confidence:.2f}, "
-                    f"Comp={controller.psychology.composure:.2f}, "
-                    f"Energy={controller.psychology.energy:.2f}, "
-                    f"Zone={controller.psychology.quadrant.value}"
-                )
-            except Exception as e:
-                logger.warning(f"Psychology state update failed for {player.name}: {e}")
-
-        return current_short
+        result = pipeline.process_hand(ctx)
+        return result.current_short_stack
 
     def run_hand(self, state_machine: PokerStateMachine,
                  controllers: Dict[str, AIPlayerController],
@@ -1060,9 +976,6 @@ class AITournamentRunner:
         if self.config.random_seed is not None:
             state_machine.current_hand_seed = self.config.random_seed + (tournament_number * 1000) + hand_number
 
-        # Notify memory manager of hand start (sets hand_count internally)
-        memory_manager.on_hand_start(game_state, hand_number)
-
         # Set hand number on all controllers for decision analysis
         for controller in controllers.values():
             controller.current_hand_number = hand_number
@@ -1072,6 +985,8 @@ class AITournamentRunner:
         # Run through betting rounds
         max_actions = 100  # Safety limit per hand
         action_count = 0
+        hand_start_recorded = False
+        hand_start_stacks = {}
 
         # Track for stuck loop detection
         last_player_name = None
@@ -1081,6 +996,12 @@ class AITournamentRunner:
             # Advance state machine
             state_machine.run_until([PokerPhase.EVALUATING_HAND])
             game_state = state_machine.game_state
+
+            # Record hand start AFTER first advance deals cards (hole_cards now available)
+            if not hand_start_recorded:
+                memory_manager.on_hand_start(game_state, hand_number)
+                hand_start_stacks = {p.name: p.stack for p in game_state.players}
+                hand_start_recorded = True
 
             # Check if hand is complete
             if state_machine.current_phase == PokerPhase.EVALUATING_HAND:
@@ -1127,9 +1048,29 @@ class AITournamentRunner:
                             )
 
                         # Get AI decision
+                        pre_decision_energy = controller.psychology.energy if hasattr(controller, 'psychology') and controller.psychology else None
                         start_time = time.time()
                         response = controller.decide_action([])
                         latency = (time.time() - start_time) * 1000
+
+                        # Log energy events from on_action_taken (consecutive folds)
+                        if (self.pressure_event_repo and tournament_id
+                                and hasattr(controller, 'last_energy_events')
+                                and controller.last_energy_events
+                                and pre_decision_energy is not None):
+                            energy_delta = controller.psychology.energy - pre_decision_energy
+                            for evt_name in controller.last_energy_events:
+                                self.pressure_event_repo.save_event(
+                                    game_id=tournament_id,
+                                    player_name=current_player.name,
+                                    event_type=evt_name,
+                                    hand_number=hand_number,
+                                    details={
+                                        'conf_delta': 0,
+                                        'comp_delta': 0,
+                                        'energy_delta': round(energy_delta, 6),
+                                    },
+                                )
 
                         # Update heartbeat after API call
                         if tournament_id and self.experiment_id:
@@ -1147,11 +1088,75 @@ class AITournamentRunner:
 
                         # Apply action
                         game_state = play_turn(game_state, action, amount)
+
+                        # Record action for opponent modeling
+                        active_player_names = [
+                            p.name for p in game_state.players
+                            if not p.is_folded and p.stack > 0
+                        ]
+                        memory_manager.on_action(
+                            player_name=current_player.name,
+                            action=action,
+                            amount=amount,
+                            phase=state_machine.current_phase.name,
+                            pot_total=game_state.pot['total'],
+                            active_players=active_player_names
+                        )
+
                         advanced_state = advance_to_next_active_player(game_state)
                         # If None, no active players remain - keep current state, state machine handles phase transition
                         if advanced_state is not None:
                             game_state = advanced_state
                         state_machine.game_state = game_state  # Use property setter
+
+                        # Feed action to memory manager (opponent model tracking, c-bet detection)
+                        if memory_manager:
+                            current_phase = state_machine.current_phase
+                            phase_name = (current_phase.name
+                                          if hasattr(current_phase, 'name')
+                                          else str(current_phase))
+                            active_names = [
+                                p.name for p in game_state.players
+                                if not p.is_folded
+                            ]
+                            pot_total = (game_state.pot.get('total', 0)
+                                         if isinstance(game_state.pot, dict) else 0)
+                            memory_manager.on_action(
+                                player_name=current_player.name,
+                                action=action,
+                                amount=amount,
+                                phase=phase_name,
+                                pot_total=pot_total,
+                                active_players=active_names,
+                            )
+
+                        # Detect action-based energy events (all_in_moment, heads_up)
+                        enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
+                        if enable_psychology:
+                            action_events = self.pressure_detector.detect_action_events(
+                                game_state, current_player.name, action, amount,
+                                hand_number=getattr(memory_manager, 'hand_count', 0) if memory_manager else 0,
+                            )
+                            for event_name, affected_players in action_events:
+                                for pname in affected_players:
+                                    ctrl = controllers.get(pname)
+                                    if ctrl and hasattr(ctrl, 'psychology'):
+                                        e_before = ctrl.psychology.energy
+                                        c_before = ctrl.psychology.confidence
+                                        m_before = ctrl.psychology.composure
+                                        ctrl.psychology.apply_pressure_event(event_name)
+                                        if self.pressure_event_repo and tournament_id:
+                                            self.pressure_event_repo.save_event(
+                                                game_id=tournament_id,
+                                                player_name=pname,
+                                                event_type=event_name,
+                                                hand_number=getattr(ctrl, 'current_hand_number', 0),
+                                                details={
+                                                    'conf_delta': round(ctrl.psychology.confidence - c_before, 6),
+                                                    'comp_delta': round(ctrl.psychology.composure - m_before, 6),
+                                                    'energy_delta': round(ctrl.psychology.energy - e_before, 6),
+                                                },
+                                            )
 
                         # Per-action save for resilience (enables pause/resume)
                         if tournament_id and self.experiment_id:
@@ -1177,6 +1182,21 @@ class AITournamentRunner:
                     except Exception as e:
                         logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
                         game_state = play_turn(game_state, 'fold', 0)
+
+                        # Record fallback fold action
+                        active_player_names = [
+                            p.name for p in game_state.players
+                            if not p.is_folded and p.stack > 0
+                        ]
+                        memory_manager.on_action(
+                            player_name=current_player.name,
+                            action='fold',
+                            amount=0,
+                            phase=state_machine.current_phase.name,
+                            pot_total=game_state.pot['total'],
+                            active_players=active_player_names
+                        )
+
                         advanced_state = advance_to_next_active_player(game_state)
                         # If None, no active players remain - keep current state, state machine handles phase transition
                         if advanced_state is not None:
@@ -1201,6 +1221,32 @@ class AITournamentRunner:
             winner_names = [w.get('name') for w in winners if w.get('name')]
             logger.debug(f"Hand {hand_number}: Winners = {winners}")
 
+            # Calculate equity history BEFORE on_hand_complete clears current_hand
+            equity_history = None
+            enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
+            if enable_psychology:
+                hand_in_progress = memory_manager.hand_recorder.current_hand
+                if hand_in_progress and hand_in_progress.hole_cards and hand_start_stacks:
+                    # Backfill community cards from game state (not recorded per-street in experiments)
+                    cc = [str(c) for c in game_state.community_cards]
+                    if cc:
+                        if len(cc) >= 3:
+                            hand_in_progress.add_community_cards('FLOP', cc[:3])
+                        if len(cc) >= 4:
+                            hand_in_progress.add_community_cards('TURN', cc[3:4])
+                        if len(cc) >= 5:
+                            hand_in_progress.add_community_cards('RIVER', cc[4:5])
+                    # Remove folded players to avoid false equity events
+                    folded_names = {p.name for p in game_state.players if p.is_folded}
+                    for name in folded_names:
+                        hand_in_progress.hole_cards.pop(name, None)
+                    try:
+                        from poker.equity_tracker import EquityTracker
+                        equity_tracker = EquityTracker()
+                        equity_history = equity_tracker.calculate_hand_equity_history(hand_in_progress)
+                    except Exception as e:
+                        logger.warning(f"Equity calculation failed: {e}")
+
             # Record hand history to database (always, for outcome metrics)
             # This persists to hand_history table via memory_manager's persistence layer
             memory_manager.on_hand_complete(
@@ -1211,18 +1257,20 @@ class AITournamentRunner:
             )
 
             # Post-hand psychological processing (if enabled)
-            enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
             enable_commentary = variant_config.get('enable_commentary', False) if variant_config else False
 
             if enable_psychology:
-                # Note: hand_start_stacks and was_short_stack not tracked yet
-                # Stack events will be added in a future enhancement
-                self._process_psychology(
+                was_short = getattr(self, '_was_short_stack', None)
+                current_short = self._process_psychology(
                     game_state, controllers, winner_info, winner_names, hand_number,
                     game_id=tournament_id,
-                    hand_start_stacks=None,
-                    was_short_stack=None,
+                    hand_start_stacks=hand_start_stacks,
+                    was_short_stack=was_short,
+                    memory_manager=memory_manager,
+                    equity_history=equity_history,
+                    enable_commentary=enable_commentary,
                 )
+                self._was_short_stack = current_short
 
             if enable_commentary:
                 # Build AI players context for commentary generation
@@ -1279,6 +1327,9 @@ class AITournamentRunner:
         start_time = datetime.now()
         variant_info = f" [{variant_label}]" if variant_label else ""
         logger.info(f"Starting tournament {tournament_id}{variant_info}")
+
+        # Reset per-tournament psychology tracking
+        self._was_short_stack = None
 
         state_machine, controllers, memory_manager = self.create_game(tournament_id, variant_config, tournament_number)
 

@@ -55,6 +55,10 @@ def _load_zone_params() -> Dict[str, Any]:
         'gravity': {
             'GRAVITY_STRENGTH': 0.03,
         },
+        'energy_thresholds': {
+            'ENERGY_LOW_THRESHOLD': 0.35,
+            'ENERGY_HIGH_THRESHOLD': 0.65,
+        },
     }
 
     # Try to load from file
@@ -70,7 +74,7 @@ def _load_zone_params() -> Dict[str, Any]:
             with open(config_path, 'r') as f:
                 loaded = json.load(f)
                 # Merge loaded values into defaults
-                for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'gravity']:
+                for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'energy_thresholds']:
                     if category in loaded:
                         defaults[category].update(loaded[category])
                 logger.debug(f"Loaded zone parameters from {config_path}")
@@ -97,7 +101,7 @@ def get_zone_param(name: str) -> float:
     params = _load_zone_params()
 
     # Search all categories for the parameter
-    for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'gravity']:
+    for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'energy_thresholds']:
         if name in params.get(category, {}):
             return params[category][name]
 
@@ -131,7 +135,7 @@ def get_all_zone_params() -> Dict[str, float]:
     """Get all zone parameters as a flat dict (for reporting)."""
     params = _load_zone_params()
     result = {}
-    for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'gravity']:
+    for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'energy_thresholds']:
         result.update(params.get(category, {}))
     # Apply overrides
     result.update(_zone_params_overrides)
@@ -156,8 +160,16 @@ RECOVERY_ABOVE_BASELINE = 0.8  # Use get_zone_param('RECOVERY_ABOVE_BASELINE')
 EVENT_SEVERITY = {
     # Minor events (floor=0.20) - routine, small stakes
     'win': 'minor',
+    'loss': 'minor',
     'fold_under_pressure': 'minor',
     'cooler': 'minor',
+    'big_pot_involved': 'minor',
+    'all_in_moment': 'minor',
+    'consecutive_folds_3': 'minor',
+    'card_dead_5': 'minor',
+    'not_in_hand': 'minor',
+    'disciplined_fold': 'minor',
+    'short_stack_survival': 'minor',
 
     # Normal events (floor=0.30) - standard gameplay, default
     'big_win': 'normal',
@@ -167,13 +179,13 @@ EVENT_SEVERITY = {
     'short_stack': 'normal',
     'winning_streak': 'normal',
     'losing_streak': 'normal',
+    'headsup_win': 'normal',
+    'headsup_loss': 'normal',
 
     # Major events (floor=0.40) - high impact, dramatic moments
     'bad_beat': 'major',
     'got_sucked_out': 'major',
-    'double_up': 'major',
     'crippled': 'major',
-    'eliminated_opponent': 'major',
     'suckout': 'major',
     'nemesis_win': 'major',
     'nemesis_loss': 'major',

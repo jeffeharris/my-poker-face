@@ -459,7 +459,10 @@ class AIPokerPlayer(PokerPlayer):
             if self.hand_action_count == 1:
                 message += "\n\nThis is your FIRST action this hand. You must set your 'hand_strategy' for the entire hand."
             elif self.current_hand_strategy:
-                message += f"\n\nYour hand strategy remains: '{self.current_hand_strategy}'"
+                message += (
+                    f"\n\nYour plan from earlier this hand: '{self.current_hand_strategy}'\n"
+                    f"Has the board changed your plan? Follow through or adjust."
+                )
             
             player_response = json.loads(self.assistant.chat(message, json_format=True))
             

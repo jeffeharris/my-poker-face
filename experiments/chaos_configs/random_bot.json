@@ -1,0 +1,13 @@
+{
+  "name": "RandomBot",
+  "strategy": "custom",
+  "description": "Uses equity as randomness proxy. Unpredictable but exploitable on average.",
+  "rules": [
+    {"condition": "equity >= 0.75", "action": "raise", "raise_size": "pot"},
+    {"condition": "equity >= 0.60", "action": "raise", "raise_size": "half_pot"},
+    {"condition": "equity >= 0.45", "action": "call"},
+    {"condition": "equity >= 0.30 and pot_odds >= 3", "action": "call"},
+    {"condition": "cost_to_call == 0", "action": "check"},
+    {"condition": "default", "action": "fold"}
+  ]
+}

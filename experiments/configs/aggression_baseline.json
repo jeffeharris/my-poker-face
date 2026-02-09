@@ -1,0 +1,32 @@
+{
+  "name": "aggression_baseline",
+  "description": "Test extreme aggression vs extreme passivity as baselines",
+  "hypothesis": "Neither extreme should be profitable - tests if our decision quality evaluation penalizes both",
+  "num_tournaments": 1,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["AlwaysRaise", "AlwaysFold", "ABCBot", "PotOddsBot"],
+  "player_types": {
+    "AlwaysRaise": {
+      "type": "rule_bot",
+      "strategy": "always_raise"
+    },
+    "AlwaysFold": {
+      "type": "rule_bot",
+      "strategy": "always_fold"
+    },
+    "ABCBot": {
+      "type": "rule_bot",
+      "strategy": "abc"
+    },
+    "PotOddsBot": {
+      "type": "rule_bot",
+      "strategy": "pot_odds_robot"
+    }
+  },
+  "capture_prompts": false
+}

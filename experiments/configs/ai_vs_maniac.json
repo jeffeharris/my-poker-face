@@ -1,0 +1,18 @@
+{
+  "name": "ai_vs_maniac",
+  "description": "AI players vs ManiacBot - hyper-aggressive triple barrel strategy",
+  "hypothesis": "AI should learn to call down with medium-strength hands against constant aggression",
+  "num_tournaments": 3,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "random_seed": 42,
+  "personalities": ["Batman", "Tyler Durden", "Gordon Ramsay", "ManiacBot"],
+  "player_types": {
+    "ManiacBot": {"type": "rule_bot", "strategy": "maniac"}
+  },
+  "capture_prompts": true
+}
