@@ -80,7 +80,21 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   // Calculate seat position based on offset from human player
   // Players are anchored to fixed positions - only dealer/blind buttons rotate
   // Seat offset 1 (acts after human) = left side, higher offsets move right
-  const getStadiumSeatStyle = (seatOffset: number, totalPlayers: number) => {
+  const getStadiumSeatStyle = (
+    seatOffset: number,
+    totalPlayers: number,
+    headsUpShowdownSlot?: number,
+  ) => {
+    if (headsUpShowdownSlot !== undefined) {
+      const left = headsUpShowdownSlot === 0 ? 25 : 75;
+      return {
+        position: 'absolute' as const,
+        left: `${left}%`,
+        top: '24%',
+        transform: 'translate(-50%, -50%) scale(1)',
+      };
+    }
+
     // Total opponents is totalPlayers - 1 (excluding human)
     const totalOpponents = totalPlayers - 1;
 
@@ -130,6 +144,11 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   const humanPlayer = gameState?.players.find((p: Player) => p.is_human);
   const humanPlayerIndex = gameState?.players.findIndex((p: Player) => p.is_human) ?? -1;
   const opponents = gameState?.players.filter((p: Player) => !p.is_human) ?? [];
+  const showdownOpponents = opponents.filter((p: Player) => !p.is_folded);
+  const isHeadsUpShowdownLayout = (
+    (gameState?.run_it_out || gameState?.phase === 'SHOWDOWN')
+    && showdownOpponents.length === 2
+  );
   const isHumanDealer = humanPlayerIndex === gameState?.current_dealer_idx;
   const isHumanSmallBlind = humanPlayerIndex === gameState?.small_blind_idx;
   const isHumanBigBlind = humanPlayerIndex === gameState?.big_blind_idx;
@@ -292,6 +311,9 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                     )
                   : player.avatar_url;
                 const avatarEmotion = isAiThinking ? 'thinking' : (player.avatar_emotion || 'avatar');
+                const headsUpShowdownSlot = isHeadsUpShowdownLayout
+                  ? showdownOpponents.findIndex((p: Player) => p.name === player.name)
+                  : -1;
 
                 return (
                   <div
@@ -301,7 +323,11 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                     } ${player.is_folded ? 'folded' : ''} ${player.is_all_in ? 'all-in' : ''} ${
                       isCurrentPlayer && aiThinking ? 'thinking' : ''
                     }`}
-                    style={getStadiumSeatStyle(seatOffset, totalPlayers)}
+                    style={getStadiumSeatStyle(
+                      seatOffset,
+                      totalPlayers,
+                      headsUpShowdownSlot >= 0 ? headsUpShowdownSlot : undefined,
+                    )}
                   >
                     <div className="position-indicators">
                       {isDealer && <div className="position-chip dealer-button" title="Dealer">D</div>}

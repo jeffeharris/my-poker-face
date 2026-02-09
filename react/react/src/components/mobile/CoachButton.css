@@ -1,6 +1,6 @@
 .coach-fab {
   position: fixed;
-  z-index: 150;
+  z-index: var(--z-sticky);
   width: 56px;
   height: 56px;
   border-radius: 50%;

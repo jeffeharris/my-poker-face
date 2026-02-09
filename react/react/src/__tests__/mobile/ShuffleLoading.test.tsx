@@ -64,7 +64,7 @@ describe('ShuffleLoading', () => {
   describe('interhand variant', () => {
     it('renders dim layer with correct test id', () => {
       render(<ShuffleLoading isVisible={true} message="Shuffling" variant="interhand" />);
-      const dimLayer = screen.getByTestId('shuffle-loading');
+      const dimLayer = screen.getByTestId('shuffle-loading-interhand');
       expect(dimLayer.classList.contains('shuffle-loading-dim')).toBe(true);
     });
 

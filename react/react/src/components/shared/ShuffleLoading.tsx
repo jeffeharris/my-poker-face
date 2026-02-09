@@ -77,7 +77,6 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
   const content = (
     <div className={`shuffle-loading-content ${showContent ? 'visible' : ''}`}>
-      {/* Animated card deck shuffle */}
       <div className="shuffle-loading-deck">
         {SHUFFLE_CARDS.map((card) => (
           <div
@@ -97,7 +96,6 @@ export const ShuffleLoading = memo(function ShuffleLoading({
         ))}
       </div>
 
-      {/* Status text with shimmer */}
       <div className="shuffle-loading-status">
         <span className="shuffle-loading-text">{message}</span>
         <div className="shuffle-loading-dots">
@@ -107,12 +105,11 @@ export const ShuffleLoading = memo(function ShuffleLoading({
         </div>
       </div>
 
-      {/* Submessage */}
       {submessage && (
         <p className="shuffle-loading-submessage">{submessage}</p>
       )}
 
-      {/* Hand number badge (interhand only) */}
+      {/* Hand number badge */}
       {handNumber != null && handNumber > 0 && (
         <div className="shuffle-loading-badge">
           <span className="shuffle-loading-badge-label">Next Hand</span>
@@ -126,7 +123,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
     return (
       <>
         {/* LAYER 1: Dim background - BELOW avatars */}
-        <div className={`shuffle-loading-dim${exitClass}`} data-testid="shuffle-loading">
+        <div className={`shuffle-loading-dim${exitClass}`} data-testid="shuffle-loading-interhand">
           <div className="shuffle-loading-vignette" />
         </div>
 
