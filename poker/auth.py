@@ -8,6 +8,7 @@ import secrets
 import logging
 import sqlite3
 import uuid
+import re
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import Optional, Dict, Any
@@ -24,6 +25,7 @@ JWT_EXPIRATION_DELTA = timedelta(days=7)
 
 # OAuth state expiration (10 minutes)
 OAUTH_STATE_EXPIRATION = timedelta(minutes=10)
+GUEST_ID_PATTERN = re.compile(r'^guest_[a-f0-9]{32}$')
 
 
 class AuthManager:
@@ -43,6 +45,9 @@ class AuthManager:
         # Configure session
         app.config['SESSION_TYPE'] = 'filesystem'
         app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+        app.config['SESSION_COOKIE_HTTPONLY'] = True
+        app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+        app.config['SESSION_COOKIE_SECURE'] = (os.environ.get('FLASK_ENV') == 'production')
         
         # Add auth endpoints
         self._register_routes()
@@ -68,7 +73,11 @@ class AuthManager:
             if data.get('guest'):
                 # Guest login
                 guest_name = data.get('name', 'Guest')
-                user_data = self.create_guest_user(guest_name)
+                guest_name = re.sub(r'[\x00-\x1f\x7f]', '', str(guest_name)).strip()[:50] or 'Guest'
+
+                existing_guest_id = request.cookies.get('guest_id')
+                guest_id = existing_guest_id if self._is_valid_guest_id(existing_guest_id) else None
+                user_data = self.create_guest_user(guest_name, guest_id=guest_id)
 
                 # Check for existing tracking cookie, generate if needed
                 tracking_id = request.cookies.get('guest_tracking_id')
@@ -97,6 +106,15 @@ class AuthManager:
                 response.set_cookie(
                     'guest_tracking_id',
                     tracking_id,
+                    max_age=30*24*60*60,
+                    httponly=True,
+                    secure=is_prod,
+                    samesite='Lax'
+                )
+
+                response.set_cookie(
+                    'guest_name',
+                    guest_name,
                     max_age=30*24*60*60,
                     httponly=True,
                     secure=is_prod,
@@ -146,6 +164,8 @@ class AuthManager:
             # Clear guest_id cookie if logging out a guest
             if user and user.get('is_guest'):
                 response.set_cookie('guest_id', '', expires=0)
+                response.set_cookie('guest_tracking_id', '', expires=0)
+                response.set_cookie('guest_name', '', expires=0)
             
             return response
         
@@ -311,14 +331,15 @@ class AuthManager:
                 logger.exception(f"Google OAuth callback error: {e}")
                 return redirect(f"{config.FRONTEND_URL}/?auth=error&message=oauth_failed")
     
-    def create_guest_user(self, name: str) -> Dict[str, Any]:
+    @staticmethod
+    def _is_valid_guest_id(guest_id: Optional[str]) -> bool:
+        """Validate guest ID format."""
+        return bool(guest_id and GUEST_ID_PATTERN.match(guest_id))
+
+    def create_guest_user(self, name: str, guest_id: Optional[str] = None) -> Dict[str, Any]:
         """Create a guest user session based on name."""
-        import re
-        # Create a deterministic guest ID from the name (lowercase, alphanumeric only)
-        sanitized_name = re.sub(r'[^a-z0-9]', '', name.lower())
-        if not sanitized_name:
-            sanitized_name = 'guest'
-        guest_id = f'guest_{sanitized_name}'
+        if not self._is_valid_guest_id(guest_id):
+            guest_id = f'guest_{uuid.uuid4().hex}'
 
         user_data = {
             'id': guest_id,
@@ -350,13 +371,12 @@ class AuthManager:
                 except jwt.InvalidTokenError as e:
                     logger.debug(f"Invalid JWT token: {e}")
 
-            # Check for guest_id cookie and restore session if valid
+                # Check for guest_id cookie and restore session if valid
             if not user:
                 guest_id = request.cookies.get('guest_id')
-                if guest_id and guest_id.startswith('guest_'):
-                    # Extract name from guest_id (e.g., 'guest_jeff' -> 'Jeff')
-                    name_part = guest_id[6:]  # Remove 'guest_' prefix
-                    display_name = name_part.capitalize() if name_part else 'Guest'
+                if self._is_valid_guest_id(guest_id):
+                    display_name = request.cookies.get('guest_name', 'Guest')
+                    display_name = re.sub(r'[\x00-\x1f\x7f]', '', str(display_name)).strip()[:50] or 'Guest'
                     user = {
                         'id': guest_id,
                         'name': display_name,

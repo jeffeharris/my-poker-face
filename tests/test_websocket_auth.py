@@ -254,10 +254,11 @@ class TestHandlePlayerActionAuth:
 class TestHandleSendMessageAuth:
     """Tests for ownership checks in send_message socket handler."""
 
+    @patch('flask_app.routes.game_routes.get_authorization_service', return_value=None)
     @patch('flask_app.routes.game_routes.send_message')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
-    def test_non_owner_cannot_send_message(self, mock_auth, mock_gss, mock_send_message):
+    def test_non_owner_cannot_send_message(self, mock_auth, mock_gss, mock_send_message, _mock_authz):
         mock_auth.get_current_user.return_value = {'id': 'attacker'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
@@ -310,10 +311,11 @@ class TestHandleSendMessageAuth:
 class TestProgressGameSocketAuth:
     """Tests for ownership checks in progress_game socket handler."""
 
+    @patch('flask_app.routes.game_routes.get_authorization_service', return_value=None)
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
-    def test_non_owner_cannot_progress_game(self, mock_auth, mock_gss, mock_progress):
+    def test_non_owner_cannot_progress_game(self, mock_auth, mock_gss, mock_progress, _mock_authz):
         mock_auth.get_current_user.return_value = {'id': 'attacker'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 

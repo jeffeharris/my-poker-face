@@ -17,10 +17,11 @@ _admin_required = require_permission('can_access_admin_tools')
 
 
 @capture_label_bp.before_request
-@_admin_required
-def _require_admin_access():
+def _enforce_admin_access():
     """Require admin permission for capture label APIs."""
-    return None
+    check = _admin_required(lambda: None)()
+    if check is not None:
+        return check
 
 
 @capture_label_bp.route('/api/capture-labels', methods=['GET'])

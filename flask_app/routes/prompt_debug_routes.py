@@ -16,10 +16,11 @@ _admin_required = require_permission('can_access_admin_tools')
 
 
 @prompt_debug_bp.before_request
-@_admin_required
-def _require_admin_access():
-    """Require admin permission for all prompt-debug routes."""
-    return None
+def _enforce_admin_access():
+    """Require admin permission for all prompt debug routes."""
+    check = _admin_required(lambda: None)()
+    if check is not None:
+        return check
 
 # In-memory session storage for interrogation conversations
 # Key: session_id, Value: Assistant instance

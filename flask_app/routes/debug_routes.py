@@ -3,6 +3,7 @@
 import logging
 from flask import Blueprint, jsonify, request, redirect
 
+from poker.authorization import require_permission
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from .. import config
@@ -10,6 +11,15 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 debug_bp = Blueprint('debug', __name__)
+_admin_required = require_permission('can_access_admin_tools')
+
+
+@debug_bp.before_request
+def _enforce_admin_access():
+    """Require admin permission for all debug routes."""
+    check = _admin_required(lambda: None)()
+    if check is not None:
+        return check
 
 
 @debug_bp.route('/debug')

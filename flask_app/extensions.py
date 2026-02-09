@@ -28,8 +28,26 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
+def _get_socketio_cors_origins():
+    """Resolve Socket.IO allowed origins from app configuration."""
+    if config.CORS_ORIGINS_ENV == '*':
+        if config.is_development:
+            return [
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:5174",
+            ]
+        raise ValueError(
+            "CORS_ORIGINS='*' is not allowed in production. "
+            "Please set CORS_ORIGINS to a comma-separated list of allowed origins."
+        )
+
+    return [origin.strip() for origin in config.CORS_ORIGINS_ENV.split(',') if origin.strip()]
+
+
 # SocketIO instance - initialized without app
-socketio = SocketIO(cors_allowed_origins="*", async_mode='threading')
+socketio = SocketIO(cors_allowed_origins=_get_socketio_cors_origins(), async_mode='threading')
 
 # Limiter instance - will be initialized with app
 limiter = None

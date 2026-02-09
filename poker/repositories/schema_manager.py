@@ -1059,8 +1059,8 @@ class SchemaManager:
             68: (self._migrate_v68_add_onboarding_completed, "Add onboarding_completed_at to player_coach_profile"),
             69: (self._migrate_v69_add_hand_equity, "Add hand_equity table for equity-based pressure detection"),
             70: (self._migrate_v70_add_range_targets, "Add range_targets JSON column to player_coach_profile"),
-            71: (self._migrate_v70_add_5trait_columns, "Add 5-trait psychology columns to player_decision_analysis"),
-            72: (self._migrate_v71_add_zone_tracking, "Add zone detection and effects tracking columns to player_decision_analysis"),
+            71: (self._migrate_v71_add_5trait_columns, "Add 5-trait psychology columns to player_decision_analysis"),
+            72: (self._migrate_v72_add_zone_tracking, "Add zone detection and effects tracking columns to player_decision_analysis"),
             73: (self._migrate_v73_pressure_events_hand_number, "Add hand_number column to pressure_events"),
             74: (self._migrate_v74_add_bet_sizing, "Add bet_sizing column to player_decision_analysis"),
         }
@@ -3210,7 +3210,7 @@ class SchemaManager:
 
         logger.info("Migration v70 complete: range_targets column added to player_coach_profile")
 
-    def _migrate_v70_add_5trait_columns(self, conn: sqlite3.Connection) -> None:
+    def _migrate_v71_add_5trait_columns(self, conn: sqlite3.Connection) -> None:
         """Migration v71: Add new 5-trait psychology columns to player_decision_analysis.
 
         The new poker-native psychology model uses 5 traits:
@@ -3242,7 +3242,7 @@ class SchemaManager:
 
         logger.info("Migration v71 complete: 5-trait psychology columns added")
 
-    def _migrate_v71_add_zone_tracking(self, conn: sqlite3.Connection) -> None:
+    def _migrate_v72_add_zone_tracking(self, conn: sqlite3.Connection) -> None:
         """Migration v72: Add zone detection and effects tracking columns.
 
         Adds columns to player_decision_analysis for tracking:

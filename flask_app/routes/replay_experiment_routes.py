@@ -20,10 +20,11 @@ _admin_required = require_permission('can_access_admin_tools')
 
 
 @replay_experiment_bp.before_request
-@_admin_required
-def _require_admin_access():
+def _enforce_admin_access():
     """Require admin permission for replay experiment APIs."""
-    return None
+    check = _admin_required(lambda: None)()
+    if check is not None:
+        return check
 
 # Store active replay experiment threads
 _active_replay_threads: Dict[int, threading.Thread] = {}

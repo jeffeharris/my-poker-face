@@ -21,6 +21,23 @@ def _is_admin(user_id: str) -> bool:
     return bool(auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools'))
 
 
+def _can_access_preset(current_user: dict | None, preset: dict) -> bool:
+    """Check whether current user can read/write a preset."""
+    owner_id = preset.get('owner_id')
+    if owner_id is None:
+        # System/shared presets are readable by authenticated users.
+        return current_user is not None
+
+    if not current_user:
+        return False
+
+    user_id = current_user.get('id')
+    if user_id == owner_id:
+        return True
+
+    return _is_admin(user_id)
+
+
 @prompt_preset_bp.route('/api/prompt-presets', methods=['GET'])
 def list_prompt_presets():
     """List all prompt presets.
@@ -122,6 +139,10 @@ def get_prompt_preset(preset_id: int):
         }
     """
     try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
         preset = prompt_preset_repo.get_prompt_preset(preset_id)
 
         if not preset:
@@ -129,6 +150,9 @@ def get_prompt_preset(preset_id: int):
                 'success': False,
                 'error': f'Preset with ID {preset_id} not found'
             }), 404
+
+        if not _can_access_preset(current_user, preset):
+            return jsonify({'success': False, 'error': 'Permission denied'}), 403
 
         return jsonify({
             'success': True,
@@ -174,6 +198,9 @@ def update_prompt_preset(preset_id: int):
                 'success': False,
                 'error': f'Preset with ID {preset_id} not found'
             }), 404
+
+        if not _can_access_preset(current_user, existing):
+            return jsonify({'success': False, 'error': 'Permission denied'}), 403
 
         # System presets are managed by YAML config and cannot be edited
         if existing.get('is_system'):
@@ -256,6 +283,9 @@ def delete_prompt_preset(preset_id: int):
                 'success': False,
                 'error': f'Preset with ID {preset_id} not found'
             }), 404
+
+        if not _can_access_preset(current_user, existing):
+            return jsonify({'success': False, 'error': 'Permission denied'}), 403
 
         # System presets are managed by YAML config and cannot be deleted
         if existing.get('is_system'):

@@ -7,6 +7,7 @@ Low visibility players show poker face more often; high visibility shows true em
 Also provides prompt guidance for dramatic_sequence length and tempo based on visibility/energy.
 """
 
+import random
 from typing import Optional
 
 
@@ -91,7 +92,6 @@ def dampen_emotion(true_emotion: str, visibility: float, use_random: bool = True
 
     # Low visibility: mostly poker_face, occasionally dampened
     if use_random:
-        import random
         if random.random() < LOW_VISIBILITY_POKER_FACE_RATIO:
             return 'poker_face'
         return medium_emotion

@@ -1258,10 +1258,6 @@ def delete_game(game_id):
         return auth_error
 
     try:
-        auth_error = _require_game_owner(game_id, game_state_service.get_game(game_id))
-        if auth_error:
-            return auth_error
-
         game_state_service.delete_game(game_id)
         game_repo.delete_game(game_id)
 
