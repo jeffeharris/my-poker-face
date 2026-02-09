@@ -38,6 +38,14 @@ _admin_required = require_permission('can_access_admin_tools')
 _dev_only = _admin_required
 
 
+@admin_dashboard_bp.before_request
+def _enforce_admin_access():
+    """Require admin permission for all admin dashboard routes."""
+    check = _admin_required(lambda: None)()
+    if check is not None:
+        return check
+
+
 # =============================================================================
 # Dashboard Root - Redirect to React Admin
 # =============================================================================

@@ -20,6 +20,11 @@ import json
 import os
 from pathlib import Path
 
+# Raise rate limits for tests to prevent 429s when multiple test modules
+# share a pytest-xdist worker and hit rate-limited endpoints.
+os.environ.setdefault('RATE_LIMIT_NEW_GAME', '10000 per minute')
+os.environ.setdefault('RATE_LIMIT_GAME_ACTION', '10000 per minute')
+
 import pytest
 from unittest.mock import Mock, patch
 

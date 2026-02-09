@@ -176,6 +176,9 @@ class PlayerPsychology:
     # Consecutive fold tracking for card_dead events
     consecutive_folds: int = 0
 
+    # Zone effects instrumentation (set by apply_zone_effects)
+    _last_zone_effects_instrumentation: Optional[Dict] = field(default=None, repr=False, compare=False)
+
     # Poker Face Zone (2D ellipse in confidence/composure space)
     _poker_face_zone: Optional[PokerFaceZone] = field(default=None, repr=False)
 

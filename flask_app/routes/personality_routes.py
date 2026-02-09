@@ -86,6 +86,17 @@ def get_personalities():
 def get_personality(name):
     """Get a specific personality."""
     try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+        owner_id = personality_repo.get_personality_owner(name)
+        if owner_id and owner_id != user_id and not is_admin:
+            return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
         db_personality = personality_repo.load_personality(name)
         if db_personality:
             return jsonify({
@@ -209,6 +220,19 @@ def update_avatar_description(name):
         }
     """
     try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+        owner_id = personality_repo.get_personality_owner(name)
+        if owner_id and owner_id != user_id and not is_admin:
+            return jsonify({'success': False, 'error': 'Permission denied'}), 403
+        if not owner_id and not is_admin:
+            return jsonify({'success': False, 'error': 'Only admins can edit system personalities'}), 403
+
         data = request.json
         avatar_description = data.get('avatar_description', '').strip()
 
@@ -327,6 +351,19 @@ def update_reference_image(name):
     Set to null to clear the reference image.
     """
     try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+        owner_id = personality_repo.get_personality_owner(name)
+        if owner_id and owner_id != user_id and not is_admin:
+            return jsonify({'success': False, 'error': 'Permission denied'}), 403
+        if not owner_id and not is_admin:
+            return jsonify({'success': False, 'error': 'Only admins can edit system personalities'}), 403
+
         data = request.json
         reference_image_id = data.get('reference_image_id')
 

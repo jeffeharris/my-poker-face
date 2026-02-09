@@ -17,6 +17,14 @@ from experiments.variant_config import build_effective_variant_config, VariantCo
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
 
+def _mock_authorization_service(user=None, has_admin_permission=True):
+    """Build a fake global authorization service for require_permission()."""
+    authz = MagicMock()
+    authz.auth_manager.get_current_user.return_value = user
+    authz.has_permission.return_value = has_admin_permission
+    return authz
+
+
 class TestExperimentConfigVariants(unittest.TestCase):
     """Test cases for ExperimentConfig variant methods."""
 
@@ -454,8 +462,18 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
         self.app.testing = True
         self.client = self.app.test_client()
 
+        self._authz_patcher = patch(
+            'poker.authorization.authorization_service',
+            _mock_authorization_service(
+                user={'id': 'admin-user-1', 'name': 'Admin'},
+                has_admin_permission=True,
+            ),
+        )
+        self._authz_patcher.start()
+
     def tearDown(self):
         """Clean up temporary database."""
+        self._authz_patcher.stop()
         os.unlink(self.test_db.name)
 
     def test_validate_config_with_valid_control_variants(self):
