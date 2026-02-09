@@ -1569,7 +1569,17 @@ def handle_ai_action(game_id: str) -> None:
                             )
             logger.debug(f"[Energy] Applied action events for {current_player.name}: {[e[0] for e in action_events]}")
 
+    # Save pre-action state for decision analysis
+    pre_action_state = state_machine.game_state
+
     game_state = play_turn(state_machine.game_state, action, amount)
+
+    # Analyze decision quality (for all AI players including RuleBots)
+    from flask_app.routes.game_routes import analyze_player_decision
+    memory_manager = current_game_data.get('memory_manager')
+    hand_number = memory_manager.hand_count if memory_manager else None
+    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
+
     record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
     advanced_state = advance_to_next_active_player(game_state)
     # If None, no active players remain - keep current state, let progress_game handle phase transition

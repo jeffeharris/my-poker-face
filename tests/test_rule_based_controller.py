@@ -188,3 +188,92 @@ class TestChaosBots:
         assert CHAOS_BOTS['always_call'].name == 'CallStation'
         assert CHAOS_BOTS['always_raise'].name == 'AggBot'
         assert CHAOS_BOTS['always_all_in'].name == 'YOLOBot'
+
+
+class TestGameHandlerCompatibility:
+    """Tests for compatibility with game handler patterns."""
+
+    def test_ai_player_stub(self):
+        """RuleBasedController.ai_player should return a stub with required attributes."""
+        config = RuleConfig(strategy='abc', name='TestBot')
+        controller = RuleBasedController('TestPlayer', config=config)
+
+        ai_player = controller.ai_player
+
+        # These attributes are accessed by game_handler.py
+        assert hasattr(ai_player, 'personality_config')
+        assert ai_player.personality_config.get('nickname') == 'TestBot'
+        assert hasattr(ai_player, 'confidence')
+        assert hasattr(ai_player, 'attitude')
+        assert hasattr(ai_player, 'assistant')
+        assert ai_player.assistant is None
+        assert hasattr(ai_player, 'is_rule_based')
+        assert ai_player.is_rule_based is True
+
+    def test_ai_player_chattiness(self):
+        """RuleBot ai_player stub should have chattiness=0 to skip commentary."""
+        config = RuleConfig(strategy='abc', name='TestBot')
+        controller = RuleBasedController('TestPlayer', config=config)
+
+        ai_player = controller.ai_player
+        traits = ai_player.personality_config.get('personality_traits', {})
+
+        assert traits.get('table_talk', 0) == 0.0
+        assert traits.get('chattiness', 0) == 0.0
+
+    def test_psychology_property(self):
+        """RuleBasedController.psychology should return None (no psychology system)."""
+        controller = RuleBasedController('TestPlayer')
+        assert controller.psychology is None
+
+    def test_emotional_state_property(self):
+        """RuleBasedController.emotional_state should return None."""
+        controller = RuleBasedController('TestPlayer')
+        assert controller.emotional_state is None
+
+    def test_assistant_property(self):
+        """RuleBasedController.assistant should return None."""
+        controller = RuleBasedController('TestPlayer')
+        assert controller.assistant is None
+
+    def test_prompt_config_property(self):
+        """RuleBasedController.prompt_config should return None."""
+        controller = RuleBasedController('TestPlayer')
+        assert controller.prompt_config is None
+
+    def test_session_memory_stub(self):
+        """RuleBasedController should accept session_memory assignment without error."""
+        controller = RuleBasedController('TestPlayer')
+
+        # These are set by game_routes.py during game setup
+        controller.session_memory = "some_memory_object"
+        assert controller.session_memory is None  # Stub ignores the value
+
+    def test_clear_decision_plans(self):
+        """RuleBasedController.clear_decision_plans should return empty list."""
+        controller = RuleBasedController('TestPlayer')
+        result = controller.clear_decision_plans()
+        assert result == []
+
+    def test_clear_hand_bluff_likelihood(self):
+        """RuleBasedController.clear_hand_bluff_likelihood should not raise."""
+        controller = RuleBasedController('TestPlayer')
+        controller.clear_hand_bluff_likelihood()  # Should not raise
+
+    def test_current_hand_number_attribute(self):
+        """RuleBasedController should have current_hand_number attribute."""
+        controller = RuleBasedController('TestPlayer')
+        assert hasattr(controller, 'current_hand_number')
+        controller.current_hand_number = 5
+        assert controller.current_hand_number == 5
+
+    def test_get_last_decision_context(self):
+        """RuleBasedController should track last decision context."""
+        controller = RuleBasedController('TestPlayer')
+
+        # Initially None
+        assert controller.get_last_decision_context() is None
+
+        # After a decision, context should be available
+        controller._last_decision_context = {'strategy': 'abc', 'equity': 0.5}
+        assert controller.get_last_decision_context() == {'strategy': 'abc', 'equity': 0.5}

@@ -651,6 +651,9 @@ class RuleBasedController:
         # Track decision history for analysis
         self.decision_history: List[Dict] = []
 
+        # Last decision context for analysis integration
+        self._last_decision_context: Optional[Dict] = None
+
         # Opponent model manager - set externally by experiment runner
         self.opponent_model_manager = None
 
@@ -853,18 +856,38 @@ class RuleBasedController:
             'action': decision['action'],
             'raise_to': decision.get('raise_to', 0),
             'strategy': self.config.strategy,
+            # Opponent modeling stats (for adaptive strategies)
+            'opp_aggression': context.get('opp_aggression'),
+            'opp_fold_to_cbet': context.get('opp_fold_to_cbet'),
+            'opp_hands_observed': context.get('opp_hands_observed'),
+            'spr': context.get('spr'),
+            'pot_total': context.get('pot_total'),
         }
         self.decision_history.append(record)
 
-        logger.debug(
+        # Store last decision context for analysis integration
+        self._last_decision_context = record
+
+        # Log at INFO level in human games (game_id set), DEBUG otherwise
+        log_level = logging.INFO if self.game_id else logging.DEBUG
+        logger.log(
+            log_level,
             f"[RULE_BOT] {self.player_name} ({self.config.strategy}): "
             f"{decision['action']} (equity={context['equity']:.2f}, "
-            f"pot_odds={context['pot_odds']:.1f})"
+            f"pot_odds={context['pot_odds']:.1f}, phase={context['phase']})"
         )
 
     # ========================================================================
     # Compatibility stubs for game handler (matches AIPlayerController interface)
     # ========================================================================
+
+    def get_last_decision_context(self) -> Optional[Dict]:
+        """Get the context of the last decision made by this RuleBot.
+
+        Returns strategy, equity, pot_odds, opponent modeling stats, etc.
+        Useful for decision analysis and telemetry.
+        """
+        return self._last_decision_context
 
     def clear_decision_plans(self) -> List[Dict]:
         """Stub: RuleBots don't track decision plans."""
@@ -886,6 +909,53 @@ class RuleBasedController:
 
     # Attribute stub for game handler compatibility
     current_hand_number = 0
+
+    @property
+    def ai_player(self):
+        """Stub: RuleBots don't have an ai_player object.
+
+        Returns a minimal object that satisfies ai_player attribute access patterns
+        in the game handler (personality_config.get('nickname'), confidence, attitude).
+        """
+        return _RuleBotAIPlayerStub(self.config.name)
+
+    @property
+    def assistant(self):
+        """Stub: RuleBots don't have an LLM assistant."""
+        return None
+
+    @property
+    def session_memory(self):
+        """Stub: RuleBots don't use session memory."""
+        return None
+
+    @session_memory.setter
+    def session_memory(self, value):
+        """Stub: Ignore session memory assignment."""
+        pass
+
+    @property
+    def prompt_config(self):
+        """Stub: RuleBots don't have prompt config."""
+        return None
+
+
+class _RuleBotAIPlayerStub:
+    """Minimal stub that satisfies ai_player attribute access patterns."""
+
+    def __init__(self, name: str):
+        self.personality_config = {
+            'nickname': name,
+            'name': name,
+            'personality_traits': {
+                'table_talk': 0.0,  # RuleBots don't chat
+                'chattiness': 0.0,
+            },
+        }
+        self.confidence = 'Normal'
+        self.attitude = 'Neutral'
+        self.assistant = None  # RuleBots don't have LLM assistants
+        self.is_rule_based = True  # Flag to skip LLM-based commentary
 
 
 # ============================================================================
