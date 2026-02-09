@@ -60,7 +60,7 @@ class AuthManager:
             if limiter:
                 return limiter.exempt(f)
         except ImportError:
-            pass
+            logger.warning("Could not import limiter for rate limit exemption")
         return f
 
     def _register_routes(self):

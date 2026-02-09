@@ -4,12 +4,11 @@ import time
 import json
 import logging
 import secrets
-import sqlite3
 from datetime import datetime
 from typing import Dict
 
 from flask import Blueprint, jsonify, request, redirect, send_from_directory
-from flask_socketio import join_room
+from flask_socketio import join_room, emit
 
 from poker.controllers import AIPlayerController
 from poker.poker_game import initialize_game_state, play_turn, advance_to_next_active_player
@@ -332,35 +331,6 @@ def generate_game_id() -> str:
     return secrets.token_urlsafe(16)
 
 
-def _get_game_owner_id(game_id: str, current_game_data: dict | None = None) -> str | None:
-    """Return the owner_id for a game from memory first, then database."""
-    if current_game_data:
-        return current_game_data.get('owner_id')
-
-    try:
-        with sqlite3.connect(persistence_db_path) as conn:
-            cursor = conn.execute("SELECT owner_id FROM games WHERE game_id = ?", (game_id,))
-            row = cursor.fetchone()
-            return row[0] if row else None
-    except Exception:
-        return None
-
-
-def _require_game_owner(game_id: str, current_game_data: dict | None = None):
-    """Enforce that the current authenticated user owns the game."""
-    user = auth_manager.get_current_user() if auth_manager else None
-    if not user:
-        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
-
-    owner_id = _get_game_owner_id(game_id, current_game_data)
-    if not owner_id:
-        return jsonify({'error': 'Game not found or access denied'}), 404
-
-    if user.get('id') != owner_id:
-        return jsonify({'error': 'Forbidden', 'code': 'FORBIDDEN'}), 403
-
-    return None
-
 
 @game_bp.route('/api/usage-stats')
 def get_usage_stats():
@@ -460,10 +430,6 @@ def api_game_state(game_id):
     """API endpoint to get current game state for React app."""
     current_game_data = game_state_service.get_game(game_id)
     current_user, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
-    if auth_error:
-        return auth_error
-
-    auth_error = _require_game_owner(game_id, current_game_data)
     if auth_error:
         return auth_error
 
@@ -575,15 +541,12 @@ def api_game_state(game_id):
             else:
                 return jsonify({'error': 'Game not found'}), 404
         except Exception as e:
-            logger.warning(f"[LOAD] Error loading game {game_id}: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            logger.debug(f"[LOAD] Error loading game {game_id}: {str(e)}")
+            logger.error(f"[LOAD] Error loading game {game_id}: {str(e)}", exc_info=True)
             return jsonify({
-                'error': 'Game loading is currently unavailable',
-                'message': 'This feature is under development. Please start a new game.',
+                'error': 'Failed to load game from database',
+                'message': 'An error occurred while loading the game. Please try again or start a new game.',
                 'players': []
-            }), 200
+            }), 500
 
     state_machine = current_game_data['state_machine']
     game_state = state_machine.game_state
@@ -1101,10 +1064,6 @@ def api_player_action(game_id):
     if not current_game_data:
         return jsonify({'error': 'Game not found'}), 404
 
-    auth_error = _require_game_owner(game_id, current_game_data)
-    if auth_error:
-        return auth_error
-
     state_machine = current_game_data['state_machine']
 
     is_valid, error_message = validate_player_action(state_machine.game_state, action, amount)
@@ -1205,10 +1164,6 @@ def api_retry_game(game_id):
 
     if not current_game_data:
         return jsonify({'error': 'Game not found in memory. Try refreshing the page first.'}), 404
-
-    auth_error = _require_game_owner(game_id, current_game_data)
-    if auth_error:
-        return auth_error
 
     state_machine = current_game_data['state_machine']
     game_state = state_machine.game_state
@@ -1326,10 +1281,6 @@ def api_game_llm_configs(game_id):
     if auth_error:
         return auth_error
 
-    auth_error = _require_game_owner(game_id, current_game_data)
-    if auth_error:
-        return auth_error
-
     if not current_game_data:
         # Try to load from database
         try:
@@ -1390,6 +1341,7 @@ def register_socket_events(sio):
         user = auth_manager.get_current_user() if auth_manager else None
         owner_id = game_data.get('owner_id')
         if not user or user.get('id') != owner_id:
+            emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
 
         join_room(game_id)
@@ -1422,6 +1374,7 @@ def register_socket_events(sio):
         owner_id = current_game_data.get('owner_id')
         if not user or user.get('id') != owner_id:
             logger.debug(f"[SOCKET] player_action unauthorized: user={user.get('id') if user else None}, owner={owner_id}")
+            emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
 
         if user and is_guest(user) and GUEST_LIMITS_ENABLED:
@@ -1503,6 +1456,7 @@ def register_socket_events(sio):
         user_id = user.get('id') if user else None
         if not user_id or (user_id != owner_id and not _is_admin(user_id)):
             logger.debug(f"[SOCKET] send_message unauthorized: user={user_id}, owner={owner_id}")
+            emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
 
         send_message(game_id, sender, content, message_type)
@@ -1536,6 +1490,7 @@ def register_socket_events(sio):
         user_id = user.get('id') if user else None
         if not user_id or (user_id != owner_id and not _is_admin(user_id)):
             logger.debug(f"[SOCKET] progress_game unauthorized: user={user_id}, owner={owner_id}")
+            emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
 
         progress_game(game_id_str)
