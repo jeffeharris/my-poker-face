@@ -26,7 +26,11 @@ from .bounded_options import (
     calculate_required_equity,
 )
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
-from .rule_based_controller import calculate_quick_equity
+from .hand_ranges import (
+    calculate_equity_vs_ranges,
+    build_opponent_info,
+    EquityConfig,
+)
 from .ai_resilience import parse_json_response
 
 logger = logging.getLogger(__name__)
@@ -151,9 +155,37 @@ class HybridAIController(AIPlayerController):
         # Stack-to-pot ratio
         spr = effective_stack / pot_total if pot_total > 0 else float('inf')
 
-        # Get equity (post-flop) or estimate (pre-flop)
+        # Get equity using range-based calculation (accounts for opponent actions/positions)
         if community_cards:
-            equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents) or 0.5
+            # Build opponent info for range-based equity
+            opponent_infos = []
+            table_positions = game_state.table_positions
+            position_by_name = {name: pos for pos, name in table_positions.items()}
+
+            for opp in opponents:
+                opp_position = position_by_name.get(opp.name, "button")
+
+                # Get observed stats from opponent model manager if available
+                opp_model_data = None
+                if self.opponent_model_manager:
+                    opp_model = self.opponent_model_manager.get_model(self.player_name, opp.name)
+                    if opp_model and opp_model.tendencies:
+                        opp_model_data = opp_model.tendencies.to_dict()
+
+                opponent_infos.append(build_opponent_info(
+                    name=opp.name,
+                    position=opp_position,
+                    opponent_model=opp_model_data,
+                ))
+
+            # Use range-based equity calculation
+            equity_config = EquityConfig(use_enhanced_ranges=True)
+            equity = calculate_equity_vs_ranges(
+                hole_cards, community_cards, opponent_infos,
+                iterations=300, config=equity_config
+            )
+            if equity is None:
+                equity = 0.5  # Fallback if calculation fails
         else:
             # Pre-flop equity estimate based on hand ranking
             canonical = _get_canonical_hand(hole_cards) if hole_cards else ''
