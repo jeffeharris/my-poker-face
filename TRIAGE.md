@@ -24,6 +24,23 @@ Enable exact replay of any historical hand by saving the deck seed.
 - Just need to persist and expose for replay
 - Could add `/api/replay-hand/<game_id>/<hand_number>` endpoint
 
+**Current seed behavior:**
+```python
+# poker/poker_game.py
+def create_deck(shuffled=True, random_seed=None):
+    rng = random.Random(random_seed)  # None = system entropy (non-reproducible)
+    rng.shuffle(shuffled_deck)
+
+# experiments/run_ai_tournament.py (deterministic if config.random_seed set)
+next_hand_seed = base_seed + (tournament_number * 1000) + hand_number + 1
+```
+
+**What to add:**
+1. Generate seed at hand start: `seed = int(time.time() * 1000000)` or `random.getrandbits(32)`
+2. Pass to `reset_game_state_for_new_hand(deck_seed=seed)`
+3. Save seed in `hand_history` table (add column)
+4. Replay: load seed, reconstruct deck, replay actions
+
 ---
 
 # Tier 2: Medium Priority
