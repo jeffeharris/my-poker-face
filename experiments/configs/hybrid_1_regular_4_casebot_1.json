@@ -1,0 +1,24 @@
+{
+  "name": "hybrid_1_regular_4_casebot_1",
+  "description": "1 hybrid AI vs 4 regular LLM AI vs 1 CaseBot - testing if hybrid plays differently",
+  "hypothesis": "Hybrid AI should have similar VPIP to regular AI but fewer catastrophic folds",
+  "tags": ["hybrid", "regular", "casebot", "comparison"],
+  "num_tournaments": 3,
+  "hands_per_tournament": 100,
+  "num_players": 6,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Batman", "Gordon Ramsay", "Bob Ross", "Snoop Dogg", "Oprah Winfrey", "CaseBot"],
+  "parallel_tournaments": 3,
+  "reset_on_elimination": true,
+  "player_types": {
+    "Batman": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "enable_telemetry": true,
+  "control": {
+    "label": "hybrid_vs_mixed"
+  }
+}

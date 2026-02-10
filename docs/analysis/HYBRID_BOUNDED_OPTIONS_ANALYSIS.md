@@ -194,6 +194,37 @@ Hand equity was not being logged during experiments, preventing detailed fold-by
 
 Future experiments will have full equity data in `hand_equity` table for analysis.
 
+## Known Issue: Equity Calculator Bug (2026-02-10)
+
+**Flagged for investigation via replay experiments.**
+
+During live testing, Batman (hybrid) lost all-in with JJ vs CaseBot's flush:
+- Board: 3♠ K♥ 5♣ 5♥ A♥ (3 hearts)
+- Batman: J♦J♣ (overpair, no flush draw)
+- CaseBot: 2♥10♥ (completed flush)
+
+The bounded options showed **59% equity** when actual equity was **0%** (drawing dead).
+
+**Capture IDs for replay**: 363233, 363234, 363235, 363236
+
+**To investigate**:
+```bash
+python -m experiments.replay_with_guidance --capture-id 363236 --all-variants
+```
+
+**Root Cause**: Hybrid controller uses wrong equity function:
+- **Current**: `calculate_quick_equity()` - Monte Carlo vs **random hands**
+- **Should use**: `calculate_equity_vs_ranges()` - Monte Carlo vs **position/action-based ranges**
+
+The range-based calculator (`poker/hand_ranges.py:945`) accounts for:
+1. Opponent position (UTG tight, button wide)
+2. Action-based narrowing (all-in = strong range)
+3. PFR/VPIP observed stats
+4. Board-connection weighting
+
+**Fix**: Update `hybrid_ai_controller.py` line 156 to use `calculate_equity_vs_ranges()`
+with opponent info from game state.
+
 ## Prompt Format
 
 The LLM receives bounded options in this format:
