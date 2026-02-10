@@ -1,0 +1,24 @@
+{
+  "name": "hybrid_vs_regular_3v3",
+  "description": "Compare 3 hybrid AI (bounded options) vs 3 regular LLM AI",
+  "hypothesis": "Hybrid AI will have fewer catastrophic folds while maintaining personality",
+  "tags": ["hybrid", "bounded-options", "comparison"],
+  "num_tournaments": 3,
+  "hands_per_tournament": 100,
+  "num_players": 6,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Batman", "Gordon Ramsay", "Bob Ross", "Snoop Dogg", "Oprah Winfrey", "Elon Musk"],
+  "parallel_tournaments": 3,
+  "reset_on_elimination": true,
+  "player_types": {
+    "Batman": {"type": "hybrid"},
+    "Gordon Ramsay": {"type": "hybrid"},
+    "Bob Ross": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "hybrid_vs_regular"
+  }
+}

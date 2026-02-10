@@ -1,0 +1,23 @@
+{
+  "name": "hybrid_vs_casebot_1v1",
+  "description": "Heads-up: 1 hybrid AI (Batman) vs 1 CaseBot",
+  "hypothesis": "Hybrid AI should perform competitively against pure rule-based play",
+  "tags": ["hybrid", "casebot", "heads-up"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 100,
+  "num_players": 2,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Batman", "CaseBot"],
+  "parallel_tournaments": 5,
+  "reset_on_elimination": true,
+  "player_types": {
+    "Batman": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "hybrid_headsup"
+  }
+}

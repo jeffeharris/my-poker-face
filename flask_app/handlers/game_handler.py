@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, List
 from poker.controllers import AIPlayerController
 from poker.rule_based_controller import RuleBasedController, RuleConfig
 from poker.rule_bot_controller import RuleBotController
+from poker.hybrid_ai_controller import HybridAIController
 from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
 from poker.betting_context import BettingContext
 from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
@@ -181,10 +182,12 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
         default_llm_config: Default LLM config for players without specific config
         capture_label_repo: CaptureLabelRepository for auto-labeling
         decision_analysis_repo: DecisionAnalysisRepository for decision tracking
-        bot_types: Dict mapping player name to rule-based bot strategy (e.g., {"CaseBot": "case_based"})
+        bot_types: Dict mapping player name to bot strategy.
+            - Rule-based strategies: "case_based", "abc", "always_fold", etc.
+            - Hybrid mode: "hybrid" (uses HybridAIController)
 
     Returns:
-        Dictionary mapping player names to their controllers (AIPlayerController or RuleBasedController)
+        Dictionary mapping player names to their controllers (AIPlayerController, RuleBotController, or HybridAIController)
     """
     ai_controllers = {}
     ai_states = game_repo.load_ai_player_states(game_id)
@@ -202,22 +205,37 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
 
     for player in state_machine.game_state.players:
         if not player.is_human:
-            # Check if this player should use a rule-based controller with psychology
+            # Check if this player should use a special controller type
             if player.name in bot_types:
                 strategy = bot_types[player.name]
                 # Get player-specific llm_config or fall back to default (for personality loading)
                 llm_config = player_llm_configs.get(player.name, default_llm_config)
-                controller = RuleBotController(
-                    player_name=player.name,
-                    state_machine=state_machine,
-                    strategy=strategy,
-                    llm_config=llm_config,
-                    game_id=game_id,
-                    owner_id=owner_id,
-                    capture_label_repo=capture_label_repo,
-                    decision_analysis_repo=decision_analysis_repo,
-                )
-                logger.info(f"[RESTORE] Created RuleBotController for {player.name} with strategy '{strategy}'")
+
+                if strategy == 'hybrid':
+                    # Hybrid mode: LLM picks from rule-bounded options
+                    controller = HybridAIController(
+                        player_name=player.name,
+                        state_machine=state_machine,
+                        llm_config=llm_config,
+                        game_id=game_id,
+                        owner_id=owner_id,
+                        capture_label_repo=capture_label_repo,
+                        decision_analysis_repo=decision_analysis_repo,
+                    )
+                    logger.info(f"[RESTORE] Created HybridAIController for {player.name}")
+                else:
+                    # Rule-based controller with psychology
+                    controller = RuleBotController(
+                        player_name=player.name,
+                        state_machine=state_machine,
+                        strategy=strategy,
+                        llm_config=llm_config,
+                        game_id=game_id,
+                        owner_id=owner_id,
+                        capture_label_repo=capture_label_repo,
+                        decision_analysis_repo=decision_analysis_repo,
+                    )
+                    logger.info(f"[RESTORE] Created RuleBotController for {player.name} with strategy '{strategy}'")
                 ai_controllers[player.name] = controller
                 continue
 

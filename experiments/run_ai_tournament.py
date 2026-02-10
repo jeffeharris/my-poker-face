@@ -50,6 +50,7 @@ from poker.poker_game import (
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.controllers import AIPlayerController
 from poker.rule_based_controller import RuleBasedController, RuleConfig, CHAOS_BOTS
+from poker.hybrid_ai_controller import HybridAIController
 from poker.repositories import create_repos
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
@@ -837,9 +838,11 @@ class AITournamentRunner:
             else:
                 player_prompt_config = prompt_config
 
-            # Check if this player should use a rule-based controller (chaos bot)
+            # Check if this player should use a special controller type
             player_type_config = (self.config.player_types or {}).get(player.name, {})
-            if player_type_config.get('type') == 'rule_bot':
+            player_type = player_type_config.get('type')
+
+            if player_type == 'rule_bot':
                 # Create a rule-based controller instead of AI
                 strategy = player_type_config.get('strategy', 'always_fold')
                 config_path = player_type_config.get('config_path')
@@ -861,6 +864,21 @@ class AITournamentRunner:
                     game_id=tournament_id,
                 )
                 logger.info(f"Player {player.name} using rule-based controller: {strategy}")
+            elif player_type == 'hybrid':
+                # Create a hybrid controller (LLM picks from rule-bounded options)
+                controller = HybridAIController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=player_llm_config,
+                    game_id=tournament_id,
+                    owner_id=self._owner_id,
+                    prompt_config=player_prompt_config,
+                    capture_label_repo=self.capture_label_repo,
+                    decision_analysis_repo=self.decision_analysis_repo,
+                    session_memory=memory_manager.get_session_memory(player.name),
+                    opponent_model_manager=memory_manager.get_opponent_model_manager(),
+                )
+                logger.info(f"Player {player.name} using hybrid AI controller")
             else:
                 # Use standard AI controller
                 controller = AIPlayerController(
@@ -1224,7 +1242,8 @@ class AITournamentRunner:
             # Calculate equity history BEFORE on_hand_complete clears current_hand
             equity_history = None
             enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
-            if enable_psychology:
+            enable_telemetry = variant_config.get('enable_telemetry', True) if variant_config else True
+            if enable_psychology or enable_telemetry:
                 hand_in_progress = memory_manager.hand_recorder.current_hand
                 if hand_in_progress and hand_in_progress.hole_cards and hand_start_stacks:
                     # Backfill community cards from game state (not recorded per-street in experiments)
@@ -1255,6 +1274,30 @@ class AITournamentRunner:
                 ai_players={},  # No AI player context needed for hand recording
                 skip_commentary=True  # Commentary handled separately below if enabled
             )
+
+            # Save equity history to database for telemetry/analytics
+            if equity_history and equity_history.snapshots:
+                try:
+                    from poker.repositories.hand_equity_repository import HandEquityRepository
+                    from poker.equity_snapshot import HandEquityHistory
+                    equity_repo = HandEquityRepository(self.db_path)
+                    hand_history_id = self.hand_history_repo.get_hand_history_id(
+                        tournament_id, equity_history.hand_number
+                    )
+                    if hand_history_id:
+                        equity_history_with_id = HandEquityHistory(
+                            hand_history_id=hand_history_id,
+                            game_id=equity_history.game_id,
+                            hand_number=equity_history.hand_number,
+                            snapshots=equity_history.snapshots,
+                        )
+                        equity_repo.save_equity_history(equity_history_with_id)
+                        logger.debug(
+                            f"[Tournament {tournament_id}] Saved {len(equity_history.snapshots)} "
+                            f"equity snapshots for hand {hand_number}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to save equity history for hand {hand_number}: {e}")
 
             # Post-hand psychological processing (if enabled)
             enable_commentary = variant_config.get('enable_commentary', False) if variant_config else False

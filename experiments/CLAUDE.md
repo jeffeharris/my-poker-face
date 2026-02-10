@@ -71,6 +71,21 @@ To run a baseline test (no personality, simple format):
 
 See `experiments/README.md` for full config reference, A/B testing structure, game modes, cost estimation, and querying results.
 
+## Variant Config Options
+
+These options control experiment-level behavior (not per-prompt):
+
+| Option | Default | What it controls |
+|--------|---------|-----------------|
+| `enable_telemetry` | `true` | Saves hand equity data to `hand_equity` table for analytics |
+| `enable_psychology` | `false` | Enables pressure detection and emotional state updates |
+| `enable_commentary` | `false` | Generates AI commentary after each hand |
+
+To disable telemetry (saves compute on large experiments):
+```json
+{"variants": [{"enable_telemetry": false}]}
+```
+
 ## Key Files
 
 | File | Purpose |

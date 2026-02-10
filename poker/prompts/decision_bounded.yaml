@@ -1,0 +1,76 @@
+name: decision_bounded
+version: 1.0.0
+description: Prompt template for hybrid bounded-options AI decisions
+
+# This template is used by HybridAIController to present pre-computed
+# sensible options to the LLM. The LLM's job is to pick an option and
+# provide personality-driven narrative, not to evaluate the math.
+
+sections:
+  # Main template for choice selection
+  choice_prompt: |-
+    {base_game_state}
+
+    === YOUR OPTIONS ===
+    Given the math (equity: {equity}%, pot odds: {pot_odds}:1),
+    your sensible choices are:
+
+    {% for opt in options %}
+    {{ loop.index }}. {{ opt.action|upper }}{% if opt.raise_to %} to {{ opt.raise_to }} BB{% endif %}
+       {{ opt.rationale }}
+       [{{ opt.ev_estimate }}, {{ opt.style_tag }}]
+    {% endfor %}
+
+    Pick the option that fits your personality and the moment.
+
+    Respond with JSON:
+    {
+      "choice": <option number 1-{{ options|length }}>,
+      "inner_monologue": "your reasoning",
+      "dramatic_sequence": ["*action*", "speech", ...]
+    }
+
+  # Simpler format for lower capability models
+  choice_prompt_simple: |-
+    {base_game_state}
+
+    YOUR OPTIONS:
+    {% for opt in options %}
+    {{ loop.index }}. {{ opt.action|upper }}{% if opt.raise_to %} to {{ opt.raise_to }}{% endif %} - {{ opt.rationale }}
+    {% endfor %}
+
+    Pick an option (1-{{ options|length }}).
+    Respond: {"choice": <number>, "inner_monologue": "why"}
+
+  # Response format instructions
+  response_format: |-
+    CRITICAL RULES:
+    - You MUST pick one of the numbered options above
+    - "choice" must be an integer from 1 to {num_options}
+    - Keep dramatic_sequence to 1-3 beats for normal hands, more for dramatic moments
+    - Each beat is EITHER an action (*in asterisks*) OR speech (plain text)
+    - Stay in character with your personality
+
+  # Narrative guidance for dramatic moments
+  dramatic_guidance: |-
+    DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats.
+    Match intensity to the moment:
+    - Routine hands: 0-1 beats
+    - Notable hands: 1-2 beats
+    - High stakes: 2-3 beats
+    - Climactic moments: 3-5 beats, savor the moment
+
+    You ARE {name} — stay fully in character with your signature style.
+
+  # Option type explanations (for context)
+  option_explanations:
+    conservative: Safe, low-variance play. Good for protecting chips or marginal spots.
+    standard: Balanced, expected play. Neither too tight nor too loose.
+    aggressive: Pressuring play. Good for extracting value or putting opponents to the test.
+    trappy: Deceptive play. Check-raise or slow-play to induce opponent mistakes.
+
+  # EV estimate explanations
+  ev_explanations:
+    "+EV": This option has positive expected value based on equity and pot odds.
+    "neutral": Break-even or close to it. Reasonable in some situations.
+    "-EV": Negative expected value. Only consider with strong read or bluff potential.

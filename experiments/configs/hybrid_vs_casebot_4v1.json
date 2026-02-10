@@ -1,0 +1,26 @@
+{
+  "name": "hybrid_vs_casebot_4v1",
+  "description": "4 hybrid AI players vs 1 CaseBot (rule-based)",
+  "hypothesis": "Hybrid AI combines best of both: no catastrophic errors + personality",
+  "tags": ["hybrid", "casebot", "comparison"],
+  "num_tournaments": 3,
+  "hands_per_tournament": 100,
+  "num_players": 5,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Batman", "Gordon Ramsay", "Bob Ross", "Snoop Dogg", "CaseBot"],
+  "parallel_tournaments": 3,
+  "reset_on_elimination": true,
+  "player_types": {
+    "Batman": {"type": "hybrid"},
+    "Gordon Ramsay": {"type": "hybrid"},
+    "Bob Ross": {"type": "hybrid"},
+    "Snoop Dogg": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "hybrid_vs_casebot"
+  }
+}
