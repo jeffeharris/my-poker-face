@@ -5,6 +5,44 @@ created: 2026-02-09
 last_updated: 2026-02-11
 ---
 
+## Next Session Plan: Fix Post-Flop Value Betting
+
+### Context
+- Marginal zone fix for preflop is committed and working (VPIP 60%→40%, fold rate 10%→17%)
+- New issue discovered: LLM not value betting strong hands post-flop
+- LLM misunderstands hand strength and poker terminology
+
+### Tasks for Next Session
+
+1. **Analyze value betting patterns more deeply**
+   - Query checks with high equity (>60%) when cost_to_call=0
+   - Compare hybrid vs regular AI bet frequency with strong hands
+   - Identify specific hand categories being underbet
+
+2. **Implement fix (choose one approach)**
+   - Option A: Add hand strength guidance to bounded options prompt
+   - Option B: Block CHECK when equity > threshold (e.g., 65%)
+   - Option C: Order options by EV (put +EV first)
+   - Option D: Change style tags based on hand strength
+
+3. **Test fix**
+   - Run quick experiment (1 tournament, 50 hands)
+   - Compare raise frequency with strong hands before/after
+   - Check inner monologue for improved reasoning
+
+4. **Validate no regression**
+   - Ensure preflop behavior still correct
+   - Check fold rate and VPIP still in healthy range
+
+### Key Files
+- `poker/bounded_options.py` - Option generation logic
+- `poker/hybrid_ai_controller.py` - Hybrid controller
+- `experiments/configs/hybrid_vs_casebot_1v1.json` - Test config
+
+### Relevant Experiments
+- 113817: Before marginal zone (baseline)
+- 113819: After marginal zone (current)
+
 ## Session 2 (2026-02-10): Telemetry Fix & VPIP Analysis
 
 ### Bugs Fixed
@@ -153,6 +191,66 @@ else:
 - Pass `hand_number` to `chat_full()`
 - Track capture ID via `_on_captured` callback
 - Update capture with `action_taken` after decision
+
+---
+
+## Session 3 Continued: Post-Flop Value Betting Issue
+
+### New Finding: LLM Not Value Betting Strong Hands
+
+After fixing preflop calling, a new issue emerged: **LLM checks value hands instead of betting**.
+
+**Post-Flop Aggression Stats:**
+
+| Metric | Before (113817) | After (113819) |
+|--------|-----------------|----------------|
+| Raises/All-in | 25.7% | 27.6% |
+| Calls | 17.5% | 17.9% |
+| Checks | 50.8% | 50.2% |
+| Aggression Factor | 1.47 | 1.54 |
+
+AF is reasonable (~1.5), but inspection of specific hands shows missed value.
+
+### Evidence: Inner Monologue Analysis
+
+**Example 1: TT on Q-Q-7-3-K board**
+- LLM says: "I have two pair (Queens and Tens)"
+- Reality: TT is pocket pair, board has QQ - not "two pair" in the traditional sense
+- Action: CHECK (should consider value bet)
+
+**Example 2: Q3 on Q-6-9 board**
+- LLM says: "top pair with a decent kicker"
+- Reality: Q3 is top pair with **terrible** kicker
+- Action: CHECK with "pot control" rationalization
+
+**Example 3: KJ on K-3-7 board**
+- LLM says: "protect my hand... checking keeps control"
+- Reality: Top pair good kicker is a clear value bet
+- "Protect" in poker means BET, not check
+
+### Root Cause
+
+The LLM fundamentally misunderstands poker concepts:
+
+1. **Misreads hand strength** - Confuses board pairs with made hands
+2. **Rationalizes passive play** - Uses "pot control" as excuse not to value bet
+3. **Misuses poker terminology** - "Protect" = check instead of bet
+
+### This Is Different From Preflop Issue
+
+| Issue | Problem | Fix Applied |
+|-------|---------|-------------|
+| Preflop overcalling | Options labeled +EV incorrectly | ✅ Marginal zone |
+| Post-flop passive play | LLM misunderstands hand strength | ❌ Not yet fixed |
+
+### Potential Fixes (Not Yet Implemented)
+
+1. **Block check for value hands** - Don't offer CHECK when equity > 60%
+2. **Order options by EV** - Put +EV options first in list
+3. **Add explicit hand strength guidance** - "You have TOP PAIR GOOD KICKER - bet for value"
+4. **Change style tags** - Don't mark CHECK as "conservative" with strong hands
+
+---
 
 # Hybrid Bounded-Options AI Analysis
 
