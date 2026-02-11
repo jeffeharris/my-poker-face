@@ -130,7 +130,7 @@ def _get_raise_options(context: Dict) -> List[Tuple[int, str, str]]:
     """Generate 2-3 sensible raise sizes.
 
     Args:
-        context: Decision context with pot, min_raise, max_raise, stack
+        context: Decision context with pot, min_raise, max_raise, stack, equity
 
     Returns:
         List of (raise_to_amount, rationale, style_tag) tuples
@@ -140,26 +140,43 @@ def _get_raise_options(context: Dict) -> List[Tuple[int, str, str]]:
     max_raise = context.get('max_raise', 0)
     stack_bb = context.get('stack_bb', 100)
     big_blind = context.get('big_blind', 100)
+    equity = context.get('equity', 0.5)
 
     if min_raise <= 0 or max_raise <= 0:
         return []
 
     options = []
 
+    # Value betting emphasis when equity is high
+    value_betting = equity >= 0.65
+    equity_pct = int(equity * 100)
+
     # Small (1/3 pot or min raise)
     small = max(min_raise, int(pot * 0.33))
     if small <= max_raise:
-        options.append((small, "Small probe/value bet", "conservative"))
+        if value_betting:
+            rationale = f"Value bet ({equity_pct}% equity)"
+        else:
+            rationale = "Small probe/value bet"
+        options.append((small, rationale, "conservative"))
 
     # Medium (2/3 pot)
     medium = int(pot * 0.67)
     if medium > small and medium < max_raise and medium >= min_raise:
-        options.append((medium, "Standard value bet", "standard"))
+        if value_betting:
+            rationale = f"Bet for value ({equity_pct}% equity)"
+        else:
+            rationale = "Standard value bet"
+        options.append((medium, rationale, "standard"))
 
     # Large (pot or slightly more)
     large = int(pot * 1.0)
     if large > medium and large <= max_raise and large >= min_raise:
-        options.append((large, "Pressure/protection bet", "aggressive"))
+        if value_betting:
+            rationale = f"Strong value bet ({equity_pct}% equity)"
+        else:
+            rationale = "Pressure/protection bet"
+        options.append((large, rationale, "aggressive"))
 
     # All-in for short stacks (< 20 BB)
     if stack_bb < 20 and max_raise not in [o[0] for o in options]:
@@ -219,12 +236,27 @@ def generate_bounded_options(context: Dict) -> List[BoundedOption]:
 
     # === CHECK option ===
     if 'check' in valid_actions:
+        # Adjust EV and rationale based on equity (value hand detection)
+        if equity >= 0.65 and cost_to_call == 0:
+            # Strong hand - checking may miss value
+            check_ev = "marginal"
+            check_rationale = "Check (strong hand - consider betting for value)"
+            check_style = "trappy"  # Only appropriate when slowplaying
+        elif equity >= 0.50 and cost_to_call == 0:
+            check_ev = "neutral"
+            check_rationale = "Check and see a free card"
+            check_style = "conservative"
+        else:
+            check_ev = "neutral"
+            check_rationale = "Check and see a free card" if cost_to_call == 0 else "Check"
+            check_style = "conservative"
+
         options.append(BoundedOption(
             action='check',
             raise_to=0,
-            rationale="Check and see a free card" if cost_to_call == 0 else "Check",
-            ev_estimate="neutral",
-            style_tag="conservative"
+            rationale=check_rationale,
+            ev_estimate=check_ev,
+            style_tag=check_style
         ))
 
     # === FOLD option (if not blocked) ===
