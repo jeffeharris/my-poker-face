@@ -334,12 +334,25 @@ class AuthManager:
     @staticmethod
     def _is_valid_guest_id(guest_id: Optional[str]) -> bool:
         """Validate guest ID format."""
-        return bool(guest_id and GUEST_ID_PATTERN.match(guest_id))
+        if not guest_id:
+            return False
+        if GUEST_ID_PATTERN.match(guest_id):
+            return True
+        # Dev mode: accept old-style deterministic IDs (e.g. guest_jeff)
+        if os.environ.get('FLASK_ENV') != 'production':
+            return bool(re.match(r'^guest_[a-z0-9]+$', guest_id))
+        return False
 
     def create_guest_user(self, name: str, guest_id: Optional[str] = None) -> Dict[str, Any]:
         """Create a guest user session based on name."""
+        is_prod = os.environ.get('FLASK_ENV') == 'production'
         if not self._is_valid_guest_id(guest_id):
-            guest_id = f'guest_{uuid.uuid4().hex}'
+            if is_prod:
+                guest_id = f'guest_{uuid.uuid4().hex}'
+            else:
+                # Dev mode: deterministic IDs for stable local admin access
+                sanitized = re.sub(r'[^a-z0-9]', '', name.lower()) or 'guest'
+                guest_id = f'guest_{sanitized}'
 
         user_data = {
             'id': guest_id,
