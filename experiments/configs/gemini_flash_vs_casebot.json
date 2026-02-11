@@ -1,0 +1,18 @@
+{
+  "name": "gemini_flash_vs_casebot",
+  "description": "3 Gemini 2.0 Flash LLM players vs 1 CaseBot at the same table",
+  "num_tournaments": 3,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "reset_on_elimination": true,
+  "model": "gemini-2.0-flash",
+  "provider": "google",
+  "parallel_tournaments": 3,
+  "stagger_start_delay": 1.0,
+  "personalities": ["Batman", "Sherlock Holmes", "Gordon Ramsay", "CaseBot"],
+  "player_types": {
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  }
+}
