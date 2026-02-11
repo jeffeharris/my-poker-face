@@ -79,6 +79,9 @@ class PromptConfig:
     # When True, expect simple {"action": "...", "raise_to": ...} instead of rich format
     use_simple_response_format: bool = False
 
+    # Lean bounded mode — bypass full prompt pipeline, use minimal options-only prompt
+    lean_bounded: bool = False
+
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts
 

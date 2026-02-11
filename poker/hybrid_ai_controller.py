@@ -43,6 +43,8 @@ class HybridAIController(AIPlayerController):
     Overrides _get_ai_decision to present bounded options to the LLM.
     """
 
+    LEAN_SYSTEM_PROMPT = "You are a poker player. Pick one option. Respond with JSON."
+
     def __init__(
         self,
         player_name: str,
@@ -56,20 +58,6 @@ class HybridAIController(AIPlayerController):
         decision_analysis_repo=None,
         prompt_config=None,
     ):
-        """Initialize HybridAIController.
-
-        Args:
-            player_name: Name of the AI player
-            state_machine: The game's state machine
-            llm_config: LLM configuration for personality and narrative
-            session_memory: Optional session memory
-            opponent_model_manager: Optional opponent model manager
-            game_id: Game identifier
-            owner_id: Owner/user ID
-            capture_label_repo: Optional capture label repository
-            decision_analysis_repo: Optional decision analysis repository
-            prompt_config: Optional prompt configuration
-        """
         super().__init__(
             player_name=player_name,
             state_machine=state_machine,
@@ -83,17 +71,148 @@ class HybridAIController(AIPlayerController):
             prompt_config=prompt_config,
         )
 
-        logger.info(f"[HYBRID] Created HybridAIController for {player_name}")
+        lean = getattr(self.prompt_config, 'lean_bounded', False)
+        logger.info(f"[HYBRID] Created HybridAIController for {player_name} (lean={lean})")
+
+    def decide_action(self, game_messages) -> Dict:
+        """Override: dispatch to lean path when lean_bounded is enabled."""
+        if getattr(self.prompt_config, 'lean_bounded', False):
+            return self._decide_action_lean(game_messages)
+        return super().decide_action(game_messages)
+
+    def _decide_action_lean(self, game_messages) -> Dict:
+        """Lean bounded path: minimal prompt, no parent pipeline.
+
+        Bypasses all parent prompt building (psychology, memory, chattiness,
+        tilt effects, etc.) and sends only cards + options to the LLM.
+        """
+        from core.llm.tracking import update_prompt_capture
+
+        game_state = self.state_machine.game_state
+        player = game_state.current_player
+
+        # Store messages for compatibility
+        self._current_game_messages = game_messages
+
+        # Manage conversation memory (match parent behavior)
+        if hasattr(self, 'assistant') and self.assistant and self.assistant.memory:
+            keep_exchanges = getattr(self.prompt_config, 'memory_keep_exchanges', 0)
+            if keep_exchanges > 0:
+                self.assistant.memory.trim_to_exchanges(keep_exchanges)
+            else:
+                self.assistant.memory.clear()
+
+        # Build context for option generation
+        player_options = game_state.current_player_options
+        big_blind = game_state.current_ante or 100
+        raw_cost_to_call = game_state.highest_bet - player.bet
+        cost_to_call = min(raw_cost_to_call, player.stack)
+
+        # Calculate raise bounds (same logic as parent decide_action)
+        highest_bet = game_state.highest_bet
+        max_opponent_stack = max(
+            (p.stack for p in game_state.players
+             if not p.is_folded and not p.is_all_in and p.name != player.name),
+            default=0
+        )
+        max_raise_by = min(player.stack, max_opponent_stack)
+        max_raise_to = highest_bet + max_raise_by
+        min_raise_by = min(game_state.min_raise_amount, max_raise_by) if max_raise_by > 0 else 0
+        min_raise_to = highest_bet + min_raise_by
+
+        context = {
+            'valid_actions': player_options,
+            'call_amount': cost_to_call,
+            'min_raise': min_raise_to,
+            'max_raise': max_raise_to,
+        }
+
+        # Build rule context and generate options
+        rule_context = self._build_rule_context(game_state, player, context)
+        options = generate_bounded_options(rule_context)
+
+        if not options:
+            logger.warning(f"[HYBRID-LEAN] No options for {self.player_name}, fallback")
+            return self._create_fallback_response(
+                'check' if 'check' in player_options else 'fold'
+            )
+
+        # Build minimal prompt
+        lean_prompt = self._build_lean_prompt(options, rule_context)
+
+        # Swap system prompt to minimal
+        original_system_message = self.assistant.system_message
+        self.assistant.system_message = self.LEAN_SYSTEM_PROMPT
+
+        capture_id = [None]
+        try:
+            llm_response = self.assistant.chat_full(
+                lean_prompt,
+                json_format=True,
+                hand_number=self.current_hand_number,
+                prompt_template='decision_lean_bounded',
+                capture_enricher=self._make_hybrid_enricher(
+                    options, rule_context, capture_id
+                ),
+            )
+            response_dict = parse_json_response(llm_response.content)
+        except Exception as e:
+            logger.warning(f"[HYBRID-LEAN] LLM failed for {self.player_name}: {e}")
+            response_dict = None
+        finally:
+            self.assistant.system_message = original_system_message
+
+        # Validate and select
+        chosen = self._validate_and_select(response_dict, options)
+
+        # Update capture
+        if capture_id[0]:
+            action = chosen.get('action')
+            raise_amount = chosen.get('raise_to') if action == 'raise' else None
+            update_prompt_capture(capture_id[0], action_taken=action, raise_amount=raise_amount)
+
+        # Post-decision bookkeeping: energy events for psychology
+        action = chosen.get('action', '')
+        self.last_energy_events = []
+        if action and self.psychology:
+            self.last_energy_events = self.psychology.on_action_taken(action)
+
+        return chosen
+
+    def _build_lean_prompt(self, options: List[BoundedOption], context: Dict) -> str:
+        """Build minimal prompt: just cards, situation, and numbered options."""
+        hole_cards = context.get('hole_cards', [])
+        community_cards = context.get('community_cards', [])
+        big_blind = context.get('big_blind', 100)
+
+        # Cards
+        parts = [f"Cards: {' '.join(hole_cards)}"]
+        if community_cards:
+            parts[0] += f" | Board: {' '.join(community_cards)}"
+
+        # Situation in BB
+        stack_bb = context.get('stack_bb', 0)
+        pot_bb = context.get('pot_total', 0) / big_blind if big_blind > 0 else 0
+        parts.append(f"Stack: {stack_bb:.0f} BB | Pot: {pot_bb:.1f} BB")
+        parts.append("")
+
+        # Numbered options with EV labels
+        for i, opt in enumerate(options, 1):
+            action_str = opt.action.upper()
+            if opt.action == 'raise' and opt.raise_to > 0:
+                raise_bb = opt.raise_to / big_blind if big_blind > 0 else opt.raise_to
+                action_str += f" {raise_bb:.0f}BB"
+            parts.append(f"{i}. {action_str}  [{opt.ev_estimate}]  {opt.rationale}")
+
+        parts.append("")
+        parts.append(f'Pick 1-{len(options)}: {{"choice": N}}')
+
+        return "\n".join(parts)
 
     def _get_ai_decision(self, message: str, **context) -> Dict:
         """Override: Use bounded options for decision making.
 
-        Args:
-            message: The base game state message (from parent's prompt building)
-            **context: Decision context including valid_actions, call_amount, etc.
-
-        Returns:
-            Decision dict with action, raise_to, dramatic_sequence, hand_strategy
+        Used when lean_bounded is False (regular hybrid mode).
         """
         from core.llm.tracking import update_prompt_capture
 
@@ -378,10 +497,13 @@ CRITICAL RULES:
         player = game_state.current_player
         big_blind = game_state.current_ante or 100
 
+        lean = getattr(self.prompt_config, 'lean_bounded', False)
+
         def enrich_capture(capture_data: Dict) -> Dict:
             # Core hybrid data
             capture_data.update({
                 'hybrid_mode': True,
+                'lean_bounded': lean,
                 'bounded_options': [o.to_dict() for o in options],
                 'equity': context.get('equity'),
                 'pot_odds': context.get('pot_odds'),
