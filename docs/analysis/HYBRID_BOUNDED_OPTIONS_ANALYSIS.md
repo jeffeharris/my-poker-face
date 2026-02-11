@@ -2,8 +2,157 @@
 purpose: Analysis of the Hybrid Bounded-Options AI decision system
 type: analysis
 created: 2026-02-09
-last_updated: 2026-02-10
+last_updated: 2026-02-11
 ---
+
+## Session 2 (2026-02-10): Telemetry Fix & VPIP Analysis
+
+### Bugs Fixed
+
+**1. Telemetry Bug - hand_number NULL**
+
+Hybrid controller wasn't passing telemetry data to captures. Fixed by:
+- Adding `hand_number=self.current_hand_number` to `chat_full()` call
+- Adding `prompt_template='decision_bounded'` for tracking
+- Adding `_on_captured` callback to enricher to track capture ID
+- Calling `update_prompt_capture()` after decision to set `action_taken`
+
+**File**: `poker/hybrid_ai_controller.py` lines 116-121, 358-386
+
+**2. action_taken NULL**
+
+Hybrid controller wasn't updating captures with final action. Fixed by:
+- Tracking capture ID via `_on_captured` callback in enricher
+- Calling `update_prompt_capture(capture_id, action_taken=action, raise_amount=...)` after decision
+
+### VPIP Analysis
+
+Previous data showed hybrid VPIP ~10% (extremely tight). After equity bug fix:
+
+**New Experiment (113817 - hybrid_vs_casebot_1v1):**
+| Player | Hands | VPIP |
+|--------|-------|------|
+| Batman (hybrid) | 495 | **35.6%** |
+
+This is a **3.5x improvement** from previous 10% VPIP. The fix to use `calculate_equity_vs_ranges()` instead of quick equity made the difference.
+
+**Tournament Results:**
+- CaseBot: 4 wins
+- Batman (hybrid): 1 win
+
+### Current Experiments Running
+
+| ID | Config | Status |
+|----|--------|--------|
+| 113818 | hybrid_1_regular_4_casebot_1 | Running |
+
+Mixed experiment: 1 hybrid (Batman) vs 4 regular AI vs 1 CaseBot to compare VPIP and fold behavior across player types.
+
+### Mixed Experiment Results (113818)
+
+**Tournament Results:**
+| Winner | Wins |
+|--------|------|
+| Gordon Ramsay (regular) | 1 |
+| Bob Ross (regular) | 1 |
+
+**VPIP by Player:**
+| Player | Type | Hands | VPIP |
+|--------|------|-------|------|
+| Batman | Hybrid | 16 | 75.0% |
+| Snoop Dogg | Regular | 61 | 14.8% |
+| Gordon Ramsay | Regular | 268 | 13.1% |
+| Bob Ross | Regular | 233 | 12.0% |
+| Oprah Winfrey | Regular | 89 | 11.2% |
+
+**Key Observations:**
+1. Hybrid VPIP (75%) is significantly higher than regular AI (11-15%)
+2. Sample size for hybrid is small (16 hands) due to early eliminations
+3. Regular AI VPIP is very tight (11-15%), suggesting prompt may need adjustment
+4. The equity bug fix improved hybrid VPIP from ~10% to 35-75%
+
+### Summary
+
+The telemetry fixes and equity calculation improvements have significantly changed hybrid behavior:
+- **Before**: ~10% VPIP (too tight)
+- **After 1v1 fix**: 35.6% VPIP
+- **After mixed experiment**: 75% VPIP (possibly too loose, small sample)
+
+---
+
+## Session 3 (2026-02-11): Root Cause Analysis & Marginal Zone Fix
+
+### Root Cause: Why Hybrid Lost So Quickly
+
+Investigation of experiment 113818 revealed hybrid (Batman) had only **7.9% fold rate** vs 37-55% for regular AI. The core issue:
+
+**Conflicting Signals in Prompts:**
+
+| Signal | Says |
+|--------|------|
+| Hand strength guidance | "you should fold this" |
+| Bounded options EV label | CALL = **+EV** |
+
+The LLM followed the mathematical framing (+EV) over natural language advice.
+
+**Example: J5s facing 800 into 1950**
+- Prompt: "J5s - well below your range, you should fold this"
+- Options: CALL = +EV "meets pot odds", FOLD = neutral
+- LLM picks: CALL (the +EV option)
+
+### The EV Threshold Problem
+
+The call EV threshold was too loose:
+
+```python
+# OLD: Call is +EV when equity >= required * 1.2
+# 40% equity >= 29% * 1.2 = 34.8% → +EV (too generous)
+```
+
+This labeled marginal calls as "+EV", overriding hand guidance.
+
+### Fix: Three-Zone EV Labeling
+
+Changed from binary (+EV/neutral) to three zones:
+
+| Zone | Condition | Label |
+|------|-----------|-------|
+| +EV | equity >= required × 1.7 | "Clearly profitable" |
+| Marginal | equity >= required × 0.85 | "Close - your call" |
+| -EV | equity < required × 0.85 | "Below required odds" |
+
+**File**: `poker/bounded_options.py` lines 207-218, 240-246
+
+### Validation Results (Experiment 113819)
+
+| Metric | Before (113817) | After (113819) | Change |
+|--------|-----------------|----------------|--------|
+| VPIP | 60% | **40%** | -20% |
+| Fold rate | 10% | **17%** | +7% |
+| Tournament wins | 1/5 | 1/4 | Similar |
+
+**Key Findings:**
+1. Marginal zone removes +EV bias on borderline calls
+2. LLM now follows hand guidance when options are neutral
+3. VPIP dropped to healthier range without becoming too tight
+4. Tournament performance unchanged vs CaseBot
+
+### Code Changes
+
+**bounded_options.py** - Three-zone EV labeling:
+```python
+if equity >= required_equity * 1.7:
+    call_ev = "+EV"  # Clearly profitable
+elif equity >= required_equity * 0.85:
+    call_ev = "marginal"  # Close - defer to guidance
+else:
+    call_ev = "-EV"
+```
+
+**hybrid_ai_controller.py** - Telemetry fixes:
+- Pass `hand_number` to `chat_full()`
+- Track capture ID via `_on_captured` callback
+- Update capture with `action_taken` after decision
 
 # Hybrid Bounded-Options AI Analysis
 

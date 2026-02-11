@@ -204,13 +204,16 @@ def generate_bounded_options(context: Dict) -> List[BoundedOption]:
     # Calculate required equity for pot odds
     required_equity = calculate_required_equity(pot_total, cost_to_call)
 
-    # Determine EV estimate for calling
+    # Determine EV estimate for calling (three-zone approach)
+    # - +EV: Clearly profitable (70%+ buffer over required)
+    # - marginal: Close call, let personality/guidance decide
+    # - -EV: Below required odds
     if cost_to_call <= 0:
         call_ev = "neutral"
-    elif equity >= required_equity * 1.2:
-        call_ev = "+EV"
-    elif equity >= required_equity:
-        call_ev = "neutral"
+    elif equity >= required_equity * 1.7:
+        call_ev = "+EV"  # Clearly profitable
+    elif equity >= required_equity * 0.85:
+        call_ev = "marginal"  # Close - defer to hand guidance
     else:
         call_ev = "-EV"
 
@@ -238,10 +241,10 @@ def generate_bounded_options(context: Dict) -> List[BoundedOption]:
     if 'call' in valid_actions and not block_call:
         cost_bb = cost_to_call / context.get('big_blind', 100) if context.get('big_blind', 100) > 0 else 0
         rationale = f"Call {cost_bb:.1f} BB"
-        if equity >= required_equity * 1.5:
-            rationale += " - great pot odds"
-        elif equity >= required_equity:
-            rationale += " - meets pot odds"
+        if equity >= required_equity * 1.7:
+            rationale += " - clearly profitable"
+        elif equity >= required_equity * 0.85:
+            rationale += " - close, your call"
         else:
             rationale += " - below pot odds"
 

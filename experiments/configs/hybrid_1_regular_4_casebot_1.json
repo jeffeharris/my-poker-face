@@ -17,7 +17,6 @@
     "Batman": {"type": "hybrid"},
     "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
   },
-  "enable_telemetry": true,
   "control": {
     "label": "hybrid_vs_mixed"
   }

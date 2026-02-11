@@ -95,6 +95,8 @@ class HybridAIController(AIPlayerController):
         Returns:
             Decision dict with action, raise_to, dramatic_sequence, hand_strategy
         """
+        from core.llm.tracking import update_prompt_capture
+
         game_state = self.state_machine.game_state
         player = game_state.current_player
 
@@ -111,12 +113,17 @@ class HybridAIController(AIPlayerController):
         # Step 3: Build choice prompt for LLM
         choice_prompt = self._build_choice_prompt(message, options, rule_context)
 
+        # Track capture ID for post-decision update
+        capture_id = [None]
+
         # Step 4: Get LLM choice + narrative
         try:
             llm_response = self.assistant.chat_full(
                 choice_prompt,
                 json_format=True,
-                capture_enricher=self._make_hybrid_enricher(options, rule_context),
+                hand_number=self.current_hand_number,
+                prompt_template='decision_bounded',
+                capture_enricher=self._make_hybrid_enricher(options, rule_context, capture_id),
             )
 
             response_dict = parse_json_response(llm_response.content)
@@ -127,6 +134,12 @@ class HybridAIController(AIPlayerController):
 
         # Step 5: Validate choice and extract action
         chosen = self._validate_and_select(response_dict, options)
+
+        # Step 6: Update capture with final action (like parent class does)
+        if capture_id[0]:
+            action = chosen.get('action')
+            raise_amount = chosen.get('raise_to') if action == 'raise' else None
+            update_prompt_capture(capture_id[0], action_taken=action, raise_amount=raise_amount)
 
         return chosen
 
@@ -353,9 +366,20 @@ CRITICAL RULES:
             'bluff_likelihood': 0,
         }
 
-    def _make_hybrid_enricher(self, options: List[BoundedOption], context: Dict):
-        """Create an enricher callback for prompt captures with hybrid context."""
+    def _make_hybrid_enricher(self, options: List[BoundedOption], context: Dict, capture_id_holder: List):
+        """Create an enricher callback for prompt captures with hybrid context.
+
+        Args:
+            options: List of bounded options presented to LLM
+            context: Rule context with equity, pot odds, etc.
+            capture_id_holder: Single-element list to store capture ID for post-update
+        """
+        game_state = self.state_machine.game_state
+        player = game_state.current_player
+        big_blind = game_state.current_ante or 100
+
         def enrich_capture(capture_data: Dict) -> Dict:
+            # Core hybrid data
             capture_data.update({
                 'hybrid_mode': True,
                 'bounded_options': [o.to_dict() for o in options],
@@ -364,6 +388,16 @@ CRITICAL RULES:
                 'required_equity': context.get('required_equity'),
                 'phase': context.get('phase'),
                 'stack_bb': context.get('stack_bb'),
+                # Match parent enricher fields for consistency
+                'pot_total': context.get('pot_total'),
+                'cost_to_call': context.get('cost_to_call'),
+                'player_stack': context.get('player_stack'),
+                'already_bet_bb': player.bet / big_blind if big_blind > 0 else None,
+                'community_cards': context.get('community_cards', []),
+                'player_hand': context.get('hole_cards', []),
+                'valid_actions': context.get('valid_actions', []),
+                # Capture ID callback for post-update
+                '_on_captured': lambda cid: capture_id_holder.__setitem__(0, cid),
             })
             return capture_data
         return enrich_capture
