@@ -399,6 +399,7 @@ def capture_prompt(
     hand_number: Optional[int] = None,
     debug_mode: bool = False,
     enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    prompt_template: Optional[str] = None,
 ) -> bool:
     """Capture prompt and response to prompt_captures table.
 
@@ -456,6 +457,7 @@ def capture_prompt(
             'hand_number': hand_number,
             'phase': call_type.value,  # Default phase from call_type
             'call_type': call_type.value,
+            'prompt_template': prompt_template,
             'system_prompt': system_prompt or "(no system prompt)",
             'user_message': user_message or "(no user message)",
             'ai_response': response.content or "",
@@ -491,8 +493,9 @@ def capture_prompt(
                     pot_total, cost_to_call, pot_odds, player_stack,
                     community_cards, player_hand, valid_actions,
                     action_taken, raise_amount,
-                    parent_id, error_type, error_description, correction_attempt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    parent_id, error_type, error_description, correction_attempt,
+                    prompt_template
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 capture_data.get('game_id'),
                 capture_data.get('owner_id'),
@@ -527,6 +530,7 @@ def capture_prompt(
                 capture_data.get('error_type'),
                 capture_data.get('error_description'),
                 capture_data.get('correction_attempt', 0),
+                capture_data.get('prompt_template'),
             ))
 
         capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]

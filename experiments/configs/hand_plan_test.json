@@ -1,0 +1,42 @@
+{
+  "name": "hand_plan_test",
+  "description": "Test Phase 0 hand planning with lean bounded + style-aware options. Aggressive Napoleon vs passive Bob Ross to verify post-flop differentiation when hand plans guide street-by-street play.",
+  "hypothesis": "Pre-flop hand plans will produce more coherent multi-street play, with aggressive personalities showing higher bet frequencies post-flop and passive personalities checking/calling more consistently across streets.",
+  "tags": ["hand-plan", "lean-bounded", "style-aware", "post-flop-differentiation"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 25,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 5,
+  "personalities": ["Napoleon", "Bob Ross", "Napoleon", "Bob Ross"],
+  "player_types": {
+    "Napoleon": {"type": "hybrid"},
+    "Bob Ross": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "lean-no-plan",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "hand_plan": false
+    }
+  },
+  "variants": [
+    {
+      "label": "lean-with-hand-plan",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "hand_plan": true
+      }
+    }
+  ],
+  "random_seed": 42
+}

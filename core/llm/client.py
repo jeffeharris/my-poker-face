@@ -303,6 +303,7 @@ class LLMClient:
                 hand_number=hand_number,
                 debug_mode=False,  # Game-level debug mode handled separately
                 enricher=capture_enricher,
+                prompt_template=prompt_template,
             )
 
         return response

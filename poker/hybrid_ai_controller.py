@@ -35,6 +35,12 @@ from .hand_ranges import (
     EquityConfig,
 )
 from .ai_resilience import parse_json_response
+from .playstyle_selector import (
+    _build_stat_lines,
+    build_exploit_tips,
+    _select_biggest_threat,
+    MINDSET_FRAMES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +79,10 @@ class HybridAIController(AIPlayerController):
             decision_analysis_repo=decision_analysis_repo,
             prompt_config=prompt_config,
         )
+
+        # Phase 0: track hand transitions for per-hand memory clearing
+        # -1 ensures first hand is always detected as new
+        self._last_hand_number: int = -1
 
         lean = getattr(self.prompt_config, 'lean_bounded', False)
         logger.info(f"[HYBRID] Created HybridAIController for {player_name} (lean={lean})")
@@ -114,6 +124,10 @@ class HybridAIController(AIPlayerController):
 
         Bypasses all parent prompt building (psychology, memory, chattiness,
         tilt effects, etc.) and sends only cards + options to the LLM.
+
+        When hand_plan is enabled, fires Phase 0 at the start of each hand
+        to generate a strategy plan. The plan stays in the decision thread
+        so Phase 1 decisions see it as prior context.
         """
         from core.llm.tracking import update_prompt_capture
 
@@ -123,13 +137,34 @@ class HybridAIController(AIPlayerController):
         # Store messages for compatibility
         self._current_game_messages = game_messages
 
-        # Manage conversation memory (match parent behavior)
+        hand_plan_enabled = getattr(self.prompt_config, 'hand_plan', False)
+        current_hand = self.current_hand_number or 0
+        is_new_hand = current_hand != self._last_hand_number
+
+        # Manage conversation memory
         if hasattr(self, 'assistant') and self.assistant and self.assistant.memory:
-            keep_exchanges = getattr(self.prompt_config, 'memory_keep_exchanges', 0)
-            if keep_exchanges > 0:
-                self.assistant.memory.trim_to_exchanges(keep_exchanges)
+            if hand_plan_enabled:
+                # Clear memory once at hand start, preserve within hand
+                if is_new_hand:
+                    self.assistant.memory.clear()
             else:
-                self.assistant.memory.clear()
+                # Original behavior: clear every decision
+                keep_exchanges = getattr(self.prompt_config, 'memory_keep_exchanges', 0)
+                if keep_exchanges > 0:
+                    self.assistant.memory.trim_to_exchanges(keep_exchanges)
+                else:
+                    self.assistant.memory.clear()
+
+        # Update playstyle at hand start (lean path bypasses parent's update_playstyle call)
+        if hand_plan_enabled and is_new_hand and self.psychology:
+            opponent_models = (
+                self.opponent_model_manager.get_all_models_for_observer(self.player_name)
+                if self.opponent_model_manager else None
+            )
+            self.psychology.update_playstyle(
+                opponent_models=opponent_models,
+                hand_number=current_hand,
+            )
 
         # Build context for option generation
         player_options = game_state.current_player_options
@@ -167,15 +202,20 @@ class HybridAIController(AIPlayerController):
                 'check' if 'check' in player_options else 'fold'
             )
 
-        # Build minimal prompt
-        lean_prompt = self._build_lean_prompt(options, rule_context, profile_key)
-
-        # Swap system prompt to minimal
+        # Swap system prompt to minimal (covers both Phase 0 and Phase 1)
         original_system_message = self.assistant.system_message
         self.assistant.system_message = self.LEAN_SYSTEM_PROMPT
 
         capture_id = [None]
         try:
+            # Phase 0: Generate hand plan at hand start
+            if hand_plan_enabled and is_new_hand:
+                self._execute_hand_plan(rule_context, profile_key)
+                self._last_hand_number = current_hand
+
+            # Phase 1: Build minimal prompt and get decision
+            lean_prompt = self._build_lean_prompt(options, rule_context, profile_key)
+
             llm_response = self.assistant.chat_full(
                 lean_prompt,
                 json_format=True,
@@ -210,7 +250,11 @@ class HybridAIController(AIPlayerController):
         return chosen
 
     def _build_lean_prompt(self, options: List[BoundedOption], context: Dict, profile_key: str = 'default') -> str:
-        """Build minimal prompt: just cards, situation, style hint, and numbered options."""
+        """Build minimal prompt: just cards, situation, and numbered options.
+
+        When hand_plan is enabled, style hints are omitted — the hand plan
+        in the decision thread provides personality-driven context instead.
+        """
         hole_cards = context.get('hole_cards', [])
         community_cards = context.get('community_cards', [])
         big_blind = context.get('big_blind', 100)
@@ -225,10 +269,11 @@ class HybridAIController(AIPlayerController):
         pot_bb = context.get('pot_total', 0) / big_blind if big_blind > 0 else 0
         parts.append(f"Stack: {stack_bb:.0f} BB | Pot: {pot_bb:.1f} BB")
 
-        # Style hint (one-liner from profile, omitted for default)
-        style_hint = STYLE_HINTS.get(profile_key, '')
-        if style_hint:
-            parts.append(style_hint)
+        # Style hint (omitted when hand_plan provides context via decision thread)
+        if not getattr(self.prompt_config, 'hand_plan', False):
+            style_hint = STYLE_HINTS.get(profile_key, '')
+            if style_hint:
+                parts.append(style_hint)
 
         parts.append("")
 
@@ -244,6 +289,186 @@ class HybridAIController(AIPlayerController):
         parts.append(f'Pick 1-{len(options)}: {{"choice": N}}')
 
         return "\n".join(parts)
+
+    # === Phase 0: Hand Plan ===
+
+    def _execute_hand_plan(self, rule_context: Dict, profile_key: str) -> None:
+        """Execute Phase 0: generate a hand plan at the start of a new hand.
+
+        The plan response stays in the decision thread so Phase 1 decisions
+        see it as prior context (the LLM's own earlier output).
+        """
+        plan_prompt = self._build_hand_plan_prompt(rule_context, profile_key)
+
+        plan_capture_id = [None]
+        try:
+            plan_response = self.assistant.chat_full(
+                plan_prompt,
+                json_format=True,
+                hand_number=self.current_hand_number,
+                prompt_template='hand_plan',
+                capture_enricher=self._make_hand_plan_enricher(
+                    rule_context, profile_key, plan_capture_id
+                ),
+            )
+            plan_dict = parse_json_response(plan_response.content)
+            plan_text = plan_dict.get('plan', '') if plan_dict else ''
+            logger.info(
+                f"[HYBRID-PLAN] {self.player_name} hand {self.current_hand_number} "
+                f"({profile_key}): {plan_text[:80]}"
+            )
+        except Exception as e:
+            logger.warning(f"[HYBRID-PLAN] Phase 0 failed for {self.player_name}: {e}")
+
+    # Playstyle cues for Phase 0 hand plans (short, directive)
+    PLAYSTYLE_PLAN_CUES = {
+        'commanding': "You play aggressively for maximum value.",
+        'aggro': "You play aggressively and attack weakness.",
+        'poker_face': "You play a balanced, math-driven game.",
+        'guarded': "You play cautiously and control the pot.",
+    }
+
+    def _build_hand_plan_prompt(self, rule_context: Dict, profile_key: str) -> str:
+        """Build Phase 0 prompt with playstyle-specific strategic context.
+
+        Always includes a mindset frame and playstyle cue so plans are
+        personality-differentiated even at basic engagement. Higher tiers
+        add more context (stats, exploit tips).
+        """
+        hole_cards = rule_context.get('hole_cards', [])
+        position = rule_context.get('position', '?')
+        stack_bb = rule_context.get('stack_bb', 0)
+        num_opponents = rule_context.get('num_opponents', 0)
+
+        parts = [f"Cards: {' '.join(hole_cards)}"]
+        parts.append(f"Position: {position}")
+        parts.append(f"Stack: {stack_bb:.0f} BB | Opponents: {num_opponents}")
+
+        # Get playstyle and engagement from psychology (if available)
+        active_playstyle = 'poker_face'
+        engagement = 'basic'
+        if self.psychology and hasattr(self.psychology, 'playstyle_state'):
+            ps = self.psychology.playstyle_state
+            active_playstyle = ps.active_playstyle
+            engagement = ps.engagement
+
+        # Always include mindset frame for personality differentiation
+        mindset = MINDSET_FRAMES.get(active_playstyle, '')
+        if mindset:
+            parts.append(mindset)
+
+        # Medium+ engagement: add richer strategic context
+        if engagement in ('medium', 'full'):
+            context_lines = self._build_plan_strategic_context(
+                active_playstyle, engagement, rule_context
+            )
+            if context_lines:
+                parts.append(context_lines)
+
+        # Playstyle-aware plan instruction
+        style_cue = self.PLAYSTYLE_PLAN_CUES.get(active_playstyle, '')
+        parts.append("")
+        if style_cue:
+            parts.append(f'{style_cue} Plan this hand in 1 sentence.')
+        else:
+            parts.append('Plan this hand in 1 sentence.')
+        parts.append('{"plan": "..."}')
+
+        return "\n".join(parts)
+
+    def _build_plan_strategic_context(
+        self, active_playstyle: str, engagement: str, rule_context: Dict
+    ) -> str:
+        """Build playstyle-specific strategic context for the hand plan.
+
+        Reuses existing briefing functions from playstyle_selector.py.
+        """
+        lines = []
+        big_blind = rule_context.get('big_blind', 100)
+
+        # Full engagement: curated stats per playstyle
+        if engagement == 'full':
+            # Compute avg stack from game state
+            game_state = self.state_machine.game_state
+            active_players = [p for p in game_state.players if not p.is_folded]
+            avg_stack = (
+                sum(p.stack for p in active_players) / len(active_players)
+                if active_players else 0
+            )
+
+            # Get threat info for aggro style
+            threat_name = None
+            threat_summary = None
+            if active_playstyle == 'aggro' and self.opponent_model_manager:
+                models = self.opponent_model_manager.get_all_models_for_observer(
+                    self.player_name
+                )
+                threat = _select_biggest_threat(models)
+                if threat:
+                    threat_name = threat.opponent
+                    threat_summary = f"AF {threat.tendencies.aggression_factor:.1f}, VPIP {threat.tendencies.vpip:.0%}"
+
+            stat_lines = _build_stat_lines(
+                active_playstyle,
+                player_stack=rule_context.get('player_stack', 0),
+                avg_stack=avg_stack,
+                pot_total=rule_context.get('pot_total', 0),
+                big_blind=big_blind,
+                threat_name=threat_name,
+                threat_summary=threat_summary,
+            )
+            if stat_lines:
+                lines.append(stat_lines)
+
+        # Medium+ engagement: exploit tips from opponent models
+        threat_model = None
+        if self.opponent_model_manager:
+            models = self.opponent_model_manager.get_all_models_for_observer(
+                self.player_name
+            )
+            threat_model = _select_biggest_threat(models)
+
+        exploit_tips = build_exploit_tips(
+            active_playstyle, engagement, threat_model=threat_model
+        )
+        if exploit_tips:
+            lines.append(exploit_tips)
+
+        # Note: mindset frame is now always added in _build_hand_plan_prompt
+        # (not gated on engagement) so it's not repeated here.
+
+        return "\n".join(lines)
+
+    def _make_hand_plan_enricher(
+        self, rule_context: Dict, profile_key: str, capture_id_holder: List
+    ):
+        """Create enricher for Phase 0 hand plan captures."""
+        active_playstyle = 'poker_face'
+        engagement = 'basic'
+        if self.psychology and hasattr(self.psychology, 'playstyle_state'):
+            ps = self.psychology.playstyle_state
+            active_playstyle = ps.active_playstyle
+            engagement = ps.engagement
+
+        lean = getattr(self.prompt_config, 'lean_bounded', False)
+
+        def enrich_capture(capture_data: Dict) -> Dict:
+            capture_data.update({
+                'hybrid_mode': True,
+                'lean_bounded': lean,
+                'hand_plan': True,
+                'style_profile': profile_key,
+                'active_playstyle': active_playstyle,
+                'engagement': engagement,
+                'phase': rule_context.get('phase'),
+                'stack_bb': rule_context.get('stack_bb'),
+                'player_hand': rule_context.get('hole_cards', []),
+                'position': rule_context.get('position'),
+                'num_opponents': rule_context.get('num_opponents'),
+                '_on_captured': lambda cid: capture_id_holder.__setitem__(0, cid),
+            })
+            return capture_data
+        return enrich_capture
 
     def _get_ai_decision(self, message: str, **context) -> Dict:
         """Override: Use bounded options for decision making.

@@ -85,6 +85,9 @@ class PromptConfig:
     # Style-aware options — map psychology playstyle to option profiles in lean mode
     style_aware_options: bool = True
 
+    # Hand plan — generate per-hand strategy via Phase 0 before lean decisions
+    hand_plan: bool = False
+
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts
 
