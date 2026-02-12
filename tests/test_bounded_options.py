@@ -167,12 +167,12 @@ class TestGetRaiseOptions:
             assert raise_to <= context['max_raise']
 
     def test_short_stack_includes_all_in(self):
-        """Short stack (<20 BB) should include all-in option."""
+        """Short stack (<10 BB) should include all-in option."""
         context = {
             'pot_total': 300,
             'min_raise': 100,
             'max_raise': 300,  # All-in
-            'stack_bb': 15,  # Short stack
+            'stack_bb': 8,  # Short stack (<10 BB)
             'big_blind': 20,
         }
         options = _get_raise_options(context)

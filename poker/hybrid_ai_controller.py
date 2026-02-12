@@ -27,6 +27,8 @@ from .bounded_options import (
     generate_bounded_options,
     format_options_for_prompt,
     calculate_required_equity,
+    apply_emotional_window_shift,
+    get_emotional_shift,
 )
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 from .hand_ranges import (
@@ -202,6 +204,13 @@ class HybridAIController(AIPlayerController):
                 'check' if 'check' in player_options else 'fold'
             )
 
+        # Layer 6: Emotional window shift
+        emotional_shift = get_emotional_shift(self.psychology)
+        if emotional_shift.severity != 'none':
+            options = apply_emotional_window_shift(
+                options, emotional_shift, rule_context, profile,
+            )
+
         # Swap system prompt to minimal (covers both Phase 0 and Phase 1)
         original_system_message = self.assistant.system_message
         self.assistant.system_message = self.LEAN_SYSTEM_PROMPT
@@ -227,7 +236,11 @@ class HybridAIController(AIPlayerController):
             )
             response_dict = parse_json_response(llm_response.content)
         except Exception as e:
-            logger.warning(f"[HYBRID-LEAN] LLM failed for {self.player_name}: {e}")
+            logger.warning(
+                f"[HYBRID-LEAN] LLM/parse failed for {self.player_name}: "
+                f"{type(e).__name__}: {e}",
+                exc_info=True
+            )
             response_dict = None
         finally:
             self.assistant.system_message = original_system_message
@@ -491,6 +504,13 @@ class HybridAIController(AIPlayerController):
             logger.warning(f"[HYBRID] No options generated for {self.player_name}, using fallback")
             return self._create_fallback_response('check' if 'check' in context.get('valid_actions', []) else 'fold')
 
+        # Step 2b: Emotional window shift
+        emotional_shift = get_emotional_shift(self.psychology)
+        if emotional_shift.severity != 'none':
+            options = apply_emotional_window_shift(
+                options, emotional_shift, rule_context, profile,
+            )
+
         # Step 3: Build choice prompt for LLM
         choice_prompt = self._build_choice_prompt(message, options, rule_context)
 
@@ -579,7 +599,12 @@ class HybridAIController(AIPlayerController):
                 iterations=300, config=equity_config
             )
             if equity is None:
-                equity = 0.5  # Fallback if calculation fails
+                logger.warning(
+                    f"[HYBRID] Equity calculation returned None for {player.name}. "
+                    f"Falling back to 0.5. hole_cards={hole_cards}, "
+                    f"community_cards={community_cards}"
+                )
+                equity = 0.5
         else:
             # Pre-flop equity estimate based on hand ranking
             canonical = _get_canonical_hand(hole_cards) if hole_cards else ''
@@ -712,7 +737,15 @@ CRITICAL RULES:
 
         Priority: +EV > neutral > -EV, then by style (standard > conservative > aggressive)
         """
-        ev_priority = {'+EV': 0, 'neutral': 1, '-EV': 2}
+        if not options:
+            logger.error("[HYBRID] _get_best_fallback_option called with empty options list")
+            return BoundedOption(
+                action='check', raise_to=0,
+                rationale="Fallback (no options available)",
+                ev_estimate="neutral", style_tag="conservative",
+            )
+
+        ev_priority = {'+EV': 0, 'neutral': 1, 'marginal': 2, '-EV': 3}
         style_priority = {'standard': 0, 'conservative': 1, 'aggressive': 2, 'trappy': 3}
 
         sorted_options = sorted(
@@ -723,7 +756,7 @@ CRITICAL RULES:
             )
         )
 
-        return sorted_options[0] if sorted_options else options[0]
+        return sorted_options[0]
 
     def _option_to_response(self, option: BoundedOption, llm_response: Dict) -> Dict:
         """Convert a BoundedOption to a decision response dict."""
@@ -762,6 +795,9 @@ CRITICAL RULES:
 
         lean = getattr(self.prompt_config, 'lean_bounded', False)
 
+        # Capture emotional shift state at enricher creation time
+        emotional_shift = get_emotional_shift(self.psychology)
+
         def enrich_capture(capture_data: Dict) -> Dict:
             # Core hybrid data
             capture_data.update({
@@ -782,6 +818,8 @@ CRITICAL RULES:
                 'community_cards': context.get('community_cards', []),
                 'player_hand': context.get('hole_cards', []),
                 'valid_actions': context.get('valid_actions', []),
+                # Emotional window shift tracking
+                'emotional_shift': emotional_shift.to_dict(),
                 # Capture ID callback for post-update
                 '_on_captured': lambda cid: capture_id_holder.__setitem__(0, cid),
             })
