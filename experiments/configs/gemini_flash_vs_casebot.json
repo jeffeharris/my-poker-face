@@ -9,8 +9,7 @@
   "reset_on_elimination": true,
   "model": "gemini-2.0-flash",
   "provider": "google",
-  "parallel_tournaments": 3,
-  "stagger_start_delay": 1.0,
+  "parallel_tournaments": 1,
   "personalities": ["Batman", "Sherlock Holmes", "Gordon Ramsay", "CaseBot"],
   "player_types": {
     "CaseBot": {"type": "rule_bot", "strategy": "case_based"}

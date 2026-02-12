@@ -119,11 +119,11 @@ STYLE_PROFILES = {
         value_bet_threshold=0.70,
     ),
     'loose_aggressive': OptionProfile(
-        fold_equity_multiplier=1.5,    # plays more hands
+        fold_equity_multiplier=1.8,    # plays more hands than default (2.0) but not every hand
         call_plus_ev=1.5,
         call_marginal=0.75,
-        raise_plus_ev=0.50,           # raises with less equity
-        raise_neutral=0.35,
+        raise_plus_ev=0.55,           # slightly lower bar than default — raises for value more often
+        raise_neutral=0.42,           # honest EV labels — marginal raises show as -EV, not neutral
         sizing_small=0.33,
         sizing_medium=0.75,
         sizing_large=1.5,             # overbets for pressure
@@ -138,7 +138,7 @@ STYLE_HINTS = {
     'tight_passive': "Play tight — fold marginal hands, only continue with strong holdings.",
     'tight_aggressive': "Play aggressively with strong hands — bet for value, pressure opponents.",
     'loose_passive': "See more flops — call liberally, but don't overcommit without a hand.",
-    'loose_aggressive': "Play aggressively — bet for value, pressure opponents, look for bluff spots.",
+    'loose_aggressive': "",
     'default': "",
 }
 
@@ -379,11 +379,22 @@ def generate_bounded_options(context: Dict, profile: OptionProfile = None) -> Li
 
     # === FOLD option (if not blocked) ===
     if 'fold' in valid_actions and not block_fold:
+        # Fold EV from the player's perspective:
+        # - equity well below required → folding saves money = +EV
+        # - equity near required → borderline = neutral
+        # - equity above required → folding gives up value = -EV
+        if required_equity > 0 and equity < required_equity * 0.85:
+            fold_ev = "+EV"
+        elif equity < required_equity:
+            fold_ev = "neutral"
+        else:
+            fold_ev = "-EV"
+
         options.append(BoundedOption(
             action='fold',
             raise_to=0,
             rationale=f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)",
-            ev_estimate="-EV" if equity < required_equity else "neutral",
+            ev_estimate=fold_ev,
             style_tag="conservative"
         ))
 
