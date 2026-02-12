@@ -130,10 +130,51 @@ Drama detection is controlled by `PromptConfig` in `prompt_config.py`:
 
 ---
 
+## Bounded Options System
+
+The bounded options system generates EV-labeled option menus for AI decisions. Located in `bounded_options.py`.
+
+### Flow
+
+```
+Game State → _build_rule_context() → generate_bounded_options(context, profile)
+  → Case Matrix (F1-F4/B1-B6) → Position → Play Style → Stack Depth → Math Blocking
+  → [optional] apply_emotional_window_shift() → Final options (2-4 BoundedOption)
+```
+
+### Case Matrix
+
+**Free to act** (cost_to_call = 0):
+- F1 Monster (90%+), F2 Strong (65-90%), F3 Decent (40-65%), F4 Weak (<40%)
+
+**Facing bet** (cost_to_call > 0):
+- B1 Monster (90%+), B2 Crushing (>1.7× req), B3 Profitable (1.0-1.7×), B4 Marginal (0.85-1.0×), B5 Weak (<0.85×), B6 Dead (<5%)
+
+### Key Types
+
+- `BoundedOption`: dataclass with action, raise_to, rationale, ev_estimate, style_tag
+- `OptionProfile`: thresholds for fold/call/raise decisions per play style
+- `EmotionalShift`: state (tilted/shaken/etc), severity (mild/moderate/extreme), intensity
+- `STYLE_PROFILES`: dict mapping style names to OptionProfile instances
+
+### Integration Points
+
+- `hybrid_ai_controller.py`: Calls `generate_bounded_options()` then `apply_emotional_window_shift()`
+- `_get_best_fallback_option()`: Picks best option when LLM returns invalid response
+- Profile selection via `style_aware_options` flag on PromptConfig
+
+### Spec
+
+Full design doc: `docs/technical/BOUNDED_OPTIONS_DECISION_FRAMEWORK.md`
+
+---
+
 ## Related Files
 
 | File | Purpose |
 |------|---------|
+| `bounded_options.py` | Option generation, case matrix, profiles, emotional shift |
+| `hybrid_ai_controller.py` | Lean prompt assembly, option integration, fallback logic |
 | `moment_analyzer.py` | Drama factor detection and level determination |
 | `prompt_manager.py` | DRAMA_CONTEXTS mapping, prompt assembly |
 | `controllers.py` | Calls MomentAnalyzer, passes drama_context to prompt |

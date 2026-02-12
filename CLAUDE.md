@@ -177,6 +177,8 @@ This is a poker game with AI personalities AND an experiment platform for testin
 
 6. **Experiment Manager** (`experiments/run_ai_tournament.py`): Run AI-only tournaments to A/B test models, prompts, and configurations at scale.
 
+7. **Bounded Options System** (`poker/bounded_options.py`): Generates EV-labeled option menus for AI decisions. LLMs pick from pre-computed options rather than reasoning about poker directly. Architecture layers: Case Matrix (F1-F4/B1-B6) → Position (IP/OOP) → Play Style (OptionProfile) → Stack Depth → Math Blocking → Emotional Window Shift. See `docs/technical/BOUNDED_OPTIONS_DECISION_FRAMEWORK.md` for full spec.
+
 ### Key Design Patterns
 
 - **Functional Core**: Game logic uses pure functions that take state and return new state
