@@ -160,7 +160,7 @@ class TestHandHistoryRecorder(unittest.TestCase):
         mock_state.pot = {"total": 100}
 
         # Start hand
-        recorder.start_hand(mock_state, hand_number=1)
+        recorder.start_hand(mock_state, hand_number=1, deck_seed=42)
         self.assertIsNotNone(recorder.current_hand)
 
         # Record actions
@@ -183,6 +183,7 @@ class TestHandHistoryRecorder(unittest.TestCase):
 
         self.assertIsInstance(recorded, RecordedHand)
         self.assertEqual(recorded.hand_number, 1)
+        self.assertEqual(recorded.deck_seed, 42)
         self.assertEqual(len(recorded.actions), 2)
         self.assertEqual(recorded.winners[0].name, "Alice")
         self.assertIsNone(recorder.current_hand)

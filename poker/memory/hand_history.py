@@ -106,6 +106,7 @@ class RecordedHand:
     winners: tuple          # Tuple[WinnerInfo, ...]
     pot_size: int
     was_showdown: bool
+    deck_seed: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -118,7 +119,8 @@ class RecordedHand:
             'actions': [a.to_dict() for a in self.actions],
             'winners': [w.to_dict() for w in self.winners],
             'pot_size': self.pot_size,
-            'was_showdown': self.was_showdown
+            'was_showdown': self.was_showdown,
+            'deck_seed': self.deck_seed
         }
 
     @classmethod
@@ -133,7 +135,8 @@ class RecordedHand:
             actions=tuple(RecordedAction.from_dict(a) for a in data['actions']),
             winners=tuple(WinnerInfo.from_dict(w) for w in data['winners']),
             pot_size=data['pot_size'],
-            was_showdown=data['was_showdown']
+            was_showdown=data['was_showdown'],
+            deck_seed=data.get('deck_seed')
         )
 
     def get_player_outcome(self, player_name: str) -> str:
@@ -167,9 +170,10 @@ class RecordedHand:
 class HandInProgress:
     """Mutable hand being recorded (converted to RecordedHand when complete)."""
 
-    def __init__(self, game_id: str, hand_number: int):
+    def __init__(self, game_id: str, hand_number: int, deck_seed: Optional[int] = None):
         self.game_id = game_id
         self.hand_number = hand_number
+        self.deck_seed = deck_seed
         self.timestamp = datetime.now()
         self.players: List[PlayerHandInfo] = []
         self.hole_cards: Dict[str, List[str]] = {}
@@ -225,7 +229,8 @@ class HandInProgress:
             actions=tuple(self.actions),
             winners=tuple(winners),
             pot_size=pot_size,
-            was_showdown=was_showdown
+            was_showdown=was_showdown,
+            deck_seed=self.deck_seed
         )
 
 
@@ -237,14 +242,14 @@ class HandHistoryRecorder:
         self.current_hand: Optional[HandInProgress] = None
         self.completed_hands: List[RecordedHand] = []
 
-    def start_hand(self, game_state: Any, hand_number: int) -> None:
+    def start_hand(self, game_state: Any, hand_number: int, deck_seed: Optional[int] = None) -> None:
         """Start recording a new hand.
 
         Args:
             game_state: PokerGameState with players and positions
             hand_number: The hand number in this game
         """
-        self.current_hand = HandInProgress(self.game_id, hand_number)
+        self.current_hand = HandInProgress(self.game_id, hand_number, deck_seed=deck_seed)
 
         # Record player information
         table_positions = game_state.table_positions if hasattr(game_state, 'table_positions') else {}

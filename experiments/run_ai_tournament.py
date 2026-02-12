@@ -732,6 +732,10 @@ class AITournamentRunner:
         # Create state machine
         state_machine = PokerStateMachine(game_state)
 
+        # Store seed on state machine so it's available for hand history recording
+        if deck_seed is not None:
+            state_machine.current_hand_seed = deck_seed
+
         # Create memory manager for hand tracking
         # Pass commentary_enabled from variant config (defaults to False for experiments)
         commentary_enabled = variant_config.get('enable_commentary', False) if variant_config else False
@@ -1017,7 +1021,11 @@ class AITournamentRunner:
 
             # Record hand start AFTER first advance deals cards (hole_cards now available)
             if not hand_start_recorded:
-                memory_manager.on_hand_start(game_state, hand_number)
+                memory_manager.on_hand_start(
+                    game_state,
+                    hand_number,
+                    deck_seed=state_machine.current_hand_seed
+                )
                 hand_start_stacks = {p.name: p.stack for p in game_state.players}
                 hand_start_recorded = True
 

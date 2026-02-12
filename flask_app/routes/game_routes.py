@@ -491,7 +491,11 @@ def api_game_state(game_id):
                         # Initialize human player for opponent observation tracking
                         memory_manager.initialize_human_observer(player.name)
 
-                memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
+                memory_manager.on_hand_start(
+                    state_machine.game_state,
+                    hand_number=memory_manager.hand_count + 1,
+                    deck_seed=state_machine.current_hand_seed
+                )
 
                 # Try to load tournament tracker from database, or create new one
                 tracker_data = game_repo.load_tournament_tracker(game_id)
@@ -990,7 +994,11 @@ def api_new_game():
     # so that hole cards are available when on_hand_start records them.
     state_machine.run_until_player_action()
 
-    memory_manager.on_hand_start(state_machine.game_state, hand_number=1)
+    memory_manager.on_hand_start(
+        state_machine.game_state,
+        hand_number=1,
+        deck_seed=state_machine.current_hand_seed
+    )
 
     starting_players = [
         {'name': p.name, 'is_human': p.is_human}

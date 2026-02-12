@@ -71,6 +71,7 @@ class GameRepository(BaseRepository):
 
         state_dict = game_state.to_dict()
         state_dict['current_phase'] = state_machine.current_phase.value
+        state_dict['current_hand_seed'] = state_machine.current_hand_seed
 
         game_json = json.dumps(state_dict)
         llm_configs_json = json.dumps(llm_configs) if llm_configs else None
@@ -130,7 +131,14 @@ class GameRepository(BaseRepository):
                 phase = PokerPhase.INITIALIZING_HAND
 
             # Create state machine with the loaded state and phase
-            return PokerStateMachine.from_saved_state(game_state, phase)
+            sm = PokerStateMachine.from_saved_state(game_state, phase)
+
+            # Restore deck seed so in-progress hand can be recorded with its seed
+            saved_seed = state_dict.get('current_hand_seed')
+            if saved_seed is not None:
+                sm.current_hand_seed = saved_seed
+
+            return sm
 
     def load_llm_configs(self, game_id: str) -> Optional[Dict]:
         """Load LLM configs for a game.

@@ -1186,7 +1186,11 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     if 'memory_manager' in game_data:
         memory_manager = game_data['memory_manager']
         new_hand_number = memory_manager.hand_count + 1
-        memory_manager.on_hand_start(state_machine.game_state, hand_number=new_hand_number)
+        memory_manager.on_hand_start(
+            state_machine.game_state,
+            hand_number=new_hand_number,
+            deck_seed=state_machine.current_hand_seed
+        )
 
     # Track hand_start_stacks for stack-based pressure events (double_up, crippled, short_stack)
     # Capture after blinds are posted but before any betting action

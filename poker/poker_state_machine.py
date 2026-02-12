@@ -1,11 +1,12 @@
 import logging
+import random
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from typing import List, Tuple, Optional
 
 from .poker_game import PokerGameState, setup_hand, set_betting_round_start_player, reset_player_action_flags, \
     are_pot_contributions_valid, deal_community_cards, determine_winner, reset_game_state_for_new_hand, \
-    award_pot_winnings
+    award_pot_winnings, create_deck
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,7 @@ class ImmutableStateMachine:
     snapshots: Tuple[PokerGameState, ...] = field(default_factory=tuple)
     blind_config: BlindConfig = field(default_factory=BlindConfig)
     current_hand_seed: Optional[int] = None  # For deterministic deck seeding in A/B experiments
+    hand_seed_provided: bool = False
     
     def with_game_state(self, game_state: PokerGameState) -> 'ImmutableStateMachine':
         """Return new state with updated game state."""
@@ -101,9 +103,9 @@ class ImmutableStateMachine:
         new_snapshots = self.snapshots + (self.game_state,)
         return replace(self, snapshots=new_snapshots)
 
-    def with_hand_seed(self, seed: Optional[int]) -> 'ImmutableStateMachine':
+    def with_hand_seed(self, seed: Optional[int], provided: bool = True) -> 'ImmutableStateMachine':
         """Return new state with updated hand seed."""
-        return replace(self, current_hand_seed=seed)
+        return replace(self, current_hand_seed=seed, hand_seed_provided=provided)
     
     @property
     def current_phase(self) -> PokerPhase:
@@ -163,16 +165,38 @@ def initialize_game_transition(state: ImmutableStateMachine) -> ImmutableStateMa
     return state.with_phase(get_next_phase(state))
 
 
+def _resolve_hand_seed(state: ImmutableStateMachine) -> int:
+    """Resolve the seed for the next hand, consuming one-shot manual overrides."""
+    if state.hand_seed_provided and state.current_hand_seed is not None:
+        return state.current_hand_seed
+    return random.getrandbits(32)
+
+
 def initialize_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for INITIALIZING_HAND phase transition."""
-    new_game_state = setup_hand(state.game_state)
+    # First hand never goes through HAND_OVER, so seed it here.
+    # Subsequent hands are seeded during HAND_OVER.
+    seeded_state = state
+    if state.stats.hand_count == 0:
+        hand_seed = _resolve_hand_seed(state)
+        seeded_game_state = state.game_state.update(
+            deck=create_deck(shuffled=True, random_seed=hand_seed),
+            discard_pile=tuple(),
+            community_cards=tuple(),
+            newly_dealt_count=0
+        )
+        seeded_state = state.with_game_state(seeded_game_state).with_hand_seed(hand_seed, provided=False)
+
+    new_game_state = setup_hand(seeded_state.game_state)
     new_game_state_with_start_player = set_betting_round_start_player(game_state=new_game_state)
     # If no active players (all-in or folded), skip to showdown
     if new_game_state_with_start_player is None:
-        return state.with_game_state(new_game_state).with_phase(PokerPhase.SHOWDOWN)
+        return (seeded_state
+                .with_game_state(new_game_state)
+                .with_phase(PokerPhase.SHOWDOWN))
     # Reset raise counter for the pre-flop betting round
     new_game_state = new_game_state_with_start_player.update(raises_this_round=0)
-    return (state
+    return (seeded_state
             .with_game_state(new_game_state)
             .with_phase(get_next_phase(state)))
 
@@ -279,7 +303,8 @@ def evaluating_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMa
 
 def hand_over_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for HAND_OVER phase transition."""
-    new_game_state = reset_game_state_for_new_hand(state.game_state, deck_seed=state.current_hand_seed)
+    hand_seed = _resolve_hand_seed(state)
+    new_game_state = reset_game_state_for_new_hand(state.game_state, deck_seed=hand_seed)
 
     # Increment hand count
     new_stats = state.stats.increment_hand_count()
@@ -296,6 +321,7 @@ def hand_over_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     return (state
             .with_game_state(new_game_state)
             .with_stats(new_stats)
+            .with_hand_seed(hand_seed, provided=False)
             .with_phase(get_next_phase(state)))
 
 

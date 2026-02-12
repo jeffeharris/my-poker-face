@@ -82,6 +82,18 @@ class TestSchemaManager(unittest.TestCase):
 
         self.assertIn('coach_mode', columns)
 
+    def test_hand_history_has_deck_seed(self):
+        """Hand history should include deck_seed for deterministic replay."""
+        sm = SchemaManager(self.test_db.name)
+        sm.ensure_schema()
+
+        conn = sqlite3.connect(self.test_db.name)
+        cursor = conn.execute("PRAGMA table_info(hand_history)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn.close()
+
+        self.assertIn('deck_seed', columns)
+
     def test_rbac_tables_exist(self):
         """RBAC tables from v52 migration should exist."""
         sm = SchemaManager(self.test_db.name)

@@ -59,6 +59,15 @@ class TestSaveAndLoadHandHistory:
     def test_load_empty(self, repo):
         assert repo.load_hand_history('nonexistent') == []
 
+    def test_deck_seed_round_trip(self, repo):
+        hand = _make_hand('game1', 1)
+        hand['deck_seed'] = 123456789
+        repo.save_hand_history(hand)
+
+        loaded = repo.load_hand_history('game1')
+        assert len(loaded) == 1
+        assert loaded[0]['deck_seed'] == 123456789
+
 
 class TestHandCount:
     def test_returns_zero_for_no_hands(self, repo):

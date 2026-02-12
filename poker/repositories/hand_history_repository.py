@@ -31,8 +31,8 @@ class HandHistoryRepository(BaseRepository):
             cursor = conn.execute("""
                 INSERT OR REPLACE INTO hand_history
                 (game_id, hand_number, timestamp, players_json, hole_cards_json,
-                 community_cards_json, actions_json, winners_json, pot_size, showdown)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 community_cards_json, actions_json, winners_json, pot_size, showdown, deck_seed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 hand_dict['game_id'],
                 hand_dict['hand_number'],
@@ -43,7 +43,8 @@ class HandHistoryRepository(BaseRepository):
                 json.dumps(hand_dict.get('actions', [])),
                 json.dumps(hand_dict.get('winners', [])),
                 hand_dict.get('pot_size', 0),
-                hand_dict.get('was_showdown', False)
+                hand_dict.get('was_showdown', False),
+                hand_dict.get('deck_seed')
             ))
 
             hand_id = cursor.lastrowid
@@ -180,7 +181,8 @@ class HandHistoryRepository(BaseRepository):
                     'actions': json.loads(row['actions_json'] or '[]'),
                     'winners': json.loads(row['winners_json'] or '[]'),
                     'pot_size': row['pot_size'] or 0,
-                    'was_showdown': bool(row['showdown'])
+                    'was_showdown': bool(row['showdown']),
+                    'deck_seed': row['deck_seed']
                 }
                 hands.append(hand)
 

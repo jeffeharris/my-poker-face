@@ -109,15 +109,16 @@ class AIMemoryManager:
         self.initialized_players.add(player_name)
         logger.info(f"Initialized human observer: {player_name}")
 
-    def on_hand_start(self, game_state: Any, hand_number: int) -> None:
+    def on_hand_start(self, game_state: Any, hand_number: int, deck_seed: Optional[int] = None) -> None:
         """Called when a new hand begins.
 
         Args:
             game_state: Current PokerGameState
             hand_number: The hand number in this game
+            deck_seed: Optional deterministic deck seed used for this hand
         """
         self.hand_count = hand_number
-        self.hand_recorder.start_hand(game_state, hand_number)
+        self.hand_recorder.start_hand(game_state, hand_number, deck_seed=deck_seed)
 
         # Reset c-bet tracking for new hand
         self._preflop_raiser = None
