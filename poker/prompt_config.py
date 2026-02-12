@@ -82,6 +82,9 @@ class PromptConfig:
     # Lean bounded mode — bypass full prompt pipeline, use minimal options-only prompt
     lean_bounded: bool = False
 
+    # Style-aware options — map psychology playstyle to option profiles in lean mode
+    style_aware_options: bool = True
+
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts
 

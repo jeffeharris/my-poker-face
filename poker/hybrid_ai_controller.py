@@ -21,6 +21,9 @@ from typing import Dict, List, Optional
 from .controllers import AIPlayerController, _get_canonical_hand, card_to_string
 from .bounded_options import (
     BoundedOption,
+    OptionProfile,
+    STYLE_PROFILES,
+    STYLE_HINTS,
     generate_bounded_options,
     format_options_for_prompt,
     calculate_required_equity,
@@ -73,6 +76,32 @@ class HybridAIController(AIPlayerController):
 
         lean = getattr(self.prompt_config, 'lean_bounded', False)
         logger.info(f"[HYBRID] Created HybridAIController for {player_name} (lean={lean})")
+
+    def _get_option_profile(self) -> tuple:
+        """Map psychology looseness + aggression to an OptionProfile.
+
+        Uses effective_looseness and effective_aggression from psychology axes,
+        which incorporate personality anchors and emotional modifiers.
+
+        Returns:
+            (profile_key, OptionProfile) tuple. Falls back to ('default', OptionProfile()).
+            Returns default profile when style_aware_options is disabled.
+        """
+        if not getattr(self.prompt_config, 'style_aware_options', True):
+            return 'default', STYLE_PROFILES['default']
+
+        if self.psychology:
+            looseness = self.psychology.effective_looseness
+            aggression = self.psychology.effective_aggression
+            if looseness < 0.45:
+                key = 'tight_passive' if aggression < 0.5 else 'tight_aggressive'
+            elif looseness > 0.65:
+                key = 'loose_passive' if aggression < 0.5 else 'loose_aggressive'
+            else:
+                key = 'default'
+        else:
+            key = 'default'
+        return key, STYLE_PROFILES.get(key, OptionProfile())
 
     def decide_action(self, game_messages) -> Dict:
         """Override: dispatch to lean path when lean_bounded is enabled."""
@@ -127,9 +156,10 @@ class HybridAIController(AIPlayerController):
             'max_raise': max_raise_to,
         }
 
-        # Build rule context and generate options
+        # Build rule context and generate options with style profile
         rule_context = self._build_rule_context(game_state, player, context)
-        options = generate_bounded_options(rule_context)
+        profile_key, profile = self._get_option_profile()
+        options = generate_bounded_options(rule_context, profile)
 
         if not options:
             logger.warning(f"[HYBRID-LEAN] No options for {self.player_name}, fallback")
@@ -138,7 +168,7 @@ class HybridAIController(AIPlayerController):
             )
 
         # Build minimal prompt
-        lean_prompt = self._build_lean_prompt(options, rule_context)
+        lean_prompt = self._build_lean_prompt(options, rule_context, profile_key)
 
         # Swap system prompt to minimal
         original_system_message = self.assistant.system_message
@@ -152,7 +182,7 @@ class HybridAIController(AIPlayerController):
                 hand_number=self.current_hand_number,
                 prompt_template='decision_lean_bounded',
                 capture_enricher=self._make_hybrid_enricher(
-                    options, rule_context, capture_id
+                    options, rule_context, capture_id, profile_key=profile_key
                 ),
             )
             response_dict = parse_json_response(llm_response.content)
@@ -179,8 +209,8 @@ class HybridAIController(AIPlayerController):
 
         return chosen
 
-    def _build_lean_prompt(self, options: List[BoundedOption], context: Dict) -> str:
-        """Build minimal prompt: just cards, situation, and numbered options."""
+    def _build_lean_prompt(self, options: List[BoundedOption], context: Dict, profile_key: str = 'default') -> str:
+        """Build minimal prompt: just cards, situation, style hint, and numbered options."""
         hole_cards = context.get('hole_cards', [])
         community_cards = context.get('community_cards', [])
         big_blind = context.get('big_blind', 100)
@@ -194,6 +224,12 @@ class HybridAIController(AIPlayerController):
         stack_bb = context.get('stack_bb', 0)
         pot_bb = context.get('pot_total', 0) / big_blind if big_blind > 0 else 0
         parts.append(f"Stack: {stack_bb:.0f} BB | Pot: {pot_bb:.1f} BB")
+
+        # Style hint (one-liner from profile, omitted for default)
+        style_hint = STYLE_HINTS.get(profile_key, '')
+        if style_hint:
+            parts.append(style_hint)
+
         parts.append("")
 
         # Numbered options with EV labels
@@ -222,8 +258,9 @@ class HybridAIController(AIPlayerController):
         # Step 1: Build rule context for option generation
         rule_context = self._build_rule_context(game_state, player, context)
 
-        # Step 2: Generate bounded options
-        options = generate_bounded_options(rule_context)
+        # Step 2: Generate bounded options with style profile
+        profile_key, profile = self._get_option_profile()
+        options = generate_bounded_options(rule_context, profile)
 
         if not options:
             logger.warning(f"[HYBRID] No options generated for {self.player_name}, using fallback")
@@ -242,7 +279,7 @@ class HybridAIController(AIPlayerController):
                 json_format=True,
                 hand_number=self.current_hand_number,
                 prompt_template='decision_bounded',
-                capture_enricher=self._make_hybrid_enricher(options, rule_context, capture_id),
+                capture_enricher=self._make_hybrid_enricher(options, rule_context, capture_id, profile_key=profile_key),
             )
 
             response_dict = parse_json_response(llm_response.content)
@@ -485,13 +522,14 @@ CRITICAL RULES:
             'bluff_likelihood': 0,
         }
 
-    def _make_hybrid_enricher(self, options: List[BoundedOption], context: Dict, capture_id_holder: List):
+    def _make_hybrid_enricher(self, options: List[BoundedOption], context: Dict, capture_id_holder: List, profile_key: str = 'default'):
         """Create an enricher callback for prompt captures with hybrid context.
 
         Args:
             options: List of bounded options presented to LLM
             context: Rule context with equity, pot odds, etc.
             capture_id_holder: Single-element list to store capture ID for post-update
+            profile_key: Style profile name used for option generation
         """
         game_state = self.state_machine.game_state
         player = game_state.current_player
@@ -504,6 +542,7 @@ CRITICAL RULES:
             capture_data.update({
                 'hybrid_mode': True,
                 'lean_bounded': lean,
+                'style_profile': profile_key,
                 'bounded_options': [o.to_dict() for o in options],
                 'equity': context.get('equity'),
                 'pot_odds': context.get('pot_odds'),

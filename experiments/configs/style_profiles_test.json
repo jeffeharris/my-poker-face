@@ -1,0 +1,41 @@
+{
+  "name": "style_profiles_test",
+  "description": "A/B test style-aware option profiles vs default (uniform) profile. Style-aware maps psychology playstyle to tight_passive/tight_aggressive/loose_aggressive/default profiles, producing different option menus per player personality.",
+  "hypothesis": "Style-aware profiles will produce more differentiated play between personality types while maintaining or improving overall decision quality vs CaseBot.",
+  "tags": ["style-profiles", "lean-bounded", "hybrid", "casebot"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Bob Ross", "Sherlock Holmes", "Napoleon", "CaseBot"],
+  "player_types": {
+    "Bob Ross": {"type": "hybrid"},
+    "Sherlock Holmes": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "lean-default-profile",
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": false
+    }
+  },
+  "variants": [
+    {
+      "label": "lean-style-aware",
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true
+      },
+      "enable_psychology": true
+    }
+  ],
+  "random_seed": 42
+}

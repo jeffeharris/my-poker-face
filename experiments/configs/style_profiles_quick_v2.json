@@ -1,0 +1,57 @@
+{
+  "name": "style_profiles_quick_v2",
+  "description": "Quick test of looseness-based profile mapping. Bob Ross (tight_passive), Sherlock (default), Napoleon (loose_aggressive).",
+  "tags": [
+    "style-profiles",
+    "lean-bounded",
+    "quick-test"
+  ],
+  "num_tournaments": 3,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 3,
+  "personalities": [
+    "Bob Ross",
+    "Sherlock Holmes",
+    "Napoleon",
+    "CaseBot"
+  ],
+  "player_types": {
+    "Bob Ross": {
+      "type": "hybrid"
+    },
+    "Sherlock Holmes": {
+      "type": "hybrid"
+    },
+    "Napoleon": {
+      "type": "hybrid"
+    },
+    "CaseBot": {
+      "type": "rule_bot",
+      "strategy": "case_based"
+    }
+  },
+  "control": {
+    "label": "lean-default-profile",
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": false
+    }
+  },
+  "variants": [
+    {
+      "label": "lean-style-aware",
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true
+      }
+    }
+  ],
+  "random_seed": 42
+}
