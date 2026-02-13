@@ -29,7 +29,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 25)  # 23 bool + 1 int + 1 str
+        self.assertEqual(len(d), 26)  # 24 bool + 1 int + 1 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('dramatic_sequence', d)
@@ -172,6 +172,7 @@ class TestPromptConfig(unittest.TestCase):
             use_simple_response_format=True,
             lean_bounded=True,
             hand_plan=True,
+            preflop_range_gate=True,
         )
         self.assertIn('all enabled', repr(config))
 

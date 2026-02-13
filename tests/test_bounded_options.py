@@ -451,5 +451,390 @@ class TestEdgeCases:
         assert 'fold' not in actions or 'call' in actions
 
 
+class TestNeutralFloorFix:
+    """Tests for the neutral floor bug fix — raises below threshold get -EV
+    regardless of cost_to_call."""
+
+    def _postflop_check_raise_context(self, equity):
+        """Helper: post-flop context with cost_to_call=0 (check/raise decision)."""
+        return {
+            'equity': equity,
+            'pot_total': 400,
+            'cost_to_call': 0,
+            'player_stack': 1000,
+            'stack_bb': 50,
+            'min_raise': 200,
+            'max_raise': 1000,
+            'big_blind': 20,
+            'valid_actions': ['check', 'raise'],
+            'phase': 'FLOP',
+        }
+
+    def test_low_equity_raise_is_negative_ev_when_free(self):
+        """Raises below threshold should be -EV even when cost_to_call=0."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        # 35% equity is below tight_passive postflop_raise_neutral (0.60)
+        context = self._postflop_check_raise_context(equity=0.35)
+        profile = STYLE_PROFILES['tight_passive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        raise_options = [o for o in options if o.action == 'raise']
+
+        assert len(raise_options) >= 1
+        for r in raise_options:
+            assert r.ev_estimate == '-EV', (
+                f"Expected -EV for 35% equity raise with tight_passive profile, got {r.ev_estimate}"
+            )
+
+    def test_profiles_diverge_on_same_equity_postflop(self):
+        """Different profiles should produce different EV labels for
+        the same equity at cost_to_call=0 post-flop."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        # 40% equity: above LAG postflop_raise_neutral (0.30) but below Rock (0.60)
+        context = self._postflop_check_raise_context(equity=0.40)
+
+        rock_opts = generate_bounded_options(
+            context, STYLE_PROFILES['tight_passive'], phase='FLOP'
+        )
+        lag_opts = generate_bounded_options(
+            context, STYLE_PROFILES['loose_aggressive'], phase='FLOP'
+        )
+
+        rock_raise_evs = {o.ev_estimate for o in rock_opts if o.action == 'raise'}
+        lag_raise_evs = {o.ev_estimate for o in lag_opts if o.action == 'raise'}
+
+        # Rock should see -EV (0.40 < 0.60 threshold)
+        assert '-EV' in rock_raise_evs, f"Rock raises should be -EV, got {rock_raise_evs}"
+        # LAG should see neutral or +EV (0.40 > 0.30 threshold)
+        assert '-EV' not in lag_raise_evs, f"LAG raises should not be -EV, got {lag_raise_evs}"
+
+
+class TestPostflopRaiseOptionLimit:
+    """Tests for profile-gated raise option counts."""
+
+    def _postflop_many_raises_context(self):
+        """Helper: post-flop context that would generate 2-3 raise options."""
+        return {
+            'equity': 0.55,
+            'pot_total': 600,
+            'cost_to_call': 0,
+            'player_stack': 2000,
+            'stack_bb': 100,
+            'min_raise': 200,
+            'max_raise': 2000,
+            'big_blind': 20,
+            'valid_actions': ['check', 'raise'],
+            'phase': 'FLOP',
+        }
+
+    def test_tight_passive_limited_to_1_raise(self):
+        """Tight passive should see at most 1 raise option post-flop."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = self._postflop_many_raises_context()
+        profile = STYLE_PROFILES['tight_passive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        raise_count = sum(1 for o in options if o.action == 'raise')
+
+        assert raise_count <= 1, f"tight_passive should have <=1 raise, got {raise_count}"
+
+    def test_loose_aggressive_gets_full_menu(self):
+        """LAG should see up to 3 raise options post-flop."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = self._postflop_many_raises_context()
+        profile = STYLE_PROFILES['loose_aggressive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        raise_count = sum(1 for o in options if o.action == 'raise')
+
+        # Should have 2-3 raises (depending on sizing generation)
+        assert raise_count >= 2, f"LAG should have >=2 raises, got {raise_count}"
+
+    def test_different_profiles_different_raise_counts(self):
+        """Profiles should produce different raise option counts for same state."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = self._postflop_many_raises_context()
+
+        rock_opts = generate_bounded_options(
+            context, STYLE_PROFILES['tight_passive'], phase='FLOP'
+        )
+        lag_opts = generate_bounded_options(
+            context, STYLE_PROFILES['loose_aggressive'], phase='FLOP'
+        )
+
+        rock_raises = sum(1 for o in rock_opts if o.action == 'raise')
+        lag_raises = sum(1 for o in lag_opts if o.action == 'raise')
+
+        assert lag_raises > rock_raises, (
+            f"LAG should have more raises than Rock: {lag_raises} vs {rock_raises}"
+        )
+
+    def test_preflop_not_limited(self):
+        """Preflop raise options should not be affected by postflop limit."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = {
+            'equity': 0.55,
+            'pot_total': 300,
+            'cost_to_call': 100,
+            'player_stack': 2000,
+            'stack_bb': 100,
+            'min_raise': 200,
+            'max_raise': 2000,
+            'big_blind': 20,
+            'valid_actions': ['fold', 'call', 'raise'],
+            'phase': 'PRE_FLOP',
+        }
+        profile = STYLE_PROFILES['tight_passive']  # postflop_max_raise_options=1
+
+        options = generate_bounded_options(context, profile, phase='PRE_FLOP')
+        raise_count = sum(1 for o in options if o.action == 'raise')
+
+        # Preflop should not be limited by postflop setting
+        assert raise_count >= 1
+
+
+class TestCheckPromotionDifferentiation:
+    """Tests for profile-aware check promotion behavior."""
+
+    def _no_plus_ev_context(self):
+        """Helper: context where no option starts as +EV, triggering promotion logic."""
+        return {
+            'equity': 0.42,  # Above 0.40 threshold for promotion, below raise +EV
+            'pot_total': 400,
+            'cost_to_call': 0,
+            'player_stack': 1000,
+            'stack_bb': 50,
+            'min_raise': 200,
+            'max_raise': 1000,
+            'big_blind': 20,
+            'valid_actions': ['check', 'raise'],
+            'phase': 'FLOP',
+        }
+
+    def test_passive_profile_promotes_check_with_pot_control(self):
+        """Passive profiles should promote check with pot-control text."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = self._no_plus_ev_context()
+        profile = STYLE_PROFILES['tight_passive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        check_opts = [o for o in options if o.action == 'check']
+
+        assert len(check_opts) == 1
+        assert 'pot control' in check_opts[0].rationale.lower(), (
+            f"Expected 'pot control' in rationale, got: {check_opts[0].rationale}"
+        )
+
+    def test_lag_does_not_promote_check_when_raises_exist(self):
+        """LAG should not promote check to +EV when raise options exist."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = self._no_plus_ev_context()
+        profile = STYLE_PROFILES['loose_aggressive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        check_opts = [o for o in options if o.action == 'check']
+
+        has_raises = any(o.action == 'raise' for o in options)
+        if has_raises:
+            # Check should NOT be promoted to +EV
+            for c in check_opts:
+                assert c.ev_estimate != '+EV', (
+                    f"LAG check should not be +EV when raises exist, got: {c.ev_estimate}"
+                )
+
+    def test_tag_promotes_check_only_without_decent_raises(self):
+        """TAG should promote check only when no raise has neutral/+EV."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        # At 42% equity, TAG postflop_raise_neutral is 0.35 so raises will be neutral
+        # → TAG should NOT promote check (conditional + decent raise exists)
+        context = self._no_plus_ev_context()
+        profile = STYLE_PROFILES['tight_aggressive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        check_opts = [o for o in options if o.action == 'check']
+        raise_opts = [o for o in options if o.action == 'raise']
+
+        has_decent_raise = any(o.ev_estimate in ('+EV', 'neutral') for o in raise_opts)
+        if has_decent_raise:
+            for c in check_opts:
+                assert c.ev_estimate != '+EV', (
+                    f"TAG check should not be +EV when decent raises exist, got: {c.ev_estimate}"
+                )
+
+    def test_default_profile_promotes_check_as_before(self):
+        """Default profile should maintain original promotion behavior."""
+        from poker.bounded_options import OptionProfile
+
+        context = self._no_plus_ev_context()
+        profile = OptionProfile()  # default
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+
+        # Default should still promote the best option
+        has_plus_ev = any(o.ev_estimate == '+EV' for o in options)
+        # With equity 0.42 >= 0.40 threshold, promotion should fire
+        # (fold is blocked because cost_to_call=0)
+        assert has_plus_ev, "Default profile should still promote best option to +EV"
+
+
+class TestQualitativeTuning:
+    """Tests for v2 qualitative fixes: TAG thresholds, check penalty, EV-aware rationale."""
+
+    def _postflop_context(self, equity, cost_to_call=0):
+        """Helper: post-flop context with configurable equity and cost."""
+        return {
+            'equity': equity,
+            'pot_total': 400,
+            'cost_to_call': cost_to_call,
+            'player_stack': 1000,
+            'stack_bb': 50,
+            'min_raise': 200,
+            'max_raise': 1000,
+            'big_blind': 20,
+            'valid_actions': ['check', 'raise'] if cost_to_call == 0 else ['fold', 'call', 'raise'],
+            'phase': 'FLOP',
+        }
+
+    # --- Fix 1: TAG thresholds ---
+
+    def test_tag_35pct_equity_raises_are_neutral(self):
+        """TAG at 35% equity post-flop should see neutral raises (not -EV).
+
+        With postflop_raise_neutral=0.25, 35% equity is well above threshold.
+        """
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = self._postflop_context(equity=0.35)
+        profile = STYLE_PROFILES['tight_aggressive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        raise_opts = [o for o in options if o.action == 'raise']
+
+        assert len(raise_opts) >= 1
+        # At least one raise should be neutral (35% > 25% threshold)
+        assert any(o.ev_estimate == 'neutral' for o in raise_opts), (
+            f"TAG at 35% equity should have neutral raises, got: "
+            f"{[(o.ev_estimate, o.rationale) for o in raise_opts]}"
+        )
+
+    def test_tag_more_aggressive_than_rock_postflop(self):
+        """TAG should have more favorable raise labels than Rock at same equity."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = self._postflop_context(equity=0.35)
+
+        tag_opts = generate_bounded_options(context, STYLE_PROFILES['tight_aggressive'], phase='FLOP')
+        rock_opts = generate_bounded_options(context, STYLE_PROFILES['tight_passive'], phase='FLOP')
+
+        tag_neg_raises = sum(1 for o in tag_opts if o.action == 'raise' and o.ev_estimate == '-EV')
+        rock_neg_raises = sum(1 for o in rock_opts if o.action == 'raise' and o.ev_estimate == '-EV')
+
+        assert tag_neg_raises < rock_neg_raises, (
+            f"TAG should have fewer -EV raises than Rock: TAG={tag_neg_raises}, Rock={rock_neg_raises}"
+        )
+
+    # --- Fix 2: Check penalty threshold ---
+
+    def test_lag_check_marginal_with_betting_equity(self):
+        """LAG check at 40% equity should be 'marginal', not 'neutral'."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = self._postflop_context(equity=0.40)
+        profile = STYLE_PROFILES['loose_aggressive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        check_opts = [o for o in options if o.action == 'check']
+
+        assert len(check_opts) == 1
+        assert check_opts[0].ev_estimate == 'marginal', (
+            f"LAG check at 40% equity should be marginal, got: {check_opts[0].ev_estimate}"
+        )
+        assert 'betting equity' in check_opts[0].rationale.lower(), (
+            f"Expected 'betting equity' in rationale, got: {check_opts[0].rationale}"
+        )
+
+    def test_passive_check_not_penalized(self):
+        """Passive profiles should not have check penalty at 40% equity.
+
+        The check may be promoted to +EV by the 'always' check_promotion,
+        but it should NOT be labeled 'marginal' by the penalty threshold.
+        """
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = self._postflop_context(equity=0.40)
+        profile = STYLE_PROFILES['tight_passive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        check_opts = [o for o in options if o.action == 'check']
+
+        assert len(check_opts) == 1
+        # Should not contain "betting equity" penalty text
+        assert 'betting equity' not in check_opts[0].rationale.lower(), (
+            f"Passive check should not have betting equity penalty: {check_opts[0].rationale}"
+        )
+
+    def test_tag_check_marginal_above_threshold(self):
+        """TAG check at 45% equity should be 'marginal' (above 0.40 penalty threshold)."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        context = self._postflop_context(equity=0.45)
+        profile = STYLE_PROFILES['tight_aggressive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        check_opts = [o for o in options if o.action == 'check']
+
+        assert len(check_opts) == 1
+        assert check_opts[0].ev_estimate == 'marginal', (
+            f"TAG check at 45% equity should be marginal, got: {check_opts[0].ev_estimate}"
+        )
+
+    # --- Fix 3: EV-aware rationale ---
+
+    def test_negative_ev_raise_says_bluff_not_value(self):
+        """Raises labeled -EV should say 'bluff bet' instead of 'value bet'."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        # 20% equity → all raises should be -EV for any profile
+        context = self._postflop_context(equity=0.20)
+        profile = STYLE_PROFILES['tight_passive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        neg_raises = [o for o in options if o.action == 'raise' and o.ev_estimate == '-EV']
+
+        for r in neg_raises:
+            assert 'value bet' not in r.rationale.lower(), (
+                f"-EV raise should not say 'value bet': {r.rationale}"
+            )
+            assert 'bluff' in r.rationale.lower(), (
+                f"-EV raise should say 'bluff': {r.rationale}"
+            )
+
+    def test_positive_ev_raise_still_says_value(self):
+        """Raises labeled +EV should still say 'value bet'."""
+        from poker.bounded_options import STYLE_PROFILES
+
+        # 80% equity → raises should be +EV
+        context = self._postflop_context(equity=0.80)
+        profile = STYLE_PROFILES['loose_aggressive']
+
+        options = generate_bounded_options(context, profile, phase='FLOP')
+        pos_raises = [o for o in options if o.action == 'raise' and o.ev_estimate == '+EV']
+
+        assert len(pos_raises) >= 1
+        for r in pos_raises:
+            assert 'bluff' not in r.rationale.lower(), (
+                f"+EV raise should not say 'bluff': {r.rationale}"
+            )
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

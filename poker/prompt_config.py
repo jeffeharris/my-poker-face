@@ -88,6 +88,9 @@ class PromptConfig:
     # Hand plan — generate per-hand strategy via Phase 0 before lean decisions
     hand_plan: bool = False
 
+    # Preflop range gate — bias option EV labels based on hand-in-range check
+    preflop_range_gate: bool = False
+
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts
 

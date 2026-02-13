@@ -67,9 +67,28 @@ class OptionProfile:
     # Bluff frequency: 0-1, probability of including a -EV bluff raise
     bluff_frequency: float = 0.0
 
+    # Post-flop overrides (None = use preflop values)
+    postflop_raise_plus_ev: Optional[float] = None
+    postflop_raise_neutral: Optional[float] = None
+    postflop_value_bet_threshold: Optional[float] = None
+
+    # Post-flop raise option limit (None = no limit, show all generated)
+    postflop_max_raise_options: Optional[int] = None
+
+    # Check penalty: equity threshold above which check is labeled 'marginal' for aggressive profiles
+    # (None = no penalty, check stays 'neutral' as normal)
+    check_penalty_threshold: Optional[float] = None
+
+    # Check promotion style: 'default', 'always', 'conditional', 'suppress_if_raises'
+    # - 'default': current behavior (promote best option to +EV)
+    # - 'always': always promote check with pot-control rationale
+    # - 'conditional': promote check only if no raise has neutral/+EV
+    # - 'suppress_if_raises': never promote check when raise options exist
+    check_promotion: str = 'default'
+
     def to_dict(self) -> Dict:
         """Serialize for prompt capture tracking."""
-        return {
+        d = {
             'fold_equity_multiplier': self.fold_equity_multiplier,
             'call_plus_ev': self.call_plus_ev,
             'call_marginal': self.call_marginal,
@@ -81,6 +100,19 @@ class OptionProfile:
             'value_bet_threshold': self.value_bet_threshold,
             'bluff_frequency': self.bluff_frequency,
         }
+        if self.postflop_raise_plus_ev is not None:
+            d['postflop_raise_plus_ev'] = self.postflop_raise_plus_ev
+        if self.postflop_raise_neutral is not None:
+            d['postflop_raise_neutral'] = self.postflop_raise_neutral
+        if self.postflop_value_bet_threshold is not None:
+            d['postflop_value_bet_threshold'] = self.postflop_value_bet_threshold
+        if self.postflop_max_raise_options is not None:
+            d['postflop_max_raise_options'] = self.postflop_max_raise_options
+        if self.check_penalty_threshold is not None:
+            d['check_penalty_threshold'] = self.check_penalty_threshold
+        if self.check_promotion != 'default':
+            d['check_promotion'] = self.check_promotion
+        return d
 
 
 # Style presets: Rock, TAG, Calling Station, LAG, and current default
@@ -95,6 +127,11 @@ STYLE_PROFILES = {
         sizing_medium=0.50,
         sizing_large=0.75,
         value_bet_threshold=0.70,     # higher bar for value bets
+        postflop_raise_plus_ev=0.75,  # needs very strong hand to raise post-flop
+        postflop_raise_neutral=0.60,
+        postflop_value_bet_threshold=0.80,
+        postflop_max_raise_options=1, # passive — show minimal raise options
+        check_promotion='always',     # always promote check with pot-control text
     ),
     'tight_aggressive': OptionProfile(
         fold_equity_multiplier=2.5,    # still hard to block fold
@@ -106,6 +143,12 @@ STYLE_PROFILES = {
         sizing_medium=0.75,
         sizing_large=1.2,             # bigger sizing pressure
         value_bet_threshold=0.60,
+        postflop_raise_plus_ev=0.42,  # aggressive post-flop — nearly as loose as LAG
+        postflop_raise_neutral=0.25,  # very willing to bet thin value post-flop
+        postflop_value_bet_threshold=0.55,
+        postflop_max_raise_options=2, # aggressive but curated
+        check_penalty_threshold=0.40,  # checking with >40% equity is leaving value
+        check_promotion='conditional', # promote check only when no raise is neutral/+EV
     ),
     'loose_passive': OptionProfile(
         fold_equity_multiplier=1.5,    # easier to block fold (plays more)
@@ -117,6 +160,11 @@ STYLE_PROFILES = {
         sizing_medium=0.50,
         sizing_large=0.75,
         value_bet_threshold=0.70,
+        postflop_raise_plus_ev=0.70,  # passive post-flop — needs strong hand
+        postflop_raise_neutral=0.55,
+        postflop_value_bet_threshold=0.75,
+        postflop_max_raise_options=1, # passive — minimal raise options
+        check_promotion='always',     # always promote check with pot-control text
     ),
     'loose_aggressive': OptionProfile(
         fold_equity_multiplier=1.8,    # plays more hands than default (2.0) but not every hand
@@ -129,6 +177,12 @@ STYLE_PROFILES = {
         sizing_large=1.5,             # overbets for pressure
         value_bet_threshold=0.55,     # bets thinner for value
         bluff_frequency=0.15,         # includes bluff raises
+        postflop_raise_plus_ev=0.45,  # very aggressive post-flop — raises with thin value
+        postflop_raise_neutral=0.30,
+        postflop_value_bet_threshold=0.50,
+        postflop_max_raise_options=3, # full menu of raise options
+        check_penalty_threshold=0.35,  # checking with >35% equity is suboptimal for LAG
+        check_promotion='suppress_if_raises', # never promote check over raises
     ),
     'default': OptionProfile(),       # current behavior unchanged
 }
@@ -236,12 +290,17 @@ def _should_block_call(context: Dict) -> bool:
     return False
 
 
-def _get_raise_options(context: Dict, profile: OptionProfile = None) -> List[Tuple[int, str, str]]:
+def _get_raise_options(
+    context: Dict,
+    profile: OptionProfile = None,
+    eff_value_bet_threshold: float = None,
+) -> List[Tuple[int, str, str]]:
     """Generate 2-3 sensible raise sizes.
 
     Args:
         context: Decision context with pot, min_raise, max_raise, stack, equity
         profile: OptionProfile controlling sizing multipliers and value bet threshold
+        eff_value_bet_threshold: Effective value bet threshold (allows postflop override)
 
     Returns:
         List of (raise_to_amount, rationale, style_tag) tuples
@@ -261,8 +320,9 @@ def _get_raise_options(context: Dict, profile: OptionProfile = None) -> List[Tup
 
     options = []
 
-    # Value betting emphasis when equity exceeds profile threshold
-    value_betting = equity >= profile.value_bet_threshold
+    # Value betting emphasis when equity exceeds threshold
+    vbt = eff_value_bet_threshold if eff_value_bet_threshold is not None else profile.value_bet_threshold
+    value_betting = equity >= vbt
     equity_pct = int(equity * 100)
 
     # Small (profile.sizing_small * pot or min raise)
@@ -299,7 +359,14 @@ def _get_raise_options(context: Dict, profile: OptionProfile = None) -> List[Tup
     return options
 
 
-def generate_bounded_options(context: Dict, profile: OptionProfile = None) -> List[BoundedOption]:
+def generate_bounded_options(
+    context: Dict,
+    profile: OptionProfile = None,
+    phase: str = None,
+    in_range: bool = True,
+    range_pct: float = None,
+    position_display: str = None,
+) -> List[BoundedOption]:
     """Generate 2-4 sensible options based on game state.
 
     The rule engine generates mathematically reasonable options, blocking
@@ -319,6 +386,10 @@ def generate_bounded_options(context: Dict, profile: OptionProfile = None) -> Li
             - position: str player position
             - canonical_hand: str canonical hand notation
         profile: OptionProfile controlling thresholds and sizing. Defaults to OptionProfile().
+        phase: Betting phase ('PRE_FLOP', 'FLOP', etc). If None, reads from context.
+        in_range: Whether the hand is in the player's preflop range (for range biasing).
+        range_pct: Player's range percentage (for rationale text).
+        position_display: Human-readable position name (for rationale text).
 
     Returns:
         List of 2-4 BoundedOption instances, always including at least one +EV option
@@ -326,12 +397,33 @@ def generate_bounded_options(context: Dict, profile: OptionProfile = None) -> Li
     if profile is None:
         profile = OptionProfile()
 
+    if phase is None:
+        phase = context.get('phase', 'PRE_FLOP')
+
+    # Resolve effective thresholds: use postflop overrides when available
+    is_postflop = phase != 'PRE_FLOP'
+    eff_raise_plus_ev = (
+        profile.postflop_raise_plus_ev if is_postflop and profile.postflop_raise_plus_ev is not None
+        else profile.raise_plus_ev
+    )
+    eff_raise_neutral = (
+        profile.postflop_raise_neutral if is_postflop and profile.postflop_raise_neutral is not None
+        else profile.raise_neutral
+    )
+    eff_value_bet_threshold = (
+        profile.postflop_value_bet_threshold if is_postflop and profile.postflop_value_bet_threshold is not None
+        else profile.value_bet_threshold
+    )
+
     options = []
     valid_actions = context.get('valid_actions', [])
     equity = context.get('equity', 0.5)
     cost_to_call = context.get('cost_to_call', 0)
     pot_total = context.get('pot_total', 0)
     stack_bb = context.get('stack_bb', 100)
+
+    # Range biasing: out-of-range preflop hands get biased EV labels
+    apply_range_bias = (not in_range and phase == 'PRE_FLOP' and cost_to_call > 0)
 
     block_fold = _should_block_fold(context, profile)
     block_call = _should_block_call(context)
@@ -355,11 +447,17 @@ def generate_bounded_options(context: Dict, profile: OptionProfile = None) -> Li
     # === CHECK option ===
     if 'check' in valid_actions:
         # Adjust EV and rationale based on equity (value hand detection)
-        if equity >= profile.value_bet_threshold and cost_to_call == 0:
+        cpt = profile.check_penalty_threshold
+        if equity >= eff_value_bet_threshold and cost_to_call == 0:
             # Strong hand - checking may miss value
             check_ev = "marginal"
             check_rationale = "Check (strong hand - consider betting for value)"
             check_style = "trappy"  # Only appropriate when slowplaying
+        elif cpt is not None and equity >= cpt and cost_to_call == 0:
+            # Aggressive profile: checking with betting equity is suboptimal
+            check_ev = "marginal"
+            check_rationale = "Check (you have betting equity — consider raising)"
+            check_style = "conservative"
         elif equity >= 0.50 and cost_to_call == 0:
             check_ev = "neutral"
             check_rationale = "Check and see a free card"
@@ -383,17 +481,25 @@ def generate_bounded_options(context: Dict, profile: OptionProfile = None) -> Li
         # - equity well below required → folding saves money = +EV
         # - equity near required → borderline = neutral
         # - equity above required → folding gives up value = -EV
-        if required_equity > 0 and equity < required_equity * 0.85:
+        if apply_range_bias:
             fold_ev = "+EV"
+            range_pct_str = f"~{int(range_pct * 100)}%" if range_pct is not None else ""
+            pos_str = f" from {position_display}" if position_display else ""
+            fold_rationale = f"Fold (outside your {range_pct_str} range{pos_str})"
+        elif required_equity > 0 and equity < required_equity * 0.85:
+            fold_ev = "+EV"
+            fold_rationale = f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)"
         elif equity < required_equity:
             fold_ev = "neutral"
+            fold_rationale = f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)"
         else:
             fold_ev = "-EV"
+            fold_rationale = f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)"
 
         options.append(BoundedOption(
             action='fold',
             raise_to=0,
-            rationale=f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)",
+            rationale=fold_rationale,
             ev_estimate=fold_ev,
             style_tag="conservative"
         ))
@@ -402,32 +508,49 @@ def generate_bounded_options(context: Dict, profile: OptionProfile = None) -> Li
     if 'call' in valid_actions and not block_call:
         cost_bb = cost_to_call / context.get('big_blind', 100) if context.get('big_blind', 100) > 0 else 0
         rationale = f"Call {cost_bb:.1f} BB"
-        if equity >= required_equity * profile.call_plus_ev:
+        if apply_range_bias:
+            rationale += " - speculative (outside your range)"
+            biased_call_ev = "-EV"
+        elif equity >= required_equity * profile.call_plus_ev:
             rationale += " - clearly profitable"
+            biased_call_ev = call_ev
         elif equity >= required_equity * profile.call_marginal:
             rationale += " - close, your call"
+            biased_call_ev = call_ev
         else:
             rationale += " - below pot odds"
+            biased_call_ev = call_ev
 
         options.append(BoundedOption(
             action='call',
             raise_to=0,
             rationale=rationale,
-            ev_estimate=call_ev,
+            ev_estimate=biased_call_ev,
             style_tag="standard"
         ))
 
     # === RAISE options ===
     if 'raise' in valid_actions:
-        raise_options = _get_raise_options(context, profile)
+        raise_options = _get_raise_options(context, profile, eff_value_bet_threshold)
+
+        # Range bias: limit to at most 1 raise option when out-of-range preflop
+        if apply_range_bias:
+            raise_options = raise_options[:1]
+
         for raise_to, rationale, style_tag in raise_options:
-            # Determine EV for raise based on equity (profile thresholds)
-            if equity >= profile.raise_plus_ev:
+            if apply_range_bias:
+                raise_ev = "-EV"
+                rationale = f"Speculative raise (outside your range)"
+            elif equity >= eff_raise_plus_ev:
                 raise_ev = "+EV"
-            elif equity >= profile.raise_neutral:
+            elif equity >= eff_raise_neutral:
                 raise_ev = "neutral"
             else:
-                raise_ev = "-EV" if cost_to_call > 0 else "neutral"  # Bluff territory
+                raise_ev = "-EV"  # Below threshold — honest signal regardless of cost_to_call
+
+            # Honest rationale: -EV raises are bluffs, not value bets
+            if raise_ev == "-EV" and "value bet" in rationale.lower():
+                rationale = rationale.replace("value bet", "bluff bet").replace("Value bet", "Bluff bet")
 
             options.append(BoundedOption(
                 action='raise',
@@ -436,6 +559,16 @@ def generate_bounded_options(context: Dict, profile: OptionProfile = None) -> Li
                 ev_estimate=raise_ev,
                 style_tag=style_tag
             ))
+
+    # === Post-flop raise option limit ===
+    if is_postflop and profile.postflop_max_raise_options is not None:
+        raise_opts = [o for o in options if o.action == 'raise']
+        if len(raise_opts) > profile.postflop_max_raise_options:
+            # Keep the best N raise options (prefer +EV > neutral > -EV)
+            ev_order = {'+EV': 0, 'neutral': 1, '-EV': 2, 'marginal': 1}
+            sorted_raises = sorted(raise_opts, key=lambda o: ev_order.get(o.ev_estimate, 3))
+            keep = set(id(o) for o in sorted_raises[:profile.postflop_max_raise_options])
+            options = [o for o in options if o.action != 'raise' or id(o) in keep]
 
     # === ALL-IN option ===
     if 'all_in' in valid_actions:
@@ -455,25 +588,49 @@ def generate_bounded_options(context: Dict, profile: OptionProfile = None) -> Li
             style_tag="aggressive"
         ))
 
-    # === Ensure at least one +EV option ===
+    # === Ensure at least one +EV option (profile-aware) ===
     has_plus_ev = any(o.ev_estimate == "+EV" for o in options)
     if not has_plus_ev and options:
-        # If we blocked fold and no +EV option exists, upgrade the best option
-        # (This handles edge cases where all options seem marginal)
+        # Find the best candidate for promotion
         best = max(options, key=lambda o: (
             1 if o.ev_estimate == "+EV" else
             0 if o.ev_estimate == "neutral" else -1
         ))
         if best.ev_estimate != "+EV" and (block_fold or equity >= 0.40):
-            # Create a new option with +EV estimate
-            options = [o for o in options if o != best]
-            options.append(BoundedOption(
-                action=best.action,
-                raise_to=best.raise_to,
-                rationale=best.rationale + " (recommended)",
-                ev_estimate="+EV" if block_fold else best.ev_estimate,
-                style_tag=best.style_tag
-            ))
+            has_raises = any(o.action == 'raise' for o in options)
+            has_decent_raise = any(
+                o.action == 'raise' and o.ev_estimate in ('+EV', 'neutral')
+                for o in options
+            )
+            promotion = profile.check_promotion
+
+            # Decide whether to promote check based on profile
+            promote_check = True
+            if best.action == 'check' and has_raises:
+                if promotion == 'suppress_if_raises':
+                    # LAG: never promote check over raises
+                    promote_check = False
+                elif promotion == 'conditional' and has_decent_raise:
+                    # TAG: don't promote check when raises are neutral/+EV
+                    promote_check = False
+
+            if promote_check:
+                # Build profile-aware rationale
+                if best.action == 'check' and promotion == 'always':
+                    promoted_rationale = "Check (pot control — protect your stack)"
+                elif best.action == 'check' and promotion == 'conditional':
+                    promoted_rationale = "Check (wait for better spot)"
+                else:
+                    promoted_rationale = best.rationale + " (recommended)"
+
+                options = [o for o in options if o != best]
+                options.append(BoundedOption(
+                    action=best.action,
+                    raise_to=best.raise_to,
+                    rationale=promoted_rationale,
+                    ev_estimate="+EV" if block_fold else best.ev_estimate,
+                    style_tag=best.style_tag
+                ))
 
     # === Limit to 2-4 options ===
     if len(options) > 4:
