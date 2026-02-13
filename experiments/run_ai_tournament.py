@@ -1014,6 +1014,10 @@ class AITournamentRunner:
         last_player_name = None
         same_player_count = 0
 
+        # Action log for lean prompt context (street markers + actions)
+        hand_action_log = []
+        current_logged_phase = None
+
         while action_count < max_actions:
             # Advance state machine
             state_machine.run_until([PokerPhase.EVALUATING_HAND])
@@ -1073,10 +1077,19 @@ class AITournamentRunner:
                                 process_id=os.getpid()
                             )
 
+                        # Add phase marker to action log when street changes
+                        # Use "HOLE_CARDS" instead of "PRE_FLOP" to avoid
+                        # _get_street_lines matching 'flop' inside 'pre_flop'
+                        phase_name = state_machine.current_phase.name if state_machine.current_phase else 'PRE_FLOP'
+                        if phase_name != current_logged_phase:
+                            marker = 'HOLE_CARDS' if phase_name == 'PRE_FLOP' else phase_name
+                            hand_action_log.append(f"--- {marker} ---")
+                            current_logged_phase = phase_name
+
                         # Get AI decision
                         pre_decision_energy = controller.psychology.energy if hasattr(controller, 'psychology') and controller.psychology else None
                         start_time = time.time()
-                        response = controller.decide_action([])
+                        response = controller.decide_action(hand_action_log)
                         latency = (time.time() - start_time) * 1000
 
                         # Log energy events from on_action_taken (consecutive folds)
@@ -1111,6 +1124,19 @@ class AITournamentRunner:
                         amount = response.get('raise_to', 0)
 
                         logger.debug(f"  {current_player.name}: {action} {amount if amount else ''}")
+
+                        # Log action for lean prompt context
+                        if action == 'raise' and amount:
+                            raise_to = game_state.highest_bet + amount
+                            hand_action_log.append(f"{current_player.name} raises to ${raise_to}")
+                        elif action == 'call':
+                            hand_action_log.append(f"{current_player.name} calls")
+                        elif action == 'check':
+                            hand_action_log.append(f"{current_player.name} checks")
+                        elif action == 'fold':
+                            hand_action_log.append(f"{current_player.name} folds")
+                        elif action == 'all_in':
+                            hand_action_log.append(f"{current_player.name} goes all-in")
 
                         # Apply action
                         game_state = play_turn(game_state, action, amount)

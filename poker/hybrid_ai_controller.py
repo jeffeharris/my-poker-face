@@ -20,7 +20,11 @@ import random
 from typing import Dict, List, Optional
 
 from .archetypes import classify_from_anchors
-from .controllers import AIPlayerController, _get_canonical_hand, card_to_string
+from .controllers import (
+    AIPlayerController, _get_canonical_hand, _parse_game_messages,
+    _get_street_lines, card_to_string, classify_preflop_hand,
+)
+from .hand_narrator import narrate_hand_breakdown
 from .bounded_options import (
     BoundedOption,
     OptionProfile,
@@ -55,6 +59,22 @@ from .hand_tiers import is_hand_in_range
 
 logger = logging.getLogger(__name__)
 
+# Short suit letter → full suit name for Card constructor
+_SUIT_NAMES = {'s': 'Spades', 'h': 'Hearts', 'd': 'Diamonds', 'c': 'Clubs'}
+
+
+def _str_to_card(s: str):
+    """Convert short card string ('Ah', 'Td') to a Card object."""
+    from core.card import Card
+    s = s.strip()
+    if len(s) == 3 and s[:2] == '10':
+        rank, suit_ch = '10', s[2]
+    elif s[0] == 'T':
+        rank, suit_ch = '10', s[1]
+    else:
+        rank, suit_ch = s[0], s[1]
+    return Card(rank, _SUIT_NAMES.get(suit_ch, suit_ch))
+
 
 class HybridAIController(AIPlayerController):
     """AI that picks from rule-bounded options.
@@ -63,7 +83,7 @@ class HybridAIController(AIPlayerController):
     Overrides _get_ai_decision to present bounded options to the LLM.
     """
 
-    LEAN_SYSTEM_PROMPT = 'You are a poker player. Pick one option. Return exactly {"choice": <number>} where <number> is your pick.'
+    LEAN_SYSTEM_PROMPT = 'You are a poker player. Pick one option. Return JSON: {"reasoning": "1-2 sentences explaining your choice", "choice": <number>}'
 
     def __init__(
         self,
@@ -322,6 +342,80 @@ class HybridAIController(AIPlayerController):
 
         return chosen
 
+    def _build_street_action_summary(self, phase: str, big_blind: int) -> str:
+        """Build a compact summary of betting actions on the current street.
+
+        Parses game_messages to extract actions for the current phase and
+        formats them as a compact line like:
+          "Opp raises 3BB → You raise 4BB → Opp raises 6BB"
+
+        Works with both web handler messages ("Name raises to $300.") and
+        experiment runner messages ("Name raises to $300").
+        """
+        game_messages = getattr(self, '_current_game_messages', None)
+        if not game_messages or phase == 'PRE_FLOP':
+            return ''
+
+        lines = _parse_game_messages(game_messages)
+        if not lines:
+            return ''
+
+        street_lines = _get_street_lines(lines, phase)
+        if not street_lines:
+            return ''
+
+        import re
+        actions = []
+        player_name = self.player_name
+
+        # Build opponent labels: single opponent = "Opp", multiple = "OppA", "OppB", ...
+        opponent_names = {}
+        for line in street_lines:
+            m = re.match(
+                r'(.+?)\s+(?:checks|calls|raises|folds|goes all-in|bets)',
+                line.strip(), re.IGNORECASE,
+            )
+            if m:
+                name = m.group(1).strip()
+                if name != player_name and name not in opponent_names:
+                    opponent_names[name] = None  # placeholder
+
+        if len(opponent_names) == 1:
+            for name in opponent_names:
+                opponent_names[name] = 'Opp'
+        else:
+            for i, name in enumerate(opponent_names):
+                opponent_names[name] = f"Opp{chr(65 + i)}"
+
+        for line in street_lines:
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+            # Match: "Name raises to $300", "Name checks", "Name calls",
+            #        "Name folds", "Name goes all-in"
+            match = re.match(
+                r'(.+?)\s+(checks|calls|raises|folds|goes all-in|bets)'
+                r'(?:\s+(?:to\s+)?\$(\d+))?',
+                line_stripped, re.IGNORECASE,
+            )
+            if not match:
+                continue
+            name = match.group(1).strip()
+            action = match.group(2).lower()
+            amount = match.group(3)
+
+            who = 'You' if name == player_name else opponent_names.get(name, 'Opp')
+
+            if amount and big_blind > 0:
+                bb_val = int(amount) / big_blind
+                actions.append(f"{who} {action} {bb_val:.0f}BB")
+            else:
+                actions.append(f"{who} {action}")
+
+        if not actions:
+            return ''
+        return ' \u2192 '.join(actions)
+
     def _build_lean_prompt(self, options: List[BoundedOption], context: Dict, profile_key: str = 'default') -> str:
         """Build minimal prompt: just cards, situation, and numbered options.
 
@@ -331,16 +425,38 @@ class HybridAIController(AIPlayerController):
         hole_cards = context.get('hole_cards', [])
         community_cards = context.get('community_cards', [])
         big_blind = context.get('big_blind', 100)
+        phase = context.get('phase', 'PRE_FLOP')
 
         # Cards
         parts = [f"Cards: {' '.join(hole_cards)}"]
         if community_cards:
             parts[0] += f" | Board: {' '.join(community_cards)}"
 
-        # Situation in BB
+        # Hand breakdown (postflop) or preflop classification
+        if community_cards and hole_cards:
+            try:
+                hole_objs = [_str_to_card(c) for c in hole_cards]
+                comm_objs = [_str_to_card(c) for c in community_cards]
+                breakdown = narrate_hand_breakdown(hole_objs, comm_objs)
+                if breakdown:
+                    parts.append(breakdown)
+            except Exception:
+                pass
+        elif hole_cards:
+            preflop_str = classify_preflop_hand(hole_cards)
+            if preflop_str:
+                parts.append(f"Hand: {preflop_str}")
+
+        # Street and situation in BB
+        street_name = phase.replace('_', ' ').title() if phase else ''
         stack_bb = context.get('stack_bb', 0)
         pot_bb = context.get('pot_total', 0) / big_blind if big_blind > 0 else 0
-        parts.append(f"Stack: {stack_bb:.0f} BB | Pot: {pot_bb:.1f} BB")
+        parts.append(f"Street: {street_name} | Stack: {stack_bb:.0f} BB | Pot: {pot_bb:.1f} BB")
+
+        # Betting action this street
+        action_summary = self._build_street_action_summary(phase, big_blind)
+        if action_summary:
+            parts.append(f"Action: {action_summary}")
 
         # Style hint (omitted when hand_plan provides context via decision thread)
         if not getattr(self.prompt_config, 'hand_plan', False):
@@ -364,7 +480,7 @@ class HybridAIController(AIPlayerController):
                 parts.append(f"{i}. {action_str}  [{opt.ev_estimate}]  {opt.rationale}")
 
         parts.append("")
-        parts.append(f'Respond with JSON: {{"choice": N}} — replace N with your pick (1-{len(options)})')
+        parts.append(f'Respond with JSON: {{"reasoning": "...", "choice": N}} (1-{len(options)})')
 
         return "\n".join(parts)
 

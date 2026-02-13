@@ -1,0 +1,34 @@
+{
+  "name": "archetype_vs_casebot_test",
+  "description": "4 archetype-diverse hybrid AI players vs CaseBot (rule-based). Tests whether rebalanced archetypes can beat the deterministic baseline.",
+  "hypothesis": "TAG (Joan of Arc) will outperform CaseBot. Station (Alice) will survive longest. LAG (Napoleon) will be most volatile. CaseBot provides consistent baseline to measure against.",
+  "tags": ["archetype", "casebot", "spectrum", "lean-bounded"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 5,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Joan of Arc", "Buddha", "Alice", "Napoleon", "CaseBot"],
+  "player_types": {
+    "Joan of Arc": {"type": "hybrid"},
+    "Buddha": {"type": "hybrid"},
+    "Alice": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "archetype-vs-casebot",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "option_order": "default"
+    }
+  },
+  "random_seed": 42
+}
