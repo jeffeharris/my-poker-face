@@ -2,7 +2,7 @@
 purpose: Reference for all PromptConfig fields, game modes, and experiment overrides
 type: reference
 created: 2026-02-12
-last_updated: 2026-02-12
+last_updated: 2026-02-13
 ---
 
 # PromptConfig Reference
@@ -94,6 +94,14 @@ Game Mode / Experiment Config
 | Field | Type | Default | Description | Consumer |
 |-------|------|---------|-------------|----------|
 | `hand_plan` | bool | False | Generate per-hand 1-sentence strategy before decisions | hybrid_ai_controller.py |
+
+### Option Framing (Hybrid Controller)
+
+| Field | Type | Default | Description | Consumer |
+|-------|------|---------|-------------|----------|
+| `composed_nudges` | bool | False | Replace raw EV labels with playstyle-colored nudge phrases | hybrid_ai_controller.py, nudge_phrases.py |
+| `randomize_option_order` | bool | False | Shuffle option order to eliminate position-1 bias | hybrid_ai_controller.py |
+| `preflop_range_gate` | bool | False | Bias EV labels for out-of-range preflop hands using range data | hybrid_ai_controller.py |
 
 ### Experiment Support
 

@@ -94,6 +94,9 @@ class PromptConfig:
     # Randomize option order — shuffle options to eliminate position bias
     randomize_option_order: bool = False
 
+    # Preflop range gate — bias option EV labels based on hand-in-range check
+    preflop_range_gate: bool = False
+
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts
 

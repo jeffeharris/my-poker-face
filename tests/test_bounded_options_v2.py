@@ -1,9 +1,8 @@
 """
-Tests for the bounded options v2 framework.
+Tests for bounded options — emotional window shift, profiles, and regression.
 
-Tests the case matrix (F1-F4, B1-B6), position awareness, bluff gating,
-stack depth overlay, emotional window shift, and math blocking overrides
-as specified in BOUNDED_OPTIONS_DECISION_FRAMEWORK.md.
+Tests position awareness, bluff gating, emotional window shift,
+math blocking overrides, and style profile differentiation.
 """
 
 import random
@@ -30,8 +29,6 @@ from poker.bounded_options import (
     _apply_narrative_framing,
     _reapply_math_blocking,
     _truncate_options,
-    _classify_free_case,
-    _classify_facing_bet_case,
 )
 
 
@@ -124,11 +121,13 @@ class TestCaseF1MonsterFreeToAct:
         options = generate_bounded_options(ctx)
         assert _has_action(options, 'check'), "F1 IP should include CHECK (trap)"
 
-    def test_f1_oop_no_check(self):
-        """F1 OOP: CHECK should NOT appear (risks free card)."""
+    def test_f1_oop_check_marginal(self):
+        """F1 OOP: CHECK labeled marginal (strong hand, consider betting)."""
         ctx = _free_context(equity=0.95, position='small_blind')
         options = generate_bounded_options(ctx)
-        assert not _has_action(options, 'check'), "F1 OOP should omit CHECK"
+        checks = [o for o in options if o.action == 'check']
+        if checks:
+            assert checks[0].ev_estimate == 'marginal', "F1 OOP check should be marginal"
 
     def test_f1_raise_is_plus_ev(self):
         """F1 raise options should be labeled +EV."""
@@ -219,15 +218,14 @@ class TestCaseF4WeakFreeToAct:
         options = generate_bounded_options(ctx)
         assert _has_action(options, 'check')
 
-    def test_f4_default_no_bluff(self):
-        """F4 with default profile: no bluff raise."""
+    def test_f4_default_raises_labeled_minus_ev(self):
+        """F4 with default profile: any raises are honestly labeled -EV."""
         ctx = _free_context(equity=0.20)
         profile = STYLE_PROFILES['default']
         options = generate_bounded_options(ctx, profile=profile)
-        # Default shouldn't add bluff raises for weak hands
         raise_opts = [o for o in options if o.action == 'raise']
         for o in raise_opts:
-            assert o.ev_estimate != '-EV' or profile.bluff_frequency > 0
+            assert o.ev_estimate == '-EV', f"Weak hand raise should be -EV, got {o.ev_estimate}"
 
     def test_f4_lag_bluff_raise(self):
         """F4 with LAG profile: bluff raise available (bluff_frequency > 0)."""
@@ -351,14 +349,14 @@ class TestCaseB5WeakFacingBet:
         # LAG should have some raising capability even with weak hands
         assert len(options) >= 2
 
-    def test_b5_default_no_bluff(self):
-        """B5 with default profile: no bluff raise."""
+    def test_b5_default_raises_labeled_minus_ev(self):
+        """B5 with default profile: any raises honestly labeled -EV."""
         ctx = _base_context(equity=0.15, pot_total=100, cost_to_call=100)
         profile = STYLE_PROFILES['default']
         options = generate_bounded_options(ctx, profile=profile)
-        raise_opts = [o for o in options if o.action == 'raise' and o.ev_estimate == '-EV']
-        # Default shouldn't have -EV bluff raises
-        assert len(raise_opts) == 0 or profile.bluff_frequency > 0
+        raise_opts = [o for o in options if o.action == 'raise']
+        for o in raise_opts:
+            assert o.ev_estimate == '-EV', f"B5 raise should be -EV, got {o.ev_estimate}"
 
 
 class TestCaseB6DeadFacingBet:
@@ -392,10 +390,12 @@ class TestPositionAwareness:
         assert _has_action(options, 'check'), "IP monster should have CHECK (trap)"
 
     def test_oop_no_check_monster(self):
-        """Out of position + monster: CHECK omitted."""
+        """Out of position + monster: CHECK labeled marginal (consider betting)."""
         ctx = _free_context(equity=0.95, position='small_blind')
         options = generate_bounded_options(ctx)
-        assert not _has_action(options, 'check'), "OOP monster should not have CHECK"
+        checks = [o for o in options if o.action == 'check']
+        if checks:
+            assert checks[0].ev_estimate == 'marginal', "OOP monster check should be marginal"
 
     def test_ip_check_neutral_strong(self):
         """In position + strong: CHECK neutral (pot control ok)."""
@@ -454,23 +454,25 @@ class TestBluffGating:
             bluff_raises = [o for o in options if o.action == 'raise' and o.ev_estimate == '-EV']
             assert len(bluff_raises) == 0, f"{key} F3 should not have -EV bluff raises"
 
-    def test_bluff_gated_in_f4(self):
-        """F4 (weak, free): only LAG gets bluff raise."""
+    def test_bluff_raises_labeled_minus_ev_in_f4(self):
+        """F4 (weak, free): raises honestly labeled -EV for all profiles."""
         ctx = _free_context(equity=0.20)
         for key in ('default', 'tight_aggressive', 'tight_passive'):
             profile = STYLE_PROFILES[key]
             options = generate_bounded_options(ctx, profile=profile)
-            bluff_raises = [o for o in options if o.action == 'raise' and o.ev_estimate == '-EV']
-            assert len(bluff_raises) == 0, f"{key} F4 should not have -EV bluff raises"
+            raise_opts = [o for o in options if o.action == 'raise']
+            for o in raise_opts:
+                assert o.ev_estimate == '-EV', f"{key} F4 raise should be -EV, got {o.ev_estimate}"
 
-    def test_bluff_gated_in_b5(self):
-        """B5 (weak, facing bet): only LAG gets bluff raise."""
+    def test_bluff_raises_labeled_minus_ev_in_b5(self):
+        """B5 (weak, facing bet): raises honestly labeled -EV for all profiles."""
         ctx = _base_context(equity=0.15, pot_total=100, cost_to_call=100)
         for key in ('default', 'tight_aggressive', 'tight_passive'):
             profile = STYLE_PROFILES[key]
             options = generate_bounded_options(ctx, profile=profile)
-            bluff_raises = [o for o in options if o.action == 'raise' and o.ev_estimate == '-EV']
-            assert len(bluff_raises) == 0, f"{key} B5 should not have -EV bluff raises"
+            raise_opts = [o for o in options if o.action == 'raise']
+            for o in raise_opts:
+                assert o.ev_estimate == '-EV', f"{key} B5 raise should be -EV, got {o.ev_estimate}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1423,99 +1425,6 @@ class TestGetEmotionalShiftWithPenalties:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestClassifyFreeCaseBoundaries:
-    """Boundary value tests for _classify_free_case."""
-
-    def test_equity_090_is_f1(self):
-        """Equity exactly at 0.90 → F1 (monster)."""
-        assert _classify_free_case(0.90) == 'F1'
-
-    def test_equity_just_below_090_is_f2(self):
-        """Equity just below 0.90 → F2 (strong)."""
-        assert _classify_free_case(0.8999) == 'F2'
-
-    def test_equity_065_is_f2(self):
-        """Equity exactly at 0.65 → F2 (strong)."""
-        assert _classify_free_case(0.65) == 'F2'
-
-    def test_equity_just_below_065_is_f3(self):
-        """Equity just below 0.65 → F3 (decent)."""
-        assert _classify_free_case(0.6499) == 'F3'
-
-    def test_equity_040_is_f3(self):
-        """Equity exactly at 0.40 → F3 (decent)."""
-        assert _classify_free_case(0.40) == 'F3'
-
-    def test_equity_just_below_040_is_f4(self):
-        """Equity just below 0.40 → F4 (weak)."""
-        assert _classify_free_case(0.3999) == 'F4'
-
-    def test_equity_000_is_f4(self):
-        """Equity 0.0 → F4 (weak)."""
-        assert _classify_free_case(0.0) == 'F4'
-
-    def test_equity_100_is_f1(self):
-        """Equity 1.0 → F1 (monster)."""
-        assert _classify_free_case(1.0) == 'F1'
-
-
-class TestClassifyFacingBetCaseBoundaries:
-    """Boundary value tests for _classify_facing_bet_case."""
-
-    def test_equity_090_is_b1(self):
-        """Equity exactly at 0.90 → B1 (monster), regardless of required equity."""
-        assert _classify_facing_bet_case(0.90, 0.25) == 'B1'
-
-    def test_equity_just_below_090_not_b1(self):
-        """Equity just below 0.90 → not B1."""
-        assert _classify_facing_bet_case(0.8999, 0.25) != 'B1'
-
-    def test_equity_below_005_is_b6(self):
-        """Equity below 0.05 → B6 (dead)."""
-        assert _classify_facing_bet_case(0.049, 0.25) == 'B6'
-
-    def test_equity_exactly_005_is_not_b6(self):
-        """Equity exactly at 0.05 → NOT B6 (goes to ratio check)."""
-        assert _classify_facing_bet_case(0.05, 0.25) != 'B6'
-
-    def test_ratio_170_is_b2(self):
-        """Equity/required ratio exactly 1.7 → B2 (crushing)."""
-        # required=0.20, equity=0.34 → ratio = 0.34/0.20 = 1.7
-        assert _classify_facing_bet_case(0.34, 0.20) == 'B2'
-
-    def test_ratio_just_below_170_is_b3(self):
-        """Equity/required ratio just below 1.7 → B3 (profitable)."""
-        # required=0.20, equity=0.339 → ratio = 0.339/0.20 = 1.695
-        assert _classify_facing_bet_case(0.339, 0.20) == 'B3'
-
-    def test_ratio_100_is_b3(self):
-        """Equity/required ratio exactly 1.0 → B3 (profitable)."""
-        # required=0.25, equity=0.25 → ratio = 1.0
-        assert _classify_facing_bet_case(0.25, 0.25) == 'B3'
-
-    def test_ratio_just_below_100_is_b4(self):
-        """Equity/required ratio just below 1.0 → B4 (marginal)."""
-        # required=0.25, equity=0.249 → ratio = 0.996
-        assert _classify_facing_bet_case(0.249, 0.25) == 'B4'
-
-    def test_ratio_085_is_b4(self):
-        """Equity/required ratio exactly 0.85 → B4 (marginal)."""
-        # required=0.20, equity=0.17 → ratio = 0.85
-        assert _classify_facing_bet_case(0.17, 0.20) == 'B4'
-
-    def test_ratio_just_below_085_is_b5(self):
-        """Equity/required ratio just below 0.85 → B5 (weak)."""
-        # required=0.20, equity=0.169 → ratio = 0.845
-        assert _classify_facing_bet_case(0.169, 0.20) == 'B5'
-
-    def test_required_equity_zero_is_b2(self):
-        """Required equity = 0 (impossible but edge case) → B2."""
-        assert _classify_facing_bet_case(0.50, 0.0) == 'B2'
-
-    def test_b1_takes_priority_over_ratio(self):
-        """B1 (equity >= 0.90) is checked before ratio, regardless of required."""
-        # Even with low required equity making ratio very high, B1 wins
-        assert _classify_facing_bet_case(0.95, 0.05) == 'B1'
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,44 @@
+{
+  "name": "range_gate_test",
+  "description": "A/B test range-biased preflop options + post-flop aggression tuning vs control. Range gate biases EV labels for out-of-range hands; postflop overrides give profiles distinct raise thresholds per phase.",
+  "hypothesis": "Range gate will increase VPIP gap between tight and loose personalities (>30pp target) while postflop tuning increases raise rate gap (>20pp target).",
+  "tags": ["range-gate", "postflop-tuning", "lean-bounded", "hybrid", "casebot"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Bob Ross", "Sherlock Holmes", "Napoleon", "CaseBot"],
+  "player_types": {
+    "Bob Ross": {"type": "hybrid"},
+    "Sherlock Holmes": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "lean-style-aware-no-range-gate",
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "preflop_range_gate": false
+    },
+    "enable_psychology": true
+  },
+  "variants": [
+    {
+      "label": "lean-range-gate-postflop-tuning",
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "preflop_range_gate": true
+      },
+      "enable_psychology": true
+    }
+  ],
+  "random_seed": 42
+}

@@ -45,6 +45,12 @@ from .playstyle_selector import (
     _select_biggest_threat,
     MINDSET_FRAMES,
 )
+from .range_guidance import (
+    looseness_to_range_pct,
+    _game_position_to_range_key,
+    _position_display_name,
+)
+from .hand_tiers import is_hand_in_range
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +96,36 @@ class HybridAIController(AIPlayerController):
 
         lean = getattr(self.prompt_config, 'lean_bounded', False)
         logger.info(f"[HYBRID] Created HybridAIController for {player_name} (lean={lean})")
+
+    def _compute_range_data(self, rule_context: Dict) -> Dict:
+        """Compute preflop range data for range-biased option generation.
+
+        Returns dict with:
+            in_range: bool - whether hand is in player's range
+            range_pct: float - player's range percentage
+            effective_looseness: float - current looseness value
+            position_display: str - human-readable position
+        """
+        canonical = rule_context.get('canonical_hand', '')
+        game_position = rule_context.get('position') or 'middle'
+
+        # Get effective looseness from psychology
+        if self.psychology:
+            effective_looseness = self.psychology.effective_looseness
+        else:
+            effective_looseness = 0.5
+
+        range_key = _game_position_to_range_key(game_position)
+        range_pct = looseness_to_range_pct(effective_looseness, range_key)
+        in_range = is_hand_in_range(canonical, range_pct) if canonical else True
+        position_display = _position_display_name(range_key)
+
+        return {
+            'in_range': in_range,
+            'range_pct': range_pct,
+            'effective_looseness': effective_looseness,
+            'position_display': position_display,
+        }
 
     def _get_option_profile(self) -> tuple:
         """Map psychology looseness + aggression to an OptionProfile.
@@ -198,7 +234,19 @@ class HybridAIController(AIPlayerController):
         # Build rule context and generate options with style profile
         rule_context = self._build_rule_context(game_state, player, context)
         profile_key, profile = self._get_option_profile()
-        options = generate_bounded_options(rule_context, profile)
+
+        # Compute range data for preflop range biasing
+        range_gate_enabled = getattr(self.prompt_config, 'preflop_range_gate', False)
+        range_data = self._compute_range_data(rule_context) if range_gate_enabled else {}
+
+        options = generate_bounded_options(
+            rule_context,
+            profile,
+            phase=rule_context.get('phase'),
+            in_range=range_data.get('in_range', True),
+            range_pct=range_data.get('range_pct'),
+            position_display=range_data.get('position_display'),
+        )
 
         if not options:
             logger.warning(f"[HYBRID-LEAN] No options for {self.player_name}, fallback")
@@ -242,7 +290,8 @@ class HybridAIController(AIPlayerController):
                 hand_number=self.current_hand_number,
                 prompt_template='decision_lean_bounded',
                 capture_enricher=self._make_hybrid_enricher(
-                    options, rule_context, capture_id, profile_key=profile_key
+                    options, rule_context, capture_id, profile_key=profile_key,
+                    range_data=range_data,
                 ),
             )
             response_dict = parse_json_response(llm_response.content)
@@ -514,7 +563,19 @@ class HybridAIController(AIPlayerController):
 
         # Step 2: Generate bounded options with style profile
         profile_key, profile = self._get_option_profile()
-        options = generate_bounded_options(rule_context, profile)
+
+        # Compute range data for preflop range biasing
+        range_gate_enabled = getattr(self.prompt_config, 'preflop_range_gate', False)
+        range_data = self._compute_range_data(rule_context) if range_gate_enabled else {}
+
+        options = generate_bounded_options(
+            rule_context,
+            profile,
+            phase=rule_context.get('phase'),
+            in_range=range_data.get('in_range', True),
+            range_pct=range_data.get('range_pct'),
+            position_display=range_data.get('position_display'),
+        )
 
         if not options:
             logger.warning(f"[HYBRID] No options generated for {self.player_name}, using fallback")
@@ -540,7 +601,10 @@ class HybridAIController(AIPlayerController):
                 json_format=True,
                 hand_number=self.current_hand_number,
                 prompt_template='decision_bounded',
-                capture_enricher=self._make_hybrid_enricher(options, rule_context, capture_id, profile_key=profile_key),
+                capture_enricher=self._make_hybrid_enricher(
+                    options, rule_context, capture_id, profile_key=profile_key,
+                    range_data=range_data,
+                ),
             )
 
             response_dict = parse_json_response(llm_response.content)
@@ -813,7 +877,14 @@ CRITICAL RULES:
             'bluff_likelihood': 0,
         }
 
-    def _make_hybrid_enricher(self, options: List[BoundedOption], context: Dict, capture_id_holder: List, profile_key: str = 'default'):
+    def _make_hybrid_enricher(
+        self,
+        options: List[BoundedOption],
+        context: Dict,
+        capture_id_holder: List,
+        profile_key: str = 'default',
+        range_data: Dict = None,
+    ):
         """Create an enricher callback for prompt captures with hybrid context.
 
         Args:
@@ -821,6 +892,7 @@ CRITICAL RULES:
             context: Rule context with equity, pot odds, etc.
             capture_id_holder: Single-element list to store capture ID for post-update
             profile_key: Style profile name used for option generation
+            range_data: Range check results (in_range, range_pct, effective_looseness)
         """
         game_state = self.state_machine.game_state
         player = game_state.current_player
@@ -830,6 +902,7 @@ CRITICAL RULES:
 
         # Capture emotional shift state at enricher creation time
         emotional_shift = get_emotional_shift(self.psychology)
+        rd = range_data or {}
 
         def enrich_capture(capture_data: Dict) -> Dict:
             # Core hybrid data
@@ -856,5 +929,12 @@ CRITICAL RULES:
                 # Capture ID callback for post-update
                 '_on_captured': lambda cid: capture_id_holder.__setitem__(0, cid),
             })
+            # Range gate tracking
+            if rd:
+                capture_data.update({
+                    'in_range': rd.get('in_range'),
+                    'range_pct': rd.get('range_pct'),
+                    'effective_looseness': rd.get('effective_looseness'),
+                })
             return capture_data
         return enrich_capture
