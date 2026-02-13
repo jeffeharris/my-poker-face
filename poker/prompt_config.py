@@ -88,6 +88,12 @@ class PromptConfig:
     # Hand plan — generate per-hand strategy via Phase 0 before lean decisions
     hand_plan: bool = False
 
+    # Composed nudges — replace raw EV labels with playstyle-aware phrases
+    composed_nudges: bool = False
+
+    # Option ordering strategy: 'default' (generator order), 'shuffle', 'ev_descending'
+    option_order: str = 'default'
+
     # Preflop range gate — bias option EV labels based on hand-in-range check
     preflop_range_gate: bool = False
 
@@ -119,6 +125,13 @@ class PromptConfig:
         # Drop removed fields silently
         data.pop('bb_normalized', None)
         data.pop('use_dollar_amounts', None)
+
+        # Migrate randomize_option_order -> option_order
+        if 'randomize_option_order' in data and 'option_order' not in data:
+            if data.pop('randomize_option_order'):
+                data['option_order'] = 'shuffle'
+        else:
+            data.pop('randomize_option_order', None)
 
         if 'show_equity_always' in data and 'gto_equity' not in data:
             data['gto_equity'] = data.pop('show_equity_always')

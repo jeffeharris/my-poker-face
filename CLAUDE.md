@@ -177,6 +177,8 @@ This is a poker game with AI personalities AND an experiment platform for testin
 
 6. **Experiment Manager** (`experiments/run_ai_tournament.py`): Run AI-only tournaments to A/B test models, prompts, and configurations at scale.
 
+7. **Bounded Options System** (`poker/bounded_options.py`): Generates EV-labeled option menus for AI decisions. LLMs pick from pre-computed options rather than reasoning about poker directly. Uses a flat generator that evaluates each action type (check/fold/call/raise) independently with profile-aware thresholds, postflop overrides, check promotion, range biasing, and math blocking. Optional emotional window shift applied externally. See `docs/technical/BOUNDED_OPTIONS_DECISION_FRAMEWORK.md` for full spec.
+
 ### Key Design Patterns
 
 - **Functional Core**: Game logic uses pure functions that take state and return new state
@@ -335,6 +337,34 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
    - Latency, model, provider
    - Game context (game_id, owner_id, player_name, hand_number)
    - Call type for cost breakdown by category
+
+## Codex Assist (`/codex-assist`)
+
+Use `/codex-assist` (wrapper around OpenAI Codex CLI at `~/bin/codex-assist`) for second opinions, code review, and lightweight delegation. Useful patterns:
+
+### Progress Checks During Agent Teams
+When agents are working on implementation, use Codex `ask` mode to review progress against specs and catch gaps early:
+```bash
+codex-assist ask "Review changes in <files> against spec at <doc>. Check for gaps." -C /home/jeffh/projects/my-poker-face --name <tag>
+```
+
+### Code Review of Uncommitted Changes
+```bash
+codex-assist review -C /home/jeffh/projects/my-poker-face
+codex-assist review --base main -C /home/jeffh/projects/my-poker-face
+```
+
+### Resuming a Previous Session
+Tag sessions with `--name` and resume with context preserved:
+```bash
+codex-assist resume <tag> "Follow-up question about the changes" -C /home/jeffh/projects/my-poker-face
+```
+
+### When to Use
+- Mid-implementation spec compliance checks (catches gaps before tests)
+- Code review as second opinion before PRs
+- Lightweight codebase questions (saves Claude tokens)
+- Plan critique before committing to an approach
 
 ## Game Launching Guidance
 

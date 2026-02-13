@@ -130,10 +130,55 @@ Drama detection is controlled by `PromptConfig` in `prompt_config.py`:
 
 ---
 
+## Bounded Options System
+
+The bounded options system generates EV-labeled option menus for AI decisions. Located in `bounded_options.py`.
+
+### Flow
+
+```
+Game State → _build_rule_context() → generate_bounded_options(context, profile, phase, in_range, ...)
+  → Check/Fold/Call/Raise generation → Range biasing → Postflop raise limit
+  → +EV promotion (profile-aware) → Truncation → Math blocking
+  → [optional] apply_composed_nudges() → [optional] apply_emotional_window_shift()
+  → [optional] shuffle → Final options (2-4 BoundedOption)
+```
+
+### Generator Architecture (Flat)
+
+Each action type is evaluated independently with profile-aware thresholds:
+- **CHECK**: Always available when free to act. Check penalty threshold for aggressive profiles. Check promotion styles: `default`, `always`, `conditional`, `suppress_if_raises`.
+- **FOLD**: Blocked when equity >> required (profile.fold_equity_multiplier), monster hands, or pot-committed. Honest EV labels from player's perspective (+EV when saving money).
+- **CALL**: Blocked when drawing dead (<5%). Three-zone EV via profile thresholds (call_plus_ev, call_marginal).
+- **RAISE**: Multiple sizes (small/medium/large). Postflop overrides on OptionProfile. Bluff raises gated on `profile.bluff_frequency > 0`. Honest rationale labeling (-EV raises show "bluff bet").
+- **Range gate**: `in_range`/`range_pct` params bias EV labels for out-of-range preflop hands.
+
+### Key Types
+
+- `BoundedOption`: dataclass with action, raise_to, rationale, ev_estimate, style_tag
+- `OptionProfile`: thresholds for fold/call/raise decisions per play style, with postflop overrides, check promotion, and check penalty
+- `EmotionalShift`: state (tilted/shaken/etc), severity (mild/moderate/extreme), intensity
+- `STYLE_PROFILES`: dict mapping style names to OptionProfile instances
+
+### Integration Points
+
+- `hybrid_ai_controller.py`: Calls `generate_bounded_options()`, then optionally `apply_composed_nudges()`, `apply_emotional_window_shift()`, and shuffle
+- `_get_best_fallback_option()`: Picks best option when LLM returns invalid response
+- Profile selection via `style_aware_options` flag on PromptConfig
+- Range gate via `preflop_range_gate` flag on PromptConfig
+
+### Spec
+
+Full design doc: `docs/technical/BOUNDED_OPTIONS_DECISION_FRAMEWORK.md`
+
+---
+
 ## Related Files
 
 | File | Purpose |
 |------|---------|
+| `bounded_options.py` | Option generation, case matrix, profiles, emotional shift |
+| `hybrid_ai_controller.py` | Lean prompt assembly, option integration, fallback logic |
 | `moment_analyzer.py` | Drama factor detection and level determination |
 | `prompt_manager.py` | DRAMA_CONTEXTS mapping, prompt assembly |
 | `controllers.py` | Calls MomentAnalyzer, passes drama_context to prompt |

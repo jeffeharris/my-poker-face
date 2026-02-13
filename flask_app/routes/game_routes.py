@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, redirect, send_from_directory
 from flask_socketio import join_room, emit
 
 from poker.controllers import AIPlayerController
+from poker.hybrid_ai_controller import HybridAIController
 from poker.poker_game import initialize_game_state, play_turn, advance_to_next_active_player
 from poker.prompt_config import PromptConfig
 from poker.betting_context import BettingContext
@@ -962,11 +963,15 @@ def api_new_game():
             # Use per-player config if set, otherwise use default
             player_config = player_llm_configs.get(player.name, default_llm_config)
             player_prompt_config = player_prompt_configs.get(player.name, default_prompt_config)
-            new_controller = AIPlayerController(
+            # Use HybridAIController with lean bounded mode
+            hybrid_prompt_config = player_prompt_config.copy(
+                lean_bounded=True,
+            )
+            new_controller = HybridAIController(
                 player.name,
                 state_machine,
                 llm_config=player_config,
-                prompt_config=player_prompt_config,
+                prompt_config=hybrid_prompt_config,
                 game_id=game_id,
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo

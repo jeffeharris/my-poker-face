@@ -16,6 +16,7 @@ Benefits:
 
 import json
 import logging
+import random
 from typing import Dict, List, Optional
 
 from .controllers import AIPlayerController, _get_canonical_hand, card_to_string
@@ -27,7 +28,10 @@ from .bounded_options import (
     generate_bounded_options,
     format_options_for_prompt,
     calculate_required_equity,
+    apply_emotional_window_shift,
+    get_emotional_shift,
 )
+from .nudge_phrases import apply_composed_nudges
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 from .hand_ranges import (
     calculate_equity_vs_ranges,
@@ -58,7 +62,7 @@ class HybridAIController(AIPlayerController):
     Overrides _get_ai_decision to present bounded options to the LLM.
     """
 
-    LEAN_SYSTEM_PROMPT = "You are a poker player. Pick one option. Respond with JSON."
+    LEAN_SYSTEM_PROMPT = 'You are a poker player. Pick one option. Return exactly {"choice": <number>} where <number> is your pick.'
 
     def __init__(
         self,
@@ -250,6 +254,26 @@ class HybridAIController(AIPlayerController):
                 'check' if 'check' in player_options else 'fold'
             )
 
+        # Layer 5.5: Composed nudges (replace raw rationale with playstyle phrases)
+        if getattr(self.prompt_config, 'composed_nudges', False):
+            options = apply_composed_nudges(options, profile_key)
+
+        # Layer 6: Emotional window shift (may override nudge rationale at moderate+)
+        emotional_shift = get_emotional_shift(self.psychology)
+        if emotional_shift.severity != 'none':
+            options = apply_emotional_window_shift(
+                options, emotional_shift, rule_context, profile,
+            )
+
+        # Option ordering (local RNG per project convention)
+        option_order = getattr(self.prompt_config, 'option_order', 'default')
+        if option_order == 'shuffle':
+            rng = random.Random()
+            rng.shuffle(options)
+        elif option_order == 'ev_descending':
+            ev_rank = {'+EV': 0, 'neutral': 1, 'marginal': 2, '-EV': 3}
+            options.sort(key=lambda o: ev_rank.get(o.ev_estimate, 4))
+
         # Swap system prompt to minimal (covers both Phase 0 and Phase 1)
         original_system_message = self.assistant.system_message
         self.assistant.system_message = self.LEAN_SYSTEM_PROMPT
@@ -276,7 +300,11 @@ class HybridAIController(AIPlayerController):
             )
             response_dict = parse_json_response(llm_response.content)
         except Exception as e:
-            logger.warning(f"[HYBRID-LEAN] LLM failed for {self.player_name}: {e}")
+            logger.warning(
+                f"[HYBRID-LEAN] LLM/parse failed for {self.player_name}: "
+                f"{type(e).__name__}: {e}",
+                exc_info=True
+            )
             response_dict = None
         finally:
             self.assistant.system_message = original_system_message
@@ -326,16 +354,21 @@ class HybridAIController(AIPlayerController):
 
         parts.append("")
 
-        # Numbered options with EV labels
+        # Numbered options
+        use_nudges = getattr(self.prompt_config, 'composed_nudges', False)
         for i, opt in enumerate(options, 1):
             action_str = opt.action.upper()
             if opt.action == 'raise' and opt.raise_to > 0:
                 raise_bb = opt.raise_to / big_blind if big_blind > 0 else opt.raise_to
                 action_str += f" {raise_bb:.0f}BB"
-            parts.append(f"{i}. {action_str}  [{opt.ev_estimate}]  {opt.rationale}")
+            if use_nudges:
+                # Nudge format: action — phrase (no EV bracket)
+                parts.append(f"{i}. {action_str} \u2014 {opt.rationale}")
+            else:
+                parts.append(f"{i}. {action_str}  [{opt.ev_estimate}]  {opt.rationale}")
 
         parts.append("")
-        parts.append(f'Pick 1-{len(options)}: {{"choice": N}}')
+        parts.append(f'Respond with JSON: {{"choice": N}} — replace N with your pick (1-{len(options)})')
 
         return "\n".join(parts)
 
@@ -552,6 +585,13 @@ class HybridAIController(AIPlayerController):
             logger.warning(f"[HYBRID] No options generated for {self.player_name}, using fallback")
             return self._create_fallback_response('check' if 'check' in context.get('valid_actions', []) else 'fold')
 
+        # Step 2b: Emotional window shift
+        emotional_shift = get_emotional_shift(self.psychology)
+        if emotional_shift.severity != 'none':
+            options = apply_emotional_window_shift(
+                options, emotional_shift, rule_context, profile,
+            )
+
         # Step 3: Build choice prompt for LLM
         choice_prompt = self._build_choice_prompt(message, options, rule_context)
 
@@ -643,7 +683,12 @@ class HybridAIController(AIPlayerController):
                 iterations=300, config=equity_config
             )
             if equity is None:
-                equity = 0.5  # Fallback if calculation fails
+                logger.warning(
+                    f"[HYBRID] Equity calculation returned None for {player.name}. "
+                    f"Falling back to 0.5. hole_cards={hole_cards}, "
+                    f"community_cards={community_cards}"
+                )
+                equity = 0.5
         else:
             # Pre-flop equity estimate based on hand ranking
             canonical = _get_canonical_hand(hole_cards) if hole_cards else ''
@@ -744,7 +789,12 @@ CRITICAL RULES:
         """Validate LLM choice and build response dict.
 
         Falls back to the highest +EV option if LLM response is invalid.
+        Tries multiple extraction strategies before giving up:
+        1. Direct int conversion (handles "2" and 2)
+        2. First digit extraction from fuzzy text ("option 2", "I pick 1")
         """
+        import re
+
         default_option = self._get_best_fallback_option(options)
 
         if response is None:
@@ -757,13 +807,25 @@ CRITICAL RULES:
             logger.warning(f"[HYBRID] No choice in response, using fallback")
             return self._option_to_response(default_option, response)
 
+        # Strategy 1: direct int conversion (handles int and string digits)
+        choice_idx = None
         try:
-            choice_idx = int(choice) - 1  # Convert to 0-indexed
-            if choice_idx < 0 or choice_idx >= len(options):
-                logger.warning(f"[HYBRID] Choice {choice} out of range [1-{len(options)}], using fallback")
-                return self._option_to_response(default_option, response)
+            choice_idx = int(choice) - 1
         except (ValueError, TypeError):
-            logger.warning(f"[HYBRID] Invalid choice value: {choice}, using fallback")
+            pass
+
+        # Strategy 2: extract first digit from fuzzy text ("option 2", "I pick 1", "N")
+        if choice_idx is None and isinstance(choice, str):
+            match = re.search(r'\d+', choice)
+            if match:
+                try:
+                    choice_idx = int(match.group()) - 1
+                except (ValueError, TypeError):
+                    pass
+
+        # Validate range
+        if choice_idx is None or choice_idx < 0 or choice_idx >= len(options):
+            logger.warning(f"[HYBRID] Invalid/out-of-range choice: {choice!r} (1-{len(options)}), using fallback")
             return self._option_to_response(default_option, response)
 
         selected = options[choice_idx]
@@ -776,7 +838,15 @@ CRITICAL RULES:
 
         Priority: +EV > neutral > -EV, then by style (standard > conservative > aggressive)
         """
-        ev_priority = {'+EV': 0, 'neutral': 1, '-EV': 2}
+        if not options:
+            logger.error("[HYBRID] _get_best_fallback_option called with empty options list")
+            return BoundedOption(
+                action='check', raise_to=0,
+                rationale="Fallback (no options available)",
+                ev_estimate="neutral", style_tag="conservative",
+            )
+
+        ev_priority = {'+EV': 0, 'neutral': 1, 'marginal': 2, '-EV': 3}
         style_priority = {'standard': 0, 'conservative': 1, 'aggressive': 2, 'trappy': 3}
 
         sorted_options = sorted(
@@ -787,7 +857,7 @@ CRITICAL RULES:
             )
         )
 
-        return sorted_options[0] if sorted_options else options[0]
+        return sorted_options[0]
 
     def _option_to_response(self, option: BoundedOption, llm_response: Dict) -> Dict:
         """Convert a BoundedOption to a decision response dict."""
@@ -835,6 +905,10 @@ CRITICAL RULES:
         lean = getattr(self.prompt_config, 'lean_bounded', False)
         rd = range_data or {}
 
+        # Capture emotional shift state at enricher creation time
+        emotional_shift = get_emotional_shift(self.psychology)
+        rd = range_data or {}
+
         def enrich_capture(capture_data: Dict) -> Dict:
             # Core hybrid data
             capture_data.update({
@@ -855,6 +929,8 @@ CRITICAL RULES:
                 'community_cards': context.get('community_cards', []),
                 'player_hand': context.get('hole_cards', []),
                 'valid_actions': context.get('valid_actions', []),
+                # Emotional window shift tracking
+                'emotional_shift': emotional_shift.to_dict(),
                 # Capture ID callback for post-update
                 '_on_captured': lambda cid: capture_id_holder.__setitem__(0, cid),
             })

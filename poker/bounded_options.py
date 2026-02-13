@@ -12,6 +12,7 @@ Let the rule engine handle the math, let the LLM handle the character.
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 import logging
+import random
 
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 
@@ -197,6 +198,10 @@ STYLE_HINTS = {
 }
 
 
+# ============================================================
+# Math helpers
+# ============================================================
+
 def calculate_required_equity(pot: float, cost_to_call: float) -> float:
     """Equity needed to break even on a call.
 
@@ -290,6 +295,22 @@ def _should_block_call(context: Dict) -> bool:
     return False
 
 
+# ============================================================
+# Stack Depth Classification
+# ============================================================
+
+def _get_stack_depth(stack_bb: float) -> str:
+    """Classify effective stack depth for sizing decisions.
+
+    Returns: 'deep' (>30BB), 'medium' (10-30BB), or 'short' (<10BB)
+    """
+    if stack_bb < 10:
+        return 'short'
+    if stack_bb <= 30:
+        return 'medium'
+    return 'deep'
+
+
 def _get_raise_options(
     context: Dict,
     profile: OptionProfile = None,
@@ -359,6 +380,64 @@ def _get_raise_options(
     return options
 
 
+# ============================================================
+# Smart Truncation
+# ============================================================
+
+_EV_RANK = {'+EV': 3, 'neutral': 2, 'marginal': 1, '-EV': 0}
+
+
+def _truncate_options(options: List[BoundedOption], max_options: int = 4) -> List[BoundedOption]:
+    """Truncate to max_options while preserving priority options.
+
+    Priority-based truncation:
+    1. One of each non-raise action type (fold, check, call, all_in) — always kept
+    2. +EV raises kept before neutral/negative
+    3. When dropping raises, keep most spread-out sizes (smallest + largest)
+    """
+    if len(options) <= max_options:
+        return options
+
+    non_raises = [o for o in options if o.action != 'raise']
+    raises = [o for o in options if o.action == 'raise']
+
+    # Start with non-raises (each is unique per action type)
+    result = list(non_raises)
+    budget = max_options - len(result)
+
+    if budget > 0 and raises:
+        # Sort: highest EV first, then by amount for spread
+        raises_sorted = sorted(raises, key=lambda o: (
+            -_EV_RANK.get(o.ev_estimate, 0),
+            o.raise_to,
+        ))
+        if budget >= 2 and len(raises_sorted) >= 2:
+            # Keep best-EV raise + largest for max sizing spread
+            result.append(raises_sorted[0])
+            if raises_sorted[-1] is not raises_sorted[0]:
+                result.append(raises_sorted[-1])
+                budget -= 2
+            else:
+                budget -= 1
+            for r in raises_sorted[1:-1]:
+                if budget <= 0:
+                    break
+                result.append(r)
+                budget -= 1
+        else:
+            result.extend(raises_sorted[:budget])
+    elif budget <= 0:
+        # Non-raises alone exceeded budget — drop lowest EV
+        result.sort(key=lambda o: -_EV_RANK.get(o.ev_estimate, 0))
+        result = result[:max_options]
+
+    return result
+
+
+# ============================================================
+# Main Option Generator
+# ============================================================
+
 def generate_bounded_options(
     context: Dict,
     profile: OptionProfile = None,
@@ -366,6 +445,9 @@ def generate_bounded_options(
     in_range: bool = True,
     range_pct: float = None,
     position_display: str = None,
+    emotional_state: Optional[str] = None,
+    emotional_severity: Optional[str] = None,
+    rng: 'random.Random' = None,
 ) -> List[BoundedOption]:
     """Generate 2-4 sensible options based on game state.
 
@@ -390,6 +472,13 @@ def generate_bounded_options(
         in_range: Whether the hand is in the player's preflop range (for range biasing).
         range_pct: Player's range percentage (for rationale text).
         position_display: Human-readable position name (for rationale text).
+        emotional_state: Emotional state name ('tilted', 'overconfident', 'shaken', 'dissociated').
+            WARNING: Do not pass emotional_state/emotional_severity here if you also call
+            apply_emotional_window_shift() on the result — that would double-apply the shift.
+            The controller uses apply_emotional_window_shift() externally, so it should NOT
+            pass these params.
+        emotional_severity: Severity level ('none', 'mild', 'moderate', 'extreme')
+        rng: Random instance for deterministic testing of probabilistic rolls
 
     Returns:
         List of 2-4 BoundedOption instances, always including at least one +EV option
@@ -623,14 +712,15 @@ def generate_bounded_options(
                 else:
                     promoted_rationale = best.rationale + " (recommended)"
 
-                options = [o for o in options if o != best]
-                options.append(BoundedOption(
+                promoted = BoundedOption(
                     action=best.action,
                     raise_to=best.raise_to,
                     rationale=promoted_rationale,
                     ev_estimate="+EV" if block_fold else best.ev_estimate,
                     style_tag=best.style_tag
-                ))
+                )
+                # Replace in-place to preserve original position
+                options = [promoted if o == best else o for o in options]
 
     # === Limit to 2-4 options ===
     if len(options) > 4:
@@ -668,7 +758,508 @@ def generate_bounded_options(
         f"{[f'{o.action}({o.raise_to})' if o.action == 'raise' else o.action for o in options]}"
     )
 
+    # === Layer 6: Emotional window shift (if provided) ===
+    if emotional_state and emotional_severity and emotional_severity != 'none':
+        shift = EmotionalShift(
+            state=emotional_state,
+            severity=emotional_severity,
+            intensity={'mild': 0.2, 'moderate': 0.5, 'extreme': 0.8}.get(emotional_severity, 0.0),
+        )
+        options = apply_emotional_window_shift(options, shift, context, profile, rng=rng)
+
     return options
+
+
+# ============================================================
+# Emotional Window Shift (Layer 6)
+#
+# Slides the option window along passive<->aggressive based on
+# the player's emotional state. Applied AFTER option generation,
+# BEFORE math blocking (which is re-applied as safety net).
+# ============================================================
+
+@dataclass(frozen=True)
+class EmotionalShift:
+    """Emotional state input for window shift."""
+    state: str        # 'tilted', 'overconfident', 'shaken', 'dissociated', 'composed'
+    severity: str     # 'none', 'mild', 'moderate', 'extreme'
+    intensity: float  # raw penalty zone intensity 0.0-1.0
+
+    def to_dict(self) -> Dict:
+        return {'state': self.state, 'severity': self.severity, 'intensity': self.intensity}
+
+
+# Probability of impairment (shifted window) by severity
+IMPAIRMENT_PROBABILITY = {
+    'none': 0.0,
+    'mild': 0.70,
+    'moderate': 0.85,
+    'extreme': 0.95,
+}
+
+# Which direction each emotional state pushes options
+EMOTIONAL_DIRECTION = {
+    'tilted': 'aggressive',
+    'overconfident': 'aggressive',
+    'shaken': 'passive',
+    'dissociated': 'passive',
+    'composed': None,
+}
+
+# Narrative framing per emotional state (moderate+ severity)
+NARRATIVE_FRAMING = {
+    'tilted': {
+        'aggressive': "They keep pushing you around. Push back.",
+        'passive': "Folding is weakness.",
+        'raise': "Make them pay.",
+        'fold': "Folding again? Really?",
+        'check': "Just checking? Are you going to let them walk over you?",
+        'call': "At least put up a fight.",
+    },
+    'overconfident': {
+        'aggressive': "You're running hot. Press the advantage.",
+        'passive': "You're too good for cautious play.",
+        'raise': "You can't lose right now.",
+        'fold': "Fold? You? Inconceivable.",
+        'check': "Why slow down when you're dominating?",
+        'call': "You should be raising, not calling.",
+    },
+    'shaken': {
+        'passive': "Save your chips. Live to fight another hand.",
+        'aggressive': "Big bet... are you sure about this?",
+        'raise': "Going big? Really? After what just happened?",
+        'fold': "Get out while you can.",
+        'check': "Take a breath. No need to force it.",
+        'call': "Just see the next card. Keep it cheap.",
+    },
+    'dissociated': {
+        # Stripped to bare minimum — less information to reason with
+        'aggressive': "Raise.",
+        'passive': "Check.",
+        'raise': "Raise.",
+        'fold': "Fold.",
+        'check': "Check.",
+        'call': "Call.",
+    },
+}
+
+
+def _option_spectrum_position(option: BoundedOption) -> int:
+    """Position on the passive<->aggressive spectrum (lower = more passive)."""
+    if option.action == 'fold':
+        return 0
+    if option.action == 'check':
+        return 1
+    if option.action == 'call':
+        return 2
+    if option.action == 'raise':
+        return 3 + option.raise_to  # bigger raises are more aggressive
+    if option.action == 'all_in':
+        return 100000  # most aggressive
+    return 2  # fallback
+
+
+def _make_aggressive_option(options: List[BoundedOption], context: Dict,
+                            state: str) -> Optional[BoundedOption]:
+    """Create a new aggressive option beyond the current window.
+
+    For tilted: adds larger raise or ALL-IN.
+    For overconfident: adds overbet / value bet.
+    """
+    max_raise = context.get('max_raise', 0)
+    min_raise = context.get('min_raise', 0)
+    pot_total = context.get('pot_total', 0)
+    big_blind = context.get('big_blind', 100)
+    equity = context.get('equity', 0.5)
+
+    # Find the largest existing raise
+    raises = [o for o in options if o.action == 'raise']
+    has_all_in = any(o.action == 'all_in' for o in options)
+    largest_raise = max((o.raise_to for o in raises), default=0) if raises else 0
+
+    # If no room to raise at all, can't add aggressive option
+    if max_raise <= 0 or min_raise <= 0:
+        return None
+
+    # Try to add ALL-IN if not already present and there's room
+    if not has_all_in and max_raise > largest_raise:
+        if state == 'tilted':
+            rationale = "All-in — make them pay for everything"
+        else:
+            rationale = "All-in — you can't lose"
+        return BoundedOption(
+            action='all_in',
+            raise_to=0,
+            rationale=rationale,
+            ev_estimate="+EV" if equity >= 0.50 else "-EV",
+            style_tag="aggressive",
+        )
+
+    # Try to add a larger raise (1.5x the largest existing or pot-sized overbet)
+    if largest_raise > 0:
+        overbet = int(largest_raise * 1.5)
+        overbet = max(overbet, int(pot_total * 1.5))
+        overbet = min(overbet, max_raise)
+        overbet = max(overbet, min_raise)
+        if overbet > largest_raise:
+            if state == 'tilted':
+                rationale = "Overbet — punish them"
+            else:
+                rationale = "Overbet — press your edge"
+            return BoundedOption(
+                action='raise',
+                raise_to=overbet,
+                rationale=rationale,
+                ev_estimate="+EV" if equity >= 0.55 else "-EV",
+                style_tag="aggressive",
+            )
+
+    # Add a pot-sized raise if none exists
+    if not raises and max_raise >= min_raise:
+        raise_to = min(int(pot_total), max_raise)
+        raise_to = max(raise_to, min_raise)
+        rationale = "Raise — assert yourself" if state == 'tilted' else "Raise — press your edge"
+        return BoundedOption(
+            action='raise',
+            raise_to=raise_to,
+            rationale=rationale,
+            ev_estimate="+EV" if equity >= 0.55 else "-EV",
+            style_tag="aggressive",
+        )
+
+    return None
+
+
+def _make_passive_option(options: List[BoundedOption], context: Dict,
+                         state: str) -> Optional[BoundedOption]:
+    """Create a new passive option beyond the current window.
+
+    For shaken: adds FOLD or CHECK.
+    For dissociated: adds CHECK.
+    """
+    valid_actions = context.get('valid_actions', [])
+    equity = context.get('equity', 0.5)
+    cost_to_call = context.get('cost_to_call', 0)
+    pot_total = context.get('pot_total', 0)
+    required_equity = calculate_required_equity(pot_total, cost_to_call)
+
+    has_fold = any(o.action == 'fold' for o in options)
+    has_check = any(o.action == 'check' for o in options)
+
+    if state == 'dissociated':
+        # Dissociated adds CHECK if possible
+        if not has_check and 'check' in valid_actions:
+            return BoundedOption(
+                action='check', raise_to=0,
+                rationale="Check.",
+                ev_estimate="neutral", style_tag="conservative",
+            )
+        if not has_fold and 'fold' in valid_actions:
+            return BoundedOption(
+                action='fold', raise_to=0,
+                rationale="Fold.",
+                ev_estimate="neutral", style_tag="conservative",
+            )
+    else:
+        # Shaken: adds FOLD first (save chips), then CHECK
+        if not has_fold and 'fold' in valid_actions:
+            rationale = "Get out while you can." if state == 'shaken' else "Fold."
+            fold_ev = "+EV" if equity < required_equity * 0.85 else "neutral"
+            return BoundedOption(
+                action='fold', raise_to=0,
+                rationale=rationale,
+                ev_estimate=fold_ev, style_tag="conservative",
+            )
+        if not has_check and 'check' in valid_actions:
+            rationale = "Take a breath. No need to force it."
+            return BoundedOption(
+                action='check', raise_to=0,
+                rationale=rationale,
+                ev_estimate="neutral", style_tag="conservative",
+            )
+
+    return None
+
+
+def _apply_narrative_framing(options: List[BoundedOption], state: str) -> List[BoundedOption]:
+    """Modify rationale strings based on emotional state.
+
+    Tilted: aggressive=revenge, passive=weakness.
+    Overconfident: aggressive=inevitability, fold=inconceivable.
+    Shaken: passive=safety, aggressive=doubt.
+    Dissociated: rationale stripped to bare minimum.
+    """
+    framing = NARRATIVE_FRAMING.get(state, {})
+    if not framing:
+        return options
+
+    modified = []
+    for opt in options:
+        # For dissociated, strip ALL rationale to bare minimum
+        if state == 'dissociated':
+            action_frame = framing.get(opt.action, opt.action.capitalize() + '.')
+            modified.append(BoundedOption(
+                action=opt.action,
+                raise_to=opt.raise_to,
+                rationale=action_frame,
+                ev_estimate=opt.ev_estimate,
+                style_tag=opt.style_tag,
+            ))
+            continue
+
+        # For other states, replace rationale based on direction
+        is_passive = opt.action in ('fold', 'check')
+        is_aggressive = opt.action in ('raise', 'all_in')
+
+        # Try action-specific framing first, then direction-based
+        action_frame = framing.get(opt.action)
+        if action_frame is None:
+            if is_aggressive:
+                action_frame = framing.get('aggressive')
+            elif is_passive:
+                action_frame = framing.get('passive')
+
+        if action_frame:
+            modified.append(BoundedOption(
+                action=opt.action,
+                raise_to=opt.raise_to,
+                rationale=action_frame,
+                ev_estimate=opt.ev_estimate,
+                style_tag=opt.style_tag,
+            ))
+        else:
+            modified.append(opt)
+
+    return modified
+
+
+def _reapply_math_blocking(options: List[BoundedOption], context: Dict,
+                           profile: OptionProfile = None) -> List[BoundedOption]:
+    """Re-apply math blocking as final safety net after emotional shift.
+
+    Ensures emotional state never overrides mathematical guardrails:
+    - Remove fold if fold should be blocked
+    - Remove call if call should be blocked
+    - Ensure at least 2 options remain
+    - Ensure at least one non-fold option exists
+    """
+    if profile is None:
+        profile = OptionProfile()
+
+    block_fold = _should_block_fold(context, profile)
+    # B2 (Crushing): always block fold, regardless of profile multiplier
+    cost_to_call = context.get('cost_to_call', 0)
+    if cost_to_call > 0:
+        equity = context.get('equity', 0.5)
+        pot_total = context.get('pot_total', 0)
+        req = calculate_required_equity(pot_total, cost_to_call)
+        if equity >= 0.90 or (req > 0 and equity / req >= 1.7):
+            block_fold = True
+    block_call = _should_block_call(context)
+    valid_actions = context.get('valid_actions', [])
+
+    result = list(options)
+
+    # Remove blocked fold
+    if block_fold:
+        result = [o for o in result if o.action != 'fold']
+
+    # Remove blocked call
+    if block_call:
+        result = [o for o in result if o.action != 'call']
+
+    # Ensure at least 2 options
+    # Short-stack facing bet: push/fold only, don't add CALL
+    stack_bb = context.get('stack_bb', 100)
+    short_facing_bet = _get_stack_depth(stack_bb) == 'short' and cost_to_call > 0
+    if len(result) < 2:
+        if 'check' in valid_actions and not any(o.action == 'check' for o in result):
+            result.append(BoundedOption(
+                action='check', raise_to=0,
+                rationale="Check", ev_estimate="neutral", style_tag="conservative",
+            ))
+        elif 'call' in valid_actions and not block_call and not short_facing_bet and not any(o.action == 'call' for o in result):
+            result.append(BoundedOption(
+                action='call', raise_to=0,
+                rationale="Call", ev_estimate="neutral", style_tag="standard",
+            ))
+
+    # Emotional shifts may legitimately produce 5 options (mild adds without removing).
+    # Cap at 5 to prevent unbounded growth while preserving the shift's intent.
+    if len(result) > 5:
+        result = _truncate_options(result, max_options=5)
+
+    return result
+
+
+def apply_emotional_window_shift(
+    options: List[BoundedOption],
+    emotional_shift: EmotionalShift,
+    context: Dict,
+    profile: OptionProfile = None,
+    rng: random.Random = None,
+) -> List[BoundedOption]:
+    """Apply emotional window shift to bounded options.
+
+    Layer 6 in the architecture:
+      Option Generation -> Math Blocking ->
+      **Emotional Window Shift** -> Math Blocking (re-applied)
+
+    The shift slides the option window along passive<->aggressive spectrum.
+    Math blocking is re-applied at the end as a final safety net.
+
+    Args:
+        options: Base options from generate_bounded_options()
+        emotional_shift: Player's emotional state and severity
+        context: Decision context dict (for generating new options and blocking)
+        profile: OptionProfile for math blocking thresholds
+        rng: Random instance for deterministic testing
+
+    Returns:
+        Modified options list with emotional shift applied and math blocking enforced
+    """
+    if not options:
+        return options
+
+    if emotional_shift.state == 'composed' or emotional_shift.severity == 'none':
+        return options
+
+    _rng = rng or random.Random()
+
+    # Probabilistic application: roll against severity
+    impairment_chance = IMPAIRMENT_PROBABILITY.get(emotional_shift.severity, 0.0)
+    if _rng.random() >= impairment_chance:
+        # Lucid — return normal options unmodified
+        logger.debug(
+            f"[EMOTIONAL] Lucid roll for {emotional_shift.state}/{emotional_shift.severity} — "
+            f"no shift applied"
+        )
+        return options
+
+    direction = EMOTIONAL_DIRECTION.get(emotional_shift.state)
+    if direction is None:
+        return options
+
+    severity = emotional_shift.severity
+    modified = list(options)
+
+    logger.info(
+        f"[EMOTIONAL] Applying {severity} {emotional_shift.state} shift "
+        f"(direction={direction}) to {len(options)} options"
+    )
+
+    # === Add option on the extreme end (mild+) ===
+    if direction == 'aggressive':
+        new_opt = _make_aggressive_option(modified, context, emotional_shift.state)
+    else:
+        new_opt = _make_passive_option(modified, context, emotional_shift.state)
+
+    if new_opt:
+        # For moderate+ severity: if at cap, remove from opposite end to make room
+        # For mild: allow expansion (add without removing)
+        if severity == 'extreme' and len(modified) >= 4:
+            sorted_opts = sorted(modified, key=_option_spectrum_position)
+            if direction == 'aggressive':
+                to_drop = sorted_opts[0]  # drop most passive
+            else:
+                to_drop = sorted_opts[-1]  # drop most aggressive
+            if len(modified) > 1:
+                modified = [o for o in modified if o is not to_drop]
+                logger.debug(f"[EMOTIONAL] Dropped {to_drop.action} to make room for {new_opt.action}")
+
+        modified.append(new_opt)
+        logger.debug(f"[EMOTIONAL] Added {new_opt.action} option")
+
+    # === Remove option from opposite end (extreme only) ===
+    if severity == 'extreme' and len(modified) > 1:
+        sorted_opts = sorted(modified, key=_option_spectrum_position)
+        if direction == 'aggressive':
+            # Remove most passive (FOLD or CHECK)
+            to_remove = sorted_opts[0]
+        else:
+            # Remove most aggressive (largest RAISE or ALL-IN)
+            to_remove = sorted_opts[-1]
+
+        # Only remove if we'll still have >= 2 options
+        if len(modified) > 2:
+            modified = [o for o in modified if o is not to_remove]
+            logger.debug(f"[EMOTIONAL] Removed {to_remove.action} option (extreme shift)")
+
+    # === Narrative framing (moderate+) ===
+    if severity in ('moderate', 'extreme'):
+        modified = _apply_narrative_framing(modified, emotional_shift.state)
+
+    # === Math blocking: final safety net ===
+    modified = _reapply_math_blocking(modified, context, profile)
+
+    return modified
+
+
+def get_emotional_shift(psychology) -> EmotionalShift:
+    """Extract EmotionalShift from a PlayerPsychology instance.
+
+    Maps psychology penalty zones to the spec's emotional states:
+    - tilted / overheated -> Tilted (aggressive)
+    - overconfident -> Overconfident (aggressive)
+    - shaken / timid -> Shaken (passive)
+    - detached -> Dissociated (passive)
+
+    Severity is derived from penalty intensity:
+    - 0 -> None
+    - 0.01-0.33 -> Mild
+    - 0.34-0.66 -> Moderate
+    - 0.67+ -> Extreme
+
+    Args:
+        psychology: PlayerPsychology instance (or None)
+
+    Returns:
+        EmotionalShift with state, severity, and intensity
+    """
+    if psychology is None:
+        return EmotionalShift(state='composed', severity='none', intensity=0.0)
+
+    try:
+        zone_fx = psychology.zone_effects
+        penalties = zone_fx.penalties
+    except Exception as e:
+        logger.warning(f"[EMOTIONAL] Failed to read zone effects: {e}")
+        return EmotionalShift(state='composed', severity='none', intensity=0.0)
+
+    if not penalties:
+        return EmotionalShift(state='composed', severity='none', intensity=0.0)
+
+    # Map penalty zones to spec emotional states, pick the strongest
+    state_map = {
+        'tilted': 'tilted',
+        'overheated': 'tilted',
+        'overconfident': 'overconfident',
+        'shaken': 'shaken',
+        'timid': 'shaken',
+        'detached': 'dissociated',
+    }
+
+    best_state = 'composed'
+    best_intensity = 0.0
+
+    for zone_name, intensity in penalties.items():
+        mapped = state_map.get(zone_name)
+        if mapped and intensity > best_intensity:
+            best_state = mapped
+            best_intensity = intensity
+
+    if best_intensity <= 0:
+        return EmotionalShift(state='composed', severity='none', intensity=0.0)
+
+    # Map intensity to severity
+    if best_intensity >= 0.67:
+        severity = 'extreme'
+    elif best_intensity >= 0.34:
+        severity = 'moderate'
+    else:
+        severity = 'mild'
+
+    return EmotionalShift(state=best_state, severity=severity, intensity=best_intensity)
 
 
 def format_options_for_prompt(options: List[BoundedOption], equity: float, pot_odds: float) -> str:
