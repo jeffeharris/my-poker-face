@@ -173,7 +173,7 @@ class TestPromptConfig(unittest.TestCase):
             lean_bounded=True,
             hand_plan=True,
             composed_nudges=True,
-            randomize_option_order=True,
+            option_order='shuffle',
             preflop_range_gate=True,
         )
         self.assertIn('all enabled', repr(config))

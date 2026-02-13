@@ -1,0 +1,33 @@
+{
+  "name": "archetype_leak_test",
+  "description": "Test whether the missed-value-bet leak (~4.5% for Bob Ross) is personality-specific or archetype-specific. Uses different characters in the same archetypes as the option_order_test baseline: 2x LAG, 1x borderline, 1x tight-passive.",
+  "hypothesis": "If Ebenezer Scrooge (tight_passive, aggr=0.2) shows a similar leak rate to Bob Ross (tight_passive, aggr=0.1), the leak is archetype-driven. If not, it's Bob Ross's personality prompt overriding EV signals.",
+  "tags": ["archetype", "missed-value", "personality-bias", "lean-bounded"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Nikola Tesla", "Joan of Arc", "Winston Churchill", "Ebenezer Scrooge"],
+  "player_types": {
+    "Nikola Tesla": {"type": "hybrid"},
+    "Joan of Arc": {"type": "hybrid"},
+    "Winston Churchill": {"type": "hybrid"},
+    "Ebenezer Scrooge": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "archetype-baseline",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "option_order": "default"
+    }
+  },
+  "random_seed": 42
+}
