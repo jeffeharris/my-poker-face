@@ -1,0 +1,33 @@
+{
+  "name": "archetype_spectrum_test",
+  "description": "Test behavioral differences across rebalanced archetypes. 4 players spanning TAG, Rock, Station, and LAG to see distinct play patterns emerge from anchor changes.",
+  "hypothesis": "TAG (Joan of Arc) will have highest raise% with tight range. Rock (Buddha) will have highest fold% and lowest raise%. Station (Alice) will have highest call% and lowest fold%. LAG (Napoleon) will be aggressive with wide range.",
+  "tags": ["archetype", "rebalance", "spectrum", "lean-bounded"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Joan of Arc", "Buddha", "Alice", "Napoleon"],
+  "player_types": {
+    "Joan of Arc": {"type": "hybrid"},
+    "Buddha": {"type": "hybrid"},
+    "Alice": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "archetype-spectrum",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "option_order": "default"
+    }
+  },
+  "random_seed": 42
+}

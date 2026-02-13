@@ -10,10 +10,12 @@ from ..services import game_state_service
 from ..extensions import llm_repo, personality_repo, settings_repo, prompt_capture_repo, game_repo
 from core.llm import UsageTracker
 from poker.authorization import require_permission
+from ..route_utils import register_admin_guard
 
 logger = logging.getLogger(__name__)
 
 admin_dashboard_bp = Blueprint('admin_dashboard', __name__, url_prefix='/admin')
+register_admin_guard(admin_dashboard_bp)
 
 
 def _get_date_modifier(range_param: str) -> str:
@@ -31,19 +33,8 @@ def _get_date_modifier(range_param: str) -> str:
     return modifiers.get(range_param, '-7 days')
 
 
-# Decorator alias for admin-only routes using RBAC
-_admin_required = require_permission('can_access_admin_tools')
-
-# Keep old decorator name as alias for backwards compatibility
-_dev_only = _admin_required
-
-
-@admin_dashboard_bp.before_request
-def _enforce_admin_access():
-    """Require admin permission for all admin dashboard routes."""
-    check = _admin_required(lambda: None)()
-    if check is not None:
-        return check
+# Per-route decorator alias for admin-only routes
+_dev_only = require_permission('can_access_admin_tools')
 
 
 # =============================================================================

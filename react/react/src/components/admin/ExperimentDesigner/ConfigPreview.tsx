@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Play, Code, Settings, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical, Zap, Users, Tag, X, Shuffle } from 'lucide-react';
 import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig, ConfigVersion, PromptPreset } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
-import { config as appConfig } from '../../../config';
+import { adminFetch } from '../../../utils/api';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { logger } from '../../../utils/logger';
 import { seedToWords, wordsToSeed, generateSeed, isWordSeed } from './seedWords';
@@ -79,9 +79,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
   useEffect(() => {
     const fetchPersonalities = async () => {
       try {
-        const response = await fetch(`${appConfig.API_URL}/api/experiments/personalities`, {
-          credentials: 'include',
-        });
+        const response = await adminFetch('/api/experiments/personalities');
         const data = await response.json();
         if (data.success && data.personalities) {
           setAvailablePersonalities(data.personalities);
@@ -97,9 +95,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
   useEffect(() => {
     const fetchPresets = async () => {
       try {
-        const response = await fetch(`${appConfig.API_URL}/api/prompt-presets`, {
-          credentials: 'include',
-        });
+        const response = await adminFetch('/api/prompt-presets');
         const data = await response.json();
         if (data.success && data.presets) {
           setAvailablePresets(data.presets);
@@ -130,9 +126,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
 
       setValidating(true);
       try {
-        const response = await fetch(`${appConfig.API_URL}/api/experiments/validate`, {
+        const response = await adminFetch('/api/experiments/validate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config }),
         });
         const data = await response.json();
@@ -341,9 +336,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
 
     setLaunching(true);
     try {
-      const response = await fetch(`${appConfig.API_URL}/api/experiments`, {
+      const response = await adminFetch('/api/experiments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           config,
           session_id: sessionId,  // Pass design chat session for history preservation

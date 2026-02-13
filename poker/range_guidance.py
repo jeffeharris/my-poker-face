@@ -11,6 +11,7 @@ Key changes in v2.1:
 
 from typing import Dict, Optional, Tuple
 
+from .archetypes import archetype_label_from_anchors
 from .hand_tiers import PREMIUM_HANDS, is_hand_in_range
 
 
@@ -137,11 +138,8 @@ def get_player_archetype(tightness: float, aggression: float) -> str:
     """
     Determine the player archetype from tightness and aggression.
 
-    The classic 2x2 matrix:
-    - TAG (Tight-Aggressive): tight range, aggressive betting
-    - LAG (Loose-Aggressive): wide range, aggressive betting
-    - Rock (Tight-Passive): tight range, passive betting
-    - Fish (Loose-Passive): wide range, passive betting
+    Uses shared thresholds from poker.archetypes (3-zone model with
+    'Balanced' middle zone for looseness 0.45-0.65).
 
     Args:
         tightness: Tightness trait (0 = loose, 1 = tight)
@@ -149,19 +147,10 @@ def get_player_archetype(tightness: float, aggression: float) -> str:
         aggression: Aggression trait (0 = passive, 1 = aggressive)
 
     Returns:
-        Archetype string: 'TAG', 'LAG', 'Rock', or 'Fish'
+        Archetype string: 'TAG', 'LAG', 'Rock', 'Fish', or 'Balanced'
     """
-    tight = tightness > 0.5
-    aggressive = aggression > 0.5
-
-    if tight and aggressive:
-        return 'TAG'
-    elif not tight and aggressive:
-        return 'LAG'
-    elif tight and not aggressive:
-        return 'Rock'
-    else:
-        return 'Fish'
+    looseness = 1.0 - tightness
+    return archetype_label_from_anchors(looseness, aggression)
 
 
 def get_player_archetype_from_looseness(looseness: float, aggression: float) -> str:
@@ -175,11 +164,9 @@ def get_player_archetype_from_looseness(looseness: float, aggression: float) -> 
         aggression: Aggression trait (0 = passive, 1 = aggressive)
 
     Returns:
-        Archetype string: 'TAG', 'LAG', 'Rock', or 'Fish'
+        Archetype string: 'TAG', 'LAG', 'Rock', 'Fish', or 'Balanced'
     """
-    # Convert looseness to tightness for the archetype logic
-    tightness = 1.0 - looseness
-    return get_player_archetype(tightness, aggression)
+    return archetype_label_from_anchors(looseness, aggression)
 
 
 def get_archetype_description(archetype: str) -> str:
@@ -197,6 +184,7 @@ def get_archetype_description(archetype: str) -> str:
         'LAG': 'Loose-Aggressive: Plays many hands, applies pressure',
         'Rock': 'Tight-Passive: Very selective, checks/calls often',
         'Fish': 'Loose-Passive: Plays too many hands, calls too much',
+        'Balanced': 'Balanced: Moderate hand selection and betting',
     }
     return descriptions.get(archetype, 'Unknown style')
 

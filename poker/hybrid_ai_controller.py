@@ -19,6 +19,7 @@ import logging
 import random
 from typing import Dict, List, Optional
 
+from .archetypes import classify_from_anchors
 from .controllers import AIPlayerController, _get_canonical_hand, card_to_string
 from .bounded_options import (
     BoundedOption,
@@ -143,12 +144,7 @@ class HybridAIController(AIPlayerController):
         if self.psychology:
             looseness = self.psychology.effective_looseness
             aggression = self.psychology.effective_aggression
-            if looseness < 0.45:
-                key = 'tight_passive' if aggression < 0.5 else 'tight_aggressive'
-            elif looseness > 0.65:
-                key = 'loose_passive' if aggression < 0.5 else 'loose_aggressive'
-            else:
-                key = 'default'
+            key = classify_from_anchors(looseness, aggression)
         else:
             key = 'default'
         return key, STYLE_PROFILES.get(key, OptionProfile())
@@ -725,7 +721,7 @@ class HybridAIController(AIPlayerController):
             'player_stack': player.stack,
             'stack_bb': player.stack / big_blind if big_blind > 0 else 100,
             'pot_total': pot_total,
-            'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else float('inf'),
+            'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
             'cost_to_call': cost_to_call,
             'already_bet': player.bet,
             'highest_bet': game_state.highest_bet,

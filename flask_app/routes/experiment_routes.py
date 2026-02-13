@@ -18,22 +18,12 @@ from ..extensions import limiter, experiment_repo, game_repo, personality_repo, 
 from .. import config
 from experiments.pause_coordinator import pause_coordinator
 from datetime import datetime, timedelta
-from poker.authorization import require_permission
+from ..route_utils import register_admin_guard
 
 logger = logging.getLogger(__name__)
 
 experiment_bp = Blueprint('experiments', __name__)
-_admin_required = require_permission('can_access_admin_tools')
-
-
-@experiment_bp.before_request
-def _require_admin_access():
-    """Require admin permission for experiment routes, excluding CORS preflight."""
-    if request.method == 'OPTIONS':
-        return None
-
-    admin_check = _admin_required(lambda: None)
-    return admin_check()
+register_admin_guard(experiment_bp)
 
 # Store active experiment threads for status checking
 _active_experiments: Dict[int, threading.Thread] = {}

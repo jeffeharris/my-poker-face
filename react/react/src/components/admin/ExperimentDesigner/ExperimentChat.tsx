@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Loader2, Sparkles, GitCompare, Beaker, Repeat2 } from 'lucide-react';
 import type { ExperimentConfig, LabAssistantContext, ConfigVersion, ChatMessage, ExperimentType } from './types';
-import { config as appConfig } from '../../../config';
+import { adminFetch } from '../../../utils/api';
 import { logger } from '../../../utils/logger';
 
 interface QuickPrompt {
@@ -64,7 +64,7 @@ export function ExperimentChat({
       try {
         // Pass type filter if determined, otherwise fetch all
         const typeParam = experimentType !== 'undetermined' ? `?type=${experimentType}` : '';
-        const response = await fetch(`${appConfig.API_URL}/api/experiments/quick-prompts${typeParam}`);
+        const response = await adminFetch(`/api/experiments/quick-prompts${typeParam}`);
         const data = await response.json();
         if (data.success) {
           setQuickPrompts(data.prompts);
@@ -92,9 +92,8 @@ export function ExperimentChat({
     setLoading(true);
 
     try {
-      const response = await fetch(`${appConfig.API_URL}/api/experiments/chat`, {
+      const response = await adminFetch('/api/experiments/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: messageText,
           session_id: sessionId,
