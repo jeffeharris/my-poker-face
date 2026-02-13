@@ -2,46 +2,145 @@
 purpose: Analysis of the Hybrid Bounded-Options AI decision system
 type: analysis
 created: 2026-02-09
-last_updated: 2026-02-11
+last_updated: 2026-02-13
 ---
 
-## Next Session Plan: Fix Post-Flop Value Betting
+## Session 4 (2026-02-13): Post-Flop Check Rate Analysis, Archetype Rebalance & Centralized Classification
 
-### Context
-- Marginal zone fix for preflop is committed and working (VPIP 60%→40%, fold rate 10%→17%)
-- New issue discovered: LLM not value betting strong hands post-flop
-- LLM misunderstands hand strength and poker terminology
+### Post-Flop Check Rate: Mostly Legitimate
 
-### Tasks for Next Session
+The bounded options v2 merge and option ordering experiments (113850) showed a 34.6% post-flop check rate with default ordering. Deep analysis of all 807 post-flop checks revealed:
 
-1. **Analyze value betting patterns more deeply**
-   - Query checks with high equity (>60%) when cost_to_call=0
-   - Compare hybrid vs regular AI bet frequency with strong hands
-   - Identify specific hand categories being underbet
+| Category | Count | % of checks |
+|---|---|---|
+| **Legitimate** (no +EV raise available) | 744 | 92.2% |
+| Missed value (neutral check, +EV raise available) | 63 | 7.8% |
 
-2. **Implement fix (choose one approach)**
-   - Option A: Add hand strength guidance to bounded options prompt
-   - Option B: Block CHECK when equity > threshold (e.g., 65%)
-   - Option C: Order options by EV (put +EV first)
-   - Option D: Change style tags based on hand strength
+Of the 63 missed-value checks, 37 (36%) only had ALL_IN as the +EV raise (reasonable to skip in a small pot). The remaining **66 genuine leaks represent only 2.1% of all postflop actions** — a properly-sized +EV raise was available but the LLM checked instead.
 
-3. **Test fix**
-   - Run quick experiment (1 tournament, 50 hands)
-   - Compare raise frequency with strong hands before/after
-   - Check inner monologue for improved reasoning
+### Discovery: Leak is Archetype-Driven, Not Personality-Specific
 
-4. **Validate no regression**
-   - Ensure preflop behavior still correct
-   - Check fold rate and VPIP still in healthy range
+The 66 missed value bets were concentrated in one player:
 
-### Key Files
-- `poker/bounded_options.py` - Option generation logic
-- `poker/hybrid_ai_controller.py` - Hybrid controller
-- `experiments/configs/hybrid_vs_casebot_1v1.json` - Test config
+| Player | Archetype | Missed value | Total postflop | Leak % |
+|---|---|---|---|---|
+| Bob Ross | tight_passive (0.10/0.38) | 49 | 1136 | **4.3%** |
+| Batman | default | 8 | 671 | 1.2% |
+| Sherlock Holmes | LAG (0.60/0.58) | 6 | 1009 | 0.6% |
+| Napoleon | LAG (0.80/0.79) | 5 | 531 | 0.9% |
+
+Experiment **113851** tested different characters in the same archetype slots:
+
+| Archetype | Original | Leak% | Swap | Leak% |
+|---|---|---|---|---|
+| tight_passive | Bob Ross | **4.3%** | Ebenezer Scrooge | **3.9%** |
+| LAG (high) | Napoleon | 0.9% | Joan of Arc | 0.6% |
+| LAG (mid) | Sherlock Holmes | 0.6% | Winston Churchill | 0.9% |
+| default | Batman | 1.2% | Nikola Tesla | 0.7% |
+
+**Conclusion:** The ~4% missed-value leak is baked into the tight-passive profile's interaction with nano, not caused by any specific personality prompt. This is acceptable — passive players *should* leave some value on the table.
+
+### Roster Audit: 72% of Characters Were LAG
+
+| Archetype | Count | % |
+|---|---|---|
+| loose_aggressive | 36 | 72% |
+| tight_passive | 7 | 14% |
+| loose_passive | 7 | 14% |
+| **tight_aggressive** | **0** | **0%** |
+
+Zero TAG characters. Zero Nits, Rocks, Maniacs, or Calling Stations. The personality generator had defaulted to aggr >= 0.5 and loose >= 0.5 for all "interesting" characters.
+
+### Fix: Centralized Archetype Module + Personality Rebalance
+
+**Part A: Created `poker/archetypes.py`** as single source of truth for classification thresholds. Previously 4 separate systems used inconsistent boundaries:
+
+| System | Tight boundary | Aggr boundary |
+|---|---|---|
+| HybridAI | looseness < 0.45 | aggr < 0.5 |
+| RangeGuidance | tightness > 0.5 (loose < 0.5) | aggr > 0.5 |
+| OpponentModel | VPIP < 0.3 | AF > 1.5 |
+| CoachEngine | VPIP < 0.3 | AF > 1.5 |
+
+Now all import from `poker/archetypes.py`.
+
+**Part B: Rebalanced 24 personalities** in `personalities.json`:
+
+| Archetype | Before | After | Key characters |
+|---|---|---|---|
+| LAG | 36 | 19 | Napoleon, Dracula, Cleopatra |
+| Balanced | — | 10 | Tesla, Dr. Seuss, Jesus Christ |
+| TAG | 0 | 9 | Sherlock, Joan of Arc, Churchill, Machiavelli |
+| Fish/Station | 0 | 7 | Alice, Lucille Ball, Cheshire Cat, Houdini |
+| Rock/Nit | 0 | 5 | Buddha, Bob Ross, Scrooge, Librarian, Lincoln |
+
+### Experiment 113852: Archetype Spectrum (4 archetypes, no CaseBot)
+
+| Player | Archetype | Wins (of 10) | Raise% | Fold% | Avg Stack |
+|---|---|---|---|---|---|
+| Joan of Arc | TAG | **4 (40%)** | 29.3% | 9.5% | 7,053 (+41%) |
+| Alice | Station | 3 (30%) | 26.4% | 8.7% | 7,181 (+44%) |
+| Buddha | Rock | 2 (20%) | 22.1% | 11.6% | 5,967 (+19%) |
+| Napoleon | LAG | 1 (10%) | 43.9% | 6.1% | 5,524 (+10%) |
+
+**Findings:** TAG dominates (40% win rate). Station survives longest (highest avg stack). LAG burns out fastest despite highest aggression. Matches real poker dynamics: TAG > Station > Rock > LAG.
+
+Post-flop aggression shows clear differentiation:
+- Napoleon (LAG): 52.6% raise — bets over half the time
+- Joan of Arc (TAG): 36.6% raise — solid value betting
+- Buddha (Rock): 26.4% raise, 45.7% check — very passive
+- Alice (Station): 30.6% raise, 45.9% check — check-call pattern
+
+### Experiment 113853: Archetype Spectrum + CaseBot
+
+| Player | Archetype | Wins (of 10) | Raise% | Fold% | Avg Stack |
+|---|---|---|---|---|---|
+| **CaseBot** | RuleBot | **3 (30%)** | — | — | — |
+| Napoleon | LAG | 2 (20%) | 42.8% | 8.6% | 6,185 |
+| Alice | Station | 2 (20%) | 21.5% | 10.7% | 7,790 |
+| Buddha | Rock | 2 (20%) | 16.5% | 13.8% | 6,748 |
+| Joan of Arc | TAG | 1 (10%) | 19.7% | 13.5% | 6,432 |
+
+**Findings:** CaseBot is the strongest individual performer (30% win rate in a 5-player field vs 20% expected). Adding CaseBot compressed all LLM archetypes downward — TAG dropped from 40% to 10% wins. CaseBot's deterministic strategy exploits the LLM players' remaining leaks. Alice (Station) has highest avg stack (7,790), confirming calling stations are hard to bluff out even for rule-based play.
+
+### Option Ordering Experiment (113850, completed)
+
+3-way comparison of option presentation order (10 tournaments each):
+
+| Variant | raise% | call% | check% | fold% | all_in% |
+|---|---|---|---|---|---|
+| **default** | **37.0%** | 28.1% | 23.8% | **9.6%** | 2.4% |
+| ev_descending | 37.0% | 17.1% | 21.5% | 22.8% | 1.6% |
+| shuffle | 29.1% | 18.7% | 21.8% | 26.4% | 4.1% |
+
+**Conclusion:** Default ordering is best. ev_descending barely changes raise rate but doubles fold rate (9.6→22.8%) because +EV fold moves first too. Shuffle is worst — drops raise, increases fold. No ordering change needed.
+
+### Bugs Fixed
+
+1. **+EV promotion append-to-end bug** — promotion code removed best option and appended at end, moving fold to position 4. Fixed to replace in-place.
+2. **`randomize_option_order` replaced with `option_order` field** — now supports 'default', 'shuffle', 'ev_descending'.
+3. **test_prompt_config.py** — updated stale reference to `randomize_option_order`.
 
 ### Relevant Experiments
-- 113817: Before marginal zone (baseline)
-- 113819: After marginal zone (current)
+
+| ID | Name | Status | Key finding |
+|---|---|---|---|
+| 113845 | nudge_test | interrupted | Composed nudges too aggressive for nano (raise 30→60%) |
+| 113847 | range_gate_test | interrupted | Range gate improves preflop discipline (fold 13→20%) |
+| 113848 | postflop_tuning_v2 | completed | Baseline: 24% raise, 37% check postflop |
+| 113850 | option_order_test | completed | Default ordering wins — no change needed |
+| 113851 | archetype_leak_test | completed | Confirmed ~4% leak is archetype-driven |
+| 113852 | archetype_spectrum_test | completed | TAG dominates 4-way (40% wins) |
+| 113853 | archetype_vs_casebot_test | completed | CaseBot 30%, LLMs compressed to 10-20% each |
+
+### Previous Session Plans (Completed/Resolved)
+
+The post-flop value betting tasks from the previous session plan are now resolved:
+
+- **"Analyze value betting patterns more deeply"** — Done. 92% of checks are legitimate. 2.1% genuine leak.
+- **"Option C: Order options by EV"** — Tested (113850). Default ordering already best.
+- **"Option D: Change style tags based on hand strength"** — Implemented via STYLE_PROFILES (check_promotion, check_penalty_threshold).
+- The remaining ~4% leak is archetype-appropriate behavior for passive players, not a system defect.
 
 ## Session 2 (2026-02-10): Telemetry Fix & VPIP Analysis
 
