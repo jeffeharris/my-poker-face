@@ -1,0 +1,35 @@
+{
+  "name": "archetype_vs_casebot_rangegate",
+  "description": "Same as archetype_vs_casebot_test but with preflop_range_gate enabled. Tests whether range-gating fixes compressed VPIP across archetypes by downgrading EV labels for out-of-range hands.",
+  "hypothesis": "Range gating will spread VPIP across archetypes: Rock (Buddha) ~30-40%, TAG (Joan) ~45-55%, Station (Alice) ~70-80%, LAG (Napoleon) ~75-85%. Without it, all cluster at 60-73%.",
+  "tags": ["archetype", "casebot", "spectrum", "lean-bounded", "range-gate"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 5,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Joan of Arc", "Buddha", "Alice", "Napoleon", "CaseBot"],
+  "player_types": {
+    "Joan of Arc": {"type": "hybrid"},
+    "Buddha": {"type": "hybrid"},
+    "Alice": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "archetype-vs-casebot-rangegate",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "option_order": "default",
+      "preflop_range_gate": true
+    }
+  },
+  "random_seed": 42
+}
