@@ -190,10 +190,10 @@ STYLE_PROFILES = {
 
 # Style hint text for lean prompt injection
 STYLE_HINTS = {
-    'tight_passive': "Play tight — fold marginal hands, only continue with strong holdings.",
-    'tight_aggressive': "Play aggressively with strong hands — bet for value, pressure opponents.",
+    'tight_passive': "Fold most hands. Only continue with strong holdings.",
+    'tight_aggressive': "Fold weak hands. When you do play, bet aggressively for value.",
     'loose_passive': "See more flops — call liberally, but don't overcommit without a hand.",
-    'loose_aggressive': "",
+    'loose_aggressive': "Play many hands and apply pressure — raise or fold, avoid flat calls.",
     'default': "",
 }
 
