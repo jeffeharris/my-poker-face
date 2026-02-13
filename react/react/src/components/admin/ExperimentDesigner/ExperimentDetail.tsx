@@ -28,7 +28,7 @@ import {
   FlaskRound,
 } from 'lucide-react';
 import { LiveMonitoringView } from './monitoring';
-import { config } from '../../../config';
+import { adminFetch } from '../../../utils/api';
 import { formatDate, formatLatency, formatCost } from '../../../utils/formatters';
 import { logger } from '../../../utils/logger';
 import { STATUS_CONFIG_LARGE as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
@@ -139,8 +139,8 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const fetchExperiment = useCallback(async () => {
     try {
       const [expResponse, gamesResponse] = await Promise.all([
-        fetch(`${config.API_URL}/api/experiments/${experimentId}`),
-        fetch(`${config.API_URL}/api/experiments/${experimentId}/games`),
+        adminFetch(`/api/experiments/${experimentId}`),
+        adminFetch(`/api/experiments/${experimentId}/games`),
       ]);
 
       const expData = await expResponse.json();
@@ -171,8 +171,8 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const fetchStalledVariants = useCallback(async () => {
     if (!experimentId) return;
     try {
-      const response = await fetch(
-        `${config.API_URL}/api/experiments/${experimentId}/stalled?threshold_minutes=5`
+      const response = await adminFetch(
+        `/api/experiments/${experimentId}/stalled?threshold_minutes=5`
       );
       const data = await response.json();
       if (data.success) {
@@ -187,8 +187,8 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const handleResumeVariant = async (variantId: number) => {
     setResumingVariants((prev) => new Set(prev).add(variantId));
     try {
-      const response = await fetch(
-        `${config.API_URL}/api/experiments/${experimentId}/variants/${variantId}/resume`,
+      const response = await adminFetch(
+        `/api/experiments/${experimentId}/variants/${variantId}/resume`,
         { method: 'POST' }
       );
       const data = await response.json();
@@ -261,7 +261,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const handlePause = async () => {
     setPauseLoading(true);
     try {
-      const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/pause`, {
+      const response = await adminFetch(`/api/experiments/${experimentId}/pause`, {
         method: 'POST',
       });
       const data = await response.json();
@@ -282,7 +282,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const handleResume = async () => {
     setResumeLoading(true);
     try {
-      const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/resume`, {
+      const response = await adminFetch(`/api/experiments/${experimentId}/resume`, {
         method: 'POST',
       });
       const data = await response.json();
@@ -305,7 +305,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
     try {
       const isArchived = experiment?.tags?.includes('_archived');
       const endpoint = isArchived ? 'unarchive' : 'archive';
-      const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/${endpoint}`, {
+      const response = await adminFetch(`/api/experiments/${experimentId}/${endpoint}`, {
         method: 'POST',
       });
       const data = await response.json();

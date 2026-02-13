@@ -12,7 +12,7 @@ import { DEFAULT_EXPERIMENT_CONFIG, DEFAULT_REPLAY_CONFIG } from './types';
 
 /** Extended experiment type with 'undetermined' for initial state */
 type ExperimentTypeState = ExperimentType | 'undetermined';
-import { config as appConfig } from '../../../config';
+import { adminFetch } from '../../../utils/api';
 import { logger } from '../../../utils/logger';
 import { generateSeed } from './seedWords';
 
@@ -209,7 +209,7 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
   useEffect(() => {
     const fetchLatestSession = async () => {
       try {
-        const response = await fetch(`${appConfig.API_URL}/api/experiments/chat/latest`);
+        const response = await adminFetch('/api/experiments/chat/latest');
         if (!response.ok) {
           return;
         }
@@ -258,9 +258,8 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
     // Archive the pending session
     if (pendingSession) {
       try {
-        await fetch(`${appConfig.API_URL}/api/experiments/chat/archive`, {
+        await adminFetch('/api/experiments/chat/archive', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: pendingSession.session_id }),
         });
       } catch (error) {
