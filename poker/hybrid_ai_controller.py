@@ -16,6 +16,7 @@ Benefits:
 
 import json
 import logging
+import random
 from typing import Dict, List, Optional
 
 from .controllers import AIPlayerController, _get_canonical_hand, card_to_string
@@ -30,6 +31,7 @@ from .bounded_options import (
     apply_emotional_window_shift,
     get_emotional_shift,
 )
+from .nudge_phrases import apply_composed_nudges
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 from .hand_ranges import (
     calculate_equity_vs_ranges,
@@ -54,7 +56,7 @@ class HybridAIController(AIPlayerController):
     Overrides _get_ai_decision to present bounded options to the LLM.
     """
 
-    LEAN_SYSTEM_PROMPT = "You are a poker player. Pick one option. Respond with JSON."
+    LEAN_SYSTEM_PROMPT = 'You are a poker player. Pick one option. Return exactly {"choice": <number>} where <number> is your pick.'
 
     def __init__(
         self,
@@ -204,12 +206,21 @@ class HybridAIController(AIPlayerController):
                 'check' if 'check' in player_options else 'fold'
             )
 
-        # Layer 6: Emotional window shift
+        # Layer 5.5: Composed nudges (replace raw rationale with playstyle phrases)
+        if getattr(self.prompt_config, 'composed_nudges', False):
+            options = apply_composed_nudges(options, profile_key)
+
+        # Layer 6: Emotional window shift (may override nudge rationale at moderate+)
         emotional_shift = get_emotional_shift(self.psychology)
         if emotional_shift.severity != 'none':
             options = apply_emotional_window_shift(
                 options, emotional_shift, rule_context, profile,
             )
+
+        # Option order randomization (local RNG per project convention)
+        if getattr(self.prompt_config, 'randomize_option_order', False):
+            rng = random.Random()
+            rng.shuffle(options)
 
         # Swap system prompt to minimal (covers both Phase 0 and Phase 1)
         original_system_message = self.assistant.system_message
@@ -290,16 +301,21 @@ class HybridAIController(AIPlayerController):
 
         parts.append("")
 
-        # Numbered options with EV labels
+        # Numbered options
+        use_nudges = getattr(self.prompt_config, 'composed_nudges', False)
         for i, opt in enumerate(options, 1):
             action_str = opt.action.upper()
             if opt.action == 'raise' and opt.raise_to > 0:
                 raise_bb = opt.raise_to / big_blind if big_blind > 0 else opt.raise_to
                 action_str += f" {raise_bb:.0f}BB"
-            parts.append(f"{i}. {action_str}  [{opt.ev_estimate}]  {opt.rationale}")
+            if use_nudges:
+                # Nudge format: action — phrase (no EV bracket)
+                parts.append(f"{i}. {action_str} \u2014 {opt.rationale}")
+            else:
+                parts.append(f"{i}. {action_str}  [{opt.ev_estimate}]  {opt.rationale}")
 
         parts.append("")
-        parts.append(f'Pick 1-{len(options)}: {{"choice": N}}')
+        parts.append(f'Respond with JSON: {{"choice": N}} — replace N with your pick (1-{len(options)})')
 
         return "\n".join(parts)
 
@@ -705,7 +721,12 @@ CRITICAL RULES:
         """Validate LLM choice and build response dict.
 
         Falls back to the highest +EV option if LLM response is invalid.
+        Tries multiple extraction strategies before giving up:
+        1. Direct int conversion (handles "2" and 2)
+        2. First digit extraction from fuzzy text ("option 2", "I pick 1")
         """
+        import re
+
         default_option = self._get_best_fallback_option(options)
 
         if response is None:
@@ -718,13 +739,25 @@ CRITICAL RULES:
             logger.warning(f"[HYBRID] No choice in response, using fallback")
             return self._option_to_response(default_option, response)
 
+        # Strategy 1: direct int conversion (handles int and string digits)
+        choice_idx = None
         try:
-            choice_idx = int(choice) - 1  # Convert to 0-indexed
-            if choice_idx < 0 or choice_idx >= len(options):
-                logger.warning(f"[HYBRID] Choice {choice} out of range [1-{len(options)}], using fallback")
-                return self._option_to_response(default_option, response)
+            choice_idx = int(choice) - 1
         except (ValueError, TypeError):
-            logger.warning(f"[HYBRID] Invalid choice value: {choice}, using fallback")
+            pass
+
+        # Strategy 2: extract first digit from fuzzy text ("option 2", "I pick 1", "N")
+        if choice_idx is None and isinstance(choice, str):
+            match = re.search(r'\d+', choice)
+            if match:
+                try:
+                    choice_idx = int(match.group()) - 1
+                except (ValueError, TypeError):
+                    pass
+
+        # Validate range
+        if choice_idx is None or choice_idx < 0 or choice_idx >= len(options):
+            logger.warning(f"[HYBRID] Invalid/out-of-range choice: {choice!r} (1-{len(options)}), using fallback")
             return self._option_to_response(default_option, response)
 
         selected = options[choice_idx]

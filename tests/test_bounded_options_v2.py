@@ -1518,5 +1518,221 @@ class TestClassifyFacingBetCaseBoundaries:
         assert _classify_facing_bet_case(0.95, 0.05) == 'B1'
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# COMPOSED NUDGES
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+from poker.nudge_phrases import (
+    _classify_nudge_key,
+    apply_composed_nudges,
+    NUDGE_PHRASES,
+)
+
+
+class TestNudgeKeyClassification:
+    """Test _classify_nudge_key maps (action, ev, style_tag) correctly."""
+
+    def test_raise_plus_ev_is_raise_value(self):
+        opt = BoundedOption('raise', 200, 'value bet', '+EV', 'standard')
+        assert _classify_nudge_key(opt) == 'raise_value'
+
+    def test_raise_neutral_is_raise_probe(self):
+        opt = BoundedOption('raise', 200, 'probe', 'neutral', 'standard')
+        assert _classify_nudge_key(opt) == 'raise_probe'
+
+    def test_raise_minus_ev_aggressive_is_raise_bluff(self):
+        opt = BoundedOption('raise', 200, 'bluff', '-EV', 'aggressive')
+        assert _classify_nudge_key(opt) == 'raise_bluff'
+
+    def test_raise_marginal_aggressive_is_raise_bluff(self):
+        opt = BoundedOption('raise', 200, 'semi-bluff', 'marginal', 'aggressive')
+        assert _classify_nudge_key(opt) == 'raise_bluff'
+
+    def test_raise_minus_ev_standard_is_raise_probe(self):
+        """Non-aggressive -EV raise is probe, not bluff."""
+        opt = BoundedOption('raise', 200, 'probe', '-EV', 'standard')
+        assert _classify_nudge_key(opt) == 'raise_probe'
+
+    def test_call_plus_ev_is_call_strong(self):
+        opt = BoundedOption('call', 0, 'good call', '+EV', 'standard')
+        assert _classify_nudge_key(opt) == 'call_strong'
+
+    def test_call_marginal_is_call_close(self):
+        opt = BoundedOption('call', 0, 'borderline', 'marginal', 'standard')
+        assert _classify_nudge_key(opt) == 'call_close'
+
+    def test_call_minus_ev_is_call_light(self):
+        opt = BoundedOption('call', 0, 'speculative', '-EV', 'standard')
+        assert _classify_nudge_key(opt) == 'call_light'
+
+    def test_call_neutral_is_call_light(self):
+        opt = BoundedOption('call', 0, 'neutral call', 'neutral', 'standard')
+        assert _classify_nudge_key(opt) == 'call_light'
+
+    def test_check_trappy_is_check_slow(self):
+        opt = BoundedOption('check', 0, 'trap', 'neutral', 'trappy')
+        assert _classify_nudge_key(opt) == 'check_slow'
+
+    def test_check_minus_ev_is_check_passive(self):
+        opt = BoundedOption('check', 0, 'passive', '-EV', 'standard')
+        assert _classify_nudge_key(opt) == 'check_passive'
+
+    def test_check_marginal_is_check_passive(self):
+        opt = BoundedOption('check', 0, 'marginal check', 'marginal', 'standard')
+        assert _classify_nudge_key(opt) == 'check_passive'
+
+    def test_check_neutral_is_check_free(self):
+        opt = BoundedOption('check', 0, 'free card', 'neutral', 'standard')
+        assert _classify_nudge_key(opt) == 'check_free'
+
+    def test_check_plus_ev_is_check_free(self):
+        opt = BoundedOption('check', 0, 'free card', '+EV', 'standard')
+        assert _classify_nudge_key(opt) == 'check_free'
+
+    def test_fold_plus_ev_is_fold_correct(self):
+        opt = BoundedOption('fold', 0, 'correct fold', '+EV', 'conservative')
+        assert _classify_nudge_key(opt) == 'fold_correct'
+
+    def test_fold_neutral_is_fold_correct(self):
+        opt = BoundedOption('fold', 0, 'ok fold', 'neutral', 'conservative')
+        assert _classify_nudge_key(opt) == 'fold_correct'
+
+    def test_fold_minus_ev_is_fold_tough(self):
+        opt = BoundedOption('fold', 0, 'giving up equity', '-EV', 'conservative')
+        assert _classify_nudge_key(opt) == 'fold_tough'
+
+    def test_all_in_always_maps_to_all_in(self):
+        opt = BoundedOption('all_in', 1000, 'ship it', '+EV', 'aggressive')
+        assert _classify_nudge_key(opt) == 'all_in'
+
+    def test_all_in_regardless_of_ev(self):
+        for ev in ('+EV', 'neutral', '-EV', 'marginal'):
+            opt = BoundedOption('all_in', 1000, 'ship', ev, 'standard')
+            assert _classify_nudge_key(opt) == 'all_in'
+
+
+class TestApplyComposedNudges:
+    """Test apply_composed_nudges replaces rationale with nudge phrases."""
+
+    def test_replaces_rationale(self):
+        """Nudge rationale should differ from original raw rationale."""
+        options = [
+            BoundedOption('raise', 200, 'Value raise (48% equity)', '+EV', 'standard'),
+            BoundedOption('call', 0, 'Call 1.0 BB — clearly profitable', '+EV', 'standard'),
+        ]
+        result = apply_composed_nudges(options, 'tight_aggressive')
+        for opt in result:
+            # Should be from nudge phrase pool, not original
+            assert opt.rationale != options[0].rationale or opt.action != 'raise'
+
+    def test_uses_profile_phrases(self):
+        """Phrases should come from the specified profile's pool."""
+        options = [
+            BoundedOption('raise', 200, 'original', '+EV', 'standard'),
+        ]
+        result = apply_composed_nudges(options, 'loose_aggressive')
+        lag_phrases = NUDGE_PHRASES['loose_aggressive']['raise_value']
+        default_phrases = NUDGE_PHRASES['default']['raise_value']
+        assert result[0].rationale in lag_phrases or result[0].rationale in default_phrases
+
+    def test_falls_through_to_default(self):
+        """Unknown profile key should fall through to default phrases."""
+        options = [
+            BoundedOption('call', 0, 'original', '+EV', 'standard'),
+        ]
+        result = apply_composed_nudges(options, 'nonexistent_profile')
+        default_phrases = NUDGE_PHRASES['default']['call_strong']
+        assert result[0].rationale in default_phrases
+
+    def test_preserves_action_and_ev(self):
+        """Nudges should only replace rationale, not action/ev/raise_to/style_tag."""
+        options = [
+            BoundedOption('raise', 300, 'original text', '+EV', 'aggressive'),
+        ]
+        result = apply_composed_nudges(options, 'default')
+        assert result[0].action == 'raise'
+        assert result[0].raise_to == 300
+        assert result[0].ev_estimate == '+EV'
+        assert result[0].style_tag == 'aggressive'
+
+    def test_all_profiles_have_all_keys(self):
+        """Every profile should cover all nudge keys (or fall through to default)."""
+        all_keys = set(NUDGE_PHRASES['default'].keys())
+        for profile_name, phrases in NUDGE_PHRASES.items():
+            for key in all_keys:
+                # Either profile has it or default has it
+                pool = phrases.get(key) or NUDGE_PHRASES['default'].get(key)
+                assert pool, f"Profile {profile_name} missing key {key} with no default fallback"
+
+    def test_multiple_options_get_nudged(self):
+        """All options in a list should get nudge phrases."""
+        options = [
+            BoundedOption('fold', 0, 'save chips', '+EV', 'conservative'),
+            BoundedOption('call', 0, 'borderline', 'marginal', 'standard'),
+            BoundedOption('raise', 200, 'value bet', '+EV', 'standard'),
+        ]
+        result = apply_composed_nudges(options, 'tight_aggressive')
+        assert len(result) == 3
+        for opt in result:
+            assert opt.rationale  # Each option has a non-empty nudge
+
+    def test_empty_options_returns_empty(self):
+        """Empty input returns empty output."""
+        result = apply_composed_nudges([], 'default')
+        assert result == []
+
+    def test_phrase_variety(self):
+        """With enough iterations, different phrases should appear (non-deterministic)."""
+        options = [BoundedOption('raise', 200, 'original', '+EV', 'standard')]
+        seen = set()
+        for _ in range(50):
+            result = apply_composed_nudges(options, 'default')
+            seen.add(result[0].rationale)
+        # Default raise_value has 2 phrases, should see both
+        assert len(seen) >= 2, f"Expected phrase variety, only saw: {seen}"
+
+
+class TestNudgePhraseCoverage:
+    """Verify NUDGE_PHRASES dict is complete and well-formed."""
+
+    def test_default_has_all_12_keys(self):
+        """Default profile must have all 12 nudge categories."""
+        expected = {
+            'raise_value', 'raise_probe', 'raise_bluff',
+            'call_strong', 'call_close', 'call_light',
+            'check_slow', 'check_passive', 'check_free',
+            'fold_correct', 'fold_tough', 'all_in',
+        }
+        assert set(NUDGE_PHRASES['default'].keys()) == expected
+
+    def test_all_phrases_under_10_words(self):
+        """All phrases should be under 10 words (per hybrid-ai learnings)."""
+        for profile, categories in NUDGE_PHRASES.items():
+            for key, phrases in categories.items():
+                for phrase in phrases:
+                    word_count = len(phrase.split())
+                    assert word_count <= 10, (
+                        f"Phrase too long ({word_count} words) in "
+                        f"{profile}.{key}: '{phrase}'"
+                    )
+
+    def test_all_phrases_non_empty(self):
+        """No empty phrases."""
+        for profile, categories in NUDGE_PHRASES.items():
+            for key, phrases in categories.items():
+                assert len(phrases) >= 1, f"Empty phrase list: {profile}.{key}"
+                for phrase in phrases:
+                    assert phrase.strip(), f"Empty phrase string: {profile}.{key}"
+
+    def test_all_five_profiles_present(self):
+        """All five style profiles should be in NUDGE_PHRASES."""
+        expected_profiles = {
+            'default', 'tight_aggressive', 'tight_passive',
+            'loose_aggressive', 'loose_passive',
+        }
+        assert set(NUDGE_PHRASES.keys()) == expected_profiles
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

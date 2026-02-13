@@ -88,6 +88,12 @@ class PromptConfig:
     # Hand plan — generate per-hand strategy via Phase 0 before lean decisions
     hand_plan: bool = False
 
+    # Composed nudges — replace raw EV labels with playstyle-aware phrases
+    composed_nudges: bool = False
+
+    # Randomize option order — shuffle options to eliminate position bias
+    randomize_option_order: bool = False
+
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts
 
