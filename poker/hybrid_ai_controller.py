@@ -721,7 +721,7 @@ class HybridAIController(AIPlayerController):
             'player_stack': player.stack,
             'stack_bb': player.stack / big_blind if big_blind > 0 else 100,
             'pot_total': pot_total,
-            'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else float('inf'),
+            'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
             'cost_to_call': cost_to_call,
             'already_bet': player.bet,
             'highest_bet': game_state.highest_bet,

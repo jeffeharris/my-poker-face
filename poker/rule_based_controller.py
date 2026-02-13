@@ -796,7 +796,7 @@ class RuleBasedController:
             'player_stack': player.stack,
             'stack_bb': player.stack / big_blind if big_blind > 0 else 100,
             'pot_total': pot_total,
-            'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else float('inf'),
+            'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
             'cost_to_call': cost_to_call,
             'highest_bet': highest_bet,
             'min_raise': min_raise_to,
@@ -874,7 +874,7 @@ class RuleBasedController:
             log_level,
             f"[RULE_BOT] {self.player_name} ({self.config.strategy}): "
             f"{decision['action']} (equity={context['equity']:.2f}, "
-            f"pot_odds={context['pot_odds']:.1f}, phase={context['phase']})"
+            f"pot_odds={context.get('pot_odds') or 0:.1f}, phase={context['phase']})"
         )
 
     # ========================================================================
