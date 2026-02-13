@@ -265,10 +265,14 @@ class HybridAIController(AIPlayerController):
                 options, emotional_shift, rule_context, profile,
             )
 
-        # Option order randomization (local RNG per project convention)
-        if getattr(self.prompt_config, 'randomize_option_order', False):
+        # Option ordering (local RNG per project convention)
+        option_order = getattr(self.prompt_config, 'option_order', 'default')
+        if option_order == 'shuffle':
             rng = random.Random()
             rng.shuffle(options)
+        elif option_order == 'ev_descending':
+            ev_rank = {'+EV': 0, 'neutral': 1, 'marginal': 2, '-EV': 3}
+            options.sort(key=lambda o: ev_rank.get(o.ev_estimate, 4))
 
         # Swap system prompt to minimal (covers both Phase 0 and Phase 1)
         original_system_message = self.assistant.system_message

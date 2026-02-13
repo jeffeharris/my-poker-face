@@ -712,14 +712,15 @@ def generate_bounded_options(
                 else:
                     promoted_rationale = best.rationale + " (recommended)"
 
-                options = [o for o in options if o != best]
-                options.append(BoundedOption(
+                promoted = BoundedOption(
                     action=best.action,
                     raise_to=best.raise_to,
                     rationale=promoted_rationale,
                     ev_estimate="+EV" if block_fold else best.ev_estimate,
                     style_tag=best.style_tag
-                ))
+                )
+                # Replace in-place to preserve original position
+                options = [promoted if o == best else o for o in options]
 
     # === Limit to 2-4 options ===
     if len(options) > 4:
