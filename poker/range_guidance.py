@@ -15,16 +15,31 @@ from .archetypes import archetype_label_from_anchors
 from .hand_tiers import PREMIUM_HANDS, is_hand_in_range
 
 
-# Position-adjusted range clamps (PRD §18.4)
-# These ensure no personality plays unrealistic ranges
+# Position offsets applied to effective_looseness to get range_pct.
+# Negative = tighter (early position), positive = looser (late position).
+# Looseness IS the range — offsets just shift it by position.
+POSITION_OFFSETS: Dict[str, float] = {
+    'early': -0.15,       # UTG: play 15pp tighter than baseline
+    'middle': -0.08,      # MP: play 8pp tighter
+    'late': 0.00,         # CO: play at baseline
+    'button': +0.05,      # BTN: play 5pp wider
+    'small_blind': -0.05,   # SB: play 5pp tighter (out of position)
+    'big_blind': -0.05,     # BB: play 5pp tighter
+    'blinds': -0.05,      # Generic blinds reference
+}
+
+# Floor: minimum range % for any position (even the tightest rock plays something)
+RANGE_FLOOR = 0.05
+
+# Legacy: POSITION_CLAMPS kept for backward compat (tests reference it)
 POSITION_CLAMPS: Dict[str, Tuple[float, float]] = {
-    'early': (0.08, 0.35),      # UTG: 8-35%
-    'middle': (0.10, 0.45),     # MP: 10-45%
-    'late': (0.15, 0.65),       # CO: 15-65%
-    'button': (0.15, 0.65),     # BTN: 15-65%
-    'small_blind': (0.12, 0.55),  # SB: 12-55%
-    'big_blind': (0.12, 0.55),    # BB: 12-55%
-    'blinds': (0.12, 0.55),     # Generic blinds reference
+    'early': (0.08, 0.35),
+    'middle': (0.10, 0.45),
+    'late': (0.15, 0.65),
+    'button': (0.15, 0.65),
+    'small_blind': (0.12, 0.55),
+    'big_blind': (0.12, 0.55),
+    'blinds': (0.12, 0.55),
 }
 
 # Base opening ranges by position (for neutral 0.5 looseness)
@@ -90,12 +105,10 @@ def normalize_position(position: str) -> str:
 
 def looseness_to_range_pct(effective_looseness: float, position: str) -> float:
     """
-    Convert effective looseness to position-clamped range percentage.
+    Convert effective looseness to position-adjusted range percentage.
 
-    This is the core range calculation (PRD §18.4):
-    1. Get position min/max clamps
-    2. Map looseness linearly to [min, max]
-    3. Clamp OUTPUT to position bounds
+    Looseness IS the range — position offsets shift it so players are
+    tighter from early position and looser from late position.
 
     Args:
         effective_looseness: Looseness value (0.0 = tight, 1.0 = loose)
@@ -103,16 +116,15 @@ def looseness_to_range_pct(effective_looseness: float, position: str) -> float:
         position: Table position
 
     Returns:
-        Range percentage clamped to position bounds (0.0 to 1.0)
+        Range percentage floored at RANGE_FLOOR (0.0 to 1.0)
     """
     pos_key = normalize_position(position)
-    min_range, max_range = POSITION_CLAMPS.get(pos_key, (0.10, 0.50))
+    offset = POSITION_OFFSETS.get(pos_key, 0.0)
 
-    # Linear mapping: looseness 0 -> min_range, looseness 1 -> max_range
-    range_pct = min_range + (max_range - min_range) * effective_looseness
+    range_pct = effective_looseness + offset
 
-    # Clamp to position bounds (critical: clamp OUTPUT, not INPUT)
-    return max(min_range, min(max_range, range_pct))
+    # Floor only — no ceiling. Let loose players be loose.
+    return max(RANGE_FLOOR, min(1.0, range_pct))
 
 
 def get_range_percentage(tightness: float, position: str) -> float:
