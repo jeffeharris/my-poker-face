@@ -2,7 +2,7 @@
 purpose: Progress notes and next steps for range gate VPIP differentiation
 type: guide
 created: 2026-02-13
-last_updated: 2026-02-13
+last_updated: 2026-02-14
 ---
 
 # Range Gate: Progress & Next Steps
@@ -36,6 +36,45 @@ Key changes merged:
 | 113860 (old clamps) | ON | 11.3pp | Gate COMPRESSED spread |
 | 113861 (new offsets) | OFF | 20.0pp | Slightly better baseline |
 | 113861 (new offsets) | ON | 19.7pp | Gate no longer compresses |
+
+## What We Did (2026-02-14)
+
+### 1. Board Read Injection (`poker/board_analyzer.py`, `poker/hybrid_ai_controller.py`)
+TAG/default profiles now see a 1-line board texture read in postflop lean prompts.
+Suppressed in extreme tilted/shaken/dissociated states. 68 new tests, all passing.
+Committed as `aa461cab`.
+
+### 2. `nudge_show_ev` Flag (`poker/prompt_config.py`)
+New `PromptConfig` field that shows EV labels alongside nudge phrases when
+`composed_nudges=True`. Committed as `94e33138`.
+
+### 3. Nudge/Rangegate 4-Arm A/B (Experiment 113863)
+
+| Variant | Napoleon (LAG) | Alice (TAG) | Joan (TAG) | Buddha (TP) | Spread |
+|---------|---------------|-------------|------------|-------------|--------|
+| lean-nudges (nudges only) | 73.4% | 33.5% | 33.0% | 26.2% | **47.7pp** |
+| lean-raw-ev (EV only) | 61.8% | 40.9% | 40.0% | 41.0% | **21.5pp** |
+| lean-nudges-ev (both) | 58.5% | 21.4% | 24.1% | 18.8% | **40.0pp** |
+| lean-nudges-rangegate | 80.3% | 36.3% | 34.6% | 25.9% | **54.4pp** |
+
+**Key findings:**
+- **EV labels act as a GTO anchor** — they flatten all players toward ~40% VPIP (21.5pp spread).
+  Buddha/Alice/Joan all ~40% with raw EV, losing their tight personality completely.
+- **Nudges alone** give strong spread (47.7pp) because the LLM follows personality-specific phrases.
+- **Nudges + EV** produces odd effects: tight players get ULTRA-tight (Buddha 18.8%) because
+  `[-EV]` + "Discipline pays" double-reinforces folding. Napoleon also drops (58.5%).
+- **Nudges + rangegate is the clear winner** (54.4pp): Napoleon 80.3% — range gate tells him
+  his marginal hands ARE in range, and nudges give personality-specific "fire away" guidance.
+- **Decision quality trade-off**: lean-raw-ev has lowest blunder rate (27.8%) and EV lost (16.2k).
+  Nudges-rangegate has higher blunder rate (41.2%) but much better personality differentiation.
+  lean-nudges-ev is worst of all worlds — highest blunder rate (49.2%) WITH compressed Napoleon VPIP.
+
+**Postflop fold rates** — lean-raw-ev has uniformly low postflop folds (3-6% for all players).
+lean-nudges-rangegate shows better postflop differentiation (3.6% Napoleon vs 16.4% Buddha).
+
+**Conclusion**: Profile-aware EV label visibility is confirmed as the next priority. The experiment
+proves EV labels should be hidden for LAG profiles (nudges are sufficient) and shown for TAG/Rock
+profiles (they benefit from math signals). Nudges + rangegate without EV labels is the target config.
 
 ## Remaining Bottleneck: In-Range EV Labels
 
@@ -99,10 +138,15 @@ Run `rangegate_ab_wider_tiers.json` config with EV label visibility changes.
 Expected: Napoleon VPIP 60-80%, Joan 35-50%, Buddha 25-40%, 30+pp spread.
 Use `shuffle_seating: true` to remove position bias confound.
 
-### 4. Consider Profile-Aware (recommended) Tag
+### 4. Board Read in Experiments
+Board read feature is committed but not yet tested in an experiment. Design an
+experiment with `board_read` to see if it affects postflop fold rates for TAG profiles.
+
+### 5. Consider Profile-Aware (recommended) Tag
 Currently all profiles use the same logic for the "(recommended)" tag on fold.
 Could make this profile-aware: LAG profiles never recommend fold for in-range hands.
-This may be unnecessary if EV label hiding (step 1) solves the problem.
+Experiment 113863 suggests this may be unnecessary if EV label hiding (step 1) solves
+the problem — lean-nudges-rangegate already achieves 54.4pp spread without it.
 
 ## Key Files
 - `poker/hand_tiers.py` — tier sets and `is_hand_in_range()`
