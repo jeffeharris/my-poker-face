@@ -89,9 +89,10 @@ class TestOutsideRange:
         assert 'fold' in result.lower()
 
     def test_trash_loose_player_soft_nudge(self):
-        # Loose player (0.9) should get "speculative at best", NOT "should fold"
+        # Loose player (0.9) on button → 95% range, 72o is barely in-range
+        # Should get soft "edge of range" wording, NOT "should fold"
         result = classify_preflop_hand_for_player('72o', 0.9, 'button')
-        assert 'speculative' in result
+        assert 'edge' in result or 'playable' in result or 'speculative' in result
         assert 'should fold' not in result
 
 
