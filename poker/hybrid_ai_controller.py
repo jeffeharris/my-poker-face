@@ -1042,6 +1042,15 @@ CRITICAL RULES:
                 'community_cards': context.get('community_cards', []),
                 'player_hand': context.get('hole_cards', []),
                 'valid_actions': context.get('valid_actions', []),
+                # Rule context fields for replay experiments
+                'position': context.get('position'),
+                'min_raise': context.get('min_raise'),
+                'max_raise': context.get('max_raise'),
+                'big_blind': big_blind,
+                'canonical_hand': context.get('canonical_hand'),
+                'num_opponents': context.get('num_opponents'),
+                'effective_stack': context.get('effective_stack'),
+                'spr': context.get('spr'),
                 # Emotional window shift tracking
                 'emotional_shift': emotional_shift.to_dict(),
                 # Capture ID callback for post-update

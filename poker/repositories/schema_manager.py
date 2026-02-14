@@ -45,7 +45,8 @@ logger = logging.getLogger(__name__)
 # v74: Add bet_sizing column to player_decision_analysis
 # v75: Add deck_seed column to hand_history for deterministic replay
 # v76: Add metadata_json to prompt_captures for enricher data (bounded_options, equity, etc.)
-SCHEMA_VERSION = 76
+# v77: Add bounded_replay_results table for multi-sample option-framing replay experiments
+SCHEMA_VERSION = 77
 
 
 
@@ -1069,6 +1070,7 @@ class SchemaManager:
             74: (self._migrate_v74_add_bet_sizing, "Add bet_sizing column to player_decision_analysis"),
             75: (self._migrate_v75_add_deck_seed_to_hand_history, "Add deck_seed column to hand_history"),
             76: (self._migrate_v76_add_metadata_json, "Add metadata_json column to prompt_captures for enricher data"),
+            77: (self._migrate_v77_add_bounded_replay_results, "Add bounded_replay_results table for multi-sample replay experiments"),
         }
 
         with self._get_connection() as conn:
@@ -3351,3 +3353,37 @@ class SchemaManager:
             logger.debug("Added metadata_json column to prompt_captures")
 
         logger.info("Migration v76 complete: metadata_json added to prompt_captures")
+
+    def _migrate_v77_add_bounded_replay_results(self, conn: sqlite3.Connection) -> None:
+        """Migration v77: Add bounded_replay_results table for multi-sample replay experiments.
+
+        Stores results from replaying captured decisions through different option-framing
+        configs (raw-ev, nudges, rangegate) with multiple LLM samples per variant.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bounded_replay_results (
+                id INTEGER PRIMARY KEY,
+                experiment_id INTEGER NOT NULL,
+                capture_id INTEGER NOT NULL,
+                variant TEXT NOT NULL,
+                sample_number INTEGER NOT NULL,
+                option_config_json TEXT,
+                generated_options_json TEXT,
+                new_response TEXT,
+                choice_number INTEGER,
+                new_action TEXT,
+                new_raise_amount INTEGER,
+                reasoning TEXT,
+                provider TEXT,
+                model TEXT,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                latency_ms INTEGER,
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(experiment_id, capture_id, variant, sample_number)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bounded_replay_experiment ON bounded_replay_results(experiment_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bounded_replay_capture ON bounded_replay_results(capture_id)")
+        logger.info("Migration v77 complete: bounded_replay_results table created")
