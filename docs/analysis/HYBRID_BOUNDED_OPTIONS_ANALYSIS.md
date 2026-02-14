@@ -2,7 +2,123 @@
 purpose: Analysis of the Hybrid Bounded-Options AI decision system
 type: analysis
 created: 2026-02-09
-last_updated: 2026-02-13
+last_updated: 2026-02-14
+---
+
+## Session 5 (2026-02-14): VPIP Calibration — Style Hints, Hand Classification & Range Gate
+
+### Problem: All Players at 85-100% VPIP
+
+Despite the preflop equity fix (exp 8, range-based equity replacing flat 0.40), TAG players like Sherlock Holmes were still at 85-100% VPIP. Investigation revealed three compounding issues:
+
+1. **Style hints biased toward action** — TAG hint said "Play aggressively with strong hands — bet for value, pressure opponents" but never mentioned folding. The LLM read "play aggressively" and played every hand.
+2. **Nudge phrases made folds sound painful** — "Tough fold. Discipline." vs "Worth a stab. Test them." The LLM naturally gravitated toward the exciting option.
+3. **No hand context** — The LLM saw `Cards: 4s 3c` with no classification. Without "Bottom 10% of starting hands," it couldn't evaluate hand quality independently.
+
+### Fix 1: Rewrite Style Hints (bounded_options.py)
+
+| Profile | Before | After |
+|---------|--------|-------|
+| tight_aggressive | "Play aggressively with strong hands — bet for value, pressure opponents." | **"Fold weak hands. When you do play, bet aggressively for value."** |
+| tight_passive | "Play tight — fold marginal hands, only continue with strong holdings." | **"Fold most hands. Only continue with strong holdings."** |
+| loose_aggressive | "" (empty) | **"Play many hands and apply pressure — raise or fold, avoid flat calls."** |
+
+Key insight: TAG hint was only encoding the "A" (aggressive) and completely missing the "T" (tight).
+
+### Fix 2: Rewrite Nudge Phrases (nudge_phrases.py)
+
+| Category | Before | After |
+|----------|--------|-------|
+| fold_correct | "Save chips for a better spot" | **"Easy fold." / "Clear fold."** |
+| fold_tough | "Tough fold. Discipline." | **"Not your hand. Move on."** |
+| raise_probe | "Worth a stab." / "Test them." | **"Speculative raise." / "Thin value at best."** |
+| raise_bluff | "Represent strength." | **"Risky bluff."** |
+
+Philosophy: folds should sound decisive and confident; speculative raises should sound uncertain.
+
+### Fix 3: Hand Classification in Prompt (cherry-pick from daily/2026-02-07)
+
+Added `classify_preflop_hand()` output to the lean prompt. The LLM now sees:
+```
+Cards: 4s 3c
+Hand: 43o - Unconnected cards, Bottom 10% of starting hands
+Street: Pre Flop | Stack: 49 BB | Pot: 4.0 BB
+Fold weak hands. When you do play, bet aggressively for value.
+```
+
+Also added: street name, action history summary, and reasoning field in LLM response.
+
+### Fix 4: Range Gate — Position Offsets (cherry-pick from daily/2026-02-07)
+
+The old range gate had `POSITION_CLAMPS` with hard ceilings (early=35%, button=65%). Napoleon (looseness=0.79) was clamped to 35% from early position — playing like a TAG.
+
+Fix: replaced clamps with `POSITION_OFFSETS` (UTG=-15pp, BTN=+5pp). Extended hand tiers from TOP_35 to TOP_75 so loose archetypes have enough hands marked "in range."
+
+### Experiment Results
+
+#### Progression of Sherlock (TAG) VPIP across experiments:
+
+| Experiment | Change | Sherlock VPIP |
+|------------|--------|---------------|
+| 8 (baseline) | Range-based equity | 85-100% |
+| 9 | + Nudge phrase rework | **100%** (no effect) |
+| 10 | + Style hint rewrite | **87-93%** (small improvement) |
+| 11 | + Hand classification + reasoning | **35-50%** (breakthrough) |
+
+Hand classification was the key — the LLM needs explicit hand quality context to make fold decisions.
+
+#### Cross-Personality Validation (exp 12, different roster):
+
+| Player | Archetype | Target VPIP | Raw-EV | Nudges |
+|--------|-----------|-------------|--------|--------|
+| Sun Tzu | TAG (L=0.40) | 20-25% | **29%** | **25%** |
+| Abraham Lincoln | TP (L=0.22) | 10-15% | **39%** | **37%** |
+| Mark Twain | Default (L=0.62) | 25-35% | **29%** | **33%** |
+| Blackbeard | LAG (L=0.87) | 35-50% | **73%** | **50%** |
+
+Correct archetype ordering: Blackbeard (LAG) >> Mark Twain >> Sun Tzu (TAG). VPIP spread 25-45pp.
+
+#### 3-Way Comparison (exp 13): raw-ev vs nudges vs nudges+rangegate
+
+| Player | Archetype | raw-ev | nudges | nudges+rangegate |
+|--------|-----------|--------|--------|------------------|
+| Abraham Lincoln | TP | 44% | 40% | **6%** |
+| Mark Twain | Default | 17% | 16% | **41%** |
+| Sun Tzu | TAG | 33% | 39% | **56%** |
+| Blackbeard | LAG | 62% | 55% | **94%** |
+| VPIP spread | | 45pp | 39pp | **88pp** |
+
+Range gate massively amplifies differentiation (88pp spread) but overcorrects — Abe at 6% is too nitty, Blackbeard at 94% is too loose, and Sun Tzu/Mark Twain ordering flipped.
+
+### Seating Order Confound (exp 15)
+
+Shuffling seating order produced dramatically different VPIP numbers for the same players:
+
+| Player | Exp 13 nudges (original seat) | Exp 15 nudges (shuffled seat) |
+|--------|-------------------------------|-------------------------------|
+| Sun Tzu | 39% | **6%** |
+| Abraham Lincoln | 40% | **64%** |
+| Blackbeard | 55% | **88%** |
+| Mark Twain | 16% | **70%** |
+
+Position is a significant confound. Added `shuffle_seating` config option to `ExperimentConfig` — when enabled, seating is shuffled per tournament using deterministic seed (`random_seed + tournament_number`) for reproducible but varied positioning.
+
+### Commits
+
+| Hash | Description |
+|------|-------------|
+| `7f45def4` | fix: use range-based equity for preflop instead of hand tier buckets |
+| `4e3ddd35` | feat: enrich lean bounded prompt with street context and action history |
+| `a1eab49c` | fix: rewrite style hints and nudge phrases to reduce VPIP |
+| `1392b3e4` | feat: extend hand tiers to 75% and replace range clamps with position offsets |
+
+### Open Issues
+
+1. **Range gate overcorrects** — 88pp spread but wrong absolute values. Needs softer EV label biasing for in-range marginal hands.
+2. **Abraham Lincoln (TP) too loose without range gate** — 37-40% VPIP vs 10-15% target. The "Fold most hands" hint + hand classification isn't strong enough for very tight profiles.
+3. **Small sample sizes** — 10-hand tournaments with 2 per variant. Need larger runs (50+ hands, 10+ tournaments) for stable VPIP estimates.
+4. **Nudges vs raw-ev parity** — Both variants give similar VPIP numbers, suggesting hand classification is doing the heavy lifting and nudge phrasing has minimal incremental impact.
+
 ---
 
 ## Session 4 (2026-02-13): Post-Flop Check Rate Analysis, Archetype Rebalance & Centralized Classification
