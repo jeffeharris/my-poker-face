@@ -37,7 +37,6 @@ from .bounded_options import (
     get_emotional_shift,
 )
 from .nudge_phrases import apply_composed_nudges
-from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 from .hand_ranges import (
     calculate_equity_vs_ranges,
     build_opponent_info,
@@ -765,55 +764,39 @@ class HybridAIController(AIPlayerController):
         # Stack-to-pot ratio
         spr = effective_stack / pot_total if pot_total > 0 else float('inf')
 
-        # Get equity using range-based calculation (accounts for opponent actions/positions)
-        if community_cards:
-            # Build opponent info for range-based equity
-            opponent_infos = []
-            table_positions = game_state.table_positions
-            position_by_name = {name: pos for pos, name in table_positions.items()}
+        # Get equity using range-based calculation (works for both preflop and postflop)
+        opponent_infos = []
+        table_positions = game_state.table_positions
+        position_by_name = {name: pos for pos, name in table_positions.items()}
 
-            for opp in opponents:
-                opp_position = position_by_name.get(opp.name, "button")
+        for opp in opponents:
+            opp_position = position_by_name.get(opp.name, "button")
 
-                # Get observed stats from opponent model manager if available
-                opp_model_data = None
-                if self.opponent_model_manager:
-                    opp_model = self.opponent_model_manager.get_model(self.player_name, opp.name)
-                    if opp_model and opp_model.tendencies:
-                        opp_model_data = opp_model.tendencies.to_dict()
+            # Get observed stats from opponent model manager if available
+            opp_model_data = None
+            if self.opponent_model_manager:
+                opp_model = self.opponent_model_manager.get_model(self.player_name, opp.name)
+                if opp_model and opp_model.tendencies:
+                    opp_model_data = opp_model.tendencies.to_dict()
 
-                opponent_infos.append(build_opponent_info(
-                    name=opp.name,
-                    position=opp_position,
-                    opponent_model=opp_model_data,
-                ))
+            opponent_infos.append(build_opponent_info(
+                name=opp.name,
+                position=opp_position,
+                opponent_model=opp_model_data,
+            ))
 
-            # Use range-based equity calculation
-            equity_config = EquityConfig(use_enhanced_ranges=True)
-            equity = calculate_equity_vs_ranges(
-                hole_cards, community_cards, opponent_infos,
-                iterations=300, config=equity_config
+        equity_config = EquityConfig(use_enhanced_ranges=True)
+        equity = calculate_equity_vs_ranges(
+            hole_cards, community_cards, opponent_infos,
+            iterations=300, config=equity_config
+        )
+        if equity is None:
+            logger.warning(
+                f"[HYBRID] Equity calculation returned None for {player.name}. "
+                f"Falling back to 0.5. hole_cards={hole_cards}, "
+                f"community_cards={community_cards}"
             )
-            if equity is None:
-                logger.warning(
-                    f"[HYBRID] Equity calculation returned None for {player.name}. "
-                    f"Falling back to 0.5. hole_cards={hole_cards}, "
-                    f"community_cards={community_cards}"
-                )
-                equity = 0.5
-        else:
-            # Pre-flop equity estimate based on hand ranking
-            canonical = _get_canonical_hand(hole_cards) if hole_cards else ''
-            if canonical in PREMIUM_HANDS:
-                equity = 0.75
-            elif canonical in TOP_10_HANDS:
-                equity = 0.65
-            elif canonical in TOP_20_HANDS:
-                equity = 0.55
-            elif canonical in TOP_35_HANDS:
-                equity = 0.48
-            else:
-                equity = 0.40
+            equity = 0.5
 
         # Get raise bounds from context
         min_raise_to = context.get('min_raise', big_blind * 2)
@@ -1015,6 +998,7 @@ CRITICAL RULES:
         big_blind = game_state.current_ante or 100
 
         lean = getattr(self.prompt_config, 'lean_bounded', False)
+        rd = range_data or {}
 
         # Capture emotional shift state at enricher creation time
         emotional_shift = get_emotional_shift(self.psychology)

@@ -13,12 +13,12 @@
   "capture_prompts": true,
   "reset_on_elimination": true,
   "parallel_tournaments": 10,
-  "personalities": ["Batman", "Napoleon", "Sherlock Holmes", "Bob Ross"],
+  "personalities": ["Sun Tzu", "Abraham Lincoln", "Blackbeard", "Mark Twain"],
   "player_types": {
-    "Batman": {"type": "hybrid"},
-    "Napoleon": {"type": "hybrid"},
-    "Sherlock Holmes": {"type": "hybrid"},
-    "Bob Ross": {"type": "hybrid"}
+    "Sun Tzu": {"type": "hybrid"},
+    "Abraham Lincoln": {"type": "hybrid"},
+    "Blackbeard": {"type": "hybrid"},
+    "Mark Twain": {"type": "hybrid"}
   },
   "control": {
     "label": "lean-raw-ev",
@@ -38,7 +38,18 @@
         "style_aware_options": true,
         "composed_nudges": true
       }
+    },
+    {
+      "label": "lean-nudges-rangegate",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "composed_nudges": true,
+        "preflop_range_gate": true
+      }
     }
   ],
-  "random_seed": 42
+  "random_seed": 42,
+  "shuffle_seating": true
 }
