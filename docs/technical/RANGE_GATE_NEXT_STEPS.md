@@ -58,27 +58,51 @@ LLM sees "FOLD [-EV] (recommended)" and folds. VPIP stays low.
 
 ## Next Steps (Priority Order)
 
-### 1. Add In-Range EV Boost for Preflop
-When `in_range=True` and `phase='PRE_FLOP'`, boost EV labels to encourage playing:
-- **Call**: If in-range and equity > 30%, upgrade from `marginal` to `+EV`
-  with rationale "Call X BB - in your opening range"
-- **Raise**: If in-range and equity > profile threshold, upgrade raise labels
-- **Fold**: If in-range with reasonable equity (>30%), change from
-  `[-EV] (recommended)` to just `[-EV]` (remove recommended flag)
-- This is the inverse of the existing out-of-range bias
+### 1. Profile-Aware EV Label Visibility
+**Core insight**: EV labels are GTO math signals. A LAG doesn't fold QJo because
+it's "-EV against pot odds" — they think "I have position, fire away." The `[-EV]`
+tag next to a nudge phrase like "Fire away" contradicts the nudge, and the LLM
+follows the math signal every time.
 
-### 2. Validate with A/B Experiment
-Run `rangegate_ab_wider_tiers.json` config (already exists) with the EV boost.
+**Design**: Add `show_ev_labels: bool` to `OptionProfile`:
+- TAG/Rock profiles: `show_ev_labels=True` — they think in math terms
+- LAG/Station profiles: `show_ev_labels=False` — nudge phrases ARE the guidance
+- `generate_bounded_options()` still computes honest EV internally (needed for
+  math blocking, fallback selection, `_get_best_fallback_option()`)
+- `_build_lean_prompt()` checks the profile flag when rendering — either shows
+  `[+EV]` or omits the bracket entirely
+
+**Result**: LAG sees options like:
+```
+1. FOLD  Junk hand. Save ammo.
+2. CALL  Stay in the action.
+3. RAISE 2BB  Fire away.
+```
+Instead of:
+```
+1. FOLD  [-EV]  Junk hand. Save ammo.
+2. CALL  [marginal]  Stay in the action.
+3. RAISE 2BB  [-EV]  Fire away.
+```
+
+**Files**: `poker/bounded_options.py` (OptionProfile), `poker/hybrid_ai_controller.py`
+(`_build_lean_prompt`), `poker/nudge_phrases.py` (already correct, no changes needed)
+
+### 2. Test Monte Carlo Preflop Equity
+The hybrid-ai merge added Monte Carlo preflop equity (`calculate_equity_vs_ranges`
+with empty board). Run a quick experiment to verify QJo now gets ~42-48% equity
+vs opponent ranges instead of the old flat 0.40. This alone may shift some EV
+labels from `-EV` to `marginal`/`+EV` for better hands.
+
+### 3. Validate with A/B Experiment
+Run `rangegate_ab_wider_tiers.json` config with EV label visibility changes.
 Expected: Napoleon VPIP 60-80%, Joan 35-50%, Buddha 25-40%, 30+pp spread.
-
-### 3. Test with Monte Carlo Equity
-The hybrid-ai merge added Monte Carlo preflop equity. Run experiment to verify
-QJo now gets ~42-48% equity instead of flat 0.40. This alone might fix some
-of the EV label issues since more hands will clear the +EV thresholds.
+Use `shuffle_seating: true` to remove position bias confound.
 
 ### 4. Consider Profile-Aware (recommended) Tag
 Currently all profiles use the same logic for the "(recommended)" tag on fold.
 Could make this profile-aware: LAG profiles never recommend fold for in-range hands.
+This may be unnecessary if EV label hiding (step 1) solves the problem.
 
 ## Key Files
 - `poker/hand_tiers.py` — tier sets and `is_hand_in_range()`
