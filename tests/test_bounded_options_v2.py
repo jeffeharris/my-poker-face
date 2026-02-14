@@ -1643,5 +1643,48 @@ class TestNudgePhraseCoverage:
         assert set(NUDGE_PHRASES.keys()) == expected_profiles
 
 
+# ── Board Read Profile Tests ──────────────────────────────────────────────────
+
+
+class TestBoardReadProfileField:
+    """Tests for board_read field on OptionProfile and STYLE_PROFILES."""
+
+    def test_tag_has_board_read(self):
+        """TAG profile has board_read=True."""
+        assert STYLE_PROFILES['tight_aggressive'].board_read is True
+
+    def test_default_has_board_read(self):
+        """Default profile has board_read=True."""
+        assert STYLE_PROFILES['default'].board_read is True
+
+    def test_lag_no_board_read(self):
+        """LAG profile has board_read=False."""
+        assert STYLE_PROFILES['loose_aggressive'].board_read is False
+
+    def test_loose_passive_no_board_read(self):
+        """Loose passive profile has board_read=False."""
+        assert STYLE_PROFILES['loose_passive'].board_read is False
+
+    def test_tight_passive_no_board_read(self):
+        """Tight passive profile has board_read=False."""
+        assert STYLE_PROFILES['tight_passive'].board_read is False
+
+    def test_board_read_default_is_false(self):
+        """Bare OptionProfile() defaults board_read to False."""
+        assert OptionProfile().board_read is False
+
+    def test_board_read_serialized_when_true(self):
+        """board_read appears in to_dict() when True."""
+        profile = OptionProfile(board_read=True)
+        d = profile.to_dict()
+        assert d.get('board_read') is True
+
+    def test_board_read_absent_when_false(self):
+        """board_read omitted from to_dict() when False (default)."""
+        profile = OptionProfile()
+        d = profile.to_dict()
+        assert 'board_read' not in d
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

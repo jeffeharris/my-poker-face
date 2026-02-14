@@ -3,6 +3,7 @@
 import pytest
 from poker.board_analyzer import (
     analyze_board_texture,
+    build_board_read,
     get_texture_description,
     _is_connected,
 )
@@ -214,3 +215,83 @@ class TestWetnessScoring:
         # Monotone (+3), connected (+2), high cards (+1) = 6 -> very_wet
         result = analyze_board_texture(["Qh", "Jh", "Th"])
         assert result["texture_category"] == "very_wet"
+
+
+class TestBuildBoardRead:
+    """Tests for build_board_read() lean prompt injection."""
+
+    def test_empty_board_returns_empty(self):
+        """No community cards → empty string (preflop)."""
+        assert build_board_read([]) == ''
+
+    def test_fewer_than_three_returns_empty(self):
+        """1-2 community cards → empty string."""
+        assert build_board_read(['Ah']) == ''
+        assert build_board_read(['Ah', 'Kd']) == ''
+
+    def test_dry_rainbow_flop(self):
+        """K-7-2 rainbow: dry, few draws."""
+        result = build_board_read(['Kh', '7d', '2s'])
+        assert result.startswith('Board read:')
+        assert 'dry' in result
+        assert 'rainbow' in result
+        assert 'flop' in result
+        assert 'few draws' in result
+
+    def test_monotone_flop_mentions_flush(self):
+        """All hearts flop: flush draw possible."""
+        result = build_board_read(['Ah', 'Jh', '4h'])
+        assert 'monotone' in result
+        assert 'flush draw' in result
+
+    def test_two_tone_flop_mentions_flush(self):
+        """Two-tone flop: flush draw possible."""
+        result = build_board_read(['Ah', 'Jh', '4d'])
+        assert 'two-tone' in result
+        assert 'flush draw' in result
+
+    def test_connected_flop_mentions_straight(self):
+        """9-8-7: straight draw possible."""
+        result = build_board_read(['9h', '8d', '7s'])
+        assert 'straight draw' in result
+
+    def test_paired_board_noted(self):
+        """Paired board mentions pairing."""
+        result = build_board_read(['Kh', 'Kd', '2s'])
+        assert 'Paired' in result
+
+    def test_trips_on_board_noted(self):
+        """Trips on board is flagged."""
+        result = build_board_read(['Kh', 'Kd', 'Ks', '2c', '7h'])
+        assert 'Trips on board' in result
+
+    def test_double_paired_noted(self):
+        """Double-paired board is flagged."""
+        result = build_board_read(['Kh', 'Kd', '2s', '2c', '7h'])
+        assert 'Double paired' in result
+
+    def test_high_cards_noted(self):
+        """Multiple broadway cards noted."""
+        result = build_board_read(['Ah', 'Kd', 'Qs'])
+        assert 'High cards:' in result
+
+    def test_turn_says_turn(self):
+        """4 community cards → 'turn' in output."""
+        result = build_board_read(['Kh', '7d', '2s', 'Ac'])
+        assert 'turn' in result
+
+    def test_river_says_river(self):
+        """5 community cards → 'river' in output."""
+        result = build_board_read(['Kh', '7d', '2s', 'Ac', '5h'])
+        assert 'river' in result
+
+    def test_very_wet_board(self):
+        """Monotone connected broadway: wet/very_wet with flush + straight."""
+        result = build_board_read(['Qh', 'Jh', 'Th'])
+        assert 'flush draw' in result
+        assert 'straight draw' in result
+
+    def test_single_line_output(self):
+        """Output is always a single line."""
+        result = build_board_read(['Ah', 'Kd', '7s'])
+        assert '\n' not in result

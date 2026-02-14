@@ -87,6 +87,10 @@ class OptionProfile:
     # - 'suppress_if_raises': never promote check when raise options exist
     check_promotion: str = 'default'
 
+    # Board read injection: when True, lean prompt includes a board texture read
+    # Only analytical profiles (TAG, default) get this — loose/passive profiles don't
+    board_read: bool = False
+
     def to_dict(self) -> Dict:
         """Serialize for prompt capture tracking."""
         d = {
@@ -113,6 +117,8 @@ class OptionProfile:
             d['check_penalty_threshold'] = self.check_penalty_threshold
         if self.check_promotion != 'default':
             d['check_promotion'] = self.check_promotion
+        if self.board_read:
+            d['board_read'] = self.board_read
         return d
 
 
@@ -150,6 +156,7 @@ STYLE_PROFILES = {
         postflop_max_raise_options=2, # aggressive but curated
         check_penalty_threshold=0.40,  # checking with >40% equity is leaving value
         check_promotion='conditional', # promote check only when no raise is neutral/+EV
+        board_read=True,              # analytical profile reads the board
     ),
     'loose_passive': OptionProfile(
         fold_equity_multiplier=1.5,    # easier to block fold (plays more)
@@ -185,7 +192,7 @@ STYLE_PROFILES = {
         check_penalty_threshold=0.35,  # checking with >35% equity is suboptimal for LAG
         check_promotion='suppress_if_raises', # never promote check over raises
     ),
-    'default': OptionProfile(),       # current behavior unchanged
+    'default': OptionProfile(board_read=True),  # analytical default reads the board
 }
 
 # Style hint text for lean prompt injection

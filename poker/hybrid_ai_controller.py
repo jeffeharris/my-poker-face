@@ -24,9 +24,11 @@ from .controllers import (
     AIPlayerController, _get_canonical_hand, _parse_game_messages,
     _get_street_lines, card_to_string, classify_preflop_hand,
 )
+from .board_analyzer import build_board_read
 from .hand_narrator import narrate_hand_breakdown
 from .bounded_options import (
     BoundedOption,
+    EmotionalShift,
     OptionProfile,
     STYLE_PROFILES,
     STYLE_HINTS,
@@ -301,7 +303,10 @@ class HybridAIController(AIPlayerController):
                 self._last_hand_number = current_hand
 
             # Phase 1: Build minimal prompt and get decision
-            lean_prompt = self._build_lean_prompt(options, rule_context, profile_key)
+            lean_prompt = self._build_lean_prompt(
+                options, rule_context, profile_key,
+                profile=profile, emotional_shift=emotional_shift,
+            )
 
             llm_response = self.assistant.chat_full(
                 lean_prompt,
@@ -424,11 +429,20 @@ class HybridAIController(AIPlayerController):
             return ''
         return ' \u2192 '.join(actions)
 
-    def _build_lean_prompt(self, options: List[BoundedOption], context: Dict, profile_key: str = 'default') -> str:
+    def _build_lean_prompt(
+        self,
+        options: List[BoundedOption],
+        context: Dict,
+        profile_key: str = 'default',
+        profile: OptionProfile = None,
+        emotional_shift: Optional[EmotionalShift] = None,
+    ) -> str:
         """Build minimal prompt: just cards, situation, and numbered options.
 
         When hand_plan is enabled, style hints are omitted — the hand plan
         in the decision thread provides personality-driven context instead.
+        Board read is injected postflop for analytical profiles (board_read=True)
+        unless the player is in an extreme tilted/shaken/dissociated state.
         """
         hole_cards = context.get('hole_cards', [])
         community_cards = context.get('community_cards', [])
@@ -466,6 +480,18 @@ class HybridAIController(AIPlayerController):
         if action_summary:
             parts.append(f"Action: {action_summary}")
 
+        # Board read injection (postflop, analytical profiles only)
+        if profile and profile.board_read and community_cards:
+            # Suppress in extreme tilted/shaken/dissociated states
+            suppress = False
+            if emotional_shift and emotional_shift.severity == 'extreme':
+                if emotional_shift.state in ('tilted', 'shaken', 'dissociated'):
+                    suppress = True
+            if not suppress:
+                board_read_line = build_board_read(community_cards)
+                if board_read_line:
+                    parts.append(board_read_line)
+
         # Style hint (omitted when hand_plan provides context via decision thread)
         if not getattr(self.prompt_config, 'hand_plan', False):
             style_hint = STYLE_HINTS.get(profile_key, '')
@@ -476,12 +502,16 @@ class HybridAIController(AIPlayerController):
 
         # Numbered options
         use_nudges = getattr(self.prompt_config, 'composed_nudges', False)
+        nudge_show_ev = getattr(self.prompt_config, 'nudge_show_ev', False)
         for i, opt in enumerate(options, 1):
             action_str = opt.action.upper()
             if opt.action == 'raise' and opt.raise_to > 0:
                 raise_bb = opt.raise_to / big_blind if big_blind > 0 else opt.raise_to
                 action_str += f" {raise_bb:.0f}BB"
-            if use_nudges:
+            if use_nudges and nudge_show_ev:
+                # Combined: EV bracket + nudge phrase
+                parts.append(f"{i}. {action_str}  [{opt.ev_estimate}] \u2014 {opt.rationale}")
+            elif use_nudges:
                 # Nudge format: action — phrase (no EV bracket)
                 parts.append(f"{i}. {action_str} \u2014 {opt.rationale}")
             else:
