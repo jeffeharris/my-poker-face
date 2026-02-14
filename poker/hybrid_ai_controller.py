@@ -327,6 +327,15 @@ class HybridAIController(AIPlayerController):
         # Validate and select
         chosen = self._validate_and_select(response_dict, options)
 
+        # Analyze decision quality (populates player_decision_analysis table)
+        self._analyze_decision(
+            chosen,
+            rule_context,
+            capture_id[0],
+            player_bet=player.bet,
+            all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+        )
+
         # Update capture
         if capture_id[0]:
             action = chosen.get('action')
@@ -730,6 +739,15 @@ class HybridAIController(AIPlayerController):
 
         # Step 5: Validate choice and extract action
         chosen = self._validate_and_select(response_dict, options)
+
+        # Step 5b: Analyze decision quality (populates player_decision_analysis table)
+        self._analyze_decision(
+            chosen,
+            rule_context,
+            capture_id[0],
+            player_bet=player.bet,
+            all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+        )
 
         # Step 6: Update capture with final action (like parent class does)
         if capture_id[0]:
