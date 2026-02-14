@@ -91,6 +91,9 @@ class PromptConfig:
     # Composed nudges — replace raw EV labels with playstyle-aware phrases
     composed_nudges: bool = False
 
+    # Show EV labels alongside nudge phrases (only applies when composed_nudges=True)
+    nudge_show_ev: bool = False
+
     # Option ordering strategy: 'default' (generator order), 'shuffle', 'ev_descending'
     option_order: str = 'default'
 
