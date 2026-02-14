@@ -31,7 +31,6 @@ from .bounded_options import (
     EmotionalShift,
     OptionProfile,
     STYLE_PROFILES,
-    STYLE_HINTS,
     generate_bounded_options,
     format_options_for_prompt,
     calculate_required_equity,
@@ -494,28 +493,28 @@ class HybridAIController(AIPlayerController):
 
         # Style hint (omitted when hand_plan provides context via decision thread)
         if not getattr(self.prompt_config, 'hand_plan', False):
-            style_hint = STYLE_HINTS.get(profile_key, '')
+            style_hint = profile.style_hint if profile else ''
             if style_hint:
                 parts.append(style_hint)
 
         parts.append("")
 
         # Numbered options
+        # Resolve EV visibility: PromptConfig override > profile default
+        show_ev_override = getattr(self.prompt_config, 'show_ev_labels', None)
+        show_ev = show_ev_override if show_ev_override is not None else (profile.show_ev_labels if profile else True)
         use_nudges = getattr(self.prompt_config, 'composed_nudges', False)
-        nudge_show_ev = getattr(self.prompt_config, 'nudge_show_ev', False)
+
         for i, opt in enumerate(options, 1):
             action_str = opt.action.upper()
             if opt.action == 'raise' and opt.raise_to > 0:
                 raise_bb = opt.raise_to / big_blind if big_blind > 0 else opt.raise_to
                 action_str += f" {raise_bb:.0f}BB"
-            if use_nudges and nudge_show_ev:
-                # Combined: EV bracket + nudge phrase
-                parts.append(f"{i}. {action_str}  [{opt.ev_estimate}] \u2014 {opt.rationale}")
-            elif use_nudges:
-                # Nudge format: action — phrase (no EV bracket)
-                parts.append(f"{i}. {action_str} \u2014 {opt.rationale}")
+            ev_part = f"  [{opt.ev_estimate}]" if show_ev else ""
+            if use_nudges:
+                parts.append(f"{i}. {action_str}{ev_part} \u2014 {opt.rationale}")
             else:
-                parts.append(f"{i}. {action_str}  [{opt.ev_estimate}]  {opt.rationale}")
+                parts.append(f"{i}. {action_str}{ev_part}  {opt.rationale}")
 
         parts.append("")
         parts.append(f'Respond with JSON: {{"reasoning": "...", "choice": N}} (1-{len(options)})')

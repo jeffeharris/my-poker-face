@@ -1686,5 +1686,99 @@ class TestBoardReadProfileField:
         assert 'board_read' not in d
 
 
+# ── Show EV Labels Profile Tests ─────────────────────────────────────────────
+
+
+class TestShowEvLabels:
+    """Tests for show_ev_labels field on OptionProfile and STYLE_PROFILES."""
+
+    def test_default_show_ev_labels_is_true(self):
+        """Bare OptionProfile() defaults show_ev_labels to True."""
+        assert OptionProfile().show_ev_labels is True
+
+    def test_tag_shows_ev_labels(self):
+        """TAG profile shows EV labels."""
+        assert STYLE_PROFILES['tight_aggressive'].show_ev_labels is True
+
+    def test_tight_passive_shows_ev_labels(self):
+        """Tight passive profile shows EV labels."""
+        assert STYLE_PROFILES['tight_passive'].show_ev_labels is True
+
+    def test_default_profile_shows_ev_labels(self):
+        """Default profile shows EV labels."""
+        assert STYLE_PROFILES['default'].show_ev_labels is True
+
+    def test_lag_hides_ev_labels(self):
+        """LAG profile hides EV labels."""
+        assert STYLE_PROFILES['loose_aggressive'].show_ev_labels is False
+
+    def test_loose_passive_hides_ev_labels(self):
+        """Loose passive profile hides EV labels."""
+        assert STYLE_PROFILES['loose_passive'].show_ev_labels is False
+
+    def test_serialized_when_false(self):
+        """show_ev_labels appears in to_dict() when False (non-default)."""
+        profile = OptionProfile(show_ev_labels=False)
+        d = profile.to_dict()
+        assert d.get('show_ev_labels') is False
+
+    def test_absent_when_true(self):
+        """show_ev_labels omitted from to_dict() when True (default)."""
+        profile = OptionProfile()
+        d = profile.to_dict()
+        assert 'show_ev_labels' not in d
+
+
+# ── Style Hint Profile Tests ────────────────────────────────────────────────
+
+
+class TestStyleHintOnProfile:
+    """Tests for style_hint field on OptionProfile and STYLE_PROFILES."""
+
+    def test_default_style_hint_is_empty(self):
+        """Bare OptionProfile() defaults style_hint to empty string."""
+        assert OptionProfile().style_hint == ''
+
+    def test_default_profile_has_empty_hint(self):
+        """Default profile has no style hint."""
+        assert STYLE_PROFILES['default'].style_hint == ''
+
+    def test_tag_has_style_hint(self):
+        """TAG profile has a non-empty style hint."""
+        hint = STYLE_PROFILES['tight_aggressive'].style_hint
+        assert hint != ''
+        assert 'aggressive' in hint.lower() or 'fold' in hint.lower()
+
+    def test_tight_passive_has_style_hint(self):
+        """Tight passive profile has a non-empty style hint."""
+        hint = STYLE_PROFILES['tight_passive'].style_hint
+        assert hint != ''
+        assert 'fold' in hint.lower() or 'strong' in hint.lower()
+
+    def test_lag_has_style_hint(self):
+        """LAG profile has a non-empty style hint."""
+        hint = STYLE_PROFILES['loose_aggressive'].style_hint
+        assert hint != ''
+        assert 'pressure' in hint.lower() or 'raise' in hint.lower()
+
+    def test_loose_passive_has_style_hint(self):
+        """Loose passive profile has a non-empty style hint."""
+        hint = STYLE_PROFILES['loose_passive'].style_hint
+        assert hint != ''
+        assert 'call' in hint.lower() or 'flop' in hint.lower()
+
+    def test_serialized_when_non_empty(self):
+        """style_hint appears in to_dict() when non-empty."""
+        profile = OptionProfile(style_hint="Test hint")
+        d = profile.to_dict()
+        assert d.get('style_hint') == "Test hint"
+
+    def test_absent_when_empty(self):
+        """style_hint omitted from to_dict() when empty (default)."""
+        profile = OptionProfile()
+        d = profile.to_dict()
+        assert 'style_hint' not in d
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

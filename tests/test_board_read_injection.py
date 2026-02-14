@@ -33,7 +33,7 @@ def _make_controller_stub(profile_key='tight_aggressive', hand_plan=False):
     config = MagicMock()
     config.hand_plan = hand_plan
     config.composed_nudges = False
-    config.nudge_show_ev = False
+    config.show_ev_labels = None
     stub.prompt_config = config
 
     # Bind the real _build_lean_prompt and _build_street_action_summary
@@ -248,3 +248,70 @@ class TestBoardReadContent:
                                          profile=profile)
         assert 'monotone' in prompt
         assert 'flush draw' in prompt
+
+
+# ── EV Label Profile Gating ─────────────────────────────────────────────────
+
+
+class TestEvLabelProfileGating:
+    """EV labels appear or hide based on profile.show_ev_labels + PromptConfig override."""
+
+    def test_tag_shows_ev_labels(self):
+        """TAG profile (show_ev_labels=True) shows [+EV] in prompt."""
+        stub = _make_controller_stub('tight_aggressive')
+        profile = STYLE_PROFILES['tight_aggressive']
+        ctx = _postflop_context()
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'tight_aggressive',
+                                         profile=profile)
+        assert '[+EV]' in prompt
+
+    def test_lag_hides_ev_labels(self):
+        """LAG profile (show_ev_labels=False) hides [+EV] from prompt."""
+        stub = _make_controller_stub('loose_aggressive')
+        profile = STYLE_PROFILES['loose_aggressive']
+        ctx = _postflop_context()
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'loose_aggressive',
+                                         profile=profile)
+        assert '[+EV]' not in prompt
+        assert '[neutral]' not in prompt
+
+    def test_prompt_config_override_shows_ev_on_lag(self):
+        """PromptConfig show_ev_labels=True overrides LAG profile to show."""
+        stub = _make_controller_stub('loose_aggressive')
+        stub.prompt_config.show_ev_labels = True
+        profile = STYLE_PROFILES['loose_aggressive']
+        ctx = _postflop_context()
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'loose_aggressive',
+                                         profile=profile)
+        assert '[+EV]' in prompt
+
+    def test_prompt_config_override_hides_ev_on_tag(self):
+        """PromptConfig show_ev_labels=False overrides TAG profile to hide."""
+        stub = _make_controller_stub('tight_aggressive')
+        stub.prompt_config.show_ev_labels = False
+        profile = STYLE_PROFILES['tight_aggressive']
+        ctx = _postflop_context()
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'tight_aggressive',
+                                         profile=profile)
+        assert '[+EV]' not in prompt
+        assert '[neutral]' not in prompt
+
+    def test_prompt_config_none_defers_to_profile(self):
+        """PromptConfig show_ev_labels=None defers to profile default."""
+        stub = _make_controller_stub('loose_passive')
+        stub.prompt_config.show_ev_labels = None
+        profile = STYLE_PROFILES['loose_passive']
+        ctx = _postflop_context()
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'loose_passive',
+                                         profile=profile)
+        # loose_passive has show_ev_labels=False
+        assert '[+EV]' not in prompt
+
+    def test_no_profile_defaults_to_show(self):
+        """When profile is None, EV labels show by default."""
+        stub = _make_controller_stub('default')
+        stub.prompt_config.show_ev_labels = None
+        ctx = _postflop_context()
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'default',
+                                         profile=None)
+        assert '[+EV]' in prompt

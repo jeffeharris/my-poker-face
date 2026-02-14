@@ -91,6 +91,12 @@ class OptionProfile:
     # Only analytical profiles (TAG, default) get this — loose/passive profiles don't
     board_read: bool = False
 
+    # Prompt presentation: whether [+EV]/[-EV] brackets appear in lean prompt
+    show_ev_labels: bool = True
+
+    # Prompt presentation: style hint injected into lean prompt (empty = no hint)
+    style_hint: str = ''
+
     def to_dict(self) -> Dict:
         """Serialize for prompt capture tracking."""
         d = {
@@ -119,6 +125,10 @@ class OptionProfile:
             d['check_promotion'] = self.check_promotion
         if self.board_read:
             d['board_read'] = self.board_read
+        if not self.show_ev_labels:
+            d['show_ev_labels'] = self.show_ev_labels
+        if self.style_hint:
+            d['style_hint'] = self.style_hint
         return d
 
 
@@ -139,6 +149,7 @@ STYLE_PROFILES = {
         postflop_value_bet_threshold=0.80,
         postflop_max_raise_options=1, # passive — show minimal raise options
         check_promotion='always',     # always promote check with pot-control text
+        style_hint="Fold most hands. Only continue with strong holdings.",
     ),
     'tight_aggressive': OptionProfile(
         fold_equity_multiplier=2.5,    # still hard to block fold
@@ -157,6 +168,7 @@ STYLE_PROFILES = {
         check_penalty_threshold=0.40,  # checking with >40% equity is leaving value
         check_promotion='conditional', # promote check only when no raise is neutral/+EV
         board_read=True,              # analytical profile reads the board
+        style_hint="Fold weak hands. When you do play, bet aggressively for value.",
     ),
     'loose_passive': OptionProfile(
         fold_equity_multiplier=1.5,    # easier to block fold (plays more)
@@ -173,6 +185,8 @@ STYLE_PROFILES = {
         postflop_value_bet_threshold=0.75,
         postflop_max_raise_options=1, # passive — minimal raise options
         check_promotion='always',     # always promote check with pot-control text
+        show_ev_labels=False,
+        style_hint="See more flops — call liberally, but don't overcommit without a hand.",
     ),
     'loose_aggressive': OptionProfile(
         fold_equity_multiplier=1.8,    # plays more hands than default (2.0) but not every hand
@@ -191,17 +205,10 @@ STYLE_PROFILES = {
         postflop_max_raise_options=3, # full menu of raise options
         check_penalty_threshold=0.35,  # checking with >35% equity is suboptimal for LAG
         check_promotion='suppress_if_raises', # never promote check over raises
+        show_ev_labels=False,
+        style_hint="Play many hands and apply pressure — raise or fold, avoid flat calls.",
     ),
     'default': OptionProfile(board_read=True),  # analytical default reads the board
-}
-
-# Style hint text for lean prompt injection
-STYLE_HINTS = {
-    'tight_passive': "Fold most hands. Only continue with strong holdings.",
-    'tight_aggressive': "Fold weak hands. When you do play, bet aggressively for value.",
-    'loose_passive': "See more flops — call liberally, but don't overcommit without a hand.",
-    'loose_aggressive': "Play many hands and apply pressure — raise or fold, avoid flat calls.",
-    'default': "",
 }
 
 
