@@ -221,6 +221,8 @@ class ExperimentConfig:
     rate_limit_backoff_seconds: float = 30.0  # Base backoff on rate limit detection
     # Tournament reset behavior
     reset_on_elimination: bool = False  # If true, reset all stacks when 1 player remains
+    # Seating order
+    shuffle_seating: bool = False  # Randomize player order per tournament to remove position bias
     # Rule-based bot support (chaos monkeys)
     player_types: Optional[Dict[str, Dict]] = None  # {player_name: {"type": "rule_bot", "strategy": "always_fold"}}
 
@@ -699,6 +701,15 @@ class AITournamentRunner:
             Tuple of (state_machine, controllers, memory_manager)
         """
         player_names, per_player_configs = self.select_personalities()
+
+        # Shuffle seating order per tournament to remove position bias
+        if self.config.shuffle_seating:
+            if self.config.random_seed is not None:
+                seat_rng = random.Random(self.config.random_seed + tournament_number)
+            else:
+                seat_rng = random.Random()
+            seat_rng.shuffle(player_names)
+
         logger.info(f"Tournament {tournament_id}: Players = {player_names}")
         if per_player_configs:
             logger.info(f"Tournament {tournament_id}: Per-player configs = {list(per_player_configs.keys())}")

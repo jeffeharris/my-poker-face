@@ -38,7 +38,18 @@
         "style_aware_options": true,
         "composed_nudges": true
       }
+    },
+    {
+      "label": "lean-nudges-rangegate",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "composed_nudges": true,
+        "preflop_range_gate": true
+      }
     }
   ],
-  "random_seed": 42
+  "random_seed": 42,
+  "shuffle_seating": true
 }
