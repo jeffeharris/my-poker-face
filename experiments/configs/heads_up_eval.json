@@ -1,0 +1,48 @@
+{
+  "name": "heads_up_eval",
+  "description": "Evaluate heads-up adjustments: compare 2-player vs 4-player VPIP, aggression, and fold rates with same model/config. The HU variant should show wider ranges, more aggression, and appropriate min-raise sizing.",
+  "hypothesis": "HU games will show 15-25pp higher VPIP across all archetypes due to wider position offsets (+0.30 vs +0.05), disabled range bias, and HU nudge phrases. Archetype ordering (TAG < TP < default < LAG) should be preserved.",
+  "tags": ["heads-up", "range-gate", "archetype", "vpip", "eval"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Sun Tzu", "Abraham Lincoln", "Mark Twain", "Blackbeard"],
+  "player_types": {
+    "Sun Tzu": {"type": "hybrid"},
+    "Abraham Lincoln": {"type": "hybrid"},
+    "Mark Twain": {"type": "hybrid"},
+    "Blackbeard": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "4player-nudges-rg",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "composed_nudges": true,
+      "preflop_range_gate": true
+    }
+  },
+  "variants": [
+    {
+      "label": "headsup-nudges-rg",
+      "num_players": 2,
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "composed_nudges": true,
+        "preflop_range_gate": true
+      }
+    }
+  ],
+  "random_seed": 42,
+  "shuffle_seating": true
+}
