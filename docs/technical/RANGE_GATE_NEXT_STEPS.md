@@ -2,7 +2,7 @@
 purpose: Progress notes and next steps for range gate VPIP differentiation
 type: guide
 created: 2026-02-13
-last_updated: 2026-02-14
+last_updated: 2026-02-15
 ---
 
 # Range Gate: Progress & Next Steps
@@ -76,6 +76,45 @@ lean-nudges-rangegate shows better postflop differentiation (3.6% Napoleon vs 16
 proves EV labels should be hidden for LAG profiles (nudges are sufficient) and shown for TAG/Rock
 profiles (they benefit from math signals). Nudges + rangegate without EV labels is the target config.
 
+### 4. Profile-Aware EV Label Visibility (Experiment 113867)
+
+Implemented `show_ev_labels: bool` on `OptionProfile` and `style_hint: str` consolidation
+(replacing standalone `STYLE_HINTS` dict). `PromptConfig.show_ev_labels: Optional[bool]`
+provides A/B override (None=defer to profile, True/False=force).
+
+Committed as `cc73d1e0`. Config: `experiments/configs/profile_ev_gating_test.json`.
+
+3-way test: always-show vs per-profile vs always-hide (all using nudges+rangegate baseline).
+
+| Variant | Napoleon (LAG) | Joan (TAG) | Alice (LP) | Buddha (TP) | Spread | Avg VPIP |
+|---------|---------------|------------|------------|-------------|--------|----------|
+| ev-always-show | 56.4% | 22.1% | 18.1% | 16.5% | 39.9pp | 28.3% |
+| **ev-per-profile** | **72.7%** | **19.9%** | **23.9%** | **23.3%** | **52.8pp** | **35.0%** |
+| ev-always-hide | 77.5% | 32.7% | 30.0% | 32.9% | 47.5pp | 43.3% |
+
+**Key findings:**
+- **Per-profile wins on spread** (52.8pp) — beats both always-show (39.9pp) and always-hide (47.5pp).
+- **EV labels anchor tight players correctly**: TAG Joan 19.9% in per-profile (sees EV labels)
+  vs 32.7% in always-hide. Math signals help tight players stay tight.
+- **Hiding EV liberates LAG**: Napoleon 56.4% → 72.7% when EV hidden. GTO anchor removal
+  lets loose players express aggression.
+- **Always-hide inflates everyone**: avg VPIP 43.3%, even tight players play 30%+. Per-profile
+  gives better bottom differentiation.
+- **Combines best of both worlds**: LAG/LP get personality-driven loose play without math
+  anchoring, while TAG/TP stay disciplined with EV label guidance.
+
+**Progression across experiments:**
+
+| Experiment | Config | Spread | Notes |
+|------------|--------|--------|-------|
+| 113861 | Range gate + offsets | 19.7pp | Offsets alone |
+| 113863 | Nudges + rangegate | 54.4pp | Best before profile EV |
+| 113867 | Nudges + rangegate + **per-profile EV** | **52.8pp** | Comparable spread, better structure |
+
+Per-profile EV gating matches nudges-only spread while producing better-structured VPIP
+distribution (tight players legitimately tight, not just nudge-driven). This is now the
+recommended default config.
+
 ## Remaining Bottleneck: In-Range EV Labels
 
 The range gate correctly marks hands as in-range for loose players, but
@@ -97,35 +136,8 @@ LLM sees "FOLD [-EV] (recommended)" and folds. VPIP stays low.
 
 ## Next Steps (Priority Order)
 
-### 1. Profile-Aware EV Label Visibility
-**Core insight**: EV labels are GTO math signals. A LAG doesn't fold QJo because
-it's "-EV against pot odds" — they think "I have position, fire away." The `[-EV]`
-tag next to a nudge phrase like "Fire away" contradicts the nudge, and the LLM
-follows the math signal every time.
-
-**Design**: Add `show_ev_labels: bool` to `OptionProfile`:
-- TAG/Rock profiles: `show_ev_labels=True` — they think in math terms
-- LAG/Station profiles: `show_ev_labels=False` — nudge phrases ARE the guidance
-- `generate_bounded_options()` still computes honest EV internally (needed for
-  math blocking, fallback selection, `_get_best_fallback_option()`)
-- `_build_lean_prompt()` checks the profile flag when rendering — either shows
-  `[+EV]` or omits the bracket entirely
-
-**Result**: LAG sees options like:
-```
-1. FOLD  Junk hand. Save ammo.
-2. CALL  Stay in the action.
-3. RAISE 2BB  Fire away.
-```
-Instead of:
-```
-1. FOLD  [-EV]  Junk hand. Save ammo.
-2. CALL  [marginal]  Stay in the action.
-3. RAISE 2BB  [-EV]  Fire away.
-```
-
-**Files**: `poker/bounded_options.py` (OptionProfile), `poker/hybrid_ai_controller.py`
-(`_build_lean_prompt`), `poker/nudge_phrases.py` (already correct, no changes needed)
+### ~~1. Profile-Aware EV Label Visibility~~ ✓ DONE
+Implemented and validated in experiment 113867. See section above.
 
 ### 2. Test Monte Carlo Preflop Equity
 The hybrid-ai merge added Monte Carlo preflop equity (`calculate_equity_vs_ranges`
