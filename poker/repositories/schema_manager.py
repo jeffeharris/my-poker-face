@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # v73: Add hand_number column to pressure_events
 # v74: Add bet_sizing column to player_decision_analysis
 # v75: Add deck_seed column to hand_history for deterministic replay
-SCHEMA_VERSION = 75
+SCHEMA_VERSION = 76
 
 
 
@@ -230,6 +230,7 @@ class SchemaManager:
                     pot_size INTEGER,
                     showdown BOOLEAN,
                     deck_seed INTEGER,
+                    community_cards_by_phase_json TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id),
                     UNIQUE(game_id, hand_number)
                 )
@@ -1066,6 +1067,7 @@ class SchemaManager:
             73: (self._migrate_v73_pressure_events_hand_number, "Add hand_number column to pressure_events"),
             74: (self._migrate_v74_add_bet_sizing, "Add bet_sizing column to player_decision_analysis"),
             75: (self._migrate_v75_add_deck_seed_to_hand_history, "Add deck_seed column to hand_history"),
+            76: (self._migrate_v76_add_community_cards_by_phase, "Add community_cards_by_phase_json column to hand_history"),
         }
 
         with self._get_connection() as conn:
@@ -3333,3 +3335,14 @@ class SchemaManager:
             logger.debug("Added deck_seed column to hand_history")
 
         logger.info("Migration v75 complete: deck_seed added to hand_history")
+
+    def _migrate_v76_add_community_cards_by_phase(self, conn: sqlite3.Connection) -> None:
+        """Migration v76: Add community_cards_by_phase_json to hand_history for phase-level card tracking."""
+        cursor = conn.execute("PRAGMA table_info(hand_history)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'community_cards_by_phase_json' not in existing_columns:
+            conn.execute("ALTER TABLE hand_history ADD COLUMN community_cards_by_phase_json TEXT")
+            logger.debug("Added community_cards_by_phase_json column to hand_history")
+
+        logger.info("Migration v76 complete: community_cards_by_phase_json added to hand_history")

@@ -1191,6 +1191,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             hand_number=new_hand_number,
             deck_seed=state_machine.current_hand_seed
         )
+        memory_manager.record_blinds(state_machine.game_state)
 
     # Track hand_start_stacks for stack-based pressure events (double_up, crippled, short_stack)
     # Capture after blinds are posted but before any betting action

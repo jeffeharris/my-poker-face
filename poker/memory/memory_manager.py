@@ -127,6 +127,48 @@ class AIMemoryManager:
 
         logger.debug(f"Started recording hand #{hand_number}")
 
+    def record_blinds(self, game_state: Any) -> None:
+        """Record blind posts as actions at the start of a hand.
+
+        Args:
+            game_state: Current PokerGameState with table_positions and current_ante
+        """
+        if not self.hand_recorder.current_hand:
+            logger.warning("record_blinds called but no hand in progress")
+            return
+
+        table_positions = getattr(game_state, 'table_positions', {})
+        bb_amount = game_state.current_ante
+        sb_amount = bb_amount // 2
+
+        pot_running = 0
+
+        # Record SB post
+        sb_player = table_positions.get('SB')
+        if sb_player:
+            pot_running += sb_amount
+            self.hand_recorder.record_action(
+                player_name=sb_player,
+                action='post_blind',
+                amount=sb_amount,
+                phase='PRE_FLOP',
+                pot_total=pot_running
+            )
+
+        # Record BB post
+        bb_player = table_positions.get('BB')
+        if bb_player:
+            pot_running += bb_amount
+            self.hand_recorder.record_action(
+                player_name=bb_player,
+                action='post_blind',
+                amount=bb_amount,
+                phase='PRE_FLOP',
+                pot_total=pot_running
+            )
+
+        logger.debug(f"Recorded blinds: SB={sb_player}(${sb_amount}), BB={bb_player}(${bb_amount})")
+
     def on_action(self, player_name: str, action: str, amount: int,
                   phase: str, pot_total: int, active_players: List[str] = None) -> None:
         """Record an action and update opponent models.

@@ -1026,6 +1026,7 @@ class AITournamentRunner:
                     hand_number,
                     deck_seed=state_machine.current_hand_seed
                 )
+                memory_manager.record_blinds(game_state)
                 hand_start_stacks = {p.name: p.stack for p in game_state.players}
                 hand_start_recorded = True
 

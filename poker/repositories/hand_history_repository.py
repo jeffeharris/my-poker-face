@@ -31,8 +31,9 @@ class HandHistoryRepository(BaseRepository):
             cursor = conn.execute("""
                 INSERT OR REPLACE INTO hand_history
                 (game_id, hand_number, timestamp, players_json, hole_cards_json,
-                 community_cards_json, actions_json, winners_json, pot_size, showdown, deck_seed)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 community_cards_json, actions_json, winners_json, pot_size, showdown, deck_seed,
+                 community_cards_by_phase_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 hand_dict['game_id'],
                 hand_dict['hand_number'],
@@ -44,7 +45,8 @@ class HandHistoryRepository(BaseRepository):
                 json.dumps(hand_dict.get('winners', [])),
                 hand_dict.get('pot_size', 0),
                 hand_dict.get('was_showdown', False),
-                hand_dict.get('deck_seed')
+                hand_dict.get('deck_seed'),
+                json.dumps(hand_dict.get('community_cards_by_phase', {}))
             ))
 
             hand_id = cursor.lastrowid
@@ -170,6 +172,8 @@ class HandHistoryRepository(BaseRepository):
             cursor = conn.execute(query, params)
 
             for row in cursor.fetchall():
+                # Handle community_cards_by_phase_json — may be NULL for older records
+                community_cards_by_phase_raw = row['community_cards_by_phase_json'] if 'community_cards_by_phase_json' in row.keys() else None
                 hand = {
                     'id': row['id'],
                     'game_id': row['game_id'],
@@ -182,7 +186,8 @@ class HandHistoryRepository(BaseRepository):
                     'winners': json.loads(row['winners_json'] or '[]'),
                     'pot_size': row['pot_size'] or 0,
                     'was_showdown': bool(row['showdown']),
-                    'deck_seed': row['deck_seed']
+                    'deck_seed': row['deck_seed'],
+                    'community_cards_by_phase': json.loads(community_cards_by_phase_raw) if community_cards_by_phase_raw else {}
                 }
                 hands.append(hand)
 

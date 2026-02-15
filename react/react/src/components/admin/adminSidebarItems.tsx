@@ -1,4 +1,4 @@
-import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, BookMarked, Shield } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, BookMarked, Shield, Film } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
 export const SIDEBAR_ITEMS: SidebarItem[] = [
@@ -19,6 +19,12 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Decision Analyzer',
     icon: <Microscope size={24} />,
     description: 'Analyze and replay AI decision prompts',
+  },
+  {
+    id: 'hand-replay',
+    label: 'Hand Replay',
+    icon: <Film size={24} />,
+    description: 'Step through completed hands action by action',
   },
   {
     id: 'playground',
