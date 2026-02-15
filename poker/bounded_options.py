@@ -220,7 +220,7 @@ STYLE_PROFILES = {
         check_penalty_threshold=0.35,  # checking with >35% equity is suboptimal for LAG
         check_promotion='suppress_if_raises', # never promote check over raises
         show_ev_labels=False,
-        style_hint="Play many hands and apply pressure — raise or fold, avoid flat calls.",
+        style_hint="Play many hands and apply pressure — raise often, but call when trapping or the price is right.",
         heads_up_raise_plus_ev=0.40,
         heads_up_raise_neutral=0.28,
     ),

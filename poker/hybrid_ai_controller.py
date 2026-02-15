@@ -487,7 +487,7 @@ class HybridAIController(AIPlayerController):
             action_str = opt.action.upper()
             if opt.action == 'raise' and opt.raise_to > 0:
                 raise_bb = opt.raise_to / big_blind if big_blind > 0 else opt.raise_to
-                action_str += f" {raise_bb:.0f}BB"
+                action_str += f" to {raise_bb:.1f}BB"
             ev_part = f"  [{opt.ev_estimate}]" if show_ev else ""
             if use_nudges:
                 parts.append(f"{i}. {action_str}{ev_part} \u2014 {opt.rationale}")
