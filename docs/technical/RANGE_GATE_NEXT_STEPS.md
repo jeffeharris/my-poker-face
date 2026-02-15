@@ -44,9 +44,10 @@ TAG/default profiles now see a 1-line board texture read in postflop lean prompt
 Suppressed in extreme tilted/shaken/dissociated states. 68 new tests, all passing.
 Committed as `aa461cab`.
 
-### 2. `nudge_show_ev` Flag (`poker/prompt_config.py`)
-New `PromptConfig` field that shows EV labels alongside nudge phrases when
-`composed_nudges=True`. Committed as `94e33138`.
+### 2. `show_ev_labels` Override (`poker/prompt_config.py`)
+`PromptConfig.show_ev_labels: Optional[bool]` — overrides per-profile EV label
+visibility for A/B experiments. Originally added as `nudge_show_ev` in `94e33138`,
+then migrated to `show_ev_labels` on `OptionProfile` in `cc73d1e0`.
 
 ### 3. Nudge/Rangegate 4-Arm A/B (Experiment 113863)
 

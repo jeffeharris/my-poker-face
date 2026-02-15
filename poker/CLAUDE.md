@@ -177,7 +177,7 @@ Full design doc: `docs/technical/BOUNDED_OPTIONS_DECISION_FRAMEWORK.md`
 
 | File | Purpose |
 |------|---------|
-| `bounded_options.py` | Option generation, case matrix, profiles, emotional shift |
+| `bounded_options.py` | Option generation, flat generator, profiles, emotional shift |
 | `hybrid_ai_controller.py` | Lean prompt assembly, option integration, fallback logic |
 | `moment_analyzer.py` | Drama factor detection and level determination |
 | `prompt_manager.py` | DRAMA_CONTEXTS mapping, prompt assembly |

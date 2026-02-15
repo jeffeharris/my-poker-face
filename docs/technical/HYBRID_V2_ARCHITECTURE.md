@@ -2,7 +2,7 @@
 purpose: Architecture design for the two-phase hybrid AI decision + character expression system
 type: design
 created: 2026-02-12
-last_updated: 2026-02-13
+last_updated: 2026-02-15
 ---
 
 # Hybrid V2: Decision + Character Architecture
@@ -392,12 +392,12 @@ The natural latency lever is expressiveness. Quiet players produce fewer Phase 2
 - v2 (stateless injection): the plan competes only with the EV labels in a single message — cleaner signal
 - Still an empirical question whether the plan meaningfully biases selection away from EV labels
 
-### Remaining Style Hints (tight_passive, loose_passive)
-- LAG style hint was removed, but tight_passive and loose_passive still have style hints
-- These are less problematic (tight hints don't cause degenerate play like aggressive ones did)
-- When `hand_plan` is enabled, the hand plan replaces style hints — no static hint is injected
-- tight_passive and loose_passive hints are preserved as fallback when `hand_plan` is disabled
-- If Phase 0 proves effective in experiments, remove all style hints entirely
+### Style Hints (consolidated onto OptionProfile)
+- All style hints moved from standalone `STYLE_HINTS` dict to `OptionProfile.style_hint` field
+- Each profile carries its own hint: TAG="Fold weak hands...", LAG="Play many hands...", etc.
+- Default profile has empty hint (no injection)
+- When `hand_plan` is enabled, style hints are suppressed — the hand plan provides context instead
+- `_build_lean_prompt()` reads `profile.style_hint` directly (no more dict lookup)
 
 ### Fold EV Labels + Noisy Equity
 - The fold EV fix (fold labeled `[+EV]` when equity is well below required) applies globally
