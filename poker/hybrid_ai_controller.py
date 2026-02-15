@@ -300,6 +300,7 @@ class HybridAIController(AIPlayerController):
             capture_id[0],
             player_bet=player.bet,
             all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+            bounded_options=[o.to_dict() for o in options],
         )
 
         # Update capture
@@ -574,6 +575,7 @@ class HybridAIController(AIPlayerController):
             capture_id[0],
             player_bet=player.bet,
             all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+            bounded_options=[o.to_dict() for o in options],
         )
 
         # Step 6: Update capture with final action (like parent class does)

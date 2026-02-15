@@ -1508,6 +1508,7 @@ class AIPlayerController:
         capture_id: Optional[int] = None,
         player_bet: int = 0,
         all_players_bets: Optional[List[Tuple[int, bool]]] = None,
+        bounded_options: Optional[List[Dict]] = None,
     ) -> None:
         """Analyze decision quality and save to database.
 
@@ -1519,6 +1520,7 @@ class AIPlayerController:
             capture_id: Optional ID of the prompt capture for linking
             player_bet: Player's current round bet (for max_winnable calculation)
             all_players_bets: List of (bet, is_folded) tuples for ALL players
+            bounded_options: Optional list of bounded option dicts for menu compliance
         """
         if not self._decision_analysis_repo:
             return
@@ -1674,11 +1676,16 @@ class AIPlayerController:
                 psychology_snapshot=psychology_snapshot,
             )
 
+            # Menu compliance: score against bounded options if available
+            if bounded_options:
+                analyzer.evaluate_menu_compliance(analysis, bounded_options)
+
             self._decision_analysis_repo.save_decision_analysis(analysis)
             equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
+            menu_str = f", menu_best={analysis.menu_picked_best}" if analysis.menu_picked_best is not None else ""
             logger.debug(
                 f"[DECISION_ANALYSIS] {self.player_name}: {analysis.decision_quality} "
-                f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f})"
+                f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f}{menu_str})"
             )
         except Exception as e:
             logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")
