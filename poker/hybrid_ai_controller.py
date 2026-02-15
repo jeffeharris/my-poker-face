@@ -126,8 +126,9 @@ class HybridAIController(AIPlayerController):
         else:
             effective_looseness = 0.5
 
+        num_opponents = rule_context.get('num_opponents')
         range_key = _game_position_to_range_key(game_position)
-        range_pct = looseness_to_range_pct(effective_looseness, range_key)
+        range_pct = looseness_to_range_pct(effective_looseness, range_key, num_opponents=num_opponents)
         in_range = is_hand_in_range(canonical, range_pct) if canonical else True
         position_display = _position_display_name(range_key)
 
@@ -236,8 +237,9 @@ class HybridAIController(AIPlayerController):
             )
 
         # Layer 5.5: Composed nudges (replace raw rationale with playstyle phrases)
+        is_heads_up = rule_context.get('num_opponents', 2) <= 1
         if getattr(self.prompt_config, 'composed_nudges', False):
-            options = apply_composed_nudges(options, profile_key)
+            options = apply_composed_nudges(options, profile_key, is_heads_up=is_heads_up)
 
         # Layer 6: Emotional window shift (may override nudge rationale at moderate+)
         emotional_shift = get_emotional_shift(self.psychology)
@@ -450,6 +452,11 @@ class HybridAIController(AIPlayerController):
                 parts.append("Facing: a 3-bet (re-raise)")
             else:
                 parts.append("Facing: a 4-bet+ (heavy action)")
+
+        # Heads-up context
+        num_opponents = context.get('num_opponents', 2)
+        if num_opponents <= 1:
+            parts.append("Heads-up (1v1). Widen your ranges and apply pressure.")
 
         # Board read injection (postflop, analytical profiles only)
         if profile and profile.board_read and community_cards:

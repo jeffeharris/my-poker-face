@@ -97,6 +97,28 @@ NUDGE_PHRASES: Dict[str, Dict[str, List[str]]] = {
     },
 }
 
+# ============================================================
+# Heads-up nudge overrides
+# ============================================================
+#
+# When playing 1v1, these phrases replace the profile-specific ones.
+# Keys missing here fall through to the normal profile → default chain.
+
+HEADS_UP_NUDGE_OVERRIDES: Dict[str, List[str]] = {
+    'fold_correct': ["Not worth it heads-up.", "Save chips for a better spot."],
+    'fold_tough': ["Even heads-up, this is a fold.", "Patience pays off."],
+    'raise_value': ["Punish their wide range.", "Make them pay."],
+    'raise_probe': ["Standard heads-up aggression.", "Keep the pressure on."],
+    'raise_bluff': ["Represent strength. They fold often.", "Heads-up bluff."],
+    'call_strong': ["Trap them.", "Strong call heads-up."],
+    'call_close': ["Defend your blind.", "Wide call — standard heads-up."],
+    'call_light': ["See a flop.", "Speculate heads-up."],
+    'check_slow': ["Let them hang themselves.", "Trap."],
+    'check_passive': ["Control the pot.", "Pick your spot."],
+    'check_free': ["Take the free card.", "No need to bloat it."],
+    'all_in': ["Maximum pressure.", "Ship it heads-up."],
+}
+
 
 # ============================================================
 # Nudge key classifier
@@ -152,6 +174,7 @@ def _classify_nudge_key(option: BoundedOption) -> str:
 def apply_composed_nudges(
     options: List[BoundedOption],
     profile_key: str = 'default',
+    is_heads_up: bool = False,
 ) -> List[BoundedOption]:
     """Replace raw rationale with playstyle-colored nudge phrases.
 
@@ -162,6 +185,7 @@ def apply_composed_nudges(
     Args:
         options: List of BoundedOption instances from generate_bounded_options
         profile_key: Style profile name (e.g. 'tight_aggressive')
+        is_heads_up: When True, overlay HU-specific phrases before profile fallthrough
 
     Returns:
         New list of BoundedOption with nudge rationale replacing raw rationale.
@@ -174,8 +198,12 @@ def apply_composed_nudges(
     for opt in options:
         nudge_key = _classify_nudge_key(opt)
 
-        # Look up phrases: profile first, fall through to default
-        phrases = profile_phrases.get(nudge_key) or default_phrases.get(nudge_key)
+        # Look up phrases: HU override first, then profile, fall through to default
+        if is_heads_up:
+            phrases = HEADS_UP_NUDGE_OVERRIDES.get(nudge_key)
+        else:
+            phrases = None
+        phrases = phrases or profile_phrases.get(nudge_key) or default_phrases.get(nudge_key)
 
         if phrases:
             nudge_text = rng.choice(phrases)

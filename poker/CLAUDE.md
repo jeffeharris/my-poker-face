@@ -153,6 +153,15 @@ Each action type is evaluated independently with profile-aware thresholds:
 - **RAISE**: Multiple sizes (small/medium/large). Postflop overrides on OptionProfile. Bluff raises gated on `profile.bluff_frequency > 0`. Honest rationale labeling (-EV raises show "bluff bet").
 - **Range gate**: `in_range`/`range_pct` params bias EV labels for out-of-range preflop hands.
 
+### Heads-Up Awareness
+
+In HU (2-player) pots, the bounded options system applies dedicated adjustments:
+- Position offsets (`button +0.30`, `big_blind +0.20`)
+- Range bias disabled preflop
+- Lower monster threshold (`0.75` vs `0.90`)
+- HU preflop opens standardized to at least `2x BB`
+- Optional `OptionProfile` HU overrides via `heads_up_raise_plus_ev` and `heads_up_raise_neutral`
+
 ### Key Types
 
 - `BoundedOption`: dataclass with action, raise_to, rationale, ev_estimate, style_tag

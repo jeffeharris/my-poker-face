@@ -140,10 +140,14 @@ class PokerGameState:
 
     @property
     def small_blind_idx(self) -> int:
+        if len(self.players) == 2:
+            return self.current_dealer_idx
         return (self.current_dealer_idx + 1) % len(self.players)
 
     @property
     def big_blind_idx(self) -> int:
+        if len(self.players) == 2:
+            return (self.current_dealer_idx + 1) % 2
         return (self.current_dealer_idx + 2) % len(self.players)
 
     @property
@@ -566,6 +570,10 @@ def set_betting_round_start_player(game_state) -> Optional[PokerGameState]:
     if len(game_state.community_cards) > 0:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
                                                              relative_player_idx=game_state.current_dealer_idx)
+    elif len(game_state.players) == 2:
+        # Heads-up: dealer/SB acts first preflop
+        first_action_player_idx = get_next_active_player_idx(players=game_state.players,
+                                                             relative_player_idx=game_state.current_dealer_idx - 1)
     else:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
                                                              relative_player_idx=game_state.current_dealer_idx + 2)

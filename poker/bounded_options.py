@@ -97,6 +97,10 @@ class OptionProfile:
     # Prompt presentation: style hint injected into lean prompt (empty = no hint)
     style_hint: str = ''
 
+    # Heads-up overrides (None = use preflop values)
+    heads_up_raise_plus_ev: Optional[float] = None
+    heads_up_raise_neutral: Optional[float] = None
+
     def to_dict(self) -> Dict:
         """Serialize for prompt capture tracking."""
         d = {
@@ -129,6 +133,10 @@ class OptionProfile:
             d['show_ev_labels'] = self.show_ev_labels
         if self.style_hint:
             d['style_hint'] = self.style_hint
+        if self.heads_up_raise_plus_ev is not None:
+            d['heads_up_raise_plus_ev'] = self.heads_up_raise_plus_ev
+        if self.heads_up_raise_neutral is not None:
+            d['heads_up_raise_neutral'] = self.heads_up_raise_neutral
         return d
 
 
@@ -150,6 +158,8 @@ STYLE_PROFILES = {
         postflop_max_raise_options=1, # passive — show minimal raise options
         check_promotion='always',     # always promote check with pot-control text
         style_hint="Fold most hands. Only continue with strong holdings.",
+        heads_up_raise_plus_ev=0.55,
+        heads_up_raise_neutral=0.40,
     ),
     'tight_aggressive': OptionProfile(
         fold_equity_multiplier=2.5,    # still hard to block fold
@@ -169,6 +179,8 @@ STYLE_PROFILES = {
         check_promotion='conditional', # promote check only when no raise is neutral/+EV
         board_read=True,              # analytical profile reads the board
         style_hint="Fold weak hands. When you do play, bet aggressively for value.",
+        heads_up_raise_plus_ev=0.45,
+        heads_up_raise_neutral=0.30,
     ),
     'loose_passive': OptionProfile(
         fold_equity_multiplier=1.5,    # easier to block fold (plays more)
@@ -187,6 +199,8 @@ STYLE_PROFILES = {
         check_promotion='always',     # always promote check with pot-control text
         show_ev_labels=False,
         style_hint="See more flops — call liberally, but don't overcommit without a hand.",
+        heads_up_raise_plus_ev=0.50,
+        heads_up_raise_neutral=0.35,
     ),
     'loose_aggressive': OptionProfile(
         fold_equity_multiplier=1.8,    # plays more hands than default (2.0) but not every hand
@@ -207,8 +221,14 @@ STYLE_PROFILES = {
         check_promotion='suppress_if_raises', # never promote check over raises
         show_ev_labels=False,
         style_hint="Play many hands and apply pressure — raise or fold, avoid flat calls.",
+        heads_up_raise_plus_ev=0.40,
+        heads_up_raise_neutral=0.28,
     ),
-    'default': OptionProfile(board_read=True),  # analytical default reads the board
+    'default': OptionProfile(
+        board_read=True,              # analytical default reads the board
+        heads_up_raise_plus_ev=0.50,
+        heads_up_raise_neutral=0.35,
+    ),
 }
 
 
@@ -266,9 +286,11 @@ def _should_block_fold(context: Dict, profile: OptionProfile = None) -> bool:
         logger.debug(f"[BOUNDED] Blocking fold: equity {equity:.2f} > {multiplier}x required {required:.2f}")
         return True
 
-    # Block if we have a monster (top 5% hand)
-    if equity >= 0.90:
-        logger.debug(f"[BOUNDED] Blocking fold: monster hand with {equity:.2f} equity")
+    # Block if we have a monster (top 5% hand; lower bar for HU where 65%+ dominates)
+    num_opponents = context.get('num_opponents', 2)
+    monster_threshold = 0.75 if num_opponents <= 1 else 0.90
+    if equity >= monster_threshold:
+        logger.debug(f"[BOUNDED] Blocking fold: monster hand with {equity:.2f} equity (threshold {monster_threshold})")
         return True
 
     # Block if pot-committed
@@ -352,6 +374,28 @@ def _get_raise_options(
 
     if min_raise <= 0 or max_raise <= 0:
         return []
+
+    # HU preflop: standard open is min-raise (2x BB) instead of pot-based sizing
+    num_opponents = context.get('num_opponents', 2)
+    phase = context.get('phase', 'PRE_FLOP')
+    if num_opponents <= 1 and phase == 'PRE_FLOP':
+        hu_open = max(min_raise, big_blind * 2)
+        hu_open = min(hu_open, max_raise)
+        options = []
+        vbt = eff_value_bet_threshold if eff_value_bet_threshold is not None else profile.value_bet_threshold
+        value_betting = equity >= vbt
+        equity_pct = int(equity * 100)
+        rationale = f"Value raise ({equity_pct}% equity)" if value_betting else "Standard open (2x BB)"
+        options.append((hu_open, rationale, "standard"))
+        # Add a larger sizing option if there's room
+        larger = int(big_blind * 3)
+        if larger > hu_open and larger <= max_raise:
+            rationale = f"Pressure raise ({equity_pct}% equity)" if value_betting else "Larger open (3x BB)"
+            options.append((larger, rationale, "aggressive"))
+        # All-in for short stacks
+        if stack_bb < 20 and max_raise not in [o[0] for o in options]:
+            options.append((max_raise, "All-in (short stack)", "aggressive"))
+        return options
 
     options = []
 
@@ -533,6 +577,9 @@ def generate_bounded_options(
 
     # Resolve effective thresholds: use postflop overrides when available
     is_postflop = phase != 'PRE_FLOP'
+    num_opponents = context.get('num_opponents', 2)
+    is_heads_up = num_opponents <= 1
+
     eff_raise_plus_ev = (
         profile.postflop_raise_plus_ev if is_postflop and profile.postflop_raise_plus_ev is not None
         else profile.raise_plus_ev
@@ -546,6 +593,13 @@ def generate_bounded_options(
         else profile.value_bet_threshold
     )
 
+    # HU overrides: lower raise thresholds for heads-up play
+    if is_heads_up and not is_postflop:
+        if profile.heads_up_raise_plus_ev is not None:
+            eff_raise_plus_ev = profile.heads_up_raise_plus_ev
+        if profile.heads_up_raise_neutral is not None:
+            eff_raise_neutral = profile.heads_up_raise_neutral
+
     options = []
     valid_actions = context.get('valid_actions', [])
     equity = context.get('equity', 0.5)
@@ -554,7 +608,11 @@ def generate_bounded_options(
     stack_bb = context.get('stack_bb', 100)
 
     # Range biasing: out-of-range preflop hands get biased EV labels
-    apply_range_bias = (not in_range and phase == 'PRE_FLOP' and cost_to_call > 0)
+    # Disabled for HU — ranges are too wide for bias to be meaningful
+    if is_heads_up:
+        apply_range_bias = False
+    else:
+        apply_range_bias = (not in_range and phase == 'PRE_FLOP' and cost_to_call > 0)
 
     block_fold = _should_block_fold(context, profile)
     block_call = _should_block_call(context)

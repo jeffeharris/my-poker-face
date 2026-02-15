@@ -2,7 +2,7 @@
 purpose: Flat generator architecture and emotional window mechanic for bounded option generation
 type: design
 created: 2026-02-12
-last_updated: 2026-02-13
+last_updated: 2026-02-15
 ---
 
 # Bounded Options Decision Framework
@@ -126,6 +126,44 @@ Controls thresholds per play style. Key fields:
 | `loose_passive` | Calling station | Calls more easily, wider marginal zone, no bluffs |
 | `loose_aggressive` | LAG | Bets thinner, overbets, includes bluff raises |
 | `default` | Balanced | Baseline thresholds |
+
+## Heads-Up Adjustments
+
+When only two players remain, the bounded options generator applies explicit
+heads-up (HU) tuning so decisions reflect HU incentives instead of ring-game defaults.
+
+### Positional Equity Offsets
+
+`HEADS_UP_POSITION_OFFSETS` adjusts effective strength by position:
+
+| Position | Offset |
+|----------|--------|
+| `button` | `+0.30` |
+| `big_blind` | `+0.20` |
+
+### Range Bias Behavior
+
+Preflop out-of-range biasing is disabled in HU. The generator does not force
+the usual fold-leaning range gate in two-player pots.
+
+### Monster-Hand Threshold
+
+The HU monster threshold is lowered to `0.75` equity (vs `0.90` in non-HU spots),
+so strong HU hands are treated as "monster" earlier for fold-blocking and aggression logic.
+
+### Standard Open Size
+
+For HU preflop opens, raises are clamped to a minimum open standard of `2x BB`
+(min-raise baseline).
+
+### HU-Specific Raise Overrides
+
+`OptionProfile` supports HU raise threshold overrides:
+
+- `heads_up_raise_plus_ev`
+- `heads_up_raise_neutral`
+
+When set, these override the baseline raise EV bands in HU contexts only.
 
 ## Emotional Window Shift
 

@@ -28,6 +28,13 @@ POSITION_OFFSETS: Dict[str, float] = {
     'blinds': -0.05,      # Generic blinds reference
 }
 
+# Heads-up offsets: both positions play much wider ranges
+HEADS_UP_POSITION_OFFSETS: Dict[str, float] = {
+    'button': +0.30,        # BTN/SB in HU: play 30pp wider
+    'small_blind': +0.30,   # SB acts first preflop in HU
+    'big_blind': +0.20,     # BB: play 20pp wider
+}
+
 # Floor: minimum range % for any position (even the tightest rock plays something)
 RANGE_FLOOR = 0.05
 
@@ -103,7 +110,11 @@ def normalize_position(position: str) -> str:
     return 'middle'
 
 
-def looseness_to_range_pct(effective_looseness: float, position: str) -> float:
+def looseness_to_range_pct(
+    effective_looseness: float,
+    position: str,
+    num_opponents: int = None,
+) -> float:
     """
     Convert effective looseness to position-adjusted range percentage.
 
@@ -114,12 +125,20 @@ def looseness_to_range_pct(effective_looseness: float, position: str) -> float:
         effective_looseness: Looseness value (0.0 = tight, 1.0 = loose)
                             This is baseline_looseness + emotional modifier
         position: Table position
+        num_opponents: Number of active opponents. When 1 (heads-up),
+                       uses wider HEADS_UP_POSITION_OFFSETS. Default (None
+                       or >1) uses standard multi-way offsets.
 
     Returns:
         Range percentage floored at RANGE_FLOOR (0.0 to 1.0)
     """
     pos_key = normalize_position(position)
-    offset = POSITION_OFFSETS.get(pos_key, 0.0)
+
+    # Use HU offsets when heads-up, standard offsets otherwise
+    if num_opponents == 1:
+        offset = HEADS_UP_POSITION_OFFSETS.get(pos_key, POSITION_OFFSETS.get(pos_key, 0.0))
+    else:
+        offset = POSITION_OFFSETS.get(pos_key, 0.0)
 
     range_pct = effective_looseness + offset
 
@@ -401,6 +420,7 @@ def classify_preflop_hand_for_player(
     canonical: str,
     effective_looseness: float,
     game_position: str,
+    num_opponents: int = None,
 ) -> str:
     """Classify a preflop hand relative to the player's current range.
 
@@ -411,6 +431,7 @@ def classify_preflop_hand_for_player(
         canonical: Canonical hand string (e.g., 'AKs', 'T8o', 'QQ')
         effective_looseness: Player's current looseness (0-1), includes emotional modifier
         game_position: Game position name (e.g., 'under_the_gun', 'button')
+        num_opponents: Number of active opponents. When 1, uses HU offsets.
 
     Returns:
         One-line string like 'AKs - premium hand, always in range from early position'
@@ -420,7 +441,7 @@ def classify_preflop_hand_for_player(
         return ''
 
     range_key = _game_position_to_range_key(game_position)
-    range_pct = looseness_to_range_pct(effective_looseness, range_key)
+    range_pct = looseness_to_range_pct(effective_looseness, range_key, num_opponents=num_opponents)
     pos_display = _position_display_name(range_key)
 
     # Premium hands are always in range
@@ -449,6 +470,7 @@ def classify_preflop_hand_for_player(
 
         outside_msg, just_outside_msg = _get_outside_range_messages(
             effective_looseness, canonical, pos_display, range_pct_display,
+            num_opponents=num_opponents,
         )
         return just_outside_msg if in_looser else outside_msg
 
@@ -458,13 +480,28 @@ def _get_outside_range_messages(
     canonical: str,
     pos_display: str,
     range_pct_display: str,
+    num_opponents: int = None,
 ) -> tuple:
     """Return (well_outside_msg, just_outside_msg) scaled by looseness.
 
     Tight players get strong fold directives.
     Loose players get soft nudges that respect their wide-range style.
+    Heads-up (num_opponents == 1) uses softer language since even weak
+    hands have playable value with only one opponent.
     """
-    if looseness < 0.4:
+    is_hu = num_opponents == 1
+
+    if is_hu:
+        # Heads-up: soften all messages — most hands have value
+        just_outside = (
+            f"{canonical} - outside your typical range from {pos_display}, "
+            f"but playable heads-up with aggression (you play {range_pct_display} here)"
+        )
+        well_outside = (
+            f"{canonical} - below your range from {pos_display}, "
+            f"speculative heads-up, proceed with caution (you play {range_pct_display} here)"
+        )
+    elif looseness < 0.4:
         # Tight player — strong directive
         just_outside = (
             f"{canonical} - below your range from {pos_display}, "

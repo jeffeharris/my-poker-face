@@ -471,6 +471,7 @@ def classify_preflop_hand_with_range(
     hole_cards: List[str],
     psychology: 'PlayerPsychology',
     game_position: str,
+    num_opponents: int = None,
 ) -> Optional[str]:
     """Range-aware preflop classification using player's effective looseness.
 
@@ -482,6 +483,7 @@ def classify_preflop_hand_with_range(
             return None
         result = classify_preflop_hand_for_player(
             canonical, psychology.effective_looseness, game_position,
+            num_opponents=num_opponents,
         )
         return result if result else classify_preflop_hand(hole_cards)
     except Exception as e:
@@ -2049,8 +2051,13 @@ def build_base_game_state(
             # Pre-flop: range-aware classification if psychology available
             hand_strength = None
             if range_guidance and psychology and player_positions:
+                num_opponents = len([
+                    p for p in game_state.players
+                    if not p.is_folded and p.name != player.name
+                ])
                 hand_strength = classify_preflop_hand_with_range(
                     hole_cards, psychology, player_positions[0],
+                    num_opponents=num_opponents,
                 )
             if not hand_strength:
                 hand_strength = classify_preflop_hand(hole_cards)

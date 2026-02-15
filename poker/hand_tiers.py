@@ -54,6 +54,24 @@ TOP_75_HANDS = TOP_65_HANDS | {
     '52s', '42s', '32s',  # Smallest suited connectors
 }  # ~75% (127 hands)
 
+TOP_85_HANDS = TOP_75_HANDS | {
+    '95s', '94s', '93s', '92s',  # Remaining suited nines
+    '84s', '83s', '82s',  # Remaining suited eights
+    '73s', '72s',  # Remaining suited sevens
+    '62s',  # Last suited six
+    'J4o', 'J3o', 'J2o',  # Remaining offsuit jacks
+    'T7o',  # Best remaining offsuit ten
+    '97o',  # Best remaining offsuit nine
+    '86o',  # Best remaining offsuit eight
+}  # ~85% (143 hands)
+
+TOP_95_HANDS = TOP_85_HANDS | {
+    'T6o', 'T5o', 'T4o', 'T3o', 'T2o',  # Remaining offsuit tens
+    '96o', '95o', '94o', '93o', '92o',  # Remaining offsuit nines
+    '85o', '84o', '83o', '82o',  # Remaining offsuit eights
+    '75o', '74o', '73o',  # Most remaining offsuit sevens
+}  # ~95% (160 hands)
+
 
 def is_hand_in_range(canonical: str, range_percentage: float) -> bool:
     """Check if a hand qualifies under a target range percentage.
@@ -76,6 +94,10 @@ def is_hand_in_range(canonical: str, range_percentage: float) -> bool:
         return True
 
     # Map percentage to closest tier
+    if range_percentage >= 0.95:
+        return canonical in TOP_95_HANDS
+    if range_percentage >= 0.85:
+        return canonical in TOP_85_HANDS
     if range_percentage >= 0.75:
         return canonical in TOP_75_HANDS
     if range_percentage >= 0.65:
