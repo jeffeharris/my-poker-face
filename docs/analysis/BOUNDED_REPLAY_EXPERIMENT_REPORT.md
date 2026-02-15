@@ -2,18 +2,17 @@
 purpose: Results from bounded replay experiment comparing option-framing variants on identical decision points
 type: analysis
 created: 2026-02-14
-last_updated: 2026-02-14
+last_updated: 2026-02-15
 ---
 
 # Bounded Replay Experiment Report
 
-**Date:** February 14, 2026
-**Experiment ID:** 19 (bounded-replay-preflop)
+**Date:** February 14-15, 2026
+**Experiment IDs:** 19 (gpt-5-nano), 22 (groq/llama-3.1-8b), 23 (gemini-2.0-flash)
 **Source Data:** Experiment 16 (nudge_test), 817 preflop captures
-**Model:** gpt-5-nano (OpenAI)
-**Total LLM Calls:** 12,255 (817 captures x 3 variants x 5 samples)
-**Cost:** ~$0.48
-**Duration:** 93 minutes (10 concurrent workers)
+**Models:** gpt-5-nano, llama-3.1-8b-instant (Groq), gemini-2.0-flash (Google)
+**Total LLM Calls:** 36,765 (12,255 per model)
+**Cost:** ~$0.50 (gpt-5-nano $0.48, Groq/Gemini negligible)
 
 ---
 
@@ -29,7 +28,7 @@ We replayed 817 frozen preflop decision points from experiment 16 through three 
 | Raise rate | 26% | 31% | 30% |
 | Sample agreement | 65% | 71% | **72%** |
 
-**Conclusion:** Nudge phrases amplify archetype differentiation by 40% compared to raw EV labels, reduce flat-calling by half, and produce more decisive LLM responses. The range gate adds modest additional tightening. Nudges+rangegate is the recommended production config.
+**Conclusion:** Nudge phrases amplify archetype differentiation by 40% compared to raw EV labels on gpt-5-nano, reduce flat-calling by half, and produce more decisive LLM responses. The effect generalizes to Gemini Flash (1.30x amplification) but not to Llama-3.1-8b (no amplification, too noisy). Nudges+rangegate is the recommended production config for gpt-5-nano.
 
 ---
 
@@ -66,7 +65,7 @@ This isolates the option-framing effect from all other variables.
 - **No emotional shift** — removed to eliminate noise variable
 - **No option shuffle** — deterministic ordering to isolate framing effect
 - **Same system prompt** — `LEAN_SYSTEM_PROMPT` used for all calls
-- **Same model** — gpt-5-nano with `reasoning_effort: low`
+- **Same prompts across models** — all three models see identical prompts per variant
 
 ### Players
 
@@ -193,6 +192,69 @@ Sun Tzu shows a 6.6pp VPIP gap between raw-ev (41.2%) and nudges+rangegate (34.6
 
 ---
 
+## Multi-Model Comparison
+
+We re-ran the identical 12,255-call replay on Groq/Llama-3.1-8b and Gemini 2.0 Flash to test whether the nudge framing effect generalizes beyond gpt-5-nano.
+
+### VPIP by Model (nudges+rangegate)
+
+| Player | Profile | gpt-5-nano | Gemini Flash | Groq/Llama |
+|--------|---------|------------|-------------|------------|
+| Abraham Lincoln | tight_passive | 37.6% | 39.8% | 73.3% |
+| Sun Tzu | tight_aggressive | 34.6% | 34.2% | 64.9% |
+| Mark Twain | default | 42.4% | 37.7% | 62.8% |
+| Blackbeard | loose_aggressive | 57.9% | 52.2% | 89.1% |
+
+### Key Metrics by Model
+
+| Metric | gpt-5-nano | Gemini Flash | Groq/Llama |
+|--------|------------|-------------|------------|
+| Archetype spread (nudges+rg) | 23.3pp | 18.0pp | 26.2pp |
+| Nudge amplification | **1.40x** | **1.30x** | 0.99x |
+| Sample agreement | 72% | **81%** | 24% |
+| Parse errors | 0.7% | **0.0%** | 12.6% |
+| Fold rate (nudges+rg) | 57% | 59% | 27% |
+
+### Archetype Ordering (nudges+rangegate)
+
+| Model | Ordering (VPIP low to high) |
+|-------|---------------------------|
+| gpt-5-nano | TAG (34.6%) < TP (37.6%) < default (42.4%) < LAG (57.9%) |
+| Gemini Flash | TAG (34.2%) < default (37.7%) < TP (39.8%) < LAG (52.2%) |
+| Groq/Llama | default (62.8%) < TAG (64.9%) < TP (73.3%) < LAG (89.1%) |
+
+### Nudge Amplification by Model
+
+How much does switching from raw-ev to nudges+rangegate widen the archetype spread?
+
+| Model | raw-ev spread | nudges+rg spread | Amplification |
+|-------|--------------|------------------|---------------|
+| gpt-5-nano | 16.7pp | 23.3pp | **1.40x** |
+| Gemini Flash | 13.9pp | 18.0pp | **1.30x** |
+| Groq/Llama | 26.5pp | 26.2pp | 0.99x (none) |
+
+### Model-Specific Findings
+
+**Gemini 2.0 Flash — Strong instruction-follower, weak archetype ordering**
+
+Gemini produces the cleanest output: 0% parse errors, 81% sample agreement (highest of all three). Its nudge amplification (1.30x) is close to gpt-5-nano. The fold rate (59%) and action distribution are nearly identical to gpt-5-nano. However, it swaps the TP and default archetypes — Lincoln (tight_passive) plays looser than Mark Twain (default), suggesting Gemini doesn't differentiate the style hint text between these two profiles as well.
+
+**Groq/Llama-3.1-8b — Too loose, too noisy, no amplification**
+
+Llama produces fundamentally different behavior: only 27% fold rate (vs 57-59% for the other models), 12.6% parse errors, and only 24% sample agreement. It shows zero nudge amplification — the framing variants make almost no difference to its behavior.
+
+The core problem is visible in the reasoning text. When gpt-5-nano sees a weak hand with a "Disciplined fold" nudge, it folds. When Llama sees the same hand with the same nudge, it acknowledges the hand is bad but rationalizes a raise anyway: *"This is a weak unconnected hand... but pre-flop aggression will keep my opponent honest."* It treats nudge phrases as suggestions rather than directives, defaulting to generic poker clichés like "apply pressure" and "test the waters."
+
+The archetype ordering is also broken: default < TAG < TP < LAG, with the tightest player (Mark Twain/default at 62.8%) still playing more hands than Blackbeard does on gpt-5-nano (57.9%).
+
+### Model Ranking for Bounded Options
+
+1. **gpt-5-nano** — Best nudge amplification (1.40x), reasonable ordering, good agreement (72%)
+2. **Gemini 2.0 Flash** — Cleanest JSON (0% errors), highest agreement (81%), good amplification (1.30x), but TP/default archetype swap
+3. **Groq/Llama-3.1-8b** — Too loose, too noisy, no nudge amplification, broken ordering — not viable for personality-driven poker
+
+---
+
 ## Methodology Notes
 
 ### Prompt Reconstruction
@@ -214,21 +276,25 @@ Captures from experiment 16 predated the enriched metadata fields (position, big
 ### Limitations
 
 1. **Position defaulting**: All captures without position metadata default to 'button', which may overstate the range gate's permissiveness
-2. **Single model**: Results are specific to gpt-5-nano; other models may respond differently to framing
-3. **Preflop only**: This analysis covers only preflop decisions; postflop framing effects may differ
-4. **No equity recalculation**: Replay uses the original equity values, not recalculated ones
+2. **Preflop only**: This analysis covers only preflop decisions; postflop framing effects may differ
+3. **No equity recalculation**: Replay uses the original equity values, not recalculated ones
+4. **Groq string-typed choice**: Llama returns `"choice": "1"` (string) instead of `"choice": 1` (integer), requiring coercion. 12.6% of responses had genuinely malformed JSON (typos like `"choise"`, missing fields)
 
 ---
 
 ## Recommendations
 
-1. **Ship nudges+rangegate as default config.** It produces the best archetype differentiation (23.3pp spread), highest sample agreement (72%), and healthiest action distribution (low flat-call rate).
+1. **Ship nudges+rangegate as default config for gpt-5-nano.** It produces the best archetype differentiation (23.3pp spread), highest sample agreement (72%), and healthiest action distribution (low flat-call rate).
 
-2. **Retire raw-ev for personality-driven games.** Raw EV labels compress archetype differences and encourage flat-calling. Only use raw-ev for analytical/debugging purposes.
+2. **Gemini Flash is a viable alternative.** Strong instruction-following (81% agreement, 0% parse errors) and meaningful nudge amplification (1.30x). The TP/default archetype swap could potentially be fixed with stronger style hint differentiation.
 
-3. **Investigate postflop framing.** This experiment only tested preflop. The 105 FLOP + 48 TURN + 35 RIVER captures from experiment 16 could be replayed to test postflop framing effects.
+3. **Do not use Llama-3.1-8b for personality-driven poker.** It lacks the instruction-following fidelity to respect bounded option framing, defaulting to generic "be aggressive" poker advice regardless of archetype or nudge text.
 
-4. **Test with other models.** gpt-5-nano may be unusually responsive to nudge framing. Running the same replay with Gemini Flash or Claude Haiku would test generalizability.
+4. **Retire raw-ev for personality-driven games.** Raw EV labels compress archetype differences and encourage flat-calling across all models. Only use raw-ev for analytical/debugging purposes.
+
+5. **Investigate postflop framing.** This experiment only tested preflop. The 105 FLOP + 48 TURN + 35 RIVER captures from experiment 16 could be replayed to test postflop framing effects.
+
+6. **Test Claude Haiku.** With two data points showing nudge amplification scales with instruction-following quality, Claude Haiku (known for strong instruction adherence) may produce even better results.
 
 ---
 
@@ -266,8 +332,20 @@ python3 scripts/dbq.py "SELECT variant, new_action, COUNT(*) FROM bounded_replay
 }
 ```
 
+### Multi-Model Configs
+
+```bash
+# Groq/Llama
+docker compose exec backend python -m experiments.run_bounded_replay \
+    experiments/configs/bounded_replay_groq.json
+
+# Gemini Flash
+docker compose exec backend python -m experiments.run_bounded_replay \
+    experiments/configs/bounded_replay_gemini.json
+```
+
 ### Database Tables
 
-- **bounded_replay_results**: 12,255 rows with per-sample results (schema v77)
+- **bounded_replay_results**: 36,765 rows across 3 experiments (schema v77)
 - **prompt_captures**: Source captures from experiment 16 (817 preflop)
-- **experiments**: Experiment 19 metadata and summary
+- **experiments**: Experiment 19 (gpt-5-nano), 22 (groq), 23 (gemini)

@@ -310,7 +310,9 @@ def replay_single_sample(
 
     start_time = time.time()
     try:
-        client = LLMClient(provider=provider, model=model)
+        # Disable reasoning for providers that don't support it (e.g., gemini-2.0-flash)
+        reasoning = "low" if provider == "openai" else None
+        client = LLMClient(provider=provider, model=model, reasoning_effort=reasoning)
         messages = [
             {"role": "system", "content": LEAN_SYSTEM_PROMPT},
             {"role": "user", "content": prepared['user_message']},
@@ -329,8 +331,14 @@ def replay_single_sample(
         reasoning = ''
         try:
             result_data = json.loads(response.content)
-            choice_number = result_data.get('choice')
+            raw_choice = result_data.get('choice')
             reasoning = result_data.get('reasoning', '')
+
+            # Coerce choice to int (Llama returns "1" as string)
+            try:
+                choice_number = int(raw_choice) if raw_choice is not None else None
+            except (ValueError, TypeError):
+                choice_number = None
 
             if choice_number and 1 <= choice_number <= len(options):
                 chosen = options[choice_number - 1]
