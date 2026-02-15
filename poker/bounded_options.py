@@ -9,7 +9,7 @@ The key insight: LLMs are bad at poker math but good at personality expression.
 Let the rule engine handle the math, let the LLM handle the character.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Tuple
 import logging
 import random
@@ -87,6 +87,16 @@ class OptionProfile:
     # - 'suppress_if_raises': never promote check when raise options exist
     check_promotion: str = 'default'
 
+    # Board read injection: when True, lean prompt includes a board texture read
+    # Only analytical profiles (TAG, default) get this — loose/passive profiles don't
+    board_read: bool = False
+
+    # Prompt presentation: whether [+EV]/[-EV] brackets appear in lean prompt
+    show_ev_labels: bool = True
+
+    # Prompt presentation: style hint injected into lean prompt (empty = no hint)
+    style_hint: str = ''
+
     def to_dict(self) -> Dict:
         """Serialize for prompt capture tracking."""
         d = {
@@ -113,6 +123,12 @@ class OptionProfile:
             d['check_penalty_threshold'] = self.check_penalty_threshold
         if self.check_promotion != 'default':
             d['check_promotion'] = self.check_promotion
+        if self.board_read:
+            d['board_read'] = self.board_read
+        if not self.show_ev_labels:
+            d['show_ev_labels'] = self.show_ev_labels
+        if self.style_hint:
+            d['style_hint'] = self.style_hint
         return d
 
 
@@ -133,6 +149,7 @@ STYLE_PROFILES = {
         postflop_value_bet_threshold=0.80,
         postflop_max_raise_options=1, # passive — show minimal raise options
         check_promotion='always',     # always promote check with pot-control text
+        style_hint="Fold most hands. Only continue with strong holdings.",
     ),
     'tight_aggressive': OptionProfile(
         fold_equity_multiplier=2.5,    # still hard to block fold
@@ -150,6 +167,8 @@ STYLE_PROFILES = {
         postflop_max_raise_options=2, # aggressive but curated
         check_penalty_threshold=0.40,  # checking with >40% equity is leaving value
         check_promotion='conditional', # promote check only when no raise is neutral/+EV
+        board_read=True,              # analytical profile reads the board
+        style_hint="Fold weak hands. When you do play, bet aggressively for value.",
     ),
     'loose_passive': OptionProfile(
         fold_equity_multiplier=1.5,    # easier to block fold (plays more)
@@ -166,11 +185,13 @@ STYLE_PROFILES = {
         postflop_value_bet_threshold=0.75,
         postflop_max_raise_options=1, # passive — minimal raise options
         check_promotion='always',     # always promote check with pot-control text
+        show_ev_labels=False,
+        style_hint="See more flops — call liberally, but don't overcommit without a hand.",
     ),
     'loose_aggressive': OptionProfile(
         fold_equity_multiplier=1.8,    # plays more hands than default (2.0) but not every hand
-        call_plus_ev=1.5,
-        call_marginal=0.75,
+        call_plus_ev=1.3,
+        call_marginal=0.60,
         raise_plus_ev=0.55,           # slightly lower bar than default — raises for value more often
         raise_neutral=0.42,           # honest EV labels — marginal raises show as -EV, not neutral
         sizing_small=0.33,
@@ -184,17 +205,10 @@ STYLE_PROFILES = {
         postflop_max_raise_options=3, # full menu of raise options
         check_penalty_threshold=0.35,  # checking with >35% equity is suboptimal for LAG
         check_promotion='suppress_if_raises', # never promote check over raises
+        show_ev_labels=False,
+        style_hint="Play many hands and apply pressure — raise or fold, avoid flat calls.",
     ),
-    'default': OptionProfile(),       # current behavior unchanged
-}
-
-# Style hint text for lean prompt injection
-STYLE_HINTS = {
-    'tight_passive': "Fold most hands. Only continue with strong holdings.",
-    'tight_aggressive': "Fold weak hands. When you do play, bet aggressively for value.",
-    'loose_passive': "See more flops — call liberally, but don't overcommit without a hand.",
-    'loose_aggressive': "Play many hands and apply pressure — raise or fold, avoid flat calls.",
-    'default': "",
+    'default': OptionProfile(board_read=True),  # analytical default reads the board
 }
 
 
@@ -372,6 +386,34 @@ def _get_raise_options(
         else:
             rationale = "Pressure/protection bet"
         options.append((large, rationale, "aggressive"))
+
+    # Fallback: when min_raise exceeds pot-based sizing, anchor sizes off min_raise
+    if len(options) <= 1 and min_raise > int(pot * profile.sizing_small):
+        options = []
+        small = min_raise
+        medium = min_raise + int(pot * 0.5)
+        large = min_raise + pot
+
+        if small <= max_raise:
+            if value_betting:
+                rationale = f"Value bet ({equity_pct}% equity)"
+            else:
+                rationale = "Minimum raise"
+            options.append((small, rationale, "conservative"))
+
+        if medium > small and medium <= max_raise:
+            if value_betting:
+                rationale = f"Bet for value ({equity_pct}% equity)"
+            else:
+                rationale = "Standard raise"
+            options.append((medium, rationale, "standard"))
+
+        if large > medium and large <= max_raise:
+            if value_betting:
+                rationale = f"Strong value bet ({equity_pct}% equity)"
+            else:
+                rationale = "Pressure raise"
+            options.append((large, rationale, "aggressive"))
 
     # All-in for short stacks (< 20 BB)
     if stack_bb < 20 and max_raise not in [o[0] for o in options]:
@@ -648,6 +690,30 @@ def generate_bounded_options(
                 ev_estimate=raise_ev,
                 style_tag=style_tag
             ))
+
+    # === Raise escalation annotation ===
+    raises_this_round = context.get('raises_this_round', 0)
+    if raises_this_round >= 1:
+        from poker.controllers import _classify_raise_action
+        level = _classify_raise_action(raises_this_round)
+        options = [
+            replace(o, rationale=f"{level}: {o.rationale}") if o.action == 'raise' else o
+            for o in options
+        ]
+
+    # === Re-raise EV adjustment ===
+    if raises_this_round >= 2 and cost_to_call > 0:
+        reraise_demote = {'+EV': 'neutral', 'neutral': '-EV'}
+        call_boost = {'marginal': 'neutral', '-EV': 'marginal'}
+        adjusted = []
+        for o in options:
+            if o.action == 'raise' and o.ev_estimate in reraise_demote:
+                adjusted.append(replace(o, ev_estimate=reraise_demote[o.ev_estimate]))
+            elif o.action == 'call' and o.ev_estimate in call_boost:
+                adjusted.append(replace(o, ev_estimate=call_boost[o.ev_estimate]))
+            else:
+                adjusted.append(o)
+        options = adjusted
 
     # === Post-flop raise option limit ===
     if is_postflop and profile.postflop_max_raise_options is not None:

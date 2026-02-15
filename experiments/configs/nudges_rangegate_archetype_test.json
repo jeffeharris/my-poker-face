@@ -1,0 +1,68 @@
+{
+  "name": "nudges_rangegate_archetype_test",
+  "description": "Test composed nudges with and without EV labels, plus range gate, with archetype cast. Compares: raw EV labels, nudges only (hiding EV), nudges + EV (both signals), and nudges + range gate.",
+  "hypothesis": "Nudges alone will maximize VPIP spread (54pp in prior run). Adding EV labels back alongside nudges will compress spread as LLMs re-anchor on math signals.",
+  "tags": ["nudges", "range-gate", "archetype", "vpip-spread", "lean-bounded", "ev-labels"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Joan of Arc", "Buddha", "Alice", "Napoleon"],
+  "player_types": {
+    "Joan of Arc": {"type": "hybrid"},
+    "Buddha": {"type": "hybrid"},
+    "Alice": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "lean-raw-ev",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "composed_nudges": false,
+      "preflop_range_gate": false
+    }
+  },
+  "variants": [
+    {
+      "label": "lean-nudges",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "composed_nudges": true,
+        "preflop_range_gate": false
+      }
+    },
+    {
+      "label": "lean-nudges-ev",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "composed_nudges": true,
+        "nudge_show_ev": true,
+        "preflop_range_gate": false
+      }
+    },
+    {
+      "label": "lean-nudges-rangegate",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "composed_nudges": true,
+        "preflop_range_gate": true
+      }
+    }
+  ],
+  "random_seed": 42,
+  "shuffle_seating": true
+}
