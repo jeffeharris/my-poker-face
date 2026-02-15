@@ -1,0 +1,49 @@
+{
+  "name": "hu_eval_2player",
+  "description": "2-player HU: pairs from archetype cast with nudges+rangegate. Tests whether HU adjustments (wider ranges, HU nudges, disabled range bias) produce appropriate HU behavior.",
+  "hypothesis": "HU games should show 15-25pp higher VPIP, more raising, less folding compared to 4-player baseline. Archetype ordering (TAG tightest, LAG loosest) should be preserved.",
+  "tags": ["heads-up-eval", "2player", "hu-adjustments", "archetype"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 2,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 5,
+  "personalities": ["Sun Tzu", "Blackbeard"],
+  "player_types": {
+    "Sun Tzu": {"type": "hybrid"},
+    "Blackbeard": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "hu-tag-vs-lag",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "composed_nudges": true,
+      "preflop_range_gate": true
+    }
+  },
+  "variants": [
+    {
+      "label": "hu-tp-vs-default",
+      "personalities": ["Abraham Lincoln", "Mark Twain"],
+      "player_types": {
+        "Abraham Lincoln": {"type": "hybrid"},
+        "Mark Twain": {"type": "hybrid"}
+      },
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "composed_nudges": true,
+        "preflop_range_gate": true
+      }
+    }
+  ],
+  "random_seed": 42
+}

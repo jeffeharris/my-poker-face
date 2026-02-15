@@ -1,0 +1,35 @@
+{
+  "name": "hu_eval_4player_baseline",
+  "description": "4-player baseline: archetype cast with nudges+rangegate. Control arm for comparison against 2-player HU variant.",
+  "hypothesis": "4-player games should show tighter ranges and more folding than HU games with the same archetypes.",
+  "tags": ["heads-up-eval", "4player", "baseline", "archetype"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 5,
+  "personalities": ["Sun Tzu", "Abraham Lincoln", "Mark Twain", "Blackbeard"],
+  "player_types": {
+    "Sun Tzu": {"type": "hybrid"},
+    "Abraham Lincoln": {"type": "hybrid"},
+    "Mark Twain": {"type": "hybrid"},
+    "Blackbeard": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "4player-nudges-rg",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "composed_nudges": true,
+      "preflop_range_gate": true
+    }
+  },
+  "random_seed": 42,
+  "shuffle_seating": true
+}
