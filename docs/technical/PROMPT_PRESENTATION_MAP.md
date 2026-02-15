@@ -22,10 +22,8 @@ Personality anchors (looseness, aggression)
   → _build_lean_prompt() → final prompt text the LLM sees
 ```
 
-Psychology also feeds a **playstyle** (commanding/aggro/poker_face/guarded) which
-controls Phase 0 hand plan content. The archetype (TAG/LAG/etc.) and playstyle
-are correlated but not identical — archetype drives option generation and prompt
-presentation, playstyle drives strategic framing.
+The archetype (TAG/LAG/etc.) drives option generation and prompt
+presentation end-to-end in lean bounded mode.
 
 ## Archetype Classification
 
@@ -50,27 +48,7 @@ You are a poker player. Pick one option. Return JSON: {"reasoning": "...", "choi
 No personality, no character instruction, no drama guidance. The LLM is a
 pure option-picker in lean bounded mode.
 
-## Layer 2: Phase 0 — Hand Plan (optional)
-
-When `hand_plan=True`, fires once at hand start. The plan stays in the
-conversation thread so Phase 1 decisions see it as prior context.
-
-**When enabled, replaces style hints** (Layer 5) — the plan IS the
-personality-driven context.
-
-| Component | TAG | TP | LAG | LP | Default |
-|-----------|-----|-----|-----|-----|---------|
-| Cards + position + stack | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Mindset frame | "Extract maximum value" | "Control the pot" | "Target weakness" | "Control the pot" | "Trust the math" |
-| Playstyle cue | "You play aggressively for max value" | "You play cautiously" | "You play aggressively and attack weakness" | "You play cautiously" | "You play a balanced game" |
-| Exploit tips (medium+) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Stat lines (full) | Stack ratio, pot-to-stack | Stack ratio | Threat info, stack ratio | Stack ratio | Stack ratio |
-
-The playstyle cues come from psychology's active_playstyle (commanding/aggro/
-poker_face/guarded), not directly from the archetype key. In practice they
-correlate: TAG → commanding/poker_face, LAG → aggro/commanding, etc.
-
-## Layer 3: Situation Line (universal)
+## Layer 2: Situation Line (universal)
 
 Always shown. Not profile-gated.
 
@@ -80,7 +58,7 @@ Street: Flop | Stack: 45 BB | Pot: 6.5 BB
 
 **Not yet profile-gated.** Every archetype sees the same situation line.
 
-## Layer 4: Contextual Information
+## Layer 3: Contextual Information
 
 ### 4a. Cards (universal)
 
@@ -135,10 +113,9 @@ not the board.
 is tilted/shaken/dissociated. Extreme overconfident does NOT suppress
 (they still think clearly, just too boldly).
 
-## Layer 5: Style Hint (profile-gated via `style_hint`)
+## Layer 4: Style Hint (profile-gated via `style_hint`)
 
-A 1-line directive injected before the options. Omitted when `hand_plan`
-is enabled (the plan replaces it).
+A 1-line directive injected before the options.
 
 | Profile | Style Hint |
 |---------|-----------|
@@ -148,7 +125,7 @@ is enabled (the plan replaces it).
 | LP | "See more flops — call liberally, but don't overcommit without a hand." |
 | default | *(empty — no hint)* |
 
-## Layer 6: Options (the core decision menu)
+## Layer 5: Options (the core decision menu)
 
 ### 6a. Option Generation (profile-gated via OptionProfile thresholds)
 
@@ -224,7 +201,7 @@ Controlled by `PromptConfig.option_order`:
 
 Not profile-gated. Applied uniformly.
 
-## Layer 7: Emotional Window Shift
+## Layer 6: Emotional Window Shift
 
 Applied after option generation, before prompt rendering. Shifts the
 option window along passive↔aggressive spectrum based on psychology state.

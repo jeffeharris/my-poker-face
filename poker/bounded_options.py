@@ -9,7 +9,7 @@ The key insight: LLMs are bad at poker math but good at personality expression.
 Let the rule engine handle the math, let the LLM handle the character.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Tuple
 import logging
 import random
@@ -190,8 +190,8 @@ STYLE_PROFILES = {
     ),
     'loose_aggressive': OptionProfile(
         fold_equity_multiplier=1.8,    # plays more hands than default (2.0) but not every hand
-        call_plus_ev=1.5,
-        call_marginal=0.75,
+        call_plus_ev=1.3,
+        call_marginal=0.60,
         raise_plus_ev=0.55,           # slightly lower bar than default — raises for value more often
         raise_neutral=0.42,           # honest EV labels — marginal raises show as -EV, not neutral
         sizing_small=0.33,
@@ -386,6 +386,34 @@ def _get_raise_options(
         else:
             rationale = "Pressure/protection bet"
         options.append((large, rationale, "aggressive"))
+
+    # Fallback: when min_raise exceeds pot-based sizing, anchor sizes off min_raise
+    if len(options) <= 1 and min_raise > int(pot * profile.sizing_small):
+        options = []
+        small = min_raise
+        medium = min_raise + int(pot * 0.5)
+        large = min_raise + pot
+
+        if small <= max_raise:
+            if value_betting:
+                rationale = f"Value bet ({equity_pct}% equity)"
+            else:
+                rationale = "Minimum raise"
+            options.append((small, rationale, "conservative"))
+
+        if medium > small and medium <= max_raise:
+            if value_betting:
+                rationale = f"Bet for value ({equity_pct}% equity)"
+            else:
+                rationale = "Standard raise"
+            options.append((medium, rationale, "standard"))
+
+        if large > medium and large <= max_raise:
+            if value_betting:
+                rationale = f"Strong value bet ({equity_pct}% equity)"
+            else:
+                rationale = "Pressure raise"
+            options.append((large, rationale, "aggressive"))
 
     # All-in for short stacks (< 20 BB)
     if stack_bb < 20 and max_raise not in [o[0] for o in options]:
@@ -662,6 +690,30 @@ def generate_bounded_options(
                 ev_estimate=raise_ev,
                 style_tag=style_tag
             ))
+
+    # === Raise escalation annotation ===
+    raises_this_round = context.get('raises_this_round', 0)
+    if raises_this_round >= 1:
+        from poker.controllers import _classify_raise_action
+        level = _classify_raise_action(raises_this_round)
+        options = [
+            replace(o, rationale=f"{level}: {o.rationale}") if o.action == 'raise' else o
+            for o in options
+        ]
+
+    # === Re-raise EV adjustment ===
+    if raises_this_round >= 2 and cost_to_call > 0:
+        reraise_demote = {'+EV': 'neutral', 'neutral': '-EV'}
+        call_boost = {'marginal': 'neutral', '-EV': 'marginal'}
+        adjusted = []
+        for o in options:
+            if o.action == 'raise' and o.ev_estimate in reraise_demote:
+                adjusted.append(replace(o, ev_estimate=reraise_demote[o.ev_estimate]))
+            elif o.action == 'call' and o.ev_estimate in call_boost:
+                adjusted.append(replace(o, ev_estimate=call_boost[o.ev_estimate]))
+            else:
+                adjusted.append(o)
+        options = adjusted
 
     # === Post-flop raise option limit ===
     if is_postflop and profile.postflop_max_raise_options is not None:

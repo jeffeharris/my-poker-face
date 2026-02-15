@@ -9,7 +9,9 @@ last_updated: 2026-02-15
 
 ## Core Principle
 
-**The option menu IS the strategy.** The rule engine encodes poker knowledge into bounded options. The LLM picks from those options (cheap, fast, reliable). A separate character layer turns that pick into a dramatic moment. The player's personality, emotional state, and hand plan create narrative tension — not poker math.
+**The option menu IS the strategy.** The rule engine encodes poker knowledge into bounded options. The LLM picks from those options (cheap, fast, reliable). A separate character layer turns that pick into a dramatic moment. The player's personality and emotional state create narrative tension — not poker math.
+
+> Note (current state as of 2026-02-15): Phase 0 hand planning was removed from production after experiments showed no benefit. The Phase 0 sections and experiment log below are retained as historical record.
 
 ## Architecture Overview
 

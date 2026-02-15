@@ -1780,5 +1780,221 @@ class TestStyleHintOnProfile:
         assert 'style_hint' not in d
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# BET SIZING FALLBACK TESTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRaiseSizingFallback:
+    """Fallback sizing when min_raise exceeds pot-based sizes."""
+
+    def test_fallback_when_min_raise_exceeds_pot(self):
+        """When min_raise > pot, should get 3 anchored raise options."""
+        ctx = _free_context(
+            equity=0.70,
+            pot_total=150,
+            min_raise=200,
+            max_raise=500,
+        )
+        options = _get_raise_options(ctx)
+        assert len(options) >= 2, f"Fallback should produce 2+ options, got {len(options)}"
+        amounts = [o[0] for o in options]
+        assert amounts[0] == 200, f"Small should be min_raise (200), got {amounts[0]}"
+        for i in range(1, len(amounts)):
+            assert amounts[i] > amounts[i - 1], f"Sizes should be ascending: {amounts}"
+
+    def test_fallback_sizes_are_min_raise_anchored(self):
+        """Fallback sizes: min_raise, min_raise + pot/2, min_raise + pot."""
+        ctx = _free_context(
+            equity=0.70,
+            pot_total=150,
+            min_raise=200,
+            max_raise=1000,
+        )
+        options = _get_raise_options(ctx)
+        amounts = [o[0] for o in options]
+        assert 200 in amounts, "Should include min_raise (200)"
+        assert 275 in amounts, "Should include min_raise + pot/2 (275)"
+        assert 350 in amounts, "Should include min_raise + pot (350)"
+
+    def test_no_fallback_when_pot_based_works(self):
+        """Normal case: pot-based sizing works, no fallback needed."""
+        ctx = _free_context(
+            equity=0.70,
+            pot_total=300,
+            min_raise=100,
+            max_raise=1000,
+        )
+        options = _get_raise_options(ctx)
+        assert len(options) >= 2
+        amounts = [o[0] for o in options]
+        # Pot-based: small=max(100, 99)=100, medium=201, large=300
+        assert 100 in amounts
+
+    def test_fallback_respects_max_raise(self):
+        """Fallback sizes capped by max_raise."""
+        ctx = _free_context(
+            equity=0.70,
+            pot_total=150,
+            min_raise=200,
+            max_raise=250,
+        )
+        options = _get_raise_options(ctx)
+        amounts = [o[0] for o in options]
+        assert all(a <= 250 for a in amounts), f"All sizes <= max_raise: {amounts}"
+
+    def test_fallback_with_full_options(self):
+        """Fallback produces 3 options: min_raise + pot/2, min_raise + pot."""
+        ctx = _free_context(
+            equity=0.30,  # low equity, non-value betting
+            pot_total=150,
+            min_raise=200,
+            max_raise=1000,
+        )
+        options = _get_raise_options(ctx)
+        amounts = [o[0] for o in options]
+        assert len(amounts) == 3, f"Expected 3 fallback sizes, got {amounts}"
+        rationales = [o[1] for o in options]
+        assert "Minimum raise" in rationales[0]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RE-RAISE AWARENESS TESTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestReraiseAwareness:
+    """Facing a re-raise should demote raise EV and boost call EV."""
+
+    def test_raise_ev_demoted_on_reraise(self):
+        """Raise EV demoted when raises_this_round >= 2."""
+        ctx = _base_context(equity=0.65, raises_this_round=2)
+        options = generate_bounded_options(ctx)
+        raises = [o for o in options if o.action == 'raise']
+        # With 0.65 equity vs default raise_plus_ev=0.60, raises normally +EV
+        # After demotion: +EV -> neutral
+        for r in raises:
+            assert r.ev_estimate != '+EV', \
+                f"Raise should be demoted from +EV facing re-raise, got {r.ev_estimate}"
+
+    def test_call_ev_boosted_on_reraise(self):
+        """Call EV boosted when raises_this_round >= 2."""
+        # equity=0.40, pot=300, cost=100 -> required=0.25, ratio=1.6 -> +EV with default
+        # Lower equity to get marginal: equity=0.28, ratio=1.12 -> marginal (below 1.5, above 0.75)
+        ctx = _base_context(equity=0.28, raises_this_round=2)
+        options_no_reraise = generate_bounded_options(
+            _base_context(equity=0.28, raises_this_round=0)
+        )
+        options_reraise = generate_bounded_options(ctx)
+        call_no = next((o for o in options_no_reraise if o.action == 'call'), None)
+        call_re = next((o for o in options_reraise if o.action == 'call'), None)
+        if call_no and call_re and call_no.ev_estimate == 'marginal':
+            assert call_re.ev_estimate == 'neutral', \
+                f"Marginal call should boost to neutral facing re-raise, got {call_re.ev_estimate}"
+
+    def test_no_adjustment_on_first_raise(self):
+        """No EV adjustment when raises_this_round < 2."""
+        ctx = _base_context(equity=0.65, raises_this_round=1)
+        options = generate_bounded_options(ctx)
+        raises = [o for o in options if o.action == 'raise']
+        plus_ev_raises = [r for r in raises if r.ev_estimate == '+EV']
+        assert len(plus_ev_raises) > 0, "Raises should still be +EV facing single raise"
+
+    def test_no_adjustment_when_free_to_act(self):
+        """No re-raise adjustment when cost_to_call is 0."""
+        ctx = _free_context(equity=0.65, raises_this_round=2)
+        options = generate_bounded_options(ctx)
+        raises = [o for o in options if o.action == 'raise']
+        plus_ev = [r for r in raises if r.ev_estimate == '+EV']
+        assert len(plus_ev) > 0, "Free-to-act raises shouldn't be demoted"
+
+    def test_reraise_default_is_zero(self):
+        """When raises_this_round not in context, no adjustment applied."""
+        ctx = _base_context(equity=0.65)
+        # No raises_this_round key at all
+        options = generate_bounded_options(ctx)
+        raises = [o for o in options if o.action == 'raise']
+        plus_ev = [r for r in raises if r.ev_estimate == '+EV']
+        assert len(plus_ev) > 0, "No re-raise key should mean no adjustment"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RAISE ESCALATION ANNOTATION TESTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRaiseEscalationAnnotation:
+    """Raise rationales should be annotated with escalation level."""
+
+    def test_3bet_annotation(self):
+        """When raises_this_round=1, raises should be annotated as 3bet."""
+        ctx = _base_context(equity=0.65, raises_this_round=1)
+        options = generate_bounded_options(ctx)
+        raises = [o for o in options if o.action == 'raise']
+        assert len(raises) > 0, "Should have raise options"
+        for r in raises:
+            assert '3bet:' in r.rationale, \
+                f"Raise rationale should start with '3bet:', got: {r.rationale}"
+
+    def test_4bet_annotation(self):
+        """When raises_this_round=2, raises should be annotated as 4bet+."""
+        ctx = _base_context(equity=0.65, raises_this_round=2)
+        options = generate_bounded_options(ctx)
+        raises = [o for o in options if o.action == 'raise']
+        assert len(raises) > 0, "Should have raise options"
+        for r in raises:
+            assert '4bet+:' in r.rationale, \
+                f"Raise rationale should start with '4bet+:', got: {r.rationale}"
+
+    def test_no_annotation_when_opening(self):
+        """When raises_this_round=0, no escalation annotation."""
+        ctx = _base_context(equity=0.65, raises_this_round=0)
+        options = generate_bounded_options(ctx)
+        raises = [o for o in options if o.action == 'raise']
+        for r in raises:
+            assert '3bet' not in r.rationale and '4bet' not in r.rationale, \
+                f"Opening raises should not have escalation prefix: {r.rationale}"
+
+    def test_annotation_only_on_raises(self):
+        """Escalation annotation should not affect call/fold/check options."""
+        ctx = _base_context(equity=0.65, raises_this_round=1)
+        options = generate_bounded_options(ctx)
+        non_raises = [o for o in options if o.action != 'raise']
+        for o in non_raises:
+            assert '3bet' not in o.rationale, \
+                f"Non-raise option should not have escalation prefix: {o.rationale}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LAG NUDGE PHRASE TESTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestLagNudgeCallPhrases:
+    """LAG call phrases should sound deliberate, not passive."""
+
+    def test_lag_call_strong_tactical(self):
+        """call_strong phrases should reflect tactical calling."""
+        from poker.nudge_phrases import NUDGE_PHRASES
+        phrases = NUDGE_PHRASES['loose_aggressive']['call_strong']
+        for p in phrases:
+            assert 'trap' not in p.lower(), f"Should not mention trapping: {p}"
+            assert 'smooth' not in p.lower(), f"Should not be 'smooth call': {p}"
+
+    def test_lag_call_close_active(self):
+        """call_close phrases should be active, not passive."""
+        from poker.nudge_phrases import NUDGE_PHRASES
+        phrases = NUDGE_PHRASES['loose_aggressive']['call_close']
+        for p in phrases:
+            assert 'fighting' not in p.lower(), f"Should not say 'fighting': {p}"
+
+    def test_lag_call_light_not_gamble(self):
+        """call_light phrases should frame speculation actively."""
+        from poker.nudge_phrases import NUDGE_PHRASES
+        phrases = NUDGE_PHRASES['loose_aggressive']['call_light']
+        for p in phrases:
+            assert p != "Gamble.", f"Should not be just 'Gamble.'"
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

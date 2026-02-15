@@ -2,7 +2,7 @@
 purpose: Reference for all PromptConfig fields, game modes, and experiment overrides
 type: reference
 created: 2026-02-12
-last_updated: 2026-02-13
+last_updated: 2026-02-15
 ---
 
 # PromptConfig Reference
@@ -89,12 +89,6 @@ Game Mode / Experiment Config
 | `lean_bounded` | bool | False | Bypass full prompt pipeline; use minimal options-only prompt | hybrid_ai_controller.py |
 | `style_aware_options` | bool | True | Map psychology playstyle axes to option profiles | hybrid_ai_controller.py |
 
-### Hand Plan — Phase 0 (Hybrid Controller)
-
-| Field | Type | Default | Description | Consumer |
-|-------|------|---------|-------------|----------|
-| `hand_plan` | bool | False | Generate per-hand 1-sentence strategy before decisions | hybrid_ai_controller.py |
-
 ### Option Framing (Hybrid Controller)
 
 | Field | Type | Default | Description | Consumer |
@@ -130,15 +124,13 @@ Experiment JSON configs (`experiments/configs/*.json`) override `prompt_config` 
 {
   "control": {
     "prompt_config": {
-      "lean_bounded": true,
-      "hand_plan": false
+      "lean_bounded": true
     }
   },
   "variants": [
     {
       "prompt_config": {
-        "lean_bounded": true,
-        "hand_plan": true
+        "lean_bounded": true
       }
     }
   ]

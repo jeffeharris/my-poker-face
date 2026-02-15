@@ -18,7 +18,7 @@ from poker.board_analyzer import build_board_read
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _make_controller_stub(profile_key='tight_aggressive', hand_plan=False):
+def _make_controller_stub(profile_key='tight_aggressive'):
     """Create a minimal stub that has _build_lean_prompt accessible.
 
     We import and bind the method directly to avoid full controller setup.
@@ -31,7 +31,6 @@ def _make_controller_stub(profile_key='tight_aggressive', hand_plan=False):
 
     # prompt_config
     config = MagicMock()
-    config.hand_plan = hand_plan
     config.composed_nudges = False
     config.show_ev_labels = None
     stub.prompt_config = config

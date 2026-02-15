@@ -85,9 +85,6 @@ class PromptConfig:
     # Style-aware options — map psychology playstyle to option profiles in lean mode
     style_aware_options: bool = True
 
-    # Hand plan — generate per-hand strategy via Phase 0 before lean decisions
-    hand_plan: bool = False
-
     # Composed nudges — replace raw EV labels with playstyle-aware phrases
     composed_nudges: bool = False
 
@@ -128,6 +125,7 @@ class PromptConfig:
         # Drop removed fields silently
         data.pop('bb_normalized', None)
         data.pop('use_dollar_amounts', None)
+        data.pop('hand_plan', None)
 
         # Migrate nudge_show_ev -> show_ev_labels
         if 'nudge_show_ev' in data and 'show_ev_labels' not in data:
