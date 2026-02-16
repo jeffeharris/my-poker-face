@@ -1,0 +1,32 @@
+{
+  "name": "hu_eval_casebot_groq",
+  "description": "Batman (Groq llama-3.1-8b-instant) vs CaseBot heads-up. Tests open-source model competitiveness against rule-based bot.",
+  "hypothesis": "Llama 8B Batman should show wide HU VPIP similar to nano Batman, with CaseBot likely still winning most tournaments.",
+  "tags": ["heads-up-eval", "casebot", "groq", "llama"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 100,
+  "num_players": 2,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "llama-3.1-8b-instant",
+  "provider": "groq",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 5,
+  "personalities": ["Batman", "CaseBot"],
+  "player_types": {
+    "Batman": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "hu-batman-groq",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "composed_nudges": true,
+      "preflop_range_gate": true
+    }
+  },
+  "random_seed": 42
+}

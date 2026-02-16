@@ -2,26 +2,27 @@
 purpose: Evaluation results from heads-up (2-player) poker support implementation
 type: analysis
 created: 2026-02-15
-last_updated: 2026-02-15
+last_updated: 2026-02-16
 ---
 
 # Heads-Up Support Evaluation Report
 
-**Date:** February 15, 2026
-**Experiment IDs:** 26–30
-**Models:** gpt-5-nano, gpt-5-mini (OpenAI)
-**Total API Calls:** 9,410 (~$0.86)
+**Date:** February 15–16, 2026
+**Experiment IDs:** 26–33
+**Models:** gpt-5-nano, gpt-5-mini (OpenAI), llama-3.1-8b-instant (Groq)
+**Total API Calls:** 14,638 (~$0.98)
 
 ---
 
 ## Summary
 
-Heads-up (2-player) support was added across the full decision pipeline: blind posting, range gates, bounded options, prompts, and nudge phrases. The evaluation compares 4-player and 2-player games using the same archetypes and configuration (lean bounded, nudges+rangegate), then tests the same HU setup on gpt-5-mini to measure model sensitivity.
+Heads-up (2-player) support was added across the full decision pipeline: blind posting, range gates, bounded options, prompts, and nudge phrases. The evaluation compares 4-player and 2-player games using the same archetypes and configuration (lean bounded, nudges+rangegate), then tests the same HU setup across three models to measure model sensitivity.
 
 **Key findings:**
 1. **HU adjustments work on gpt-5-nano:** +15pp wider VPIP for TAG, appropriate raise-heavy action, and preserved archetype ordering — with zero 4-player regression.
-2. **gpt-5-mini is dramatically tighter in HU:** TAG VPIP drops 31pp vs nano, and default archetype (Batman) drops 53pp. The LAG archetype is unaffected (-3pp). This suggests gpt-5-mini overrides nudge/prompt signals more aggressively than nano.
-3. **Model choice matters more than prompt tuning** for non-LAG archetypes in HU.
+2. **gpt-5-mini is dramatically tighter in HU:** TAG VPIP drops 31pp vs nano, and default archetype (Batman) drops 53pp. Mini overrides nudge/prompt signals with its own conservative priors.
+3. **Groq llama-3.1-8b is wildly loose:** TAG VPIP of 85% (should be ~60-70%), LAG at 99%. Destroys archetype differentiation but the raw aggression actually wins games against CaseBot.
+4. **gpt-5-nano is the sweet spot** — follows the bounded options system faithfully without overriding it in either direction. Model choice matters more than prompt tuning.
 
 ---
 
@@ -58,6 +59,24 @@ Heads-up (2-player) support was added across the full decision pipeline: blind p
 - 5 tournaments x 100 hands, Batman vs CaseBot
 - Identical config to experiment 26, only model changed
 - 1,205 API calls (~$0.25)
+
+### Groq llama-3.1-8b Experiments
+
+#### Experiment 31: 2-Player HU (Groq)
+- 10 tournaments x 50 hands, Sun Tzu (TAG) vs Blackbeard (LAG)
+- Identical config to experiment 28, only model/provider changed
+- 2,366 API calls (~$0.04)
+
+#### Experiment 32: Batman vs CaseBot HU (Groq)
+- 5 tournaments x 100 hands, Batman (Groq) vs CaseBot
+- Identical config to experiment 26, only model/provider changed
+- 1,134 API calls (~$0.02)
+
+#### Experiment 33: Cross-Model HU (nano vs Groq)
+- 10 tournaments x 50 hands, Sun Tzu (nano) vs Blackbeard (Groq)
+- Per-player llm_config: Sun Tzu uses gpt-5-nano, Blackbeard uses llama-3.1-8b
+- Tests direct competitive matchup across models
+- 1,728 API calls (~$0.06)
 
 ---
 
@@ -145,35 +164,103 @@ Blackbeard 8 wins, Sun Tzu 2 wins (across 10 tournaments). Blackbeard dominance 
 
 ---
 
+## Results: Groq llama-3.1-8b
+
+### Preflop Stats (Groq HU)
+
+| Player | Profile | VPIP | PFR | Fold | Call | n |
+|--------|---------|------|-----|------|------|---|
+| Sun Tzu | TAG | 85.3% | 67.5% | 14.7% | 17.8% | 990 |
+| Blackbeard | LAG | 99.0% | 97.6% | 1.0% | 1.4% | 779 |
+
+### Postflop Stats (Groq HU)
+
+| Player | Profile | Raise | Check | Fold | Call | n |
+|--------|---------|-------|-------|------|------|---|
+| Sun Tzu | TAG | 78.8% | 3.2% | 6.7% | 11.2% | 312 |
+| Blackbeard | LAG | 98.6% | 0.0% | 0.4% | 1.1% | 285 |
+
+### Batman vs CaseBot HU — Groq (Experiment 32)
+
+| Metric | Value |
+|--------|-------|
+| Tournament wins | **Batman 2, CaseBot 3** |
+| Batman preflop VPIP | **89.1%** |
+| Batman preflop PFR | 85.2% |
+| Batman preflop fold | 6.9% |
+| Batman preflop call | 3.9% |
+| Batman preflop check | 4.1% |
+| Batman postflop raise | 84.3% |
+| Batman postflop check | 10.2% |
+| Batman postflop fold | 2.1% |
+| Batman postflop call | 3.4% |
+
+Groq Batman is the first AI player to win any tournaments against CaseBot (2 out of 5). The hyper-aggressive style overwhelms CaseBot's conservative rule-based play in some matchups.
+
+### HU Tournament Outcomes — Groq (Experiment 31)
+
+Sun Tzu 9 wins, Blackbeard 1 win (across 10 tournaments). Surprisingly, TAG dominates on Groq — the opposite of nano and mini. Sun Tzu's 85% VPIP with 17.8% flat-calling may create a more exploitative dynamic than Blackbeard's pure 99% aggression.
+
+### Cross-Model Matchup (Experiment 33)
+
+Sun Tzu (nano TAG, 55.3% VPIP) vs Blackbeard (Groq LAG, 99.0% VPIP):
+- **Blackbeard (Groq) wins 8-2**
+- Groq Blackbeard raises 99.2% postflop, overwhelming nano Sun Tzu's measured play
+- Nano Sun Tzu folds 44.7% preflop and 32.0% postflop against relentless pressure
+
+---
+
 ## Cross-Model Comparison
 
-### Preflop VPIP: nano vs mini (HU)
+### Preflop VPIP: All Models (HU)
 
-| Player | Profile | nano HU | mini HU | Delta |
-|--------|---------|---------|---------|-------|
-| Sun Tzu | TAG | 66.3% | 35.0% | **-31.3pp** |
-| Blackbeard | LAG | 94.3% | 91.5% | **-2.8pp** |
-| Batman | default | 73.2% | 20.5% | **-52.7pp** |
+| Player | Profile | nano | mini | groq | nano→mini | nano→groq |
+|--------|---------|------|------|------|-----------|-----------|
+| Sun Tzu | TAG | 66.3% | 35.0% | 85.3% | **-31.3pp** | **+19.0pp** |
+| Blackbeard | LAG | 94.3% | 91.5% | 99.0% | -2.8pp | +4.7pp |
+| Batman | default | 73.2% | 20.5% | 89.1% | **-52.7pp** | **+15.9pp** |
 
-### Preflop PFR: nano vs mini (HU)
+### Preflop PFR: All Models (HU)
 
-| Player | Profile | nano HU | mini HU | Delta |
-|--------|---------|---------|---------|-------|
-| Sun Tzu | TAG | 52.9% | 24.1% | **-28.8pp** |
-| Blackbeard | LAG | 93.1% | 89.7% | **-3.4pp** |
-| Batman | default | 68.5% | 18.7% | **-49.8pp** |
+| Player | Profile | nano | mini | groq |
+|--------|---------|------|------|------|
+| Sun Tzu | TAG | 52.9% | 24.1% | 67.5% |
+| Blackbeard | LAG | 93.1% | 89.7% | 97.6% |
+| Batman | default | 68.5% | 18.7% | 85.2% |
 
-### Postflop Aggression: nano vs mini (HU)
+### Postflop Aggression: All Models (HU)
 
-| Player | nano raise% | mini raise% | Delta |
-|--------|-------------|-------------|-------|
-| Sun Tzu | 65.5% | 37.8% | **-27.7pp** |
-| Blackbeard | 94.1% | 93.5% | -0.6pp |
-| Batman | 55.0% | 29.7% | **-25.3pp** |
+| Player | nano raise% | mini raise% | groq raise% |
+|--------|-------------|-------------|-------------|
+| Sun Tzu | 65.5% | 37.8% | 78.8% |
+| Blackbeard | 94.1% | 93.5% | 98.6% |
+| Batman | 55.0% | 29.7% | 84.3% |
 
-### Key Observation
+### Archetype Differentiation (TAG-LAG VPIP gap)
 
-gpt-5-mini Sun Tzu in HU (35.0% VPIP) is actually **tighter than nano Sun Tzu in 4-player** (51.4% VPIP). The model completely overrides the HU widening signals for the TAG archetype.
+| Model | TAG VPIP | LAG VPIP | Gap |
+|-------|----------|----------|-----|
+| nano | 66.3% | 94.3% | **28.0pp** |
+| mini | 35.0% | 91.5% | **56.5pp** |
+| groq | 85.3% | 99.0% | **13.7pp** |
+
+Nano preserves the best archetype differentiation in context-appropriate ranges. Mini over-separates (TAG too tight). Groq under-separates (TAG too loose).
+
+### CaseBot Win Rate by Model
+
+| Model | Batman wins | CaseBot wins |
+|-------|-------------|--------------|
+| nano | 0 | 5 |
+| mini | 0 | 5 |
+| groq | **2** | 3 |
+
+### Cost Comparison
+
+| Model | Cost per HU experiment | Relative cost |
+|-------|----------------------|---------------|
+| nano | ~$0.06–0.22 | 1x |
+| mini | ~$0.25 | 1–4x |
+| groq | ~$0.02–0.04 | **0.2–0.3x** |
 
 ---
 
@@ -191,31 +278,33 @@ gpt-5-mini Sun Tzu in HU (35.0% VPIP) is actually **tighter than nano Sun Tzu in
 
 5. **Minimal flat-calling:** Across all nano HU experiments, flat-calling rates are low (1-13%), matching the design intent of the nudge phrases ("raise or fold, avoid flat calls").
 
-### Model Sensitivity: gpt-5-mini is Conservative
+### The Model Sensitivity Spectrum
 
-The most significant finding is the dramatic model sensitivity in HU behavior:
+Three models reveal a clear spectrum of prompt-following behavior:
 
-1. **LAG unaffected:** Blackbeard plays nearly identically on both models (94.3% vs 91.5% VPIP). When the bounded options present overwhelmingly raise-plus-EV options, both models follow the menu. The LAG profile generates so many +EV raise options that even a cautious model raises.
+**gpt-5-mini (too conservative):** Overrides HU widening signals with its own poker priors. TAG VPIP of 35% in HU is tighter than nano TAG in 4-player (51.4%). Mini appears to weight EV labels heavily and fold anything marginal, ignoring the "widen your ranges" nudges. Postflop passivity (37.8% raise for TAG) compounds the problem.
 
-2. **TAG/default collapse:** Sun Tzu and Batman see 31-53pp VPIP drops on mini. These archetypes receive more mixed option menus (some +EV raises, some -EV folds) in marginal spots. gpt-5-nano follows the nudge phrases and position-widening signals; gpt-5-mini appears to weight the EV labels more heavily and fold marginal hands despite the "widen your ranges" prompt.
+**gpt-5-nano (balanced):** Follows the bounded options system faithfully. Widens appropriately in HU while maintaining archetype separation. Neither overrides nor blindly follows — reads the EV labels, nudges, and prompt context as a cohesive signal.
 
-3. **Batman check rate spikes:** Batman on mini checks 36.3% preflop (as BB vs CaseBot limps) compared to 13.3% on nano. When facing a limp, mini Batman prefers checking over raising with marginal holdings — the opposite of HU strategy.
+**Groq llama-3.1-8b (too aggressive):** Follows the menu too eagerly, raising almost everything regardless of EV labels. TAG at 85.3% VPIP is nearly LAG territory. Archetype differentiation collapses to 14pp (vs 28pp on nano). However, the raw aggression produces a surprising result: the only AI to beat CaseBot in tournaments (2-3).
 
-4. **Postflop passivity:** Mini Sun Tzu calls 26.6% postflop vs 10.7% on nano, and raises only 37.8% vs 65.5%. The tighter preflop range doesn't translate to stronger postflop play — the model is simply more passive across the board.
+### Why Groq Beats CaseBot
 
-### CaseBot Still Dominant
+Groq Batman's 89.1% VPIP and 84.3% postflop raise rate creates maximum pressure on every street. CaseBot's rule-based strategy is calibrated against typical play — it doesn't adapt to hyper-aggression. The brute-force approach exploits CaseBot's static decision boundaries, even though it's not "good poker" by conventional standards. This suggests CaseBot may need anti-aggression adjustments, or that extreme aggression has inherent EV in HU against non-adaptive opponents.
 
-CaseBot won all 10 tournaments (5 per model) against Batman. The rule-based bot's advantage is consistent regardless of model choice. Batman's value is in personality expression and entertainment, not pure GTO optimization.
+### Tournament Outcome Reversal on Groq
 
-### Implications for Prompt Design
+On nano and mini, Blackbeard (LAG) dominates Sun Tzu (TAG) in HU. On Groq, Sun Tzu wins 9-1. This reversal likely occurs because Groq Sun Tzu's 85% VPIP + 17.8% flat-calling creates a wider, more varied range than Blackbeard's pure 99% raise strategy. Against an opponent who raises literally everything, having some calling range becomes exploitative.
 
-The cross-model results suggest the current HU adjustments are necessary but not sufficient for all models:
-- **For nano-class models**: The bounded options + nudge phrases system works well. The model follows the widening signals.
-- **For mini-class models**: The EV labels may need rebalancing or the nudge phrases may need stronger emphasis. Possible approaches:
-  - Stronger HU position offsets for TAG/default profiles
-  - More aggressive threshold adjustments (lower monster threshold further)
-  - Reduce visibility of negative-EV labels in marginal HU spots
-  - Model-specific prompt adjustments
+### Implications for Model Selection
+
+| Model | Best for | Avoid for |
+|-------|----------|-----------|
+| **gpt-5-nano** | Default choice. HU and multi-way. Archetype fidelity. | — |
+| **gpt-5-mini** | Multi-way games where conservative play is correct | HU (too tight) |
+| **Groq llama-3.1-8b** | Cost-sensitive bulk experiments. Aggression testing. | Archetype differentiation. Production personality expression. |
+
+The bounded options system's effectiveness depends on the model trusting the menu. Nano trusts it. Mini second-guesses it. Groq blindly follows it. For the hybrid AI architecture, nano remains the recommended default.
 
 ---
 
@@ -239,11 +328,11 @@ The cross-model results suggest the current HU adjustments are necessary but not
 ## Limitations
 
 1. **Lincoln and Mark Twain not tested in HU** — per-variant personality overrides aren't supported by the experiment runner. Only TAG vs LAG was compared across contexts.
-2. **CaseBot comparison is one-sided** — CaseBot has no personality or LLM overhead, making win/loss an unfair metric. VPIP and action distribution are the meaningful measures.
-3. **Small sample size** — 5-10 tournaments per condition. Sufficient for directional validation but not for precise effect sizes. Mini experiments had fewer total hands than nano due to shorter tournament duration.
+2. **CaseBot comparison is one-sided** — CaseBot has no personality or LLM overhead, making win/loss an unfair metric. VPIP and action distribution are the meaningful measures. (Exception: Groq's wins are notable precisely because no other model achieved them.)
+3. **Small sample size** — 5-10 tournaments per condition. Sufficient for directional validation but not for precise effect sizes.
 4. **No pre-HU-support baseline** — we can't compare "before" vs "after" directly since the code was already changed. The 4-player experiment serves as the control instead.
-5. **Only two models tested** — nano and mini. Other providers (Anthropic, Groq) may respond differently to the HU adjustments.
-6. **all_in actions** — VPIP/PFR numbers include all_in as a raise. Earlier versions of this report excluded all_in, causing slightly different numbers for nano experiments.
+5. **all_in actions** — VPIP/PFR numbers include all_in as a raise. Earlier versions of this report excluded all_in, causing slightly different numbers for nano experiments.
+6. **Cross-model matchup confounds model and archetype** — Experiment 33 uses Sun Tzu (nano) vs Blackbeard (Groq), so results reflect both model and archetype differences. Pure model comparison requires same-archetype matchups (experiments 28 vs 31).
 
 ---
 
@@ -269,4 +358,16 @@ docker compose exec backend python -m experiments.run_from_config \
 # Batman vs CaseBot HU (mini)
 docker compose exec backend python -m experiments.run_from_config \
     experiments/configs/hu_eval_casebot_gpt5mini.json
+
+# 2-player HU archetype comparison (Groq)
+docker compose exec backend python -m experiments.run_from_config \
+    experiments/configs/hu_eval_2player_groq.json
+
+# Batman vs CaseBot HU (Groq)
+docker compose exec backend python -m experiments.run_from_config \
+    experiments/configs/hu_eval_casebot_groq.json
+
+# Cross-model: nano Sun Tzu vs Groq Blackbeard
+docker compose exec backend python -m experiments.run_from_config \
+    experiments/configs/hu_eval_groq_vs_nano.json
 ```
