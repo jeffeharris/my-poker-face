@@ -116,6 +116,14 @@ Preflop is fully specified by position-based frequency charts at 100bb depth.
 
 Each node stores frequencies per canonical hand (e.g., AA, AKs, AKo, T9s — all 169 hands).
 
+**Preflop scenarios NOT modeled in v1:**
+- Open limping (no limp strategy — all unopened pots are raise-or-fold)
+- Facing a limp (treat as unopened for RFI purposes)
+- Squeeze (3-bet after open + cold call — uses standard vs-open 3-bet table)
+- 5-bet+ beyond jam (facing 4-bet resolves to fold/call/jam only)
+
+All non-covered preflop scenarios fall back to the conservative default policy. This is intentional — not a gap.
+
 ### Postflop Strategy (v1: HU SRP Flops Only)
 
 Postflop state is defined by structured dimensions — **not** by equity as a primary key.
@@ -137,7 +145,7 @@ Postflop state is defined by structured dimensions — **not** by equity as a pr
 | Texture | Example | Character |
 |---------|---------|-----------|
 | Dry high | K♠ 7♦ 2♣ | Few draws, top pair dominant, includes A-high dry |
-| Dry low/paired | 8♠ 3♦ 3♣ | Trips matter, few draws, static boards |
+| Dry low/static | 8♠ 3♦ 3♣ | Paired or low rainbow — trips matter on pairs, few draws, static boards |
 | Monotone | K♠ 7♠ 2♠ | Flush possible, otherwise static |
 | Two-tone broadway | K♠ Q♥ J♠ | Flush draws + straight draws + big pairs |
 | Two-tone connected | 8♠ 7♥ 5♠ | Flush draws + straight draws, medium/low |
@@ -177,6 +185,34 @@ Examples:
 - `(nuts, no_draw)` = set on dry board → value bet / trap
 
 This preserves solver nuance without exploding state space (5 × 4 = 20 buckets).
+
+**Made tier classification rules** (deterministic, first matching rule wins):
+
+| Rule | Made Tier | Examples |
+|------|-----------|---------|
+| Quads, full house, flush, straight | `nuts` | Any of these holdings |
+| Set (pocket pair + board match) | `nuts` | 77 on 7♠ 4♦ 2♣ |
+| Two pair (both hole cards paired with board) | `strong_made` | KJ on K♠ J♦ 5♣ |
+| Overpair | `strong_made` | QQ on J♠ 8♦ 3♣ |
+| Top pair + top kicker (TPTK) | `strong_made` | AK on K♠ 7♦ 2♣ |
+| Top pair + weak kicker | `medium_made` | K9 on K♠ 7♦ 2♣ |
+| Second pair | `medium_made` on dry boards, `weak_made` on wet boards |
+| Third pair or bottom pair | `weak_made` | 55 on K♠ 8♦ 5♣ |
+| Ace-high (no pair) | `air` | AQ on K♠ 8♦ 3♣ |
+| No pair, no ace | `air` | T9 on K♠ 5♦ 2♣ |
+
+**Draw modifier classification rules:**
+
+| Rule | Draw Modifier |
+|------|--------------|
+| Flush draw (4 to a flush) or OESD (8 outs to straight) | `strong_draw` |
+| Flush draw + straight draw (combo draw) | `strong_draw` |
+| Gutshot (4 outs to straight) | `weak_draw` |
+| Backdoor flush draw (3 to a flush) only | `backdoor` |
+| Backdoor straight (3 connected) only | `backdoor` |
+| None of the above | `no_draw` |
+
+When both axes apply, combine them: e.g., top pair weak kicker + flush draw = `(medium_made, strong_draw)`.
 
 **Note on invalid combinations**: Some bucket combinations rarely or never co-exist (e.g., `nuts + strong_draw` is uncommon — if you have a flush, there's no flush draw). All 20 buckets are structurally available but not all will be populated for every texture. Do not attempt to prune or optimize the bucket count in v1 — leave the full grid and let empty cells be empty.
 
@@ -230,13 +266,13 @@ When more than 2 players see a flop, apply deterministic heuristic adjustments t
 | Call thresholds | +5% equity | +8% equity | Need stronger hands to continue; OOP needs more |
 | Value bet threshold | +5% equity | +8% equity | Need better hand to bet for value |
 
-Multipliers scale linearly with extra opponents beyond HU:
+Multipliers are defined at 3-way and decrease linearly per additional opponent, clamped to `[0.2, 1.0]`:
 
 ```
-adjustment = base_multiplier + (num_opponents - 2) * per_opponent_delta
+adjustment = clamp(base_multiplier_3way + (num_opponents - 3) * per_opponent_delta, 0.2, 1.0)
 ```
 
-Example for IP bluff frequency: `0.5 + (n-2) * -0.1` → 3-way=0.5×, 4-way=0.4×, 5-way=0.3×.
+The table above specifies 3-way values. Example for IP bluff frequency: `clamp(0.5 + (n-3) * -0.1, 0.2, 1.0)` → 3-way=0.5×, 4-way=0.4×, 5-way=0.3×, 6-way=0.2× (floor).
 
 These are applied to the base frequencies before personality distortion. Not solved — just sound heuristics.
 
@@ -244,21 +280,71 @@ The IP/OOP split prevents accidental over-bluffing multiway OOP, which is one of
 
 ### Turn and River (v1: Heuristics)
 
-v1 does not include solved turn/river strategies. Instead, use discipline rules:
+v1 does not include solved turn/river strategies. Instead, use heuristic frequency tables keyed by hand class and node type.
 
-**Turn heuristics:**
-- Continue aggression with strong made hands and strong draws
-- Check-call with medium hands in position
-- Check-fold weak hands OOP without draw equity
-- Size up with value hands on draw-completing cards
-- Barrel (continue betting) at reduced frequency with bluffs
+Turn and river use the same postflop action sets defined in "Action Sets by Node Type" above.
 
-**River heuristics:**
-- Value bet strong made hands (use equity threshold for thin value)
-- Bluff with missed draws at controlled frequency (gated by personality)
-- Check-call with medium hands vs single bet
-- Fold weak hands facing aggression
-- Jam with nuts/near-nuts
+**Turn heuristic frequencies (unopened, IP):**
+
+| Hand Class | check | bet_33 | bet_67 | bet_100 |
+|------------|-------|--------|--------|---------|
+| nuts / near-nuts | 0.20 | 0.10 | 0.50 | 0.20 |
+| strong_made | 0.30 | 0.30 | 0.30 | 0.10 |
+| medium_made | 0.60 | 0.25 | 0.15 | 0.00 |
+| weak_made | 0.80 | 0.15 | 0.05 | 0.00 |
+| air + strong_draw | 0.50 | 0.10 | 0.30 | 0.10 |
+| air + weak/no_draw | 0.85 | 0.10 | 0.05 | 0.00 |
+
+**Turn heuristic frequencies (unopened, OOP):**
+
+| Hand Class | check | bet_33 | bet_67 | bet_100 |
+|------------|-------|--------|--------|---------|
+| nuts / near-nuts | 0.30 | 0.10 | 0.40 | 0.20 |
+| strong_made | 0.45 | 0.25 | 0.25 | 0.05 |
+| medium_made | 0.80 | 0.15 | 0.05 | 0.00 |
+| weak_made | 0.90 | 0.10 | 0.00 | 0.00 |
+| air + strong_draw | 0.60 | 0.10 | 0.25 | 0.05 |
+| air + weak/no_draw | 0.95 | 0.05 | 0.00 | 0.00 |
+
+**Turn heuristic frequencies (facing bet):**
+
+| Hand Class | fold | call | raise_67 | raise_150 | jam |
+|------------|------|------|----------|-----------|-----|
+| nuts / near-nuts | 0.00 | 0.40 | 0.30 | 0.20 | 0.10 |
+| strong_made | 0.00 | 0.70 | 0.20 | 0.10 | 0.00 |
+| medium_made | 0.20 | 0.70 | 0.10 | 0.00 | 0.00 |
+| weak_made | 0.60 | 0.35 | 0.05 | 0.00 | 0.00 |
+| air + strong_draw | 0.30 | 0.40 | 0.20 | 0.10 | 0.00 |
+| air + weak/no_draw | 0.80 | 0.15 | 0.05 | 0.00 | 0.00 |
+
+**River heuristic frequencies (unopened, IP):**
+
+| Hand Class | check | bet_33 | bet_67 | bet_100 |
+|------------|-------|--------|--------|---------|
+| nuts / near-nuts | 0.10 | 0.05 | 0.40 | 0.45 |
+| strong_made | 0.25 | 0.35 | 0.30 | 0.10 |
+| medium_made | 0.70 | 0.20 | 0.10 | 0.00 |
+| weak_made | 0.90 | 0.10 | 0.00 | 0.00 |
+| air (missed draw) | 0.75 | 0.05 | 0.15 | 0.05 |
+| air (no draw) | 0.95 | 0.05 | 0.00 | 0.00 |
+
+**River heuristic frequencies (facing bet):**
+
+| Hand Class | fold | call | raise_67 | raise_150 | jam |
+|------------|------|------|----------|-----------|-----|
+| nuts / near-nuts | 0.00 | 0.30 | 0.20 | 0.20 | 0.30 |
+| strong_made | 0.00 | 0.80 | 0.15 | 0.05 | 0.00 |
+| medium_made | 0.30 | 0.65 | 0.05 | 0.00 | 0.00 |
+| weak_made | 0.70 | 0.25 | 0.05 | 0.00 | 0.00 |
+| air (missed draw) | 0.80 | 0.05 | 0.10 | 0.05 | 0.00 |
+| air (no draw) | 0.90 | 0.05 | 0.05 | 0.00 | 0.00 |
+
+These are starting-point heuristics, not solver output. Personality distortion (Layer 2) applies on top. River bluff guardrail applies after distortion.
+
+**Design notes:**
+- OOP river tables follow the same structure but with higher check/fold frequencies (apply the same IP/OOP tightening pattern as the turn tables)
+- "Facing raise" on both streets uses the simplified action set: fold/call/jam
+- Draw modifier matters on the turn (draws still live) but collapses on the river (draws either hit or missed)
 
 **River Bluff Guardrail (hard invariant):**
 
@@ -387,8 +473,8 @@ If `StrategyTable.lookup()` finds no exact key match, use a deterministic fallba
 
    | Missing Texture | Falls Back To | Rationale |
    |----------------|---------------|-----------|
-   | `dry_high` | `dry_low_paired` | Both static, top-pair dominant |
-   | `dry_low_paired` | `dry_high` | Both static |
+   | `dry_high` | `dry_low_static` | Both static, top-pair dominant |
+   | `dry_low_static` | `dry_high` | Both static |
    | `monotone` | `two_tone_connected` | Both flush-relevant |
    | `two_tone_broadway` | `wet_rainbow` | Both draw-heavy, high-card boards |
    | `two_tone_connected` | `wet_rainbow` | Both highly connected |
@@ -397,6 +483,7 @@ If `StrategyTable.lookup()` finds no exact key match, use a deterministic fallba
    - Unopened: `{'check': 1.0}` (never bet without strategy data)
    - Facing bet: `{'fold': 0.7, 'call': 0.3}` (lean toward folding)
    - Facing raise: `{'fold': 0.8, 'call': 0.2}` (strongly lean toward folding)
+   - Preflop missing key: fold unless check is legal (BB option) — never invent a raise
 
 All fallbacks are logged in debug mode.
 
@@ -417,8 +504,8 @@ If after masking all probability mass is zero (shouldn't happen, but guard):
 
 Safe fallback priority order:
 1. `check` if legal (postflop only — check is rarely legal preflop)
-2. `fold` if legal
-3. `call` if legal
+2. `call` if legal and facing a bet (don't fold when calling is the only non-fold option)
+3. `fold` if legal
 4. Smallest legal raise if forced (e.g., BB must act)
 
 #### River Guardrail: value_freq = 0
@@ -431,7 +518,7 @@ Classification is deterministic. Priority order (first matching rule wins):
 
 1. **Monotone**: 3 cards of same suit
 2. **Paired**: Board contains a pair (any rank)
-   - → `dry_low_paired` (always — paired boards are static)
+   - → `dry_low_static` (always — paired boards are static)
 3. **Two-tone**: 2 cards of same suit
    - If highest card ≥ J and 2+ broadways → `two_tone_broadway`
    - Else → `two_tone_connected`
@@ -439,7 +526,7 @@ Classification is deterministic. Priority order (first matching rule wins):
    - Compute connectedness score: count cards within 3 ranks of each other
    - If connectedness ≥ 2 → `wet_rainbow`
    - If highest card ≥ T → `dry_high`
-   - Else → `dry_low_paired`
+   - Else → `dry_low_static`
 
 Borderline boards are expected to map imperfectly. Classification is stable and deterministic — same board always maps to same bucket.
 
@@ -505,8 +592,8 @@ import numpy as np
 def modify_strategy(
     base: StrategyProfile,
     legal_actions: Set[str],
-    personality: PersonalityAnchors,
-    emotional_state: EmotionalShift,
+    personality: PersonalityAnchors,  # From personalities.json anchors — see docs/technical/PSYCHOLOGY_OVERVIEW.md
+    emotional_state: EmotionalShift,  # From player_psychology.py — see docs/technical/PSYCHOLOGY_OVERVIEW.md
     deviation_profile: DeviationProfile,
 ) -> StrategyProfile:
     """
@@ -584,7 +671,7 @@ def categorize_action(action: str) -> str:
         return 'fold'
     if action in {'check', 'call'}:
         return 'passive'
-    if action.startswith(('bet_', 'raise_', 'jam')):
+    if action == 'jam' or action.startswith(('bet_', 'raise_')):
         return 'aggressive'
     return 'passive'  # unknown defaults to passive (safe)
 
@@ -617,9 +704,9 @@ def compute_trait_offsets(
         elif cat == 'passive':
             offsets[i] -= (personality.risk_identity - 0.5) * profile.risk_scale * 0.3
 
-        # Ego: penalize folding (sunk cost resistance)
+        # Ego: penalize folding (sunk cost resistance, per-archetype scale)
         if cat == 'fold':
-            offsets[i] -= personality.ego * EGO_FOLD_PENALTY
+            offsets[i] -= personality.ego * profile.ego_fold_penalty
 
     # Emotional modifiers (gated by poise)
     emotional_impact = emotional_state.intensity * (1.0 - personality.poise)
@@ -642,18 +729,19 @@ class DeviationProfile:
     aggression_scale: float      # Multiplier for aggression offsets
     looseness_scale: float       # Multiplier for looseness offsets
     risk_scale: float            # Multiplier for risk identity offsets
+    ego_fold_penalty: float      # Penalty applied to fold when ego > 0
 ```
 
 **Predefined profiles:**
 
-| Archetype | max_kl | max_per_action | aggression_scale | looseness_scale | risk_scale |
-|-----------|--------|---------------|-----------------|----------------|------------|
-| Nit | 0.2 | 0.10 | 0.3 | 0.3 | 0.2 |
-| Rock | 0.3 | 0.15 | 0.5 | 0.4 | 0.3 |
-| TAG | 0.3 | 0.15 | 0.7 | 0.4 | 0.4 |
-| Calling Station | 0.4 | 0.20 | 0.3 | 0.8 | 0.3 |
-| LAG | 0.5 | 0.25 | 0.8 | 0.7 | 0.6 |
-| Maniac | 0.6 | 0.30 | 1.0 | 1.0 | 0.8 |
+| Archetype | max_kl | max_per_action | aggression_scale | looseness_scale | risk_scale | ego_fold_penalty |
+|-----------|--------|---------------|-----------------|----------------|------------|-----------------|
+| Nit | 0.2 | 0.10 | 0.3 | 0.3 | 0.2 | 0.05 |
+| Rock | 0.3 | 0.15 | 0.5 | 0.4 | 0.3 | 0.10 |
+| TAG | 0.3 | 0.15 | 0.7 | 0.4 | 0.4 | 0.10 |
+| Calling Station | 0.4 | 0.20 | 0.3 | 0.8 | 0.3 | 0.25 |
+| LAG | 0.5 | 0.25 | 0.8 | 0.7 | 0.6 | 0.20 |
+| Maniac | 0.6 | 0.30 | 1.0 | 1.0 | 0.8 | 0.30 |
 
 Each archetype has:
 - **Direction** (from personality anchors: aggression, looseness, etc.)
@@ -682,16 +770,20 @@ def clamp_divergence(base_probs, new_probs, base_logits, offsets, profile):
     4. Re-apply per-action cap (KL scaling may have violated it)
     5. Final renormalize
     """
-    # Step 1: Apply per-action absolute shift cap
+    # Step 1: Apply per-action absolute shift cap (floor at 0 to prevent negatives)
     for i in range(len(new_probs)):
         shift = new_probs[i] - base_probs[i]
         if abs(shift) > profile.max_per_action_shift:
-            new_probs[i] = base_probs[i] + np.sign(shift) * profile.max_per_action_shift
+            new_probs[i] = max(0.0, base_probs[i] + np.sign(shift) * profile.max_per_action_shift)
 
-    # Step 2: Renormalize
+    # Step 2: Renormalize with numeric stability floor
+    # This floor does NOT create solver support — we are already inside support_mask.
+    # It only stabilizes log() in KL computation.
+    eps = 1e-12
+    new_probs = np.maximum(new_probs, eps)
     new_probs = new_probs / new_probs.sum()
 
-    # Step 3: Compute KL divergence
+    # Step 3: Compute KL divergence (safe — all probs ≥ eps > 0)
     kl = np.sum(new_probs * np.log(new_probs / base_probs))
 
     # Step 4: If KL exceeds budget, scale offsets toward zero
@@ -713,7 +805,7 @@ def clamp_divergence(base_probs, new_probs, base_logits, offsets, profile):
         for i in range(len(new_probs)):
             shift = new_probs[i] - base_probs[i]
             if abs(shift) > profile.max_per_action_shift:
-                new_probs[i] = base_probs[i] + np.sign(shift) * profile.max_per_action_shift
+                new_probs[i] = max(0.0, base_probs[i] + np.sign(shift) * profile.max_per_action_shift)
 
     # Step 6: Final renormalize
     new_probs = new_probs / new_probs.sum()
@@ -759,7 +851,10 @@ The combination of anchor values naturally produces classic poker archetypes:
 | **Maniac** | Very High | Very High | Raises almost everything. Exploitable by calling down with medium hands. |
 | **Nit** | Very Low | Very Low | Tighter than rock. Only plays top 5% hands. Exploitable by stealing constantly. |
 
-### Opponent Exploitation (via `adaptation_bias`)
+### Opponent Exploitation (v2 — NOT in v1 scope)
+
+> **This section is the full v2 spec for opponent exploitation. Do not implement during v1.**
+> v1 ships with static personality distortion only. The `adaptation_bias` anchor exists in personality data but is unused until v2.
 
 Previously handled through LLM prompt direction, which was inconsistent. Now algorithmic — deterministic adjustments based on tracked opponent statistics, gated by `adaptation_bias`.
 
@@ -788,8 +883,6 @@ Exploitation adjustments are additional logit offsets, scaled by `adaptation_bia
 
 **Minimum sample size**: 15+ observed hands before adjustments activate.
 
-**NOT IN v1 SCOPE.** Opponent exploitation is v2. v1 ships with static personality distortion only.
-
 ### Integration with Existing Code
 
 | Existing Component | How It's Used |
@@ -816,12 +909,14 @@ class ExpressionContext:
     raise_amount: int              # if applicable
     was_bluff: bool                # did personality deviate from value?
     hand_strength_bucket: str      # 'nuts', 'strong_made', 'air', etc.
+    baseline_action: str           # what the solver baseline would have done (enables "I know this is crazy" dialogue)
+    deviation_magnitude: float     # how far personality deviated from baseline (L1 shift)
 
     # Game situation
     pot_size: int
     community_cards: List[str]
     phase: str
-    is_heads_up: bool
+    opponent_count: int            # number of active opponents (affects expression tone)
     opponent_last_action: str
 
     # Character context
@@ -995,7 +1090,7 @@ Preflop charts are curated from established sources and encoded manually into JS
 ```
 1. Source charts (training sites, published GTO ranges)
      ↓
-2. Encode per-combo frequencies into structured format (all 169 canonical hands)
+2. Encode per-hand frequencies into structured format (all 169 canonical hands)
      ↓
 3. Validate against known ranges (e.g., UTG RFI ~15-18%)
      ↓
@@ -1104,6 +1199,7 @@ A system-only reference bot used exclusively for testing. Not selectable in norm
 
 **Configuration:**
 - Uses Layer 1 (Strategic Core) only
+- Samples from solver/chart mixed strategies using seeded RNG (it's a reference distribution, not a fixed script)
 - Applies multiway adjustments
 - Applies river guardrail
 - **Skips Layer 2** (no personality distortion)
@@ -1146,7 +1242,7 @@ Run bot-vs-bot tournaments (100k+ hands per matchup).
 1. **Stat separation**: Each archetype must show distinctly different stat profiles. If TAG and LAG have similar VPIP, personality math is wrong.
 2. **Directional correctness**: Higher aggression anchor → higher PFR. Higher looseness → higher VPIP. Always.
 3. **Bounded deviation**: No archetype should have VPIP > 80% or < 5%. No archetype should have PFR > VPIP.
-4. **EV ordering**: GTO baseline > TAG > LAG > Rock > Station > Maniac (approximately). Deviations from GTO should cost EV proportional to deviation magnitude.
+4. **EV ordering**: BaselineSolverBot > TAG > LAG > Rock > Station > Maniac (approximately). Deviations from baseline should cost EV proportional to deviation magnitude.
 
 ### Statistical Guardrails (Hard Limits)
 
