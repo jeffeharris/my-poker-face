@@ -821,6 +821,9 @@ class AITournamentRunner:
 
         controllers = {}
         for player in game_state.players:
+            # Initialize memory for this player before injecting session_memory.
+            memory_manager.initialize_for_player(player.name)
+
             # Check for per-player config override
             player_cfg = per_player_configs.get(player.name, {})
 
@@ -910,8 +913,6 @@ class AITournamentRunner:
                     opponent_model_manager=memory_manager.get_opponent_model_manager(),
                 )
             controllers[player.name] = controller
-            # Initialize memory manager for this player
-            memory_manager.initialize_for_player(player.name)
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
 
         return state_machine, controllers, memory_manager
