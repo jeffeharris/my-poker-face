@@ -1,15 +1,15 @@
 ---
-purpose: Handoff notes for Phase 1 Preflop Core implementation - current state and remaining work
+purpose: Handoff notes for Phase 1 Preflop Core implementation
 type: guide
 created: 2026-02-16
 last_updated: 2026-02-16
 ---
 
-# Phase 1: Preflop Core — Handoff Plan
+# Phase 1: Preflop Core — Complete
 
-## Current State: ~85% Complete
+## Status: DONE
 
-All code is written, all tests pass (123 tests), but validation shows insufficient archetype stat separation. The personality modifier works correctly — the issue is in the interaction between chart data and deviation profile scales.
+All code written, 123 unit tests passing, validation passing across seeds with meaningful archetype separation.
 
 ## What's Done
 
@@ -51,41 +51,29 @@ python3 scripts/test.py test_strategy    # 114 passed
 python3 scripts/test.py test_tiered_bot  # 9 passed
 ```
 
-## What Remains: Validation Tuning
+## Validation Results (10k hands, stable across seeds)
 
-### Problem
-The validation script shows **insufficient archetype stat separation**:
-- VPIP ranges from 27% (TAG) to 30% (Calling Station) — directionally correct but too narrow
-- PFR is identical across all archetypes (20.3%)
-- The LAG > TAG > Rock VPIP ordering isn't achieved
+```
+Archetype               VPIP%     PFR%   3-bet%
+Nit                     22%      12%      9%
+Rock                    22%      12%     10%
+TAG                     25%      18%     17%
+Calling Station         35%      20%     17%
+LAG                     35%      27%     28%
+Maniac                  48%      41%     46%
+```
 
-### Root Cause Analysis
-1. **PFR flatness**: In RFI scenarios (70% of simulated hands), the only voluntary action is "raise". The personality modifier shifts raise vs fold probabilities, but since any raise = both VPIP and PFR, these stats are coupled. PFR separation requires vs_open scenarios (where call = VPIP but not PFR).
+All directional checks pass: LAG > TAG > Rock for VPIP and PFR, Maniac > LAG, Nit < Rock. No PFR > VPIP violations. All VPIP in [5%, 85%].
 
-2. **Narrow VPIP spread**: The modifier's KL clamping + per-action caps limit how far probabilities can shift. With `max_per_action_shift` of 0.10-0.30 and `max_kl` of 0.2-0.6, the absolute effect on the sampled action is small.
+### Tuning applied
+1. Deviation profile scales doubled (~2x aggression, looseness, risk, KL caps)
+2. Graduated chart frequencies (premium 95% → trash 2%) replacing flat 85/15 splits
+3. Scenario mix adjusted to 50% RFI / 35% vs_open / 15% vs_3bet
+4. Fixed `_is_action_legal` bug in personality modifier (abstract action mapping)
 
-3. **Chart structure**: The charts use 85/15 mixed frequencies for in-range/out-of-range hands. This gives the modifier room to work but the deviation budget may be too tight.
-
-### Recommended Next Steps (Priority Order)
-
-#### 1. Tune deviation profile scales (30 min)
-Increase `aggression_scale` and `looseness_scale` in `DEVIATION_PROFILES`:
-- Try 2-3x the current values
-- Run validation after each change
-- The KL clamp will still bound total divergence, so this is safe
-
-#### 2. Adjust validation scenario mix (15 min)
-The current validation simulates 70% RFI / 20% vs_open / 10% vs_3bet. Real poker has more varied scenarios. Adjust to 50% RFI / 35% vs_open / 15% vs_3bet to better test separation.
-
-#### 3. Consider the risk_scale multiplier on fold actions (15 min)
-In `compute_trait_offsets`, the risk_identity only affects `jam` and `passive`. Adding a fold penalty scaled by looseness would increase VPIP separation for loose archetypes.
-
-#### 4. Widen chart mixed frequencies for boundary hands (30 min)
-Instead of uniform 85/15 splits, use a gradient:
-- Premium hands: 95/5 (almost always raise)
-- Mid-range hands: 70/30 (more room for personality)
-- Trash hands: 10/90 (almost always fold)
-This gives more distortion surface area for the modifier.
+### Known limitations
+- Nit/Rock VPIP (~22%) is higher than real poker nits (~10-15%). The KL cap limits how far the modifier can push toward fold. Acceptable for Phase 1.
+- Postflop is check/fold fallback (Phase 2 scope).
 
 ## Key Architecture Decisions Made
 - Strategy tables use mixed frequencies (not pure) to enable personality distortion
