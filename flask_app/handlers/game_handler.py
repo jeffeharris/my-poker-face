@@ -223,6 +223,23 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
                         decision_analysis_repo=decision_analysis_repo,
                     )
                     logger.info(f"[RESTORE] Created HybridAIController for {player.name}")
+                elif strategy == 'tiered':
+                    # Tiered mode: solver baselines + personality distortion
+                    from poker.tiered_bot_controller import TieredBotController
+                    from poker.strategy.strategy_table import load_strategy_table
+                    strategy_table = load_strategy_table()
+                    controller = TieredBotController(
+                        player_name=player.name,
+                        strategy_table=strategy_table,
+                        state_machine=state_machine,
+                        llm_config=llm_config,
+                        game_id=game_id,
+                        owner_id=owner_id,
+                        capture_label_repo=capture_label_repo,
+                        decision_analysis_repo=decision_analysis_repo,
+                        debug_logging=True,
+                    )
+                    logger.info(f"[RESTORE] Created TieredBotController for {player.name}")
                 else:
                     # Rule-based controller with psychology
                     controller = RuleBotController(
