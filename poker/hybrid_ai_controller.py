@@ -37,6 +37,7 @@ from .bounded_options import (
     apply_emotional_window_shift,
     get_emotional_shift,
 )
+from .minimal_prompt import get_position_abbrev
 from .nudge_phrases import apply_composed_nudges
 from .hand_ranges import (
     calculate_equity_vs_ranges,
@@ -300,6 +301,7 @@ class HybridAIController(AIPlayerController):
             capture_id[0],
             player_bet=player.bet,
             all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+            bounded_options=[o.to_dict() for o in options],
         )
 
         # Update capture
@@ -316,12 +318,16 @@ class HybridAIController(AIPlayerController):
 
         return chosen
 
-    def _build_street_action_summary(self, phase: str, big_blind: int) -> str:
+    def _build_street_action_summary(self, phase: str, big_blind: int,
+                                       position_map: Optional[Dict[str, str]] = None) -> str:
         """Build a compact summary of betting actions on the current street.
 
         Parses game_messages to extract actions for the current phase and
         formats them as a compact line like:
-          "Opp raises 3BB → You raise 4BB → Opp raises 6BB"
+          "UTG raises 3BB → You raise 4BB → BB raises 6BB"
+
+        When position_map is provided, opponents are labeled by their table
+        position (UTG, CO, BTN, etc.) instead of OppA/OppB.
 
         Works with both web handler messages ("Name raises to $300.") and
         experiment runner messages ("Name raises to $300").
@@ -346,7 +352,8 @@ class HybridAIController(AIPlayerController):
         actions = []
         player_name = self.player_name
 
-        # Build opponent labels: single opponent = "Opp", multiple = "OppA", "OppB", ...
+        # Build opponent labels using position names when available,
+        # falling back to Opp/OppA/OppB for non-lean contexts.
         opponent_names = {}
         for line in street_lines:
             m = re.match(
@@ -358,7 +365,10 @@ class HybridAIController(AIPlayerController):
                 if name != player_name and name not in opponent_names:
                     opponent_names[name] = None  # placeholder
 
-        if len(opponent_names) == 1:
+        if position_map:
+            for name in opponent_names:
+                opponent_names[name] = position_map.get(name, 'Opp')
+        elif len(opponent_names) == 1:
             for name in opponent_names:
                 opponent_names[name] = 'Opp'
         else:
@@ -432,14 +442,29 @@ class HybridAIController(AIPlayerController):
             if preflop_str:
                 parts.append(f"Hand: {preflop_str}")
 
+        # Build position map from table_positions (name → short label)
+        position_map = {}
+        position_short_label = ''
+        try:
+            game_state = self.state_machine.game_state
+            if game_state and hasattr(game_state, 'table_positions'):
+                for pos, name in game_state.table_positions.items():
+                    short = get_position_abbrev(pos)
+                    position_map[name] = short
+                    if name == self.player_name:
+                        position_short_label = short
+        except (AttributeError, TypeError):
+            pass
+
         # Street and situation in BB
         street_name = phase.replace('_', ' ').title() if phase else ''
         stack_bb = context.get('stack_bb', 0)
         pot_bb = context.get('pot_total', 0) / big_blind if big_blind > 0 else 0
-        parts.append(f"Street: {street_name} | Stack: {stack_bb:.0f} BB | Pot: {pot_bb:.1f} BB")
+        pos_segment = f" | Position: {position_short_label}" if position_short_label else ''
+        parts.append(f"Street: {street_name}{pos_segment} | Stack: {stack_bb:.0f} BB | Pot: {pot_bb:.1f} BB")
 
         # Betting action this street
-        action_summary = self._build_street_action_summary(phase, big_blind)
+        action_summary = self._build_street_action_summary(phase, big_blind, position_map=position_map)
         if action_summary:
             parts.append(f"Action: {action_summary}")
 
@@ -487,7 +512,7 @@ class HybridAIController(AIPlayerController):
             action_str = opt.action.upper()
             if opt.action == 'raise' and opt.raise_to > 0:
                 raise_bb = opt.raise_to / big_blind if big_blind > 0 else opt.raise_to
-                action_str += f" {raise_bb:.0f}BB"
+                action_str += f" to {raise_bb:.1f}BB"
             ev_part = f"  [{opt.ev_estimate}]" if show_ev else ""
             if use_nudges:
                 parts.append(f"{i}. {action_str}{ev_part} \u2014 {opt.rationale}")
@@ -574,6 +599,7 @@ class HybridAIController(AIPlayerController):
             capture_id[0],
             player_bet=player.bet,
             all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+            bounded_options=[o.to_dict() for o in options],
         )
 
         # Step 6: Update capture with final action (like parent class does)

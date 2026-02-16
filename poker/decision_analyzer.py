@@ -111,6 +111,13 @@ class DecisionAnalysis:
     optimal_action: Optional[str] = None
     decision_quality: str = "unknown"
     ev_lost: float = 0
+    quality_score: Optional[float] = None  # Composite: correct=100, marginal=50, mistake=0
+
+    # Menu compliance (bounded options)
+    menu_best_ev: Optional[str] = None       # Best ev_estimate available (+EV/neutral/-EV)
+    menu_chosen_ev: Optional[str] = None     # ev_estimate of chosen option
+    menu_picked_best: Optional[bool] = None  # True if chose best-EV option
+    menu_num_options: Optional[int] = None   # Number of options offered
 
     # Hand strength
     hand_rank: Optional[int] = None
@@ -634,6 +641,7 @@ class DecisionAnalyzer:
         """
         if analysis.ev_call is None:
             analysis.decision_quality = "unknown"
+            analysis.quality_score = None
             return
 
         # Special case: folding when you can check for free is always a mistake
@@ -641,6 +649,7 @@ class DecisionAnalyzer:
         if analysis.cost_to_call == 0 and analysis.action_taken == "fold":
             analysis.optimal_action = "check"
             analysis.decision_quality = "mistake"
+            analysis.quality_score = 0.0
             if analysis.equity is not None and analysis.pot_total > 0:
                 # EV lost = your equity share of the pot you're abandoning
                 analysis.ev_lost = analysis.equity * analysis.pot_total
@@ -699,6 +708,55 @@ class DecisionAnalyzer:
         else:
             analysis.decision_quality = "correct"
             analysis.ev_lost = 0
+
+        # Composite quality score (correct=100, marginal=50, mistake=0)
+        _QUALITY_SCORES = {'correct': 100.0, 'marginal': 50.0, 'mistake': 0.0}
+        analysis.quality_score = _QUALITY_SCORES.get(analysis.decision_quality)
+
+    def evaluate_menu_compliance(
+        self,
+        analysis: DecisionAnalysis,
+        bounded_options: list,
+    ) -> None:
+        """Score whether AI picked the best option from its bounded menu.
+
+        Ranking: +EV > neutral > marginal > -EV.
+        Tie-break: non-fold preferred over fold.
+        """
+        if not bounded_options:
+            return
+
+        EV_RANK = {'+EV': 4, 'neutral': 3, 'marginal': 2, '-EV': 1}
+
+        def _option_sort_key(opt):
+            ev_score = EV_RANK.get(opt.get('ev_estimate', ''), 0)
+            is_fold = 1 if opt.get('action') == 'fold' else 0
+            return (-ev_score, is_fold)  # higher EV first, non-fold first
+
+        sorted_options = sorted(bounded_options, key=_option_sort_key)
+        best = sorted_options[0]
+
+        # Find chosen option by matching action (+ raise_to for raises)
+        chosen_opt = None
+        action = analysis.action_taken
+        raise_amount = analysis.raise_amount
+        for opt in bounded_options:
+            if opt.get('action') == action:
+                if action == 'raise':
+                    if opt.get('raise_to') == raise_amount:
+                        chosen_opt = opt
+                        break
+                else:
+                    chosen_opt = opt
+                    break
+
+        analysis.menu_num_options = len(bounded_options)
+        analysis.menu_best_ev = best.get('ev_estimate')
+        analysis.menu_chosen_ev = chosen_opt.get('ev_estimate') if chosen_opt else None
+        analysis.menu_picked_best = (
+            chosen_opt is not None
+            and _option_sort_key(chosen_opt) == _option_sort_key(best)
+        )
 
     def _get_position_adjustment(self, player_position: Optional[str]) -> float:
         """

@@ -46,7 +46,8 @@ logger = logging.getLogger(__name__)
 # v75: Add deck_seed column to hand_history for deterministic replay
 # v76: Add metadata_json to prompt_captures for enricher data (bounded_options, equity, etc.)
 # v77: Add bounded_replay_results table for multi-sample option-framing replay experiments
-SCHEMA_VERSION = 77
+# v78: Add quality_score and menu compliance columns to player_decision_analysis
+SCHEMA_VERSION = 78
 
 
 
@@ -687,6 +688,11 @@ class SchemaManager:
                     zone_penalty_strategy_applied TEXT,
                     zone_info_degraded BOOLEAN,
                     zone_strategy_selected TEXT,
+                    quality_score REAL,
+                    menu_best_ev TEXT,
+                    menu_chosen_ev TEXT,
+                    menu_picked_best INTEGER,
+                    menu_num_options INTEGER,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
                 )
             """)
@@ -1071,6 +1077,7 @@ class SchemaManager:
             75: (self._migrate_v75_add_deck_seed_to_hand_history, "Add deck_seed column to hand_history"),
             76: (self._migrate_v76_add_metadata_json, "Add metadata_json column to prompt_captures for enricher data"),
             77: (self._migrate_v77_add_bounded_replay_results, "Add bounded_replay_results table for multi-sample replay experiments"),
+            78: (self._migrate_v78_add_quality_scores, "Add quality_score and menu compliance columns to player_decision_analysis"),
         }
 
         with self._get_connection() as conn:
@@ -3387,3 +3394,27 @@ class SchemaManager:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_bounded_replay_experiment ON bounded_replay_results(experiment_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_bounded_replay_capture ON bounded_replay_results(capture_id)")
         logger.info("Migration v77 complete: bounded_replay_results table created")
+
+    def _migrate_v78_add_quality_scores(self, conn: sqlite3.Connection) -> None:
+        """Migration v78: Add quality_score and menu compliance columns to player_decision_analysis.
+
+        quality_score: Composite GTO score (correct=100, marginal=50, mistake=0)
+        menu_*: Menu compliance tracking — did AI pick the best bounded option?
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        new_columns = [
+            ('quality_score', 'REAL'),
+            ('menu_best_ev', 'TEXT'),
+            ('menu_chosen_ev', 'TEXT'),
+            ('menu_picked_best', 'INTEGER'),
+            ('menu_num_options', 'INTEGER'),
+        ]
+
+        for col_name, col_type in new_columns:
+            if col_name not in existing_columns:
+                conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
+                logger.debug(f"Added {col_name} column to player_decision_analysis")
+
+        logger.info("Migration v78 complete: quality_score and menu compliance columns added")

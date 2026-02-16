@@ -2210,6 +2210,10 @@ class AITournamentRunner:
         total_mistakes = 0
         total_marginal = 0
         total_ev_lost = 0.0
+        quality_score_sum = 0.0
+        quality_score_count = 0
+        menu_correct_total = 0
+        menu_total = 0
 
         for r in results:
             if r.decision_stats:
@@ -2218,6 +2222,14 @@ class AITournamentRunner:
                 total_mistakes += r.decision_stats.get('mistake', 0)
                 total_marginal += r.decision_stats.get('marginal', 0)
                 total_ev_lost += r.decision_stats.get('avg_ev_lost', 0) * r.decision_stats.get('total', 0)
+                qs = r.decision_stats.get('quality_score')
+                if qs is not None:
+                    quality_score_sum += qs * r.decision_stats.get('total', 0)
+                    quality_score_count += r.decision_stats.get('total', 0)
+                mc = r.decision_stats.get('menu_compliance')
+                if mc:
+                    menu_correct_total += mc.get('correct', 0)
+                    menu_total += mc.get('total', 0)
 
         summary = {
             'tournaments': len(results),
@@ -2237,6 +2249,8 @@ class AITournamentRunner:
                 'correct_pct': round(total_correct * 100 / total_decisions, 1),
                 'mistake_pct': round(total_mistakes * 100 / total_decisions, 1),
                 'avg_ev_lost': round(total_ev_lost / total_decisions, 2),
+                'quality_score': round(quality_score_sum / quality_score_count, 1) if quality_score_count else None,
+                'menu_compliance_pct': round(menu_correct_total * 100 / menu_total, 1) if menu_total else None,
             }
 
         # Compute per-variant stats for A/B testing experiments
@@ -2305,6 +2319,10 @@ class AITournamentRunner:
             total_mistakes = 0
             total_marginal = 0
             total_ev_lost = 0.0
+            v_qs_sum = 0.0
+            v_qs_count = 0
+            v_menu_correct = 0
+            v_menu_total = 0
 
             for r in variant_results:
                 if r.decision_stats:
@@ -2313,6 +2331,14 @@ class AITournamentRunner:
                     total_mistakes += r.decision_stats.get('mistake', 0)
                     total_marginal += r.decision_stats.get('marginal', 0)
                     total_ev_lost += r.decision_stats.get('avg_ev_lost', 0) * r.decision_stats.get('total', 0)
+                    qs = r.decision_stats.get('quality_score')
+                    if qs is not None:
+                        v_qs_sum += qs * r.decision_stats.get('total', 0)
+                        v_qs_count += r.decision_stats.get('total', 0)
+                    mc = r.decision_stats.get('menu_compliance')
+                    if mc:
+                        v_menu_correct += mc.get('correct', 0)
+                        v_menu_total += mc.get('total', 0)
 
             variant_summary = {
                 'tournaments': len(variant_results),
@@ -2333,6 +2359,8 @@ class AITournamentRunner:
                     'correct_pct': round(total_correct * 100 / total_decisions, 1),
                     'mistake_pct': round(total_mistakes * 100 / total_decisions, 1),
                     'avg_ev_lost': round(total_ev_lost / total_decisions, 2),
+                    'quality_score': round(v_qs_sum / v_qs_count, 1) if v_qs_count else None,
+                    'menu_compliance_pct': round(v_menu_correct * 100 / v_menu_total, 1) if v_menu_total else None,
                 }
 
             # Add latency metrics from database for this variant
@@ -2654,6 +2682,16 @@ def print_summary(results: List[TournamentResult]):
             print(f"  Total decisions: {total_decisions}")
             print(f"  Correct: {total_correct} ({total_correct*100/total_decisions:.1f}%)")
             print(f"  Mistakes: {total_mistakes} ({total_mistakes*100/total_decisions:.1f}%)")
+            # Quality score (composite)
+            quality_scores = [s.get('quality_score') for s in decision_stats if s.get('quality_score') is not None]
+            if quality_scores:
+                avg_qs = sum(quality_scores) / len(quality_scores)
+                print(f"  Quality Score: {avg_qs:.1f}/100")
+            # Menu compliance
+            menu_totals = sum(s.get('menu_compliance', {}).get('total', 0) for s in decision_stats)
+            menu_correct = sum(s.get('menu_compliance', {}).get('correct', 0) for s in decision_stats)
+            if menu_totals > 0:
+                print(f"  Menu Compliance: {menu_correct*100/menu_totals:.1f}% ({menu_correct}/{menu_totals})")
 
     print("=" * 60)
 

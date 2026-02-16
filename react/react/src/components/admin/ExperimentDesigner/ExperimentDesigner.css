@@ -1212,6 +1212,22 @@
   color: #e5e5e5;
 }
 
+.experiment-detail__section-badge {
+  margin-left: auto;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+}
+
+.experiment-detail__menu-compliance {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 .experiment-detail__winners {
   display: flex;
   flex-direction: column;
