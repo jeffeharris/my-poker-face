@@ -2,7 +2,9 @@
  * TypeScript interfaces for the Hand Replay feature
  */
 
-/** A player in a recorded hand (matches API response from PlayerHandInfo.to_dict()) */
+/** A player in a recorded hand (matches API response from PlayerHandInfo.to_dict()).
+ *  Note: seat_index and hole_cards are enriched client-side by HandReplayBrowser,
+ *  not returned directly by the API. */
 export interface HandPlayer {
   name: string;
   seat_index: number;

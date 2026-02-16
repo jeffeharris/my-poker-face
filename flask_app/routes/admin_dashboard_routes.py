@@ -1552,12 +1552,7 @@ def api_hand_replay(game_id: str, hand_number: int):
     from poker.memory.hand_history import RecordedHand
 
     try:
-        hands = hand_history_repo.load_hand_history(game_id)
-        if not hands:
-            return jsonify({'success': False, 'error': 'No hands found for this game'}), 404
-
-        # Find the specific hand
-        hand_data = next((h for h in hands if h['hand_number'] == hand_number), None)
+        hand_data = hand_history_repo.load_single_hand(game_id, hand_number)
         if not hand_data:
             return jsonify({'success': False, 'error': f'Hand #{hand_number} not found'}), 404
 

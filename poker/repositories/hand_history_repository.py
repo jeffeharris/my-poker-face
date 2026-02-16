@@ -186,7 +186,7 @@ class HandHistoryRepository(BaseRepository):
                     'winners': json.loads(row['winners_json'] or '[]'),
                     'pot_size': row['pot_size'] or 0,
                     'was_showdown': bool(row['showdown']),
-                    'deck_seed': row['deck_seed'],
+                    'deck_seed': row['deck_seed'] if 'deck_seed' in row.keys() else None,
                     'community_cards_by_phase': json.loads(community_cards_by_phase_raw) if community_cards_by_phase_raw else {}
                 }
                 hands.append(hand)
@@ -198,6 +198,44 @@ class HandHistoryRepository(BaseRepository):
             logger.debug(f"Loaded {len(hands)} hands for game {game_id}")
 
         return hands
+
+    def load_single_hand(self, game_id: str, hand_number: int) -> Optional[Dict[str, Any]]:
+        """Load a single hand by game_id and hand_number.
+
+        More efficient than load_hand_history() when only one hand is needed.
+
+        Args:
+            game_id: The game identifier
+            hand_number: The hand number within the game
+
+        Returns:
+            Hand dict suitable for RecordedHand.from_dict(), or None if not found
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM hand_history WHERE game_id = ? AND hand_number = ?",
+                (game_id, hand_number)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            community_cards_by_phase_raw = row['community_cards_by_phase_json'] if 'community_cards_by_phase_json' in row.keys() else None
+            return {
+                'id': row['id'],
+                'game_id': row['game_id'],
+                'hand_number': row['hand_number'],
+                'timestamp': row['timestamp'],
+                'players': json.loads(row['players_json'] or '[]'),
+                'hole_cards': json.loads(row['hole_cards_json'] or '{}'),
+                'community_cards': json.loads(row['community_cards_json'] or '[]'),
+                'actions': json.loads(row['actions_json'] or '[]'),
+                'winners': json.loads(row['winners_json'] or '[]'),
+                'pot_size': row['pot_size'] or 0,
+                'was_showdown': bool(row['showdown']),
+                'deck_seed': row['deck_seed'] if 'deck_seed' in row.keys() else None,
+                'community_cards_by_phase': json.loads(community_cards_by_phase_raw) if community_cards_by_phase_raw else {}
+            }
 
     def delete_hand_history_for_game(self, game_id: str) -> None:
         """Delete all hand history for a game."""
