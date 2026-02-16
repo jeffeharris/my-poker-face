@@ -32,6 +32,32 @@ What we're actually building:
 
 That is a solid core. It produces strategically sound opponents with distinct, exploitable personalities — which is the goal.
 
+### Definition of Done
+
+Build a three-layer AI poker opponent system that reliably produces strategic, human-readable play with distinct, exploitable personalities.
+
+Specifically:
+
+**The Strategic Core (Layer 1)** produces principled base action frequencies for all decision points using curated preflop charts and pre-solved postflop tables. These baselines must be consistent, reproducible, and aligned with known solver behavior.
+
+**The Personality Modifier (Layer 2)** applies bounded, logit-space distortions to those baselines that:
+- Preserve solver support (no new unsupported actions)
+- Respect per-archetype deviation budgets (KL + per-action caps)
+- Produce statistically distinct archetypes (e.g., VPIP, PFR, 3-bet) in validation
+
+**The Expression Layer (Layer 3)** adds narrative output after decisions are made, enriching player experience without affecting action selection.
+
+**Success means that in numeric bot-vs-bot validation:**
+- Archetype stat profiles separate cleanly and directionally (higher aggression → higher PFR; higher looseness → higher VPIP)
+- No archetype exhibits logically impossible stats (e.g., PFR > VPIP)
+- Deviations from baseline cost EV within predefined guardrails (e.g., ≤ -20 bb/100)
+
+**And in system maturity:**
+- All edge cases (missing strategy keys, legal action masking, clamped distributions) behave deterministically and safely
+- Turn/river heuristics are grounded in concrete frequency templates, not ad-hoc prose
+
+This defines what done looks like: a robust, architecturally sound poker AI engine that's implementable, testable, and produces both strategic play and expressive character behavior.
+
 ---
 
 ## Layer 1: Strategic Core
