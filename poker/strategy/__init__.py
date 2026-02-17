@@ -37,7 +37,31 @@ except ImportError:
     pass
 
 try:
-    from .action_mapper import resolve_preflop_sizing
-    __all__ += ['resolve_preflop_sizing']
+    from .action_mapper import resolve_preflop_sizing, resolve_postflop_sizing
+    __all__ += ['resolve_preflop_sizing', 'resolve_postflop_sizing']
+except ImportError:
+    pass
+
+try:
+    from .hand_classification import classify_hand, simplify_hand_class
+    __all__ += ['classify_hand', 'simplify_hand_class']
+except ImportError:
+    pass
+
+try:
+    from .postflop_classifier import build_postflop_node
+    __all__ += ['build_postflop_node']
+except ImportError:
+    pass
+
+try:
+    from .multiway import apply_multiway_adjustment
+    __all__ += ['apply_multiway_adjustment']
+except ImportError:
+    pass
+
+try:
+    from .personality_modifier import apply_river_bluff_guardrail
+    __all__ += ['apply_river_bluff_guardrail']
 except ImportError:
     pass

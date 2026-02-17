@@ -1,21 +1,27 @@
 """
 Strategy table: lookup and legal-action masking for solver-derived baselines.
 
-Loads preflop strategy data from JSON, keyed by PreflopNode.key strings.
+Loads preflop and postflop strategy data from JSON, keyed by node.key strings.
 Provides exact lookup, fallback defaults, and action masking/renormalization
 to bridge abstract strategy actions to the game engine's legal action set.
 """
 
 import json
+import logging
 import os
 from typing import Dict, List, Optional
 
-from .nodes import PreflopNode
+from .nodes import PreflopNode, PostflopNode
 from .strategy_profile import StrategyProfile
+
+logger = logging.getLogger(__name__)
 
 # Abstract actions that correspond to a game-engine "raise" or "all_in"
 _RAISE_ACTIONS = frozenset({
+    # Preflop BB-relative and multiplier raises
     'raise_2.5bb', 'raise_3bb', 'raise_3x', 'raise_4x', 'raise_2.2x',
+    # Postflop pot-relative bets and raises
+    'bet_33', 'bet_67', 'bet_100', 'raise_67', 'raise_150',
 })
 _JAM_ACTION = 'jam'
 
@@ -28,6 +34,9 @@ def _is_action_legal(action: str, legal_actions: List[str]) -> bool:
         return 'raise' in legal_actions or 'all_in' in legal_actions
     if action == _JAM_ACTION:
         return 'all_in' in legal_actions
+    # Fallback prefix match for any future bet_/raise_ actions
+    if action.startswith(('bet_', 'raise_')):
+        return 'raise' in legal_actions or 'all_in' in legal_actions
     # Unknown action — treat as illegal
     return False
 
@@ -58,12 +67,61 @@ def _conservative_default(legal_actions: List[str]) -> StrategyProfile:
     return StrategyProfile(action_probabilities={'fold': 1.0})
 
 
-class StrategyTable:
-    """In-memory lookup table for preflop solver baselines."""
+def _postflop_conservative_default(
+    facing_action: str, legal_actions: List[str],
+) -> StrategyProfile:
+    """Context-aware conservative default for postflop (from arch doc)."""
+    if facing_action == 'unopened':
+        if 'check' in legal_actions:
+            return StrategyProfile(action_probabilities={'check': 1.0})
+    elif facing_action == 'facing_bet':
+        probs = {}
+        if 'fold' in legal_actions:
+            probs['fold'] = 0.7
+        if 'call' in legal_actions:
+            probs['call'] = 0.3
+        if probs:
+            total = sum(probs.values())
+            return StrategyProfile(
+                action_probabilities={a: p / total for a, p in probs.items()}
+            )
+    elif facing_action == 'facing_raise':
+        probs = {}
+        if 'fold' in legal_actions:
+            probs['fold'] = 0.8
+        if 'call' in legal_actions:
+            probs['call'] = 0.2
+        if probs:
+            total = sum(probs.values())
+            return StrategyProfile(
+                action_probabilities={a: p / total for a, p in probs.items()}
+            )
+    # Ultimate fallback
+    return _conservative_default(legal_actions)
 
-    def __init__(self, preflop_data: Dict[str, StrategyProfile]):
-        """Initialize from parsed preflop data keyed by PreflopNode.key strings."""
+
+# Texture neighbor fallback map (deterministic, one-directional)
+_TEXTURE_NEIGHBOR = {
+    'dry_high': 'dry_low_static',
+    'dry_low_static': 'dry_high',
+    'monotone': 'two_tone_connected',
+    'two_tone_broadway': 'wet_rainbow',
+    'two_tone_connected': 'wet_rainbow',
+    'wet_rainbow': 'two_tone_connected',
+}
+
+
+class StrategyTable:
+    """In-memory lookup table for preflop and postflop solver baselines."""
+
+    def __init__(
+        self,
+        preflop_data: Dict[str, StrategyProfile],
+        postflop_data: Optional[Dict[str, StrategyProfile]] = None,
+    ):
+        """Initialize from parsed data keyed by node.key strings."""
         self._preflop: Dict[str, StrategyProfile] = dict(preflop_data)
+        self._postflop: Dict[str, StrategyProfile] = dict(postflop_data or {})
 
     def lookup_preflop(self, node: PreflopNode) -> Optional[StrategyProfile]:
         """Look up base strategy for a preflop node. Returns None if not found."""
@@ -85,10 +143,65 @@ class StrategyTable:
                 return masked
         return _conservative_default(legal_actions)
 
+    # ── Postflop lookup ─────────────────────────────────────────────
+
+    def lookup_postflop(self, node: PostflopNode) -> Optional[StrategyProfile]:
+        """Look up base strategy for a postflop node. Returns None if not found."""
+        return self._postflop.get(node.key)
+
+    def lookup_postflop_with_fallback(
+        self, node: PostflopNode, legal_actions: List[str],
+    ) -> StrategyProfile:
+        """Look up postflop strategy with texture-neighbor fallback.
+
+        Fallback ladder:
+        1. Exact key lookup
+        2. Texture neighbor lookup (swap board_texture, keep everything else)
+        3. Context-aware conservative default
+        """
+        # 1. Exact lookup
+        profile = self._postflop.get(node.key)
+        if profile is not None:
+            masked = _mask_and_renormalize(profile, legal_actions)
+            if masked is not None:
+                return masked
+
+        # 2. Texture neighbor fallback
+        neighbor_texture = _TEXTURE_NEIGHBOR.get(node.board_texture)
+        if neighbor_texture:
+            neighbor_node = PostflopNode(
+                street=node.street,
+                position=node.position,
+                pot_type=node.pot_type,
+                board_texture=neighbor_texture,
+                made_tier=node.made_tier,
+                draw_modifier=node.draw_modifier,
+                facing_action=node.facing_action,
+                spr_bucket=node.spr_bucket,
+            )
+            profile = self._postflop.get(neighbor_node.key)
+            if profile is not None:
+                masked = _mask_and_renormalize(profile, legal_actions)
+                if masked is not None:
+                    logger.debug(
+                        f"Postflop fallback: {node.board_texture} → "
+                        f"{neighbor_texture} for {node.key}"
+                    )
+                    return masked
+
+        # 3. Conservative default
+        logger.debug(f"Postflop conservative default for {node.key}")
+        return _postflop_conservative_default(node.facing_action, legal_actions)
+
     @property
     def size(self) -> int:
         """Number of entries in the preflop table."""
         return len(self._preflop)
+
+    @property
+    def postflop_size(self) -> int:
+        """Number of entries in the postflop table."""
+        return len(self._postflop)
 
 
 def _parse_position_matchup(matchup: str):
@@ -135,16 +248,42 @@ def _parse_json_to_preflop_data(data: dict) -> Dict[str, StrategyProfile]:
     return result
 
 
-def load_strategy_table(json_path: str = None) -> StrategyTable:
-    """Load strategy table from JSON file.
+def _parse_postflop_json(data: dict) -> Dict[str, StrategyProfile]:
+    """Parse postflop strategy JSON into PostflopNode.key -> StrategyProfile.
 
-    Default path: poker/strategy/data/preflop_100bb_6max.json
+    Expected JSON: flat dict of PostflopNode.key -> {action: probability}.
     """
+    result: Dict[str, StrategyProfile] = {}
+    for key, actions in data.items():
+        result[key] = StrategyProfile(action_probabilities=dict(actions))
+    return result
+
+
+def load_strategy_table(
+    json_path: str = None,
+    postflop_path: str = None,
+) -> StrategyTable:
+    """Load strategy table from JSON files.
+
+    Default paths:
+    - Preflop: poker/strategy/data/preflop_100bb_6max.json
+    - Postflop: poker/strategy/data/postflop_strategies.json
+    """
+    data_dir = os.path.join(os.path.dirname(__file__), 'data')
+
     if json_path is None:
-        json_path = os.path.join(
-            os.path.dirname(__file__), 'data', 'preflop_100bb_6max.json',
-        )
+        json_path = os.path.join(data_dir, 'preflop_100bb_6max.json')
     with open(json_path) as f:
-        data = json.load(f)
-    preflop_data = _parse_json_to_preflop_data(data)
-    return StrategyTable(preflop_data)
+        preflop_raw = json.load(f)
+    preflop_data = _parse_json_to_preflop_data(preflop_raw)
+
+    # Load postflop data (optional — file may not exist yet)
+    postflop_data: Dict[str, StrategyProfile] = {}
+    if postflop_path is None:
+        postflop_path = os.path.join(data_dir, 'postflop_strategies.json')
+    if os.path.exists(postflop_path):
+        with open(postflop_path) as f:
+            postflop_raw = json.load(f)
+        postflop_data = _parse_postflop_json(postflop_raw)
+
+    return StrategyTable(preflop_data, postflop_data)

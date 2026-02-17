@@ -18,15 +18,19 @@ from .strategy_profile import StrategyProfile
 
 # Abstract actions that map to engine 'raise' or 'all_in'
 _RAISE_ACTIONS = frozenset({
+    # Preflop BB-relative and multiplier raises
     'raise_2.5bb', 'raise_3bb', 'raise_3x', 'raise_4x', 'raise_2.2x',
+    # Postflop pot-relative bets and raises
+    'bet_33', 'bet_67', 'bet_100', 'raise_67', 'raise_150',
 })
 
 
 def _is_action_legal(action: str, legal_actions: List[str]) -> bool:
     """Check whether an abstract strategy action is legal given engine actions.
 
-    Handles the mapping between abstract actions (raise_2.5bb, raise_3x, jam)
-    and engine actions (raise, all_in, fold, call, check).
+    Handles the mapping between abstract actions (raise_2.5bb, raise_3x, jam,
+    bet_33, bet_67, raise_67, raise_150) and engine actions (raise, all_in,
+    fold, call, check).
     """
     if action in legal_actions:
         return True
@@ -34,6 +38,9 @@ def _is_action_legal(action: str, legal_actions: List[str]) -> bool:
         return 'raise' in legal_actions or 'all_in' in legal_actions
     if action == 'jam':
         return 'all_in' in legal_actions
+    # Fallback prefix match for any future bet_/raise_ actions
+    if action.startswith(('bet_', 'raise_')):
+        return 'raise' in legal_actions or 'all_in' in legal_actions
     return False
 
 
@@ -301,5 +308,77 @@ def modify_strategy(
             supported_idx += 1
         else:
             result[action] = 0.0
+
+    return StrategyProfile(action_probabilities=result)
+
+
+# ── River bluff guardrail ───────────────────────────────────────────────
+
+# Archetype → max bluff-to-value ratio
+_BLUFF_RATIOS = {
+    'nit': 0.8, 'rock': 0.8, 'tag': 0.8,
+    'calling_station': 1.0,
+    'lag': 1.2, 'maniac': 1.2,
+}
+
+# Hand classes considered bluffs when betting/raising on the river
+_BLUFF_CLASSES = frozenset({'air_no_draw', 'air_strong_draw', 'weak_made'})
+
+
+def apply_river_bluff_guardrail(
+    strategy: StrategyProfile,
+    hand_class: str,
+    archetype: str,
+) -> StrategyProfile:
+    """Cap river bluff frequency to prevent over-bluffing after distortion.
+
+    Only applies when hand_class is a bluff class (air/weak). Scales down
+    bet/raise probabilities and redistributes mass to check/fold.
+
+    Args:
+        strategy: Post-distortion strategy profile
+        hand_class: Simplified hand class (from simplify_hand_class)
+        archetype: Personality archetype name (nit, rock, tag, etc.)
+
+    Returns:
+        Adjusted StrategyProfile with bluff frequency capped
+    """
+    if hand_class not in _BLUFF_CLASSES:
+        return strategy
+
+    max_ratio = _BLUFF_RATIOS.get(archetype, 1.0)
+    # Max bluff frequency: ratio / (1 + ratio)
+    # e.g., ratio=1.0 → max 50% betting, ratio=0.8 → max 44%, ratio=1.2 → max 55%
+    max_bet_freq = max_ratio / (1.0 + max_ratio)
+
+    probs = dict(strategy.action_probabilities)
+
+    # Sum up all aggressive action probabilities
+    bet_freq = sum(
+        p for a, p in probs.items()
+        if categorize_action(a) == 'aggressive'
+    )
+
+    if bet_freq <= max_bet_freq or bet_freq < 1e-12:
+        return strategy
+
+    # Scale down aggressive actions proportionally
+    scale = max_bet_freq / bet_freq
+    excess = bet_freq - max_bet_freq
+
+    # Find passive/fold actions to redistribute to
+    passive_actions = [a for a in probs if categorize_action(a) in ('passive', 'fold')]
+    passive_total = sum(probs[a] for a in passive_actions)
+
+    result = {}
+    for action, prob in probs.items():
+        cat = categorize_action(action)
+        if cat == 'aggressive':
+            result[action] = prob * scale
+        elif passive_total > 0 and cat in ('passive', 'fold'):
+            # Redistribute excess proportionally to existing passive/fold weights
+            result[action] = prob + excess * (prob / passive_total)
+        else:
+            result[action] = prob
 
     return StrategyProfile(action_probabilities=result)

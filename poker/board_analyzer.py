@@ -159,6 +159,54 @@ def _is_connected(rank_indices: List[int]) -> bool:
     return False
 
 
+def classify_texture_bucket(community_cards: List[str]) -> str:
+    """Classify community cards into a texture bucket for postflop strategy.
+
+    Uses analyze_board_texture() primitives and applies priority rules
+    (first match wins) to assign one of 6 buckets.
+
+    Args:
+        community_cards: List of card strings like ['Ah', 'Kd', '7s']
+
+    Returns:
+        One of: 'monotone', 'dry_low_static', 'two_tone_broadway',
+        'two_tone_connected', 'wet_rainbow', 'dry_high'
+    """
+    if not community_cards or len(community_cards) < 3:
+        return 'dry_low_static'
+
+    texture = analyze_board_texture(community_cards)
+
+    # Priority 1: monotone
+    if texture.get('monotone'):
+        return 'monotone'
+
+    # Priority 2: paired
+    if texture.get('paired'):
+        return 'dry_low_static'
+
+    # Compute highest rank index (lower index = higher rank)
+    ranks = [_extract_rank(c) for c in community_cards]
+    highest_rank_idx = min(_rank_index(r) for r in ranks)
+
+    # Priority 3-4: two_tone
+    if texture.get('two_tone'):
+        # Broadway two-tone: 2+ high cards AND highest rank is J or better (idx <= 3)
+        if texture.get('high_card_count', 0) >= 2 and highest_rank_idx <= 3:
+            return 'two_tone_broadway'
+        return 'two_tone_connected'
+
+    # Priority 5-6: rainbow
+    if texture.get('rainbow'):
+        if texture.get('connected'):
+            return 'wet_rainbow'
+        # Highest rank >= T means idx <= 4
+        if highest_rank_idx <= 4:
+            return 'dry_high'
+
+    return 'dry_low_static'
+
+
 def build_board_read(community_cards: List[str]) -> str:
     """Build a 1-line board read for lean prompt injection.
 

@@ -4,6 +4,7 @@ import pytest
 from poker.board_analyzer import (
     analyze_board_texture,
     build_board_read,
+    classify_texture_bucket,
     get_texture_description,
     _is_connected,
 )
@@ -295,3 +296,61 @@ class TestBuildBoardRead:
         """Output is always a single line."""
         result = build_board_read(['Ah', 'Kd', '7s'])
         assert '\n' not in result
+
+
+class TestClassifyTextureBucket:
+    """Tests for classify_texture_bucket()."""
+
+    def test_monotone(self):
+        """All same suit → 'monotone'."""
+        assert classify_texture_bucket(['Ah', 'Kh', '7h']) == 'monotone'
+
+    def test_paired_dry_low_static(self):
+        """Paired board → 'dry_low_static'."""
+        assert classify_texture_bucket(['8s', '3d', '3c']) == 'dry_low_static'
+
+    def test_two_tone_broadway(self):
+        """Two-tone with 2+ broadway and highest >= J → 'two_tone_broadway'."""
+        assert classify_texture_bucket(['Ks', 'Qh', 'Js']) == 'two_tone_broadway'
+
+    def test_two_tone_connected(self):
+        """Two-tone without broadway dominance → 'two_tone_connected'."""
+        assert classify_texture_bucket(['8s', '7h', '5s']) == 'two_tone_connected'
+
+    def test_wet_rainbow(self):
+        """Rainbow and connected → 'wet_rainbow'."""
+        assert classify_texture_bucket(['9s', '8h', '7d']) == 'wet_rainbow'
+
+    def test_dry_high(self):
+        """Rainbow, not connected, highest rank >= T → 'dry_high'."""
+        assert classify_texture_bucket(['Ks', '7d', '2c']) == 'dry_high'
+
+    def test_low_rainbow_not_connected(self):
+        """Low rainbow, not connected → 'dry_low_static'."""
+        assert classify_texture_bucket(['7s', '4d', '2c']) == 'dry_low_static'
+
+    def test_four_card_board(self):
+        """Works with 4-card (turn) boards."""
+        # Monotone on turn
+        assert classify_texture_bucket(['Ah', 'Kh', '7h', '3h']) == 'monotone'
+        # Dry high on turn
+        assert classify_texture_bucket(['Ks', '7d', '2c', '3h']) == 'dry_high'
+
+    def test_five_card_board(self):
+        """Works with 5-card (river) boards."""
+        # Wet rainbow on river
+        assert classify_texture_bucket(['9s', '8h', '7d', '2c', '3s']) == 'wet_rainbow'
+
+    def test_fewer_than_three_cards_fallback(self):
+        """< 3 community cards → 'dry_low_static' fallback."""
+        assert classify_texture_bucket([]) == 'dry_low_static'
+        assert classify_texture_bucket(['Ah']) == 'dry_low_static'
+        assert classify_texture_bucket(['Ah', 'Kd']) == 'dry_low_static'
+
+    def test_monotone_beats_connected(self):
+        """Monotone takes priority even if also connected."""
+        assert classify_texture_bucket(['Qh', 'Jh', 'Th']) == 'monotone'
+
+    def test_paired_beats_two_tone(self):
+        """Paired takes priority over two-tone."""
+        assert classify_texture_bucket(['Ks', 'Kh', '7s']) == 'dry_low_static'
