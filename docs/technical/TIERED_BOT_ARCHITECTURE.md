@@ -2,7 +2,7 @@
 purpose: Architecture design for the 3-layer tiered bot (solver baselines + personality distortion + LLM expression)
 type: architecture
 created: 2026-02-16
-last_updated: 2026-05-12
+last_updated: 2026-05-12T15:00:00
 ---
 
 # Tiered Bot Architecture
@@ -1307,6 +1307,40 @@ After Phase 1 + Phase 2 implementation, bb/100 was measured against the Baseline
 5. **Aggression-magnitude gradient is clean** — Maniac > LAG > TAG, in both HU and 6-max. The deviation profiles produce the intended shape; they just don't produce the intended sign of EV.
 
 **Consequence:** `bb/100 vs baseline` is a one-sided validation gate — it catches passive-direction Layer 2 bugs but cannot bound aggressive-direction edge. Validating that "deviations cost EV" in both directions requires either an exploiting baseline (Phase 6) or measurement against a different reference (e.g., HU-solver-aware reference). v1 validates archetype *shaping*; v2 will validate symmetric EV cost.
+
+### Follow-up Findings — vs rule_bots (2026-05-12, addendum)
+
+The Empirical Findings above measured tiered archetypes against BaselineSolverBot (the architecture's Layer-1-only reference). A follow-up pass measured them against deterministic rule-based opponents (`GTO-Lite`, `ABCBot`, `CaseBot`, `CallStation`, `ManiacBot`) at HU and 6-max scales. Two important refinements emerged:
+
+**HU vs GTO-Lite (2,000 hands per matchup):** Every tiered archetype loses to the `pot_odds_robot` rule. Aggressive archetypes lose *more* than passive ones (Maniac -65.7 bb/100 vs Nit -24.7). Even Baseline (Layer 1 alone) loses -53.1. The 6-max preflop charts do not transfer to HU — pure structural mismatch, not a Layer 2 bug. **The "aggression beats baseline" property is specific to non-adapting solver baselines; it does not hold against a math-disciplined opponent that folds the correct amount.**
+
+**6-max vs 5-rule_bot mix (500 hands, deterministic, two confirming runs):**
+
+| Archetype | bb/100 vs mix | 95% CI |
+|-----------|---------------|--------|
+| Maniac    | **+1235.0**   | [+921.7, +1548.2] |
+| LAG       | +340.4        | [+108.7, +572.1]  |
+| TAG       | -173.7        | [-281.0, -66.4]   |
+| Baseline  | -199.8        | [-323.6, -76.0]   |
+| Nit       | -200.3        | [-291.1, -109.5]  |
+| Rock      | -261.5        | [-365.2, -157.8]  |
+| Calling Station | -295.7  | [-486.0, -105.4]  |
+
+Initial read: "6-max is the home format." The per-opponent diagnostic (see `docs/analysis/TIERED_VS_RULE_BOTS_REPORT.md`) shows this is misleading. Maniac's +1235 bb/100 decomposes as:
+
+- vs CallStation, ABCBot, GTO-Lite (3 passive rule_bots): **+7,400 BB combined gain**
+- vs CaseBot, ManiacBot (2 aggressive rule_bots): **-5,200 BB combined loss**
+
+**The tiered bot wins by harvesting dead money from passive rule_bots, and loses every individual matchup against aggressive ones (ManiacBot specifically takes -3,985 BB from Maniac).** Same pattern holds for losing archetypes: Nit also harvests passives (+5,950 BB combined) and gets blown out by ManiacBot (-4,798 BB). The 6-max headline is a function of opponent *mix* (net-passive in this test), not format.
+
+**Refined architectural read:**
+
+1. The architecture works as designed for **opponents whose strategy is fixed and exploitable**. Aggressive archetypes extract EV from passive opponents; passive archetypes extract less (or lose) but stay within their personality clamps.
+2. The architecture **cannot defend against an opponent whose strategy ignores reads** (e.g., a constant-aggression bot). The strategy table doesn't reweight under sustained pressure from a specific opponent type.
+3. The architecture **degrades against any opponent that plays math-correct** (GTO-Lite's pot-odds discipline) because tiered's archetype distortion injects -EV deviations that a disciplined opponent doesn't pay off.
+4. **Postflop aggression collapses against deterministic opponents** (AggFactor 0.02-0.13 in diagnostic runs). When the opponent's preflop range is uniform, the strategy table's bucket assumptions don't match the live situation. Postflop bucket calibration likely assumes wider/more-realistic preflop ranges than rule_bots produce.
+
+**These findings sharpen the case for Phase 6 (Opponent Exploitation).** A working exploitation layer would observe ManiacBot's stats over a sample window, tighten the tiered bot's calling range, and stop paying off his shoves. Without it, every tiered archetype is a fixed-strategy target for any opponent willing to ignore archetype variance.
 
 ### Statistical Guardrails (Hard Limits)
 

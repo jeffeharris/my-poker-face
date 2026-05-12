@@ -358,23 +358,37 @@ def run_6max_matchup(
     starting_stack: int = 10000,
     base_seed: int = 42,
     verbose: bool = False,
+    opponents: Optional[List[str]] = None,
 ) -> List[float]:
-    """Run n_hands of 6-max poker: 1 archetype + 5 BaselineSolverBots.
+    """Run n_hands of 6-max poker: 1 archetype + 5 opponents.
 
     Rotates dealer position through all 6 seats for positional fairness.
     Returns per-hand stack deltas for the archetype player.
+
+    Args:
+        archetype: Name of the archetype occupying seat P1 (the test subject)
+        opponents: List of 5 ARCHETYPES keys for the other seats. Defaults
+            to ['Baseline'] * 5 if not supplied.
     """
     archetype_seat = 'P1'
-    baseline_seats = ['P2', 'P3', 'P4', 'P5', 'P6']
-    all_names = [archetype_seat] + baseline_seats
+    opponent_seats = ['P2', 'P3', 'P4', 'P5', 'P6']
+    all_names = [archetype_seat] + opponent_seats
+
+    if opponents is None:
+        opponents = ['Baseline'] * 5
+    elif len(opponents) != 5:
+        raise ValueError(
+            f"opponents must have 5 entries, got {len(opponents)}"
+        )
 
     config_arch = ARCHETYPES[archetype]
-    config_base = ARCHETYPES['Baseline']
+    opp_configs = [ARCHETYPES[o] for o in opponents]
+    opp_desc = '+'.join(opponents) if len(set(opponents)) > 1 else f'5x {opponents[0]}'
     deltas: List[float] = []
 
     for hand_num in tqdm(
         range(n_hands),
-        desc=f"  {archetype} vs 5x Baseline (6-max)",
+        desc=f"  {archetype} vs {opp_desc} (6-max)",
         leave=False, file=sys.stderr,
     ):
         hand_seed = base_seed + hand_num
@@ -395,10 +409,10 @@ def run_6max_matchup(
                 rng_seed=hand_seed,
             )
         ]
-        for i, seat in enumerate(baseline_seats):
+        for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs)):
             controllers.append(
                 make_controller(
-                    seat, config_base, strategy_table, sm,
+                    seat, cfg, strategy_table, sm,
                     rng_seed=hand_seed + 1_000_000 * (i + 1),
                 )
             )
@@ -442,6 +456,65 @@ def run_all_6max_vs_baseline(
 
     print_results(results, opponent_label='5x Baseline')
     print_baseline_hypothesis_check(results)
+
+    return results
+
+
+# Default rule_bot mix for vs-rules 6-max runs.
+# Picked to span the strategic spectrum: GTO-Lite (pot-odds discipline),
+# ABCBot (tight rule-based), CaseBot (adaptive), CallStation (passive
+# leak), ManiacBot (relentless aggression). Five seats, one of each.
+DEFAULT_RULE_OPPONENTS = ['GTO-Lite', 'ABCBot', 'CaseBot', 'CallStation', 'ManiacBot']
+
+
+def run_all_6max_vs_rules(
+    n_hands: int,
+    strategy_table: StrategyTable,
+    big_blind: int,
+    starting_stack: int,
+    seed: int,
+    verbose: bool = False,
+    opponents: Optional[List[str]] = None,
+):
+    """Run each tiered archetype vs a fixed mix of 5 rule_bots at 6-max.
+
+    Cleaner read on real-world cash-game performance than HU vs a single
+    rule_bot, because the archetype faces a spectrum of styles
+    (pot-odds disciplined, passive, aggressive, adaptive) and can't be
+    counter-exploited by any single one.
+    """
+    opponents = opponents or DEFAULT_RULE_OPPONENTS
+    print(f"\nBB/100 Simulation: 6-MAX vs RULE BOTS, {n_hands} hands per archetype, seed={seed}")
+    print(f"Opponents: {', '.join(opponents)}")
+    print(f"Stack: {starting_stack}, BB: {big_blind}")
+    print("=" * 67)
+
+    # Test all tiered archetypes (not the rule_bots themselves)
+    test_archetypes = [
+        n for n, cfg in ARCHETYPES.items()
+        if cfg.get('kind') != 'rule_bot' and n != 'Baseline'
+    ]
+    # Include Baseline as a sanity reference
+    test_archetypes.append('Baseline')
+
+    results: Dict[str, MatchupStats] = {}
+    for name in test_archetypes:
+        deltas = run_6max_matchup(
+            name, n_hands, strategy_table,
+            big_blind=big_blind, starting_stack=starting_stack,
+            base_seed=seed, verbose=verbose,
+            opponents=opponents,
+        )
+        results[name] = compute_stats(deltas, big_blind)
+
+    print_results(results, opponent_label='5x rule_bots')
+
+    print("\n--- Summary ---")
+    sorted_results = sorted(results.items(), key=lambda x: -x[1].bb100)
+    winners = [n for n, s in sorted_results if s.ci_lo > 0]
+    losers = [n for n, s in sorted_results if s.ci_hi < 0]
+    print(f"  Profitable archetypes (CI > 0): {winners or 'none'}")
+    print(f"  Losing archetypes    (CI < 0): {losers or 'none'}")
 
     return results
 
@@ -696,6 +769,10 @@ def main():
         help='Run 6-max: 1 archetype + 5 BaselineSolverBots per matchup',
     )
     parser.add_argument(
+        '--six-max-vs-rules', action='store_true',
+        help='Run 6-max vs a mix of 5 rule_bots (GTO-Lite, ABCBot, CaseBot, CallStation, ManiacBot)',
+    )
+    parser.add_argument(
         '--opponent', type=str, default='TAG',
         help='Baseline opponent for vs-all mode (default: TAG)',
     )
@@ -716,7 +793,12 @@ def main():
 
     strategy_table = load_strategy_table()
 
-    if args.six_max:
+    if args.six_max_vs_rules:
+        run_all_6max_vs_rules(
+            args.hands, strategy_table, args.big_blind,
+            args.stack, args.seed, verbose=args.verbose,
+        )
+    elif args.six_max:
         run_all_6max_vs_baseline(
             args.hands, strategy_table, args.big_blind,
             args.stack, args.seed, verbose=args.verbose,
