@@ -428,10 +428,12 @@ class TieredBotController(AIPlayerController):
                 emotional_severity=emotional.severity,
             )
 
+            capture_id_holder = [None]
             narration = self.expression_generator.generate(
                 context,
                 call_type=getattr(self, '_expression_call_type', None),
                 game_id=getattr(self, 'game_id', None),
+                capture_id_holder=capture_id_holder,
             )
             for key in ('dramatic_sequence', 'inner_monologue', 'bluff_likelihood'):
                 if key in narration:
@@ -444,6 +446,30 @@ class TieredBotController(AIPlayerController):
                 f"[TIERED_BOT] {self.player_name}: "
                 f"expression failed safely: {e}"
             )
+            return
+
+        # Link the decision-analysis row to the narration capture so the
+        # analyzer pipeline can join them (matches the hybrid path's behavior).
+        if capture_id_holder[0] is not None and getattr(
+            self, '_decision_analysis_repo', None
+        ) is not None:
+            try:
+                cost_to_call = getattr(game_state, 'call_amount', 0) or 0
+                player_obj = game_state.players[player_idx]
+                self._analyze_decision(
+                    decision,
+                    {'call_amount': cost_to_call},
+                    capture_id=capture_id_holder[0],
+                    player_bet=getattr(player_obj, 'bet', 0),
+                    all_players_bets=[
+                        (p.bet, p.is_folded) for p in game_state.players
+                    ],
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[TIERED_BOT] {self.player_name}: "
+                    f"capture_id linkage failed: {e}"
+                )
 
     def _postflop_fallback(self, valid_actions: List[str]) -> Dict:
         """Emergency fallback: check if possible, otherwise fold."""

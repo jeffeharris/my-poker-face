@@ -76,12 +76,18 @@ class ExpressionGenerator:
         context: ExpressionContext,
         call_type=None,
         game_id: Optional[str] = None,
+        capture_id_holder: Optional[list] = None,
     ) -> Dict[str, Any]:
         """Generate narration for the decided action.
 
         On any failure (LLM error, malformed JSON, missing template), returns
         empty narration fields without raising. The caller's decision dict is
         unaffected; the game proceeds.
+
+        If capture_id_holder is provided as a single-element list, the
+        prompt_captures row id is written to capture_id_holder[0] after a
+        successful capture, letting the caller link decision_analysis to the
+        narration capture.
         """
         try:
             prompt = self._render_prompt(context)
@@ -92,6 +98,14 @@ class ExpressionGenerator:
             )
             return _empty()
 
+        capture_enricher = None
+        if capture_id_holder is not None:
+            def capture_enricher(capture_data):
+                capture_data['_on_captured'] = (
+                    lambda cid: capture_id_holder.__setitem__(0, cid)
+                )
+                return capture_data
+
         try:
             response = self.llm_client.complete(
                 messages=[{'role': 'user', 'content': prompt}],
@@ -100,6 +114,7 @@ class ExpressionGenerator:
                 game_id=game_id,
                 player_name=context.personality_name,
                 prompt_template='decision_expression',
+                capture_enricher=capture_enricher,
             )
         except Exception as e:
             logger.warning(

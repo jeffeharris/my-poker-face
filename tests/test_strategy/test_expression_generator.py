@@ -148,6 +148,51 @@ def test_generate_passes_player_name_to_llm(context, prompt_manager):
     assert kwargs['json_format'] is True
 
 
+def test_generate_populates_capture_id_holder(context, prompt_manager):
+    """When capture_id_holder is provided, the _on_captured callback writes the id back."""
+    mock_llm = MagicMock()
+    # Simulate the LLMClient invoking our enricher to populate _on_captured,
+    # then firing the callback as capture_prompt() would post-insert.
+    def fake_complete(**kwargs):
+        enricher = kwargs.get('capture_enricher')
+        if enricher is not None:
+            capture_data = enricher({})
+            on_captured = capture_data.get('_on_captured')
+            if callable(on_captured):
+                on_captured(424242)
+        return SimpleNamespace(content=json.dumps({
+            'dramatic_sequence': ['*nods*'],
+            'inner_monologue': 'hm',
+            'hand_strategy': 's',
+            'bluff_likelihood': 0,
+        }))
+    mock_llm.complete.side_effect = fake_complete
+
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    holder = [None]
+    gen.generate(context, capture_id_holder=holder)
+
+    assert holder[0] == 424242
+
+
+def test_generate_without_holder_omits_enricher(context, prompt_manager):
+    """No holder => no capture_enricher passed (callers that don't care don't pay)."""
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = SimpleNamespace(
+        content=json.dumps({
+            'dramatic_sequence': [],
+            'inner_monologue': '',
+            'hand_strategy': '',
+            'bluff_likelihood': 0,
+        })
+    )
+
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    gen.generate(context)
+
+    assert mock_llm.complete.call_args.kwargs.get('capture_enricher') is None
+
+
 def test_generate_with_empty_tics(prompt_manager):
     ctx = ExpressionContext(
         action_taken='check',
