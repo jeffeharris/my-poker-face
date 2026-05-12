@@ -142,6 +142,100 @@ If we tracked ManiacBot's stats over 50 hands (very high VPIP, very high PFR, al
 
 ---
 
+## Opportunity: Short-stack and pot-committed awareness
+
+Two real-game observations during Phase 5 manual testing surfaced a separate
+class of leak that *isn't* about opponent modeling — it's about table-depth
+awareness:
+
+- **Louis XIV** folded on the flop with hand equity 0.34, stack at 8 BB
+- **Nikola Tesla** folded on the river with equity 0.43, stack at 13 BB
+
+Both folds were strategy-table-driven mistakes flagged as `mistake` by the
+decision analyzer. The strategy table doesn't read effective stack depth at
+the moment of decision — it keys on abstract SPR buckets that miss the
+"you're pot-committed, just call" arithmetic.
+
+### What we patched
+
+Commit `2856e38a` added `poker/strategy/math_floor.py`, a post-distortion
+override with three triggers (in priority order):
+
+| Trigger | Condition | Override |
+|---------|-----------|----------|
+| `short_stack`     | `stack_bb < 3`                                  | All-in (or call if no all-in) |
+| `pot_committed`   | `player_bet > player_stack`                     | Call |
+| `tiny_pot_odds`   | `cost/(cost+pot) <= 0.05` AND `cost < 5 BB`    | Call |
+
+The floor fires AFTER personality distortion + river guardrail but BEFORE
+sampling, so it has final say. Math wins over personality when the
+arithmetic is unambiguous.
+
+### What the floor doesn't solve
+
+The floor is a *defensive backstop*, not a short-stack strategy. The
+architecture still has three real gaps in short-stack play:
+
+1. **No push/fold range awareness.** Once effective stack drops below
+   ~15-20 BB, optimal play shifts from open-raise/call-3bet ranges to
+   push/fold (Nash equilibrium charts). Our strategy table covers 100 BB
+   ranges only — there's no transition to short-stack ranges as depth
+   drops. A tiered bot at 12 BB is using the same 100 BB chart as at full
+   stack.
+
+2. **No ICM awareness.** Tournament short-stack play depends on payout
+   structure (bubble pressure, pay jumps). We model none of this. Tiered
+   bots play tournament short-stacks identically to cash-game short-stacks,
+   even though the right play diverges sharply at the bubble.
+
+3. **No "raise-or-fold" enforcement.** Optimal short-stack play limits
+   non-jam raises (medium sizes are unprofitable below ~20 BB because
+   they commit you to all-in without giving an out). Our action mapper
+   still produces `raise_2.5bb`-style sizes at all depths.
+
+### Why this matters
+
+The earlier controller-comparison tournament tests (4-max and 6-max) had
+rule_bots winning despite the tiered bot's archetype shaping. A non-trivial
+chunk of that comes from **tournament structure forcing all bots into
+short-stack play**, which is the regime where:
+
+- The strategy table's 100 BB ranges are out-of-distribution
+- The math floor catches the worst leaks but doesn't make positive plays
+- Rule_bots like `pot_odds_robot` happen to be near-optimal because
+  push/fold IS pot-odds arithmetic at <15 BB depth
+
+So tiered loses tournaments partly because **it's using cash-game charts in
+a push/fold regime**. The same archetype that beats CallStation at 100 BB
+deep can't compete with GTO-Lite at 8 BB deep — and tournaments force
+everyone into 8 BB deep eventually.
+
+### Roadmap to proper short-stack play
+
+In rough priority order:
+
+1. **Nash push/fold table** (10-20 BB range). Pre-computed equilibrium
+   push/fold charts by position. Triggered when effective stack drops
+   below ~20 BB. Replaces strategy_table lookup at short depths, not just
+   the math floor's binary override.
+
+2. **Depth-aware action mapper.** Suppress non-jam raises below a configurable
+   threshold; force `raise_to=all_in` when `raise_to > 0.65 * stack`.
+
+3. **ICM-aware EV** (tournament mode only). Equity-from-stack-distribution
+   evaluation that accounts for pay jumps. This is a bigger change since
+   it requires modeling pay structure and current standings, but the
+   payoff is correct play near the bubble.
+
+The math floor remains as the safety net beneath all three.
+
+### Effort estimate
+
+(1) is ~1 week of work: Nash chart generation, depth-bucket detection, table
+integration. (2) is a half-day code change. (3) is multi-week — requires
+tournament state modeling and ICM equity calculation, only worth it if
+tournament play becomes a real product target.
+
 ## Reproducibility
 
 ```bash

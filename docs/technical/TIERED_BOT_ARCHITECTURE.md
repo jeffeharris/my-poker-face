@@ -2,7 +2,7 @@
 purpose: Architecture design for the 3-layer tiered bot (solver baselines + personality distortion + LLM expression)
 type: architecture
 created: 2026-02-16
-last_updated: 2026-05-12T15:00:00
+last_updated: 2026-05-12T15:30:00
 ---
 
 # Tiered Bot Architecture
@@ -1212,6 +1212,16 @@ Requires PioSOLVER Pro (or Edge) with UPI scripting support. Communicates via st
 - Adaptive opponent modeling (adaptation_bias exploitation)
 - Emotional compounding effects
 - Solved turn/river strategies
+- **Nash push/fold tables for short-stack play (<20 BB)**. The strategy
+  table covers 100 BB cash-game ranges; short-stack regimes are out of
+  distribution. `poker/strategy/math_floor.py` provides a defensive backstop
+  (forces calls in pot-committed and tiny-pot-odds spots) but is not a
+  substitute for real push/fold strategy. See
+  `docs/analysis/TIERED_VS_RULE_BOTS_REPORT.md` § Opportunity for the gap
+  analysis and roadmap.
+- **ICM-aware play** (tournament short-stack equity adjustment). Tiered
+  bots play tournament short-stacks identically to cash-game short-stacks;
+  bubble dynamics and pay jumps are not modeled.
 
 These are v2+.
 
