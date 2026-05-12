@@ -48,6 +48,7 @@ class TieredBotController(AIPlayerController):
         llm_config=None,
         debug_logging: bool = False,
         rng_seed=None,
+        skip_personality_distortion: bool = False,
         **kwargs,
     ):
         super().__init__(
@@ -60,6 +61,7 @@ class TieredBotController(AIPlayerController):
         self.debug_logging = debug_logging
         self.rng = random.Random(rng_seed)
         self._deviation_profile: Optional[DeviationProfile] = None
+        self.skip_personality_distortion = skip_personality_distortion
 
     @property
     def deviation_profile(self) -> DeviationProfile:
@@ -76,6 +78,8 @@ class TieredBotController(AIPlayerController):
     @property
     def archetype_name(self) -> str:
         """Get personality archetype name from anchors."""
+        if self.skip_personality_distortion:
+            return 'baseline'
         anchors = self.psychology.anchors if self.psychology else None
         if not anchors:
             return 'tag'
@@ -134,11 +138,11 @@ class TieredBotController(AIPlayerController):
                 f"base_strategy={base_strategy.action_probabilities}"
             )
 
-        # Layer 2: Personality distortion
+        # Layer 2: Personality distortion (skipped for BaselineSolverBot)
         emotional_state = get_emotional_shift(self.psychology)
         anchors = self.psychology.anchors if self.psychology else None
 
-        if anchors:
+        if anchors and not self.skip_personality_distortion:
             modified_strategy = modify_strategy(
                 base=base_strategy,
                 legal_actions=valid_actions,
@@ -251,11 +255,11 @@ class TieredBotController(AIPlayerController):
                     f"{base_strategy.action_probabilities}"
                 )
 
-        # 5. Personality distortion
+        # 5. Personality distortion (skipped for BaselineSolverBot)
         emotional_state = get_emotional_shift(self.psychology)
         anchors = self.psychology.anchors if self.psychology else None
 
-        if anchors:
+        if anchors and not self.skip_personality_distortion:
             modified_strategy = modify_strategy(
                 base=base_strategy,
                 legal_actions=valid_actions,
@@ -379,3 +383,35 @@ class TieredBotController(AIPlayerController):
         if valid_actions:
             return (valid_actions[0], 0)
         return ('fold', 0)
+
+
+class BaselineSolverBot(TieredBotController):
+    """Layer-1-only reference bot for EV-ordering validation.
+
+    System-only test entity per the tiered bot spec. Uses strategy tables,
+    multiway adjustments, and the river bluff guardrail, but skips Layer 2
+    (personality distortion) and Layer 3 (LLM expression). Not selectable
+    in normal games — used to verify that personality deviations cost EV.
+    """
+
+    def __init__(
+        self,
+        player_name: str,
+        strategy_table: StrategyTable,
+        state_machine=None,
+        llm_config=None,
+        debug_logging: bool = False,
+        rng_seed=None,
+        **kwargs,
+    ):
+        kwargs.pop('skip_personality_distortion', None)
+        super().__init__(
+            player_name=player_name,
+            strategy_table=strategy_table,
+            state_machine=state_machine,
+            llm_config=llm_config,
+            debug_logging=debug_logging,
+            rng_seed=rng_seed,
+            skip_personality_distortion=True,
+            **kwargs,
+        )

@@ -1,0 +1,704 @@
+#!/usr/bin/env python3
+"""
+Measure bb/100 win rates for tiered bot archetypes via full hand simulation.
+
+Runs N complete poker hands using PokerStateMachine + TieredBotController,
+tracking stack deltas to compute bb/100 per matchup.
+
+Usage:
+    docker compose exec backend python -m experiments.simulate_bb100 --hands 10000
+    docker compose exec backend python -m experiments.simulate_bb100 --hands 10000 --round-robin
+    docker compose exec backend python -m experiments.simulate_bb100 --hands 1000 --verbose
+"""
+
+import argparse
+import itertools
+import logging
+import math
+import os
+import random
+import sys
+from dataclasses import dataclass
+from types import SimpleNamespace
+from typing import Dict, List, Optional
+from unittest.mock import patch
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(it, **kwargs):
+        return it
+
+from poker.poker_game import (
+    PokerGameState, Player, create_deck,
+    play_turn, advance_to_next_active_player,
+)
+from poker.poker_state_machine import PokerStateMachine, PokerPhase
+from poker.psychology_model import PersonalityAnchors
+from poker.strategy.strategy_table import load_strategy_table, StrategyTable
+from poker.strategy.deviation_profiles import DEVIATION_PROFILES
+from poker.tiered_bot_controller import TieredBotController, BaselineSolverBot
+
+logger = logging.getLogger(__name__)
+
+# ── Archetype definitions (same as validate_preflop.py) ──────────────────────
+
+ARCHETYPES = {
+    'Rock': {
+        'profile': 'rock',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.3, baseline_looseness=0.25,
+            ego=0.3, poise=0.8, expressiveness=0.3,
+            risk_identity=0.3, adaptation_bias=0.3,
+            baseline_energy=0.4, recovery_rate=0.2,
+        ),
+    },
+    'TAG': {
+        'profile': 'tag',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.7, baseline_looseness=0.35,
+            ego=0.5, poise=0.7, expressiveness=0.4,
+            risk_identity=0.5, adaptation_bias=0.5,
+            baseline_energy=0.5, recovery_rate=0.15,
+        ),
+    },
+    'LAG': {
+        'profile': 'lag',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.8, baseline_looseness=0.7,
+            ego=0.6, poise=0.5, expressiveness=0.6,
+            risk_identity=0.6, adaptation_bias=0.5,
+            baseline_energy=0.7, recovery_rate=0.15,
+        ),
+    },
+    'Calling Station': {
+        'profile': 'calling_station',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.3, baseline_looseness=0.75,
+            ego=0.4, poise=0.5, expressiveness=0.5,
+            risk_identity=0.4, adaptation_bias=0.3,
+            baseline_energy=0.5, recovery_rate=0.15,
+        ),
+    },
+    'Maniac': {
+        'profile': 'maniac',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.9, baseline_looseness=0.85,
+            ego=0.7, poise=0.3, expressiveness=0.8,
+            risk_identity=0.8, adaptation_bias=0.3,
+            baseline_energy=0.8, recovery_rate=0.1,
+        ),
+    },
+    'Nit': {
+        'profile': 'nit',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.15, baseline_looseness=0.15,
+            ego=0.2, poise=0.9, expressiveness=0.2,
+            risk_identity=0.2, adaptation_bias=0.3,
+            baseline_energy=0.3, recovery_rate=0.2,
+        ),
+    },
+    # Layer-1-only reference bot. Selectable as opponent for EV-ordering validation.
+    'Baseline': {
+        'profile': 'baseline',
+        'anchors': None,
+    },
+}
+
+TERMINAL_PHASES = {PokerPhase.HAND_OVER, PokerPhase.GAME_OVER}
+
+MAX_ACTIONS_PER_HAND = 100
+
+
+# ── Data structures ──────────────────────────────────────────────────────────
+
+@dataclass
+class MatchupStats:
+    """Statistics for one archetype matchup."""
+    bb100: float
+    ci_lo: float
+    ci_hi: float
+    n: int
+    mean_delta: float
+
+
+# ── Controller factory ───────────────────────────────────────────────────────
+
+def make_controller(
+    name: str,
+    archetype_config: dict,
+    strategy_table: StrategyTable,
+    sm: PokerStateMachine,
+    rng_seed: Optional[int] = None,
+) -> TieredBotController:
+    """Build a TieredBotController without LLM/persistence dependencies.
+
+    Uses the same mock pattern as test_tiered_bot_controller.py: bypass
+    AIPlayerController.__init__ and manually set required attributes.
+    """
+    profile_key = archetype_config['profile']
+    is_baseline = profile_key == 'baseline'
+    cls = BaselineSolverBot if is_baseline else TieredBotController
+
+    with patch(
+        'poker.tiered_bot_controller.AIPlayerController.__init__',
+        return_value=None,
+    ):
+        controller = cls.__new__(cls)
+
+    anchors = archetype_config['anchors']
+
+    controller.player_name = name
+    controller.state_machine = sm
+    controller.strategy_table = strategy_table
+    controller.debug_logging = False
+    controller.rng = random.Random(rng_seed)
+    controller.skip_personality_distortion = is_baseline
+    controller._deviation_profile = (
+        None if is_baseline else DEVIATION_PROFILES[profile_key]
+    )
+    # SimpleNamespace with anchors is sufficient — get_emotional_shift()
+    # gracefully returns 'composed' when zone_effects is unavailable.
+    controller.psychology = SimpleNamespace(anchors=anchors)
+    controller.prompt_config = SimpleNamespace(strategic_reflection=False)
+    controller._current_hand_plans = []
+    controller._hand_max_bluff_likelihood = 0
+
+    return controller
+
+
+# ── Game state factory ───────────────────────────────────────────────────────
+
+def make_game_state(
+    player_names: List[str],
+    big_blind: int = 100,
+    starting_stack: int = 10000,
+    dealer_idx: int = 0,
+    seed: Optional[int] = None,
+) -> PokerGameState:
+    """Create a fresh heads-up game state for one hand."""
+    players = tuple(
+        Player(name=n, stack=starting_stack, is_human=False)
+        for n in player_names
+    )
+    return PokerGameState(
+        players=players,
+        deck=create_deck(shuffled=True, random_seed=seed),
+        current_ante=big_blind,
+        last_raise_amount=big_blind,
+        current_dealer_idx=dealer_idx,
+    )
+
+
+# ── Hand runner ──────────────────────────────────────────────────────────────
+
+def run_hand(
+    sm: PokerStateMachine,
+    controllers: List[TieredBotController],
+    big_blind: int,
+    verbose: bool = False,
+) -> Dict[str, int]:
+    """Drive one complete hand to completion.
+
+    Returns dict mapping player name to final stack.
+    """
+    controller_map = {c.player_name: c for c in controllers}
+    action_count = 0
+
+    while sm.phase not in TERMINAL_PHASES:
+        sm.run_until(list(TERMINAL_PHASES))
+
+        if sm.phase in TERMINAL_PHASES:
+            break
+
+        gs = sm.game_state
+
+        # Handle all-in runout: advance past the betting round so the SM
+        # deals remaining community cards. Simply clearing the flags would
+        # cause run_betting_round_transition to re-set them (infinite loop).
+        if gs.run_it_out:
+            sm.game_state = gs.update(run_it_out=False, awaiting_action=False)
+            next_phase = {
+                PokerPhase.PRE_FLOP: PokerPhase.DEALING_CARDS,
+                PokerPhase.FLOP: PokerPhase.DEALING_CARDS,
+                PokerPhase.TURN: PokerPhase.DEALING_CARDS,
+                PokerPhase.RIVER: PokerPhase.EVALUATING_HAND,
+            }.get(sm.phase, PokerPhase.EVALUATING_HAND)
+            sm.phase = next_phase
+            continue
+
+        # Normal action required
+        current_player = gs.current_player
+        controller = controller_map[current_player.name]
+        controller.state_machine = sm
+
+        valid_actions = gs.current_player_options
+        decision = controller._get_ai_decision(
+            message='',
+            valid_actions=valid_actions,
+            call_amount=gs.call_amount,
+        )
+
+        action = decision['action']
+        raise_to = decision.get('raise_to', 0) or 0
+
+        if verbose:
+            logger.info(
+                f"  {current_player.name}: {action}"
+                f"{f' to {raise_to}' if raise_to else ''}"
+            )
+
+        # play_turn expects raise_to as absolute amount for 'raise' action
+        new_gs = play_turn(gs, action, raise_to)
+        advanced = advance_to_next_active_player(new_gs)
+        sm.game_state = advanced if advanced is not None else new_gs
+
+        action_count += 1
+        if action_count >= MAX_ACTIONS_PER_HAND:
+            logger.warning("Max actions reached — terminating hand")
+            break
+
+    return {p.name: p.stack for p in sm.game_state.players}
+
+
+# ── Matchup runner ───────────────────────────────────────────────────────────
+
+def run_matchup(
+    archetype_a: str,
+    archetype_b: str,
+    n_hands: int,
+    strategy_table: StrategyTable,
+    big_blind: int = 100,
+    starting_stack: int = 10000,
+    base_seed: int = 42,
+    verbose: bool = False,
+) -> List[float]:
+    """Run n_hands between two archetypes.
+
+    Returns list of per-hand chip deltas for player A.
+    Uses unique player names (P1/P2) to avoid collision in mirror matchups.
+    """
+    config_a = ARCHETYPES[archetype_a]
+    config_b = ARCHETYPES[archetype_b]
+    name_a = 'P1'
+    name_b = 'P2'
+    deltas_a: List[float] = []
+
+    for hand_num in tqdm(range(n_hands), desc=f"  {archetype_a} vs {archetype_b}", leave=False, file=sys.stderr):
+        hand_seed = base_seed + hand_num
+        dealer_idx = hand_num % 2  # alternate button for fairness
+
+        gs = make_game_state(
+            player_names=[name_a, name_b],
+            big_blind=big_blind,
+            starting_stack=starting_stack,
+            dealer_idx=dealer_idx,
+            seed=hand_seed,
+        )
+        sm = PokerStateMachine(gs)
+
+        ctrl_a = make_controller(
+            name_a, config_a, strategy_table, sm, rng_seed=hand_seed,
+        )
+        ctrl_b = make_controller(
+            name_b, config_b, strategy_table, sm, rng_seed=hand_seed + 1_000_000,
+        )
+
+        final_stacks = run_hand(sm, [ctrl_a, ctrl_b], big_blind, verbose=verbose)
+        delta_a = final_stacks.get(name_a, starting_stack) - starting_stack
+        deltas_a.append(delta_a)
+
+    return deltas_a
+
+
+# ── 6-max matchup runner ─────────────────────────────────────────────────────
+
+def run_6max_matchup(
+    archetype: str,
+    n_hands: int,
+    strategy_table: StrategyTable,
+    big_blind: int = 100,
+    starting_stack: int = 10000,
+    base_seed: int = 42,
+    verbose: bool = False,
+) -> List[float]:
+    """Run n_hands of 6-max poker: 1 archetype + 5 BaselineSolverBots.
+
+    Rotates dealer position through all 6 seats for positional fairness.
+    Returns per-hand stack deltas for the archetype player.
+    """
+    archetype_seat = 'P1'
+    baseline_seats = ['P2', 'P3', 'P4', 'P5', 'P6']
+    all_names = [archetype_seat] + baseline_seats
+
+    config_arch = ARCHETYPES[archetype]
+    config_base = ARCHETYPES['Baseline']
+    deltas: List[float] = []
+
+    for hand_num in tqdm(
+        range(n_hands),
+        desc=f"  {archetype} vs 5x Baseline (6-max)",
+        leave=False, file=sys.stderr,
+    ):
+        hand_seed = base_seed + hand_num
+        dealer_idx = hand_num % 6  # rotate button through all 6 seats
+
+        gs = make_game_state(
+            player_names=all_names,
+            big_blind=big_blind,
+            starting_stack=starting_stack,
+            dealer_idx=dealer_idx,
+            seed=hand_seed,
+        )
+        sm = PokerStateMachine(gs)
+
+        controllers = [
+            make_controller(
+                archetype_seat, config_arch, strategy_table, sm,
+                rng_seed=hand_seed,
+            )
+        ]
+        for i, seat in enumerate(baseline_seats):
+            controllers.append(
+                make_controller(
+                    seat, config_base, strategy_table, sm,
+                    rng_seed=hand_seed + 1_000_000 * (i + 1),
+                )
+            )
+
+        final_stacks = run_hand(sm, controllers, big_blind, verbose=verbose)
+        delta = final_stacks.get(archetype_seat, starting_stack) - starting_stack
+        deltas.append(delta)
+
+    return deltas
+
+
+def run_all_6max_vs_baseline(
+    n_hands: int,
+    strategy_table: StrategyTable,
+    big_blind: int,
+    starting_stack: int,
+    seed: int,
+    verbose: bool = False,
+):
+    """Run each archetype vs 5 baselines at 6-max."""
+    print(f"\nBB/100 Simulation: 6-MAX, {n_hands} hands per archetype, seed={seed}")
+    print(f"Format: 1 archetype + 5 Baselines, dealer rotates")
+    print(f"Stack: {starting_stack}, BB: {big_blind}")
+    print("=" * 67)
+
+    results: Dict[str, MatchupStats] = {}
+
+    # Skip 'Baseline' as test subject AND as opponent — only test personality archetypes
+    test_archetypes = [n for n in ARCHETYPES if n != 'Baseline']
+
+    # Include a Baseline-as-subject run for mirror sanity check
+    test_archetypes.append('Baseline')
+
+    for name in test_archetypes:
+        deltas = run_6max_matchup(
+            name, n_hands, strategy_table,
+            big_blind=big_blind, starting_stack=starting_stack,
+            base_seed=seed, verbose=verbose,
+        )
+        results[name] = compute_stats(deltas, big_blind)
+
+    print_results(results, opponent_label='5x Baseline')
+    print_baseline_hypothesis_check(results)
+
+    return results
+
+
+# ── Statistics ───────────────────────────────────────────────────────────────
+
+def compute_stats(deltas: List[float], big_blind: int) -> MatchupStats:
+    """Compute bb/100 with 95% confidence interval."""
+    n = len(deltas)
+    if n == 0:
+        return MatchupStats(bb100=0, ci_lo=0, ci_hi=0, n=0, mean_delta=0)
+
+    mean = sum(deltas) / n
+    variance = sum((d - mean) ** 2 for d in deltas) / max(n - 1, 1)
+    stderr = math.sqrt(variance / n)
+
+    # bb/100: convert mean chip delta to big blinds, scale to per-100 hands
+    bb100 = (mean / big_blind) * 100
+    ci_margin = 1.96 * (stderr / big_blind) * 100
+
+    return MatchupStats(
+        bb100=bb100,
+        ci_lo=bb100 - ci_margin,
+        ci_hi=bb100 + ci_margin,
+        n=n,
+        mean_delta=mean,
+    )
+
+
+# ── Reporting ────────────────────────────────────────────────────────────────
+
+def print_results(results: Dict[str, MatchupStats], opponent_label: str = 'TAG'):
+    """Print formatted results table."""
+    print(f"\n{'Archetype vs ' + opponent_label:<25} {'bb/100':>8} {'95% CI':>22} {'Hands':>8}")
+    print("-" * 67)
+
+    for name, stats in sorted(results.items(), key=lambda x: -x[1].bb100):
+        ci_str = f"[{stats.ci_lo:+.1f}, {stats.ci_hi:+.1f}]"
+        mirror_tag = "  (mirror)" if name == opponent_label else ""
+        print(f"{name:<25} {stats.bb100:>+8.1f} {ci_str:>22} {stats.n:>8}{mirror_tag}")
+
+
+def print_baseline_hypothesis_check(results: Dict[str, MatchupStats]):
+    """Verify the BaselineSolverBot hypothesis (spec line 1271).
+
+    Checks:
+    1. Every personality archetype has negative bb/100 vs baseline (deviations cost EV)
+    2. All losses within -20 bb/100 hard guardrail (spec line 1281)
+    3. Loss ordering roughly tracks deviation magnitude
+       (TAG closest to baseline → smallest loss; Maniac/Nit furthest → largest loss)
+    """
+    print("\n--- Baseline hypothesis verification ---")
+    arch_results = {n: s for n, s in results.items() if n != 'Baseline'}
+    baseline_mirror = results.get('Baseline')
+
+    all_pass = True
+
+    # 1. Every archetype negative
+    print("\n  Check 1: Every archetype loses bb/100 vs baseline")
+    for name, stats in sorted(arch_results.items(), key=lambda x: x[1].bb100):
+        passed = stats.ci_hi < 0  # entire CI below zero = strongly negative
+        weak_pass = stats.bb100 < 0 and not passed  # mean negative but CI crosses zero
+        if passed:
+            status = 'PASS'
+        elif weak_pass:
+            status = 'WEAK'
+        else:
+            status = 'FAIL'
+            all_pass = False
+        print(
+            f"    [{status}] {name:<18} {stats.bb100:>+7.1f} "
+            f"[{stats.ci_lo:+.1f}, {stats.ci_hi:+.1f}]"
+        )
+
+    # 2. -20 bb/100 hard guardrail
+    print("\n  Check 2: All losses within -20 bb/100 guardrail")
+    for name, stats in arch_results.items():
+        passed = stats.bb100 >= -20.0
+        status = 'PASS' if passed else 'FAIL'
+        if not passed:
+            all_pass = False
+        print(f"    [{status}] {name:<18} {stats.bb100:>+7.1f}")
+
+    # 3. Baseline mirror should be near zero (sanity check)
+    if baseline_mirror:
+        print("\n  Sanity: Baseline mirror CI should include 0")
+        passed = baseline_mirror.ci_lo <= 0 <= baseline_mirror.ci_hi
+        status = 'PASS' if passed else 'FAIL'
+        if not passed:
+            all_pass = False
+        print(
+            f"    [{status}] Baseline vs Baseline "
+            f"{baseline_mirror.bb100:>+7.1f} "
+            f"[{baseline_mirror.ci_lo:+.1f}, {baseline_mirror.ci_hi:+.1f}]"
+        )
+
+    # 4. Deviation-magnitude ordering (informational only)
+    ordered = sorted(arch_results.items(), key=lambda x: x[1].bb100)
+    actual = [name for name, _ in ordered]
+    print(f"\n  Loss ordering (worst → best): {' < '.join(actual)}")
+    print("  Expected approx ordering: Maniac/Nit < LAG/Station < Rock < TAG")
+
+    print(f"\n  Overall hypothesis: {'PASS' if all_pass else 'FAIL'}")
+    return all_pass
+
+
+def print_ordering_check(results: Dict[str, MatchupStats]):
+    """Print expected vs actual win-rate ordering."""
+    ordered = sorted(results.items(), key=lambda x: -x[1].bb100)
+    actual = [name for name, _ in ordered]
+
+    print(f"\nACTUAL ORDERING: {' > '.join(actual)}")
+
+    # Directional checks that should hold in HU
+    tag_stats = results.get('TAG', MatchupStats(0, 0, 0, 0, 0))
+    lag_stats = results.get('LAG')
+    nit_stats = results.get('Nit')
+    rock_stats = results.get('Rock')
+
+    checks = [
+        # TAG mirror should include 0 in CI
+        ('TAG mirror CI includes 0', tag_stats.ci_lo <= 0 <= tag_stats.ci_hi),
+        # Nit should lose (too tight for HU)
+        ('Nit negative or near-zero', nit_stats.bb100 < 10 if nit_stats else True),
+    ]
+    # LAG should beat TAG in HU (aggression rewarded)
+    if lag_stats:
+        checks.append(('LAG positive bb/100', lag_stats.bb100 > 0))
+    # Rock should underperform LAG (too passive)
+    if lag_stats and rock_stats:
+        checks.append(('LAG > Rock', lag_stats.bb100 > rock_stats.bb100))
+
+    all_pass = True
+    for label, passed in checks:
+        status = 'PASS' if passed else 'FAIL'
+        if not passed:
+            all_pass = False
+        print(f"  [{status}] {label}")
+
+    return all_pass
+
+
+# ── Top-level runners ────────────────────────────────────────────────────────
+
+def run_all_vs_tag(
+    n_hands: int,
+    strategy_table: StrategyTable,
+    big_blind: int,
+    starting_stack: int,
+    seed: int,
+    verbose: bool = False,
+    opponent: str = 'TAG',
+):
+    """Run each archetype heads-up vs TAG (or specified opponent)."""
+    print(f"\nBB/100 Simulation: {n_hands} hands per matchup, seed={seed}")
+    print(f"Opponent: {opponent}, Stack: {starting_stack}, BB: {big_blind}")
+    print("=" * 67)
+
+    results: Dict[str, MatchupStats] = {}
+
+    for name in ARCHETYPES:
+        deltas = run_matchup(
+            name, opponent, n_hands, strategy_table,
+            big_blind=big_blind, starting_stack=starting_stack,
+            base_seed=seed, verbose=verbose,
+        )
+        results[name] = compute_stats(deltas, big_blind)
+
+    print_results(results, opponent_label=opponent)
+    if opponent == 'Baseline':
+        print_baseline_hypothesis_check(results)
+    else:
+        print_ordering_check(results)
+
+    return results
+
+
+def run_round_robin(
+    n_hands: int,
+    strategy_table: StrategyTable,
+    big_blind: int,
+    starting_stack: int,
+    seed: int,
+    verbose: bool = False,
+):
+    """Run all 15 unique pairings."""
+    names = list(ARCHETYPES.keys())
+    pairings = list(itertools.combinations(names, 2))
+
+    print(f"\nBB/100 Round Robin: {n_hands} hands per matchup, seed={seed}")
+    print(f"{len(pairings)} matchups, {len(pairings) * n_hands} total hands")
+    print(f"Stack: {starting_stack}, BB: {big_blind}")
+    print("=" * 67)
+
+    # Accumulate total bb/100 per archetype across all matchups
+    all_deltas: Dict[str, List[float]] = {name: [] for name in names}
+
+    for a, b in tqdm(pairings, desc="Matchups", file=sys.stderr):
+        deltas_a = run_matchup(
+            a, b, n_hands, strategy_table,
+            big_blind=big_blind, starting_stack=starting_stack,
+            base_seed=seed, verbose=verbose,
+        )
+        # A's deltas
+        all_deltas[a].extend(deltas_a)
+        # B's deltas are the inverse
+        all_deltas[b].extend([-d for d in deltas_a])
+
+    # Compute aggregate stats per archetype
+    results = {
+        name: compute_stats(deltas, big_blind)
+        for name, deltas in all_deltas.items()
+    }
+
+    print(f"\n{'Archetype':<25} {'bb/100':>8} {'95% CI':>22} {'Hands':>8}")
+    print("-" * 67)
+    for name, stats in sorted(results.items(), key=lambda x: -x[1].bb100):
+        ci_str = f"[{stats.ci_lo:+.1f}, {stats.ci_hi:+.1f}]"
+        print(f"{name:<25} {stats.bb100:>+8.1f} {ci_str:>22} {stats.n:>8}")
+
+    return results
+
+
+# ── Entry point ──────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Measure bb/100 win rates for tiered bot archetypes',
+    )
+    parser.add_argument(
+        '--hands', type=int, default=1000,
+        help='Hands per matchup (default: 1000)',
+    )
+    parser.add_argument(
+        '--seed', type=int, default=42,
+        help='RNG seed (default: 42)',
+    )
+    parser.add_argument(
+        '--big-blind', type=int, default=100,
+        help='Big blind size (default: 100)',
+    )
+    parser.add_argument(
+        '--stack', type=int, default=10000,
+        help='Starting stack (default: 10000)',
+    )
+    parser.add_argument(
+        '--round-robin', action='store_true',
+        help='Run all 15 pairings instead of just vs TAG',
+    )
+    parser.add_argument(
+        '--six-max', action='store_true',
+        help='Run 6-max: 1 archetype + 5 BaselineSolverBots per matchup',
+    )
+    parser.add_argument(
+        '--opponent', type=str, default='TAG',
+        help='Baseline opponent for vs-all mode (default: TAG)',
+    )
+    parser.add_argument(
+        '--verbose', action='store_true',
+        help='Per-hand action logging',
+    )
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, format='%(message)s')
+    else:
+        logging.basicConfig(level=logging.WARNING, format='%(message)s')
+
+    # Suppress noisy emotional shift warnings from bounded_options
+    # (SimpleNamespace psychology doesn't have zone_effects — expected)
+    logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
+
+    strategy_table = load_strategy_table()
+
+    if args.six_max:
+        run_all_6max_vs_baseline(
+            args.hands, strategy_table, args.big_blind,
+            args.stack, args.seed, verbose=args.verbose,
+        )
+    elif args.round_robin:
+        run_round_robin(
+            args.hands, strategy_table, args.big_blind,
+            args.stack, args.seed, verbose=args.verbose,
+        )
+    else:
+        run_all_vs_tag(
+            args.hands, strategy_table, args.big_blind,
+            args.stack, args.seed, verbose=args.verbose,
+            opponent=args.opponent,
+        )
+
+
+if __name__ == '__main__':
+    main()
