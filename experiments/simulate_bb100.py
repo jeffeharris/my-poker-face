@@ -41,6 +41,7 @@ from poker.psychology_model import PersonalityAnchors
 from poker.strategy.strategy_table import load_strategy_table, StrategyTable
 from poker.strategy.deviation_profiles import DEVIATION_PROFILES
 from poker.tiered_bot_controller import TieredBotController, BaselineSolverBot
+from poker.rule_based_controller import RuleBasedController, RuleConfig, CHAOS_BOTS
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,27 @@ ARCHETYPES = {
         'profile': 'baseline',
         'anchors': None,
     },
+    # Rule-based opponents (deterministic, no LLM, no strategy table)
+    'GTO-Lite': {
+        'kind': 'rule_bot',
+        'strategy': 'pot_odds_robot',
+    },
+    'ABCBot': {
+        'kind': 'rule_bot',
+        'strategy': 'abc',
+    },
+    'CaseBot': {
+        'kind': 'rule_bot',
+        'strategy': 'case_based',
+    },
+    'CallStation': {
+        'kind': 'rule_bot',
+        'strategy': 'always_call',
+    },
+    'ManiacBot': {
+        'kind': 'rule_bot',
+        'strategy': 'maniac',
+    },
 }
 
 TERMINAL_PHASES = {PokerPhase.HAND_OVER, PokerPhase.GAME_OVER}
@@ -133,12 +155,27 @@ def make_controller(
     strategy_table: StrategyTable,
     sm: PokerStateMachine,
     rng_seed: Optional[int] = None,
-) -> TieredBotController:
-    """Build a TieredBotController without LLM/persistence dependencies.
+):
+    """Build a controller without LLM/persistence dependencies.
 
-    Uses the same mock pattern as test_tiered_bot_controller.py: bypass
-    AIPlayerController.__init__ and manually set required attributes.
+    Dispatches based on archetype_config['kind']:
+      - 'rule_bot' (CHAOS_BOTS strategy)  -> RuleBasedController
+      - default                            -> TieredBotController / BaselineSolverBot
+
+    Uses the same mock pattern as test_tiered_bot_controller.py for tiered:
+    bypass AIPlayerController.__init__ and manually set required attributes.
     """
+    # Rule-based controller path: no strategy table, no LLM, no psychology
+    if archetype_config.get('kind') == 'rule_bot':
+        strategy = archetype_config['strategy']
+        rule_config = CHAOS_BOTS.get(strategy) or RuleConfig(
+            strategy=strategy, name=name,
+        )
+        return RuleBasedController(
+            player_name=name, state_machine=sm, config=rule_config,
+        )
+
+    # Tiered path: solver baselines + personality distortion
     profile_key = archetype_config['profile']
     is_baseline = profile_key == 'baseline'
     cls = BaselineSolverBot if is_baseline else TieredBotController
@@ -235,12 +272,9 @@ def run_hand(
         controller = controller_map[current_player.name]
         controller.state_machine = sm
 
-        valid_actions = gs.current_player_options
-        decision = controller._get_ai_decision(
-            message='',
-            valid_actions=valid_actions,
-            call_amount=gs.call_amount,
-        )
+        # Both TieredBotController and RuleBasedController expose decide_action()
+        # as their public interface — uniform call across controller types.
+        decision = controller.decide_action()
 
         action = decision['action']
         raise_to = decision.get('raise_to', 0) or 0
