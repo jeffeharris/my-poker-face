@@ -27,6 +27,7 @@ from .strategy.deviation_profiles import select_deviation_profile, DeviationProf
 from .strategy.action_mapper import resolve_preflop_sizing, resolve_postflop_sizing
 from .strategy.hand_classification import simplify_hand_class
 from .strategy.multiway import apply_multiway_adjustment
+from .strategy.math_floor import apply_pot_odds_floor
 from .strategy.expression_context import ExpressionContext
 from .strategy.expression_generator import ExpressionGenerator
 from .archetypes import classify_from_anchors
@@ -185,6 +186,12 @@ class TieredBotController(AIPlayerController):
                 f"modified_strategy={modified_strategy.action_probabilities}"
             )
 
+        # Math floor: override when pot odds / pot-committed / short stack
+        # make personality-driven folds clearly -EV.
+        modified_strategy = self._apply_math_floor(
+            modified_strategy, game_state, player_idx, valid_actions
+        )
+
         abstract_action = modified_strategy.sample_action(self.rng)
 
         if self.debug_logging:
@@ -320,6 +327,12 @@ class TieredBotController(AIPlayerController):
                     f"result={modified_strategy.action_probabilities}"
                 )
 
+        # 6b. Math floor — override when arithmetic mandates a call/jam.
+        # Runs AFTER personality + river guardrail so it has final say.
+        modified_strategy = self._apply_math_floor(
+            modified_strategy, game_state, player_idx, valid_actions
+        )
+
         # 7. Sample action
         abstract_action = modified_strategy.sample_action(self.rng)
 
@@ -361,6 +374,45 @@ class TieredBotController(AIPlayerController):
         }
         self._attach_expression(decision, game_state, player_idx, phase=node.street)
         return decision
+
+    def _apply_math_floor(
+        self, strategy, game_state, player_idx: int, valid_actions: List[str],
+    ):
+        """Run apply_pot_odds_floor with the right context pulled from game state.
+
+        Returns the (possibly overridden) strategy. Any unexpected error here
+        returns the strategy unchanged — the floor is a safety net, not a
+        critical path.
+        """
+        try:
+            player = game_state.players[player_idx]
+            big_blind = getattr(game_state, 'current_ante', 0) or 0
+            pot_total = (
+                game_state.pot.get('total', 0)
+                if isinstance(getattr(game_state, 'pot', None), dict) else 0
+            )
+            cost_to_call = getattr(game_state, 'call_amount', 0) or 0
+            override, rule = apply_pot_odds_floor(
+                strategy=strategy,
+                cost_to_call=cost_to_call,
+                pot_total=pot_total,
+                player_stack=getattr(player, 'stack', 0) or 0,
+                player_bet=getattr(player, 'bet', 0) or 0,
+                big_blind=big_blind,
+                legal_actions=valid_actions,
+            )
+            if rule is not None and self.debug_logging:
+                logger.info(
+                    f"[TIERED_BOT] {self.player_name}: "
+                    f"math_floor={rule} -> {override.action_probabilities}"
+                )
+            return override
+        except Exception as e:
+            logger.warning(
+                f"[TIERED_BOT] {self.player_name}: "
+                f"math_floor failed safely: {e}"
+            )
+            return strategy
 
     def _attach_expression(
         self, decision: Dict, game_state, player_idx: int, phase: str,
