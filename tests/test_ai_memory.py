@@ -343,6 +343,62 @@ class TestOpponentTendencies(unittest.TestCase):
         self.assertEqual(restored.hands_observed, tendencies.hands_observed)
         self.assertEqual(restored._showdowns, tendencies._showdowns)
 
+    def test_preflop_all_in_counts_as_vpip_pfr_and_aggression(self):
+        """All-in is voluntary chip commitment AND maximally aggressive.
+
+        Prior to the fix, update_from_action silently dropped 'all_in' —
+        an aggressive shover looked passive in the tracking. This regression
+        test pins the corrected behavior.
+        """
+        tendencies = OpponentTendencies()
+        tendencies.update_from_action("all_in", "PRE_FLOP", is_voluntary=True)
+
+        self.assertEqual(tendencies.hands_observed, 1)
+        self.assertEqual(tendencies._vpip_count, 1, "all-in is voluntary pot entry")
+        self.assertEqual(tendencies._pfr_count, 1, "preflop all-in is a raise")
+        self.assertEqual(tendencies._bet_raise_count, 1, "all-in is aggressive")
+        self.assertEqual(tendencies._all_in_count, 1)
+        self.assertEqual(tendencies.all_in_frequency, 1.0)
+
+    def test_postflop_all_in_counts_as_aggression_not_vpip(self):
+        """A postflop all-in is aggression but doesn't change preflop VPIP/PFR."""
+        tendencies = OpponentTendencies()
+        # First action this hand was a preflop call (VPIP=1, PFR=0)
+        tendencies.update_from_action("call", "PRE_FLOP")
+        # Then all-in on the flop
+        tendencies.update_from_action("all_in", "FLOP", count_hand=False)
+
+        self.assertEqual(tendencies._vpip_count, 1)
+        self.assertEqual(tendencies._pfr_count, 0, "postflop all-in is not a PFR")
+        self.assertEqual(tendencies._bet_raise_count, 1, "all-in is aggressive")
+        self.assertEqual(tendencies._all_in_count, 1)
+
+    def test_all_in_frequency_over_multiple_hands(self):
+        """all_in_frequency = _all_in_count / hands_observed."""
+        tendencies = OpponentTendencies()
+        # Hand 1: all-in preflop
+        tendencies.update_from_action("all_in", "PRE_FLOP")
+        # Hand 2: fold preflop
+        tendencies.update_from_action("fold", "PRE_FLOP")
+        # Hand 3: all-in preflop again
+        tendencies.update_from_action("all_in", "PRE_FLOP")
+
+        self.assertEqual(tendencies.hands_observed, 3)
+        self.assertEqual(tendencies._all_in_count, 2)
+        self.assertAlmostEqual(tendencies.all_in_frequency, 2 / 3)
+
+    def test_all_in_round_trip_serialization(self):
+        """all_in_count survives to_dict/from_dict round trip."""
+        tendencies = OpponentTendencies()
+        tendencies.update_from_action("all_in", "PRE_FLOP")
+        tendencies.update_from_action("all_in", "FLOP", count_hand=False)
+
+        data = tendencies.to_dict()
+        restored = OpponentTendencies.from_dict(data)
+
+        self.assertEqual(restored._all_in_count, 2)
+        self.assertEqual(restored.all_in_frequency, tendencies.all_in_frequency)
+
 
 class TestOpponentModel(unittest.TestCase):
     """Test the OpponentModel class."""

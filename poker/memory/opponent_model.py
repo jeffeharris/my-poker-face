@@ -32,10 +32,11 @@ class OpponentTendencies:
     # Core stats
     vpip: float = 0.5           # Voluntarily put in pot % (how often they enter pots)
     pfr: float = 0.5            # Pre-flop raise % (how often they raise pre-flop)
-    aggression_factor: float = 1.0  # (bet+raise) / call ratio
+    aggression_factor: float = 1.0  # (bet+raise+all-in) / call ratio
     fold_to_cbet: float = 0.5   # Fold to continuation bet %
     bluff_frequency: float = 0.3    # Estimated bluff rate
     showdown_win_rate: float = 0.5  # Win rate at showdown
+    all_in_frequency: float = 0.0   # All-in actions per hand observed
 
     # Trend tracking
     recent_trend: str = 'stable'    # 'tightening', 'loosening', 'stable'
@@ -43,8 +44,9 @@ class OpponentTendencies:
     # Action counters (for calculating stats)
     _vpip_count: int = 0        # Hands where player voluntarily put money in pot
     _pfr_count: int = 0         # Hands where player raised pre-flop
-    _bet_raise_count: int = 0   # Total bets and raises
+    _bet_raise_count: int = 0   # Total bets, raises, and all-ins (aggressive)
     _call_count: int = 0        # Total calls
+    _all_in_count: int = 0      # Total all-in actions (subset of _bet_raise_count)
     _fold_to_cbet_count: int = 0
     _cbet_faced_count: int = 0
     _showdowns: int = 0
@@ -58,7 +60,7 @@ class OpponentTendencies:
         """Update stats based on observed action.
 
         Args:
-            action: The action taken ('fold', 'check', 'call', 'raise', 'bet')
+            action: The action taken ('fold', 'check', 'call', 'raise', 'bet', 'all_in')
             phase: Game phase ('PRE_FLOP', 'FLOP', 'TURN', 'RIVER')
             is_voluntary: Whether this was a voluntary action (not forced blind)
             count_hand: Whether to increment hands_observed (only once per hand)
@@ -69,20 +71,25 @@ class OpponentTendencies:
             self._vpip_this_hand = False
             self._pfr_this_hand = False
 
-        # Track VPIP (voluntary pot entry) - only count ONCE per hand
+        # Track VPIP (voluntary pot entry) - only count ONCE per hand.
+        # all_in is voluntary chip commitment and counts as VPIP.
         if phase == 'PRE_FLOP' and is_voluntary and not self._vpip_this_hand:
-            if action in ('call', 'raise', 'bet'):
+            if action in ('call', 'raise', 'bet', 'all_in'):
                 self._vpip_count += 1
                 self._vpip_this_hand = True
 
-        # Track PFR (pre-flop raise) - only count ONCE per hand
-        if phase == 'PRE_FLOP' and action == 'raise' and not self._pfr_this_hand:
+        # Track PFR (pre-flop raise) - only count ONCE per hand.
+        # A preflop all-in is the most aggressive raise possible; counts as PFR.
+        if phase == 'PRE_FLOP' and action in ('raise', 'all_in') and not self._pfr_this_hand:
             self._pfr_count += 1
             self._pfr_this_hand = True
 
-        # Track aggression
-        if action in ('bet', 'raise'):
+        # Track aggression. all_in is the most aggressive action and contributes
+        # to both the general aggression counter and its own dedicated counter.
+        if action in ('bet', 'raise', 'all_in'):
             self._bet_raise_count += 1
+            if action == 'all_in':
+                self._all_in_count += 1
         elif action == 'call':
             self._call_count += 1
 
@@ -108,6 +115,7 @@ class OpponentTendencies:
         if self.hands_observed > 0:
             self.vpip = self._vpip_count / max(self.hands_observed, 1)
             self.pfr = self._pfr_count / max(self.hands_observed, 1)
+            self.all_in_frequency = self._all_in_count / max(self.hands_observed, 1)
 
         total_actions = self._bet_raise_count + self._call_count
         if total_actions == 0:
@@ -189,11 +197,13 @@ class OpponentTendencies:
             'fold_to_cbet': self.fold_to_cbet,
             'bluff_frequency': self.bluff_frequency,
             'showdown_win_rate': self.showdown_win_rate,
+            'all_in_frequency': self.all_in_frequency,
             'recent_trend': self.recent_trend,
             '_vpip_count': self._vpip_count,
             '_pfr_count': self._pfr_count,
             '_bet_raise_count': self._bet_raise_count,
             '_call_count': self._call_count,
+            '_all_in_count': self._all_in_count,
             '_fold_to_cbet_count': self._fold_to_cbet_count,
             '_cbet_faced_count': self._cbet_faced_count,
             '_showdowns': self._showdowns,
@@ -210,12 +220,14 @@ class OpponentTendencies:
             fold_to_cbet=data.get('fold_to_cbet', 0.5),
             bluff_frequency=data.get('bluff_frequency', 0.3),
             showdown_win_rate=data.get('showdown_win_rate', 0.5),
+            all_in_frequency=data.get('all_in_frequency', 0.0),
             recent_trend=data.get('recent_trend', 'stable')
         )
         tendencies._vpip_count = data.get('_vpip_count', 0)
         tendencies._pfr_count = data.get('_pfr_count', 0)
         tendencies._bet_raise_count = data.get('_bet_raise_count', 0)
         tendencies._call_count = data.get('_call_count', 0)
+        tendencies._all_in_count = data.get('_all_in_count', 0)
         tendencies._fold_to_cbet_count = data.get('_fold_to_cbet_count', 0)
         tendencies._cbet_faced_count = data.get('_cbet_faced_count', 0)
         tendencies._showdowns = data.get('_showdowns', 0)
