@@ -32,6 +32,7 @@ from poker.strategy.strategy_table import load_strategy_table
 from experiments.simulate_bb100 import (
     ARCHETYPES, make_controller, make_game_state,
     DEFAULT_RULE_OPPONENTS, MAX_ACTIONS_PER_HAND, TERMINAL_PHASES,
+    _make_seat_names,
 )
 
 
@@ -98,17 +99,26 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat):
     }
 
 
-def analyze(archetype: str, n_hands: int, seed: int = 42):
+def analyze(archetype: str, n_hands: int, seed: int = 42,
+            opponents: List[str] = None):
     strategy_table = load_strategy_table()
     big_blind = 100
     starting_stack = 10000
 
-    archetype_seat = 'P1'
-    opponent_seats = ['P2', 'P3', 'P4', 'P5', 'P6']
+    if opponents is None:
+        opponents = DEFAULT_RULE_OPPONENTS
+    elif len(opponents) != 5:
+        raise ValueError(f"opponents must have 5 entries, got {len(opponents)}")
+
+    hero_name = archetype if archetype not in opponents else f"{archetype}_hero"
+    opponent_seats = _make_seat_names(opponents)
+    if hero_name in opponent_seats:
+        hero_name = f"{archetype}_hero"
+    archetype_seat = hero_name
     all_names = [archetype_seat] + opponent_seats
 
     config_arch = ARCHETYPES[archetype]
-    opp_configs = [ARCHETYPES[o] for o in DEFAULT_RULE_OPPONENTS]
+    opp_configs = [ARCHETYPES[o] for o in opponents]
 
     # Per-archetype stats
     total_actions_pf = 0
@@ -186,17 +196,15 @@ def analyze(archetype: str, n_hands: int, seed: int = 42):
 
         # Chip transfer: sum opponent deltas (positive = opponent lost = chips flowed to archetype's pile, indirectly)
         # NOTE: this isn't direct 1:1 chip transfer (multiway pots split). It's correlation.
-        for opp_seat, opp_name in zip(opponent_seats, DEFAULT_RULE_OPPONENTS):
+        for opp_seat in opponent_seats:
             opp_delta = final.get(opp_seat, starting_stack) - starting_stack
-            chip_transfer[opp_name] += -opp_delta  # if opp lost (negative), this is positive
-        # Subtract the archetype's gain to get net "they lost to me" approximation
-        # (loose since multiway)
+            chip_transfer[opp_seat] += -opp_delta  # if opp lost (negative), this is positive
 
     # ── Print summary ────────────────────────────────────────────────────
     total_delta = sum(deltas)
     bb100 = (total_delta / big_blind) * 100 / n_hands
     print(f"\n{'=' * 70}")
-    print(f"ANALYSIS: {archetype} vs {DEFAULT_RULE_OPPONENTS}")
+    print(f"ANALYSIS: {archetype} vs {opponents}")
     print(f"{n_hands} hands @ {big_blind} BB, starting stack {starting_stack}")
     print(f"{'=' * 70}\n")
     print(f"Net result: {total_delta:+d} chips total, {bb100:+.1f} bb/100\n")
@@ -237,6 +245,12 @@ def main():
     p.add_argument('archetype', type=str, help='ARCHETYPES key to analyze (e.g. Maniac, LAG, Nit)')
     p.add_argument('--hands', type=int, default=200)
     p.add_argument('--seed', type=int, default=42)
+    p.add_argument(
+        '--opponents', type=str, default=None,
+        help='Comma-separated list of exactly 5 ARCHETYPES keys '
+             '(e.g. "CaseBot,CaseBot,CaseBot,GTO-Lite,ABCBot"). '
+             'Duplicates allowed; seats get suffixed (CaseBot01, etc.).',
+    )
     args = p.parse_args()
 
     if args.archetype not in ARCHETYPES:
@@ -244,7 +258,15 @@ def main():
         print(f"Available: {[k for k, v in ARCHETYPES.items() if v.get('kind') != 'rule_bot']}")
         sys.exit(1)
 
-    analyze(args.archetype, args.hands, args.seed)
+    opponents = None
+    if args.opponents:
+        opponents = [o.strip() for o in args.opponents.split(',')]
+        for o in opponents:
+            if o not in ARCHETYPES:
+                print(f"Unknown opponent: {o}")
+                sys.exit(1)
+
+    analyze(args.archetype, args.hands, args.seed, opponents=opponents)
 
 
 if __name__ == '__main__':

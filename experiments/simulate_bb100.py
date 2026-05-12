@@ -350,6 +350,27 @@ def run_matchup(
 
 # ── 6-max matchup runner ─────────────────────────────────────────────────────
 
+def _make_seat_names(opponents: List[str]) -> List[str]:
+    """Build readable, unique seat names for opponents.
+
+    Duplicates get numeric suffixes (CaseBot, CaseBot, CaseBot
+    → CaseBot01, CaseBot02, CaseBot03). Singletons keep their archetype name
+    (GTO-Lite → GTO-Lite). The simulator uses these as player names for the
+    duration of the hand; the diagnostic tool uses them as keys in its
+    per-opponent chip-transfer table.
+    """
+    counts = {name: opponents.count(name) for name in set(opponents)}
+    indexes: Dict[str, int] = {name: 0 for name in counts}
+    seats: List[str] = []
+    for name in opponents:
+        if counts[name] == 1:
+            seats.append(name)
+        else:
+            indexes[name] += 1
+            seats.append(f"{name}{indexes[name]:02d}")
+    return seats
+
+
 def run_6max_matchup(
     archetype: str,
     n_hands: int,
@@ -366,20 +387,26 @@ def run_6max_matchup(
     Returns per-hand stack deltas for the archetype player.
 
     Args:
-        archetype: Name of the archetype occupying seat P1 (the test subject)
+        archetype: Name of the archetype occupying the hero seat (test subject)
         opponents: List of 5 ARCHETYPES keys for the other seats. Defaults
             to ['Baseline'] * 5 if not supplied.
-    """
-    archetype_seat = 'P1'
-    opponent_seats = ['P2', 'P3', 'P4', 'P5', 'P6']
-    all_names = [archetype_seat] + opponent_seats
 
+    Duplicate opponents get suffixed seat names (CaseBot01, CaseBot02, ...).
+    """
     if opponents is None:
         opponents = ['Baseline'] * 5
     elif len(opponents) != 5:
         raise ValueError(
             f"opponents must have 5 entries, got {len(opponents)}"
         )
+
+    # Disambiguate hero from any opponent that happens to share the archetype name
+    hero_name = archetype if archetype not in opponents else f"{archetype}_hero"
+    opponent_seats = _make_seat_names(opponents)
+    if hero_name in opponent_seats:
+        hero_name = f"{archetype}_hero"
+    archetype_seat = hero_name
+    all_names = [archetype_seat] + opponent_seats
 
     config_arch = ARCHETYPES[archetype]
     opp_configs = [ARCHETYPES[o] for o in opponents]
@@ -773,6 +800,12 @@ def main():
         help='Run 6-max vs a mix of 5 rule_bots (GTO-Lite, ABCBot, CaseBot, CallStation, ManiacBot)',
     )
     parser.add_argument(
+        '--opponents', type=str, default=None,
+        help='Comma-separated list of 5 ARCHETYPES keys to override the default '
+             'rule_bot mix when using --six-max-vs-rules. Example: '
+             '"CaseBot,CaseBot,CaseBot,GTO-Lite,ABCBot"',
+    )
+    parser.add_argument(
         '--opponent', type=str, default='TAG',
         help='Baseline opponent for vs-all mode (default: TAG)',
     )
@@ -794,9 +827,16 @@ def main():
     strategy_table = load_strategy_table()
 
     if args.six_max_vs_rules:
+        custom_opp = None
+        if args.opponents:
+            custom_opp = [o.strip() for o in args.opponents.split(',')]
+            if len(custom_opp) != 5:
+                print(f"--opponents must have 5 entries, got {len(custom_opp)}")
+                sys.exit(1)
         run_all_6max_vs_rules(
             args.hands, strategy_table, args.big_blind,
             args.stack, args.seed, verbose=args.verbose,
+            opponents=custom_opp,
         )
     elif args.six_max:
         run_all_6max_vs_baseline(
