@@ -27,6 +27,8 @@ from .strategy.deviation_profiles import select_deviation_profile, DeviationProf
 from .strategy.action_mapper import resolve_preflop_sizing, resolve_postflop_sizing
 from .strategy.hand_classification import simplify_hand_class
 from .strategy.multiway import apply_multiway_adjustment
+from .strategy.expression_context import ExpressionContext
+from .strategy.expression_generator import ExpressionGenerator
 from .archetypes import classify_from_anchors
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,7 @@ class TieredBotController(AIPlayerController):
         debug_logging: bool = False,
         rng_seed=None,
         skip_personality_distortion: bool = False,
+        expression_generator: Optional[ExpressionGenerator] = None,
         **kwargs,
     ):
         super().__init__(
@@ -62,6 +65,7 @@ class TieredBotController(AIPlayerController):
         self.rng = random.Random(rng_seed)
         self._deviation_profile: Optional[DeviationProfile] = None
         self.skip_personality_distortion = skip_personality_distortion
+        self.expression_generator = expression_generator
 
     @property
     def deviation_profile(self) -> DeviationProfile:
@@ -182,7 +186,7 @@ class TieredBotController(AIPlayerController):
                 f"final_action={game_action} raise_to={raise_to}"
             )
 
-        return {
+        decision = {
             'action': game_action,
             'raise_to': raise_to,
             'dramatic_sequence': [],
@@ -193,6 +197,8 @@ class TieredBotController(AIPlayerController):
             'inner_monologue': '',
             'bluff_likelihood': 0,
         }
+        self._attach_expression(decision, game_state, player_idx, phase='pre_flop')
+        return decision
 
     def _get_postflop_decision(
         self, game_state, player_idx: int,
@@ -319,7 +325,7 @@ class TieredBotController(AIPlayerController):
                 f"postflop final={game_action} raise_to={raise_to}"
             )
 
-        return {
+        decision = {
             'action': game_action,
             'raise_to': raise_to,
             'dramatic_sequence': [],
@@ -331,6 +337,87 @@ class TieredBotController(AIPlayerController):
             'inner_monologue': '',
             'bluff_likelihood': 0,
         }
+        self._attach_expression(decision, game_state, player_idx, phase=node.street)
+        return decision
+
+    def _attach_expression(
+        self, decision: Dict, game_state, player_idx: int, phase: str,
+    ) -> None:
+        """Populate narration fields on a committed decision dict.
+
+        No-op when no expression_generator is configured. All failures are
+        contained: the decision dict is unchanged and the game proceeds.
+        """
+        if getattr(self, 'expression_generator', None) is None:
+            return
+
+        try:
+            from .moment_analyzer import MomentAnalyzer
+            from .card_utils import card_to_string
+
+            player = game_state.players[player_idx]
+            personality_config = getattr(
+                getattr(self, 'ai_player', None), 'personality_config', {}
+            ) or {}
+
+            hand_cards = (
+                [card_to_string(c) for c in player.hand] if player.hand else []
+            )
+            community_cards = (
+                [card_to_string(c) for c in game_state.community_cards]
+                if game_state.community_cards else []
+            )
+
+            try:
+                moment = MomentAnalyzer.analyze(
+                    game_state=game_state,
+                    player=player,
+                    cost_to_call=getattr(game_state, 'call_amount', 0) or 0,
+                    big_blind=getattr(game_state, 'current_ante', 0) or 0,
+                )
+                drama_level = moment.level
+                drama_tone = moment.tone
+            except Exception:
+                drama_level, drama_tone = 'routine', 'neutral'
+
+            emotional = get_emotional_shift(self.psychology)
+            active_count = sum(1 for p in game_state.players if not p.is_folded)
+
+            context = ExpressionContext(
+                action_taken=decision['action'],
+                raise_to=decision.get('raise_to', 0) or 0,
+                hand_cards=hand_cards,
+                community_cards=community_cards,
+                phase=phase,
+                pot_size=getattr(game_state, 'pot_total', 0) or 0,
+                opponent_count=max(0, active_count - 1),
+                personality_name=personality_config.get(
+                    'name', self.player_name
+                ),
+                play_style=personality_config.get('play_style', ''),
+                default_attitude=personality_config.get(
+                    'default_attitude', 'neutral'
+                ),
+                verbal_tics=personality_config.get('verbal_tics', []) or [],
+                physical_tics=personality_config.get('physical_tics', []) or [],
+                drama_level=drama_level,
+                drama_tone=drama_tone,
+                emotional_state=emotional.state,
+                emotional_severity=emotional.severity,
+            )
+
+            narration = self.expression_generator.generate(context)
+            for key in ('dramatic_sequence', 'inner_monologue', 'bluff_likelihood'):
+                if key in narration:
+                    decision[key] = narration[key]
+            # Only overwrite hand_strategy if LLM produced one (preserves Layer 1+2 debug string otherwise)
+            if narration.get('hand_strategy'):
+                decision['hand_strategy'] = narration['hand_strategy']
+        except Exception as e:
+            logger.warning(
+                f"[TIERED_BOT] {self.player_name}: "
+                f"expression failed safely: {e}"
+            )
 
     def _postflop_fallback(self, valid_actions: List[str]) -> Dict:
         """Emergency fallback: check if possible, otherwise fold."""
