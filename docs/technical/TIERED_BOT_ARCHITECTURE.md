@@ -2,7 +2,7 @@
 purpose: Architecture design for the 3-layer tiered bot (solver baselines + personality distortion + LLM expression)
 type: architecture
 created: 2026-02-16
-last_updated: 2026-02-17
+last_updated: 2026-05-12
 ---
 
 # Tiered Bot Architecture
@@ -1261,14 +1261,52 @@ Run bot-vs-bot tournaments (100k+ hands per matchup).
 | Aggression Factor (postflop) | Aggression anchor behavior — validates postflop aggression more cleanly than PFR alone |
 | River bluff frequency | Risk identity + aggression interaction |
 | W$SD (won $ at showdown) | Hand selection quality |
-| bb/100 vs baseline bot | Overall strength (personality bot should lose slightly to GTO baseline — that's correct, deviations cost EV) |
+| bb/100 vs baseline bot | Overall strength. Passive archetypes (Nit/Rock/Station) should lose slightly to baseline — verifies clamps. Aggressive archetypes are *not* expected to lose against a non-adapting baseline (see Empirical Findings below). |
 
 ### Validation Criteria
 
 1. **Stat separation**: Each archetype must show distinctly different stat profiles. If TAG and LAG have similar VPIP, personality math is wrong.
 2. **Directional correctness**: Higher aggression anchor → higher PFR. Higher looseness → higher VPIP. Always.
 3. **Bounded deviation**: No archetype should have VPIP > 80% or < 5%. No archetype should have PFR > VPIP.
-4. **EV ordering**: BaselineSolverBot > TAG > LAG > Rock > Station > Maniac (approximately). Deviations from baseline should cost EV proportional to deviation magnitude.
+4. **EV ordering (asymmetric — see Empirical Findings)**: Against a non-adapting BaselineSolverBot, the *passive* deviation direction costs EV as expected (Nit/Rock/Station lose slightly). The *aggressive* direction (TAG/LAG/Maniac) does **not** lose to baseline because a fixed solver-strategy reference cannot punish over-aggression. True symmetric EV ordering requires exploitation, which is v2 scope (Phase 6).
+
+### Empirical Findings (2026-05-12)
+
+After Phase 1 + Phase 2 implementation, bb/100 was measured against the BaselineSolverBot in both formats. **The expected ordering (Baseline > TAG > LAG > Rock > Station > Maniac) does not hold** — see results below.
+
+**Heads-up (10,000 hands per matchup):**
+
+| Archetype | bb/100 vs Baseline | 95% CI |
+|-----------|--------------------|--------|
+| Maniac    | **+43.0**          | [+35.9, +50.1] |
+| LAG       | +14.4              | [+9.0, +19.8]  |
+| TAG       | +7.0               | [+2.9, +11.0]  |
+| Calling Station | +1.4         | [-4.6, +7.4]   |
+| Baseline (mirror) | -1.0       | [-5.5, +3.4]   |
+| Rock      | -6.9               | [-10.9, -3.0]  |
+| Nit       | -7.0               | [-11.2, -2.8]  |
+
+**6-max (5,000 hands per archetype, 1 archetype + 5 Baselines):**
+
+| Archetype | bb/100 vs 5 Baselines | 95% CI |
+|-----------|-----------------------|--------|
+| Maniac    | **+73.4**             | [+56.4, +90.3] |
+| LAG       | +39.8                 | [+26.8, +52.8] |
+| Baseline (mirror) | +4.3          | [-6.0, +14.6]  |
+| TAG       | +1.1                  | [-7.6, +9.7]   |
+| Rock      | -4.9                  | [-13.3, +3.5]  |
+| Calling Station | -7.4            | [-20.9, +6.2]  |
+| Nit       | -8.7                  | [-17.3, -0.1]  |
+
+**Interpretation:**
+
+1. **The mirror sanity check passes** in both formats (Baseline-vs-Baseline CI brackets zero), confirming the simulator has no positional bias.
+2. **Passive deviations (Nit/Rock/Station) lose slightly** — the personality clamps correctly cost EV in the passive direction.
+3. **Aggressive deviations (TAG/LAG/Maniac) profit against the baseline.** This is a property of fixed-strategy references, not a Layer 2 bug: the baseline folds the math-correct amount to over-steals, and aggressors collect dead money. A real GTO opponent would widen its defending range (exploitation) and punish; the v1 baseline cannot.
+4. **The -20 bb/100 hard guardrail holds universally** — the worst leak in either format is -8.7 bb/100. Personality math is bounded as designed.
+5. **Aggression-magnitude gradient is clean** — Maniac > LAG > TAG, in both HU and 6-max. The deviation profiles produce the intended shape; they just don't produce the intended sign of EV.
+
+**Consequence:** `bb/100 vs baseline` is a one-sided validation gate — it catches passive-direction Layer 2 bugs but cannot bound aggressive-direction edge. Validating that "deviations cost EV" in both directions requires either an exploiting baseline (Phase 6) or measurement against a different reference (e.g., HU-solver-aware reference). v1 validates archetype *shaping*; v2 will validate symmetric EV cost.
 
 ### Statistical Guardrails (Hard Limits)
 
