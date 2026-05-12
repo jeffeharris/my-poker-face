@@ -51,11 +51,14 @@ interface LLMConfig {
   max_blind?: number;
 }
 
+type BotType = 'hybrid' | 'tiered';
+
 interface CustomGameConfigProps {
   onStartGame: (
     selectedPersonalities: Array<string | { name: string; llm_config: OpponentLLMConfig }>,
     llmConfig: LLMConfig,
-    gameMode: string
+    gameMode: string,
+    botTypes?: Record<string, BotType>
   ) => void;
   onBack: () => void;
   isCreatingGame?: boolean;
@@ -121,6 +124,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   const [showThemes, setShowThemes] = useState(false);
   const [themeGenerating, setThemeGenerating] = useState(false);
   const [opponentConfigs, setOpponentConfigs] = useState<Record<string, OpponentConfig>>({});
+  const [opponentBotTypes, setOpponentBotTypes] = useState<Record<string, BotType>>({});
   const [expandedConfigSlot, setExpandedConfigSlot] = useState<number | null>(null);
 
   // Step 2: Game settings
@@ -212,6 +216,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
     setSlots(prev => prev.map((_, i) => available[i] ?? null));
     // Clear per-player configs since players changed
     setOpponentConfigs({});
+    setOpponentBotTypes({});
   }, [personalityNames]);
 
   const handleThemeGenerate = async (themeId: string, themeName: string, desc: string) => {
@@ -220,6 +225,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
     setError(null);
     setSlots(Array(playerCount).fill(null));
     setOpponentConfigs({});
+    setOpponentBotTypes({});
     try {
       const res = await fetch(`${config.API_URL}/api/generate-theme`, {
         method: 'POST',
@@ -239,6 +245,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       setSlots(generated.slice(0, count));
       setShowThemes(false);
       setOpponentConfigs({});
+      setOpponentBotTypes({});
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Theme generation failed.');
     } finally {
@@ -257,6 +264,13 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
     setSlots(prev => prev.map((s, i) => (i === slotIdx ? null : s)));
     if (name && opponentConfigs[name]) {
       setOpponentConfigs(prev => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    }
+    if (name && opponentBotTypes[name]) {
+      setOpponentBotTypes(prev => {
         const next = { ...prev };
         delete next[name];
         return next;
@@ -287,6 +301,11 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
 
   const resetOpponentConfig = (name: string) => {
     setOpponentConfigs(prev => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setOpponentBotTypes(prev => {
       const next = { ...prev };
       delete next[name];
       return next;
@@ -339,6 +358,13 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       return name;
     });
 
+    // Only forward non-default bot type selections
+    const botTypes: Record<string, BotType> = {};
+    for (const name of filled) {
+      const bt = opponentBotTypes[name];
+      if (bt && bt !== 'hybrid') botTypes[name] = bt;
+    }
+
     onStartGame(personalities, {
       provider: defaultProvider,
       model: defaultModel,
@@ -348,7 +374,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       blind_growth: blindGrowth,
       blinds_increase: blindsIncrease,
       max_blind: maxBlind,
-    }, defaultGameMode);
+    }, defaultGameMode, Object.keys(botTypes).length > 0 ? botTypes : undefined);
   };
 
   // ─── Navigation ────────────────────────────────────────────────────
@@ -944,6 +970,20 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
                   >
                     <option value="">Use game default ({defaultGameMode})</option>
                     {GAME_MODES.map(gm => <option key={gm.value} value={gm.value}>{gm.label}</option>)}
+                  </select>
+                </div>
+                <div className="config-sheet__field">
+                  <label className="config-sheet__label">Controller</label>
+                  <select
+                    className="config-sheet__select"
+                    value={opponentBotTypes[configName] ?? 'hybrid'}
+                    onChange={e => setOpponentBotTypes(prev => ({
+                      ...prev, [configName]: e.target.value as BotType,
+                    }))}
+                    disabled={useDefaults}
+                  >
+                    <option value="hybrid">Hybrid (default)</option>
+                    <option value="tiered">Tiered (experimental)</option>
                   </select>
                 </div>
               </div>
