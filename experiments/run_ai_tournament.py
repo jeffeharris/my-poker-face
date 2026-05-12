@@ -897,6 +897,46 @@ class AITournamentRunner:
                     opponent_model_manager=memory_manager.get_opponent_model_manager(),
                 )
                 logger.info(f"Player {player.name} using hybrid AI controller")
+            elif player_type == 'tiered':
+                # Tiered bot: solver baselines + personality distortion, no LLM decisions.
+                # Optionally wires the Layer 3 expression generator for in-character narration.
+                from poker.tiered_bot_controller import TieredBotController
+                from poker.strategy.strategy_table import load_strategy_table
+
+                strategy_table = load_strategy_table()
+                controller = TieredBotController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    strategy_table=strategy_table,
+                    llm_config=player_llm_config,
+                    game_id=tournament_id,
+                    owner_id=self._owner_id,
+                    capture_label_repo=self.capture_label_repo,
+                    decision_analysis_repo=self.decision_analysis_repo,
+                    debug_logging=player_type_config.get('debug_logging', False),
+                )
+
+                if player_type_config.get('expression', True):
+                    from poker.strategy.expression_generator import ExpressionGenerator
+                    from core.llm import LLMClient, CallType
+                    llm_client = LLMClient(
+                        provider=player_llm_config.get('provider', 'openai'),
+                        model=player_llm_config.get('model'),
+                    )
+                    controller.expression_generator = ExpressionGenerator(
+                        llm_client=llm_client,
+                        prompt_manager=controller.prompt_manager,
+                    )
+                    controller._expression_call_type = CallType.COMMENTARY
+                    logger.info(
+                        f"Player {player.name} using TieredBotController "
+                        f"with expression layer"
+                    )
+                else:
+                    logger.info(
+                        f"Player {player.name} using TieredBotController "
+                        f"(expression disabled)"
+                    )
             else:
                 # Use standard AI controller
                 controller = AIPlayerController(

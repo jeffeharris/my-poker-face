@@ -99,6 +99,7 @@ class ExpressionGenerator:
                 call_type=call_type,
                 game_id=game_id,
                 player_name=context.personality_name,
+                prompt_template='decision_expression',
             )
         except Exception as e:
             logger.warning(

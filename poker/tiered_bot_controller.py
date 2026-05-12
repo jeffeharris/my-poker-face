@@ -100,6 +100,28 @@ class TieredBotController(AIPlayerController):
             'default': 'tag',
         }.get(base, 'tag')
 
+    def decide_action(self, game_messages=None) -> Dict:
+        """Tiered decision: bypass the LLM-coupled parent pipeline.
+
+        The parent AIPlayerController.decide_action runs LLM bookkeeping
+        (conversation memory, chattiness checks, message summarization) that
+        TieredBotController doesn't need — decisions come from strategy
+        tables, not the LLM. We go straight to _get_ai_decision.
+
+        The optional expression layer (Layer 3) is invoked inside
+        _get_ai_decision via _attach_expression after the action commits.
+        """
+        game_state = self.state_machine.game_state
+        try:
+            valid_actions = game_state.current_player_options
+        except Exception:
+            valid_actions = ['fold', 'check', 'call', 'raise']
+        return self._get_ai_decision(
+            message='',
+            valid_actions=valid_actions,
+            call_amount=getattr(game_state, 'call_amount', 0) or 0,
+        )
+
     def _get_ai_decision(self, message: str, **context) -> Dict:
         """Override: Use strategy tables + personality distortion instead of LLM.
 
@@ -406,7 +428,11 @@ class TieredBotController(AIPlayerController):
                 emotional_severity=emotional.severity,
             )
 
-            narration = self.expression_generator.generate(context)
+            narration = self.expression_generator.generate(
+                context,
+                call_type=getattr(self, '_expression_call_type', None),
+                game_id=getattr(self, 'game_id', None),
+            )
             for key in ('dramatic_sequence', 'inner_monologue', 'bluff_likelihood'):
                 if key in narration:
                     decision[key] = narration[key]
