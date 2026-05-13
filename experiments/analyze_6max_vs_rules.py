@@ -29,14 +29,18 @@ from poker.poker_game import (
 )
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.strategy.strategy_table import load_strategy_table
+from poker.memory.opponent_model import OpponentModelManager
 from experiments.simulate_bb100 import (
     ARCHETYPES, make_controller, make_game_state,
     DEFAULT_RULE_OPPONENTS, MAX_ACTIONS_PER_HAND, TERMINAL_PHASES,
-    _make_seat_names,
+    _make_seat_names, apply_adaptation_bias_override,
 )
+from typing import Optional
 
 
-def run_hand_traced(sm, controllers, big_blind, archetype_seat):
+def run_hand_traced(sm, controllers, big_blind, archetype_seat,
+                    opponent_manager: Optional[OpponentModelManager] = None,
+                    hand_number: Optional[int] = None):
     """Drive one hand and capture per-action trace for one player.
 
     Returns dict with:
@@ -44,6 +48,11 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat):
         opp_actions:    list of (phase, name, action) for opponents
         pot_at_end:     final pot size before settlement
         final_stacks:   {name: stack}
+
+    When ``opponent_manager`` is provided, each non-hero action is fed
+    into the manager (observer=archetype_seat) so the hero controller's
+    aggregated tendencies grow across hands. Default is no observation
+    (behavior unchanged).
     """
     controller_map = {c.player_name: c for c in controllers}
     actions_arch: List[tuple] = []
@@ -81,6 +90,16 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat):
             actions_arch.append((phase, action, raise_to))
         else:
             actions_opp.append((phase, cur.name, action))
+            # Phase 6: feed non-hero action into hero's opponent model.
+            if opponent_manager is not None:
+                opponent_manager.observe_action(
+                    observer=archetype_seat,
+                    opponent=cur.name,
+                    action=action,
+                    phase=phase,
+                    is_voluntary=True,
+                    hand_number=hand_number,
+                )
 
         new_gs = play_turn(gs, action, raise_to)
         advanced = advance_to_next_active_player(new_gs)
@@ -100,7 +119,9 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat):
 
 
 def analyze(archetype: str, n_hands: int, seed: int = 42,
-            opponents: List[str] = None):
+            opponents: List[str] = None,
+            adaptation_bias: Optional[float] = None,
+            exploitation_strength: float = 1.0):
     strategy_table = load_strategy_table()
     big_blind = 100
     starting_stack = 10000
@@ -117,7 +138,9 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
     archetype_seat = hero_name
     all_names = [archetype_seat] + opponent_seats
 
-    config_arch = ARCHETYPES[archetype]
+    config_arch = apply_adaptation_bias_override(
+        ARCHETYPES[archetype], adaptation_bias
+    )
     opp_configs = [ARCHETYPES[o] for o in opponents]
 
     # Per-archetype stats
@@ -140,6 +163,10 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
     # Chip transfer per opponent name
     chip_transfer: Dict[str, int] = defaultdict(int)
 
+    # Phase 6: one manager across the whole analysis run so the hero's
+    # observations of each opponent accumulate as hands play out.
+    opponent_manager = OpponentModelManager()
+
     for hand_num in range(n_hands):
         hand_seed = seed + hand_num
         dealer_idx = hand_num % 6
@@ -161,7 +188,26 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
                                 rng_seed=hand_seed + 1_000_000 * (i + 1))
             )
 
-        trace = run_hand_traced(sm, controllers, big_blind, archetype_seat)
+        # Hero is at index 0; attach the shared manager so the controller
+        # can read aggregated opponent tendencies during decide_action().
+        controllers[0].opponent_model_manager = opponent_manager
+        controllers[0].exploitation_strength = exploitation_strength
+
+        # Record that each opponent was dealt this hand — necessary for
+        # correct VPIP/PFR denominators (opponents who fold before action
+        # reaches them never trigger observe_action, so hands_dealt has
+        # to be incremented independently).
+        opponent_manager.record_hand_dealt(
+            observer=archetype_seat,
+            opponents=opponent_seats,
+            hand_number=hand_num,
+        )
+
+        trace = run_hand_traced(
+            sm, controllers, big_blind, archetype_seat,
+            opponent_manager=opponent_manager,
+            hand_number=hand_num,
+        )
 
         # Action stats
         had_post = False
@@ -203,9 +249,13 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
     # ── Print summary ────────────────────────────────────────────────────
     total_delta = sum(deltas)
     bb100 = (total_delta / big_blind) * 100 / n_hands
+    bias_note = (
+        f" [adaptation_bias overridden to {adaptation_bias}]"
+        if adaptation_bias is not None else ""
+    )
     print(f"\n{'=' * 70}")
-    print(f"ANALYSIS: {archetype} vs {opponents}")
-    print(f"{n_hands} hands @ {big_blind} BB, starting stack {starting_stack}")
+    print(f"ANALYSIS: {archetype} vs {opponents}{bias_note}")
+    print(f"{n_hands} hands @ {big_blind} BB, starting stack {starting_stack}, seed={seed}")
     print(f"{'=' * 70}\n")
     print(f"Net result: {total_delta:+d} chips total, {bb100:+.1f} bb/100\n")
 
@@ -239,6 +289,57 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
         net = chip_transfer[opp_name]
         print(f"  {opp_name:<18} {net:>+8d} chips ({net/big_blind:>+.0f} BB)")
 
+    # ── Phase 6 exploitation diagnostics ──
+    # Counters live on the manager (persists across hands), not the
+    # controller (recreated per hand).
+    counters = getattr(opponent_manager, '_exploitation_counters', None)
+    if counters:
+        total = counters.get('decisions', 0)
+        print("\n── EXPLOITATION DIAGNOSTICS ──")
+        print(f"  total decisions:           {total}")
+        if total > 0:
+            for key in (
+                'cold_start',
+                'detected_hyper_aggressive',
+                'detected_hyper_passive',
+                'detected_tight_nit',
+                'fired',
+                'detected_but_no_fire',
+                'no_pattern_matched',
+                'value_override_eligible_strong',
+                'value_override_eligible_aggro',
+                'value_override_fired',
+            ):
+                n = counters.get(key, 0)
+                pct = 100 * n / total
+                print(f"  {key:<32} {n:>6} ({pct:5.1f}%)")
+
+    # Per-opponent tendencies (what the per-aggressor lookup sees).
+    hero_models = opponent_manager.get_all_models_for_observer(archetype_seat)
+    if hero_models:
+        print("\n── PER-OPPONENT TENDENCIES (hero's view) ──")
+        print(f"  {'opponent':<18} {'dealt':>6} {'acted':>6} "
+              f"{'VPIP':>6} {'PFR':>6} {'AF':>6} {'all_in%':>8} "
+              f"{'_vpip':>6} {'_calls':>7} {'_aggr':>7} triggers")
+        for opp_name, model in sorted(hero_models.items()):
+            t = model.tendencies
+            triggers = []
+            if t.aggression_factor > 5.0:
+                triggers.append('AF>5')
+            if t.all_in_frequency > 0.30:
+                triggers.append('AI>30%')
+            if t.vpip > 0.60 and t.aggression_factor < 0.80:
+                triggers.append('PASSIVE')
+            if t.vpip < 0.15:
+                triggers.append('NIT')
+            trigger_str = ' '.join(triggers) if triggers else '-'
+            print(f"  {opp_name:<18} "
+                  f"{t.hands_dealt:>6} {t.hands_observed:>6} "
+                  f"{t.vpip:>6.2f} {t.pfr:>6.2f} "
+                  f"{t.aggression_factor:>6.2f} {t.all_in_frequency:>8.2f} "
+                  f"{t._vpip_count:>6} {t._call_count:>7} {t._bet_raise_count:>7} "
+                  f"{trigger_str}")
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -250,6 +351,18 @@ def main():
         help='Comma-separated list of exactly 5 ARCHETYPES keys '
              '(e.g. "CaseBot,CaseBot,CaseBot,GTO-Lite,ABCBot"). '
              'Duplicates allowed; seats get suffixed (CaseBot01, etc.).',
+    )
+    p.add_argument(
+        '--adaptation-bias', type=float, default=None,
+        help='Override adaptation_bias on the hero archetype anchors. '
+             'Phase 6 validation gates: 0.05 = no-exploit floor, '
+             '0.85 = full exploitation.',
+    )
+    p.add_argument(
+        '--exploitation-strength', type=float, default=1.0,
+        help='Global multiplier on exploitation offset magnitudes. '
+             'Used for the calibration sweep — default 1.0; sweep '
+             '[1.0, 1.5, 2.0, 2.5] to find optimal magnitude.',
     )
     args = p.parse_args()
 
@@ -266,7 +379,12 @@ def main():
                 print(f"Unknown opponent: {o}")
                 sys.exit(1)
 
-    analyze(args.archetype, args.hands, args.seed, opponents=opponents)
+    analyze(
+        args.archetype, args.hands, args.seed,
+        opponents=opponents,
+        adaptation_bias=args.adaptation_bias,
+        exploitation_strength=args.exploitation_strength,
+    )
 
 
 if __name__ == '__main__':

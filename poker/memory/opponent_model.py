@@ -27,7 +27,15 @@ from ..config import (
 @dataclass
 class OpponentTendencies:
     """Statistical model of an opponent's play style."""
-    hands_observed: int = 0
+    hands_observed: int = 0     # Hands where opponent took at least one action
+
+    # Hands the opponent was at the table — regardless of whether they
+    # ever acted. This is the correct denominator for VPIP/PFR/all_in_
+    # frequency: folding before action reaches you is a relevant outcome
+    # ("opted out of pot"), not an unobserved one. When hands_dealt is 0,
+    # ratio calculations fall back to hands_observed (preserves behavior
+    # for callers that don't call record_hand_dealt yet).
+    hands_dealt: int = 0
 
     # Core stats
     vpip: float = 0.5           # Voluntarily put in pot % (how often they enter pots)
@@ -36,7 +44,7 @@ class OpponentTendencies:
     fold_to_cbet: float = 0.5   # Fold to continuation bet %
     bluff_frequency: float = 0.3    # Estimated bluff rate
     showdown_win_rate: float = 0.5  # Win rate at showdown
-    all_in_frequency: float = 0.0   # All-in actions per hand observed
+    all_in_frequency: float = 0.0   # All-in actions per hand dealt
 
     # Trend tracking
     recent_trend: str = 'stable'    # 'tightening', 'loosening', 'stable'
@@ -55,6 +63,23 @@ class OpponentTendencies:
     # Per-hand tracking (reset each new hand)
     _vpip_this_hand: bool = False
     _pfr_this_hand: bool = False
+
+    def record_hand_dealt(self):
+        """Record that the opponent was at the table for one more hand.
+
+        Should be called once per hand per opponent, regardless of whether
+        they ever acted in the hand. Folding before action reaches you is
+        a relevant "opted out" outcome that affects VPIP, not an
+        unobservable event.
+
+        Resets the per-hand flags so this hand's VPIP/PFR tracking starts
+        clean. update_from_action() can still also reset these flags via
+        count_hand=True for backwards compatibility.
+        """
+        self.hands_dealt += 1
+        self._vpip_this_hand = False
+        self._pfr_this_hand = False
+        self._recalculate_stats()
 
     def update_from_action(self, action: str, phase: str, is_voluntary: bool = True, count_hand: bool = True):
         """Update stats based on observed action.
@@ -111,11 +136,17 @@ class OpponentTendencies:
         self._recalculate_stats()
 
     def _recalculate_stats(self):
-        """Recalculate derived statistics."""
-        if self.hands_observed > 0:
-            self.vpip = self._vpip_count / max(self.hands_observed, 1)
-            self.pfr = self._pfr_count / max(self.hands_observed, 1)
-            self.all_in_frequency = self._all_in_count / max(self.hands_observed, 1)
+        """Recalculate derived statistics.
+
+        Uses hands_dealt as denominator when available (correct), falling
+        back to hands_observed when no record_hand_dealt() calls have
+        happened (backwards-compat for older paths).
+        """
+        denom = self.hands_dealt if self.hands_dealt > 0 else self.hands_observed
+        if denom > 0:
+            self.vpip = self._vpip_count / denom
+            self.pfr = self._pfr_count / denom
+            self.all_in_frequency = self._all_in_count / denom
 
         total_actions = self._bet_raise_count + self._call_count
         if total_actions == 0:
@@ -191,6 +222,7 @@ class OpponentTendencies:
     def to_dict(self) -> Dict[str, Any]:
         return {
             'hands_observed': self.hands_observed,
+            'hands_dealt': self.hands_dealt,
             'vpip': self.vpip,
             'pfr': self.pfr,
             'aggression_factor': self.aggression_factor,
@@ -214,6 +246,7 @@ class OpponentTendencies:
     def from_dict(cls, data: Dict[str, Any]) -> 'OpponentTendencies':
         tendencies = cls(
             hands_observed=data.get('hands_observed', 0),
+            hands_dealt=data.get('hands_dealt', 0),
             vpip=data.get('vpip', 0.5),
             pfr=data.get('pfr', 0.5),
             aggression_factor=data.get('aggression_factor', 1.0),
@@ -284,6 +317,21 @@ class OpponentModel:
         self.memorable_hands: List[MemorableHand] = []
         self.narrative_observations: List[str] = []  # AI-generated insights about this opponent
         self._last_hand_counted: Optional[int] = None  # Track which hand we last counted
+
+    def record_hand_dealt(self, hand_number: int = None):
+        """Record that the opponent was at the table for one more hand.
+
+        Idempotent within a hand: tracks `_last_hand_dealt` so calling
+        twice with the same `hand_number` only increments once. Required
+        for correct VPIP/PFR/all_in_frequency ratios, since folds before
+        action mean the opponent never gets observe_action() called for
+        that hand.
+        """
+        if hand_number is not None and hand_number == getattr(self, '_last_hand_dealt', None):
+            return
+        if hand_number is not None:
+            self._last_hand_dealt = hand_number
+        self.tendencies.record_hand_dealt()
 
     def observe_action(self, action: str, phase: str, is_voluntary: bool = True, hand_number: int = None):
         """Record an observed action from this opponent."""
@@ -437,6 +485,17 @@ class OpponentModelManager:
         model = self.get_model(observer, opponent)
         model.observe_action(action, phase, is_voluntary, hand_number=hand_number)
 
+    def record_hand_dealt(self, observer: str, opponents: List[str], hand_number: int = None):
+        """Record that each opponent was dealt one more hand.
+
+        Call once per hand per active opponent at the start of the hand.
+        Required for correct VPIP/PFR ratios — opponents that fold before
+        action reaches them never trigger observe_action, so without this
+        their hands_dealt never increments and ratios are inflated.
+        """
+        for opp in opponents:
+            self.get_model(observer, opp).record_hand_dealt(hand_number=hand_number)
+
     def get_table_summary(self, observer: str, opponents: List[str],
                          max_tokens: int = OPPONENT_SUMMARY_TOKENS) -> str:
         """Get summary of all opponents at the table."""
@@ -457,6 +516,101 @@ class OpponentModelManager:
     def get_all_models_for_observer(self, observer: str) -> Dict[str, OpponentModel]:
         """Get all opponent models for an observer."""
         return self.models.get(observer, {})
+
+    def aggregate_active_opponents(
+        self,
+        observer: str,
+        active_opponents: List[str],
+        money_committed: Optional[Dict[str, float]] = None,
+    ) -> 'AggregatedOpponentStats':
+        """Aggregate stats across active opponents for an exploit decision.
+
+        Multiway 60% rule: if money_committed is provided and any one
+        opponent has put in >60% of the active opponents' total committed
+        money this hand, weight that opponent at 100% (focus exploitation
+        on the credible threat). Otherwise weight-average across active
+        opponents (equal weighting).
+
+        Args:
+            observer: The hero whose models are queried (self.models[observer]).
+            active_opponents: Names of opponents still in the hand (not folded).
+            money_committed: Optional map of opponent name -> chips committed
+                this hand. When None, simple equal-weight-average.
+
+        Returns:
+            AggregatedOpponentStats. Returns zero-initialized stats
+            (hands_observed=0) if no opponents have observation history.
+        """
+        # Lazy import to avoid circular dependency with poker.strategy
+        from poker.strategy.exploitation import AggregatedOpponentStats
+
+        if not active_opponents:
+            return AggregatedOpponentStats()
+
+        # Only inspect existing models — never create new ones from a query.
+        observer_models = self.models.get(observer, {})
+        models_with_history = [
+            observer_models[opp]
+            for opp in active_opponents
+            if opp in observer_models
+            and observer_models[opp].tendencies.hands_observed > 0
+        ]
+
+        if not models_with_history:
+            return AggregatedOpponentStats()
+
+        if len(models_with_history) == 1:
+            t = models_with_history[0].tendencies
+            return AggregatedOpponentStats(
+                hands_observed=t.hands_observed,
+                vpip=t.vpip,
+                pfr=t.pfr,
+                aggression_factor=t.aggression_factor,
+                all_in_frequency=t.all_in_frequency,
+            )
+
+        # Multiple opponents with history. Check 60% rule.
+        if money_committed:
+            # Sum money committed across active opponents that have history
+            history_names = {m.opponent for m in models_with_history}
+            relevant = {
+                name: float(money_committed.get(name, 0.0))
+                for name in history_names
+                if name in money_committed
+            }
+            total = sum(relevant.values())
+            if total > 0:
+                for name, amount in relevant.items():
+                    if amount / total > 0.6:
+                        # Dominant opponent gets 100% weight
+                        dominant = next(
+                            m for m in models_with_history if m.opponent == name
+                        )
+                        t = dominant.tendencies
+                        return AggregatedOpponentStats(
+                            hands_observed=t.hands_observed,
+                            vpip=t.vpip,
+                            pfr=t.pfr,
+                            aggression_factor=t.aggression_factor,
+                            all_in_frequency=t.all_in_frequency,
+                        )
+
+        # Equal-weight average across opponents-with-history.
+        # hands_observed is the MIN (limiting factor for exploit confidence).
+        n = len(models_with_history)
+        avg_vpip = sum(m.tendencies.vpip for m in models_with_history) / n
+        avg_pfr = sum(m.tendencies.pfr for m in models_with_history) / n
+        avg_af = sum(m.tendencies.aggression_factor for m in models_with_history) / n
+        avg_all_in = sum(m.tendencies.all_in_frequency for m in models_with_history) / n
+        min_hands = min(m.tendencies.hands_observed for m in models_with_history)
+
+        return AggregatedOpponentStats(
+            hands_observed=min_hands,
+            vpip=avg_vpip,
+            pfr=avg_pfr,
+            aggression_factor=avg_af,
+            all_in_frequency=avg_all_in,
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         result = {}

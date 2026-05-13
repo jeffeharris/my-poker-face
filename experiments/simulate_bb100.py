@@ -18,7 +18,7 @@ import math
 import os
 import random
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from typing import Dict, List, Optional
 from unittest.mock import patch
@@ -42,6 +42,7 @@ from poker.strategy.strategy_table import load_strategy_table, StrategyTable
 from poker.strategy.deviation_profiles import DEVIATION_PROFILES
 from poker.tiered_bot_controller import TieredBotController, BaselineSolverBot
 from poker.rule_based_controller import RuleBasedController, RuleConfig, CHAOS_BOTS
+from poker.memory.opponent_model import OpponentModelManager
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,24 @@ ARCHETYPES = {
 TERMINAL_PHASES = {PokerPhase.HAND_OVER, PokerPhase.GAME_OVER}
 
 MAX_ACTIONS_PER_HAND = 100
+
+
+def apply_adaptation_bias_override(
+    config: dict, bias: Optional[float]
+) -> dict:
+    """Return a config with adaptation_bias overridden in its anchors.
+
+    Returns the original config unchanged if bias is None or the config
+    has no anchors (rule_bots, Baseline). Used by Phase 6 validation gates
+    to inject high/low adaptation_bias into a test archetype without
+    mutating the global ARCHETYPES dict.
+    """
+    if bias is None:
+        return config
+    anchors = config.get('anchors')
+    if anchors is None:
+        return config
+    return {**config, 'anchors': replace(anchors, adaptation_bias=bias)}
 
 
 # ── Data structures ──────────────────────────────────────────────────────────
@@ -237,10 +256,18 @@ def run_hand(
     controllers: List[TieredBotController],
     big_blind: int,
     verbose: bool = False,
+    opponent_manager: Optional[OpponentModelManager] = None,
+    hero_name: Optional[str] = None,
+    hand_number: Optional[int] = None,
 ) -> Dict[str, int]:
     """Drive one complete hand to completion.
 
     Returns dict mapping player name to final stack.
+
+    When ``opponent_manager`` and ``hero_name`` are provided, every non-hero
+    action observed during the hand is fed into the manager so the hero
+    controller can adapt to opponent tendencies across hands. Default is
+    no observation (behavior unchanged).
     """
     controller_map = {c.player_name: c for c in controllers}
     action_count = 0
@@ -278,11 +305,29 @@ def run_hand(
 
         action = decision['action']
         raise_to = decision.get('raise_to', 0) or 0
+        phase_name = sm.phase.name
 
         if verbose:
             logger.info(
                 f"  {current_player.name}: {action}"
                 f"{f' to {raise_to}' if raise_to else ''}"
+            )
+
+        # Phase 6: feed non-hero actions into hero's opponent model so the
+        # tiered bot can detect tendencies (VPIP/PFR/AF/all-in freq) and
+        # adapt across hands. Hero's own actions are skipped.
+        if (
+            opponent_manager is not None
+            and hero_name is not None
+            and current_player.name != hero_name
+        ):
+            opponent_manager.observe_action(
+                observer=hero_name,
+                opponent=current_player.name,
+                action=action,
+                phase=phase_name,
+                is_voluntary=True,
+                hand_number=hand_number,
             )
 
         # play_turn expects raise_to as absolute amount for 'raise' action
@@ -321,6 +366,11 @@ def run_matchup(
     name_b = 'P2'
     deltas_a: List[float] = []
 
+    # Phase 6: one manager per matchup so observations accumulate across
+    # hands. Hero is name_a (the first archetype). Manager is attached to
+    # ctrl_a below in the hand loop.
+    opponent_manager = OpponentModelManager()
+
     for hand_num in tqdm(range(n_hands), desc=f"  {archetype_a} vs {archetype_b}", leave=False, file=sys.stderr):
         hand_seed = base_seed + hand_num
         dealer_idx = hand_num % 2  # alternate button for fairness
@@ -341,7 +391,18 @@ def run_matchup(
             name_b, config_b, strategy_table, sm, rng_seed=hand_seed + 1_000_000,
         )
 
-        final_stacks = run_hand(sm, [ctrl_a, ctrl_b], big_blind, verbose=verbose)
+        # Attach the shared manager to the hero controller for this hand.
+        ctrl_a.opponent_model_manager = opponent_manager
+        opponent_manager.record_hand_dealt(
+            observer=name_a, opponents=[name_b], hand_number=hand_num,
+        )
+
+        final_stacks = run_hand(
+            sm, [ctrl_a, ctrl_b], big_blind, verbose=verbose,
+            opponent_manager=opponent_manager,
+            hero_name=name_a,
+            hand_number=hand_num,
+        )
         delta_a = final_stacks.get(name_a, starting_stack) - starting_stack
         deltas_a.append(delta_a)
 
@@ -380,6 +441,7 @@ def run_6max_matchup(
     base_seed: int = 42,
     verbose: bool = False,
     opponents: Optional[List[str]] = None,
+    hero_adaptation_bias: Optional[float] = None,
 ) -> List[float]:
     """Run n_hands of 6-max poker: 1 archetype + 5 opponents.
 
@@ -408,10 +470,17 @@ def run_6max_matchup(
     archetype_seat = hero_name
     all_names = [archetype_seat] + opponent_seats
 
-    config_arch = ARCHETYPES[archetype]
+    config_arch = apply_adaptation_bias_override(
+        ARCHETYPES[archetype], hero_adaptation_bias
+    )
     opp_configs = [ARCHETYPES[o] for o in opponents]
     opp_desc = '+'.join(opponents) if len(set(opponents)) > 1 else f'5x {opponents[0]}'
     deltas: List[float] = []
+
+    # Phase 6: one manager per matchup so observations accumulate across
+    # hands. Hero is archetype_seat (the first controller). Manager is
+    # attached to controllers[0] below in the hand loop.
+    opponent_manager = OpponentModelManager()
 
     for hand_num in tqdm(
         range(n_hands),
@@ -444,7 +513,20 @@ def run_6max_matchup(
                 )
             )
 
-        final_stacks = run_hand(sm, controllers, big_blind, verbose=verbose)
+        # Attach the shared manager to the hero controller for this hand.
+        controllers[0].opponent_model_manager = opponent_manager
+        opponent_manager.record_hand_dealt(
+            observer=archetype_seat,
+            opponents=opponent_seats,
+            hand_number=hand_num,
+        )
+
+        final_stacks = run_hand(
+            sm, controllers, big_blind, verbose=verbose,
+            opponent_manager=opponent_manager,
+            hero_name=archetype_seat,
+            hand_number=hand_num,
+        )
         delta = final_stacks.get(archetype_seat, starting_stack) - starting_stack
         deltas.append(delta)
 
@@ -458,6 +540,7 @@ def run_all_6max_vs_baseline(
     starting_stack: int,
     seed: int,
     verbose: bool = False,
+    hero_adaptation_bias: Optional[float] = None,
 ):
     """Run each archetype vs 5 baselines at 6-max."""
     print(f"\nBB/100 Simulation: 6-MAX, {n_hands} hands per archetype, seed={seed}")
@@ -478,6 +561,7 @@ def run_all_6max_vs_baseline(
             name, n_hands, strategy_table,
             big_blind=big_blind, starting_stack=starting_stack,
             base_seed=seed, verbose=verbose,
+            hero_adaptation_bias=hero_adaptation_bias,
         )
         results[name] = compute_stats(deltas, big_blind)
 
@@ -502,6 +586,7 @@ def run_all_6max_vs_rules(
     seed: int,
     verbose: bool = False,
     opponents: Optional[List[str]] = None,
+    hero_adaptation_bias: Optional[float] = None,
 ):
     """Run each tiered archetype vs a fixed mix of 5 rule_bots at 6-max.
 
@@ -531,6 +616,7 @@ def run_all_6max_vs_rules(
             big_blind=big_blind, starting_stack=starting_stack,
             base_seed=seed, verbose=verbose,
             opponents=opponents,
+            hero_adaptation_bias=hero_adaptation_bias,
         )
         results[name] = compute_stats(deltas, big_blind)
 
@@ -810,6 +896,12 @@ def main():
         help='Baseline opponent for vs-all mode (default: TAG)',
     )
     parser.add_argument(
+        '--adaptation-bias', type=float, default=None,
+        help='Override adaptation_bias on the hero archetype anchors '
+             '(Phase 6 validation: use 0.05 for no-exploit floor, 0.85 '
+             'for full exploitation). Applies only to 6-max modes.',
+    )
+    parser.add_argument(
         '--verbose', action='store_true',
         help='Per-hand action logging',
     )
@@ -837,11 +929,13 @@ def main():
             args.hands, strategy_table, args.big_blind,
             args.stack, args.seed, verbose=args.verbose,
             opponents=custom_opp,
+            hero_adaptation_bias=args.adaptation_bias,
         )
     elif args.six_max:
         run_all_6max_vs_baseline(
             args.hands, strategy_table, args.big_blind,
             args.stack, args.seed, verbose=args.verbose,
+            hero_adaptation_bias=args.adaptation_bias,
         )
     elif args.round_robin:
         run_round_robin(

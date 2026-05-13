@@ -28,6 +28,19 @@ from .strategy.action_mapper import resolve_preflop_sizing, resolve_postflop_siz
 from .strategy.hand_classification import simplify_hand_class
 from .strategy.multiway import apply_multiway_adjustment
 from .strategy.math_floor import apply_pot_odds_floor
+from .strategy.exploitation import (
+    compute_exploitation_offsets,
+    apply_exploitation_offsets,
+    classify_detected_patterns,
+    DecisionContext,
+    AggregatedOpponentStats,
+)
+from .strategy.value_override import (
+    HandStrengthClass,
+    should_apply_value_override,
+    compute_value_override_strategy,
+)
+from .hand_tiers import is_hand_in_range
 from .strategy.expression_context import ExpressionContext
 from .strategy.expression_generator import ExpressionGenerator
 from .archetypes import classify_from_anchors
@@ -186,6 +199,22 @@ class TieredBotController(AIPlayerController):
                 f"modified_strategy={modified_strategy.action_probabilities}"
             )
 
+        # Phase 6: opponent exploitation (between personality and math floor)
+        modified_strategy = self._apply_exploitation(
+            modified_strategy, game_state, player_idx, valid_actions,
+            anchors, emotional_state,
+        )
+
+        # Phase 6.5: strong-hand value override.
+        # Replaces strategy entirely when hero has a top-tier hand vs a
+        # detected hyper-aggressive opponent — offsets can't shift
+        # probability mass enough for these spots.
+        modified_strategy = self._apply_value_override(
+            modified_strategy, game_state, player_idx, valid_actions,
+            anchors, emotional_state,
+            hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
+        )
+
         # Math floor: override when pot odds / pot-committed / short stack
         # make personality-driven folds clearly -EV.
         modified_strategy = self._apply_math_floor(
@@ -327,6 +356,22 @@ class TieredBotController(AIPlayerController):
                     f"result={modified_strategy.action_probabilities}"
                 )
 
+        # 6a. Phase 6: opponent exploitation (between personality and math floor)
+        modified_strategy = self._apply_exploitation(
+            modified_strategy, game_state, player_idx, valid_actions,
+            anchors, emotional_state,
+        )
+
+        # 6a.5 Phase 6.5: strong-hand value override.
+        # Replaces strategy when hero has a strong made hand vs a detected
+        # hyper-aggressive opponent. Sits after exploitation so it takes
+        # precedence on the few decisions where it fires.
+        modified_strategy = self._apply_value_override(
+            modified_strategy, game_state, player_idx, valid_actions,
+            anchors, emotional_state,
+            hand_strength=self._classify_postflop_hand_strength(node),
+        )
+
         # 6b. Math floor — override when arithmetic mandates a call/jam.
         # Runs AFTER personality + river guardrail so it has final say.
         modified_strategy = self._apply_math_floor(
@@ -374,6 +419,381 @@ class TieredBotController(AIPlayerController):
         }
         self._attach_expression(decision, game_state, player_idx, phase=node.street)
         return decision
+
+    def _apply_exploitation(
+        self, strategy, game_state, player_idx, valid_actions,
+        anchors, emotional_state,
+    ):
+        """Phase 6 opponent exploitation step.
+
+        Inserts between personality distortion and math floor. No-ops when:
+        - opponent_model_manager is not attached (sim or test without manager)
+        - anchors is None (BaselineSolverBot)
+        - aggregated stats produce no offsets (cold start, low adaptation_bias,
+          heavy tilt, or no opponent matches an exploitation rule)
+        """
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None or anchors is None:
+            return strategy
+
+        decision_context = self._build_decision_context(game_state, player_idx)
+        tilt_factor = self._zone_to_tilt_factor(emotional_state)
+
+        hero_name = self.player_name
+        active_opponents = [
+            p.name for p in game_state.players
+            if not getattr(p, 'is_folded', False) and p.name != hero_name
+        ]
+        money_committed = self._get_money_committed(game_state)
+
+        # Prefer per-aggressor stats when facing a bet. Aggregated stats
+        # across 5 mixed opponents wash out individual signals — a maniac
+        # in a 5-rule mix produces avg AF ~2 (below the trigger). Looking
+        # at the specific aggressor's stats correctly identifies them.
+        stats = self._select_exploitation_stats(
+            game_state, manager, hero_name, active_opponents, money_committed,
+        )
+
+        exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
+        offsets = compute_exploitation_offsets(
+            stats=stats,
+            adaptation_bias=anchors.adaptation_bias,
+            decision_context=decision_context,
+            available_actions=list(strategy.action_probabilities.keys()),
+            tilt_factor=tilt_factor,
+            exploitation_strength=exploitation_strength,
+        )
+
+        # Diagnostic counters: track detection vs firing per rule. Useful
+        # for sim runs to see if exploitation is actually engaging.
+        self._tally_exploitation_event(stats, offsets, decision_context)
+
+        if not offsets:
+            return strategy
+
+        if self.debug_logging:
+            logger.info(
+                f"[TIERED_BOT] {self.player_name}: "
+                f"exploitation offsets={offsets}"
+            )
+
+        return apply_exploitation_offsets(
+            strategy=strategy,
+            offsets=offsets,
+            legal_actions=valid_actions,
+            max_total_shift=self._pick_max_total_shift(stats, decision_context),
+        )
+
+    def _pick_max_total_shift(self, stats, decision_context):
+        """Choose the L1 clamp based on context.
+
+        The 0.4 default preserves table-baseline-as-dominant signal — a
+        reasonable invariant for typical decisions. But when we're facing
+        aggression from a detected hyper-aggressive opponent (wide shove
+        range), the table baseline is *known wrong* — its preflop chart
+        assumes a neutral opener, not a maniac shoving junk. In that
+        narrow case we accept more deviation, raising to 0.6 so the
+        exploitation offsets can actually flip marginal calls.
+
+        Returns 0.4 in all other contexts.
+        """
+        is_extreme_spot = (
+            (decision_context.facing_all_in or decision_context.facing_big_bet)
+            and 'hyper_aggressive' in classify_detected_patterns(stats)
+        )
+        return 0.6 if is_extreme_spot else 0.4
+
+    def _apply_value_override(
+        self, strategy, game_state, player_idx, valid_actions,
+        anchors, emotional_state, hand_strength,
+    ):
+        """Phase 6.5: strong-hand value override.
+
+        Replaces the strategy distribution (not nudges it) when hero has
+        a top-tier hand against a detected hyper-aggressive opponent.
+        Bypasses offset-based shaping which can't shift probability mass
+        far enough for these high-conviction spots.
+
+        Same gating as exploitation: no-ops when manager not attached,
+        anchors None, opponent not aggressive, hand not strong enough,
+        or psychology gates suppress.
+        """
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None or anchors is None:
+            return strategy
+
+        decision_context = self._build_decision_context(game_state, player_idx)
+        tilt_factor = self._zone_to_tilt_factor(emotional_state)
+
+        hero_name = self.player_name
+        active_opponents = [
+            p.name for p in game_state.players
+            if not getattr(p, 'is_folded', False) and p.name != hero_name
+        ]
+        money_committed = self._get_money_committed(game_state)
+        stats = self._select_exploitation_stats(
+            game_state, manager, hero_name, active_opponents, money_committed,
+        )
+
+        should_fire = should_apply_value_override(
+            stats=stats,
+            hand_strength=hand_strength,
+            decision_context=decision_context,
+            adaptation_bias=anchors.adaptation_bias,
+            tilt_factor=tilt_factor,
+        )
+
+        self._tally_value_override_event(stats, hand_strength, should_fire)
+
+        if not should_fire:
+            return strategy
+
+        if self.debug_logging:
+            logger.info(
+                f"[TIERED_BOT] {self.player_name}: "
+                f"value_override fired hand={hand_strength}"
+            )
+
+        return compute_value_override_strategy(
+            strategy=strategy,
+            decision_context=decision_context,
+            hand_strength=hand_strength,
+        )
+
+    def _classify_preflop_hand_strength(self, canonical_hand, anchors):
+        """'strong' if hand in archetype-adjusted top-N% range, else 'not_strong'.
+
+        Threshold scales with anchors.baseline_looseness so a nit's value
+        range is narrower than a maniac's. Capped at top 25% even for
+        loose archetypes — dominated hands shouldn't override.
+        """
+        if not canonical_hand:
+            return HandStrengthClass.NOT_STRONG.value
+        looseness = getattr(anchors, 'baseline_looseness', 0.4) if anchors else 0.4
+        if looseness < 0.30:
+            threshold = 0.10   # Nit / Rock
+        elif looseness < 0.50:
+            threshold = 0.15   # TAG / Calling Station
+        elif looseness < 0.70:
+            threshold = 0.20   # LAG-ish
+        else:
+            threshold = 0.25   # Maniac (capped — codex feedback)
+        if is_hand_in_range(canonical_hand, threshold):
+            return HandStrengthClass.STRONG.value
+        return HandStrengthClass.NOT_STRONG.value
+
+    def _classify_postflop_hand_strength(self, node):
+        """Map PostflopNode → simplified hand class string ('nuts',
+        'strong_made', 'medium_made', etc.). Reuses the same classifier
+        used by the river bluff guardrail.
+        """
+        return simplify_hand_class(node.made_tier, node.draw_modifier)
+
+    def _tally_value_override_event(self, stats, hand_strength, fired):
+        """Diagnostic counters for value override (parallel to exploitation tally).
+
+        Tracked keys (under manager._exploitation_counters for unified output):
+          value_override_eligible_strong   — strong hand observed
+          value_override_eligible_aggro    — aggressor detected
+          value_override_fired             — override actually replaced strategy
+        """
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return
+        if not hasattr(manager, '_exploitation_counters'):
+            from collections import Counter
+            manager._exploitation_counters = Counter()
+        c = manager._exploitation_counters
+        is_strong = hand_strength in {
+            HandStrengthClass.NUTS.value,
+            HandStrengthClass.STRONG_MADE.value,
+            HandStrengthClass.STRONG.value,
+        }
+        if is_strong:
+            c['value_override_eligible_strong'] += 1
+        if 'hyper_aggressive' in classify_detected_patterns(stats):
+            c['value_override_eligible_aggro'] += 1
+        if fired:
+            c['value_override_fired'] += 1
+
+    def _tally_exploitation_event(self, stats, offsets, decision_context):
+        """Increment diagnostic counters for this decision.
+
+        Counters live on opponent_model_manager (persists across hands)
+        rather than the controller (rebuilt per hand in sims).
+
+        Tracked keys:
+          decisions             — total decisions that reached this step
+          cold_start            — gated off (hands_observed below min)
+          detected_<pattern>    — pattern was detected (regardless of firing)
+          fired                 — offsets came back non-empty
+          detected_but_no_fire  — patterns detected but rule didn't fire
+                                  (e.g. tight_nit detected outside open spot,
+                                   or gated by adaptation_bias × tilt floor)
+          no_pattern_matched    — past cold-start, no pattern matched stats
+        """
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return
+        if not hasattr(manager, '_exploitation_counters'):
+            from collections import Counter
+            manager._exploitation_counters = Counter()
+        c = manager._exploitation_counters
+        c['decisions'] += 1
+
+        # Cold-start gating is internal to compute_exploitation_offsets;
+        # we mirror its checks here for diagnostic visibility.
+        if stats.hands_observed < 15:
+            c['cold_start'] += 1
+            return
+
+        patterns_this_decision = classify_detected_patterns(stats)
+        for pattern in patterns_this_decision:
+            c[f'detected_{pattern}'] += 1
+
+        if offsets:
+            c['fired'] += 1
+        elif patterns_this_decision:
+            # Detected but didn't fire — likely tight_nit-only in a non-open spot,
+            # or gated by the (bias × tilt) floor.
+            c['detected_but_no_fire'] += 1
+        else:
+            c['no_pattern_matched'] += 1
+
+    def _select_exploitation_stats(
+        self, game_state, manager, hero_name,
+        active_opponents, money_committed,
+    ):
+        """Choose stats source: per-aggressor when facing a bet, aggregated otherwise.
+
+        Aggregated stats wash out individual opponent signals in mixed
+        fields. When one opponent is driving the action (their current
+        bet > everyone else's), we exploit *their* stats directly. When
+        no single aggressor exists (open spots, limped pots), fall back
+        to aggregated stats with the multiway 60% rule.
+        """
+        call_amount = getattr(game_state, 'call_amount', 0) or 0
+        if call_amount > 0:
+            aggressor = self._identify_recent_aggressor(game_state)
+            if aggressor:
+                model = manager.get_model(hero_name, aggressor)
+                t = model.tendencies
+                if t.hands_observed > 0:
+                    return AggregatedOpponentStats(
+                        hands_observed=t.hands_observed,
+                        vpip=t.vpip,
+                        pfr=t.pfr,
+                        aggression_factor=t.aggression_factor,
+                        all_in_frequency=t.all_in_frequency,
+                    )
+        return manager.aggregate_active_opponents(
+            observer=hero_name,
+            active_opponents=active_opponents,
+            money_committed=money_committed,
+        )
+
+    def _identify_recent_aggressor(self, game_state):
+        """Return the single non-hero opponent with the strictly highest
+        current-street bet, or None if no clear aggressor.
+
+        "Strictly highest" matters: in a limped pot everyone has the
+        same bet (one BB) and there's no aggressor. When one player has
+        raised and others have just called, the raiser is the aggressor.
+        """
+        hero_name = self.player_name
+        candidates = []
+        max_bet = 0
+        for p in game_state.players:
+            if p.name == hero_name or getattr(p, 'is_folded', False):
+                continue
+            opp_bet = getattr(p, 'bet', 0) or 0
+            if opp_bet > max_bet:
+                max_bet = opp_bet
+                candidates = [p.name]
+            elif opp_bet == max_bet and opp_bet > 0:
+                candidates.append(p.name)
+        if max_bet == 0 or len(candidates) != 1:
+            return None
+        return candidates[0]
+
+    def _build_decision_context(self, game_state, player_idx):
+        """Build DecisionContext from game state.
+
+        - is_preflop: phase.name == 'PRE_FLOP'
+        - facing_all_in: there's a call_amount > 0 AND some active non-hero
+          opponent has stack 0 (they're all-in)
+        - facing_big_bet: call_amount > 10 BB AND call_amount > pot/2,
+          AND NOT facing_all_in
+        """
+        phase = self.state_machine.current_phase
+        is_preflop = phase is not None and phase.name == 'PRE_FLOP'
+
+        big_blind = getattr(game_state, 'big_blind', 100) or 100
+        call_amount = getattr(game_state, 'call_amount', 0) or 0
+
+        pot = getattr(game_state, 'pot', None)
+        if isinstance(pot, dict):
+            pot_total = pot.get('total', 0)
+        else:
+            pot_total = pot or 0
+
+        facing_all_in = False
+        hero_name = self.player_name
+        if call_amount > 0:
+            for p in game_state.players:
+                if p.name == hero_name:
+                    continue
+                if getattr(p, 'is_folded', False):
+                    continue
+                if getattr(p, 'stack', 1) <= 0:
+                    facing_all_in = True
+                    break
+
+        facing_big_bet = (
+            not facing_all_in
+            and call_amount > 10 * big_blind
+            and call_amount > pot_total / 2
+        )
+
+        return DecisionContext(
+            is_preflop=is_preflop,
+            facing_all_in=facing_all_in,
+            facing_big_bet=facing_big_bet,
+        )
+
+    def _zone_to_tilt_factor(self, emotional_state) -> float:
+        """Map emotional_state.state -> 3-phase tilt_factor.
+
+        composed -> 1.0 (full exploitation)
+        overconfident/tilted -> 0.5 (slight tilt, half-strength)
+        shaken/dissociated -> 0.0 (heavy tilt, no exploitation)
+        """
+        if emotional_state is None:
+            return 1.0
+        state = getattr(emotional_state, 'state', 'composed')
+        if state in ('shaken', 'dissociated'):
+            return 0.0
+        if state in ('tilted', 'overconfident'):
+            return 0.5
+        return 1.0
+
+    def _get_money_committed(self, game_state):
+        """Per-opponent chips committed this hand.
+
+        Tries player.total_bet first (preferred if available), then falls
+        back to player.bet (current street only). Returns empty dict if
+        neither attribute is available.
+        """
+        money = {}
+        hero_name = self.player_name
+        for p in game_state.players:
+            if p.name == hero_name:
+                continue
+            total = getattr(p, 'total_bet', None)
+            if total is None:
+                total = getattr(p, 'bet', 0) or 0
+            money[p.name] = float(total)
+        return money
 
     def _apply_math_floor(
         self, strategy, game_state, player_idx: int, valid_actions: List[str],
