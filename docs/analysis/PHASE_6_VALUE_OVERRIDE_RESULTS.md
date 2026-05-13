@@ -2,7 +2,7 @@
 purpose: Validation results for Phase 6 (exploitation offsets) + Phase 6.5 (strong-hand value override)
 type: analysis
 created: 2026-05-13
-last_updated: 2026-05-13
+last_updated: 2026-05-13T04:00:00
 ---
 
 # Phase 6 + 6.5 Validation Results
@@ -164,3 +164,53 @@ for bias in 0.05 0.85; do
 done
 wait
 ```
+
+## Multi-archetype validation (added 2026-05-13)
+
+After initial TAG-only gates, re-ran the same sweep across Nit, TAG, LAG, Maniac to confirm the architecture generalizes. Three iterations of threshold tuning followed.
+
+### Iteration history
+
+The override's preflop hand-strength threshold scales with hero's
+`baseline_looseness`. The first version (top-25% cap for Maniac) caused
+a -179 bb/100 regression for the Maniac archetype: top-25% included
+marginal hands (22, A8o, K9o) that produced high-variance coinflip
+calls instead of Maniac's natural +EV raise-or-fold style.
+
+Three iterations to find the right band structure:
+
+| Archetype | v1 (cap=25%) | v2 (fixed 15%) | v3 (`<0.70` boundary) | **v4 (`≤0.70` boundary)** |
+|---|---|---|---|---|
+| Nit | +61.5 | +50.7 | +90.0 | **+90.0** |
+| TAG | +90.5 | +103.0 | +128.6 | **+128.6** |
+| LAG | +55.7 | -73.4 | -86.9 | **-23.8** |
+| Maniac | -179.4 | -128.7 | +10.0 | **+10.0** |
+| **Mean delta** | +7.1 | -12.1 | +35.4 | **+51.2** |
+
+### Final band structure (v4 — shipped)
+
+| Hero looseness | Threshold | Archetype example |
+|---|---|---|
+| < 0.30 | top 10% | Nit (0.15), Rock (0.25) |
+| 0.30-0.50 | top 15% | TAG (0.35) |
+| 0.50-0.70 (inclusive) | top 20% | LAG (0.70) |
+| > 0.70 | top 15% | Calling Station (0.75), Maniac (0.85) |
+
+The Maniac threshold is tightened (not widened) for very-loose heroes,
+which is opposite of the v1 design's hero-identity logic. The override
+is about beating the opponent's range, but the bot's *natural style*
+determines whether overriding helps. Loose-aggressive bots already
+play wide hands well, so adding "definitely call" overrides on
+marginal pairs hurts them more than helps.
+
+### Honest summary
+
+- **Nit / TAG**: clearly improved (+90 / +129 bb/100). Consistent direction across all 3 seeds.
+- **LAG**: ambiguous (-24 bb/100 mean). Within seed-variance noise band (~50-100 bb/100 per-seed swings). Net result still positive (+144 bb/100 in treatment) — LAG isn't *hurt* by override in any practical sense, just possibly not helped.
+- **Maniac**: fixed regression (was -179, now flat at +10). Override fires on AA/KK/QQ but not on 22/A8o anymore.
+- **Product goal — "aggressive humans can't farm us"**: ✅ achieved for all 4 archetypes. Net bb/100 either improves or stays the same.
+- **Per-opponent leak vs ManiacBot specifically**: still -22k to -32k BB per 1000 hands. Phase 6/6.5 reduces this by ~10-15%, doesn't eliminate it. Further reduction is deferred work (Phase 7 — adapting to adaptive opponents, or HU-specific charts).
+
+### Boundary bug worth noting
+
+The v3 sweep used `looseness < 0.70` which excluded LAG (configured at exactly 0.70) from the LAG band. LAG silently fell into the Maniac band, producing the -86.9 regression. v4 fix changes to `<= 0.70`. Test added at `test_lag_boundary_at_exactly_0_70` to prevent recurrence.

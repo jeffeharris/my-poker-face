@@ -560,24 +560,36 @@ class TieredBotController(AIPlayerController):
             hand_strength=hand_strength,
         )
 
-    def _classify_preflop_hand_strength(self, canonical_hand, anchors):
-        """'strong' if hand in archetype-adjusted top-N% range, else 'not_strong'.
+    def _classify_preflop_hand_strength(self, canonical_hand, anchors=None):
+        """'strong' if hand in archetype-scaled override range, else 'not_strong'.
 
-        Threshold scales with anchors.baseline_looseness so a nit's value
-        range is narrower than a maniac's. Capped at top 25% even for
-        loose archetypes — dominated hands shouldn't override.
+        Phase 6.5 v3: looseness-scaled with TIGHTER cap for very-loose
+        heroes (Maniac). The full validation history:
+          - v1 (cap=25% for Maniac): LAG +56 bb/100, Maniac -179 bb/100
+          - v2 (fixed 15% for all):  LAG -73 bb/100, Maniac -129 bb/100
+          - v3 (cap=15% for Maniac): keeps LAG benefit; tightens Maniac
+            to avoid 22/A8o/K9o coinflips that hurt its raise-or-fold style.
+
+        The intuition: LAGs benefit from a wider override because hands
+        like 88 / AJo are profitable calls vs maniac shoves AND already
+        in LAG's natural value range. Maniacs DON'T benefit on those same
+        hands because their aggressive style produces +EV via raise-or-
+        fold rather than coinflip-calls — override changes that.
         """
         if not canonical_hand:
             return HandStrengthClass.NOT_STRONG.value
         looseness = getattr(anchors, 'baseline_looseness', 0.4) if anchors else 0.4
+        # Boundaries use <= on the upper bound so archetypes configured
+        # exactly at the threshold (LAG looseness=0.70) land in the
+        # intended band rather than slipping into the next one.
         if looseness < 0.30:
             threshold = 0.10   # Nit / Rock
         elif looseness < 0.50:
-            threshold = 0.15   # TAG / Calling Station
-        elif looseness < 0.70:
-            threshold = 0.20   # LAG-ish
+            threshold = 0.15   # TAG (Calling Station also lands here)
+        elif looseness <= 0.70:
+            threshold = 0.20   # LAG (0.70) — top 20% includes 88/AJo
         else:
-            threshold = 0.25   # Maniac (capped — codex feedback)
+            threshold = 0.15   # Maniac (0.85+) — tightened to avoid coinflips
         if is_hand_in_range(canonical_hand, threshold):
             return HandStrengthClass.STRONG.value
         return HandStrengthClass.NOT_STRONG.value
