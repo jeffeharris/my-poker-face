@@ -42,9 +42,12 @@ from .strategy.exploitation import (
     select_primary_aggressor,
 )
 from .strategy.value_override import (
+    BLUFF_CATCH_TRIGGER_CLASSES,
     HandStrengthClass,
-    should_apply_value_override,
+    compute_bluff_catch_strategy,
     compute_value_override_strategy,
+    should_apply_bluff_catch_override,
+    should_apply_value_override,
 )
 from .strategy.short_stack import apply_short_stack_heuristics
 from .hand_tiers import is_hand_in_range
@@ -395,10 +398,23 @@ class TieredBotController(AIPlayerController):
         # Replaces strategy when hero has a strong made hand vs a detected
         # hyper-aggressive opponent. Sits after exploitation so it takes
         # precedence on the few decisions where it fires.
+        hand_strength = self._classify_postflop_hand_strength(node)
         modified_strategy = self._apply_value_override(
             modified_strategy, game_state, player_idx, valid_actions,
             anchors, emotional_state,
-            hand_strength=self._classify_postflop_hand_strength(node),
+            hand_strength=hand_strength,
+        )
+
+        # 6a.5b Phase 7.5 Item 1: bluff-catch override.
+        # Mutually exclusive with the strong-hand override above (trigger
+        # classes are disjoint by hand_strength). Replaces strategy with
+        # a pot-odds-conditional {call, fold} distribution when hero has
+        # a marginal made hand (medium/weak) vs a confirmed EXTREME-tier
+        # aggressor, with multiway / dangerous-board suppression applied.
+        modified_strategy = self._apply_bluff_catch_override(
+            modified_strategy, game_state, player_idx, valid_actions,
+            anchors, emotional_state,
+            hand_strength=hand_strength,
         )
 
         # 6a.6 Phase 6 Step B: short-stack heuristic. Suppress medium-raise
@@ -706,6 +722,103 @@ class TieredBotController(AIPlayerController):
         used by the river bluff guardrail.
         """
         return simplify_hand_class(node.made_tier, node.draw_modifier)
+
+    def _apply_bluff_catch_override(
+        self, strategy, game_state, player_idx, valid_actions,
+        anchors, emotional_state, hand_strength,
+    ):
+        """Phase 7.5 Item 1: bluff-catch override for marginal hands
+        vs confirmed extreme aggressors.
+
+        Mutually exclusive with the strong-hand value override (the two
+        trigger classes are disjoint — see BLUFF_CATCH_TRIGGER_CLASSES vs
+        _OVERRIDE_TRIGGER_CLASSES). When this fires, it replaces the
+        strategy with a pot-odds-conditional {call, fold} distribution
+        (dampened by board texture / street / paired-board flag) and
+        clamps the L1 shift to the active EXTREME tier envelope.
+
+        Early-out paths:
+          - manager not attached or anchors None
+          - hand_strength outside bluff-catch trigger classes (skip
+            without expensive spot/stats build)
+        """
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None or anchors is None:
+            return strategy
+
+        # Cheap gate: skip the spot/stats build entirely when the hand
+        # class doesn't trigger bluff-catch. Avoids work on the bulk of
+        # postflop decisions (strong / not_strong / weak_draw / etc.).
+        if hand_strength not in BLUFF_CATCH_TRIGGER_CLASSES:
+            return strategy
+
+        tilt_factor = self._zone_to_tilt_factor(emotional_state)
+
+        spots = self._build_opponent_spots(game_state, manager)
+        stats, primary_spot, _ambiguous = (
+            self._select_exploitation_stats_from_spots(spots, game_state)
+        )
+
+        decision_context = self._build_decision_context(
+            game_state, player_idx,
+            primary_aggressor_spot=primary_spot,
+        )
+
+        # Re-compute clamp (with recent_stats from the primary aggressor's
+        # sliding window) to determine if EXTREME tier is active.
+        # _compute_clamp was added in Item 2c.
+        clamp_value, clamp_tier, _winning_axis = self._compute_clamp(
+            stats, manager, primary_spot,
+        )
+
+        should_fire = should_apply_bluff_catch_override(
+            spots=spots,
+            hand_strength=hand_strength,
+            decision_context=decision_context,
+            adaptation_bias=anchors.adaptation_bias,
+            tilt_factor=tilt_factor,
+            clamp_tier=clamp_tier,
+            aggressor_spot=primary_spot,
+        )
+
+        self._tally_bluff_catch_event(hand_strength, should_fire)
+
+        if not should_fire:
+            return strategy
+
+        override = compute_bluff_catch_strategy(
+            strategy=strategy,
+            decision_context=decision_context,
+            hand_strength=hand_strength,
+            max_total_shift=clamp_value,
+        )
+
+        if self.debug_logging:
+            logger.info(
+                f"[TIERED_BOT] {self.player_name}: "
+                f"BLUFF-CATCH override {hand_strength} vs "
+                f"{primary_spot.name if primary_spot else 'aggregate'} "
+                f"@ bet_ratio={decision_context.bet_size_pot_ratio:.2f} "
+                f"texture={decision_context.board_texture} "
+                f"street={decision_context.street} → "
+                f"{dict(override.action_probabilities)}"
+            )
+
+        return override
+
+    def _tally_bluff_catch_event(self, hand_strength, fired):
+        """Per-decision diagnostic counters for bluff-catch."""
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return
+        if not hasattr(manager, '_exploitation_counters'):
+            from collections import Counter
+            manager._exploitation_counters = Counter()
+        c = manager._exploitation_counters
+        if hand_strength in BLUFF_CATCH_TRIGGER_CLASSES:
+            c['bluff_catch_eligible'] += 1
+        if fired:
+            c['bluff_catch_fired'] += 1
 
     def _tally_value_override_event(self, stats, hand_strength, fired):
         """Diagnostic counters for value override (parallel to exploitation tally).
@@ -1230,6 +1343,49 @@ class TieredBotController(AIPlayerController):
             if primary_aggressor_spot is not None else None
         )
 
+        # Phase 7.5 Item 1c: postflop spot detail for bluff-catch.
+        # bet_size_pot_ratio is computed pre-call (pot before opponent's
+        # bet would be pot_total - call_amount, but the absolute bet to
+        # face is call_amount itself; the standard ratio is bet / pot).
+        # Use call_amount as the "bet to face" and pot_total - call_amount
+        # as the pot BEFORE the bet for the canonical pot-odds ratio.
+        bet_size_pot_ratio = 0.0
+        if call_amount > 0:
+            pot_before_bet = max(pot_total - call_amount, 1)
+            bet_size_pot_ratio = float(call_amount) / float(pot_before_bet)
+
+        # Street label normalized lowercase ('flop' / 'turn' / 'river' / '').
+        street_label = ''
+        if phase is not None:
+            phase_name = (phase.name or '').upper()
+            if phase_name in ('FLOP', 'TURN', 'RIVER'):
+                street_label = phase_name.lower()
+
+        # Board texture + paired-board signal. Derived from community
+        # cards if available; otherwise blank (preflop or no cards).
+        board_texture = ''
+        is_paired_board = False
+        community = getattr(game_state, 'community_cards', None) or []
+        if community and len(community) >= 3:
+            try:
+                from .card_utils import card_to_string
+                from .board_analyzer import (
+                    classify_texture_bucket, analyze_board_texture,
+                )
+                card_strs = [
+                    c if isinstance(c, str) else card_to_string(c)
+                    for c in community
+                ]
+                board_texture = classify_texture_bucket(card_strs) or ''
+                analysis = analyze_board_texture(card_strs) or {}
+                is_paired_board = bool(analysis.get('paired', False))
+            except Exception:
+                # Defensive: if cards aren't in expected format, leave
+                # the fields blank — bluff-catch gate will treat that as
+                # safe (no danger dampening + paired flag False).
+                board_texture = ''
+                is_paired_board = False
+
         return DecisionContext(
             is_preflop=is_preflop,
             facing_all_in=facing_all_in,
@@ -1237,6 +1393,10 @@ class TieredBotController(AIPlayerController):
             is_flop_as_preflop_aggressor=is_flop_as_preflop_aggressor,
             active_opponent_count=active_opponent_count,
             facing_aggressor_name=facing_aggressor_name,
+            bet_size_pot_ratio=bet_size_pot_ratio,
+            street=street_label,
+            board_texture=board_texture,
+            is_paired_board=is_paired_board,
         )
 
     def _zone_to_tilt_factor(self, emotional_state) -> float:
