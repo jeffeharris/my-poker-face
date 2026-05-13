@@ -479,13 +479,13 @@ class TieredBotController(AIPlayerController):
         # via aggregate_from_spots(), so unmigrated rules see identical
         # behavior in unambiguous cases.
         spots = self._build_opponent_spots(game_state, manager)
-        stats, aggressor_name, ambiguous = (
+        stats, primary_spot, ambiguous = (
             self._select_exploitation_stats_from_spots(spots, game_state)
         )
 
         decision_context = self._build_decision_context(
             game_state, player_idx,
-            facing_aggressor_name=aggressor_name,
+            primary_aggressor_spot=primary_spot,
         )
 
         # Phase 6.7b Part A: pre-compute multiway c-bet intensity from
@@ -579,13 +579,13 @@ class TieredBotController(AIPlayerController):
         # aggressor selection as exploitation. Behavior is identical to
         # the legacy path in unambiguous cases.
         spots = self._build_opponent_spots(game_state, manager)
-        stats, aggressor_name, _ambiguous = (
+        stats, primary_spot, _ambiguous = (
             self._select_exploitation_stats_from_spots(spots, game_state)
         )
 
         decision_context = self._build_decision_context(
             game_state, player_idx,
-            facing_aggressor_name=aggressor_name,
+            primary_aggressor_spot=primary_spot,
         )
 
         should_fire = should_apply_value_override(
@@ -897,15 +897,18 @@ class TieredBotController(AIPlayerController):
             is_all_in = is_active and stack <= 0
 
             # Pull stats from existing opponent model if present. Use
-            # the manager's get_model() — matches the rest of the
-            # controller's stats access and lets test mocks substitute a
-            # single model for the whole manager. Filter via
-            # hands_observed > 0 so auto-created empty models from
-            # get_model don't produce false stats.
+            # the non-creating accessor — spot construction runs at every
+            # decision for every non-hero player, and using get_model
+            # would silently lazy-create empty models, polluting the
+            # manager dict across a long run. Tests stub get_model_if_
+            # exists; production reads the real dict.
             stats = AggregatedOpponentStats()
             if manager is not None:
+                model = None
                 try:
-                    model = manager.get_model(hero_name, p.name)
+                    accessor = getattr(manager, 'get_model_if_exists', None)
+                    if accessor is not None:
+                        model = accessor(hero_name, p.name)
                 except Exception:
                     model = None
                 if model is not None:
@@ -989,13 +992,16 @@ class TieredBotController(AIPlayerController):
     ):
         """Phase 6.7a: spot-aware facing-aggression selection.
 
-        Returns (stats, aggressor_name, ambiguous) where:
+        Returns (stats, primary_spot, ambiguous) where:
           - stats: AggregatedOpponentStats driving exploitation rules.
             Comes from the selected aggressor's spot when facing a bet
             with an unambiguous primary aggressor; otherwise from
             aggregate_from_spots (60%-rule preserved).
-          - aggressor_name: the picked aggressor (None if aggregate
-            fallback).
+          - primary_spot: the OpponentSpot whose stats drove the
+            decision (None if aggregate fallback). Callers extract
+            both the name AND derived flags (e.g. is_all_in) from this
+            spot rather than re-deriving them from the table — see
+            _build_decision_context for facing_all_in handling.
           - ambiguous: True when facing a bet but select_primary_aggressor
             returned None (multiple opponents tied with no flag and no
             recent_aggressor_name) — used to bump the ambiguous-aggressor
@@ -1034,7 +1040,7 @@ class TieredBotController(AIPlayerController):
             if highest > 0:
                 primary = select_primary_aggressor(spots, highest, recent)
                 if primary is not None and primary.stats.hands_observed > 0:
-                    return primary.stats, primary.name, False
+                    return primary.stats, primary, False
                 if primary is None:
                     ambiguous = True
 
@@ -1078,13 +1084,23 @@ class TieredBotController(AIPlayerController):
         return getattr(self, '_sim_last_preflop_aggressor', None)
 
     def _build_decision_context(
-        self, game_state, player_idx, facing_aggressor_name: Optional[str] = None,
+        self, game_state, player_idx,
+        primary_aggressor_spot: Optional[OpponentSpot] = None,
     ):
         """Build DecisionContext from game state.
 
         - is_preflop: phase.name == 'PRE_FLOP'
-        - facing_all_in: there's a call_amount > 0 AND some active non-hero
-          opponent has stack 0 (they're all-in)
+        - facing_all_in: derived from the selected primary aggressor's
+          spot when one is provided — that opponent is who hero is
+          actually responding to. Falls back to "any non-folded
+          opponent at the live highest bet is all-in" only when no
+          primary aggressor was selected (aggregate fallback path).
+          The fallback matters for ambiguous tied-bet spots; the
+          primary-spot path matters for multiway spots where a deep
+          aggressor and a short-stack all-in caller are tied at the
+          same bet (don't route deep-stack aggression through all-in
+          exploit logic just because someone else is all-in for the
+          same amount).
         - facing_big_bet: call_amount > 10 BB AND call_amount > pot/2,
           AND NOT facing_all_in
         - is_flop_as_preflop_aggressor (Phase 6.6): hero on flop, was the
@@ -1110,26 +1126,41 @@ class TieredBotController(AIPlayerController):
         facing_all_in = False
         hero_name = self.player_name
         if call_amount > 0:
-            highest_opponent_bet = max(
-                (
-                    getattr(p, 'bet', 0) or 0
-                    for p in game_state.players
-                    if p.name != hero_name and not getattr(p, 'is_folded', False)
-                ),
-                default=0,
-            )
-            for p in game_state.players:
-                if p.name == hero_name:
-                    continue
-                if getattr(p, 'is_folded', False):
-                    continue
-                opponent_bet = getattr(p, 'bet', 0) or 0
-                if (
-                    opponent_bet == highest_opponent_bet
-                    and getattr(p, 'stack', 1) <= 0
-                ):
-                    facing_all_in = True
-                    break
+            if primary_aggressor_spot is not None:
+                # Phase 6.7a fix: derive facing_all_in from the SELECTED
+                # aggressor, not "any tied-at-highest active opponent
+                # is all-in". In multiway with a deep bettor + a short
+                # stack calling all-in for the same amount, the
+                # selector correctly picks the deep aggressor — the
+                # all-in caller is a side-pot artifact, not the
+                # opponent whose stats drive exploitation.
+                facing_all_in = primary_aggressor_spot.is_all_in
+            else:
+                # Aggregate fallback path: no unambiguous primary
+                # aggressor was selected, so use the legacy
+                # "any tied at highest is all-in" semantics. This
+                # matches today's behavior for open spots and
+                # ambiguous tied-bet spots.
+                highest_opponent_bet = max(
+                    (
+                        getattr(p, 'bet', 0) or 0
+                        for p in game_state.players
+                        if p.name != hero_name and not getattr(p, 'is_folded', False)
+                    ),
+                    default=0,
+                )
+                for p in game_state.players:
+                    if p.name == hero_name:
+                        continue
+                    if getattr(p, 'is_folded', False):
+                        continue
+                    opponent_bet = getattr(p, 'bet', 0) or 0
+                    if (
+                        opponent_bet == highest_opponent_bet
+                        and getattr(p, 'stack', 1) <= 0
+                    ):
+                        facing_all_in = True
+                        break
 
         facing_big_bet = (
             not facing_all_in
@@ -1161,6 +1192,11 @@ class TieredBotController(AIPlayerController):
             and call_amount == 0
             and hero_has_bet_raise
             and self._last_preflop_aggressor() == hero_name
+        )
+
+        facing_aggressor_name = (
+            primary_aggressor_spot.name
+            if primary_aggressor_spot is not None else None
         )
 
         return DecisionContext(

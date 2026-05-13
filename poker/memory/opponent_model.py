@@ -692,6 +692,21 @@ class OpponentModelManager:
 
         return self.models[observer][opponent]
 
+    def get_model_if_exists(
+        self, observer: str, opponent: str,
+    ) -> Optional[OpponentModel]:
+        """Return an existing model, or None. Does NOT create one.
+
+        Phase 6.7a spot construction reads stats for every non-hero
+        player in the hand at decision time. Using get_model() there
+        would lazily create empty models for every opponent the hero
+        ever sat with — polluting `self.models` and slowly inflating
+        memory across long runs. The legacy aggregate path at
+        aggregate_active_opponents() explicitly avoided this; this
+        accessor lets read-only callers do the same.
+        """
+        return self.models.get(observer, {}).get(opponent)
+
     def observe_action(self, observer: str, opponent: str, action: str,
                       phase: str, is_voluntary: bool = True, hand_number: int = None,
                       was_facing_bet: Optional[bool] = None):
