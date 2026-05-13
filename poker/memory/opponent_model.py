@@ -46,6 +46,16 @@ class OpponentTendencies:
     showdown_win_rate: float = 0.5  # Win rate at showdown
     all_in_frequency: float = 0.0   # All-in actions per hand dealt
 
+    # Phase 7.5 Step 0: opportunity-normalized stats for the three-tier
+    # exploitation clamp. Computed from new postflop-only counters
+    # (below). Default to 0.0 / 0 when no opportunities observed.
+    #
+    # See docs/plans/PHASE_7_5_ADJUSTMENT_LAYER_WIDENING.md "Stat-definition
+    # glossary" for exact denominators.
+    aggression_factor_postflop: float = 1.0   # postflop bet/raise/all-in / postflop call
+    all_in_per_facing_bet: float = 0.0        # response-aggression axis
+    postflop_jam_open_rate: float = 0.0       # open-aggression axis
+
     # Trend tracking
     recent_trend: str = 'stable'    # 'tightening', 'loosening', 'stable'
 
@@ -59,6 +69,16 @@ class OpponentTendencies:
     _cbet_faced_count: int = 0
     _showdowns: int = 0
     _showdowns_won: int = 0
+
+    # Phase 7.5 Step 0: per-axis counters for the new postflop-only stats.
+    # Updated only when phase is FLOP/TURN/RIVER. See
+    # `_apply_postflop_counters()` for the logic.
+    _postflop_bet_raise_count: int = 0   # postflop bets/raises/all-ins
+    _postflop_call_count: int = 0        # postflop calls
+    _facing_bet_opportunities: int = 0   # postflop decisions while facing a bet
+    _all_ins_facing_bet: int = 0         # subset: opponent went all-in in response
+    _postflop_open_opportunities: int = 0  # postflop decisions with no live bet (legal bet/all-in available)
+    _postflop_jam_opens: int = 0           # subset: opponent went all-in into no-bet pot
 
     # Per-hand tracking (reset each new hand)
     _vpip_this_hand: bool = False
@@ -81,7 +101,10 @@ class OpponentTendencies:
         self._pfr_this_hand = False
         self._recalculate_stats()
 
-    def update_from_action(self, action: str, phase: str, is_voluntary: bool = True, count_hand: bool = True):
+    def update_from_action(
+        self, action: str, phase: str, is_voluntary: bool = True,
+        count_hand: bool = True, was_facing_bet: Optional[bool] = None,
+    ):
         """Update stats based on observed action.
 
         Args:
@@ -89,6 +112,12 @@ class OpponentTendencies:
             phase: Game phase ('PRE_FLOP', 'FLOP', 'TURN', 'RIVER')
             is_voluntary: Whether this was a voluntary action (not forced blind)
             count_hand: Whether to increment hands_observed (only once per hand)
+            was_facing_bet: Phase 7.5 Step 0. True if opponent was facing a live
+                bet at decision time (i.e. fold/call/raise/all-in was the choice
+                set). False if no live bet (check/bet/all-in into no-bet pot).
+                None when caller can't determine — postflop counters skipped.
+                Required for postflop_open_opportunities vs
+                facing_bet_opportunities accounting.
         """
         if count_hand:
             self.hands_observed += 1
@@ -118,8 +147,41 @@ class OpponentTendencies:
         elif action == 'call':
             self._call_count += 1
 
+        # Phase 7.5 Step 0: postflop-only counters for opportunity-
+        # normalized stats. Skipped when was_facing_bet is None
+        # (caller couldn't determine context) or when phase is preflop.
+        if phase in ('FLOP', 'TURN', 'RIVER') and was_facing_bet is not None:
+            self._apply_postflop_counters(action, was_facing_bet)
+
         # Recalculate stats
         self._recalculate_stats()
+
+    def _apply_postflop_counters(self, action: str, was_facing_bet: bool) -> None:
+        """Update Phase 7.5 postflop-only counters from an action.
+
+        - Postflop AF counters: count bet/raise/all-in vs call regardless
+          of opportunity type (matches legacy AF semantics, but postflop-
+          scoped).
+        - Opportunity counters: every postflop decision increments
+          exactly one of `_facing_bet_opportunities` or
+          `_postflop_open_opportunities`. The jam subcounters fire only
+          when the action is all-in.
+        """
+        # Postflop AF counters
+        if action in ('bet', 'raise', 'all_in'):
+            self._postflop_bet_raise_count += 1
+        elif action == 'call':
+            self._postflop_call_count += 1
+
+        # Opportunity + jam subcounters
+        if was_facing_bet:
+            self._facing_bet_opportunities += 1
+            if action == 'all_in':
+                self._all_ins_facing_bet += 1
+        else:
+            self._postflop_open_opportunities += 1
+            if action == 'all_in':
+                self._postflop_jam_opens += 1
 
     def update_showdown(self, won: bool):
         """Update showdown statistics."""
@@ -154,6 +216,9 @@ class OpponentTendencies:
             self.aggression_factor = 1.0
         elif self._call_count == 0:
             # All observed actions are bets/raises; treat as maximal aggression
+            # NOTE: Phase 7.5 Item 2 will cap this fallback at MEDIUM_AF_THRESHOLD.
+            # Step 0 deliberately leaves the legacy formula unchanged to keep
+            # behavior neutral; the cap lands with Item 2's commit.
             self.aggression_factor = float(self._bet_raise_count)
         else:
             self.aggression_factor = self._bet_raise_count / self._call_count
@@ -163,6 +228,48 @@ class OpponentTendencies:
 
         if self._showdowns > 0:
             self.showdown_win_rate = self._showdowns_won / self._showdowns
+
+        # Phase 7.5 Step 0: postflop opportunity-normalized stats.
+        # Has the AF raw-count cap from day one — this field is new, no
+        # legacy consumer to protect, so the cap lands here in Step 0.
+        self._recalculate_postflop_stats()
+
+    def _recalculate_postflop_stats(self) -> None:
+        """Compute the Phase 7.5 postflop-only derived stats."""
+        # Postflop AF, with cap from day one.
+        if self._postflop_call_count == 0:
+            if self._postflop_bet_raise_count == 0:
+                self.aggression_factor_postflop = 1.0
+            else:
+                # No postflop calls observed — cap raw-count at MEDIUM
+                # threshold so a zero-call sample can't trigger EXTREME
+                # tier classification on noisy signal alone.
+                # Import lazily to avoid circular imports at module load.
+                from ..strategy.phase_7_5_config import CONFIG
+                cap = CONFIG.signal_thresholds.medium_af_postflop
+                self.aggression_factor_postflop = min(
+                    float(self._postflop_bet_raise_count), cap,
+                )
+        else:
+            self.aggression_factor_postflop = (
+                self._postflop_bet_raise_count / self._postflop_call_count
+            )
+
+        # Response-aggression axis: all-ins per facing-bet opportunity.
+        if self._facing_bet_opportunities > 0:
+            self.all_in_per_facing_bet = (
+                self._all_ins_facing_bet / self._facing_bet_opportunities
+            )
+        else:
+            self.all_in_per_facing_bet = 0.0
+
+        # Open-aggression axis: opening jams per postflop open opportunity.
+        if self._postflop_open_opportunities > 0:
+            self.postflop_jam_open_rate = (
+                self._postflop_jam_opens / self._postflop_open_opportunities
+            )
+        else:
+            self.postflop_jam_open_rate = 0.0
 
     def get_play_style_label(self) -> str:
         """Returns play style classification.
@@ -230,6 +337,10 @@ class OpponentTendencies:
             'bluff_frequency': self.bluff_frequency,
             'showdown_win_rate': self.showdown_win_rate,
             'all_in_frequency': self.all_in_frequency,
+            # Phase 7.5 derived stats
+            'aggression_factor_postflop': self.aggression_factor_postflop,
+            'all_in_per_facing_bet': self.all_in_per_facing_bet,
+            'postflop_jam_open_rate': self.postflop_jam_open_rate,
             'recent_trend': self.recent_trend,
             '_vpip_count': self._vpip_count,
             '_pfr_count': self._pfr_count,
@@ -239,11 +350,22 @@ class OpponentTendencies:
             '_fold_to_cbet_count': self._fold_to_cbet_count,
             '_cbet_faced_count': self._cbet_faced_count,
             '_showdowns': self._showdowns,
-            '_showdowns_won': self._showdowns_won
+            '_showdowns_won': self._showdowns_won,
+            # Phase 7.5 counters
+            '_postflop_bet_raise_count': self._postflop_bet_raise_count,
+            '_postflop_call_count': self._postflop_call_count,
+            '_facing_bet_opportunities': self._facing_bet_opportunities,
+            '_all_ins_facing_bet': self._all_ins_facing_bet,
+            '_postflop_open_opportunities': self._postflop_open_opportunities,
+            '_postflop_jam_opens': self._postflop_jam_opens,
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'OpponentTendencies':
+        """Deserialize from dict. Missing Phase 7.5 fields default to 0 /
+        0.0 — older records that predate Phase 7.5 just lose their
+        accumulated history for the new axes, which is the intended
+        behavior (data wasn't captured before)."""
         tendencies = cls(
             hands_observed=data.get('hands_observed', 0),
             hands_dealt=data.get('hands_dealt', 0),
@@ -254,6 +376,10 @@ class OpponentTendencies:
             bluff_frequency=data.get('bluff_frequency', 0.3),
             showdown_win_rate=data.get('showdown_win_rate', 0.5),
             all_in_frequency=data.get('all_in_frequency', 0.0),
+            # Phase 7.5 derived defaults (0.0 / 1.0 — neutral)
+            aggression_factor_postflop=data.get('aggression_factor_postflop', 1.0),
+            all_in_per_facing_bet=data.get('all_in_per_facing_bet', 0.0),
+            postflop_jam_open_rate=data.get('postflop_jam_open_rate', 0.0),
             recent_trend=data.get('recent_trend', 'stable')
         )
         tendencies._vpip_count = data.get('_vpip_count', 0)
@@ -265,6 +391,13 @@ class OpponentTendencies:
         tendencies._cbet_faced_count = data.get('_cbet_faced_count', 0)
         tendencies._showdowns = data.get('_showdowns', 0)
         tendencies._showdowns_won = data.get('_showdowns_won', 0)
+        # Phase 7.5 counter defaults (0 — missing-field tolerance)
+        tendencies._postflop_bet_raise_count = data.get('_postflop_bet_raise_count', 0)
+        tendencies._postflop_call_count = data.get('_postflop_call_count', 0)
+        tendencies._facing_bet_opportunities = data.get('_facing_bet_opportunities', 0)
+        tendencies._all_ins_facing_bet = data.get('_all_ins_facing_bet', 0)
+        tendencies._postflop_open_opportunities = data.get('_postflop_open_opportunities', 0)
+        tendencies._postflop_jam_opens = data.get('_postflop_jam_opens', 0)
         return tendencies
 
 
