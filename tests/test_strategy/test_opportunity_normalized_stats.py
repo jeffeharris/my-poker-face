@@ -179,15 +179,43 @@ class TestAggressionFactorPostflop:
 
 # ── Legacy aggression_factor UNCHANGED in Step 0 ─────────────────────────
 
-class TestLegacyAfUnchanged:
-    def test_legacy_af_uses_raw_count_fallback_in_step_0(self, t):
-        """Step 0 must not change the legacy formula. The cap on legacy
-        aggression_factor lands with Item 2, not Step 0."""
-        # 6 raises, 0 calls — preflop AND postflop. Legacy aggression_factor
-        # uses raw count fallback per existing logic.
+class TestLegacyAfCapInItem2:
+    def test_legacy_af_raw_count_capped_at_medium_threshold(self, t):
+        """Phase 7.5 Item 2 caps the legacy aggression_factor raw-count
+        fallback (`_call_count == 0` and `_bet_raise_count > 0`) at
+        `MEDIUM_AF_THRESHOLD` (= 4.0 from config).
+
+        This is the intended behavior shift introduced by Item 2.
+        Previously, raw count drove `aggression_factor`, letting noisy
+        zero-call samples trigger 'hyper_aggressive' classification.
+        With the cap, a no-calls/many-raises opponent stays MEDIUM
+        unless `all_in_frequency` independently triggers via the OR-form
+        of the detector.
+        """
+        cap = CONFIG.signal_thresholds.medium_af_postflop  # 4.0
+        # 6 raises, 0 calls — would have been AF=6 pre-cap.
         for _ in range(6):
             t.update_from_action('raise', 'FLOP', was_facing_bet=False)
-        assert t.aggression_factor == 6.0  # raw count, NOT capped
+        assert t.aggression_factor == cap
+
+    def test_legacy_af_below_cap_unchanged(self, t):
+        """When raw count < cap, the cap is a no-op."""
+        cap = CONFIG.signal_thresholds.medium_af_postflop  # 4.0
+        for _ in range(2):
+            t.update_from_action('raise', 'FLOP', was_facing_bet=False)
+        assert t.aggression_factor == 2.0
+        assert t.aggression_factor < cap
+
+    def test_legacy_af_with_calls_unaffected_by_cap(self, t):
+        """The cap only applies when `_call_count == 0`. With calls
+        present, the normal ratio formula is used and can exceed the
+        cap unrestricted."""
+        for _ in range(10):
+            t.update_from_action('raise', 'FLOP', was_facing_bet=False)
+        for _ in range(1):
+            t.update_from_action('call', 'TURN', was_facing_bet=True)
+        # 10 / 1 = 10.0 — well above cap, but cap doesn't apply with calls.
+        assert t.aggression_factor == 10.0
 
 
 # ── Per-opponent isolation ───────────────────────────────────────────────

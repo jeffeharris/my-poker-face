@@ -316,11 +316,20 @@ class OpponentTendencies:
             # No actions observed yet; use neutral default
             self.aggression_factor = 1.0
         elif self._call_count == 0:
-            # All observed actions are bets/raises; treat as maximal aggression
-            # NOTE: Phase 7.5 Item 2 will cap this fallback at MEDIUM_AF_THRESHOLD.
-            # Step 0 deliberately leaves the legacy formula unchanged to keep
-            # behavior neutral; the cap lands with Item 2's commit.
-            self.aggression_factor = float(self._bet_raise_count)
+            # All observed actions are bets/raises; pre-Phase-7.5 this was
+            # `float(self._bet_raise_count)`, which let raw count drive
+            # extreme classification on noisy zero-call samples (a player
+            # with 6 raises and 0 calls in 10 hands would show AF=6,
+            # indistinguishable from a real maniac with 60 raises and 10
+            # calls). Phase 7.5 Item 2 caps this at MEDIUM_AF_THRESHOLD
+            # to suppress that noise — the downstream classifier then
+            # correctly says "this opponent might be extreme, but we
+            # don't have call samples to confirm — stay at MEDIUM clamp."
+            from ..strategy.phase_7_5_config import CONFIG
+            self.aggression_factor = min(
+                float(self._bet_raise_count),
+                CONFIG.signal_thresholds.medium_af_postflop,
+            )
         else:
             self.aggression_factor = self._bet_raise_count / self._call_count
 

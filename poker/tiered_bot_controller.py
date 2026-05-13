@@ -34,7 +34,9 @@ from .strategy.exploitation import (
     classify_detected_patterns,
     DecisionContext,
     AggregatedOpponentStats,
+    ClampTier,
     OpponentSpot,
+    _determine_clamp,
     aggregate_from_spots,
     compute_multiway_cbet_intensity,
     select_primary_aggressor,
@@ -528,31 +530,60 @@ class TieredBotController(AIPlayerController):
                 f"exploitation offsets={offsets}"
             )
 
+        # Phase 7.5 Item 2c: route the L1 clamp through _determine_clamp,
+        # replacing the legacy two-tier _pick_max_total_shift. Tier is
+        # determined by opponent's postflop signal axes (AF_postflop OR
+        # all_in_per_facing_bet OR postflop_jam_open_rate) with the
+        # sliding-window ratchet-down applied when recent stats diverge.
+        clamp_value, clamp_tier, winning_axis = self._compute_clamp(
+            stats, manager, primary_spot,
+        )
+
+        # Stash tier diagnostic for downstream callers / capture.
+        self._last_clamp_tier = clamp_tier
+        self._last_clamp_axis = winning_axis
+
         return apply_exploitation_offsets(
             strategy=strategy,
             offsets=offsets,
             legal_actions=valid_actions,
-            max_total_shift=self._pick_max_total_shift(stats, decision_context),
+            max_total_shift=clamp_value,
         )
 
-    def _pick_max_total_shift(self, stats, decision_context):
-        """Choose the L1 clamp based on context.
+    def _compute_clamp(
+        self, stats, manager, primary_spot,
+    ):
+        """Phase 7.5 Item 2c: build the (recent_stats, archetype) inputs
+        for _determine_clamp from the controller's context.
 
-        The 0.4 default preserves table-baseline-as-dominant signal — a
-        reasonable invariant for typical decisions. But when we're facing
-        aggression from a detected hyper-aggressive opponent (wide shove
-        range), the table baseline is *known wrong* — its preflop chart
-        assumes a neutral opener, not a maniac shoving junk. In that
-        narrow case we accept more deviation, raising to 0.6 so the
-        exploitation offsets can actually flip marginal calls.
+        - recent_stats: pulled from the primary aggressor's
+          OpponentTendencies.recent_postflop_stats() when a primary spot
+          exists. None for the aggregate-fallback path (the sliding
+          window only makes sense per-opponent).
+        - archetype: the primary spot's name, used for the benchmark
+          prior shortcut (off by default; enabled only in validation
+          experiments).
 
-        Returns 0.4 in all other contexts.
+        Returns (clamp_value, tier, winning_axis).
         """
-        is_extreme_spot = (
-            (decision_context.facing_all_in or decision_context.facing_big_bet)
-            and 'hyper_aggressive' in classify_detected_patterns(stats)
+        recent_stats = None
+        archetype = None
+        if primary_spot is not None and manager is not None:
+            archetype = primary_spot.name
+            try:
+                model = manager.get_model(self.player_name, primary_spot.name)
+                if model is not None:
+                    t = getattr(model, 'tendencies', None)
+                    if t is not None and hasattr(t, 'recent_postflop_stats'):
+                        recent_stats = t.recent_postflop_stats()
+            except Exception:
+                recent_stats = None
+
+        return _determine_clamp(
+            stats=stats,
+            recent_stats=recent_stats,
+            bettor_archetype=archetype,
         )
-        return 0.6 if is_extreme_spot else 0.4
 
     def _apply_value_override(
         self, strategy, game_state, player_idx, valid_actions,
