@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 
 from ..services import game_state_service
-from ..extensions import llm_repo, personality_repo, settings_repo, prompt_capture_repo, game_repo
+from ..extensions import llm_repo, personality_repo, settings_repo, prompt_capture_repo, game_repo, hand_history_repo
 from core.llm import UsageTracker
 from poker.authorization import require_permission
 from ..route_utils import register_admin_guard
@@ -1489,6 +1489,125 @@ def api_storage_stats():
         return jsonify({'success': True, 'storage': storage})
     except Exception as e:
         logger.error(f"Error getting storage stats: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# Hand Replay API
+# =============================================================================
+
+@admin_dashboard_bp.route('/api/hands/<game_id>')
+@_dev_only
+def api_hand_list(game_id: str):
+    """Get summary list of all hands in a game.
+
+    Returns a list of hand summaries with key metrics for each hand.
+    """
+    from poker.memory.hand_history import RecordedHand
+
+    try:
+        hands = hand_history_repo.load_hand_history(game_id)
+        if not hands:
+            return jsonify({'success': True, 'hands': [], 'count': 0})
+
+        summaries = []
+        for hand_data in hands:
+            # Build RecordedHand to use get_summary()
+            recorded = RecordedHand.from_dict(hand_data)
+            winner_names = [w.name for w in recorded.winners]
+            summaries.append({
+                'hand_number': recorded.hand_number,
+                'timestamp': hand_data.get('timestamp'),
+                'player_count': len(recorded.players),
+                'pot_size': recorded.pot_size,
+                'was_showdown': recorded.was_showdown,
+                'winner_names': winner_names,
+                'action_count': len(recorded.actions),
+                'summary': recorded.get_summary(),
+            })
+
+        return jsonify({'success': True, 'hands': summaries, 'count': len(summaries)})
+
+    except Exception as e:
+        logger.error(f"Error loading hand list for game {game_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/api/hands/<game_id>/<int:hand_number>/replay')
+@_dev_only
+def api_hand_replay(game_id: str, hand_number: int):
+    """Get full replay data for a single hand.
+
+    Returns complete hand data enriched for step-by-step replay.
+    """
+    from poker.memory.hand_history import RecordedHand
+
+    try:
+        hand_data = hand_history_repo.load_single_hand(game_id, hand_number)
+        if not hand_data:
+            return jsonify({'success': False, 'error': f'Hand #{hand_number} not found'}), 404
+
+        recorded = RecordedHand.from_dict(hand_data)
+
+        # Build community_cards_by_phase — use stored data or infer from flat list
+        community_cards_by_phase = recorded.community_cards_by_phase
+        if not community_cards_by_phase and recorded.community_cards:
+            cards = list(recorded.community_cards)
+            community_cards_by_phase = {}
+            if len(cards) >= 3:
+                community_cards_by_phase['FLOP'] = cards[:3]
+            if len(cards) >= 4:
+                community_cards_by_phase['TURN'] = [cards[3]]
+            if len(cards) >= 5:
+                community_cards_by_phase['RIVER'] = [cards[4]]
+
+        # Build position and is_human lookups from players
+        position_map = {p.name: p.position for p in recorded.players}
+        human_map = {p.name: p.is_human for p in recorded.players}
+
+        # Compute cumulative community cards visible at each phase
+        phase_order = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER']
+        cumulative_cards = {}
+        running = []
+        for phase in phase_order:
+            running = running + community_cards_by_phase.get(phase, [])
+            cumulative_cards[phase] = list(running)
+
+        # Enrich actions
+        enriched_actions = []
+        for idx, action in enumerate(recorded.actions):
+            enriched_actions.append({
+                'index': idx,
+                'player_name': action.player_name,
+                'action': action.action,
+                'amount': action.amount,
+                'phase': action.phase,
+                'pot_after': action.pot_after,
+                'position': position_map.get(action.player_name, 'Unknown'),
+                'is_human': human_map.get(action.player_name, False),
+                'community_cards_visible': cumulative_cards.get(action.phase, []),
+            })
+
+        # Build response
+        replay = {
+            'game_id': recorded.game_id,
+            'hand_number': recorded.hand_number,
+            'summary': recorded.get_summary(),
+            'players': [p.to_dict() for p in recorded.players],
+            'hole_cards': recorded.hole_cards,
+            'community_cards': list(recorded.community_cards),
+            'community_cards_by_phase': community_cards_by_phase,
+            'actions': enriched_actions,
+            'winners': [w.to_dict() for w in recorded.winners],
+            'pot_size': recorded.pot_size,
+            'was_showdown': recorded.was_showdown,
+            'deck_seed': recorded.deck_seed,
+        }
+
+        return jsonify({'success': True, 'replay': replay})
+
+    except Exception as e:
+        logger.error(f"Error loading hand replay for game {game_id} hand #{hand_number}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

@@ -1087,6 +1087,7 @@ class AITournamentRunner:
                     hand_number,
                     deck_seed=state_machine.current_hand_seed
                 )
+                memory_manager.record_blinds(game_state)
                 hand_start_stacks = {p.name: p.stack for p in game_state.players}
                 hand_start_recorded = True
 
@@ -1217,27 +1218,6 @@ class AITournamentRunner:
                         if advanced_state is not None:
                             game_state = advanced_state
                         state_machine.game_state = game_state  # Use property setter
-
-                        # Feed action to memory manager (opponent model tracking, c-bet detection)
-                        if memory_manager:
-                            current_phase = state_machine.current_phase
-                            phase_name = (current_phase.name
-                                          if hasattr(current_phase, 'name')
-                                          else str(current_phase))
-                            active_names = [
-                                p.name for p in game_state.players
-                                if not p.is_folded
-                            ]
-                            pot_total = (game_state.pot.get('total', 0)
-                                         if isinstance(game_state.pot, dict) else 0)
-                            memory_manager.on_action(
-                                player_name=current_player.name,
-                                action=action,
-                                amount=amount,
-                                phase=phase_name,
-                                pot_total=pot_total,
-                                active_players=active_names,
-                            )
 
                         # Detect action-based energy events (all_in_moment, heads_up)
                         enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False

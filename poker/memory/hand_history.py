@@ -107,6 +107,7 @@ class RecordedHand:
     pot_size: int
     was_showdown: bool
     deck_seed: Optional[int] = None
+    community_cards_by_phase: Dict[str, List[str]] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -120,7 +121,8 @@ class RecordedHand:
             'winners': [w.to_dict() for w in self.winners],
             'pot_size': self.pot_size,
             'was_showdown': self.was_showdown,
-            'deck_seed': self.deck_seed
+            'deck_seed': self.deck_seed,
+            'community_cards_by_phase': self.community_cards_by_phase
         }
 
     @classmethod
@@ -136,7 +138,8 @@ class RecordedHand:
             winners=tuple(WinnerInfo.from_dict(w) for w in data['winners']),
             pot_size=data['pot_size'],
             was_showdown=data['was_showdown'],
-            deck_seed=data.get('deck_seed')
+            deck_seed=data.get('deck_seed'),
+            community_cards_by_phase=data.get('community_cards_by_phase', {})
         )
 
     def get_player_outcome(self, player_name: str) -> str:
@@ -230,7 +233,8 @@ class HandInProgress:
             winners=tuple(winners),
             pot_size=pot_size,
             was_showdown=was_showdown,
-            deck_seed=self.deck_seed
+            deck_seed=self.deck_seed,
+            community_cards_by_phase={k: list(v) for k, v in self._phase_community.items() if v}
         )
 
 

@@ -48,7 +48,8 @@ logger = logging.getLogger(__name__)
 # v77: Add bounded_replay_results table for multi-sample option-framing replay experiments
 # v78: Add quality_score and menu compliance columns to player_decision_analysis
 # v79: Add tendencies_json to opponent_models for full opponent stat persistence
-SCHEMA_VERSION = 79
+# v80: Add community_cards_by_phase_json to hand_history for phase-level card tracking
+SCHEMA_VERSION = 80
 
 
 
@@ -234,6 +235,7 @@ class SchemaManager:
                     pot_size INTEGER,
                     showdown BOOLEAN,
                     deck_seed INTEGER,
+                    community_cards_by_phase_json TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id),
                     UNIQUE(game_id, hand_number)
                 )
@@ -1081,6 +1083,7 @@ class SchemaManager:
             77: (self._migrate_v77_add_bounded_replay_results, "Add bounded_replay_results table for multi-sample replay experiments"),
             78: (self._migrate_v78_add_quality_scores, "Add quality_score and menu compliance columns to player_decision_analysis"),
             79: (self._migrate_v79_add_opponent_tendencies_json, "Add tendencies_json to opponent_models for full tendency persistence"),
+            80: (self._migrate_v80_add_community_cards_by_phase, "Add community_cards_by_phase_json column to hand_history"),
         }
 
         with self._get_connection() as conn:
@@ -3432,3 +3435,14 @@ class SchemaManager:
             logger.debug("Added tendencies_json column to opponent_models")
 
         logger.info("Migration v79 complete: opponent tendency JSON added")
+
+    def _migrate_v80_add_community_cards_by_phase(self, conn: sqlite3.Connection) -> None:
+        """Migration v80: Add community_cards_by_phase_json to hand_history for phase-level card tracking."""
+        cursor = conn.execute("PRAGMA table_info(hand_history)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'community_cards_by_phase_json' not in existing_columns:
+            conn.execute("ALTER TABLE hand_history ADD COLUMN community_cards_by_phase_json TEXT")
+            logger.debug("Added community_cards_by_phase_json column to hand_history")
+
+        logger.info("Migration v80 complete: community_cards_by_phase_json added to hand_history")
