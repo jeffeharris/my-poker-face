@@ -209,9 +209,14 @@ Step 0: Instrumentation + opportunity-norm stats + config loader
 Step 0.5: Run Phase-7-baseline sweep with instrumentation on
           to produce the calibration table. Sweep also produces
           the seed-matched Phase 7 baseline logs that Step 4
-          validation will compare against.
+          validation will compare against. **Analysis only — runs
+          the Step 0 code paths, produces data files, makes NO
+          changes to running code or config.**
    ↓
-        ← UPDATE phase_7_5_config.yaml from calibration data ←
+        ← Human edits phase_7_5_config.yaml from calibration data ←
+          (manual step, NOT runtime; happens between Step 0.5
+          and Item 2 commit. Item 2's commit is what reads the
+          updated config and changes behavior.)
    ↓
 Item 2: Three-tier exploitation clamp + legacy AF raw-count cap
         (0.75 day) — uses calibrated thresholds; AF cap intentionally
@@ -255,6 +260,7 @@ fields):
 | `strong_hand_override_fired` | bool | Existing override |
 | `bluff_catch_override_fired` | bool | NEW (Item 1) |
 | `exploit_clamp_tier` | str | 'none' / 'default' / 'medium' / 'extreme' (NEW Item 2) |
+| `clamp_tier_winning_axis` | str | NEW: which signal axis triggered the tier — 'af_postflop' / 'all_in_per_facing_bet' / 'postflop_jam_open_rate' / 'benchmark_prior' / 'none'. When multiple axes cross threshold simultaneously, the highest-margin axis wins (deterministic tie-break). |
 | `clamp_tier_ratcheted_down` | bool | NEW: did confidence decay reduce the tier this decision? |
 | `opponent_af_at_decision` | float | Bettor's AF at decision time |
 | `opponent_af_postflop` | float | NEW: AF computed from postflop actions only (excludes preflop jams) |
@@ -305,6 +311,25 @@ the bot was briefly fooled by early aggression but later evidence
 moderates the read. Implementation: keep a sliding-window stat
 alongside the cumulative stat, and downgrade the tier if the recent
 window doesn't support it.
+
+**Update cadence**: the sliding-window counters are maintained
+**incrementally per opponent event** (push the new event onto the
+deque, pop the oldest if window is full). `_determine_clamp` is
+called **per decision** and reads the current window state — no
+recomputation cost at decision time. Concretely:
+
+- When `OpponentTendencies.update_from_action(...)` is invoked,
+  the same call appends to the sliding-window deque.
+- When the deque exceeds `window_size`, the oldest entry is
+  popped and its contribution subtracted from the window counters.
+- `_determine_clamp` at decision time sees a consistent window
+  snapshot — no async update concerns because all updates flow
+  through `update_from_action` synchronously.
+
+This means tier changes can happen mid-hand if the window crosses a
+threshold during opponent action, which is intentional: if opponent
+jams 3 times in 4 decisions, we want the tier to reflect that
+quickly.
 
 ```python
 @dataclass
@@ -498,7 +523,13 @@ def _determine_clamp(
        tier at the recent-window tier — so opponent behavior shifts
        are picked up.
 
-    Returns (clamp_value, tier_enum) for instrumentation.
+    Returns (clamp_value, tier_enum, winning_axis) for instrumentation.
+    The winning_axis is a string identifying which signal triggered
+    the tier ('af_postflop', 'all_in_per_facing_bet',
+    'postflop_jam_open_rate', 'benchmark_prior', or 'none' for
+    DEFAULT tier). When multiple axes cross simultaneously, the
+    highest-margin axis wins (deterministic tie-break: prefer the
+    axis with the largest stat/threshold ratio).
     """
 ```
 
@@ -892,8 +923,25 @@ If common (> 20%), Item 3 ships next.
 - `_postflop_jam_opens` increments only when opponent's first-to-act
   postflop decision is all-in; does NOT count response-jams (those
   go into `_all_ins_facing_bet`)
+- **Preflop all-ins excluded from postflop counters**: opponent
+  jams preflop → `_postflop_jam_opens` stays at 0,
+  `_postflop_open_opportunities` stays at 0. Only postflop
+  streets (flop / turn / river) advance the postflop counters.
 - `_postflop_open_opportunities` increments whenever opponent is
   first to act on a postflop street, regardless of action taken
+  (check/bet/raise/jam all count as opportunities; only jams
+  increment the numerator)
+- **Per-opponent isolation**: stats updates on opponent A don't
+  leak into opponent B's `OpponentTendencies` (each opponent has
+  their own counter struct; aggregator weights per-opponent
+  contributions but doesn't merge counters across opponents)
+- **Missing-field tolerance**: when `OpponentTendencies` is
+  deserialized from an older record that predates Phase 7.5 and
+  lacks the new counter fields, the new fields default to 0 and
+  derived properties return 0.0 — no crash, no NaN. (No formal
+  migration path needed; old records just lose their accumulated
+  history for the new axes, which is the intended behavior since
+  the data wasn't captured before.)
 - `aggression_factor_postflop` excludes preflop bet/raise/all-in
   counts (computed from postflop-only counters); has the AF
   raw-count cap from day one (this field is new, no legacy consumer)
@@ -923,18 +971,31 @@ If common (> 20%), Item 3 ships next.
 - Returns DEFAULT when sample insufficient even if signals are strong
 - **High-AF-only maniac**: sample ≥ EXTREME, AF_postflop = 8.0,
   all_in_per_facing_bet = 0.05, postflop_jam_open_rate = 0.02 →
-  returns EXTREME (signal-OR catches this case)
+  returns EXTREME, winning_axis = 'af_postflop' (signal-OR catches
+  this case; winning_axis identifies which signal triggered)
 - **High-response-jam-only opponent**: sample ≥ EXTREME,
   AF_postflop = 2.0, all_in_per_facing_bet = 0.45,
-  postflop_jam_open_rate = 0.02 → returns EXTREME
+  postflop_jam_open_rate = 0.02 → returns EXTREME,
+  winning_axis = 'all_in_per_facing_bet'
 - **First-in-jammer-only opponent** (the previously missed case):
   facing_bet_opportunities below threshold BUT postflop_open_
   opportunities ≥ EXTREME, AF_postflop = 2.5,
   all_in_per_facing_bet = 0.0 (never faced a bet),
   postflop_jam_open_rate = 0.30 → returns EXTREME via the
-  open-jam axis and the open-opportunities sample fallback
+  open-jam axis and the open-opportunities sample fallback,
+  winning_axis = 'postflop_jam_open_rate'
+- **Tie-break determinism**: AF_postflop = 7.0 (EXTREME margin
+  1.17×), all_in_per_facing_bet = 0.45 (EXTREME margin 1.5×),
+  postflop_jam_open_rate = 0.40 (EXTREME margin 2.0×) → returns
+  EXTREME, winning_axis = 'postflop_jam_open_rate' (largest
+  stat/threshold ratio wins tie-break deterministically)
 - **Tier decay (round 2)**: recent-window tier caps cumulative tier —
   setup with cumulative=EXTREME and recent=DEFAULT → returns DEFAULT
+- **Tier decay via postflop_jam_open_rate cool-down**: cumulative
+  jam_open_rate = 0.35 (EXTREME, from many early jams), recent
+  window jam_open_rate = 0.05 (opponent stopped jamming) →
+  `_determine_clamp` returns DEFAULT, not EXTREME. The winning-axis
+  field records 'none' since no signal supports the current tier.
 - **Benchmark prior (round 2)**: when config enables prior and bettor
   archetype is ManiacBot, returns EXTREME on first decision (no
   sample requirement)
@@ -992,7 +1053,39 @@ are entangled.
 same seeds.** Only seed 42 was captured during Phase 7 validation;
 seeds 142 and 242 are missing. Step 0.5 (the calibration sweep)
 should be configured to use the same seed set, providing the
-matched-seed Phase 7 baseline as a side effect. Concretely:
+matched-seed Phase 7 baseline as a side effect.
+
+**What matched seeds DO and DON'T guarantee** (clarifying limitation):
+
+- ✓ Same initial deck shuffle per hand (`create_deck(random_seed=seed)`)
+- ✓ Same dealer rotation across hands (`dealer_idx = hand_num % 2`
+  is deterministic given `--hands`)
+- ✓ Same seat order (player names array is fixed in
+  `simulate_bb100.run_matchup`)
+- ✗ NOT the same trajectory through the hand. If Phase 7 folds
+  preflop and Phase 7.5 calls, the boards reached, opponent actions
+  taken, and stack states all diverge from that point. So hand-by-
+  hand outcomes are NOT directly comparable.
+
+This is fine for the matched-seed delta gate because:
+- The opponent's *initial action distribution* is identical across
+  runs (same seed → same RNG state for the opponent)
+- Variance from initial-condition luck is cancelled out (the gate
+  is on Δ_i, not on absolute bb/100)
+- We accept that the gate is a measure of "did the change improve
+  *over the same starting positions*," not "did the change improve
+  *the same hands*"
+
+Required setup (already true in `simulate_bb100.py`, but document it
+to lock the invariant):
+- `--hands` is identical in both runs (same hand count → same
+  dealer rotation depth)
+- Player name order in the controllers list is identical
+- `--big-blind` and `--stack` identical
+- No code change between runs that touches seat assignment or
+  dealer math
+
+Concretely:
 
 ```bash
 # Step 0.5: Phase 7 baseline at seeds 142, 242 (seed 42 already in
