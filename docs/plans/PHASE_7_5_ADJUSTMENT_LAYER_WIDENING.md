@@ -2,28 +2,53 @@
 purpose: Plan to widen the adjustment layer so the tiered bot realizes equity vs confirmed extreme opponents (maniacs)
 type: design
 created: 2026-05-13
-last_updated: 2026-05-13T16:30:00
+last_updated: 2026-05-13T17:30:00
 ---
 
 # Phase 7.5: Adjustment-layer widening
 
-## Codex review notes (round 1)
+## Codex review history
 
-This plan was reviewed by Codex on 2026-05-13. Key revisions incorporated:
+Plan reviewed by Codex twice on 2026-05-13. Revisions incorporated below.
 
-- **Step 0 instrumentation** is now a prerequisite to behavior changes
-  (was: implicit, embedded in items)
-- **Bluff-catch splits are pot-odds-conditional**, not fixed 80/20-50/50
-- **Three-tier exploitation ramp** (0.4 / 0.6 / 0.8), not binary tier
-- **Opportunity-normalized stats** — `all_in_frequency` recomputed per
-  betting-decision (today: per hand-dealt); AF must account for raw-
-  count fallback edge case
-- **Item 1 explicitly consumes Item 2's envelope** — exploitation
-  widens the allowed adjustment; value_override (when triggered)
-  supersedes it rather than stacking
-- **bb/100 targets are directional bands**, not commitments
-- **Item 3 partially un-deferred** — ship the diagnostic logging now
-  even if the postflop chart change waits
+### Round 1 revisions
+
+- **Step 0 instrumentation** as prerequisite (was implicit)
+- **Bluff-catch splits pot-odds-conditional**, not fixed
+- **Three-tier exploitation ramp** (0.4 / 0.6 / 0.8), not binary
+- **Opportunity-normalized stats** — `all_in_per_decision` replaces
+  per-hand denominator; AF raw-count fallback capped
+- **Item 1 explicitly consumes Item 2's envelope**
+- **bb/100 targets as directional bands**, not commitments
+- **Item 3 partially un-deferred** — diagnostics ship now
+
+### Round 2 revisions
+
+- **Board-danger / street dampener on bluff-catch** — high call rates
+  on dangerous rivers (four-flush, four-straight) are reckless; new
+  texture multiplier suppresses bluff-catch call probability when
+  board threatens hero's made-hand class
+- **Confidence decay** — tier can ratchet DOWN when recent stats
+  diverge from accumulated stats (handles opponent behavior shifts
+  and recovery from early-sample noise)
+- **Per-street bb/100 reporting** in validation — global bb/100 can
+  hide river spew compensated by turn improvements
+- **Counterfactual action logging** in Item 3 diagnostics — log the
+  specific alternative action, not just "would diverge"
+- **"Supersedes" reframed as "selects within envelope"** + test that
+  override output doesn't exceed active tier's max adjustment
+- **Externalize thresholds to config** — AF / all-in / sample
+  thresholds live in a config file, not as Python constants, so
+  Step 0 calibration can update them without code changes
+- **Benchmark-bot prior** — known-extreme archetypes (`ManiacBot`,
+  optionally others) can be classified extreme on first contact
+  rather than waiting for the sample threshold (validation only —
+  the prior is config-gated and off by default in production)
+- **AF should be postflop-only** for the extreme-tier signal —
+  preflop jammy behavior (e.g. short-stack 3-bet jams) pollutes the
+  meaning when we're trying to read postflop bluff-frequency
+- **`all_in_per_decision` denominator clarified** — facing-bet
+  opportunities (not all decisions; not all hands)
 
 ## Context (read before starting)
 
@@ -104,15 +129,23 @@ clamp (the safer change), then the bigger override change, then
 validate combined.
 
 ```
-Step 0: Instrumentation (1 day, ships first, no behavior change)
+Step 0: Instrumentation + opportunity-norm stats + config loader
+        (1.5 days, ships first, NO behavior change)
    ↓
-Item 2: Three-tier exploitation clamp (0.5 day)
+Step 0.5: Run one Phase-7-baseline sweep with instrumentation on
+          to produce the calibration table (no behavior change)
+   ↓
+        ← UPDATE phase_7_5_config.yaml from calibration data ←
+   ↓
+Item 2: Three-tier exploitation clamp (0.75 day) — uses calibrated
+        thresholds, not placeholders
    ↓ (smoke-test against GTO-Lite to confirm no false fires)
-Item 1: Bluff-catch override w/ pot-odds conditioning (1-2 days)
+Item 1: Bluff-catch override w/ pot-odds + board-danger dampener
+        (1.5 days) — gated on Item 2's EXTREME tier
    ↓
-Combined validation across 3 seeds × 2 opponents
+Combined validation: 3 seeds × 2 opponents × per-street bb/100
    ↓
-Item 3 diagnostics (Phase 7.5 scope), Item 3 implementation deferred
+Decide on Item 3 based on residual leak measurement
 ```
 
 The reordering matters: Item 2 is a smaller behavioral change that
@@ -120,6 +153,10 @@ exercises the same exploit pathway. If Item 2 alone over-fires on
 balanced opponents, we'll learn that before committing to the bigger
 Item 1 change. If Item 2 underwhelms vs ManiacBot, Item 1 picks up
 the rest.
+
+Step 0.5 is new in v3 per Codex round 2: thresholds must be
+calibrated from real distributions before behavior changes ship, not
+hardcoded guesses validated in-flight.
 
 ## Step 0: Instrumentation (prerequisite)
 
@@ -140,12 +177,96 @@ fields):
 | `strong_hand_override_fired` | bool | Existing override |
 | `bluff_catch_override_fired` | bool | NEW (Item 1) |
 | `exploit_clamp_tier` | str | 'none' / 'default' / 'medium' / 'extreme' (NEW Item 2) |
+| `clamp_tier_ratcheted_down` | bool | NEW: did confidence decay reduce the tier this decision? |
 | `opponent_af_at_decision` | float | Bettor's AF at decision time |
-| `opponent_all_in_per_decision` | float | NEW: per-betting-decision rate (not per-hand) |
-| `opponent_facing_bet_opportunities` | int | NEW: number of facing-bet samples for this opponent |
+| `opponent_af_postflop` | float | NEW: AF computed from postflop actions only (excludes preflop jams) |
+| `opponent_all_in_per_facing_bet` | float | NEW: all-ins / facing-bet opportunities (NOT all decisions, NOT hands) |
+| `opponent_facing_bet_opportunities` | int | NEW: facing-bet sample count for this opponent |
 | `opponent_hands_observed` | int | Existing |
 | `hand_strength_class` | str | nuts/strong_made/medium_made/weak_made/air/etc |
 | `facing_bet_size_pot_ratio` | float | NEW: bet size / pot when applicable |
+| `board_texture` | str | NEW: dry_high/wet_rainbow/four_flush/etc (for board-danger dampener) |
+| `street` | str | NEW: flop/turn/river (for per-street reporting + dampener) |
+| `street_chip_delta` | int | NEW: chip delta attributable to this street's decisions (for per-street bb/100 attribution) |
+| `counterfactual_action` | str | NEW: what an opponent-aware lookup would have done (Item 3 diagnostic) |
+| `counterfactual_action_rationale` | str | NEW: short label e.g. "vs maniac, weak_made calls instead of folds" |
+
+### Stat-definition glossary (precise denominators)
+
+These are the new fields added to `OpponentTendencies` in
+`poker/memory/opponent_model.py`. **Each stat's denominator is
+specified to avoid the ambiguity that motivated the round-2 review.**
+
+| Stat | Numerator | Denominator |
+|---|---|---|
+| `all_in_per_facing_bet` | All-in raises by opponent | Times opponent faced a bet from someone (i.e. had `fold/call/raise` to choose from) |
+| `aggression_factor_postflop` | (bet + raise + all-in) on flop/turn/river | calls on flop/turn/river |
+| `facing_bet_opportunities` | — | Count of opponent's decisions where `fold` was an option |
+| `betting_decisions_postflop` | — | Total postflop fold/check/call/raise/all-in by opponent |
+
+Preflop all-ins and preflop AF still computed (used elsewhere), but
+the **tier-classification logic uses postflop-only signals** to avoid
+the pollution Codex flagged.
+
+### Confidence-decay / tier ratchet-down
+
+Tier can DECREASE when recent stats diverge from accumulated stats —
+the bot was briefly fooled by early aggression but later evidence
+moderates the read. Implementation: keep a sliding-window stat
+alongside the cumulative stat, and downgrade the tier if the recent
+window doesn't support it.
+
+```python
+@dataclass
+class TierDecayParams:
+    window_size: int = 50  # recent betting decisions
+    # If recent window stats fail to support the current tier's
+    # signal thresholds, ratchet down one tier.
+    require_recent_window_full: int = 30  # min window samples before decay applies
+
+# In _determine_clamp:
+def _determine_clamp(
+    stats: AggregatedOpponentStats,
+    recent_stats: Optional[AggregatedOpponentStats] = None,
+) -> Tuple[float, ClampTier]:
+    """Pick clamp + tier with optional ratchet-down on stale signal."""
+    base_tier = _classify_tier_cumulative(stats)
+    if recent_stats and recent_stats.betting_decisions_postflop >= 30:
+        recent_tier = _classify_tier_cumulative(recent_stats)
+        # Cap base_tier at recent_tier — can't be more aggressive than
+        # recent evidence supports
+        return min(base_tier, recent_tier)
+    return base_tier
+```
+
+This addresses the case where opponent jammed 4 times in the first 20
+hands (early extreme classification) and then plays normally for 100
+hands — the tier comes down once the recent window outweighs the
+early sample.
+
+### Benchmark-bot prior (validation use only)
+
+To avoid burning hands in the warm-up phase during validation, an
+optional config flag elevates known-extreme archetypes to the
+EXTREME tier on first contact:
+
+```python
+# In poker/strategy/exploitation.py or new config file
+CONFIRMED_EXTREME_ARCHETYPES = frozenset({
+    'ManiacBot',   # synthetic test bot, by definition extreme
+    # Add others only after empirical confirmation
+})
+
+# Default OFF in production — only enabled in benchmark sweeps via
+# environment variable or experiment config flag.
+PHASE_7_5_USE_BENCHMARK_PRIOR = os.environ.get(
+    'POKER_USE_BENCHMARK_PRIOR', '0'
+) == '1'
+```
+
+**Production stays evidence-based** — no priors on real opponents,
+only on synthetic test fixtures. This is purely a validation
+accelerator.
 
 ### Replay-spot taxonomy
 
@@ -154,15 +275,36 @@ A "diagnostic spot" is logged when ALL of:
 - Hero has a non-strong made hand (medium_made or weak_made)
 - Hero faces a bet (`fold` in available actions)
 
-This lets us later answer: "in the spots where Item 1+2 *could* have
-overridden, what did the bot actually do, and what was the outcome?"
+For each diagnostic spot, log the **counterfactual action** — not
+just "current action would diverge from opponent-aware lookup," but
+the SPECIFIC alternative action and a short rationale label. This
+makes the diagnostic data directly translatable into implementation
+rules for Item 3 later. Example:
+
+```json
+{
+  "spot_id": "g123_h45_river_decision_2",
+  "current_action": "fold",
+  "counterfactual_action": "call",
+  "counterfactual_rationale": "medium_made + extreme_aggressor + small_bet → bluff-catch",
+  "hand_strength": "medium_made",
+  "opponent_tier": "extreme",
+  "bet_size_pot_ratio": 0.45,
+  "board_texture": "wet_rainbow"
+}
+```
 
 ### Outputs
 
 - New analysis script `experiments/analyze_adjustment_firings.py`:
   reads the trace, prints firing rates per opponent/archetype,
-  emits a per-spot summary file
+  per-street bb/100 attribution, emits a per-spot diagnostic file
+  with counterfactual actions
 - Validation gate: firing rate sanity (see Goal §5)
+- Calibration table output: distribution of AF, all_in_per_facing_bet,
+  facing_bet_opportunities for each opponent archetype, so threshold
+  values in `phase_7_5_config.yaml` can be set from data rather than
+  guessed
 
 ## Item 2: Three-tier exploitation clamp
 
@@ -183,44 +325,72 @@ all-in=0.50, 500 hands), total probability mass moved is capped at 0.4.
 Three tiers, keyed on **two-axis confidence**: sample size AND signal
 strength. Both axes must reach a threshold for the next tier to fire.
 
-```python
-DEFAULT_MAX_TOTAL_SHIFT = 0.4       # cold start / weak detection
-MEDIUM_MAX_TOTAL_SHIFT  = 0.6       # confirmed aggressive
-EXTREME_MAX_TOTAL_SHIFT = 0.8       # confirmed extreme aggressive
+**All thresholds live in `poker/strategy/data/phase_7_5_config.yaml`,
+not as Python constants.** This lets Step 0 calibration update them
+from real data without code changes.
 
-# Sample thresholds — use facing_bet_opportunities (NOT hands_observed)
-# for postflop-relevant signal. See "Opportunity-normalization" below.
-MEDIUM_MIN_OPPORTUNITIES   = 60
-EXTREME_MIN_OPPORTUNITIES  = 120
+```yaml
+# poker/strategy/data/phase_7_5_config.yaml — initial placeholders.
+# Final values set by Step 0 calibration; this file is the single
+# source of truth that exploitation.py loads at import time.
+exploitation_clamps:
+  default_max_total_shift: 0.4
+  medium_max_total_shift:  0.6
+  extreme_max_total_shift: 0.8
 
-# Signal-strength thresholds — calibrated empirically from ManiacBot
-# stats observed in Phase 7 sweeps (need to measure during Step 0).
-# Initial values below are placeholders; Step 0 instrumentation will
-# show us where ManiacBot actually lands.
-MEDIUM_AF_THRESHOLD     = 4.0       # vs current HYPER_AGG = 5.0
-MEDIUM_ALL_IN_PER_DEC   = 0.15      # opportunity-normalized
-EXTREME_AF_THRESHOLD    = 6.0
-EXTREME_ALL_IN_PER_DEC  = 0.30      # opportunity-normalized
+sample_thresholds:
+  # facing_bet_opportunities (NOT hands_observed, NOT all decisions)
+  medium_min_opportunities:  60
+  extreme_min_opportunities: 120
+
+signal_thresholds:
+  # AF computed from POSTFLOP actions only — preflop jams pollute
+  # the postflop-bluff-frequency signal we're trying to read.
+  medium_af_postflop:     4.0
+  extreme_af_postflop:    6.0
+  # all-ins per facing-bet opportunity (NOT per hand, NOT per
+  # decision — see Stat-definition glossary above).
+  medium_all_in_per_facing_bet:  0.15
+  extreme_all_in_per_facing_bet: 0.30
+
+tier_decay:
+  # Recent-window-based ratchet-down. See Confidence-decay section.
+  window_size: 50
+  require_recent_window_full: 30
+
+benchmark_prior:
+  enabled: false   # production default; flipped on per-experiment
+  confirmed_extreme_archetypes:
+    - ManiacBot
 ```
+
+Python constants are loaded from this file at import time. Tests can
+override via a fixture that patches the loaded config.
 
 New helper:
 
 ```python
 def _determine_clamp(
     stats: AggregatedOpponentStats,
-    facing_bet_opportunities: int,
-) -> float:
+    recent_stats: Optional[AggregatedOpponentStats] = None,
+    bettor_archetype: Optional[str] = None,
+) -> Tuple[float, ClampTier]:
     """Pick the L1 clamp based on sample + signal confidence.
 
-    Two-axis gating — both axes required for next tier:
-      - Sample axis: facing-bet opportunities (NOT raw hands_observed,
-        because postflop signal needs postflop spots)
-      - Signal axis: AF AND all-in-per-decision (both, not either —
-        a high-AF/zero-all-in player is different from a maniac, and
-        the strongest tier requires evidence of BOTH)
+    Logic:
+    1. Benchmark prior shortcut: if config.benchmark_prior.enabled
+       and bettor_archetype is in confirmed_extreme_archetypes,
+       return EXTREME tier immediately (validation accelerator).
+    2. Otherwise classify cumulative stats by two-axis gating:
+       - Sample axis: facing_bet_opportunities meets threshold
+       - Signal axis: af_postflop AND all_in_per_facing_bet BOTH
+         meet threshold for that tier
+    3. If recent_stats supplied AND recent window has enough samples
+       (≥ tier_decay.require_recent_window_full), cap the cumulative
+       tier at the recent-window tier — so opponent behavior shifts
+       are picked up.
 
-    Returns DEFAULT/MEDIUM/EXTREME based on whichever tier's both-axis
-    test passes. Defaults to DEFAULT.
+    Returns (clamp_value, tier_enum) for instrumentation.
     """
 ```
 
@@ -315,57 +485,131 @@ BLUFF_CATCH_TRIGGER_CLASSES = frozenset({
 })
 ```
 
-### Pot-odds-conditional splits (addresses Codex's biggest design concern)
+### Pot-odds-conditional splits with board-danger dampener
 
 Instead of fixed 80/20-50/50, the call probability is computed from
-the bet size as a fraction of pot. The math is:
+the bet size as a fraction of pot, **then dampened by board texture
+and street**. Codex flagged "80% call vs pot-size bet on a river
+four-flush board" as reckless — the dampener fixes it.
 
 ```python
 def _bluff_catch_call_probability(
     hand_strength: str,
-    bet_size_pot_ratio: float,  # bet / pot_before_bet
+    bet_size_pot_ratio: float,   # bet / pot_before_bet
+    street: str,                 # 'flop' | 'turn' | 'river'
+    board_texture: str,          # postflop classifier texture bucket
 ) -> float:
-    """Compute call probability conditioned on pot-odds and hand class.
+    """Compute call probability conditioned on pot-odds, hand class,
+    street, and board texture.
 
     Pot-odds for calling: required_equity = bet / (pot + 2*bet)
-      - 1/3 pot bet → call costs 0.33 to win 1.66 → need 17% equity
-      - pot-size bet → call costs 1.0 to win 3.0  → need 25% equity
-      - 2x pot bet  → call costs 2.0 to win 5.0  → need 29% equity
+      - 1/3 pot bet → need 17% equity
+      - pot-size bet → need 25% equity
+      - 2x pot bet  → need 29% equity
       - jam (assume 3x pot) → need ~33% equity
 
-    Our equity with a bluff-catcher vs a confirmed maniac's c-bet
-    range is roughly:
-      - medium_made vs wide c-bet range: ~55% equity
-      - weak_made vs wide c-bet range:   ~35% equity
+    Equity estimates (rough — see note below):
+      - medium_made vs wide c-bet range: ~55%
+      - weak_made vs wide c-bet range:   ~35%
 
-    The split should approach 100% call when our equity well exceeds
-    required (small bets) and approach 50/50 or fold for large bets
-    where required equity creeps up.
+    The split approaches 100% call when our equity well exceeds
+    required (small bets, safe boards) and approaches fold for large
+    bets on dangerous boards.
+
+    Note on equity numbers: 55% / 35% are coarse poker-theory
+    averages. The function is BEHAVIORAL — it's saying "stop
+    overfolding versus confirmed over-aggression in spots where our
+    bluff-catcher likely has equity" — not a literal equity
+    calculation. Board-danger dampener is the safety net for spots
+    where the equity assumption breaks down (four-flush rivers, etc.).
     """
+    # Base call probability from pot-odds × hand class
+    base = _base_call_prob(hand_strength, bet_size_pot_ratio)
+    # Dampener for dangerous boards / late streets
+    dampener = _board_danger_dampener(street, board_texture, hand_strength)
+    return base * dampener
+
+
+def _base_call_prob(hand_strength: str, bet_size_pot_ratio: float) -> float:
     if hand_strength == HandStrengthClass.MEDIUM_MADE.value:
-        # Equity advantage stays positive up to pot-sized bets.
         if bet_size_pot_ratio <= 0.50:
             return 0.95         # small bet, easy bluff-catch
         elif bet_size_pot_ratio <= 1.00:
-            return 0.80         # pot-size bet, still positive
+            return 0.80         # pot-size, still positive
         elif bet_size_pot_ratio <= 2.00:
             return 0.50         # large bet, marginal
         else:
             return 0.20         # huge bet / jam, mostly fold
     elif hand_strength == HandStrengthClass.WEAK_MADE.value:
-        # Less equity, fold faster.
         if bet_size_pot_ratio <= 0.33:
             return 0.70
         elif bet_size_pot_ratio <= 0.67:
             return 0.40
         else:
             return 0.10
-    return 0.0  # not in trigger classes
+    return 0.0
+
+
+def _board_danger_dampener(
+    street: str, board_texture: str, hand_strength: str,
+) -> float:
+    """Return a multiplier in [0.0, 1.0] applied to the base call prob.
+
+    The dampener tightens our bluff-catch when:
+    - It's the river (no more cards; equity is realized)
+    - Board threatens to outrun a medium-made hand (four-flush,
+      four-straight, paired board where weak_made is dominated)
+    - Hand class can't beat obvious value (weak_made on a paired board)
+
+    Returned multiplier values are CONSERVATIVE — better to fold a
+    bluff-catch in a marginal spot than to bleed chips on the river.
+    """
+    dampener = 1.0
+
+    # Street dampener — river is harshest because there's no equity
+    # to realize and bluff-catch becomes a pure showdown decision.
+    if street == 'river':
+        dampener *= 0.6
+    elif street == 'turn':
+        dampener *= 0.9
+
+    # Texture dampener — boards that "complete" obvious draws
+    # threaten our made-hand class. Texture buckets come from
+    # postflop_classifier.classify_texture_bucket.
+    dangerous_textures = {
+        'four_flush',       # opponent's flush draw got there
+        'four_straight',    # opponent's straight draw got there
+        'paired_high',      # weak_made (low pair) is dominated
+        'monotone',         # already-completed flush
+    }
+    if board_texture in dangerous_textures:
+        dampener *= 0.5
+
+    # weak_made on a paired board is structurally dominated — cap.
+    if (hand_strength == HandStrengthClass.WEAK_MADE.value
+        and 'paired' in board_texture):
+        dampener *= 0.5
+
+    return dampener
 ```
 
+**Behavioral envelope after dampening:**
+
+| Spot | Base | Dampener | Final |
+|---|---|---|---|
+| medium_made, 0.5 pot bet, flop, dry | 0.95 | 1.0 | 0.95 |
+| medium_made, 1.0 pot bet, turn, wet rainbow | 0.80 | 0.9 | 0.72 |
+| medium_made, 1.0 pot bet, river, four-flush | 0.80 | 0.6 × 0.5 = 0.30 | 0.24 |
+| medium_made, 2.0 pot bet, river, monotone | 0.50 | 0.6 × 0.5 = 0.30 | 0.15 |
+| weak_made, 0.33 pot bet, flop, dry | 0.70 | 1.0 | 0.70 |
+| weak_made, 0.67 pot bet, river, paired | 0.40 | 0.6 × 0.5 × 0.5 = 0.15 | 0.06 |
+
+The river+four-flush case (which Codex flagged) drops from "80% call"
+to "24% call" after dampening — much safer.
+
 Bet-size is read from `DecisionContext` — needs a new field
-`bet_size_pot_ratio: float` populated by the controller from
-`(highest_bet - hero_bet) / pot_before_bet`.
+`bet_size_pot_ratio: float`. Street and board_texture come from the
+postflop node already in scope at the override decision point.
 
 ### Sample threshold
 
@@ -376,26 +620,53 @@ threshold as too loose for postflop-specific signals — using
 EXTREME-tier opportunities (which are facing-bet samples specifically)
 fixes this.
 
-### Envelope semantics (addresses Codex's multiplication concern)
+### Envelope semantics — bluff-catch selects within the tier-expanded envelope
 
-Item 1 and Item 2 do NOT compose multiplicatively. The ordering is
-already sequential in the controller:
+Codex's round-2 reframe: "supersedes" makes it sound like value_
+override erases everything exploitation did. The accurate framing is
+that **value_override selects the final action within the clamp-
+expanded policy envelope** — exploitation widened the space of
+permissible distribution shapes (via the higher clamp tier), and
+value_override picks one specific shape from that space.
+
+Concretely:
+- The EXTREME-tier clamp authorizes a maximum L1 shift of 0.8 from
+  the table baseline.
+- When bluff-catch fires, it writes a specific distribution
+  (e.g. 80% call / 20% fold) for the current decision.
+- The bluff-catch distribution **must satisfy the active tier's
+  clamp** — its L1 distance from the table baseline can't exceed
+  EXTREME_MAX_TOTAL_SHIFT (= 0.8).
+
+Why this matters: a pathological case is if bluff-catch wrote a
+distribution that exceeded the active envelope, the bot would have
+"more permission" via the override than the exploit tier intended.
+Empirically the override distributions (0.8/0.2, 0.5/0.5) fit
+comfortably within an 0.8 L1 envelope, but the constraint should be
+enforced in code, not just in writing.
+
+**Implementation:**
 
 ```python
-# Today's pipeline (poker/tiered_bot_controller.py:204-217)
-modified = apply_exploitation_offsets(...)  # uses Item 2's clamp
-modified = compute_value_override_strategy(...)  # supersedes if fired
+# In compute_bluff_catch_strategy:
+proposed = StrategyProfile(action_probabilities={'call': call_prob, 'fold': 1 - call_prob})
+# Enforce tier envelope: the proposed distribution must not exceed
+# the active clamp's L1 distance from the table baseline.
+clamped = _clamp_to_envelope(proposed, baseline, max_total_shift)
+return clamped
 ```
 
-If Item 1 triggers, it **replaces** the strategy. Item 2's offsets
-were applied to a strategy that gets thrown away. The plan makes
-this explicit in code comments and in the docstring of
-`compute_bluff_catch_strategy`. No additional code change needed —
-the semantics already work this way.
+**Test:** `test_bluff_catch_override.py` adds a test that with a
+DEFAULT-tier clamp (= 0.4), a "100% call" bluff-catch on a hand whose
+baseline is "100% fold" gets clamped back to ≤ 0.4 L1 distance from
+baseline (i.e. ~70% fold / 30% call), not the full override
+distribution. With EXTREME-tier clamp (= 0.8), the same override
+fits comfortably.
 
-What we add: a unit test that confirms when bluff-catch fires, the
-resulting distribution is determined by bluff-catch alone, not the
-result of exploitation+bluff-catch compounding.
+In the normal Phase 7.5 flow (bluff-catch only fires when EXTREME
+tier is active), this clamp is never the binding constraint. The
+test exists to defend against future config changes that might lower
+the EXTREME clamp without realizing the override needs the headroom.
 
 ### Mutual exclusivity with strong-hand override
 
@@ -419,57 +690,96 @@ Per Codex's note, even with implementation deferred, we instrument:
 - For each postflop decision, log the bettor's archetype as
   classified by Item 2's tiering (none/default/medium/extreme).
 - For each "diagnostic spot" (extreme opponent + bluff-catcher hand +
-  facing bet), log what the controller decided vs. what an
-  opponent-aware lookup *would have* said.
+  facing bet), log:
+  - What the controller decided
+  - The **counterfactual action** an opponent-aware lookup would
+    have made (specific action label, not "would diverge")
+  - A short rationale string suitable for clustering
 
 The diagnostic doesn't need a separate strategy table yet — just a
-"what would we do if the chart key included `bettor_archetype`?"
-heuristic comparison. We can emit a JSON log of these and decide
-whether the residual leak after Items 1+2 justifies the bigger
-Item 3 chart change.
+small heuristic function `counterfactual_opponent_aware_action(node,
+opponent_tier) → action` that encodes what we'd do if the postflop
+chart had opponent-aware entries. Output goes to the
+`counterfactual_action` and `counterfactual_action_rationale` columns
+in the per-decision capture (see Step 0 schema).
 
-If residual leak is < 30 bb/100, Item 3 is probably not worth the
-complexity. If > 50, do Item 3.
+This converts "Item 3 might be needed" into a measurable claim: after
+Items 1+2 ship, we can count how often controller_action diverges
+from counterfactual_action AND opponent_tier=extreme. If divergence
+is rare (< 5% of extreme-tier decisions), Item 3 isn't worth pursuing.
+If common (> 20%), Item 3 ships next.
+
+**Decision rule for Item 3 implementation (post-validation):**
+- Residual leak vs ManiacBot < 30 bb/100: Item 3 not worth complexity
+- Residual leak 30-50 bb/100: revisit, consider lower-cost
+  alternatives (just adjust postflop classifier probabilities, no
+  new chart axis)
+- Residual leak > 50 bb/100: do Item 3
 
 ## Tests
 
 ### Unit tests
 
 `tests/test_strategy/test_opportunity_normalized_stats.py` (Step 0)
-- `all_in_per_decision` correctly computed from
-  `_all_in_count / _betting_decisions`
+- `all_in_per_facing_bet` correctly computed from
+  `_all_ins_facing_bet / _facing_bet_opportunities`
+- `aggression_factor_postflop` excludes preflop bet/raise/all-in
+  counts (computed from postflop-only counters)
 - AF raw-count fallback caps at `MEDIUM_AF_THRESHOLD` when call_count
   is 0, no longer reports raw count as ratio
-- Backward compat: `all_in_frequency` (per-hand) still produced
+- Backward compat: per-hand `all_in_frequency` still produced
+- Sliding-window counters reset and accumulate correctly across
+  windowed boundaries
 
 `tests/test_strategy/test_exploitation_three_tier_clamp.py` (Item 2)
 - `_determine_clamp` returns DEFAULT when below MEDIUM thresholds
-- Returns MEDIUM when sample ≥ 60 AND AF ≥ 4 AND all-in-per-dec ≥ 0.15
-- Returns EXTREME when sample ≥ 120 AND AF ≥ 6 AND all-in-per-dec ≥ 0.30
-- Returns DEFAULT (not MEDIUM) when one axis is missing
+- Returns MEDIUM when sample, AF_postflop, AND all-in-per-facing-bet
+  all meet their MEDIUM thresholds
+- Returns EXTREME when all three meet their EXTREME thresholds
+- Returns DEFAULT (not MEDIUM) when any one axis is missing
+- **Tier decay (round 2)**: recent-window tier caps cumulative tier —
+  setup with cumulative=EXTREME and recent=DEFAULT → returns DEFAULT
+- **Benchmark prior (round 2)**: when config enables prior and bettor
+  archetype is ManiacBot, returns EXTREME on first decision (no
+  sample requirement)
+- **Benchmark prior off**: same input but config flag false →
+  returns DEFAULT (waiting for samples)
 - `apply_exploitation_offsets` with each tier produces progressively
   wider distributions
 
 `tests/test_strategy/test_bluff_catch_override.py` (Item 1)
-- `_bluff_catch_call_probability` returns the expected value across
-  the bet-size/hand-class matrix (parameterized table test)
-- `should_apply_bluff_catch_override` returns True only when ALL gates
-  pass (medium/weak_made + facing_bet + EXTREME tier + adaptation
-  bias gate)
+- `_base_call_prob` returns the expected value across the bet-size /
+  hand-class matrix (parameterized table test)
+- **`_board_danger_dampener` (round 2)**: returns 1.0 on flop+dry,
+  0.6 on river+rainbow, 0.3 on river+four_flush, 0.15 on weak_made+
+  paired_high
+- `_bluff_catch_call_probability` correctly composes base × dampener
+- **Envelope clamp (round 2)**: with `max_total_shift=0.4`, a
+  bluff-catch that would write 100% call (from 100% fold baseline)
+  gets clamped to ≤ 0.4 L1 distance from baseline
+- **Envelope clamp at EXTREME tier**: with `max_total_shift=0.8`,
+  same override fits without clamping
+- `should_apply_bluff_catch_override` returns True only when ALL
+  gates pass (medium/weak_made + facing_bet + EXTREME tier +
+  adaptation bias gate)
 - Returns False for: strong hands (use existing path), weak draw,
-  open spot, balanced opponent, MEDIUM-tier opponent (not yet
-  EXTREME), low sample
+  open spot, balanced opponent, MEDIUM-tier opponent, low sample
 
 ### Integration tests
 
 `tests/test_strategy/test_tiered_bot_bluff_catch.py`
-- ManiacBot-pattern stats + medium_made flop + facing-1/3-pot →
-  controller decides `call` with high probability (≥ 80%)
+- ManiacBot-pattern stats + medium_made flop + facing-1/3-pot dry
+  board → controller decides `call` with high probability (≥ 80%)
+- Same stats + facing-pot-size + river + four-flush board →
+  controller folds more often (dampener pulls call rate down to ~24%)
 - Same stats + facing-2x-pot → controller folds more often (~50/50)
 - Same stats + strong_made → controller still hits strong-hand
   override (no regression)
 - GTO-Lite-pattern stats (AF~2, no all-ins) + medium_made →
   controller does NOT fire bluff-catch (sample below thresholds)
+- **Per-street attribution (round 2)**: end-to-end test verifies
+  per-decision capture records the street and street_chip_delta so
+  validation analysis can group bb/100 per street
 
 ### Existing test regression
 
@@ -499,6 +809,22 @@ wait
 - No archetype regresses below Phase 7 baseline.
 - Maniac archetype improves OR stays within noise (its personality is
   already wide; adjustment-layer effect should be smaller).
+
+**Per-street bb/100 reporting** (Codex round 2):
+Global bb/100 improvements can hide per-street regressions — e.g.
+better turn folds compensating for worse river spew. The analysis
+script must report bb/100 *per street* alongside the totals:
+
+| Hero | Total | Preflop | Flop | Turn | River |
+|---|---|---|---|---|---|
+
+Reading guidance:
+- River bb/100 must improve OR stay within noise — bluff-catch
+  override that adds river spew is a failure mode.
+- Flop+turn improvements with river regression suggests the dampener
+  isn't tight enough on rivers.
+- Per-archetype river bb/100 vs ManiacBot in Phase 7 baseline: TBD
+  (Step 0 instrumentation will produce this).
 
 ### Stability sweep: HU vs GTO-Lite
 
@@ -571,17 +897,25 @@ tighten before retesting.
    distribution). Final thresholds calibrated *after* Step 0 ships
    and runs once, *before* Items 1+2 ship.
 
-## Effort estimate (revised)
+## Effort estimate (v3, after Codex round 2)
 
 | Step | Implementation | Tests | Validation |
 |---|---|---|---|
-| 0: Instrumentation + per-decision capture + opportunity-norm stats | 1 day | 0.5 day | (none; data collection only) |
-| 2: Three-tier exploitation clamp | 0.5 day | 0.5 day | (shared sweep with Item 1) |
-| 1: Bluff-catch override w/ pot-odds | 1-2 days | 0.5 day | 1 day |
-| 3 diagnostic log: opponent-aware spot detection | 0.5 day | 0.25 day | (none; diagnostic only) |
+| 0: Instrumentation + opportunity-norm stats + sliding-window + config loader | 1.5 days | 0.75 day | (data collection + calibration table) |
+| 0 diagnostics: counterfactual logging + analyze script | 0.75 day | 0.25 day | — |
+| 2: Three-tier clamp + tier decay + benchmark prior | 0.75 day | 0.5 day | (shared sweep with Item 1) |
+| 1: Bluff-catch override w/ pot-odds + board-danger dampener + envelope clamp | 1.5 days | 0.75 day | 1 day |
 
-**Total: 5-6 days.** Was 3 days in v1 — the increase is from the
-instrumentation prerequisite and the pot-odds conditioning detail.
+**Total: 7-8 days.** Up from 5-6 in v2; the round-2 additions
+(board-danger dampener, tier decay, per-street validation, config
+externalization, counterfactual logging) each add small increments
+that sum to ~1.5 extra days.
+
+Sequencing constraint: Step 0 must complete BEFORE Items 1+2 ship,
+because Step 0 produces the calibration table that sets the actual
+threshold values. Implementing Item 1+2 against placeholder
+thresholds and then calibrating in-flight risks shipping wrong-tuned
+behavior.
 
 ## Out of scope
 
@@ -599,17 +933,21 @@ instrumentation prerequisite and the pot-odds conditioning detail.
 
 | File | Action | Description |
 |---|---|---|
-| `poker/memory/opponent_model.py` | Modify | Add `_betting_decisions` counter + `all_in_per_decision` property; cap AF raw-count fallback at MEDIUM_AF_THRESHOLD |
-| `poker/strategy/exploitation.py` | Modify | Add `MEDIUM_*` / `EXTREME_*` thresholds + `_determine_clamp` helper; AggregatedOpponentStats adds `all_in_per_decision` + `facing_bet_opportunities` |
-| `poker/strategy/value_override.py` | Modify | Add `should_apply_bluff_catch_override` + `compute_bluff_catch_strategy` + `_bluff_catch_call_probability`; new `BLUFF_CATCH_TRIGGER_CLASSES` |
-| `poker/tiered_bot_controller.py` | Modify | Wire bluff-catch override after strong-hand; thread `_determine_clamp` value into exploitation; populate `DecisionContext.bet_size_pot_ratio` |
-| `poker/strategy/exploitation.py` (DecisionContext) | Modify | Add `bet_size_pot_ratio` field |
-| `poker/persistence.py` or analysis schema | Modify | Add new diagnostic columns to per-decision analysis |
-| `experiments/analyze_adjustment_firings.py` | **NEW** | Step 0 firing-rate analysis script |
-| `tests/test_strategy/test_opportunity_normalized_stats.py` | **NEW** | Step 0 stats tests |
-| `tests/test_strategy/test_exploitation_three_tier_clamp.py` | **NEW** | Item 2 tests |
-| `tests/test_strategy/test_bluff_catch_override.py` | **NEW** | Item 1 unit tests |
-| `tests/test_strategy/test_tiered_bot_bluff_catch.py` | **NEW** | Combined integration test |
+| `poker/strategy/data/phase_7_5_config.yaml` | **NEW** | All thresholds (clamps, sample, signal, decay, prior) — single source of truth |
+| `poker/strategy/phase_7_5_config.py` | **NEW** | Config loader (YAML → typed dataclass), with test fixture support |
+| `poker/memory/opponent_model.py` | Modify | Add `_facing_bet_opportunities`, `_all_ins_facing_bet`, `_postflop_bet_raise_count`, `_postflop_call_count` counters; add `all_in_per_facing_bet`, `aggression_factor_postflop` properties; cap AF raw-count fallback at MEDIUM threshold |
+| `poker/memory/opponent_model.py` (sliding window) | Modify | Add recent-window counters (window_size from config) for tier ratchet-down |
+| `poker/strategy/exploitation.py` | Modify | `_determine_clamp` with two-axis gating + benchmark prior + tier decay; AggregatedOpponentStats adds postflop-AF + opportunity-normalized fields |
+| `poker/strategy/exploitation.py` (DecisionContext) | Modify | Add `bet_size_pot_ratio`, `street`, `board_texture` fields |
+| `poker/strategy/value_override.py` | Modify | Add `should_apply_bluff_catch_override`, `compute_bluff_catch_strategy`, `_bluff_catch_call_probability`, `_base_call_prob`, `_board_danger_dampener`, `_clamp_to_envelope`; new `BLUFF_CATCH_TRIGGER_CLASSES` |
+| `poker/tiered_bot_controller.py` | Modify | Wire bluff-catch override after strong-hand; thread tier from `_determine_clamp` into exploitation + override; populate new DecisionContext fields; emit per-decision diagnostic |
+| `poker/persistence.py` or analysis schema | Modify | Add new diagnostic columns (see Step 0 schema) |
+| `poker/strategy/counterfactual.py` | **NEW** | Heuristic opponent-aware action lookup for Item 3 diagnostics |
+| `experiments/analyze_adjustment_firings.py` | **NEW** | Step 0 firing-rate + per-street bb/100 + calibration table output |
+| `tests/test_strategy/test_opportunity_normalized_stats.py` | **NEW** | Step 0 stats tests (denominators, postflop-AF, AF raw-count cap) |
+| `tests/test_strategy/test_exploitation_three_tier_clamp.py` | **NEW** | Item 2 tests (tier gating, decay ratchet-down, benchmark prior) |
+| `tests/test_strategy/test_bluff_catch_override.py` | **NEW** | Item 1 unit tests (pot-odds matrix, dampener, envelope clamp) |
+| `tests/test_strategy/test_tiered_bot_bluff_catch.py` | **NEW** | Combined integration test (controller end-to-end) |
 | `docs/analysis/PHASE_7_5_RESULTS.md` | **NEW** | Validation findings (post-implementation) |
 
 ## Reproducibility
@@ -622,20 +960,35 @@ Baseline numbers to compare against:
 - HU vs GTO-Lite: same source
 - 6-max-vs-rules: see [`PHASE_6_VALUE_OVERRIDE_RESULTS.md`](../analysis/PHASE_6_VALUE_OVERRIDE_RESULTS.md)
 
-## Open questions for round-2 review
+## Remaining open questions
 
-For codex round 2:
-1. Are the placeholder thresholds (AF=4/6, all-in-per-dec=0.15/0.30,
-   sample=60/120) plausible starting points, given that Step 0 will
-   calibrate them with real data before items ship?
-2. Is the pot-odds-conditional bluff-catch table (the
-   `_bluff_catch_call_probability` matrix) defensible? Equity
-   estimates (medium_made = 55% vs maniac c-bet range, weak_made =
-   35%) are hand-wave numbers from poker theory — should they be
-   grounded in actual equity calculations against the observed
-   opponent range?
-3. Is the "EXTREME tier gates bluff-catch" coupling too tight? Could
-   we want bluff-catch to fire at MEDIUM tier with tighter pot-odds
-   conditions?
-4. Anything in the instrumentation schema that should be added or
-   removed?
+After two rounds of Codex review, these are the items NOT yet resolved
+that will be answered during implementation rather than in the plan:
+
+1. **Calibrated threshold values.** Step 0 instrumentation will
+   produce the AF / all-in-per-facing-bet / facing-bet-opportunities
+   distributions for each opponent archetype. The placeholder values
+   in `phase_7_5_config.yaml` will be replaced with calibrated values
+   before Items 1+2 ship to production. The calibration output is a
+   first-class deliverable of Step 0.
+
+2. **Should bluff-catch fire at MEDIUM tier?** Plan currently gates
+   bluff-catch on EXTREME tier only. After Step 0 instrumentation
+   produces the diagnostic-spot taxonomy, we'll see how often a
+   MEDIUM-tier opponent presents bluff-catcher spots. If those spots
+   are common AND the bluff-catch dampener already keeps the calls
+   safe, we may loosen the gate to MEDIUM. Decision deferred until
+   we have data.
+
+3. **Texture bucket coverage for the board-danger dampener.** The
+   dampener references `four_flush`, `four_straight`, `paired_high`,
+   `monotone` texture buckets. The current postflop classifier
+   produces a set of textures; confirm during implementation that
+   these names match (the names in `postflop_classifier.py` may
+   differ — implementation will reconcile).
+
+4. **Equity numbers in bluff-catch are coarse.** medium_made=55%,
+   weak_made=35% are poker-theory hand-waves, not empirical equity
+   vs an actual maniac's c-bet range. Step 0 diagnostic data could
+   later be used to fit these numbers from observed showdowns. Out
+   of scope for v1; tracked as a future calibration pass.
