@@ -466,13 +466,22 @@ class OpponentModel:
             self._last_hand_dealt = hand_number
         self.tendencies.record_hand_dealt()
 
-    def observe_action(self, action: str, phase: str, is_voluntary: bool = True, hand_number: int = None):
-        """Record an observed action from this opponent."""
+    def observe_action(self, action: str, phase: str, is_voluntary: bool = True,
+                      hand_number: int = None, was_facing_bet: Optional[bool] = None):
+        """Record an observed action from this opponent.
+
+        Args:
+            was_facing_bet: Phase 7.5 Step 0 context flag passed through
+                to OpponentTendencies.update_from_action.
+        """
         # Only count hands_observed once per hand
         new_hand = hand_number is not None and hand_number != self._last_hand_counted
         if new_hand:
             self._last_hand_counted = hand_number
-        self.tendencies.update_from_action(action, phase, is_voluntary, count_hand=new_hand)
+        self.tendencies.update_from_action(
+            action, phase, is_voluntary,
+            count_hand=new_hand, was_facing_bet=was_facing_bet,
+        )
 
     def observe_showdown(self, won: bool, bluffed: bool = False):
         """Record a showdown observation."""
@@ -595,6 +604,77 @@ class OpponentModel:
         return model
 
 
+def _build_aggregate_from_single(t: OpponentTendencies):
+    """Build AggregatedOpponentStats from one tendencies object (verbatim).
+
+    Used by both the single-active-opponent path and the 60%-dominant
+    branch. All Phase 7.5 Step 0 fields propagate from the tendencies'
+    own derived properties + raw counters.
+    """
+    from poker.strategy.exploitation import AggregatedOpponentStats
+    return AggregatedOpponentStats(
+        hands_observed=t.hands_observed,
+        vpip=t.vpip,
+        pfr=t.pfr,
+        aggression_factor=t.aggression_factor,
+        all_in_frequency=t.all_in_frequency,
+        fold_to_cbet=t.fold_to_cbet,
+        cbet_faced_count=t._cbet_faced_count,
+        # Phase 7.5 Step 0 fields
+        aggression_factor_postflop=t.aggression_factor_postflop,
+        all_in_per_facing_bet=t.all_in_per_facing_bet,
+        facing_bet_opportunities=t._facing_bet_opportunities,
+        postflop_jam_open_rate=t.postflop_jam_open_rate,
+        postflop_open_opportunities=t._postflop_open_opportunities,
+    )
+
+
+def _build_aggregate_from_multi(tendencies_list):
+    """Build AggregatedOpponentStats by aggregating multiple tendencies.
+
+    Float rate fields use equal-weight average across the list. Sample
+    counters (hands_observed, cbet_faced_count, facing_bet_opportunities,
+    postflop_open_opportunities) use MIN — the limiting factor for
+    exploit confidence. Matches the 6.7a aggregator's policy explicitly
+    (see plan §"aggregation policy").
+    """
+    from poker.strategy.exploitation import AggregatedOpponentStats
+
+    if not tendencies_list:
+        return AggregatedOpponentStats()
+
+    n = len(tendencies_list)
+    avg_vpip = sum(t.vpip for t in tendencies_list) / n
+    avg_pfr = sum(t.pfr for t in tendencies_list) / n
+    avg_af = sum(t.aggression_factor for t in tendencies_list) / n
+    avg_all_in = sum(t.all_in_frequency for t in tendencies_list) / n
+    avg_fold_to_cbet = sum(t.fold_to_cbet for t in tendencies_list) / n
+    min_hands = min(t.hands_observed for t in tendencies_list)
+    min_cbet_faced = min(t._cbet_faced_count for t in tendencies_list)
+
+    # Phase 7.5 Step 0 fields
+    avg_af_postflop = sum(t.aggression_factor_postflop for t in tendencies_list) / n
+    avg_all_in_pfb = sum(t.all_in_per_facing_bet for t in tendencies_list) / n
+    avg_jam_open = sum(t.postflop_jam_open_rate for t in tendencies_list) / n
+    min_facing_bet_opps = min(t._facing_bet_opportunities for t in tendencies_list)
+    min_open_opps = min(t._postflop_open_opportunities for t in tendencies_list)
+
+    return AggregatedOpponentStats(
+        hands_observed=min_hands,
+        vpip=avg_vpip,
+        pfr=avg_pfr,
+        aggression_factor=avg_af,
+        all_in_frequency=avg_all_in,
+        fold_to_cbet=avg_fold_to_cbet,
+        cbet_faced_count=min_cbet_faced,
+        aggression_factor_postflop=avg_af_postflop,
+        all_in_per_facing_bet=avg_all_in_pfb,
+        facing_bet_opportunities=min_facing_bet_opps,
+        postflop_jam_open_rate=avg_jam_open,
+        postflop_open_opportunities=min_open_opps,
+    )
+
+
 class OpponentModelManager:
     """Manages opponent models for all AI players."""
 
@@ -613,10 +693,21 @@ class OpponentModelManager:
         return self.models[observer][opponent]
 
     def observe_action(self, observer: str, opponent: str, action: str,
-                      phase: str, is_voluntary: bool = True, hand_number: int = None):
-        """Record an action observation."""
+                      phase: str, is_voluntary: bool = True, hand_number: int = None,
+                      was_facing_bet: Optional[bool] = None):
+        """Record an action observation.
+
+        Args:
+            was_facing_bet: Phase 7.5 Step 0 context flag. See
+                OpponentTendencies.update_from_action for semantics.
+                None when caller can't determine; postflop counters
+                skipped in that case.
+        """
         model = self.get_model(observer, opponent)
-        model.observe_action(action, phase, is_voluntary, hand_number=hand_number)
+        model.observe_action(
+            action, phase, is_voluntary,
+            hand_number=hand_number, was_facing_bet=was_facing_bet,
+        )
 
     def record_hand_dealt(self, observer: str, opponents: List[str], hand_number: int = None):
         """Record that each opponent was dealt one more hand.
@@ -693,16 +784,7 @@ class OpponentModelManager:
             return AggregatedOpponentStats()
 
         if len(models_with_history) == 1:
-            t = models_with_history[0].tendencies
-            return AggregatedOpponentStats(
-                hands_observed=t.hands_observed,
-                vpip=t.vpip,
-                pfr=t.pfr,
-                aggression_factor=t.aggression_factor,
-                all_in_frequency=t.all_in_frequency,
-                fold_to_cbet=t.fold_to_cbet,
-                cbet_faced_count=t._cbet_faced_count,
-            )
+            return _build_aggregate_from_single(models_with_history[0].tendencies)
 
         # Multiple opponents with history. Check 60% rule.
         if money_committed:
@@ -721,42 +803,10 @@ class OpponentModelManager:
                         dominant = next(
                             m for m in models_with_history if m.opponent == name
                         )
-                        t = dominant.tendencies
-                        return AggregatedOpponentStats(
-                            hands_observed=t.hands_observed,
-                            vpip=t.vpip,
-                            pfr=t.pfr,
-                            aggression_factor=t.aggression_factor,
-                            all_in_frequency=t.all_in_frequency,
-                            fold_to_cbet=t.fold_to_cbet,
-                            cbet_faced_count=t._cbet_faced_count,
-                        )
+                        return _build_aggregate_from_single(dominant.tendencies)
 
-        # Equal-weight average across opponents-with-history.
-        # hands_observed is the MIN (limiting factor for exploit confidence).
-        # c-bet sample is also the MIN to match the same "confidence
-        # bottleneck" semantics; the rate averages.
-        n = len(models_with_history)
-        avg_vpip = sum(m.tendencies.vpip for m in models_with_history) / n
-        avg_pfr = sum(m.tendencies.pfr for m in models_with_history) / n
-        avg_af = sum(m.tendencies.aggression_factor for m in models_with_history) / n
-        avg_all_in = sum(m.tendencies.all_in_frequency for m in models_with_history) / n
-        avg_fold_to_cbet = sum(
-            m.tendencies.fold_to_cbet for m in models_with_history
-        ) / n
-        min_hands = min(m.tendencies.hands_observed for m in models_with_history)
-        min_cbet_faced = min(
-            m.tendencies._cbet_faced_count for m in models_with_history
-        )
-
-        return AggregatedOpponentStats(
-            hands_observed=min_hands,
-            vpip=avg_vpip,
-            pfr=avg_pfr,
-            aggression_factor=avg_af,
-            all_in_frequency=avg_all_in,
-            fold_to_cbet=avg_fold_to_cbet,
-            cbet_faced_count=min_cbet_faced,
+        return _build_aggregate_from_multi(
+            [m.tendencies for m in models_with_history]
         )
 
     def to_dict(self) -> Dict[str, Any]:

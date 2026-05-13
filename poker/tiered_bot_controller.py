@@ -923,6 +923,14 @@ class TieredBotController(AIPlayerController):
                             all_in_frequency=t.all_in_frequency,
                             fold_to_cbet=t.fold_to_cbet,
                             cbet_faced_count=t._cbet_faced_count,
+                            # Phase 7.5 Step 0 fields — populated for
+                            # diagnostic visibility. Item 2 consumes them
+                            # for tier classification.
+                            aggression_factor_postflop=t.aggression_factor_postflop,
+                            all_in_per_facing_bet=t.all_in_per_facing_bet,
+                            facing_bet_opportunities=t._facing_bet_opportunities,
+                            postflop_jam_open_rate=t.postflop_jam_open_rate,
+                            postflop_open_opportunities=t._postflop_open_opportunities,
                         )
 
             spots.append(OpponentSpot(

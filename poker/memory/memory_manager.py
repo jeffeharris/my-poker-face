@@ -224,6 +224,21 @@ class AIMemoryManager:
             self._recent_aggressor_name = None
             self._current_street = phase
 
+        # Phase 7.5 Step 0: capture was_facing_bet BEFORE the current
+        # action updates _recent_aggressor_name. The snapshot reflects
+        # the state the actor SAW at decision time. On postflop streets,
+        # facing a bet = there's a prior aggressor on this street whose
+        # bet hasn't been folded out. The actor's own previous action
+        # on this street (if they were the prior aggressor) is treated
+        # as "not facing a bet" — they were free to act when they bet,
+        # and someone re-raising them is what would make them face a
+        # bet next.
+        was_facing_bet = (
+            phase in ('FLOP', 'TURN', 'RIVER')
+            and self._recent_aggressor_name is not None
+            and self._recent_aggressor_name != player_name
+        )
+
         # Track preflop raiser for c-bet detection AND for the Phase 6.6
         # last-preflop-aggressor signal consumed by HU c-bet exploitation.
         # Set from accepted actions (after play_turn validates), not
@@ -270,7 +285,8 @@ class AIMemoryManager:
                 action=action,
                 phase=phase,
                 is_voluntary=(action not in ('sb', 'bb')),
-                hand_number=self.hand_count
+                hand_number=self.hand_count,
+                was_facing_bet=was_facing_bet,
             )
 
     def on_community_cards(self, phase: str, cards: List[str]) -> None:
