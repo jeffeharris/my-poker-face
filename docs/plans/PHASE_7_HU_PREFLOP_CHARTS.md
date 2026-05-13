@@ -174,6 +174,18 @@ This is the technically correct approach but requires:
 Use published HU starting hand charts (e.g., from PokerStove, Cardrunners,
 or known Nash-equilibrium tables). Manually encode them as Python dicts.
 
+**FIRST DELIVERABLE before any chart data entry** (per Codex review):
+write `poker/strategy/data/hu_preflop_chart_README.md` documenting:
+1. The specific chart source used (URL, book reference, or solver output)
+2. The stack depth assumed (typically 100 BB)
+3. The opening sizing convention (3bb, 2.5x, mixed?)
+4. How facing-3bet and facing-4bet ranges are derived
+5. Limit cases (e.g. "for hands not in source, fold by default")
+
+Without this, the chart is unauditable and impossible to recreate.
+Reviewers can't tell if a specific entry is correct because the spec is
+ambiguous. Make the source explicit before writing data.
+
 Less precise but FAST. For 169 canonical hands × 2 positions × 4 scenarios
 (rfi, vs_open, 3bet, 4bet), that's ~1350 entries.
 
@@ -305,14 +317,20 @@ already emits:
 Suggested data file layout: CSV in `poker/strategy/data/hu_preflop_chart.csv`:
 
 ```csv
-hand,position,scenario,raise_3bb,raise_4x,call,fold
-AA,SB,rfi,0.95,0.0,0.0,0.0
-AA,BB,vs_open,0.0,0.85,0.15,0.0
-22,SB,rfi,0.7,0.0,0.0,0.30
+hand,position,scenario,raise_3bb,jam,call,fold
+AA,SB,rfi,0.95,0.05,0.0,0.0
+AA,BB,vs_open,0.0,0.0,0.0,0.0       # placeholder — AA never folds, see actual chart
+22,SB,rfi,0.70,0.0,0.0,0.30
 22,BB,vs_open,0.0,0.05,0.55,0.40
 72o,SB,rfi,0.0,0.0,0.0,1.00
 ...
 ```
+
+**Important** (per Codex review): every row's probabilities must sum
+to exactly 1.0. The example above keeps AA,SB,rfi at `{raise_3bb: 0.95,
+jam: 0.05}` for clarity but real entries must have all columns summing
+to 1.0. Validate this in the chart loader test, not just per-action
+tests.
 
 Plus a small Python loader.
 
@@ -320,12 +338,26 @@ Plus a small Python loader.
 
 New unit tests:
 - `tests/test_strategy/test_hu_strategy_table.py`:
-  - All 169 hands present in chart at each position
-  - Probabilities sum to 1.0 per entry (within float tolerance)
-  - AA/KK opens 95%+ from SB
-  - 72o opens 0% from SB
-  - SB opening range total ≥ 70% of hands
-  - BB defense range total ≥ 60%
+  - All 169 hands present in chart at each position × scenario combo
+  - Probabilities sum to 1.0 per entry (within float tolerance) — this
+    is the **strict** per-row gate
+  - AA/KK opens 95%+ from SB (raise + jam combined; sum of aggressive
+    action probabilities)
+  - 72o opens 0% from SB (or close to it; allow up to 5% if chart
+    includes occasional bluff opens)
+  - **Sizing-dependent open-range gate**: the SB opening "range total"
+    (sum of P(raise) + P(call/limp) across all 169 hands, weighted by
+    hand frequency) falls within the sizing-determined target band:
+    - 3bb-only opens chart: total VPIP target 55-70%
+    - 2.5x-only opens chart: total VPIP target 65-80%
+    - Mixed sizing chart: target derived from chosen mix
+  - BB defense range (P(call) + P(raise) summed across hands): 50-65%
+    (sizing-dependent, similar logic)
+
+  Test should explicitly check whichever band matches the chart's
+  chosen sizing convention. **First step before tests**: document the
+  chosen sizing convention in `poker/strategy/data/hu_preflop_chart_README.md`
+  (see below) and write tests against that.
 
 - `tests/test_strategy/test_tiered_bot_hu_routing.py`:
   - 2-player game state → uses HU table
@@ -468,6 +500,7 @@ first-pass charts will surface issues that require iteration.
 |---|---|---|
 | `poker/strategy/hu_strategy_table.py` | **NEW** | HU-specific strategy table |
 | `poker/strategy/data/hu_preflop_chart.csv` | **NEW** | Chart data |
+| `poker/strategy/data/hu_preflop_chart_README.md` | **NEW** | Source/sizing convention spec — write BEFORE chart data entry |
 | `poker/strategy/hu_preflop_classifier.py` | **NEW** (or extend existing) | Build HUPreflopNode from game state |
 | `poker/strategy/nodes.py` | Modify | Add HUPreflopNode dataclass |
 | `poker/tiered_bot_controller.py` | Modify | Route to HU table when num_players=2 |

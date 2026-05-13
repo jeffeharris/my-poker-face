@@ -193,13 +193,26 @@ def observe_action(self, observer, opponent, action, phase, ...):
 Reset at hand start via `record_hand_dealt` (which already exists and is
 called per-opponent at hand-start in both sim and production).
 
-Hero's own preflop raises ALSO need to update this. The sim observes
-non-hero actions; hero would need to call `observe_action(observer=hero,
-opponent=hero, ...)` after raising. OR add a separate API:
+Hero's own preflop raises ALSO need to update this. **Note** (Codex
+review): treating hero as their own "opponent" in `observe_action` is
+architecturally awkward — the observer/opponent keyed structure is for
+opponent TENDENCIES, not hand-level metadata. Use a separate API on the
+manager for hand-level state:
 
 ```python
-def record_preflop_aggression(self, player_name):
+# On OpponentModelManager:
+self._current_hand_last_preflop_aggressor: Optional[str] = None
+
+def record_preflop_aggression(self, player_name: str):
+    """Record that this player just raised preflop. Pure hand-level
+    metadata — NOT stored in opponent_models[] (which tracks tendencies
+    for cross-hand stats).
+    """
     self._current_hand_last_preflop_aggressor = player_name
+
+# Also extend observe_action to set this when phase=='PRE_FLOP' and
+# action in ('raise', 'all_in') — for the sim observation flow that
+# already feeds opponent actions through observe_action.
 ```
 
 Called from controller after sampling a preflop raise:
@@ -231,7 +244,12 @@ def _is_flop_as_preflop_aggressor(self, game_state):
     if call_amount > 0:
         return False
 
-    # Hero has a legal bet action
+    # Hero has a legal bet action.
+    # NOTE for implementer: verify the actual attribute used by
+    # TieredBotController._get_ai_decision for valid_actions. The pipeline
+    # currently uses `game_state.current_player_options` but the postflop
+    # path may normalize differently. Match the exact source the rest of
+    # the pipeline uses to avoid stale-flag drift.
     valid_actions = game_state.current_player_options
     if 'raise' not in valid_actions and 'bet' not in valid_actions:
         # Allow 'raise' since bet/raise are sometimes conflated in our engine
@@ -443,12 +461,19 @@ but we don't currently sim that.
    **Mitigation**: relax to `cbet_faced_count >= 5` if validation shows the
    pattern never fires.
 
-2. **The "was preflop aggressor" state needs careful resetting.** Edge
-   case: hero raises preflop in hand N, then opponent re-raises and hero
-   folds. Did hero "win" the preflop aggression? Plan says yes (they
-   raised), but they then folded. Need to decide: should the flag persist
-   to the flop in this case? Hero won't act on flop anyway (they folded),
-   so probably moot. But verify in tests.
+2. **Last-aggressor tracking edge cases.** The updated design tracks the
+   LAST preflop aggressor on the manager (overwritten by each subsequent
+   preflop raise). Edge cases the tests should cover:
+   - Hero raises → opp 3-bets → hero folds: manager records opp as last
+     aggressor; hero is folded so doesn't act on flop anyway. Correct.
+   - Hero raises → opp 3-bets → hero calls: manager records opp as last
+     aggressor; on flop hero is NOT the last aggressor, so flag False.
+     Correct (opp gets to c-bet, not hero).
+   - Hero raises → opp calls → flop: manager records hero as last aggressor;
+     on flop flag True. Correct.
+   - Hand restarts in preflop (e.g. someone busts and the table reseats):
+     `record_hand_dealt` resets the manager's hand-level state at new
+     hand_number.
 
 3. **Confidence-weighting may reduce effects on extreme opponents.** Vs
    ManiacBot (AF~83), intensity = 100% so no change. Vs borderline (AF=6),
