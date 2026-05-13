@@ -2,7 +2,7 @@
 purpose: Plan to build heads-up specific preflop strategy charts to fix the chart-mismatch leak
 type: design
 created: 2026-05-13
-last_updated: 2026-05-13
+last_updated: 2026-05-13T14:00:00
 ---
 
 # Phase 7: HU preflop charts
@@ -40,15 +40,24 @@ In HU, only 2 players. Each hand:
 Both players see EVERY hand from a fixed seat. There's no "early position
 fold range" — there's only the button-vs-bb range.
 
-Standard HU opening ranges (Nash-derived for cash, approximate):
-- SB opens ~70-80% of hands (raise)
-- BB defends ~60-70% of opens (call or 3-bet)
-- 3-bet ranges, 4-bet ranges, etc. are wider than 6-max equivalents
+Standard HU opening strategy at 100 BB cash depth is more nuanced than
+"SB opens 80% to 3bb":
+
+- **Modern HU uses smaller opens.** 2x or 2.5x BB is more common than 3x.
+  Some Nash-influenced strategies even include limping with a portion of
+  the range. A pure-3bb open range that's too wide gets attacked by
+  3-bets from BB.
+- **Mix of opening sizes**: e.g. 2.5x with most of the range, 3bb with
+  some bluffs/value, limp with a small bluff-catching subset.
+- **SB raise-or-fold VPIP target: ~65-80% depending on sizing.** Tighter
+  if opens are 3bb+, wider if 2-2.5x.
+- **BB defends ~50-65% of opens** (call + 3-bet), depending on opener
+  sizing.
 
 Compare to 6-max where UTG opens ~15%, button opens ~40%, BB defends maybe
-30-40% vs button. **The 6-max button range is roughly what HU SB plays.**
-Currently our HU SB uses the BUTTON range from a 6-max chart, which is
-much too tight.
+30-40% vs button. **The 6-max button range is the lower bound of what HU
+SB should play.** Our current HU behavior uses that BUTTON range, which
+is much too tight.
 
 ### Why this matters quantitatively
 
@@ -74,16 +83,23 @@ A working Phase 7 produces these observable outcomes:
    identifies "this is HU" (2 active players) and routes to HU charts
    instead of the 6-max table.
 
-2. **HU SB opening range ≈70-80% VPIP**: TAG (or any archetype) acting from
-   SB in HU plays ~70-80% of hands voluntarily. Currently TAG opens ~30-40%.
+2. **HU SB VPIP target: 65-80%** (depending on chart sizing convention).
+   TAG acting from SB in HU plays 65-80% of hands voluntarily. Currently
+   TAG opens ~30-40%. The target range is wide because the exact number
+   depends on what sizing the chart uses (3bb opens narrower than 2.5x).
+   The mechanism gate is "VPIP is clearly higher than the 6-max button
+   number," not a specific percentage.
 
-3. **HU BB defense range ≈60-70%**: TAG facing an SB open defends ~60-70%
-   of hands (call + 3-bet).
+3. **HU BB defense range 50-65%**: TAG facing an SB open defends 50-65%
+   of hands (call + 3-bet), again depending on facing-open sizing.
 
-4. **Net bb/100 vs ManiacBot HU breaks even or positive** for at least Nit,
-   TAG, LAG (which are the "honest poker" archetypes). Currently all four
-   archetypes lose -90 to -195 bb/100. Target: TAG ≥ -50, LAG ≥ +0, Nit ≥ -80.
-   Maniac archetype is already strong by design — target unchanged.
+4. **Net bb/100 vs ManiacBot HU directionally improves** for Nit, TAG,
+   LAG. Currently all four archetypes lose -90 to -195 bb/100. Targets
+   (per Codex review — bb/100 is noisy with 3-seed × 2000-hand sweeps,
+   so use as direction-only signal): TAG improves by ≥30 bb/100, LAG ≥30,
+   Nit ≥20. Maniac archetype unchanged.
+   **Primary gate is the action-distribution metric (#2/#3); bb/100 is
+   secondary.**
 
 5. **6-max behavior unchanged**: existing strategy table still used when
    2 < active players ≤ 6. All current 6-max-vs-rules gates still pass.
@@ -159,9 +175,29 @@ Use published HU starting hand charts (e.g., from PokerStove, Cardrunners,
 or known Nash-equilibrium tables). Manually encode them as Python dicts.
 
 Less precise but FAST. For 169 canonical hands × 2 positions × 4 scenarios
-(rfi, vs_open, 3bet, 4bet), that's ~1350 entries. A few hours of data entry.
+(rfi, vs_open, 3bet, 4bet), that's ~1350 entries.
 
-**Recommendation: B for v1, plan to upgrade to A later.**
+**Codex flagged this is more involved than "a few hours of data entry."**
+The published charts vary by sizing, depth, and source. The implementer
+will need to:
+1. Pick a SPECIFIC chart source and stack-depth/sizing assumption (e.g.
+   "HRC HU cash, 100BB, 2.5x SB open")
+2. Translate the source format (often called/raised/folded categories)
+   into our action probabilities
+3. Define limit cases for "AKo, BB, vs 4-bet" where source charts may be
+   silent or assume push/fold
+4. Handle the action vocabulary mismatch — our resolver uses 'raise_3bb',
+   'raise_4x', etc. The chart needs to emit one of those, not whatever
+   the source publication uses
+5. Validate via spot-check that distribution sums to 1.0 per entry
+
+Realistic estimate for high-quality hand-authored chart: 2-3 days of
+focused work, not a few hours. Calibration after validation runs adds
+1-2 more days.
+
+**Recommendation: B for v1, plan to upgrade to A later.** Treat Option
+B as a STARTING POINT that will need 1-2 calibration rounds based on
+validation data, not a finished artifact.
 
 The data structure mirrors `strategy_table.py`:
 ```python
@@ -195,12 +231,19 @@ def build_hu_preflop_node(game_state, player_idx, canonical_hand) -> HUPreflopNo
 
 ### Step 4: Controller routing
 
-In `TieredBotController._get_ai_decision` (around line 156-205 preflop path):
+**Codex flagged a subtle bug in the original routing condition:**
+`num_active_players == 2` is true in many 6-max postflop spots (after
+folds). The correct gate is **the table mode at hand start**, not
+non-folded count at decision time.
+
+Use **total seated players** (the count that started this hand):
 
 ```python
-# Detect HU
-num_active = sum(1 for p in game_state.players if not p.is_folded)
-is_hu = num_active == 2
+# Detect HU at the TABLE level — not post-fold count
+# game_state.players contains ALL players seated this hand, including
+# folded ones (is_folded=True). num seated = len(game_state.players).
+num_seated = len(game_state.players)
+is_hu = num_seated == 2
 
 if is_hu:
     hu_node = build_hu_preflop_node(game_state, player_idx, canonical_hand)
@@ -211,6 +254,15 @@ else:
 
 # ... rest of pipeline unchanged
 ```
+
+Edge cases (verify in tests):
+- 6-max hand with 4 folds before hero acts → `num_seated == 6` → uses
+  6-max chart correctly
+- HU sim runs (`run_matchup` creates 2-player game state) → `num_seated == 2`
+  → uses HU chart
+- Tournament: when only 2 players remain (heads-up final), `num_seated == 2`
+  → uses HU chart (correct — tournament HU and cash HU use similar
+  preflop strategy at 100 BB; short-stack heuristic handles depth)
 
 Constructor: add `hu_strategy_table` alongside `strategy_table`. Loaded
 once at module init (like the current strategy_table).
@@ -297,29 +349,56 @@ done
 wait
 ```
 
+**Codex flagged: bb/100 is too noisy for primary gates.** Use action
+distribution as the primary gate and bb/100 as direction-only.
+
+### Primary gates: action distribution
+
+For each archetype at bias=0.05 (control — measures the chart, not
+exploitation):
+
+| Metric | Pre-Phase-7 (current) | Phase 7 target |
+|---|---|---|
+| TAG SB VPIP | ~30-40% | 55-75% (depends on chart sizing) |
+| TAG BB defense rate | ~30% | 50-65% |
+| TAG SB PFR | similar to VPIP | similar to VPIP (most opens raise) |
+
+Validation extracts these distribution metrics from the per-decision
+trace (`analyze_6max_vs_rules.py` already prints VPIP/PFR/AF). If
+the SB VPIP doesn't move into the target range, the CHART is wrong
+and bb/100 changes are meaningless.
+
+### Secondary gates: bb/100 direction
+
 Compare to the Phase 6.5 HU baselines (from
 `docs/analysis/PHASE_6_VALUE_OVERRIDE_RESULTS.md`):
 
-| Hero | Phase 6.5 HU (treatment) | Phase 7 target |
+| Hero | Phase 6.5 HU (treatment) | Phase 7 direction-only target |
 |---|---|---|
-| Calling Station | -116.7 | better — should improve since CS opens wider |
-| Rock | -87.7 | mild |
-| Nit | -104.6 | ≥ -80 target |
-| TAG | -135.8 | ≥ -50 target |
-| LAG | -171.2 | ≥ 0 target |
-| Maniac | -119.9 | unchanged (Maniac already plays wide) |
+| Calling Station | -116.7 | improves (≥ 20 bb/100) |
+| Rock | -87.7 | improves or stays similar |
+| Nit | -104.6 | improves by ≥ 20 bb/100 |
+| TAG | -135.8 | improves by ≥ 30 bb/100 |
+| LAG | -171.2 | improves by ≥ 30 bb/100 |
+| Maniac | -119.9 | unchanged within noise (Maniac already plays wide) |
 
-Run vs GTO-Lite HU too (more disciplined opponent — better test of "are
-HU charts actually correct"):
+These bb/100 targets are direction-only and intentionally modest. Codex
+flagged the original "within -30 of GTO-Lite" target as too ambitious
+for hand-authored charts plus existing postflop logic.
+
+For tighter signal, increase to 5000+ hands × 5 seeds in a follow-up
+sweep if first pass shows directional but ambiguous signal.
+
+### Optional: vs GTO-Lite HU sanity check
+
 ```bash
 docker exec my-poker-face-hybrid-ai-backend-1 \
   python -m experiments.simulate_bb100 \
   --hands 2000 --seed 42 --opponent GTO-Lite --adaptation-bias 0.85
 ```
 
-Phase 6.5 baseline HU vs GTO-Lite (from `TIERED_VS_RULE_BOTS_REPORT.md`):
-Maniac -65.7. With HU charts, expect ALL archetypes within -30 of GTO-Lite
-(meaningful but not crushing loss).
+GTO-Lite is more disciplined than ManiacBot — better test of "are HU
+charts plausibly correct" without exploitation muddling the signal.
 
 ## Risks / gotchas
 
@@ -353,17 +432,22 @@ Maniac -65.7. With HU charts, expect ALL archetypes within -30 of GTO-Lite
 
 ## Effort estimate
 
-- Chart data entry (Option B, hand-crafted): **1-2 days**. 1350 entries,
-  using known Nash HU charts as reference. Most repetitive but needs
-  careful entry to avoid typos.
+Codex flagged the original estimate as optimistic. Updated:
+
+- Chart data entry (Option B, hand-crafted): **2-3 days**. 1350 entries,
+  using known Nash HU charts as reference. The chart is more than typing
+  — need to pick a specific sizing convention, translate source formats,
+  fill in scenario combinations the source is silent on, and validate
+  per-entry probability sums.
 - Chart loader + StrategyTable wrapper: **0.5 day**
 - HU node builder + classifier: **0.5 day**
 - Controller routing logic + tests: **1 day**
-- Validation runs + analysis + chart calibration: **1-2 days**
+- Validation runs + analysis + chart calibration: **2-3 days**. First-pass
+  validation will surface chart issues; expect 1-2 calibration rounds.
 - Doc updates: **0.5 day**
 
-**Total: 4-7 days.** Most variance is in chart calibration — first-pass
-charts may need refinement based on validation data.
+**Total: 6-8 days** (was 4-7). Most variance is in chart calibration —
+first-pass charts will surface issues that require iteration.
 
 ## Out of scope
 
@@ -391,6 +475,21 @@ charts may need refinement based on validation data.
 | `tests/test_strategy/test_hu_strategy_table.py` | **NEW** | Chart validation tests |
 | `tests/test_strategy/test_tiered_bot_hu_routing.py` | **NEW** | Routing tests |
 | `experiments/simulate_bb100.py` | Modify? | Maybe add HU-specific counter outputs |
+
+## Cross-plan note
+
+If Phase 6.6 (c-bet exploitation + confidence-weighted firing) ships
+first, re-baseline these HU numbers before starting Phase 7. Phase 6.6
+changes how exploitation fires at HU spots (per-aggressor stats from
+ManiacBot), which will shift the bb/100 numbers in the validation table
+above.
+
+Conversely, if Phase 7 ships first, the wider HU preflop ranges will
+change c-bet sample rates and postflop spots — re-baseline Phase 6.6
+validation after Phase 7.
+
+The two plans are mechanically independent but their validation numbers
+are entangled.
 
 ## Reproducibility setup (for the next session)
 

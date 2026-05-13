@@ -2,7 +2,7 @@
 purpose: Plan to add c-bet exploitation pattern and confidence-weighted firing to Phase 6/6.5 exploitation
 type: design
 created: 2026-05-13
-last_updated: 2026-05-13
+last_updated: 2026-05-13T14:00:00
 ---
 
 # Phase 6.6: C-bet exploitation + confidence-weighted firing
@@ -137,10 +137,17 @@ class DecisionContext:
     is_flop_as_preflop_aggressor: bool = False  # NEW
 ```
 
-The flag is True when:
-- Current phase is FLOP
-- Hero was the preflop aggressor (raised preflop)
-- Hero is acting first / can bet without facing aggression
+The flag is True when ALL of these hold (per Codex review — looser conditions
+mis-identify c-bet spots):
+
+- Current phase is FLOP (postflop street #1)
+- Hero was the **LAST** preflop aggressor (not just any raiser — if hero
+  raised then got 3-bet, hero is NOT the aggressor anymore)
+- No one has bet on this street yet (call_amount == 0)
+- Hero has a legal bet action available
+- Hero has not yet acted on this street
+
+If any condition fails, the flag is False and the c-bet rule doesn't fire.
 
 ### Step 4: Pattern offset table
 
@@ -157,78 +164,153 @@ if _is_high_fold_to_cbet(stats):
             offsets['check'] = offsets.get('check', 0.0) - 0.3 * multiplier
 ```
 
-### Step 5: Detect "hero was preflop aggressor"
+### Step 5: Detect "hero was the LAST preflop aggressor"
 
-The hardest piece. Several options:
+The hardest piece. Per Codex review, naive "did hero raise preflop?"
+tracking is wrong — it can stay True even when hero raised then got
+re-raised then folded, or for a hand where hero raised then opponent
+4-bet (opponent is now the aggressor, not hero).
 
-**Option A: Controller-level tracking (recommended)**
+**Track last_preflop_aggressor_name on the manager (not just hero state).**
 
-Add `self._was_preflop_aggressor` to TieredBotController. Set/reset in the
-preflop decision path:
-
-```python
-# In _get_ai_decision after sampling:
-if is_preflop and abstract_action.startswith(('raise_', 'jam')):
-    self._was_preflop_aggressor = True
-
-# Reset on new hand — needs a hand-start hook on the controller, OR
-# detect via hand number change.
-```
-
-Hand-start detection is awkward. Cleaner: reset when phase becomes PRE_FLOP
-and hero hasn't yet acted this hand. The controller can detect this via:
+The cleanest signal: who put in the last preflop raise this hand. Stored
+on `opponent_model_manager` (persists across the hand naturally):
 
 ```python
-# At top of decide_action:
-if self._last_decision_phase != PokerPhase.PRE_FLOP and current_phase == PokerPhase.PRE_FLOP:
-    self._was_preflop_aggressor = False
-self._last_decision_phase = current_phase
+# On the manager:
+self._current_hand_last_preflop_aggressor: Optional[str] = None
 ```
 
-**Option B: Reuse MemoryManager._preflop_raiser**
+Set when we observe ANY player's preflop raise via `observe_action`:
 
-The production MemoryManager already tracks the preflop raiser. But the
-sim doesn't use MemoryManager. Wiring this in means either:
-- Adding parallel tracking in the sim, OR
-- Refactoring to use MemoryManager in both contexts
+```python
+def observe_action(self, observer, opponent, action, phase, ...):
+    if phase == 'PRE_FLOP' and action in ('raise', 'all_in'):
+        self._current_hand_last_preflop_aggressor = opponent
+    ...
+```
 
-Option A is simpler and matches the existing pattern (the controller already
-holds `_hero_max_bluff_likelihood`, `_current_hand_plans` etc).
+Reset at hand start via `record_hand_dealt` (which already exists and is
+called per-opponent at hand-start in both sim and production).
+
+Hero's own preflop raises ALSO need to update this. The sim observes
+non-hero actions; hero would need to call `observe_action(observer=hero,
+opponent=hero, ...)` after raising. OR add a separate API:
+
+```python
+def record_preflop_aggression(self, player_name):
+    self._current_hand_last_preflop_aggressor = player_name
+```
+
+Called from controller after sampling a preflop raise:
+
+```python
+# In _get_ai_decision preflop path after sampling:
+if abstract_action.startswith(('raise_', 'jam')):
+    if manager is not None:
+        manager.record_preflop_aggression(self.player_name)
+```
+
+At decision time on the flop, build the context:
+
+```python
+def _is_flop_as_preflop_aggressor(self, game_state):
+    phase = self.state_machine.current_phase
+    if phase is None or phase.name != 'FLOP':
+        return False
+
+    manager = getattr(self, 'opponent_model_manager', None)
+    if manager is None:
+        return False
+    last_aggressor = getattr(manager, '_current_hand_last_preflop_aggressor', None)
+    if last_aggressor != self.player_name:
+        return False
+
+    # No one has bet on this street yet
+    call_amount = getattr(game_state, 'call_amount', 0) or 0
+    if call_amount > 0:
+        return False
+
+    # Hero has a legal bet action
+    valid_actions = game_state.current_player_options
+    if 'raise' not in valid_actions and 'bet' not in valid_actions:
+        # Allow 'raise' since bet/raise are sometimes conflated in our engine
+        return False
+
+    return True
+```
+
+Edge cases verified by tests:
+- Hero raises → opp 3-bets → hero folds: flag stays False on flop (hero
+  not active anyway, but the manager correctly reports opp as last aggressor)
+- Hero raises → opp 3-bets → hero calls: opponent is last aggressor → flag False
+- Hero raises → opp calls → flop: hero is last aggressor → flag True
+- Hand restarts in preflop (someone busts, hand restarts): reset via
+  record_hand_dealt at new hand_number
+- Controller persists across games: manager's `_current_hand_last_preflop_aggressor`
+  is on the MANAGER which is per-game; cross-game persistence via DB
+  serializes hand-level state separately. Not affected.
 
 ### Step 6: Confidence-weighted firing
 
 Replace binary pattern detection with continuous intensity. New function:
 
 ```python
+def _ramp(value: float, zero_point: float, full_point: float) -> float:
+    """Linear ramp clamped to [0, 1].
+
+    Returns 0 when value <= zero_point, 1 when value >= full_point, and
+    linear interpolation between. Order of (zero_point, full_point) sets
+    the direction:
+      _ramp(af, 5.0, 15.0): increases with af above 5
+      _ramp(vpip, 0.15, 0.05): increases as vpip decreases below 0.15
+    """
+    if zero_point == full_point:
+        return 1.0 if value >= zero_point else 0.0
+    raw = (value - zero_point) / (full_point - zero_point)
+    return max(0.0, min(1.0, raw))
+
+
 def compute_pattern_intensity(stats: AggregatedOpponentStats) -> Dict[str, float]:
     """For each detected pattern, return intensity in [0, 1].
 
     Smooth ramp from threshold (0% intensity) to "clearly extreme" (100%).
     Replaces the binary _is_X functions for use in offset computation.
+    Patterns with intensity 0 are not present in the returned dict
+    (callers should treat absence as zero-intensity).
     """
     intensities = {}
 
-    # Hyper-aggressive: AF ramp from 5 (0%) to 15 (100%)
-    if stats.aggression_factor > 5.0 or stats.all_in_frequency > 0.30:
-        af_intensity = min((stats.aggression_factor - 5.0) / 10.0, 1.0)
-        ai_intensity = min((stats.all_in_frequency - 0.30) / 0.40, 1.0)
-        intensities['hyper_aggressive'] = max(af_intensity, ai_intensity, 0.0)
+    # Hyper-aggressive: take max of AF ramp and all-in-freq ramp
+    af_intensity = _ramp(stats.aggression_factor, 5.0, 15.0)
+    ai_intensity = _ramp(stats.all_in_frequency, 0.30, 0.70)
+    hyper_agg = max(af_intensity, ai_intensity)
+    if hyper_agg > 0.0:
+        intensities['hyper_aggressive'] = hyper_agg
 
-    # Hyper-passive: VPIP ramp from 0.6 (0%) to 0.9 (100%)
-    if stats.vpip > 0.60 and stats.aggression_factor < 0.80:
-        vpip_intensity = min((stats.vpip - 0.60) / 0.30, 1.0)
-        intensities['hyper_passive'] = vpip_intensity
+    # Hyper-passive: VPIP ramp from 0.6 to 0.9, AND AF < 0.8 hard gate
+    if stats.aggression_factor < 0.80:
+        passive_intensity = _ramp(stats.vpip, 0.60, 0.90)
+        if passive_intensity > 0.0:
+            intensities['hyper_passive'] = passive_intensity
 
-    # Tight nit: VPIP ramp from 0.15 (0%) to 0.05 (100%)
-    if stats.vpip < 0.15:
-        intensities['tight_nit'] = min((0.15 - stats.vpip) / 0.10, 1.0)
+    # Tight nit: VPIP ramp from 0.15 (0%) DOWN to 0.05 (100%)
+    nit_intensity = _ramp(stats.vpip, 0.15, 0.05)
+    if nit_intensity > 0.0:
+        intensities['tight_nit'] = nit_intensity
 
-    # High fold-to-cbet: ramp from 0.60 (0%) to 0.85 (100%)
-    if stats.fold_to_cbet > 0.60 and stats.cbet_faced_count >= 10:
-        intensities['high_fold_to_cbet'] = min((stats.fold_to_cbet - 0.60) / 0.25, 1.0)
+    # High fold-to-cbet: ramp from 0.60 to 0.85, with sample size gate
+    if stats.cbet_faced_count >= MIN_CBET_FACED_FOR_DETECTION:
+        cbet_intensity = _ramp(stats.fold_to_cbet, 0.60, 0.85)
+        if cbet_intensity > 0.0:
+            intensities['high_fold_to_cbet'] = cbet_intensity
 
     return intensities
 ```
+
+The `_ramp` helper handles the clamping cleanly (Codex flagged the
+original `(x - threshold) / range` formula could go negative; the wrapped
+`max(0.0, min(1.0, ...))` is the safe form).
 
 Then in `compute_exploitation_offsets`, multiply each pattern's offsets by
 its intensity:
@@ -239,14 +321,34 @@ intensities = compute_pattern_intensity(stats)
 multiplier_with_intensity = multiplier * intensities.get('hyper_aggressive', 0.0)
 ```
 
-Note: `classify_detected_patterns` stays as-is (returns list of patterns
-where intensity > 0), used only for counter tracking.
+Update `classify_detected_patterns` to delegate to intensity:
+
+```python
+def classify_detected_patterns(stats):
+    """Return list of pattern names with intensity > 0.
+
+    Delegates to compute_pattern_intensity. Used by the counter for
+    diagnostic visibility (which patterns are firing at all). Magnitude
+    information lives in the intensity dict and is consumed by
+    compute_exploitation_offsets.
+    """
+    return list(compute_pattern_intensity(stats).keys())
+```
+
+This keeps a single source of truth: intensity tells you whether AND how
+much a pattern fires.
 
 ### Step 7: Counter updates
 
 Add to `_tally_exploitation_event`:
-- `detected_high_fold_to_cbet`
-- Track average intensity per pattern when fired (optional, useful for tuning)
+- `detected_high_fold_to_cbet` — opponent stats triggered the pattern
+- `fired_high_fold_to_cbet` — pattern actually contributed offsets at a
+  c-bet spot. **Critical**: detection alone isn't enough; the spot
+  context (`is_flop_as_preflop_aggressor`) gates firing.
+- `flop_as_preflop_aggressor_spots` — total count of decisions where
+  the context flag was True (independent of pattern detection). Lets us
+  see how often we actually reach c-bet spots.
+- Average intensity per pattern when fired (optional, useful for tuning)
 
 In `analyze_6max_vs_rules.py`, add the new counter to the diagnostics dump.
 
@@ -294,13 +396,27 @@ done
 wait
 ```
 
-**Pass criteria**:
-- Net bb/100 for TAG (bias=0.85) ≥ 0 (was +28 in Phase 6.5).
-- Per-opponent BB transfer **vs ABCBot** improves by 20%+ from Phase 6.5 baseline.
-- Per-opponent BB transfer **vs GTO-Lite** improves by 20%+.
-- Per-opponent BB transfer vs ManiacBot unchanged (±5%) — c-bet doesn't fire vs them.
-- Counter shows `detected_high_fold_to_cbet > 5%` and `value_override_fired`
-  unchanged (~17%).
+**Pass criteria** (mechanism gates first, outcome gates second — Codex
+flagged that small-effect bb/100 changes are too noisy to be primary
+gates):
+
+**Mechanism gates (must pass first — confirm the wiring works):**
+- `flop_as_preflop_aggressor_spots` > 50 per 1000 hands (validates we're
+  REACHING c-bet spots — if this is 0, nothing else matters)
+- `fired_high_fold_to_cbet` > 0 at least somewhere (cbet pattern actually
+  contributed offsets)
+- Existing tests still pass; no regressions in counter values
+
+**Outcome gates (signal — bb/100 movement should be in the right direction):**
+- Per-opponent BB transfer **vs ABCBot** improves by ≥15% from Phase 6.5
+  baseline (was an ~25-27% drop from pre-Phase-6 baseline; recovering
+  half is the realistic target)
+- Per-opponent BB transfer **vs GTO-Lite** improves by ≥15%
+- Per-opponent BB transfer vs ManiacBot unchanged (±10%) — c-bet doesn't
+  fire vs them; confidence-weighting may produce slight shift
+- Net bb/100 for TAG (bias=0.85) ≥ +20 (was +28 in Phase 6.5; small
+  regression OK if c-bet helps mid-tier and confidence-weighting smooths
+  edge cases)
 
 Also re-run HU sweep (6 runs at 2000 hands) to confirm c-bet helps HU:
 ```bash
@@ -350,11 +466,15 @@ but we don't currently sim that.
 - `AggregatedOpponentStats` + manager aggregation extension: **0.5 day**
 - `compute_pattern_intensity` + integration: **0.5 day**
 - New c-bet pattern + DecisionContext flag: **0.5 day**
-- Controller-level preflop-aggressor tracking: **0.5 day**
+- Manager-level last-aggressor tracking + controller hook: **0.75 day**
+  (was 0.5; bumped after Codex flagged edge cases)
 - Tests (~15 new unit + integration tests): **0.5 day**
-- Validation runs + analysis + doc updates: **0.5 day**
+- Validation runs + analysis + chart calibration: **1 day**
+  (was 0.5; bumped — validation may surface that c-bet pattern barely
+  fires due to sparse fold_to_cbet samples; calibration to recover)
+- Doc updates: **0.25 day**
 
-**Total: ~3 days** (one focused session).
+**Total: ~4 days** (was 3 — Codex flagged the original was optimistic).
 
 ## Out of scope
 
