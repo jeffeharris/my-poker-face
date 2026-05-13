@@ -103,6 +103,9 @@ def create_controllers_for_resume(
     )
 
     for player in state_machine.game_state.players:
+        # Initialize memory for this player before injecting session_memory.
+        memory_manager.initialize_for_player(player.name)
+
         controller = AIPlayerController(
             player_name=player.name,
             state_machine=state_machine,
@@ -115,8 +118,7 @@ def create_controllers_for_resume(
             session_memory=memory_manager.get_session_memory(player.name),
             opponent_model_manager=memory_manager.get_opponent_model_manager(),
         )
-        # Initialize memory for this player
-        memory_manager.initialize_for_player(player.name)
+        controller.memory_manager = memory_manager
 
         # Restore conversation history if available
         if player.name in ai_states:

@@ -7,21 +7,13 @@ enabling filtering and selection for replay experiments.
 import logging
 from flask import Blueprint, jsonify, request
 
-from poker.authorization import require_permission
 from ..extensions import capture_label_repo, prompt_capture_repo
+from ..route_utils import register_admin_guard
 
 logger = logging.getLogger(__name__)
 
 capture_label_bp = Blueprint('capture_labels', __name__)
-_admin_required = require_permission('can_access_admin_tools')
-
-
-@capture_label_bp.before_request
-def _enforce_admin_access():
-    """Require admin permission for capture label APIs."""
-    check = _admin_required(lambda: None)()
-    if check is not None:
-        return check
+register_admin_guard(capture_label_bp)
 
 
 @capture_label_bp.route('/api/capture-labels', methods=['GET'])

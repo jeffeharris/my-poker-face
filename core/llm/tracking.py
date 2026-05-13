@@ -481,6 +481,24 @@ def capture_prompt(
 
         db_path = get_capture_db_path()
 
+        # Capture enricher-provided extra fields as JSON metadata
+        _STANDARD_KEYS = {
+            'game_id', 'owner_id', 'player_name', 'hand_number', 'phase', 'call_type',
+            'system_prompt', 'user_message', 'ai_response',
+            'conversation_history', 'raw_api_response',
+            'provider', 'model', 'reasoning_effort',
+            'latency_ms', 'input_tokens', 'output_tokens',
+            'original_request_id',
+            'pot_total', 'cost_to_call', 'pot_odds', 'player_stack',
+            'community_cards', 'player_hand', 'valid_actions',
+            'action_taken', 'raise_amount',
+            'parent_id', 'error_type', 'error_description', 'correction_attempt',
+            'prompt_template',
+        }
+        extra = {k: v for k, v in capture_data.items()
+                 if k not in _STANDARD_KEYS and not k.startswith('_')}
+        metadata_json = json.dumps(extra, default=str) if extra else None
+
         with sqlite3.connect(db_path) as conn:
             conn.execute("""
                 INSERT INTO prompt_captures (
@@ -494,8 +512,9 @@ def capture_prompt(
                     community_cards, player_hand, valid_actions,
                     action_taken, raise_amount,
                     parent_id, error_type, error_description, correction_attempt,
-                    prompt_template
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    prompt_template,
+                    metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 capture_data.get('game_id'),
                 capture_data.get('owner_id'),
@@ -531,6 +550,7 @@ def capture_prompt(
                 capture_data.get('error_description'),
                 capture_data.get('correction_attempt', 0),
                 capture_data.get('prompt_template'),
+                metadata_json,
             ))
 
         capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]

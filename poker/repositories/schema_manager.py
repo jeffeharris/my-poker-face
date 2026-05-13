@@ -44,7 +44,12 @@ logger = logging.getLogger(__name__)
 # v73: Add hand_number column to pressure_events
 # v74: Add bet_sizing column to player_decision_analysis
 # v75: Add deck_seed column to hand_history for deterministic replay
-SCHEMA_VERSION = 76
+# v76: Add metadata_json to prompt_captures for enricher data (bounded_options, equity, etc.)
+# v77: Add bounded_replay_results table for multi-sample option-framing replay experiments
+# v78: Add quality_score and menu compliance columns to player_decision_analysis
+# v79: Add tendencies_json to opponent_models for full opponent stat persistence
+# v80: Add community_cards_by_phase_json to hand_history for phase-level card tracking
+SCHEMA_VERSION = 80
 
 
 
@@ -277,6 +282,7 @@ class SchemaManager:
                     showdown_win_rate REAL DEFAULT 0.5,
                     recent_trend TEXT,
                     notes TEXT,
+                    tendencies_json TEXT,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(game_id, observer_name, opponent_name)
                 )
@@ -577,6 +583,7 @@ class SchemaManager:
                     error_type TEXT,
                     error_description TEXT,
                     correction_attempt INTEGER DEFAULT 0,
+                    metadata_json TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL,
                     FOREIGN KEY (parent_id) REFERENCES prompt_captures(id) ON DELETE SET NULL
                 )
@@ -685,6 +692,11 @@ class SchemaManager:
                     zone_penalty_strategy_applied TEXT,
                     zone_info_degraded BOOLEAN,
                     zone_strategy_selected TEXT,
+                    quality_score REAL,
+                    menu_best_ev TEXT,
+                    menu_chosen_ev TEXT,
+                    menu_picked_best INTEGER,
+                    menu_num_options INTEGER,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
                 )
             """)
@@ -1067,7 +1079,11 @@ class SchemaManager:
             73: (self._migrate_v73_pressure_events_hand_number, "Add hand_number column to pressure_events"),
             74: (self._migrate_v74_add_bet_sizing, "Add bet_sizing column to player_decision_analysis"),
             75: (self._migrate_v75_add_deck_seed_to_hand_history, "Add deck_seed column to hand_history"),
-            76: (self._migrate_v76_add_community_cards_by_phase, "Add community_cards_by_phase_json column to hand_history"),
+            76: (self._migrate_v76_add_metadata_json, "Add metadata_json column to prompt_captures for enricher data"),
+            77: (self._migrate_v77_add_bounded_replay_results, "Add bounded_replay_results table for multi-sample replay experiments"),
+            78: (self._migrate_v78_add_quality_scores, "Add quality_score and menu compliance columns to player_decision_analysis"),
+            79: (self._migrate_v79_add_opponent_tendencies_json, "Add tendencies_json to opponent_models for full tendency persistence"),
+            80: (self._migrate_v80_add_community_cards_by_phase, "Add community_cards_by_phase_json column to hand_history"),
         }
 
         with self._get_connection() as conn:
@@ -3336,8 +3352,92 @@ class SchemaManager:
 
         logger.info("Migration v75 complete: deck_seed added to hand_history")
 
-    def _migrate_v76_add_community_cards_by_phase(self, conn: sqlite3.Connection) -> None:
-        """Migration v76: Add community_cards_by_phase_json to hand_history for phase-level card tracking."""
+    def _migrate_v76_add_metadata_json(self, conn: sqlite3.Connection) -> None:
+        """Migration v76: Add metadata_json to prompt_captures for enricher data.
+
+        Stores enricher-provided fields (bounded_options, equity, style_profile, etc.)
+        as a single JSON blob, avoiding per-field schema changes.
+        """
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'metadata_json' not in existing_columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN metadata_json TEXT")
+            logger.debug("Added metadata_json column to prompt_captures")
+
+        logger.info("Migration v76 complete: metadata_json added to prompt_captures")
+
+    def _migrate_v77_add_bounded_replay_results(self, conn: sqlite3.Connection) -> None:
+        """Migration v77: Add bounded_replay_results table for multi-sample replay experiments.
+
+        Stores results from replaying captured decisions through different option-framing
+        configs (raw-ev, nudges, rangegate) with multiple LLM samples per variant.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bounded_replay_results (
+                id INTEGER PRIMARY KEY,
+                experiment_id INTEGER NOT NULL,
+                capture_id INTEGER NOT NULL,
+                variant TEXT NOT NULL,
+                sample_number INTEGER NOT NULL,
+                option_config_json TEXT,
+                generated_options_json TEXT,
+                new_response TEXT,
+                choice_number INTEGER,
+                new_action TEXT,
+                new_raise_amount INTEGER,
+                reasoning TEXT,
+                provider TEXT,
+                model TEXT,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                latency_ms INTEGER,
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(experiment_id, capture_id, variant, sample_number)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bounded_replay_experiment ON bounded_replay_results(experiment_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bounded_replay_capture ON bounded_replay_results(capture_id)")
+        logger.info("Migration v77 complete: bounded_replay_results table created")
+
+    def _migrate_v78_add_quality_scores(self, conn: sqlite3.Connection) -> None:
+        """Migration v78: Add quality_score and menu compliance columns to player_decision_analysis.
+
+        quality_score: Composite GTO score (correct=100, marginal=50, mistake=0)
+        menu_*: Menu compliance tracking — did AI pick the best bounded option?
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        new_columns = [
+            ('quality_score', 'REAL'),
+            ('menu_best_ev', 'TEXT'),
+            ('menu_chosen_ev', 'TEXT'),
+            ('menu_picked_best', 'INTEGER'),
+            ('menu_num_options', 'INTEGER'),
+        ]
+
+        for col_name, col_type in new_columns:
+            if col_name not in existing_columns:
+                conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
+                logger.debug(f"Added {col_name} column to player_decision_analysis")
+
+        logger.info("Migration v78 complete: quality_score and menu compliance columns added")
+
+    def _migrate_v79_add_opponent_tendencies_json(self, conn: sqlite3.Connection) -> None:
+        """Migration v79: Persist full opponent tendency state as JSON."""
+        cursor = conn.execute("PRAGMA table_info(opponent_models)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'tendencies_json' not in existing_columns:
+            conn.execute("ALTER TABLE opponent_models ADD COLUMN tendencies_json TEXT")
+            logger.debug("Added tendencies_json column to opponent_models")
+
+        logger.info("Migration v79 complete: opponent tendency JSON added")
+
+    def _migrate_v80_add_community_cards_by_phase(self, conn: sqlite3.Connection) -> None:
+        """Migration v80: Add community_cards_by_phase_json to hand_history for phase-level card tracking."""
         cursor = conn.execute("PRAGMA table_info(hand_history)")
         existing_columns = {row[1] for row in cursor.fetchall()}
 
@@ -3345,4 +3445,4 @@ class SchemaManager:
             conn.execute("ALTER TABLE hand_history ADD COLUMN community_cards_by_phase_json TEXT")
             logger.debug("Added community_cards_by_phase_json column to hand_history")
 
-        logger.info("Migration v76 complete: community_cards_by_phase_json added to hand_history")
+        logger.info("Migration v80 complete: community_cards_by_phase_json added to hand_history")

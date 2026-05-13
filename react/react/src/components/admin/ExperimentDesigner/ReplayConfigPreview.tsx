@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Play, Code, Settings, Plus, Trash2, ChevronDown, ChevronRight, Loader2, AlertCircle, AlertTriangle, Database } from 'lucide-react';
 import type { ReplayExperimentConfig, ReplayVariantConfig } from './types';
-import { config as appConfig } from '../../../config';
+import { adminFetch } from '../../../utils/api';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { CaptureSelector } from '../CaptureSelector';
 
@@ -87,9 +87,8 @@ export function ReplayConfigPreview({ config, onConfigUpdate, onLaunch, sessionI
     setLaunchError(null);
 
     try {
-      const response = await fetch(`${appConfig.API_URL}/api/replay-experiments`, {
+      const response = await adminFetch('/api/replay-experiments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       });
 

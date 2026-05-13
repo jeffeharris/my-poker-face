@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, redirect, send_from_directory
 from flask_socketio import join_room, emit
 
 from poker.controllers import AIPlayerController
+from poker.hybrid_ai_controller import HybridAIController
 from poker.poker_game import initialize_game_state, play_turn, advance_to_next_active_player
 from poker.prompt_config import PromptConfig
 from poker.betting_context import BettingContext
@@ -487,6 +488,7 @@ def api_game_state(game_id):
                         controller = ai_controllers[player.name]
                         controller.session_memory = memory_manager.get_session_memory(player.name)
                         controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+                        controller.memory_manager = memory_manager
                     elif player.is_human:
                         # Initialize human player for opponent observation tracking
                         memory_manager.initialize_human_observer(player.name)
@@ -877,6 +879,18 @@ def api_new_game():
 
     # Note: UI warns if starting stack < 10x big blind, but we allow it
 
+    # Per-player controller selection (defaults to 'hybrid' for omitted entries)
+    VALID_BOT_TYPES = {'hybrid', 'tiered'}
+    bot_types = data.get('bot_types', {}) or {}
+    if not isinstance(bot_types, dict):
+        return jsonify({'error': 'bot_types must be an object mapping player name to bot type'}), 400
+    for _name, _bt in bot_types.items():
+        if not isinstance(_name, str) or not isinstance(_bt, str) or _bt not in VALID_BOT_TYPES:
+            return jsonify({
+                'error': f'Invalid bot_type for {_name!r}: {_bt!r}',
+                'valid_bot_types': sorted(VALID_BOT_TYPES),
+            }), 400
+
     # Parse personalities - supports both string names and objects with llm_config/game_mode
     # Format: ["Batman", {"name": "Sherlock", "llm_config": {"provider": "groq"}, "game_mode": "pro"}]
     ai_player_names = []
@@ -962,15 +976,33 @@ def api_new_game():
             # Use per-player config if set, otherwise use default
             player_config = player_llm_configs.get(player.name, default_llm_config)
             player_prompt_config = player_prompt_configs.get(player.name, default_prompt_config)
-            new_controller = AIPlayerController(
-                player.name,
-                state_machine,
-                llm_config=player_config,
-                prompt_config=player_prompt_config,
-                game_id=game_id,
-                owner_id=owner_id,
-                capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo
-            )
+            bot_type = bot_types.get(player.name, 'hybrid')
+            if bot_type == 'tiered':
+                from flask_app.handlers.tiered_factory import build_tiered_controller
+                new_controller = build_tiered_controller(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=player_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
+                    expression_enabled=True,
+                )
+            else:
+                # Use HybridAIController with lean bounded mode
+                hybrid_prompt_config = player_prompt_config.copy(
+                    lean_bounded=True,
+                )
+                new_controller = HybridAIController(
+                    player.name,
+                    state_machine,
+                    llm_config=player_config,
+                    prompt_config=hybrid_prompt_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo
+                )
             ai_controllers[player.name] = new_controller
 
     from poker.repositories.sqlite_repositories import PressureEventRepository
@@ -986,6 +1018,7 @@ def api_new_game():
             controller = ai_controllers[player.name]
             controller.session_memory = memory_manager.get_session_memory(player.name)
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+            controller.memory_manager = memory_manager
         else:
             # Initialize human player for opponent observation tracking
             memory_manager.initialize_human_observer(player.name)
@@ -1042,7 +1075,11 @@ def api_new_game():
 
     game_repo.save_game(
         game_id, state_machine._state_machine, owner_id, owner_name,
-        llm_configs={'player_llm_configs': player_llm_configs, 'default_llm_config': default_llm_config}
+        llm_configs={
+            'player_llm_configs': player_llm_configs,
+            'default_llm_config': default_llm_config,
+            'bot_types': bot_types,
+        }
     )
     game_repo.save_tournament_tracker(game_id, tournament_tracker)
     game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())

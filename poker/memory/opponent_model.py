@@ -8,32 +8,53 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
+from ..archetypes import (
+    VPIP_TIGHT as VPIP_TIGHT_THRESHOLD,
+    VPIP_LOOSE as VPIP_LOOSE_THRESHOLD,
+    VPIP_VERY_SELECTIVE,
+    AF_AGGRESSIVE as AGGRESSION_FACTOR_HIGH,
+    AF_VERY_AGGRESSIVE as AGGRESSION_FACTOR_VERY_HIGH,
+    AF_PASSIVE as AGGRESSION_FACTOR_LOW,
+)
 from ..config import (
     OPPONENT_SUMMARY_TOKENS,
     MEMORABLE_HAND_THRESHOLD,
     MIN_HANDS_FOR_STYLE_LABEL,
     MIN_HANDS_FOR_SUMMARY,
-    VPIP_TIGHT_THRESHOLD,
-    VPIP_LOOSE_THRESHOLD,
-    VPIP_VERY_SELECTIVE,
-    AGGRESSION_FACTOR_HIGH,
-    AGGRESSION_FACTOR_VERY_HIGH,
-    AGGRESSION_FACTOR_LOW,
 )
 
 
 @dataclass
 class OpponentTendencies:
     """Statistical model of an opponent's play style."""
-    hands_observed: int = 0
+    hands_observed: int = 0     # Hands where opponent took at least one action
+
+    # Hands the opponent was at the table — regardless of whether they
+    # ever acted. This is the correct denominator for VPIP/PFR/all_in_
+    # frequency: folding before action reaches you is a relevant outcome
+    # ("opted out of pot"), not an unobserved one. When hands_dealt is 0,
+    # ratio calculations fall back to hands_observed (preserves behavior
+    # for callers that don't call record_hand_dealt yet).
+    hands_dealt: int = 0
 
     # Core stats
     vpip: float = 0.5           # Voluntarily put in pot % (how often they enter pots)
     pfr: float = 0.5            # Pre-flop raise % (how often they raise pre-flop)
-    aggression_factor: float = 1.0  # (bet+raise) / call ratio
+    aggression_factor: float = 1.0  # (bet+raise+all-in) / call ratio
     fold_to_cbet: float = 0.5   # Fold to continuation bet %
     bluff_frequency: float = 0.3    # Estimated bluff rate
     showdown_win_rate: float = 0.5  # Win rate at showdown
+    all_in_frequency: float = 0.0   # All-in actions per hand dealt
+
+    # Phase 7.5 Step 0: opportunity-normalized stats for the three-tier
+    # exploitation clamp. Computed from new postflop-only counters
+    # (below). Default to 0.0 / 0 when no opportunities observed.
+    #
+    # See docs/plans/PHASE_7_5_ADJUSTMENT_LAYER_WIDENING.md "Stat-definition
+    # glossary" for exact denominators.
+    aggression_factor_postflop: float = 1.0   # postflop bet/raise/all-in / postflop call
+    all_in_per_facing_bet: float = 0.0        # response-aggression axis
+    postflop_jam_open_rate: float = 0.0       # open-aggression axis
 
     # Trend tracking
     recent_trend: str = 'stable'    # 'tightening', 'loosening', 'stable'
@@ -41,25 +62,62 @@ class OpponentTendencies:
     # Action counters (for calculating stats)
     _vpip_count: int = 0        # Hands where player voluntarily put money in pot
     _pfr_count: int = 0         # Hands where player raised pre-flop
-    _bet_raise_count: int = 0   # Total bets and raises
+    _bet_raise_count: int = 0   # Total bets, raises, and all-ins (aggressive)
     _call_count: int = 0        # Total calls
+    _all_in_count: int = 0      # Total all-in actions (subset of _bet_raise_count)
     _fold_to_cbet_count: int = 0
     _cbet_faced_count: int = 0
     _showdowns: int = 0
     _showdowns_won: int = 0
 
+    # Phase 7.5 Step 0: per-axis counters for the new postflop-only stats.
+    # Updated only when phase is FLOP/TURN/RIVER. See
+    # `_apply_postflop_counters()` for the logic.
+    _postflop_bet_raise_count: int = 0   # postflop bets/raises/all-ins
+    _postflop_call_count: int = 0        # postflop calls
+    _facing_bet_opportunities: int = 0   # postflop decisions while facing a bet
+    _all_ins_facing_bet: int = 0         # subset: opponent went all-in in response
+    _postflop_open_opportunities: int = 0  # postflop decisions with no live bet (legal bet/all-in available)
+    _postflop_jam_opens: int = 0           # subset: opponent went all-in into no-bet pot
+
     # Per-hand tracking (reset each new hand)
     _vpip_this_hand: bool = False
     _pfr_this_hand: bool = False
 
-    def update_from_action(self, action: str, phase: str, is_voluntary: bool = True, count_hand: bool = True):
+    def record_hand_dealt(self):
+        """Record that the opponent was at the table for one more hand.
+
+        Should be called once per hand per opponent, regardless of whether
+        they ever acted in the hand. Folding before action reaches you is
+        a relevant "opted out" outcome that affects VPIP, not an
+        unobservable event.
+
+        Resets the per-hand flags so this hand's VPIP/PFR tracking starts
+        clean. update_from_action() can still also reset these flags via
+        count_hand=True for backwards compatibility.
+        """
+        self.hands_dealt += 1
+        self._vpip_this_hand = False
+        self._pfr_this_hand = False
+        self._recalculate_stats()
+
+    def update_from_action(
+        self, action: str, phase: str, is_voluntary: bool = True,
+        count_hand: bool = True, was_facing_bet: Optional[bool] = None,
+    ):
         """Update stats based on observed action.
 
         Args:
-            action: The action taken ('fold', 'check', 'call', 'raise', 'bet')
+            action: The action taken ('fold', 'check', 'call', 'raise', 'bet', 'all_in')
             phase: Game phase ('PRE_FLOP', 'FLOP', 'TURN', 'RIVER')
             is_voluntary: Whether this was a voluntary action (not forced blind)
             count_hand: Whether to increment hands_observed (only once per hand)
+            was_facing_bet: Phase 7.5 Step 0. True if opponent was facing a live
+                bet at decision time (i.e. fold/call/raise/all-in was the choice
+                set). False if no live bet (check/bet/all-in into no-bet pot).
+                None when caller can't determine — postflop counters skipped.
+                Required for postflop_open_opportunities vs
+                facing_bet_opportunities accounting.
         """
         if count_hand:
             self.hands_observed += 1
@@ -67,25 +125,63 @@ class OpponentTendencies:
             self._vpip_this_hand = False
             self._pfr_this_hand = False
 
-        # Track VPIP (voluntary pot entry) - only count ONCE per hand
+        # Track VPIP (voluntary pot entry) - only count ONCE per hand.
+        # all_in is voluntary chip commitment and counts as VPIP.
         if phase == 'PRE_FLOP' and is_voluntary and not self._vpip_this_hand:
-            if action in ('call', 'raise', 'bet'):
+            if action in ('call', 'raise', 'bet', 'all_in'):
                 self._vpip_count += 1
                 self._vpip_this_hand = True
 
-        # Track PFR (pre-flop raise) - only count ONCE per hand
-        if phase == 'PRE_FLOP' and action == 'raise' and not self._pfr_this_hand:
+        # Track PFR (pre-flop raise) - only count ONCE per hand.
+        # A preflop all-in is the most aggressive raise possible; counts as PFR.
+        if phase == 'PRE_FLOP' and action in ('raise', 'all_in') and not self._pfr_this_hand:
             self._pfr_count += 1
             self._pfr_this_hand = True
 
-        # Track aggression
-        if action in ('bet', 'raise'):
+        # Track aggression. all_in is the most aggressive action and contributes
+        # to both the general aggression counter and its own dedicated counter.
+        if action in ('bet', 'raise', 'all_in'):
             self._bet_raise_count += 1
+            if action == 'all_in':
+                self._all_in_count += 1
         elif action == 'call':
             self._call_count += 1
 
+        # Phase 7.5 Step 0: postflop-only counters for opportunity-
+        # normalized stats. Skipped when was_facing_bet is None
+        # (caller couldn't determine context) or when phase is preflop.
+        if phase in ('FLOP', 'TURN', 'RIVER') and was_facing_bet is not None:
+            self._apply_postflop_counters(action, was_facing_bet)
+
         # Recalculate stats
         self._recalculate_stats()
+
+    def _apply_postflop_counters(self, action: str, was_facing_bet: bool) -> None:
+        """Update Phase 7.5 postflop-only counters from an action.
+
+        - Postflop AF counters: count bet/raise/all-in vs call regardless
+          of opportunity type (matches legacy AF semantics, but postflop-
+          scoped).
+        - Opportunity counters: every postflop decision increments
+          exactly one of `_facing_bet_opportunities` or
+          `_postflop_open_opportunities`. The jam subcounters fire only
+          when the action is all-in.
+        """
+        # Postflop AF counters
+        if action in ('bet', 'raise', 'all_in'):
+            self._postflop_bet_raise_count += 1
+        elif action == 'call':
+            self._postflop_call_count += 1
+
+        # Opportunity + jam subcounters
+        if was_facing_bet:
+            self._facing_bet_opportunities += 1
+            if action == 'all_in':
+                self._all_ins_facing_bet += 1
+        else:
+            self._postflop_open_opportunities += 1
+            if action == 'all_in':
+                self._postflop_jam_opens += 1
 
     def update_showdown(self, won: bool):
         """Update showdown statistics."""
@@ -102,10 +198,17 @@ class OpponentTendencies:
         self._recalculate_stats()
 
     def _recalculate_stats(self):
-        """Recalculate derived statistics."""
-        if self.hands_observed > 0:
-            self.vpip = self._vpip_count / max(self.hands_observed, 1)
-            self.pfr = self._pfr_count / max(self.hands_observed, 1)
+        """Recalculate derived statistics.
+
+        Uses hands_dealt as denominator when available (correct), falling
+        back to hands_observed when no record_hand_dealt() calls have
+        happened (backwards-compat for older paths).
+        """
+        denom = self.hands_dealt if self.hands_dealt > 0 else self.hands_observed
+        if denom > 0:
+            self.vpip = self._vpip_count / denom
+            self.pfr = self._pfr_count / denom
+            self.all_in_frequency = self._all_in_count / denom
 
         total_actions = self._bet_raise_count + self._call_count
         if total_actions == 0:
@@ -113,6 +216,9 @@ class OpponentTendencies:
             self.aggression_factor = 1.0
         elif self._call_count == 0:
             # All observed actions are bets/raises; treat as maximal aggression
+            # NOTE: Phase 7.5 Item 2 will cap this fallback at MEDIUM_AF_THRESHOLD.
+            # Step 0 deliberately leaves the legacy formula unchanged to keep
+            # behavior neutral; the cap lands with Item 2's commit.
             self.aggression_factor = float(self._bet_raise_count)
         else:
             self.aggression_factor = self._bet_raise_count / self._call_count
@@ -122,6 +228,48 @@ class OpponentTendencies:
 
         if self._showdowns > 0:
             self.showdown_win_rate = self._showdowns_won / self._showdowns
+
+        # Phase 7.5 Step 0: postflop opportunity-normalized stats.
+        # Has the AF raw-count cap from day one — this field is new, no
+        # legacy consumer to protect, so the cap lands here in Step 0.
+        self._recalculate_postflop_stats()
+
+    def _recalculate_postflop_stats(self) -> None:
+        """Compute the Phase 7.5 postflop-only derived stats."""
+        # Postflop AF, with cap from day one.
+        if self._postflop_call_count == 0:
+            if self._postflop_bet_raise_count == 0:
+                self.aggression_factor_postflop = 1.0
+            else:
+                # No postflop calls observed — cap raw-count at MEDIUM
+                # threshold so a zero-call sample can't trigger EXTREME
+                # tier classification on noisy signal alone.
+                # Import lazily to avoid circular imports at module load.
+                from ..strategy.phase_7_5_config import CONFIG
+                cap = CONFIG.signal_thresholds.medium_af_postflop
+                self.aggression_factor_postflop = min(
+                    float(self._postflop_bet_raise_count), cap,
+                )
+        else:
+            self.aggression_factor_postflop = (
+                self._postflop_bet_raise_count / self._postflop_call_count
+            )
+
+        # Response-aggression axis: all-ins per facing-bet opportunity.
+        if self._facing_bet_opportunities > 0:
+            self.all_in_per_facing_bet = (
+                self._all_ins_facing_bet / self._facing_bet_opportunities
+            )
+        else:
+            self.all_in_per_facing_bet = 0.0
+
+        # Open-aggression axis: opening jams per postflop open opportunity.
+        if self._postflop_open_opportunities > 0:
+            self.postflop_jam_open_rate = (
+                self._postflop_jam_opens / self._postflop_open_opportunities
+            )
+        else:
+            self.postflop_jam_open_rate = 0.0
 
     def get_play_style_label(self) -> str:
         """Returns play style classification.
@@ -181,43 +329,75 @@ class OpponentTendencies:
     def to_dict(self) -> Dict[str, Any]:
         return {
             'hands_observed': self.hands_observed,
+            'hands_dealt': self.hands_dealt,
             'vpip': self.vpip,
             'pfr': self.pfr,
             'aggression_factor': self.aggression_factor,
             'fold_to_cbet': self.fold_to_cbet,
             'bluff_frequency': self.bluff_frequency,
             'showdown_win_rate': self.showdown_win_rate,
+            'all_in_frequency': self.all_in_frequency,
+            # Phase 7.5 derived stats
+            'aggression_factor_postflop': self.aggression_factor_postflop,
+            'all_in_per_facing_bet': self.all_in_per_facing_bet,
+            'postflop_jam_open_rate': self.postflop_jam_open_rate,
             'recent_trend': self.recent_trend,
             '_vpip_count': self._vpip_count,
             '_pfr_count': self._pfr_count,
             '_bet_raise_count': self._bet_raise_count,
             '_call_count': self._call_count,
+            '_all_in_count': self._all_in_count,
             '_fold_to_cbet_count': self._fold_to_cbet_count,
             '_cbet_faced_count': self._cbet_faced_count,
             '_showdowns': self._showdowns,
-            '_showdowns_won': self._showdowns_won
+            '_showdowns_won': self._showdowns_won,
+            # Phase 7.5 counters
+            '_postflop_bet_raise_count': self._postflop_bet_raise_count,
+            '_postflop_call_count': self._postflop_call_count,
+            '_facing_bet_opportunities': self._facing_bet_opportunities,
+            '_all_ins_facing_bet': self._all_ins_facing_bet,
+            '_postflop_open_opportunities': self._postflop_open_opportunities,
+            '_postflop_jam_opens': self._postflop_jam_opens,
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'OpponentTendencies':
+        """Deserialize from dict. Missing Phase 7.5 fields default to 0 /
+        0.0 — older records that predate Phase 7.5 just lose their
+        accumulated history for the new axes, which is the intended
+        behavior (data wasn't captured before)."""
         tendencies = cls(
             hands_observed=data.get('hands_observed', 0),
+            hands_dealt=data.get('hands_dealt', 0),
             vpip=data.get('vpip', 0.5),
             pfr=data.get('pfr', 0.5),
             aggression_factor=data.get('aggression_factor', 1.0),
             fold_to_cbet=data.get('fold_to_cbet', 0.5),
             bluff_frequency=data.get('bluff_frequency', 0.3),
             showdown_win_rate=data.get('showdown_win_rate', 0.5),
+            all_in_frequency=data.get('all_in_frequency', 0.0),
+            # Phase 7.5 derived defaults (0.0 / 1.0 — neutral)
+            aggression_factor_postflop=data.get('aggression_factor_postflop', 1.0),
+            all_in_per_facing_bet=data.get('all_in_per_facing_bet', 0.0),
+            postflop_jam_open_rate=data.get('postflop_jam_open_rate', 0.0),
             recent_trend=data.get('recent_trend', 'stable')
         )
         tendencies._vpip_count = data.get('_vpip_count', 0)
         tendencies._pfr_count = data.get('_pfr_count', 0)
         tendencies._bet_raise_count = data.get('_bet_raise_count', 0)
         tendencies._call_count = data.get('_call_count', 0)
+        tendencies._all_in_count = data.get('_all_in_count', 0)
         tendencies._fold_to_cbet_count = data.get('_fold_to_cbet_count', 0)
         tendencies._cbet_faced_count = data.get('_cbet_faced_count', 0)
         tendencies._showdowns = data.get('_showdowns', 0)
         tendencies._showdowns_won = data.get('_showdowns_won', 0)
+        # Phase 7.5 counter defaults (0 — missing-field tolerance)
+        tendencies._postflop_bet_raise_count = data.get('_postflop_bet_raise_count', 0)
+        tendencies._postflop_call_count = data.get('_postflop_call_count', 0)
+        tendencies._facing_bet_opportunities = data.get('_facing_bet_opportunities', 0)
+        tendencies._all_ins_facing_bet = data.get('_all_ins_facing_bet', 0)
+        tendencies._postflop_open_opportunities = data.get('_postflop_open_opportunities', 0)
+        tendencies._postflop_jam_opens = data.get('_postflop_jam_opens', 0)
         return tendencies
 
 
@@ -271,13 +451,37 @@ class OpponentModel:
         self.narrative_observations: List[str] = []  # AI-generated insights about this opponent
         self._last_hand_counted: Optional[int] = None  # Track which hand we last counted
 
-    def observe_action(self, action: str, phase: str, is_voluntary: bool = True, hand_number: int = None):
-        """Record an observed action from this opponent."""
+    def record_hand_dealt(self, hand_number: int = None):
+        """Record that the opponent was at the table for one more hand.
+
+        Idempotent within a hand: tracks `_last_hand_dealt` so calling
+        twice with the same `hand_number` only increments once. Required
+        for correct VPIP/PFR/all_in_frequency ratios, since folds before
+        action mean the opponent never gets observe_action() called for
+        that hand.
+        """
+        if hand_number is not None and hand_number == getattr(self, '_last_hand_dealt', None):
+            return
+        if hand_number is not None:
+            self._last_hand_dealt = hand_number
+        self.tendencies.record_hand_dealt()
+
+    def observe_action(self, action: str, phase: str, is_voluntary: bool = True,
+                      hand_number: int = None, was_facing_bet: Optional[bool] = None):
+        """Record an observed action from this opponent.
+
+        Args:
+            was_facing_bet: Phase 7.5 Step 0 context flag passed through
+                to OpponentTendencies.update_from_action.
+        """
         # Only count hands_observed once per hand
         new_hand = hand_number is not None and hand_number != self._last_hand_counted
         if new_hand:
             self._last_hand_counted = hand_number
-        self.tendencies.update_from_action(action, phase, is_voluntary, count_hand=new_hand)
+        self.tendencies.update_from_action(
+            action, phase, is_voluntary,
+            count_hand=new_hand, was_facing_bet=was_facing_bet,
+        )
 
     def observe_showdown(self, won: bool, bluffed: bool = False):
         """Record a showdown observation."""
@@ -400,6 +604,77 @@ class OpponentModel:
         return model
 
 
+def _build_aggregate_from_single(t: OpponentTendencies):
+    """Build AggregatedOpponentStats from one tendencies object (verbatim).
+
+    Used by both the single-active-opponent path and the 60%-dominant
+    branch. All Phase 7.5 Step 0 fields propagate from the tendencies'
+    own derived properties + raw counters.
+    """
+    from poker.strategy.exploitation import AggregatedOpponentStats
+    return AggregatedOpponentStats(
+        hands_observed=t.hands_observed,
+        vpip=t.vpip,
+        pfr=t.pfr,
+        aggression_factor=t.aggression_factor,
+        all_in_frequency=t.all_in_frequency,
+        fold_to_cbet=t.fold_to_cbet,
+        cbet_faced_count=t._cbet_faced_count,
+        # Phase 7.5 Step 0 fields
+        aggression_factor_postflop=t.aggression_factor_postflop,
+        all_in_per_facing_bet=t.all_in_per_facing_bet,
+        facing_bet_opportunities=t._facing_bet_opportunities,
+        postflop_jam_open_rate=t.postflop_jam_open_rate,
+        postflop_open_opportunities=t._postflop_open_opportunities,
+    )
+
+
+def _build_aggregate_from_multi(tendencies_list):
+    """Build AggregatedOpponentStats by aggregating multiple tendencies.
+
+    Float rate fields use equal-weight average across the list. Sample
+    counters (hands_observed, cbet_faced_count, facing_bet_opportunities,
+    postflop_open_opportunities) use MIN — the limiting factor for
+    exploit confidence. Matches the 6.7a aggregator's policy explicitly
+    (see plan §"aggregation policy").
+    """
+    from poker.strategy.exploitation import AggregatedOpponentStats
+
+    if not tendencies_list:
+        return AggregatedOpponentStats()
+
+    n = len(tendencies_list)
+    avg_vpip = sum(t.vpip for t in tendencies_list) / n
+    avg_pfr = sum(t.pfr for t in tendencies_list) / n
+    avg_af = sum(t.aggression_factor for t in tendencies_list) / n
+    avg_all_in = sum(t.all_in_frequency for t in tendencies_list) / n
+    avg_fold_to_cbet = sum(t.fold_to_cbet for t in tendencies_list) / n
+    min_hands = min(t.hands_observed for t in tendencies_list)
+    min_cbet_faced = min(t._cbet_faced_count for t in tendencies_list)
+
+    # Phase 7.5 Step 0 fields
+    avg_af_postflop = sum(t.aggression_factor_postflop for t in tendencies_list) / n
+    avg_all_in_pfb = sum(t.all_in_per_facing_bet for t in tendencies_list) / n
+    avg_jam_open = sum(t.postflop_jam_open_rate for t in tendencies_list) / n
+    min_facing_bet_opps = min(t._facing_bet_opportunities for t in tendencies_list)
+    min_open_opps = min(t._postflop_open_opportunities for t in tendencies_list)
+
+    return AggregatedOpponentStats(
+        hands_observed=min_hands,
+        vpip=avg_vpip,
+        pfr=avg_pfr,
+        aggression_factor=avg_af,
+        all_in_frequency=avg_all_in,
+        fold_to_cbet=avg_fold_to_cbet,
+        cbet_faced_count=min_cbet_faced,
+        aggression_factor_postflop=avg_af_postflop,
+        all_in_per_facing_bet=avg_all_in_pfb,
+        facing_bet_opportunities=min_facing_bet_opps,
+        postflop_jam_open_rate=avg_jam_open,
+        postflop_open_opportunities=min_open_opps,
+    )
+
+
 class OpponentModelManager:
     """Manages opponent models for all AI players."""
 
@@ -417,11 +692,48 @@ class OpponentModelManager:
 
         return self.models[observer][opponent]
 
+    def get_model_if_exists(
+        self, observer: str, opponent: str,
+    ) -> Optional[OpponentModel]:
+        """Return an existing model, or None. Does NOT create one.
+
+        Phase 6.7a spot construction reads stats for every non-hero
+        player in the hand at decision time. Using get_model() there
+        would lazily create empty models for every opponent the hero
+        ever sat with — polluting `self.models` and slowly inflating
+        memory across long runs. The legacy aggregate path at
+        aggregate_active_opponents() explicitly avoided this; this
+        accessor lets read-only callers do the same.
+        """
+        return self.models.get(observer, {}).get(opponent)
+
     def observe_action(self, observer: str, opponent: str, action: str,
-                      phase: str, is_voluntary: bool = True, hand_number: int = None):
-        """Record an action observation."""
+                      phase: str, is_voluntary: bool = True, hand_number: int = None,
+                      was_facing_bet: Optional[bool] = None):
+        """Record an action observation.
+
+        Args:
+            was_facing_bet: Phase 7.5 Step 0 context flag. See
+                OpponentTendencies.update_from_action for semantics.
+                None when caller can't determine; postflop counters
+                skipped in that case.
+        """
         model = self.get_model(observer, opponent)
-        model.observe_action(action, phase, is_voluntary, hand_number=hand_number)
+        model.observe_action(
+            action, phase, is_voluntary,
+            hand_number=hand_number, was_facing_bet=was_facing_bet,
+        )
+
+    def record_hand_dealt(self, observer: str, opponents: List[str], hand_number: int = None):
+        """Record that each opponent was dealt one more hand.
+
+        Call once per hand per active opponent at the start of the hand.
+        Required for correct VPIP/PFR ratios — opponents that fold before
+        action reaches them never trigger observe_action, so without this
+        their hands_dealt never increments and ratios are inflated.
+        """
+        for opp in opponents:
+            self.get_model(observer, opp).record_hand_dealt(hand_number=hand_number)
 
     def get_table_summary(self, observer: str, opponents: List[str],
                          max_tokens: int = OPPONENT_SUMMARY_TOKENS) -> str:
@@ -443,6 +755,74 @@ class OpponentModelManager:
     def get_all_models_for_observer(self, observer: str) -> Dict[str, OpponentModel]:
         """Get all opponent models for an observer."""
         return self.models.get(observer, {})
+
+    def aggregate_active_opponents(
+        self,
+        observer: str,
+        active_opponents: List[str],
+        money_committed: Optional[Dict[str, float]] = None,
+    ) -> 'AggregatedOpponentStats':
+        """Aggregate stats across active opponents for an exploit decision.
+
+        Multiway 60% rule: if money_committed is provided and any one
+        opponent has put in >60% of the active opponents' total committed
+        money this hand, weight that opponent at 100% (focus exploitation
+        on the credible threat). Otherwise weight-average across active
+        opponents (equal weighting).
+
+        Args:
+            observer: The hero whose models are queried (self.models[observer]).
+            active_opponents: Names of opponents still in the hand (not folded).
+            money_committed: Optional map of opponent name -> chips committed
+                this hand. When None, simple equal-weight-average.
+
+        Returns:
+            AggregatedOpponentStats. Returns zero-initialized stats
+            (hands_observed=0) if no opponents have observation history.
+        """
+        # Lazy import to avoid circular dependency with poker.strategy
+        from poker.strategy.exploitation import AggregatedOpponentStats
+
+        if not active_opponents:
+            return AggregatedOpponentStats()
+
+        # Only inspect existing models — never create new ones from a query.
+        observer_models = self.models.get(observer, {})
+        models_with_history = [
+            observer_models[opp]
+            for opp in active_opponents
+            if opp in observer_models
+            and observer_models[opp].tendencies.hands_observed > 0
+        ]
+
+        if not models_with_history:
+            return AggregatedOpponentStats()
+
+        if len(models_with_history) == 1:
+            return _build_aggregate_from_single(models_with_history[0].tendencies)
+
+        # Multiple opponents with history. Check 60% rule.
+        if money_committed:
+            # Sum money committed across active opponents that have history
+            history_names = {m.opponent for m in models_with_history}
+            relevant = {
+                name: float(money_committed.get(name, 0.0))
+                for name in history_names
+                if name in money_committed
+            }
+            total = sum(relevant.values())
+            if total > 0:
+                for name, amount in relevant.items():
+                    if amount / total > 0.6:
+                        # Dominant opponent gets 100% weight
+                        dominant = next(
+                            m for m in models_with_history if m.opponent == name
+                        )
+                        return _build_aggregate_from_single(dominant.tendencies)
+
+        return _build_aggregate_from_multi(
+            [m.tendencies for m in models_with_history]
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         result = {}

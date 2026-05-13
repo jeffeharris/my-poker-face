@@ -529,3 +529,145 @@ class TestDetermineOptimalAction:
             player_stack=500,
         )
         assert result == 'call'
+
+
+class TestQualityScore:
+    """Tests for composite quality_score field."""
+
+    def _make_analyzer(self):
+        return DecisionAnalyzer(iterations=10)
+
+    def _make_analysis(self, **kwargs):
+        defaults = dict(game_id="test", player_name="Hero", pot_total=100,
+                        cost_to_call=50, player_stack=500, num_opponents=1)
+        defaults.update(kwargs)
+        return DecisionAnalysis(**defaults)
+
+    def test_correct_gets_100(self):
+        """Correct decision should get quality_score=100."""
+        analyzer = self._make_analyzer()
+        # Set up a clear fold scenario (low equity, negative EV)
+        analysis = self._make_analysis(
+            equity=0.1, ev_call=-30.0, required_equity=0.33,
+            action_taken='fold', phase='FLOP',
+        )
+        analyzer._evaluate_quality(analysis)
+        assert analysis.decision_quality == 'correct'
+        assert analysis.quality_score == 100.0
+
+    def test_mistake_gets_0(self):
+        """Mistake should get quality_score=0."""
+        analyzer = self._make_analyzer()
+        # Folding when can check for free = mistake
+        analysis = self._make_analysis(
+            cost_to_call=0, equity=0.5, ev_call=0,
+            action_taken='fold', phase='FLOP',
+        )
+        analyzer._evaluate_quality(analysis)
+        assert analysis.decision_quality == 'mistake'
+        assert analysis.quality_score == 0.0
+
+    def test_marginal_gets_50(self):
+        """Marginal decision should get quality_score=50."""
+        analyzer = self._make_analyzer()
+        # Call when should raise = marginal
+        analysis = self._make_analysis(
+            equity=0.7, ev_call=50.0, required_equity=0.25,
+            action_taken='call', phase='FLOP',
+        )
+        analyzer._evaluate_quality(analysis)
+        assert analysis.decision_quality == 'marginal'
+        assert analysis.quality_score == 50.0
+
+    def test_unknown_gets_none(self):
+        """Unknown decision (no ev_call) should get quality_score=None."""
+        analyzer = self._make_analyzer()
+        analysis = self._make_analysis(
+            ev_call=None, action_taken='call', phase='FLOP',
+        )
+        analyzer._evaluate_quality(analysis)
+        assert analysis.decision_quality == 'unknown'
+        assert analysis.quality_score is None
+
+
+class TestMenuCompliance:
+    """Tests for evaluate_menu_compliance()."""
+
+    def _make_analyzer(self):
+        return DecisionAnalyzer(iterations=10)
+
+    def _make_analysis(self, action='call', raise_amount=None):
+        return DecisionAnalysis(
+            game_id="test", player_name="Hero",
+            action_taken=action, raise_amount=raise_amount,
+        )
+
+    def test_picks_best_plus_ev_option(self):
+        """AI picks +EV option when it's the best available."""
+        analyzer = self._make_analyzer()
+        analysis = self._make_analysis(action='call')
+        options = [
+            {'action': 'fold', 'ev_estimate': '-EV', 'raise_to': None},
+            {'action': 'call', 'ev_estimate': '+EV', 'raise_to': None},
+            {'action': 'raise', 'ev_estimate': 'neutral', 'raise_to': 200},
+        ]
+        analyzer.evaluate_menu_compliance(analysis, options)
+        assert analysis.menu_picked_best is True
+        assert analysis.menu_best_ev == '+EV'
+        assert analysis.menu_chosen_ev == '+EV'
+        assert analysis.menu_num_options == 3
+
+    def test_picks_suboptimal_option(self):
+        """AI picks -EV fold when +EV call was available."""
+        analyzer = self._make_analyzer()
+        analysis = self._make_analysis(action='fold')
+        options = [
+            {'action': 'fold', 'ev_estimate': '-EV', 'raise_to': None},
+            {'action': 'call', 'ev_estimate': '+EV', 'raise_to': None},
+        ]
+        analyzer.evaluate_menu_compliance(analysis, options)
+        assert analysis.menu_picked_best is False
+        assert analysis.menu_best_ev == '+EV'
+        assert analysis.menu_chosen_ev == '-EV'
+
+    def test_raise_matches_by_raise_to(self):
+        """Raise options match by raise_to amount."""
+        analyzer = self._make_analyzer()
+        analysis = self._make_analysis(action='raise', raise_amount=300)
+        options = [
+            {'action': 'raise', 'ev_estimate': '+EV', 'raise_to': 200},
+            {'action': 'raise', 'ev_estimate': 'neutral', 'raise_to': 300},
+            {'action': 'call', 'ev_estimate': '+EV', 'raise_to': None},
+        ]
+        analyzer.evaluate_menu_compliance(analysis, options)
+        assert analysis.menu_chosen_ev == 'neutral'
+        assert analysis.menu_picked_best is False  # +EV raise was better
+
+    def test_no_bounded_options_leaves_none(self):
+        """No bounded options = all menu fields stay None."""
+        analyzer = self._make_analyzer()
+        analysis = self._make_analysis(action='call')
+        analyzer.evaluate_menu_compliance(analysis, [])
+        assert analysis.menu_picked_best is None
+        assert analysis.menu_best_ev is None
+
+    def test_tie_prefers_non_fold(self):
+        """When EV labels tie, non-fold is preferred as best."""
+        analyzer = self._make_analyzer()
+        analysis = self._make_analysis(action='check')
+        options = [
+            {'action': 'fold', 'ev_estimate': 'neutral', 'raise_to': None},
+            {'action': 'check', 'ev_estimate': 'neutral', 'raise_to': None},
+        ]
+        analyzer.evaluate_menu_compliance(analysis, options)
+        assert analysis.menu_picked_best is True
+        assert analysis.menu_best_ev == 'neutral'
+
+    def test_dataclass_fields_default_none(self):
+        """New menu fields default to None in dataclass."""
+        analysis = DecisionAnalysis(game_id="test", player_name="Hero")
+        assert analysis.quality_score is None
+        assert analysis.menu_best_ev is None
+        assert analysis.menu_chosen_ev is None
+        assert analysis.menu_picked_best is None
+        assert analysis.menu_num_options is None

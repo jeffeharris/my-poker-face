@@ -6,7 +6,7 @@ A/B comparison, and mid-game adjustment based on circumstances.
 """
 import logging
 from dataclasses import dataclass, fields
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from poker.game_modes_loader import get_preset_configs
 
@@ -85,8 +85,17 @@ class PromptConfig:
     # Style-aware options — map psychology playstyle to option profiles in lean mode
     style_aware_options: bool = True
 
-    # Hand plan — generate per-hand strategy via Phase 0 before lean decisions
-    hand_plan: bool = False
+    # Composed nudges — replace raw EV labels with playstyle-aware phrases
+    composed_nudges: bool = False
+
+    # EV label visibility override: None = defer to profile, True/False = override
+    show_ev_labels: Optional[bool] = None
+
+    # Option ordering strategy: 'default' (generator order), 'shuffle', 'ev_descending'
+    option_order: str = 'default'
+
+    # Preflop range gate — bias option EV labels based on hand-in-range check
+    preflop_range_gate: bool = False
 
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts
@@ -116,6 +125,20 @@ class PromptConfig:
         # Drop removed fields silently
         data.pop('bb_normalized', None)
         data.pop('use_dollar_amounts', None)
+        data.pop('hand_plan', None)
+
+        # Migrate nudge_show_ev -> show_ev_labels
+        if 'nudge_show_ev' in data and 'show_ev_labels' not in data:
+            data['show_ev_labels'] = data.pop('nudge_show_ev')
+        else:
+            data.pop('nudge_show_ev', None)
+
+        # Migrate randomize_option_order -> option_order
+        if 'randomize_option_order' in data and 'option_order' not in data:
+            if data.pop('randomize_option_order'):
+                data['option_order'] = 'shuffle'
+        else:
+            data.pop('randomize_option_order', None)
 
         if 'show_equity_always' in data and 'gto_equity' not in data:
             data['gto_equity'] = data.pop('show_equity_always')

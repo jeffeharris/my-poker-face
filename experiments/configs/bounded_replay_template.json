@@ -1,0 +1,32 @@
+{
+  "name": "bounded-replay-preflop",
+  "description": "Replay preflop decisions through 3 option-framing variants",
+  "source_experiment_id": 16,
+  "capture_filters": {
+    "phase": "PRE_FLOP"
+  },
+  "variants": [
+    {
+      "label": "raw-ev",
+      "style_aware_options": true,
+      "composed_nudges": false,
+      "preflop_range_gate": false
+    },
+    {
+      "label": "nudges",
+      "style_aware_options": true,
+      "composed_nudges": true,
+      "preflop_range_gate": false
+    },
+    {
+      "label": "nudges+rangegate",
+      "style_aware_options": true,
+      "composed_nudges": true,
+      "preflop_range_gate": true
+    }
+  ],
+  "samples_per_variant": 5,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "max_workers": 10
+}

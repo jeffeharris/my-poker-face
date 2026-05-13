@@ -1,0 +1,34 @@
+{
+  "name": "postflop_tuning_v2",
+  "description": "Validate 3 post-flop aggression differentiation fixes: (1) neutral floor bug fix — raises below threshold get -EV regardless of cost_to_call, (2) profile-gated raise option limits — passive=1, TAG=2, LAG=3, (3) differentiated check promotion — passive always promotes, LAG suppresses when raises exist. Compare absolute metrics vs experiment 3 baselines.",
+  "hypothesis": "Combined fixes will produce >20pp post-flop raise gap between aggressive and passive profiles while maintaining >30pp VPIP gap. Bob Ross post-flop raise rate should drop to 10-20% (from ~40%).",
+  "tags": ["postflop-tuning", "neutral-floor-fix", "check-promotion", "raise-option-limit", "lean-bounded"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Bob Ross", "Sherlock Holmes", "Napoleon", "CaseBot"],
+  "player_types": {
+    "Bob Ross": {"type": "hybrid"},
+    "Sherlock Holmes": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "postflop-tuning-v2",
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "preflop_range_gate": true
+    },
+    "enable_psychology": true
+  },
+  "variants": [],
+  "random_seed": 42
+}

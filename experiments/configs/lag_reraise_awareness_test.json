@@ -1,0 +1,49 @@
+{
+  "name": "lag_reraise_awareness_test",
+  "description": "Post-change validation of LAG fixes: bet sizing fallback, re-raise awareness (EV demotion + escalation annotation + preflop action context), LAG call threshold rebalance (1.5->1.3, 0.75->0.60), tactical nudge phrases. Same config as 113867 winner (ev-per-profile) for direct comparison.",
+  "hypothesis": "Napoleon's raise/call ratio should shift from 76%/2% toward ~55%/15%+ with more balanced action selection. VPIP spread should remain >50pp.",
+  "tags": ["lag-fix", "reraise-awareness", "bet-sizing", "nudge-rework", "call-threshold", "lean-bounded"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Joan of Arc", "Buddha", "Alice", "Napoleon"],
+  "player_types": {
+    "Joan of Arc": {"type": "hybrid"},
+    "Buddha": {"type": "hybrid"},
+    "Alice": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "ev-per-profile",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "composed_nudges": true,
+      "preflop_range_gate": true,
+      "show_ev_labels": null
+    }
+  },
+  "variants": [
+    {
+      "label": "ev-always-show",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "composed_nudges": true,
+        "preflop_range_gate": true,
+        "show_ev_labels": true
+      }
+    }
+  ],
+  "random_seed": 42,
+  "shuffle_seating": true
+}

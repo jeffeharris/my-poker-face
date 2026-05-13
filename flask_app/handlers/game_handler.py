@@ -223,6 +223,21 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
                         decision_analysis_repo=decision_analysis_repo,
                     )
                     logger.info(f"[RESTORE] Created HybridAIController for {player.name}")
+                elif strategy == 'tiered':
+                    # Tiered mode: solver baselines + personality distortion + LLM expression
+                    from flask_app.handlers.tiered_factory import build_tiered_controller
+                    controller = build_tiered_controller(
+                        player_name=player.name,
+                        state_machine=state_machine,
+                        llm_config=llm_config,
+                        game_id=game_id,
+                        owner_id=owner_id,
+                        capture_label_repo=capture_label_repo,
+                        decision_analysis_repo=decision_analysis_repo,
+                        expression_enabled=True,
+                        debug_logging=True,
+                    )
+                    logger.info(f"[RESTORE] Created TieredBotController for {player.name} (with expression)")
                 else:
                     # Rule-based controller with psychology
                     controller = RuleBotController(

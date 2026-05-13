@@ -1,0 +1,35 @@
+{
+  "name": "rangegate_wider_tiers_test",
+  "description": "Quick validation that extended hand tiers (TOP_45-TOP_75) fix compressed VPIP for loose archetypes. Napoleon (LAG, loose=0.79) should now see KJo/JTo/QJo as in-range instead of [-EV].",
+  "hypothesis": "With wider tiers: Napoleon VPIP ~60-80%, Joan VPIP ~35-50%, Buddha VPIP ~25-40%. KJo/JTo should be labeled in-range for Napoleon.",
+  "tags": ["archetype", "casebot", "range-gate", "wider-tiers", "quick-test"],
+  "num_tournaments": 3,
+  "hands_per_tournament": 15,
+  "num_players": 5,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 3,
+  "personalities": ["Joan of Arc", "Buddha", "Alice", "Napoleon", "CaseBot"],
+  "player_types": {
+    "Joan of Arc": {"type": "hybrid"},
+    "Buddha": {"type": "hybrid"},
+    "Alice": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "rangegate-wider-tiers",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "option_order": "default",
+      "preflop_range_gate": true
+    }
+  },
+  "random_seed": 42
+}

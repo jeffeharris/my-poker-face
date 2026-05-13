@@ -500,40 +500,51 @@ class TestBaselineFormulas:
         assert psych.axes.composure < 0.75  # Dropped toward volatile baseline
 
 
-class TestPositionClamps:
-    """Tests for position-clamped range guidance."""
+class TestPositionOffsets:
+    """Tests for position-offset range guidance."""
 
-    def test_early_position_clamps(self):
-        """Test early position range clamps."""
-        min_range, max_range = POSITION_CLAMPS['early']
-        assert min_range == 0.08
-        assert max_range == 0.35
+    def test_early_position_tighter(self):
+        """Early position should be tighter than baseline looseness."""
+        range_pct = looseness_to_range_pct(0.5, 'early')
+        assert range_pct == 0.5 - 0.15  # 35%
 
-    def test_button_position_clamps(self):
-        """Test button position range clamps."""
-        min_range, max_range = POSITION_CLAMPS['button']
-        assert min_range == 0.15
-        assert max_range == 0.65
-
-    def test_looseness_to_range_respects_min_clamp(self):
-        """Test that very tight player still plays minimum range."""
-        # Very tight player (looseness = 0)
-        range_pct = looseness_to_range_pct(0.0, 'early')
-        assert range_pct >= 0.08  # Early position minimum
-
-    def test_looseness_to_range_respects_max_clamp(self):
-        """Test that very loose player is clamped to max range."""
-        # Very loose player (looseness = 1.0)
-        range_pct = looseness_to_range_pct(1.0, 'early')
-        assert range_pct <= 0.35  # Early position maximum
-
-    def test_looseness_linear_mapping(self):
-        """Test that looseness maps linearly within clamps."""
-        # Neutral looseness = 0.5 should be halfway between min and max
+    def test_button_position_wider(self):
+        """Button should be wider than baseline looseness."""
         range_pct = looseness_to_range_pct(0.5, 'button')
-        min_r, max_r = POSITION_CLAMPS['button']
-        expected = min_r + (max_r - min_r) * 0.5
-        assert abs(range_pct - expected) < 0.01
+        assert range_pct == 0.5 + 0.05  # 55%
+
+    def test_position_gradient(self):
+        """Range should increase from early to button."""
+        looseness = 0.5
+        early = looseness_to_range_pct(looseness, 'early')
+        middle = looseness_to_range_pct(looseness, 'middle')
+        late = looseness_to_range_pct(looseness, 'late')
+        button = looseness_to_range_pct(looseness, 'button')
+        assert early < middle < late < button
+
+    def test_floor_prevents_zero_range(self):
+        """Very tight player still plays minimum range."""
+        range_pct = looseness_to_range_pct(0.0, 'early')
+        assert range_pct == 0.05  # Floor
+
+    def test_no_ceiling_for_loose_players(self):
+        """Loose players are NOT capped — looseness=1.0 from EP gives 85%."""
+        range_pct = looseness_to_range_pct(1.0, 'early')
+        assert range_pct == 0.85  # 1.0 - 0.15
+
+    def test_lag_gets_wide_range(self):
+        """Napoleon-like LAG (0.79) gets wide ranges at every position."""
+        ep = looseness_to_range_pct(0.79, 'early')
+        btn = looseness_to_range_pct(0.79, 'button')
+        assert abs(ep - 0.64) < 0.01   # 0.79 - 0.15
+        assert abs(btn - 0.84) < 0.01  # 0.79 + 0.05
+
+    def test_rock_gets_tight_range(self):
+        """Buddha-like rock (0.22) gets tight ranges."""
+        ep = looseness_to_range_pct(0.22, 'early')
+        btn = looseness_to_range_pct(0.22, 'button')
+        assert abs(ep - 0.07) < 0.01   # 0.22 - 0.15
+        assert abs(btn - 0.27) < 0.01  # 0.22 + 0.05
 
     def test_backward_compat_get_range_percentage(self):
         """Test that get_range_percentage uses tightness (inverted)."""
@@ -541,6 +552,11 @@ class TestPositionClamps:
         range_from_tightness = get_range_percentage(0.3, 'button')
         range_from_looseness = looseness_to_range_pct(0.7, 'button')
         assert abs(range_from_tightness - range_from_looseness) < 0.01
+
+    def test_legacy_clamps_still_exist(self):
+        """POSITION_CLAMPS still available for backward compat."""
+        assert 'early' in POSITION_CLAMPS
+        assert 'button' in POSITION_CLAMPS
 
 
 class TestPlayerPsychologyIntegration:

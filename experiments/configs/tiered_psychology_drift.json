@@ -1,0 +1,33 @@
+{
+  "name": "tiered_psychology_drift",
+  "description": "Observe emotional/psychology drift in tiered bots under sustained HU pressure. Contrast a low-poise volatile character (Queen of Hearts) against a high-poise stable one (Sherlock Holmes). Both run with Layer 1+2+3 active + enable_psychology=true so pressure_detector and zone effects fire.",
+  "hypothesis": "Queen of Hearts (poise=0.25) will accumulate zone penalties and trip into non-composed emotional states (tilted/overconfident/shaken) under pressure. Sherlock Holmes (poise=0.85) stays composed throughout. When Queen of Hearts shifts, her modified_strategy distortion direction follows the emotional bias (aggressive if tilted/overconfident, passive if shaken) gated by (1 - poise) = 0.75 strength.",
+  "tags": ["tiered", "psychology", "emotional-drift", "phase5"],
+  "num_tournaments": 1,
+  "hands_per_tournament": 80,
+  "num_players": 2,
+  "starting_stack": 3000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Queen of Hearts", "Sherlock Holmes"],
+  "player_types": {
+    "Queen of Hearts": {
+      "type": "tiered",
+      "expression": true,
+      "debug_logging": true
+    },
+    "Sherlock Holmes": {
+      "type": "tiered",
+      "expression": true,
+      "debug_logging": true
+    }
+  },
+  "capture_prompts": true,
+  "control": {
+    "label": "Tiered with Psychology",
+    "enable_psychology": true,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "controller_comparison_hu",
+  "description": "Heads-up controller shootout. Each pair runs against each other for several tournaments to surface the matchup matrix.",
+  "hypothesis": "HU favors aggression; we see if tiered's archetype distortion beats rule_bots in 1v1 conditions where solver baselines (calibrated for 6-max) may be off.",
+  "tags": ["tiered", "comparison", "heads-up", "phase5"],
+  "num_tournaments": 4,
+  "hands_per_tournament": 50,
+  "num_players": 2,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Sherlock Holmes", "GTO-Lite"],
+  "player_types": {
+    "Sherlock Holmes": {
+      "type": "tiered",
+      "expression": false,
+      "debug_logging": false
+    },
+    "GTO-Lite": {
+      "type": "rule_bot",
+      "strategy": "pot_odds_robot"
+    }
+  },
+  "capture_prompts": false,
+  "control": {
+    "label": "Tiered HU vs GTO-Lite rule_bot",
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  }
+}

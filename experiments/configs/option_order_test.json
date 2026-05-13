@@ -1,0 +1,53 @@
+{
+  "name": "option_order_test",
+  "description": "Compare 3 option ordering strategies: default (check/fold/call/raise), shuffle (random), and ev_descending (+EV first). Tests whether position-1 bias can be exploited (ev_descending) or neutralized (shuffle) vs baseline.",
+  "hypothesis": "ev_descending will increase raise-selection rate by putting +EV raises first, exploiting position-1 bias. Shuffle will reduce fold rate by moving fold out of position 1. Default is the control baseline.",
+  "tags": ["option-order", "position-bias", "lean-bounded", "ev-sorting"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Batman", "Napoleon", "Sherlock Holmes", "Bob Ross"],
+  "player_types": {
+    "Batman": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"},
+    "Sherlock Holmes": {"type": "hybrid"},
+    "Bob Ross": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "order-default",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "option_order": "default"
+    }
+  },
+  "variants": [
+    {
+      "label": "order-shuffle",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "option_order": "shuffle"
+      }
+    },
+    {
+      "label": "order-ev-descending",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "option_order": "ev_descending"
+      }
+    }
+  ],
+  "random_seed": 42
+}

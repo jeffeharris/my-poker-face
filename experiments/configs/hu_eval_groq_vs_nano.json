@@ -1,0 +1,35 @@
+{
+  "name": "hu_eval_groq_vs_nano",
+  "description": "Cross-model HU: Sun Tzu (nano) vs Sun Tzu (Groq llama-3.1-8b). Same personality, different models. Tests whether model choice affects HU style when archetypes are held constant.",
+  "hypothesis": "Both models should play similar TAG-in-HU style if the bounded options system drives behavior. Differences reveal model-specific prompt sensitivity.",
+  "tags": ["heads-up-eval", "2player", "cross-model", "groq", "nano"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 2,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 5,
+  "personalities": [
+    "Sun Tzu",
+    {"name": "Blackbeard", "llm_config": {"provider": "groq", "model": "llama-3.1-8b-instant"}}
+  ],
+  "player_types": {
+    "Sun Tzu": {"type": "hybrid"},
+    "Blackbeard": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "hu-nano-vs-groq",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "composed_nudges": true,
+      "preflop_range_gate": true
+    }
+  },
+  "random_seed": 42
+}

@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Loader2, Brain, Flame, Target, Cpu, History } from 'lucide-react';
-import { config } from '../../../../config';
+import { adminFetch } from '../../../../utils/api';
 import { logger } from '../../../../utils/logger';
 import { formatLatency } from '../../../../utils/formatters';
 import type { PlayerDetail, PlayerDetailResponse } from './types';
@@ -31,8 +31,8 @@ export function PlayerDrilldownPanel({
   useEffect(() => {
     const fetchPlayerDetail = async () => {
       try {
-        const response = await fetch(
-          `${config.API_URL}/api/experiments/${experimentId}/games/${gameId}/player/${encodeURIComponent(playerName)}`
+        const response = await adminFetch(
+          `/api/experiments/${experimentId}/games/${gameId}/player/${encodeURIComponent(playerName)}`
         );
         const data: PlayerDetailResponse = await response.json();
 

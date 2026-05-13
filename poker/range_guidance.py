@@ -11,19 +11,42 @@ Key changes in v2.1:
 
 from typing import Dict, Optional, Tuple
 
+from .archetypes import archetype_label_from_anchors
 from .hand_tiers import PREMIUM_HANDS, is_hand_in_range
 
 
-# Position-adjusted range clamps (PRD §18.4)
-# These ensure no personality plays unrealistic ranges
+# Position offsets applied to effective_looseness to get range_pct.
+# Negative = tighter (early position), positive = looser (late position).
+# Looseness IS the range — offsets just shift it by position.
+POSITION_OFFSETS: Dict[str, float] = {
+    'early': -0.15,       # UTG: play 15pp tighter than baseline
+    'middle': -0.08,      # MP: play 8pp tighter
+    'late': 0.00,         # CO: play at baseline
+    'button': +0.05,      # BTN: play 5pp wider
+    'small_blind': -0.05,   # SB: play 5pp tighter (out of position)
+    'big_blind': -0.05,     # BB: play 5pp tighter
+    'blinds': -0.05,      # Generic blinds reference
+}
+
+# Heads-up offsets: both positions play much wider ranges
+HEADS_UP_POSITION_OFFSETS: Dict[str, float] = {
+    'button': +0.30,        # BTN/SB in HU: play 30pp wider
+    'small_blind': +0.30,   # SB acts first preflop in HU
+    'big_blind': +0.20,     # BB: play 20pp wider
+}
+
+# Floor: minimum range % for any position (even the tightest rock plays something)
+RANGE_FLOOR = 0.05
+
+# Legacy: POSITION_CLAMPS kept for backward compat (tests reference it)
 POSITION_CLAMPS: Dict[str, Tuple[float, float]] = {
-    'early': (0.08, 0.35),      # UTG: 8-35%
-    'middle': (0.10, 0.45),     # MP: 10-45%
-    'late': (0.15, 0.65),       # CO: 15-65%
-    'button': (0.15, 0.65),     # BTN: 15-65%
-    'small_blind': (0.12, 0.55),  # SB: 12-55%
-    'big_blind': (0.12, 0.55),    # BB: 12-55%
-    'blinds': (0.12, 0.55),     # Generic blinds reference
+    'early': (0.08, 0.35),
+    'middle': (0.10, 0.45),
+    'late': (0.15, 0.65),
+    'button': (0.15, 0.65),
+    'small_blind': (0.12, 0.55),
+    'big_blind': (0.12, 0.55),
+    'blinds': (0.12, 0.55),
 }
 
 # Base opening ranges by position (for neutral 0.5 looseness)
@@ -87,31 +110,40 @@ def normalize_position(position: str) -> str:
     return 'middle'
 
 
-def looseness_to_range_pct(effective_looseness: float, position: str) -> float:
+def looseness_to_range_pct(
+    effective_looseness: float,
+    position: str,
+    num_opponents: int = None,
+) -> float:
     """
-    Convert effective looseness to position-clamped range percentage.
+    Convert effective looseness to position-adjusted range percentage.
 
-    This is the core range calculation (PRD §18.4):
-    1. Get position min/max clamps
-    2. Map looseness linearly to [min, max]
-    3. Clamp OUTPUT to position bounds
+    Looseness IS the range — position offsets shift it so players are
+    tighter from early position and looser from late position.
 
     Args:
         effective_looseness: Looseness value (0.0 = tight, 1.0 = loose)
                             This is baseline_looseness + emotional modifier
         position: Table position
+        num_opponents: Number of active opponents. When 1 (heads-up),
+                       uses wider HEADS_UP_POSITION_OFFSETS. Default (None
+                       or >1) uses standard multi-way offsets.
 
     Returns:
-        Range percentage clamped to position bounds (0.0 to 1.0)
+        Range percentage floored at RANGE_FLOOR (0.0 to 1.0)
     """
     pos_key = normalize_position(position)
-    min_range, max_range = POSITION_CLAMPS.get(pos_key, (0.10, 0.50))
 
-    # Linear mapping: looseness 0 -> min_range, looseness 1 -> max_range
-    range_pct = min_range + (max_range - min_range) * effective_looseness
+    # Use HU offsets when heads-up, standard offsets otherwise
+    if num_opponents == 1:
+        offset = HEADS_UP_POSITION_OFFSETS.get(pos_key, POSITION_OFFSETS.get(pos_key, 0.0))
+    else:
+        offset = POSITION_OFFSETS.get(pos_key, 0.0)
 
-    # Clamp to position bounds (critical: clamp OUTPUT, not INPUT)
-    return max(min_range, min(max_range, range_pct))
+    range_pct = effective_looseness + offset
+
+    # Floor only — no ceiling. Let loose players be loose.
+    return max(RANGE_FLOOR, min(1.0, range_pct))
 
 
 def get_range_percentage(tightness: float, position: str) -> float:
@@ -137,11 +169,8 @@ def get_player_archetype(tightness: float, aggression: float) -> str:
     """
     Determine the player archetype from tightness and aggression.
 
-    The classic 2x2 matrix:
-    - TAG (Tight-Aggressive): tight range, aggressive betting
-    - LAG (Loose-Aggressive): wide range, aggressive betting
-    - Rock (Tight-Passive): tight range, passive betting
-    - Fish (Loose-Passive): wide range, passive betting
+    Uses shared thresholds from poker.archetypes (3-zone model with
+    'Balanced' middle zone for looseness 0.45-0.65).
 
     Args:
         tightness: Tightness trait (0 = loose, 1 = tight)
@@ -149,19 +178,10 @@ def get_player_archetype(tightness: float, aggression: float) -> str:
         aggression: Aggression trait (0 = passive, 1 = aggressive)
 
     Returns:
-        Archetype string: 'TAG', 'LAG', 'Rock', or 'Fish'
+        Archetype string: 'TAG', 'LAG', 'Rock', 'Fish', or 'Balanced'
     """
-    tight = tightness > 0.5
-    aggressive = aggression > 0.5
-
-    if tight and aggressive:
-        return 'TAG'
-    elif not tight and aggressive:
-        return 'LAG'
-    elif tight and not aggressive:
-        return 'Rock'
-    else:
-        return 'Fish'
+    looseness = 1.0 - tightness
+    return archetype_label_from_anchors(looseness, aggression)
 
 
 def get_player_archetype_from_looseness(looseness: float, aggression: float) -> str:
@@ -175,11 +195,9 @@ def get_player_archetype_from_looseness(looseness: float, aggression: float) -> 
         aggression: Aggression trait (0 = passive, 1 = aggressive)
 
     Returns:
-        Archetype string: 'TAG', 'LAG', 'Rock', or 'Fish'
+        Archetype string: 'TAG', 'LAG', 'Rock', 'Fish', or 'Balanced'
     """
-    # Convert looseness to tightness for the archetype logic
-    tightness = 1.0 - looseness
-    return get_player_archetype(tightness, aggression)
+    return archetype_label_from_anchors(looseness, aggression)
 
 
 def get_archetype_description(archetype: str) -> str:
@@ -197,6 +215,7 @@ def get_archetype_description(archetype: str) -> str:
         'LAG': 'Loose-Aggressive: Plays many hands, applies pressure',
         'Rock': 'Tight-Passive: Very selective, checks/calls often',
         'Fish': 'Loose-Passive: Plays too many hands, calls too much',
+        'Balanced': 'Balanced: Moderate hand selection and betting',
     }
     return descriptions.get(archetype, 'Unknown style')
 
@@ -401,6 +420,7 @@ def classify_preflop_hand_for_player(
     canonical: str,
     effective_looseness: float,
     game_position: str,
+    num_opponents: int = None,
 ) -> str:
     """Classify a preflop hand relative to the player's current range.
 
@@ -411,6 +431,7 @@ def classify_preflop_hand_for_player(
         canonical: Canonical hand string (e.g., 'AKs', 'T8o', 'QQ')
         effective_looseness: Player's current looseness (0-1), includes emotional modifier
         game_position: Game position name (e.g., 'under_the_gun', 'button')
+        num_opponents: Number of active opponents. When 1, uses HU offsets.
 
     Returns:
         One-line string like 'AKs - premium hand, always in range from early position'
@@ -420,7 +441,7 @@ def classify_preflop_hand_for_player(
         return ''
 
     range_key = _game_position_to_range_key(game_position)
-    range_pct = looseness_to_range_pct(effective_looseness, range_key)
+    range_pct = looseness_to_range_pct(effective_looseness, range_key, num_opponents=num_opponents)
     pos_display = _position_display_name(range_key)
 
     # Premium hands are always in range
@@ -449,6 +470,7 @@ def classify_preflop_hand_for_player(
 
         outside_msg, just_outside_msg = _get_outside_range_messages(
             effective_looseness, canonical, pos_display, range_pct_display,
+            num_opponents=num_opponents,
         )
         return just_outside_msg if in_looser else outside_msg
 
@@ -458,13 +480,28 @@ def _get_outside_range_messages(
     canonical: str,
     pos_display: str,
     range_pct_display: str,
+    num_opponents: int = None,
 ) -> tuple:
     """Return (well_outside_msg, just_outside_msg) scaled by looseness.
 
     Tight players get strong fold directives.
     Loose players get soft nudges that respect their wide-range style.
+    Heads-up (num_opponents == 1) uses softer language since even weak
+    hands have playable value with only one opponent.
     """
-    if looseness < 0.4:
+    is_hu = num_opponents == 1
+
+    if is_hu:
+        # Heads-up: soften all messages — most hands have value
+        just_outside = (
+            f"{canonical} - outside your typical range from {pos_display}, "
+            f"but playable heads-up with aggression (you play {range_pct_display} here)"
+        )
+        well_outside = (
+            f"{canonical} - below your range from {pos_display}, "
+            f"speculative heads-up, proceed with caution (you play {range_pct_display} here)"
+        )
+    elif looseness < 0.4:
         # Tight player — strong directive
         just_outside = (
             f"{canonical} - below your range from {pos_display}, "

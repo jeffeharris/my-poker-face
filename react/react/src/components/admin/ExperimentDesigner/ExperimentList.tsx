@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Loader2, Archive, Plus, Beaker, Repeat2 } from 'lucide-react';
 import type { ExperimentSummary, ExperimentType } from './types';
-import { config } from '../../../config';
+import { adminFetch } from '../../../utils/api';
 import { formatDate } from '../../../utils/formatters';
 import { logger } from '../../../utils/logger';
 import { STATUS_CONFIG_SMALL as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
@@ -36,8 +36,8 @@ export function ExperimentList({ onViewExperiment }: ExperimentListProps) {
 
       // Fetch both tournament and replay experiments in parallel
       const [tournamentResponse, replayResponse] = await Promise.all([
-        typeFilter !== 'replay' ? fetch(`${config.API_URL}/api/experiments?${tournamentParams}`) : null,
-        typeFilter !== 'tournament' ? fetch(`${config.API_URL}/api/replay-experiments?${tournamentParams}`) : null,
+        typeFilter !== 'replay' ? adminFetch(`/api/experiments?${tournamentParams}`) : null,
+        typeFilter !== 'tournament' ? adminFetch(`/api/replay-experiments?${tournamentParams}`) : null,
       ]);
 
       const allExperiments: ExperimentSummary[] = [];

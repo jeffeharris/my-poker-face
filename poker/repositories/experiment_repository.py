@@ -421,7 +421,11 @@ class ExperimentRepository(BaseRepository):
                     SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
                     SUM(CASE WHEN pda.decision_quality = 'marginal' THEN 1 ELSE 0 END) as marginal,
                     SUM(CASE WHEN pda.decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake,
-                    AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost
+                    AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost,
+                    AVG(CASE WHEN pda.decision_quality != 'unknown' THEN pda.quality_score END) as avg_quality_score,
+                    COUNT(CASE WHEN pda.decision_quality != 'unknown' THEN 1 END) as scored_total,
+                    SUM(CASE WHEN pda.menu_picked_best = 1 THEN 1 ELSE 0 END) as menu_correct,
+                    COUNT(CASE WHEN pda.menu_picked_best IS NOT NULL THEN 1 END) as menu_total
                 FROM player_decision_analysis pda
                 JOIN experiment_games eg ON pda.game_id = eg.game_id
                 WHERE eg.experiment_id = ? {variant_clause}
@@ -429,6 +433,7 @@ class ExperimentRepository(BaseRepository):
 
             row = cursor.fetchone()
             total = row[0] or 0
+            menu_total = row[8] or 0
 
             result = {
                 'total': total,
@@ -437,6 +442,13 @@ class ExperimentRepository(BaseRepository):
                 'mistake': row[3] or 0,
                 'correct_pct': round((row[1] or 0) * 100 / total, 1) if total else 0,
                 'avg_ev_lost': round(row[4] or 0, 2),
+                'quality_score': round(row[5], 1) if row[5] is not None else None,
+                'scored_total': row[6] or 0,
+                'menu_compliance': {
+                    'total': menu_total,
+                    'correct': row[7] or 0,
+                    'compliance_pct': round((row[7] or 0) * 100 / menu_total, 1) if menu_total else None,
+                } if menu_total > 0 else None,
             }
 
             # Stats by player
@@ -445,22 +457,27 @@ class ExperimentRepository(BaseRepository):
                     pda.player_name,
                     COUNT(*) as total,
                     SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
-                    AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost
+                    AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost,
+                    AVG(CASE WHEN pda.decision_quality != 'unknown' THEN pda.quality_score END) as avg_quality_score,
+                    SUM(CASE WHEN pda.menu_picked_best = 1 THEN 1 ELSE 0 END) as menu_correct,
+                    COUNT(CASE WHEN pda.menu_picked_best IS NOT NULL THEN 1 END) as menu_total
                 FROM player_decision_analysis pda
                 JOIN experiment_games eg ON pda.game_id = eg.game_id
                 WHERE eg.experiment_id = ? {variant_clause}
                 GROUP BY pda.player_name
             """, params)
 
-            result['by_player'] = {
-                row[0]: {
+            result['by_player'] = {}
+            for row in cursor.fetchall():
+                p_menu_total = row[6] or 0
+                result['by_player'][row[0]] = {
                     'total': row[1],
                     'correct': row[2] or 0,
                     'correct_pct': round((row[2] or 0) * 100 / row[1], 1) if row[1] else 0,
                     'avg_ev_lost': round(row[3] or 0, 2),
+                    'quality_score': round(row[4], 1) if row[4] is not None else None,
+                    'menu_compliance_pct': round((row[5] or 0) * 100 / p_menu_total, 1) if p_menu_total else None,
                 }
-                for row in cursor.fetchall()
-            }
 
             return result
 
@@ -897,7 +914,10 @@ class ExperimentRepository(BaseRepository):
                 COUNT(*) as total,
                 SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
                 SUM(CASE WHEN pda.decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake,
-                AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost
+                AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost,
+                AVG(CASE WHEN pda.decision_quality != 'unknown' THEN pda.quality_score END) as avg_quality_score,
+                SUM(CASE WHEN pda.menu_picked_best = 1 THEN 1 ELSE 0 END) as menu_correct,
+                COUNT(CASE WHEN pda.menu_picked_best IS NOT NULL THEN 1 END) as menu_total
             FROM player_decision_analysis pda
             JOIN experiment_games eg ON pda.game_id = eg.game_id
             WHERE eg.experiment_id = ? {variant_clause}
@@ -907,13 +927,18 @@ class ExperimentRepository(BaseRepository):
 
         if total == 0:
             return None
-        return {
+        menu_total = row[6] or 0
+        result = {
             'total': total,
             'correct': row[1] or 0,
             'correct_pct': round((row[1] or 0) * 100 / total, 1),
             'mistakes': row[2] or 0,
             'avg_ev_lost': round(row[3] or 0, 2),
+            'quality_score': round(row[4], 1) if row[4] is not None else None,
         }
+        if menu_total > 0:
+            result['menu_compliance_pct'] = round((row[5] or 0) * 100 / menu_total, 1)
+        return result
 
     def _compute_progress_metrics(self, conn, experiment_id: int,
                                    variant_clause: str, variant_params: list,
@@ -1478,7 +1503,8 @@ class ExperimentRepository(BaseRepository):
         """Get aggregated decision quality statistics for a game.
 
         Returns:
-            Dict with total, correct, marginal, mistake counts and avg_ev_lost.
+            Dict with total, correct, marginal, mistake counts, avg_ev_lost,
+            quality_score, and menu_compliance.
             Empty dict if no data found.
         """
         with self._get_connection() as conn:
@@ -1487,7 +1513,10 @@ class ExperimentRepository(BaseRepository):
                     SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
                     SUM(CASE WHEN decision_quality = 'marginal' THEN 1 ELSE 0 END) as marginal,
                     SUM(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake,
-                    AVG(COALESCE(ev_lost, 0)) as avg_ev_lost
+                    AVG(COALESCE(ev_lost, 0)) as avg_ev_lost,
+                    AVG(CASE WHEN decision_quality != 'unknown' THEN quality_score END) as avg_quality_score,
+                    SUM(CASE WHEN menu_picked_best = 1 THEN 1 ELSE 0 END) as menu_correct,
+                    COUNT(CASE WHEN menu_picked_best IS NOT NULL THEN 1 END) as menu_total
                 FROM player_decision_analysis WHERE game_id = ?
             """, (game_id,))
 
@@ -1495,13 +1524,22 @@ class ExperimentRepository(BaseRepository):
             if not row or row['total'] == 0:
                 return {}
 
-            return {
+            menu_total = row['menu_total'] or 0
+            result = {
                 'total': row['total'],
                 'correct': row['correct'],
                 'marginal': row['marginal'],
                 'mistake': row['mistake'],
-                'avg_ev_lost': row['avg_ev_lost']
+                'avg_ev_lost': row['avg_ev_lost'],
+                'quality_score': round(row['avg_quality_score'], 1) if row['avg_quality_score'] is not None else None,
             }
+            if menu_total > 0:
+                result['menu_compliance'] = {
+                    'total': menu_total,
+                    'correct': row['menu_correct'] or 0,
+                    'compliance_pct': round((row['menu_correct'] or 0) * 100 / menu_total, 1),
+                }
+            return result
 
     def get_player_outcomes(self, game_id: str) -> dict:
         """Aggregate per-player outcomes from hand history.

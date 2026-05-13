@@ -18,6 +18,7 @@ from .session_memory import SessionMemory
 from .opponent_model import OpponentModelManager
 from .commentary_generator import CommentaryGenerator, HandCommentary
 from .commentary_filter import should_player_comment
+from .cbet_detector import CbetDetector
 from ..hand_narrator import narrate_key_moments
 from ..config import COMMENTARY_ENABLED
 
@@ -56,10 +57,17 @@ class AIMemoryManager:
         self.hand_count = 0
         self.initialized_players: set = set()
 
-        # C-bet tracking (reset each hand)
-        self._preflop_raiser: Optional[str] = None  # Who raised preflop
-        self._cbet_made: bool = False  # Has a c-bet been made this hand
-        self._players_facing_cbet: set = set()  # Players who need to respond to c-bet
+        # C-bet tracking — delegated to a CbetDetector so simulator
+        # paths that bypass MemoryManager can drive the same state
+        # machine. Reset on hand start.
+        self._cbet_detector = CbetDetector()
+
+        # Phase 6.7a: per-street live aggressor for spot-aware exploitation.
+        # Reset on hand start AND each street transition. Updated only on
+        # accepted postflop bet/raise/all_in. Preflop aggressor still lives
+        # in _preflop_raiser; this field is the post-flop counterpart.
+        self._recent_aggressor_name: Optional[str] = None
+        self._current_street: Optional[str] = None
 
         # Thread safety for parallel commentary generation
         self._lock = threading.Lock()
@@ -75,6 +83,56 @@ class AIMemoryManager:
             hand_history_repo: HandHistoryRepository instance
         """
         self._persistence = hand_history_repo
+
+    @property
+    def last_preflop_aggressor(self) -> Optional[str]:
+        """Name of the last player to make an accepted preflop raise/all-in.
+
+        Phase 6.6: surfaces the c-bet detector's preflop-aggressor state
+        for HU c-bet exploitation gating. Resets at hand start. Reads
+        from accepted-action recording, not controller intent.
+        """
+        return self._cbet_detector.preflop_aggressor
+
+    @property
+    def recent_aggressor_name(self) -> Optional[str]:
+        """Name of the most recent postflop aggressor on the current street.
+
+        Phase 6.7a: surfaces the per-street live aggressor for
+        select_primary_aggressor() tie-break in multiway facing-bet
+        spots. Reset on hand start and on each street transition.
+        Updated only on accepted postflop bet/raise/all_in.
+
+        Returns None on preflop streets (preflop aggression uses
+        `last_preflop_aggressor` instead) and whenever no postflop
+        aggression has occurred on the current street yet.
+        """
+        return self._recent_aggressor_name
+
+    def record_preflop_aggression(self, player_name: str) -> None:
+        """Manually record a preflop aggressor (test / sim-path hook).
+
+        Production paths reach this state via `on_action()` and shouldn't
+        call this directly. Simulators that bypass MemoryManager (e.g.
+        simulate_bb100, analyze_6max_vs_rules) drive their own
+        CbetDetector instead; this method exists for tests that hold a
+        MemoryManager and want to seed the aggressor without firing a
+        full on_action.
+        """
+        self._cbet_detector.record_preflop_aggression(player_name)
+
+    def record_postflop_aggression(self, player_name: str, phase: str) -> None:
+        """Manually record a postflop aggressor (sim-path hook).
+
+        Production paths reach this state via `on_action()`; sims that
+        bypass MemoryManager (analyze_6max_vs_rules, simulate_bb100) use
+        this to feed the same signal. Caller is responsible for street
+        transition (passing the correct phase) — this method does not
+        reset on its own.
+        """
+        if phase in ('FLOP', 'TURN', 'RIVER'):
+            self._recent_aggressor_name = player_name
+            self._current_street = phase
 
     def initialize_for_player(self, player_name: str) -> None:
         """Set up memory systems for an AI player.
@@ -120,10 +178,26 @@ class AIMemoryManager:
         self.hand_count = hand_number
         self.hand_recorder.start_hand(game_state, hand_number, deck_seed=deck_seed)
 
-        # Reset c-bet tracking for new hand
-        self._preflop_raiser = None
-        self._cbet_made = False
-        self._players_facing_cbet = set()
+        # Reset c-bet tracking for new hand.
+        self._cbet_detector.reset_for_new_hand()
+
+        # Phase 6.7a: reset per-street aggressor state.
+        self._recent_aggressor_name = None
+        self._current_street = None
+
+        # Phase 6/6.5: record that each opponent was dealt this hand. This
+        # is the correct denominator for VPIP/PFR/all_in_frequency — opponents
+        # who fold before action reaches them never trigger observe_action,
+        # so hands_dealt has to be incremented independently.
+        all_player_names = [p.name for p in game_state.players]
+        for observer in self.initialized_players:
+            opponents = [n for n in all_player_names if n != observer]
+            if opponents:
+                self.opponent_model_manager.record_hand_dealt(
+                    observer=observer,
+                    opponents=opponents,
+                    hand_number=hand_number,
+                )
 
         logger.debug(f"Started recording hand #{hand_number}")
 
@@ -184,32 +258,51 @@ class AIMemoryManager:
         # Record to hand history
         self.hand_recorder.record_action(player_name, action, amount, phase, pot_total)
 
-        # Track preflop raiser for c-bet detection
-        if phase == 'PRE_FLOP' and action == 'raise':
-            self._preflop_raiser = player_name
+        # Phase 6.7a: per-street live aggressor reset. When the phase
+        # changes between actions, the previous street's aggression no
+        # longer applies. Detect the transition off the prior action's
+        # phase rather than off a separate street-transition hook so
+        # all callers go through one path.
+        if self._current_street != phase:
+            self._recent_aggressor_name = None
+            self._current_street = phase
 
-        # Detect c-bet: preflop raiser bets on flop
-        if (phase == 'FLOP' and
-            action in ('bet', 'raise') and
-            player_name == self._preflop_raiser and
-            not self._cbet_made):
-            self._cbet_made = True
-            # All other active players are facing the c-bet
-            if active_players:
-                self._players_facing_cbet = {p for p in active_players if p != player_name}
-            logger.debug(f"C-bet detected from {player_name}, facing: {self._players_facing_cbet}")
+        # Phase 7.5 Step 0: capture was_facing_bet BEFORE the current
+        # action updates _recent_aggressor_name. The snapshot reflects
+        # the state the actor SAW at decision time. On postflop streets,
+        # facing a bet = there's a prior aggressor on this street whose
+        # bet hasn't been folded out. The actor's own previous action
+        # on this street (if they were the prior aggressor) is treated
+        # as "not facing a bet" — they were free to act when they bet,
+        # and someone re-raising them is what would make them face a
+        # bet next.
+        was_facing_bet = (
+            phase in ('FLOP', 'TURN', 'RIVER')
+            and self._recent_aggressor_name is not None
+            and self._recent_aggressor_name != player_name
+        )
 
-        # Track response to c-bet
-        if self._cbet_made and player_name in self._players_facing_cbet:
-            folded = (action == 'fold')
-            # Update fold_to_cbet for all AI observers
+        # Phase 6.7a: postflop live aggressor — last accepted bet/raise/
+        # all_in on flop/turn/river. Used by select_primary_aggressor()
+        # to disambiguate tied-bet spots when multiple opponents called.
+        if phase in ('FLOP', 'TURN', 'RIVER') and action in ('bet', 'raise', 'all_in'):
+            self._recent_aggressor_name = player_name
+
+        # C-bet detection (preflop aggressor → flop bet → response). The
+        # detector also owns the preflop-aggressor field that Phase 6.6's
+        # `last_preflop_aggressor` property surfaces.
+        cbet_responses = self._cbet_detector.record_action(
+            player_name=player_name, action=action, phase=phase,
+            active_players=active_players,
+        )
+        for opp_name, folded in cbet_responses:
+            logger.debug(
+                f"{opp_name} {'folded to' if folded else 'called/raised'} c-bet"
+            )
             for observer in self.initialized_players:
-                if observer != player_name:
-                    model = self.opponent_model_manager.get_model(observer, player_name)
+                if observer != opp_name:
+                    model = self.opponent_model_manager.get_model(observer, opp_name)
                     model.tendencies.update_fold_to_cbet(folded)
-            # Remove from facing set (they've responded)
-            self._players_facing_cbet.discard(player_name)
-            logger.debug(f"{player_name} {'folded to' if folded else 'called/raised'} c-bet")
 
         # Update opponent models for all observers (including self-observation
         # for coaching stats like VPIP/PFR)
@@ -220,7 +313,8 @@ class AIMemoryManager:
                 action=action,
                 phase=phase,
                 is_voluntary=(action not in ('sb', 'bb')),
-                hand_number=self.hand_count
+                hand_number=self.hand_count,
+                was_facing_bet=was_facing_bet,
             )
 
     def on_community_cards(self, phase: str, cards: List[str]) -> None:

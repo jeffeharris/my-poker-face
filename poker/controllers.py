@@ -471,6 +471,7 @@ def classify_preflop_hand_with_range(
     hole_cards: List[str],
     psychology: 'PlayerPsychology',
     game_position: str,
+    num_opponents: int = None,
 ) -> Optional[str]:
     """Range-aware preflop classification using player's effective looseness.
 
@@ -482,6 +483,7 @@ def classify_preflop_hand_with_range(
             return None
         result = classify_preflop_hand_for_player(
             canonical, psychology.effective_looseness, game_position,
+            num_opponents=num_opponents,
         )
         return result if result else classify_preflop_hand(hole_cards)
     except Exception as e:
@@ -605,6 +607,17 @@ class AIPlayerController:
         # Memory systems (optional - set by memory manager)
         self.session_memory = session_memory
         self.opponent_model_manager = opponent_model_manager
+        # Optional back-reference to the full AIMemoryManager (set by
+        # production attachment paths). Used by Phase 6.6 HU c-bet
+        # exploitation to read MemoryManager.last_preflop_aggressor.
+        # Simulators that bypass MemoryManager can set
+        # _sim_last_preflop_aggressor / _sim_recent_aggressor directly.
+        self.memory_manager = None
+        self._sim_last_preflop_aggressor: Optional[str] = None
+        # Phase 6.7a: per-street live aggressor (postflop) for sim paths
+        # that bypass MemoryManager. Production reads
+        # memory_manager.recent_aggressor_name instead.
+        self._sim_recent_aggressor: Optional[str] = None
 
         # Hand number tracking (set by memory manager)
         self.current_hand_number = None
@@ -1506,6 +1519,7 @@ class AIPlayerController:
         capture_id: Optional[int] = None,
         player_bet: int = 0,
         all_players_bets: Optional[List[Tuple[int, bool]]] = None,
+        bounded_options: Optional[List[Dict]] = None,
     ) -> None:
         """Analyze decision quality and save to database.
 
@@ -1517,6 +1531,7 @@ class AIPlayerController:
             capture_id: Optional ID of the prompt capture for linking
             player_bet: Player's current round bet (for max_winnable calculation)
             all_players_bets: List of (bet, is_folded) tuples for ALL players
+            bounded_options: Optional list of bounded option dicts for menu compliance
         """
         if not self._decision_analysis_repo:
             return
@@ -1672,11 +1687,16 @@ class AIPlayerController:
                 psychology_snapshot=psychology_snapshot,
             )
 
+            # Menu compliance: score against bounded options if available
+            if bounded_options:
+                analyzer.evaluate_menu_compliance(analysis, bounded_options)
+
             self._decision_analysis_repo.save_decision_analysis(analysis)
             equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
+            menu_str = f", menu_best={analysis.menu_picked_best}" if analysis.menu_picked_best is not None else ""
             logger.debug(
                 f"[DECISION_ANALYSIS] {self.player_name}: {analysis.decision_quality} "
-                f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f})"
+                f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f}{menu_str})"
             )
         except Exception as e:
             logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")
@@ -2049,8 +2069,13 @@ def build_base_game_state(
             # Pre-flop: range-aware classification if psychology available
             hand_strength = None
             if range_guidance and psychology and player_positions:
+                num_opponents = len([
+                    p for p in game_state.players
+                    if not p.is_folded and p.name != player.name
+                ])
                 hand_strength = classify_preflop_hand_with_range(
                     hole_cards, psychology, player_positions[0],
+                    num_opponents=num_opponents,
                 )
             if not hand_strength:
                 hand_strength = classify_preflop_hand(hole_cards)

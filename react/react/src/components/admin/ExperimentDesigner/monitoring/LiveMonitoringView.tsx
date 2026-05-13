@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, RefreshCw, Monitor, Loader2, XCircle, LayoutGrid, Table2 } from 'lucide-react';
-import { config } from '../../../../config';
+import { adminFetch } from '../../../../utils/api';
 import { logger } from '../../../../utils/logger';
 import { GameMonitorGrid } from './GameMonitorGrid';
 import { GameMonitorTable } from './GameMonitorTable';
@@ -39,8 +39,8 @@ export function LiveMonitoringView({
 
   const fetchLiveGames = useCallback(async (signal?: AbortSignal): Promise<void> => {
     try {
-      const response = await fetch(
-        `${config.API_URL}/api/experiments/${experimentId}/live-games`,
+      const response = await adminFetch(
+        `/api/experiments/${experimentId}/live-games`,
         { signal }
       );
 

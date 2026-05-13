@@ -29,7 +29,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 25)  # 23 bool + 1 int + 1 str
+        self.assertEqual(len(d), 28)  # 24 bool + 1 Optional[bool] + 1 int + 2 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('dramatic_sequence', d)
@@ -171,7 +171,9 @@ class TestPromptConfig(unittest.TestCase):
             gto_verdict=True,
             use_simple_response_format=True,
             lean_bounded=True,
-            hand_plan=True,
+            composed_nudges=True,
+            option_order='shuffle',
+            preflop_range_gate=True,
         )
         self.assertIn('all enabled', repr(config))
 
@@ -194,6 +196,37 @@ class TestPromptConfig(unittest.TestCase):
         restored = PromptConfig.from_dict(serialized)
 
         self.assertEqual(original.to_dict(), restored.to_dict())
+
+    def test_from_dict_migrates_nudge_show_ev(self):
+        """Legacy nudge_show_ev field should migrate to show_ev_labels."""
+        data = {'nudge_show_ev': True}
+        config = PromptConfig.from_dict(data)
+        self.assertTrue(config.show_ev_labels)
+
+    def test_from_dict_nudge_show_ev_does_not_override_show_ev_labels(self):
+        """When both exist, show_ev_labels wins and nudge_show_ev is dropped."""
+        data = {'nudge_show_ev': True, 'show_ev_labels': False}
+        config = PromptConfig.from_dict(data)
+        self.assertFalse(config.show_ev_labels)
+
+    def test_show_ev_labels_default_is_none(self):
+        """show_ev_labels defaults to None (defer to profile)."""
+        config = PromptConfig()
+        self.assertIsNone(config.show_ev_labels)
+
+    def test_show_ev_labels_not_affected_by_disable_all(self):
+        """disable_all should NOT flip show_ev_labels (it's Optional[bool], not bool)."""
+        config = PromptConfig(show_ev_labels=True)
+        disabled = config.disable_all()
+        # Optional[bool] != bool, so disable_all should leave it as-is
+        self.assertTrue(disabled.show_ev_labels)
+
+    def test_show_ev_labels_not_affected_by_enable_all(self):
+        """enable_all should NOT flip show_ev_labels (it's Optional[bool], not bool)."""
+        config = PromptConfig(show_ev_labels=False)
+        enabled = config.enable_all()
+        # Optional[bool] != bool, so enable_all should leave it as-is
+        self.assertFalse(enabled.show_ev_labels)
 
 
 class TestPromptConfigIntegration(unittest.TestCase):

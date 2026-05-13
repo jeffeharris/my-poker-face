@@ -1,10 +1,12 @@
 """Flask application factory."""
 
 import logging
+import math
 import os
 from pathlib import Path
 
 from flask import Flask, jsonify, send_from_directory
+from flask.json.provider import DefaultJSONProvider
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import SECRET_KEY, is_development
@@ -25,6 +27,28 @@ logging.getLogger("engineio").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_for_json(obj):
+    """Replace float('inf'), float('-inf'), and float('nan') with None.
+
+    These values are valid Python floats but not valid JSON, causing
+    JSON.parse() failures in browsers.
+    """
+    if isinstance(obj, float) and (math.isinf(obj) or math.isnan(obj)):
+        return None
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
+
+
+class SafeJSONProvider(DefaultJSONProvider):
+    """JSON provider that converts inf/nan to null for valid JSON output."""
+
+    def dumps(self, obj, **kwargs):
+        return super().dumps(_sanitize_for_json(obj), **kwargs)
+
+
 def recover_interrupted_experiments():
     """Mark experiments that were running when server stopped as interrupted.
 
@@ -41,6 +65,8 @@ def recover_interrupted_experiments():
 def create_app():
     """Create and configure the Flask application."""
     app = Flask(__name__)
+    app.json_provider_class = SafeJSONProvider
+    app.json = SafeJSONProvider(app)
     app.secret_key = SECRET_KEY
 
     # In production behind a reverse proxy (Caddy), trust X-Forwarded headers

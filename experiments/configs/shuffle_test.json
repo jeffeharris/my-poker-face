@@ -1,0 +1,44 @@
+{
+  "name": "shuffle_test",
+  "description": "Test option order randomization vs fixed order in lean bounded mode. Data shows option 1 is chosen 37% of the time (expected ~50% for 2-option menus), indicating position bias.",
+  "hypothesis": "Shuffling option order will reduce position-1 bias and increase raise-selection rate when CALL is no longer consistently first.",
+  "tags": ["shuffle", "lean-bounded", "position-bias", "option-order"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Batman", "Napoleon", "Sherlock Holmes", "Bob Ross"],
+  "player_types": {
+    "Batman": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"},
+    "Sherlock Holmes": {"type": "hybrid"},
+    "Bob Ross": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "lean-fixed-order",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "randomize_option_order": false
+    }
+  },
+  "variants": [
+    {
+      "label": "lean-shuffled",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "randomize_option_order": true
+      }
+    }
+  ],
+  "random_seed": 42
+}

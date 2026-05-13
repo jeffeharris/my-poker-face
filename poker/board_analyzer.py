@@ -159,6 +159,129 @@ def _is_connected(rank_indices: List[int]) -> bool:
     return False
 
 
+def classify_texture_bucket(community_cards: List[str]) -> str:
+    """Classify community cards into a texture bucket for postflop strategy.
+
+    Uses analyze_board_texture() primitives and applies priority rules
+    (first match wins) to assign one of 6 buckets.
+
+    Args:
+        community_cards: List of card strings like ['Ah', 'Kd', '7s']
+
+    Returns:
+        One of: 'monotone', 'dry_low_static', 'two_tone_broadway',
+        'two_tone_connected', 'wet_rainbow', 'dry_high'
+    """
+    if not community_cards or len(community_cards) < 3:
+        return 'dry_low_static'
+
+    texture = analyze_board_texture(community_cards)
+
+    # Priority 1: monotone
+    if texture.get('monotone'):
+        return 'monotone'
+
+    # Priority 2: paired
+    if texture.get('paired'):
+        return 'dry_low_static'
+
+    # Compute highest rank index (lower index = higher rank)
+    ranks = [_extract_rank(c) for c in community_cards]
+    highest_rank_idx = min(_rank_index(r) for r in ranks)
+
+    # Priority 3-4: two_tone
+    if texture.get('two_tone'):
+        # Broadway two-tone: 2+ high cards AND highest rank is J or better (idx <= 3)
+        if texture.get('high_card_count', 0) >= 2 and highest_rank_idx <= 3:
+            return 'two_tone_broadway'
+        return 'two_tone_connected'
+
+    # Priority 5-6: rainbow
+    if texture.get('rainbow'):
+        if texture.get('connected'):
+            return 'wet_rainbow'
+        # Highest rank >= T means idx <= 4
+        if highest_rank_idx <= 4:
+            return 'dry_high'
+
+    return 'dry_low_static'
+
+
+def build_board_read(community_cards: List[str]) -> str:
+    """Build a 1-line board read for lean prompt injection.
+
+    Returns empty string for preflop (fewer than 3 community cards).
+    Uses analyze_board_texture() to derive a concise summary of board
+    texture, draw possibilities, and pairing for AI decision context.
+
+    Args:
+        community_cards: List of card strings like ['Ah', 'Kd', '7s']
+
+    Returns:
+        Single-line string like "Board read: wet, two-tone flop — flush draw, straight draw possible."
+        Empty string if fewer than 3 community cards.
+    """
+    if not community_cards or len(community_cards) < 3:
+        return ''
+
+    texture = analyze_board_texture(community_cards)
+    if texture.get('num_cards', 0) < 3:
+        return ''
+
+    category = texture.get('texture_category', 'unknown')
+
+    # Suit descriptor
+    if texture.get('monotone'):
+        suit_desc = 'monotone'
+    elif texture.get('two_tone'):
+        suit_desc = 'two-tone'
+    else:
+        suit_desc = 'rainbow'
+
+    # Street name
+    num_cards = texture['num_cards']
+    if num_cards == 3:
+        street = 'flop'
+    elif num_cards == 4:
+        street = 'turn'
+    else:
+        street = 'river'
+
+    # Draw possibilities
+    draws = []
+    if texture.get('monotone') or texture.get('two_tone'):
+        draws.append('flush draw')
+    if texture.get('connected'):
+        draws.append('straight draw')
+
+    # Pairing info
+    if texture.get('trips_on_board'):
+        pair_note = 'Trips on board.'
+    elif texture.get('double_paired'):
+        pair_note = 'Double paired.'
+    elif texture.get('paired'):
+        pair_note = 'Paired.'
+    else:
+        pair_note = ''
+
+    # High card note
+    high_cards = texture.get('high_card_count', 0)
+    high_note = f'High cards: {high_cards}.' if high_cards >= 2 else ''
+
+    # Compose the line
+    header = f"Board read: {category}, {suit_desc} {street}"
+    details = []
+    if draws:
+        details.append(', '.join(draws) + ' possible')
+    if not draws:
+        details.append('few draws possible')
+
+    suffix_parts = [p for p in [pair_note, high_note] if p]
+    suffix = ' ' + ' '.join(suffix_parts) if suffix_parts else ''
+
+    return f"{header} — {'. '.join(details)}.{suffix}"
+
+
 def get_texture_description(texture: Dict) -> str:
     """Generate a human-readable description of board texture.
 

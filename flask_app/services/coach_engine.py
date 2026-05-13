@@ -369,10 +369,10 @@ def _get_style_label(vpip: float, aggression: float) -> str:
 
     Uses same thresholds as OpponentTendencies.get_play_style_label().
     """
-    from poker.config import VPIP_TIGHT_THRESHOLD, AGGRESSION_FACTOR_HIGH
+    from poker.archetypes import VPIP_TIGHT, AF_AGGRESSIVE
 
-    is_tight = vpip < VPIP_TIGHT_THRESHOLD
-    is_aggressive = aggression > AGGRESSION_FACTOR_HIGH
+    is_tight = vpip < VPIP_TIGHT
+    is_aggressive = aggression > AF_AGGRESSIVE
 
     if is_tight and is_aggressive:
         return 'tight-aggressive'

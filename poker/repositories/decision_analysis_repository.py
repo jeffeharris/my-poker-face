@@ -40,7 +40,8 @@ class DecisionAnalysisRepository(BaseRepository):
                     player_hand, community_cards,
                     action_taken, raise_amount, raise_amount_bb, bet_sizing,
                     equity, required_equity, ev_call,
-                    optimal_action, decision_quality, ev_lost,
+                    optimal_action, decision_quality, ev_lost, quality_score,
+                    menu_best_ev, menu_chosen_ev, menu_picked_best, menu_num_options,
                     hand_rank, relative_strength,
                     equity_vs_ranges, opponent_positions,
                     tilt_level, tilt_source,
@@ -56,7 +57,7 @@ class DecisionAnalysisRepository(BaseRepository):
                     zone_intrusive_thoughts_injected, zone_intrusive_thoughts_json,
                     zone_penalty_strategy_applied, zone_info_degraded, zone_strategy_selected,
                     analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -81,6 +82,11 @@ class DecisionAnalysisRepository(BaseRepository):
                 data.get('optimal_action'),
                 data.get('decision_quality'),
                 data.get('ev_lost'),
+                data.get('quality_score'),
+                data.get('menu_best_ev'),
+                data.get('menu_chosen_ev'),
+                1 if data.get('menu_picked_best') else (0 if data.get('menu_picked_best') is not None else None),
+                data.get('menu_num_options'),
                 data.get('hand_rank'),
                 data.get('relative_strength'),
                 data.get('equity_vs_ranges'),

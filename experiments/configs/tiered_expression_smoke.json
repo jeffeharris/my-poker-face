@@ -1,0 +1,26 @@
+{
+  "name": "tiered_expression_smoke",
+  "description": "Smoke test for Phase 4 LLM expression layer. Two tiered bots play HU with strongly-voiced personalities; we verify dramatic_sequence and inner_monologue come back in-character without affecting action selection.",
+  "hypothesis": "Tiered bots produce in-character narration for their decided actions. Action selection is unaffected by LLM (since Layer 1+2 commit before Layer 3 runs).",
+  "num_tournaments": 1,
+  "hands_per_tournament": 10,
+  "num_players": 2,
+  "starting_stack": 10000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Abraham Lincoln", "Blackbeard"],
+  "player_types": {
+    "Abraham Lincoln": {
+      "type": "tiered",
+      "expression": true,
+      "debug_logging": true
+    },
+    "Blackbeard": {
+      "type": "tiered",
+      "expression": true,
+      "debug_logging": true
+    }
+  },
+  "capture_prompts": true
+}

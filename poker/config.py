@@ -48,14 +48,16 @@ MEMORABLE_HAND_THRESHOLD = 0.7    # Impact score threshold for memorable hands (
 MEMORY_TRIM_KEEP_EXCHANGES = 0    # Clear conversation memory each turn (was 4) - table chatter preserved via game_messages
 
 # Opponent modeling thresholds
-# NOTE: Frontend mirrors these values - keep in sync with:
-#   - react/react/src/components/mobile/StatsBar.tsx
-#   - react/react/src/components/mobile/HeadsUpOpponentPanel.tsx
 MIN_HANDS_FOR_STYLE_LABEL = 15    # Minimum hands observed before labeling play style
 MIN_HANDS_FOR_SUMMARY = 10        # Minimum hands observed before generating summary
-VPIP_TIGHT_THRESHOLD = 0.3        # VPIP below this = tight player
-VPIP_LOOSE_THRESHOLD = 0.5        # VPIP above this = loose player (plays many hands)
-VPIP_VERY_SELECTIVE = 0.2         # VPIP below this = very selective
-AGGRESSION_FACTOR_HIGH = 1.5      # AF above this = aggressive player
-AGGRESSION_FACTOR_VERY_HIGH = 2.0 # AF above this = very aggressive
-AGGRESSION_FACTOR_LOW = 0.5       # AF below this = passive player
+
+# VPIP/AF thresholds moved to poker/archetypes.py (single source of truth).
+# Re-exported here for backward compatibility.
+from .archetypes import (  # noqa: E402
+    VPIP_TIGHT as VPIP_TIGHT_THRESHOLD,
+    VPIP_LOOSE as VPIP_LOOSE_THRESHOLD,
+    VPIP_VERY_SELECTIVE,
+    AF_AGGRESSIVE as AGGRESSION_FACTOR_HIGH,
+    AF_VERY_AGGRESSIVE as AGGRESSION_FACTOR_VERY_HIGH,
+    AF_PASSIVE as AGGRESSION_FACTOR_LOW,
+)

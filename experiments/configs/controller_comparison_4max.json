@@ -1,0 +1,39 @@
+{
+  "name": "controller_comparison_4max",
+  "description": "Head-to-head comparison of TieredBotController vs HybridAIController vs rule_bots at a 4-max table. Tests whether the new tiered+math-floor stack wins, ties, or loses against the existing controllers under identical conditions.",
+  "hypothesis": "Tiered bot beats deterministic rule_bots clearly and trades blows with HybridAI. The math floor protects against the pot-committed leak that previously cost Tesla and Louis XIV their stacks in live play.",
+  "tags": ["tiered", "comparison", "controller-shootout", "phase5"],
+  "num_tournaments": 3,
+  "hands_per_tournament": 40,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Sherlock Holmes", "Sun Tzu", "GTO-Lite", "ABCBot"],
+  "player_types": {
+    "Sherlock Holmes": {
+      "type": "tiered",
+      "expression": false,
+      "debug_logging": false
+    },
+    "Sun Tzu": {
+      "type": "hybrid"
+    },
+    "GTO-Lite": {
+      "type": "rule_bot",
+      "strategy": "pot_odds_robot"
+    },
+    "ABCBot": {
+      "type": "rule_bot",
+      "strategy": "abc"
+    }
+  },
+  "capture_prompts": false,
+  "control": {
+    "label": "4-max controller comparison",
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  }
+}

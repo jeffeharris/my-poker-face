@@ -1,0 +1,32 @@
+{
+  "name": "controller_comparison_6max",
+  "description": "6-max controller shootout. The tiered strategy tables were calibrated for 6-max, so this is the bot's home court vs all other controller types.",
+  "hypothesis": "Tiered bot performs relatively better at 6-max than at HU or 4-max because the strategy tables target this format. Rule_bots are exposed by 6-max position-aware play.",
+  "tags": ["tiered", "comparison", "6-max", "phase5"],
+  "num_tournaments": 2,
+  "hands_per_tournament": 35,
+  "num_players": 6,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": [
+    "Sherlock Holmes", "Sun Tzu", "Bob Ross",
+    "GTO-Lite", "ABCBot", "CaseBot"
+  ],
+  "player_types": {
+    "Sherlock Holmes": {"type": "tiered", "expression": false},
+    "Sun Tzu": {"type": "tiered", "expression": false},
+    "Bob Ross": {"type": "hybrid"},
+    "GTO-Lite": {"type": "rule_bot", "strategy": "pot_odds_robot"},
+    "ABCBot": {"type": "rule_bot", "strategy": "abc"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "capture_prompts": false,
+  "control": {
+    "label": "6-max controller shootout",
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  }
+}

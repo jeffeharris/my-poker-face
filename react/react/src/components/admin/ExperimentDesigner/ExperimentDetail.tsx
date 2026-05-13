@@ -28,7 +28,7 @@ import {
   FlaskRound,
 } from 'lucide-react';
 import { LiveMonitoringView } from './monitoring';
-import { config } from '../../../config';
+import { adminFetch } from '../../../utils/api';
 import { formatDate, formatLatency, formatCost } from '../../../utils/formatters';
 import { logger } from '../../../utils/logger';
 import { STATUS_CONFIG_LARGE as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
@@ -95,6 +95,12 @@ interface StalledVariant {
   process_id: number | null;
 }
 
+interface MenuCompliance {
+  total: number;
+  correct: number;
+  compliance_pct: number;
+}
+
 interface DecisionStats {
   total: number;
   correct: number;
@@ -102,11 +108,16 @@ interface DecisionStats {
   mistake: number;
   correct_pct: number;
   avg_ev_lost: number;
+  quality_score?: number;
+  scored_total?: number;
+  menu_compliance?: MenuCompliance;
   by_player: Record<string, {
     total: number;
     correct: number;
     correct_pct: number;
     avg_ev_lost: number;
+    quality_score?: number;
+    menu_compliance_pct?: number;
   }>;
 }
 
@@ -139,8 +150,8 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const fetchExperiment = useCallback(async () => {
     try {
       const [expResponse, gamesResponse] = await Promise.all([
-        fetch(`${config.API_URL}/api/experiments/${experimentId}`),
-        fetch(`${config.API_URL}/api/experiments/${experimentId}/games`),
+        adminFetch(`/api/experiments/${experimentId}`),
+        adminFetch(`/api/experiments/${experimentId}/games`),
       ]);
 
       const expData = await expResponse.json();
@@ -171,8 +182,8 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const fetchStalledVariants = useCallback(async () => {
     if (!experimentId) return;
     try {
-      const response = await fetch(
-        `${config.API_URL}/api/experiments/${experimentId}/stalled?threshold_minutes=5`
+      const response = await adminFetch(
+        `/api/experiments/${experimentId}/stalled?threshold_minutes=5`
       );
       const data = await response.json();
       if (data.success) {
@@ -187,8 +198,8 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const handleResumeVariant = async (variantId: number) => {
     setResumingVariants((prev) => new Set(prev).add(variantId));
     try {
-      const response = await fetch(
-        `${config.API_URL}/api/experiments/${experimentId}/variants/${variantId}/resume`,
+      const response = await adminFetch(
+        `/api/experiments/${experimentId}/variants/${variantId}/resume`,
         { method: 'POST' }
       );
       const data = await response.json();
@@ -261,7 +272,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const handlePause = async () => {
     setPauseLoading(true);
     try {
-      const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/pause`, {
+      const response = await adminFetch(`/api/experiments/${experimentId}/pause`, {
         method: 'POST',
       });
       const data = await response.json();
@@ -282,7 +293,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const handleResume = async () => {
     setResumeLoading(true);
     try {
-      const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/resume`, {
+      const response = await adminFetch(`/api/experiments/${experimentId}/resume`, {
         method: 'POST',
       });
       const data = await response.json();
@@ -305,7 +316,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
     try {
       const isArchived = experiment?.tags?.includes('_archived');
       const endpoint = isArchived ? 'unarchive' : 'archive';
-      const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/${endpoint}`, {
+      const response = await adminFetch(`/api/experiments/${experimentId}/${endpoint}`, {
         method: 'POST',
       });
       const data = await response.json();
@@ -603,8 +614,12 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
             <div className="experiment-detail__stat">
               <Percent size={20} />
               <div className="experiment-detail__stat-content">
-                <span className="experiment-detail__stat-value">{decisionStats.correct_pct}%</span>
-                <span className="experiment-detail__stat-label">Correct Decisions</span>
+                <span className="experiment-detail__stat-value">
+                  {decisionStats.quality_score != null ? decisionStats.quality_score : decisionStats.correct_pct}
+                </span>
+                <span className="experiment-detail__stat-label">
+                  {decisionStats.quality_score != null ? 'Quality Score' : 'Correct %'}
+                </span>
               </div>
             </div>
           )}
@@ -799,15 +814,26 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
                     <div className="experiment-detail__variant-section">
                       <span className="experiment-detail__variant-section-label">Decision Quality</span>
                       <div className="experiment-detail__decision-row">
-                        <span className="experiment-detail__decision-metric experiment-detail__decision-metric--correct">
-                          {variantLive.decision_quality.correct_pct}% Correct
-                        </span>
+                        {variantLive.decision_quality.quality_score != null ? (
+                          <span className="experiment-detail__decision-metric experiment-detail__decision-metric--correct">
+                            {variantLive.decision_quality.quality_score} Quality
+                          </span>
+                        ) : (
+                          <span className="experiment-detail__decision-metric experiment-detail__decision-metric--correct">
+                            {variantLive.decision_quality.correct_pct}% Correct
+                          </span>
+                        )}
                         <span className="experiment-detail__decision-metric experiment-detail__decision-metric--mistake">
                           {variantLive.decision_quality.mistakes} Mistakes
                         </span>
                         <span className="experiment-detail__decision-metric">
                           ${variantLive.decision_quality.avg_ev_lost} EV
                         </span>
+                        {variantLive.decision_quality.menu_compliance_pct != null && (
+                          <span className="experiment-detail__decision-metric">
+                            {variantLive.decision_quality.menu_compliance_pct}% Menu
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}
@@ -982,7 +1008,12 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
         <div className="experiment-detail__section">
           <h3 className="experiment-detail__section-title">
             <Target size={18} />
-            Decision Quality
+            GTO Quality
+            {decisionStats.quality_score != null && (
+              <span className="experiment-detail__section-badge">
+                {decisionStats.quality_score}/100
+              </span>
+            )}
           </h3>
           <div className="experiment-detail__decision-stats">
             <div className="experiment-detail__decision-overview">
@@ -1016,6 +1047,21 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
               </div>
             </div>
 
+            {/* Menu Compliance */}
+            {decisionStats.menu_compliance && decisionStats.menu_compliance.total > 0 && (
+              <div className="experiment-detail__menu-compliance">
+                <h4>Menu Compliance</h4>
+                <div className="experiment-detail__decision-legend">
+                  <span className="experiment-detail__legend-item experiment-detail__legend-item--correct">
+                    Picked Best: {decisionStats.menu_compliance.correct} ({decisionStats.menu_compliance.compliance_pct}%)
+                  </span>
+                  <span className="experiment-detail__legend-item">
+                    {decisionStats.menu_compliance.total} bounded decisions
+                  </span>
+                </div>
+              </div>
+            )}
+
             {decisionStats.by_player && Object.keys(decisionStats.by_player).length > 0 && (
               <div className="experiment-detail__player-stats">
                 <h4>By Player</h4>
@@ -1024,19 +1070,23 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
                     <tr>
                       <th>Player</th>
                       <th>Decisions</th>
-                      <th>Correct %</th>
+                      <th>Quality</th>
                       <th>Avg EV Lost</th>
+                      {decisionStats.menu_compliance && <th>Menu %</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {Object.entries(decisionStats.by_player)
-                      .sort(([, a], [, b]) => b.correct_pct - a.correct_pct)
+                      .sort(([, a], [, b]) => (b.quality_score ?? b.correct_pct) - (a.quality_score ?? a.correct_pct))
                       .map(([name, stats]) => (
                         <tr key={name}>
                           <td>{name}</td>
                           <td>{stats.total}</td>
-                          <td>{stats.correct_pct}%</td>
+                          <td>{stats.quality_score != null ? stats.quality_score : `${stats.correct_pct}%`}</td>
                           <td>${stats.avg_ev_lost}</td>
+                          {decisionStats.menu_compliance && (
+                            <td>{stats.menu_compliance_pct != null ? `${stats.menu_compliance_pct}%` : '-'}</td>
+                          )}
                         </tr>
                       ))}
                   </tbody>

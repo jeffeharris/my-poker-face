@@ -1,0 +1,32 @@
+{
+  "name": "hu_eval_casebot_gpt5mini",
+  "description": "Batman (gpt-5-mini) vs CaseBot heads-up. Tests whether a larger model plays more competitively against rule-based bot.",
+  "hypothesis": "gpt-5-mini should play similar HU style to nano but potentially make better postflop decisions, winning more hands against CaseBot.",
+  "tags": ["heads-up-eval", "casebot", "gpt-5-mini"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 100,
+  "num_players": 2,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-mini",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 5,
+  "personalities": ["Batman", "CaseBot"],
+  "player_types": {
+    "Batman": {"type": "hybrid"},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "control": {
+    "label": "hu-batman-mini",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "composed_nudges": true,
+      "preflop_range_gate": true
+    }
+  },
+  "random_seed": 42
+}

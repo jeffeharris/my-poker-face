@@ -221,6 +221,8 @@ class ExperimentConfig:
     rate_limit_backoff_seconds: float = 30.0  # Base backoff on rate limit detection
     # Tournament reset behavior
     reset_on_elimination: bool = False  # If true, reset all stacks when 1 player remains
+    # Seating order
+    shuffle_seating: bool = False  # Randomize player order per tournament to remove position bias
     # Rule-based bot support (chaos monkeys)
     player_types: Optional[Dict[str, Dict]] = None  # {player_name: {"type": "rule_bot", "strategy": "always_fold"}}
 
@@ -699,6 +701,15 @@ class AITournamentRunner:
             Tuple of (state_machine, controllers, memory_manager)
         """
         player_names, per_player_configs = self.select_personalities()
+
+        # Shuffle seating order per tournament to remove position bias
+        if self.config.shuffle_seating:
+            if self.config.random_seed is not None:
+                seat_rng = random.Random(self.config.random_seed + tournament_number)
+            else:
+                seat_rng = random.Random()
+            seat_rng.shuffle(player_names)
+
         logger.info(f"Tournament {tournament_id}: Players = {player_names}")
         if per_player_configs:
             logger.info(f"Tournament {tournament_id}: Per-player configs = {list(per_player_configs.keys())}")
@@ -810,6 +821,9 @@ class AITournamentRunner:
 
         controllers = {}
         for player in game_state.players:
+            # Initialize memory for this player before injecting session_memory.
+            memory_manager.initialize_for_player(player.name)
+
             # Check for per-player config override
             player_cfg = per_player_configs.get(player.name, {})
 
@@ -883,6 +897,50 @@ class AITournamentRunner:
                     opponent_model_manager=memory_manager.get_opponent_model_manager(),
                 )
                 logger.info(f"Player {player.name} using hybrid AI controller")
+            elif player_type == 'tiered':
+                # Tiered bot: solver baselines + personality distortion, no LLM decisions.
+                # Optionally wires the Layer 3 expression generator for in-character narration.
+                from poker.tiered_bot_controller import TieredBotController
+                from poker.strategy.strategy_table import (
+                    load_strategy_table, load_hu_strategy_table,
+                )
+
+                strategy_table = load_strategy_table()
+                hu_strategy_table = load_hu_strategy_table()
+                controller = TieredBotController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    strategy_table=strategy_table,
+                    hu_strategy_table=hu_strategy_table,
+                    llm_config=player_llm_config,
+                    game_id=tournament_id,
+                    owner_id=self._owner_id,
+                    capture_label_repo=self.capture_label_repo,
+                    decision_analysis_repo=self.decision_analysis_repo,
+                    debug_logging=player_type_config.get('debug_logging', False),
+                )
+
+                if player_type_config.get('expression', True):
+                    from poker.strategy.expression_generator import ExpressionGenerator
+                    from core.llm import LLMClient, CallType
+                    llm_client = LLMClient(
+                        provider=player_llm_config.get('provider', 'openai'),
+                        model=player_llm_config.get('model'),
+                    )
+                    controller.expression_generator = ExpressionGenerator(
+                        llm_client=llm_client,
+                        prompt_manager=controller.prompt_manager,
+                    )
+                    controller._expression_call_type = CallType.COMMENTARY
+                    logger.info(
+                        f"Player {player.name} using TieredBotController "
+                        f"with expression layer"
+                    )
+                else:
+                    logger.info(
+                        f"Player {player.name} using TieredBotController "
+                        f"(expression disabled)"
+                    )
             else:
                 # Use standard AI controller
                 controller = AIPlayerController(
@@ -899,9 +957,8 @@ class AITournamentRunner:
                     opponent_model_manager=memory_manager.get_opponent_model_manager(),
                 )
             controllers[player.name] = controller
-            # Initialize memory manager for this player
-            memory_manager.initialize_for_player(player.name)
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+            controller.memory_manager = memory_manager
 
         return state_machine, controllers, memory_manager
 
@@ -1014,6 +1071,10 @@ class AITournamentRunner:
         last_player_name = None
         same_player_count = 0
 
+        # Action log for lean prompt context (street markers + actions)
+        hand_action_log = []
+        current_logged_phase = None
+
         while action_count < max_actions:
             # Advance state machine
             state_machine.run_until([PokerPhase.EVALUATING_HAND])
@@ -1074,10 +1135,19 @@ class AITournamentRunner:
                                 process_id=os.getpid()
                             )
 
+                        # Add phase marker to action log when street changes
+                        # Use "HOLE_CARDS" instead of "PRE_FLOP" to avoid
+                        # _get_street_lines matching 'flop' inside 'pre_flop'
+                        phase_name = state_machine.current_phase.name if state_machine.current_phase else 'PRE_FLOP'
+                        if phase_name != current_logged_phase:
+                            marker = 'HOLE_CARDS' if phase_name == 'PRE_FLOP' else phase_name
+                            hand_action_log.append(f"--- {marker} ---")
+                            current_logged_phase = phase_name
+
                         # Get AI decision
                         pre_decision_energy = controller.psychology.energy if hasattr(controller, 'psychology') and controller.psychology else None
                         start_time = time.time()
-                        response = controller.decide_action([])
+                        response = controller.decide_action(hand_action_log)
                         latency = (time.time() - start_time) * 1000
 
                         # Log energy events from on_action_taken (consecutive folds)
@@ -1112,6 +1182,19 @@ class AITournamentRunner:
                         amount = response.get('raise_to', 0)
 
                         logger.debug(f"  {current_player.name}: {action} {amount if amount else ''}")
+
+                        # Log action for lean prompt context
+                        if action == 'raise' and amount:
+                            raise_to = game_state.highest_bet + amount
+                            hand_action_log.append(f"{current_player.name} raises to ${raise_to}")
+                        elif action == 'call':
+                            hand_action_log.append(f"{current_player.name} calls")
+                        elif action == 'check':
+                            hand_action_log.append(f"{current_player.name} checks")
+                        elif action == 'fold':
+                            hand_action_log.append(f"{current_player.name} folds")
+                        elif action == 'all_in':
+                            hand_action_log.append(f"{current_player.name} goes all-in")
 
                         # Apply action
                         game_state = play_turn(game_state, action, amount)
@@ -2153,6 +2236,10 @@ class AITournamentRunner:
         total_mistakes = 0
         total_marginal = 0
         total_ev_lost = 0.0
+        quality_score_sum = 0.0
+        quality_score_count = 0
+        menu_correct_total = 0
+        menu_total = 0
 
         for r in results:
             if r.decision_stats:
@@ -2161,6 +2248,14 @@ class AITournamentRunner:
                 total_mistakes += r.decision_stats.get('mistake', 0)
                 total_marginal += r.decision_stats.get('marginal', 0)
                 total_ev_lost += r.decision_stats.get('avg_ev_lost', 0) * r.decision_stats.get('total', 0)
+                qs = r.decision_stats.get('quality_score')
+                if qs is not None:
+                    quality_score_sum += qs * r.decision_stats.get('total', 0)
+                    quality_score_count += r.decision_stats.get('total', 0)
+                mc = r.decision_stats.get('menu_compliance')
+                if mc:
+                    menu_correct_total += mc.get('correct', 0)
+                    menu_total += mc.get('total', 0)
 
         summary = {
             'tournaments': len(results),
@@ -2180,6 +2275,8 @@ class AITournamentRunner:
                 'correct_pct': round(total_correct * 100 / total_decisions, 1),
                 'mistake_pct': round(total_mistakes * 100 / total_decisions, 1),
                 'avg_ev_lost': round(total_ev_lost / total_decisions, 2),
+                'quality_score': round(quality_score_sum / quality_score_count, 1) if quality_score_count else None,
+                'menu_compliance_pct': round(menu_correct_total * 100 / menu_total, 1) if menu_total else None,
             }
 
         # Compute per-variant stats for A/B testing experiments
@@ -2248,6 +2345,10 @@ class AITournamentRunner:
             total_mistakes = 0
             total_marginal = 0
             total_ev_lost = 0.0
+            v_qs_sum = 0.0
+            v_qs_count = 0
+            v_menu_correct = 0
+            v_menu_total = 0
 
             for r in variant_results:
                 if r.decision_stats:
@@ -2256,6 +2357,14 @@ class AITournamentRunner:
                     total_mistakes += r.decision_stats.get('mistake', 0)
                     total_marginal += r.decision_stats.get('marginal', 0)
                     total_ev_lost += r.decision_stats.get('avg_ev_lost', 0) * r.decision_stats.get('total', 0)
+                    qs = r.decision_stats.get('quality_score')
+                    if qs is not None:
+                        v_qs_sum += qs * r.decision_stats.get('total', 0)
+                        v_qs_count += r.decision_stats.get('total', 0)
+                    mc = r.decision_stats.get('menu_compliance')
+                    if mc:
+                        v_menu_correct += mc.get('correct', 0)
+                        v_menu_total += mc.get('total', 0)
 
             variant_summary = {
                 'tournaments': len(variant_results),
@@ -2276,6 +2385,8 @@ class AITournamentRunner:
                     'correct_pct': round(total_correct * 100 / total_decisions, 1),
                     'mistake_pct': round(total_mistakes * 100 / total_decisions, 1),
                     'avg_ev_lost': round(total_ev_lost / total_decisions, 2),
+                    'quality_score': round(v_qs_sum / v_qs_count, 1) if v_qs_count else None,
+                    'menu_compliance_pct': round(v_menu_correct * 100 / v_menu_total, 1) if v_menu_total else None,
                 }
 
             # Add latency metrics from database for this variant
@@ -2597,6 +2708,16 @@ def print_summary(results: List[TournamentResult]):
             print(f"  Total decisions: {total_decisions}")
             print(f"  Correct: {total_correct} ({total_correct*100/total_decisions:.1f}%)")
             print(f"  Mistakes: {total_mistakes} ({total_mistakes*100/total_decisions:.1f}%)")
+            # Quality score (composite)
+            quality_scores = [s.get('quality_score') for s in decision_stats if s.get('quality_score') is not None]
+            if quality_scores:
+                avg_qs = sum(quality_scores) / len(quality_scores)
+                print(f"  Quality Score: {avg_qs:.1f}/100")
+            # Menu compliance
+            menu_totals = sum(s.get('menu_compliance', {}).get('total', 0) for s in decision_stats)
+            menu_correct = sum(s.get('menu_compliance', {}).get('correct', 0) for s in decision_stats)
+            if menu_totals > 0:
+                print(f"  Menu Compliance: {menu_correct*100/menu_totals:.1f}% ({menu_correct}/{menu_totals})")
 
     print("=" * 60)
 
