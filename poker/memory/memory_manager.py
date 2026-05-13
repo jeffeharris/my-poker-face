@@ -125,6 +125,20 @@ class AIMemoryManager:
         self._cbet_made = False
         self._players_facing_cbet = set()
 
+        # Phase 6/6.5: record that each opponent was dealt this hand. This
+        # is the correct denominator for VPIP/PFR/all_in_frequency — opponents
+        # who fold before action reaches them never trigger observe_action,
+        # so hands_dealt has to be incremented independently.
+        all_player_names = [p.name for p in game_state.players]
+        for observer in self.initialized_players:
+            opponents = [n for n in all_player_names if n != observer]
+            if opponents:
+                self.opponent_model_manager.record_hand_dealt(
+                    observer=observer,
+                    opponents=opponents,
+                    hand_number=hand_number,
+                )
+
         logger.debug(f"Started recording hand #{hand_number}")
 
     def on_action(self, player_name: str, action: str, amount: int,
