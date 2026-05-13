@@ -4,9 +4,10 @@ Opponent Modeling System.
 Tracks opponent tendencies and memorable hands for AI learning.
 """
 
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import Deque, List, Dict, Optional, Any, Tuple
 
 from ..archetypes import (
     VPIP_TIGHT as VPIP_TIGHT_THRESHOLD,
@@ -22,6 +23,20 @@ from ..config import (
     MIN_HANDS_FOR_STYLE_LABEL,
     MIN_HANDS_FOR_SUMMARY,
 )
+
+
+def _load_window_size() -> int:
+    """Read the recent-window maxlen from phase_7_5_config.
+
+    Lazy load avoids import-time circular dependency with the strategy
+    package. Falls back to 50 if config is unavailable (shouldn't
+    happen in production).
+    """
+    try:
+        from ..strategy.phase_7_5_config import CONFIG
+        return CONFIG.tier_decay.window_size
+    except Exception:
+        return 50
 
 
 @dataclass
@@ -79,6 +94,16 @@ class OpponentTendencies:
     _all_ins_facing_bet: int = 0         # subset: opponent went all-in in response
     _postflop_open_opportunities: int = 0  # postflop decisions with no live bet (legal bet/all-in available)
     _postflop_jam_opens: int = 0           # subset: opponent went all-in into no-bet pot
+
+    # Phase 7.5 Item 2b: sliding window of recent postflop events for
+    # tier decay. Each entry is (action, was_facing_bet). Push on each
+    # postflop update_from_action call; deque auto-pops oldest when
+    # length exceeds maxlen. Maxlen is sized from
+    # phase_7_5_config.tier_decay.window_size at first append (so
+    # config changes via reload_for_testing apply to new instances).
+    _recent_postflop_events: Deque[Tuple[str, bool]] = field(
+        default_factory=lambda: deque(maxlen=_load_window_size())
+    )
 
     # Per-hand tracking (reset each new hand)
     _vpip_this_hand: bool = False
@@ -166,6 +191,8 @@ class OpponentTendencies:
           exactly one of `_facing_bet_opportunities` or
           `_postflop_open_opportunities`. The jam subcounters fire only
           when the action is all-in.
+        - Sliding window: append (action, was_facing_bet) tuple. Deque's
+          maxlen handles old-event eviction automatically.
         """
         # Postflop AF counters
         if action in ('bet', 'raise', 'all_in'):
@@ -182,6 +209,80 @@ class OpponentTendencies:
             self._postflop_open_opportunities += 1
             if action == 'all_in':
                 self._postflop_jam_opens += 1
+
+        # Phase 7.5 Item 2b: sliding-window event log for tier decay.
+        self._recent_postflop_events.append((action, was_facing_bet))
+
+    def recent_postflop_stats(self) -> 'AggregatedOpponentStats':
+        """Build an AggregatedOpponentStats from the sliding-window events.
+
+        Returns the same shape as the cumulative stats but computed over
+        ONLY the recent postflop events in `_recent_postflop_events`.
+        Consumed by `_determine_clamp` as `recent_stats` to enable tier
+        ratchet-down when an opponent's recent behavior diverges from
+        their cumulative profile.
+
+        Legacy fields (vpip/pfr/aggression_factor/all_in_frequency/etc.)
+        are left at their default values — only the Phase 7.5 fields
+        and the relevant opportunity counts are populated. `_determine_clamp`
+        only reads the Phase 7.5 fields, so the rest can stay neutral.
+        """
+        from ..strategy.exploitation import AggregatedOpponentStats
+
+        events = self._recent_postflop_events
+        if not events:
+            return AggregatedOpponentStats()
+
+        facing_bet_opps = 0
+        all_ins_facing_bet = 0
+        open_opps = 0
+        jam_opens = 0
+        pf_br = 0
+        pf_call = 0
+
+        for action, was_facing_bet in events:
+            if was_facing_bet:
+                facing_bet_opps += 1
+                if action == 'all_in':
+                    all_ins_facing_bet += 1
+            else:
+                open_opps += 1
+                if action == 'all_in':
+                    jam_opens += 1
+
+            if action in ('bet', 'raise', 'all_in'):
+                pf_br += 1
+            elif action == 'call':
+                pf_call += 1
+
+        # Derive rates. AF cap on the call_count=0 fallback matches the
+        # postflop-AF cap in _recalculate_postflop_stats — keep the
+        # semantic identical between cumulative and recent paths.
+        if pf_call == 0:
+            if pf_br == 0:
+                recent_af = 1.0
+            else:
+                from ..strategy.phase_7_5_config import CONFIG
+                recent_af = min(float(pf_br), CONFIG.signal_thresholds.medium_af_postflop)
+        else:
+            recent_af = pf_br / pf_call
+
+        recent_aipfb = (
+            all_ins_facing_bet / facing_bet_opps if facing_bet_opps > 0 else 0.0
+        )
+        recent_jam_open = (
+            jam_opens / open_opps if open_opps > 0 else 0.0
+        )
+
+        return AggregatedOpponentStats(
+            # Legacy fields left at defaults — only Phase 7.5 fields
+            # matter for _determine_clamp's recent-window check.
+            aggression_factor_postflop=recent_af,
+            all_in_per_facing_bet=recent_aipfb,
+            facing_bet_opportunities=facing_bet_opps,
+            postflop_jam_open_rate=recent_jam_open,
+            postflop_open_opportunities=open_opps,
+        )
 
     def update_showdown(self, won: bool):
         """Update showdown statistics."""
@@ -358,6 +459,8 @@ class OpponentTendencies:
             '_all_ins_facing_bet': self._all_ins_facing_bet,
             '_postflop_open_opportunities': self._postflop_open_opportunities,
             '_postflop_jam_opens': self._postflop_jam_opens,
+            # Phase 7.5 Item 2b: sliding-window events (list-serialized)
+            '_recent_postflop_events': list(self._recent_postflop_events),
         }
 
     @classmethod
@@ -398,6 +501,22 @@ class OpponentTendencies:
         tendencies._all_ins_facing_bet = data.get('_all_ins_facing_bet', 0)
         tendencies._postflop_open_opportunities = data.get('_postflop_open_opportunities', 0)
         tendencies._postflop_jam_opens = data.get('_postflop_jam_opens', 0)
+        # Phase 7.5 Item 2b: restore sliding-window events. Old records
+        # without this field get an empty window — the tier-decay logic
+        # treats sub-threshold windows as "no recent data," falling back
+        # to cumulative tier, which is the right behavior for migrated
+        # records (no recent samples to overrule cumulative).
+        recent_events_raw = data.get('_recent_postflop_events', [])
+        # Coerce dicts/lists back into tuples; deque maxlen comes from
+        # the current config so a saved record + new config combine
+        # correctly.
+        recent_events = [
+            (action, bool(facing))
+            for action, facing in recent_events_raw
+        ]
+        tendencies._recent_postflop_events = deque(
+            recent_events, maxlen=_load_window_size(),
+        )
         return tendencies
 
 
