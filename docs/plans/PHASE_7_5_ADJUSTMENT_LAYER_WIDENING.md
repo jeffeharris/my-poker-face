@@ -28,6 +28,7 @@ Shared types this plan touches (incrementally, on top of 6.6 + 6.7):
 
 - `AggregatedOpponentStats` in `poker/strategy/exploitation.py` —
   7.5 adds `all_in_per_facing_bet`, `facing_bet_opportunities`,
+  `postflop_jam_open_rate`, `postflop_open_opportunities`,
   `aggression_factor_postflop` on top of 6.6's `fold_to_cbet`,
   `cbet_faced_count`.
 - `DecisionContext` in `poker/strategy/exploitation.py` —
@@ -60,11 +61,14 @@ Coordination notes:
   open-rate axis catches them. Both signals are included in the
   signal-OR test for tier classification (§Item 2). Step 0 calibration
   measures both distributions so the new thresholds are data-driven.
-- **AF raw-count fallback cap** (this plan's Step 0 change to
-  `OpponentTendencies._recalculate_stats`) pins hyper_aggressive AF at
-  `MEDIUM_AF_THRESHOLD` for opponents with zero calls observed. Phase 6.6's
-  AF-axis intensity will then be flat for those opponents — the all-in axis
-  still drives detection. Document this in the intensity ramp's docstring.
+- **AF raw-count fallback cap** (lands with Item 2's commit, NOT Step 0 —
+  see §"AF raw-count fallback edge case" for the rationale). Pins
+  `aggression_factor` at `MEDIUM_AF_THRESHOLD` for opponents with zero
+  calls observed. Phase 6.6's AF-axis intensity will then be flat for
+  those opponents — the all-in axis still drives detection. Document
+  this in 6.6's intensity ramp docstring. The new
+  `aggression_factor_postflop` field (added in Step 0) has the cap from
+  day one; only the legacy `aggression_factor` needed the deferral.
 - **Item 3 (postflop opponent-awareness, deferred)** should consume Phase
   6.7's `OpponentSpot`/`select_primary_aggressor()` for the
   `bettor_archetype` axis rather than re-deriving aggressor identification.
@@ -254,8 +258,10 @@ fields):
 | `clamp_tier_ratcheted_down` | bool | NEW: did confidence decay reduce the tier this decision? |
 | `opponent_af_at_decision` | float | Bettor's AF at decision time |
 | `opponent_af_postflop` | float | NEW: AF computed from postflop actions only (excludes preflop jams) |
-| `opponent_all_in_per_facing_bet` | float | NEW: all-ins / facing-bet opportunities (NOT all decisions, NOT hands) |
-| `opponent_facing_bet_opportunities` | int | NEW: facing-bet sample count for this opponent |
+| `opponent_all_in_per_facing_bet` | float | NEW: all-ins / facing-bet opportunities (response-aggression axis) |
+| `opponent_facing_bet_opportunities` | int | NEW: facing-bet sample count |
+| `opponent_postflop_jam_open_rate` | float | NEW: open-jams / postflop first-to-act opportunities (open-aggression axis) |
+| `opponent_postflop_open_opportunities` | int | NEW: postflop first-to-act sample count |
 | `opponent_hands_observed` | int | Existing |
 | `hand_strength_class` | str | nuts/strong_made/medium_made/weak_made/air/etc |
 | `facing_bet_size_pot_ratio` | float | NEW: bet size / pot when applicable |
@@ -521,28 +527,40 @@ all-in-freq too — but the signals are very different.
 **Required Step 0 change** (in `poker/memory/opponent_model.py`):
 
 ```python
-# New fields on OpponentTendencies
+# New fields on OpponentTendencies (Step 0)
+# Response-aggression counters:
 _facing_bet_opportunities: int = 0   # incremented when opponent has fold-or-call decision
 _all_ins_facing_bet: int = 0         # subset: when opponent's response is all-in
 
-# Derived stat — the canonical "is this opponent prone to overbets / jams
-# when facing aggression" signal. Denominator is facing-bet opportunities,
-# NOT all decisions (which would include free checks) and NOT hands
-# (which would include hands where opponent never faced a bet).
+# Open-aggression counters:
+_postflop_open_opportunities: int = 0  # incremented when opponent is first to act on flop/turn/river
+_postflop_jam_opens: int = 0           # subset: when that first-to-act action is all-in (open jam)
+
+# Derived stats — response axis: "prone to jamming when facing
+# aggression"; open axis: "prone to first-in jamming when given the
+# initiative." A real maniac shows up on either or both.
 @property
 def all_in_per_facing_bet(self) -> float:
     if self._facing_bet_opportunities == 0:
         return 0.0
     return self._all_ins_facing_bet / self._facing_bet_opportunities
+
+@property
+def postflop_jam_open_rate(self) -> float:
+    if self._postflop_open_opportunities == 0:
+        return 0.0
+    return self._postflop_jam_opens / self._postflop_open_opportunities
 ```
 
 Threading: `AggregatedOpponentStats` (in `exploitation.py:57`) gets
-new `all_in_per_facing_bet` and `facing_bet_opportunities` fields;
+new `all_in_per_facing_bet`, `facing_bet_opportunities`,
+`postflop_jam_open_rate`, and `postflop_open_opportunities` fields;
 manager aggregator computes them weighted same as existing stats.
 Existing `all_in_frequency` (per-hand) is kept for backward compat —
 Phase 6.6's hyper_aggressive ramp still reads it. When Phase 7.5
 ships, the 6.6 ramp threshold should migrate from `all_in_frequency`
-to `all_in_per_facing_bet` (see Sequencing notes at top of file).
+to the combined signal of `all_in_per_facing_bet` AND
+`postflop_jam_open_rate` (see Sequencing notes at top of file).
 
 ### AF raw-count fallback edge case — moved to Item 2 (was Step 0)
 
@@ -587,14 +605,6 @@ else:
 The new `aggression_factor_postflop` field (Step 0) has the same cap
 logic from day one — there's no legacy consumer to protect, so no
 deferral needed.
-
-### Why three tiers instead of binary
-
-Codex flagged 0.4 → 0.8 as too large a single-step permission change.
-0.6 mid-tier gives us a soft landing — if the bot starts mis-firing
-behavior, we see it at MEDIUM before going to EXTREME, and we can
-adjust the thresholds for the higher tier without losing all the
-adjustment.
 
 ### Why three tiers instead of binary
 
@@ -877,28 +887,52 @@ If common (> 20%), Item 3 ships next.
 `tests/test_strategy/test_opportunity_normalized_stats.py` (Step 0)
 - `all_in_per_facing_bet` correctly computed from
   `_all_ins_facing_bet / _facing_bet_opportunities`
+- `postflop_jam_open_rate` correctly computed from
+  `_postflop_jam_opens / _postflop_open_opportunities`
+- `_postflop_jam_opens` increments only when opponent's first-to-act
+  postflop decision is all-in; does NOT count response-jams (those
+  go into `_all_ins_facing_bet`)
+- `_postflop_open_opportunities` increments whenever opponent is
+  first to act on a postflop street, regardless of action taken
 - `aggression_factor_postflop` excludes preflop bet/raise/all-in
-  counts (computed from postflop-only counters)
-- AF raw-count fallback caps at `MEDIUM_AF_THRESHOLD` when call_count
-  is 0, no longer reports raw count as ratio
-- Backward compat: per-hand `all_in_frequency` still produced
+  counts (computed from postflop-only counters); has the AF
+  raw-count cap from day one (this field is new, no legacy consumer)
+- Backward compat: per-hand `all_in_frequency` still produced;
+  legacy `aggression_factor` formula UNCHANGED in Step 0
 - Sliding-window counters reset and accumulate correctly across
   windowed boundaries
+
+`tests/test_strategy/test_legacy_af_cap.py` (Item 2 — NOT Step 0)
+- Legacy `aggression_factor` raw-count fallback caps at
+  `MEDIUM_AF_THRESHOLD` when call_count is 0, no longer reports raw
+  count as ratio. (This test ships with Item 2 because that's where
+  the cap actually lands.)
+- `classify_detected_patterns` for an opponent with zero calls and
+  many raises returns the same patterns after the cap as before
+  (within expected behavior shift documented in §AF raw-count
+  fallback edge case)
 
 `tests/test_strategy/test_exploitation_three_tier_clamp.py` (Item 2)
 - `_determine_clamp` returns DEFAULT when sample below MEDIUM threshold
 - Returns MEDIUM when sample ≥ MEDIUM threshold AND (AF_postflop ≥
-  MEDIUM OR all_in_per_facing_bet ≥ MEDIUM) — sample required, either
-  signal qualifies
-- Returns EXTREME when sample ≥ EXTREME threshold AND (AF_postflop ≥
-  EXTREME OR all_in_per_facing_bet ≥ EXTREME)
+  MEDIUM OR all_in_per_facing_bet ≥ MEDIUM OR
+  postflop_jam_open_rate ≥ MEDIUM) — sample required, any signal
+  axis qualifies
+- Returns EXTREME when sample ≥ EXTREME threshold AND any one of the
+  three signal axes ≥ EXTREME
 - Returns DEFAULT when sample insufficient even if signals are strong
 - **High-AF-only maniac**: sample ≥ EXTREME, AF_postflop = 8.0,
-  all_in_per_facing_bet = 0.05 → returns EXTREME (signal-OR semantics
-  catches this case; the earlier AND draft would have missed it)
-- **High-all-in-only opponent**: sample ≥ EXTREME, AF_postflop = 2.0,
-  all_in_per_facing_bet = 0.45 → returns EXTREME (same rationale,
-  flipped axis)
+  all_in_per_facing_bet = 0.05, postflop_jam_open_rate = 0.02 →
+  returns EXTREME (signal-OR catches this case)
+- **High-response-jam-only opponent**: sample ≥ EXTREME,
+  AF_postflop = 2.0, all_in_per_facing_bet = 0.45,
+  postflop_jam_open_rate = 0.02 → returns EXTREME
+- **First-in-jammer-only opponent** (the previously missed case):
+  facing_bet_opportunities below threshold BUT postflop_open_
+  opportunities ≥ EXTREME, AF_postflop = 2.5,
+  all_in_per_facing_bet = 0.0 (never faced a bet),
+  postflop_jam_open_rate = 0.30 → returns EXTREME via the
+  open-jam axis and the open-opportunities sample fallback
 - **Tier decay (round 2)**: recent-window tier caps cumulative tier —
   setup with cumulative=EXTREME and recent=DEFAULT → returns DEFAULT
 - **Benchmark prior (round 2)**: when config enables prior and bettor
@@ -1176,7 +1210,8 @@ behavior.
 |---|---|---|
 | `poker/strategy/data/phase_7_5_config.yaml` | **NEW** | All thresholds (clamps, sample, signal, decay, prior) — single source of truth |
 | `poker/strategy/phase_7_5_config.py` | **NEW** | Config loader (YAML → typed dataclass), with test fixture support |
-| `poker/memory/opponent_model.py` | Modify | Add `_facing_bet_opportunities`, `_all_ins_facing_bet`, `_postflop_bet_raise_count`, `_postflop_call_count` counters; add `all_in_per_facing_bet`, `aggression_factor_postflop` properties; cap AF raw-count fallback at MEDIUM threshold |
+| `poker/memory/opponent_model.py` (Step 0) | Modify | Add counters: `_facing_bet_opportunities`, `_all_ins_facing_bet`, `_postflop_bet_raise_count`, `_postflop_call_count`, `_postflop_open_opportunities`, `_postflop_jam_opens`. Add properties: `all_in_per_facing_bet`, `postflop_jam_open_rate`, `aggression_factor_postflop` (the postflop AF has the raw-count cap from day one). Legacy `aggression_factor` formula UNCHANGED in Step 0 |
+| `poker/memory/opponent_model.py` (Item 2) | Modify | Apply raw-count cap to legacy `aggression_factor` (was Step 0, now lands with Item 2 to keep Step 0 behavior-neutral) |
 | `poker/memory/opponent_model.py` (sliding window) | Modify | Add recent-window counters (window_size from config) for tier ratchet-down |
 | `poker/strategy/exploitation.py` | Modify | `_determine_clamp` with two-axis gating + benchmark prior + tier decay; AggregatedOpponentStats adds postflop-AF + opportunity-normalized fields |
 | `poker/strategy/exploitation.py` (DecisionContext) | Modify | Add `bet_size_pot_ratio`, `street`, `board_texture` fields |
