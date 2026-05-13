@@ -30,6 +30,7 @@ from poker.poker_game import (
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.strategy.strategy_table import load_strategy_table
 from poker.memory.opponent_model import OpponentModelManager
+from poker.memory.cbet_detector import CbetDetector
 from experiments.simulate_bb100 import (
     ARCHETYPES, make_controller, make_game_state,
     DEFAULT_RULE_OPPONENTS, MAX_ACTIONS_PER_HAND, TERMINAL_PHASES,
@@ -70,6 +71,10 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
     # Phase 6.7a: track current street so we can reset _sim_recent_aggressor
     # on each street transition (mirrors MemoryManager.on_action).
     sim_current_street: Optional[str] = None
+    # C-bet detector drives the same state machine production uses.
+    # Without this the sim never feeds fold_to_cbet observations into
+    # opponent models, leaving the c-bet exploit silently inert.
+    cbet_detector = CbetDetector()
 
     while sm.phase not in TERMINAL_PHASES:
         sm.run_until(list(TERMINAL_PHASES))
@@ -97,6 +102,14 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
         raise_to = decision.get('raise_to', 0) or 0
         phase = sm.phase.name
 
+        # Snapshot active players BEFORE play_turn applies the action.
+        # CbetDetector uses this to seed its facing-set on flop c-bets;
+        # taking the snapshot after play_turn would already exclude any
+        # opponent who just folded, breaking the c-bet response tracking.
+        active_players_snapshot = [
+            p.name for p in gs.players if not getattr(p, 'is_folded', False)
+        ]
+
         if cur.name == archetype_seat:
             actions_arch.append((phase, action, raise_to))
         else:
@@ -113,6 +126,28 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
                 )
 
         new_gs = play_turn(gs, action, raise_to)
+
+        # Drive the c-bet detector with this action and apply any
+        # fold_to_cbet observations to the hero's opponent model.
+        # Only hero is an "observer" in this sim, so we update only
+        # opponent_manager.get_model(hero, responder).
+        if opponent_manager is not None and cur.name != archetype_seat:
+            cbet_responses = cbet_detector.record_action(
+                player_name=cur.name, action=action, phase=phase,
+                active_players=active_players_snapshot,
+            )
+            for opp_name, folded in cbet_responses:
+                model = opponent_manager.get_model(archetype_seat, opp_name)
+                model.tendencies.update_fold_to_cbet(folded)
+        elif cur.name == archetype_seat:
+            # Hero's own actions still drive the detector's state machine
+            # (e.g. hero's preflop raise → hero is c-bet aggressor) but
+            # produce no observations to apply (we don't track hero
+            # folding to themselves).
+            cbet_detector.record_action(
+                player_name=cur.name, action=action, phase=phase,
+                active_players=active_players_snapshot,
+            )
 
         # Phase 6.6: track the last accepted preflop aggressor on the
         # hero's controller for HU c-bet exploit gating. Matches the

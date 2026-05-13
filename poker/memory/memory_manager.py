@@ -18,6 +18,7 @@ from .session_memory import SessionMemory
 from .opponent_model import OpponentModelManager
 from .commentary_generator import CommentaryGenerator, HandCommentary
 from .commentary_filter import should_player_comment
+from .cbet_detector import CbetDetector
 from ..hand_narrator import narrate_key_moments
 from ..config import COMMENTARY_ENABLED
 
@@ -56,10 +57,10 @@ class AIMemoryManager:
         self.hand_count = 0
         self.initialized_players: set = set()
 
-        # C-bet tracking (reset each hand)
-        self._preflop_raiser: Optional[str] = None  # Who raised preflop
-        self._cbet_made: bool = False  # Has a c-bet been made this hand
-        self._players_facing_cbet: set = set()  # Players who need to respond to c-bet
+        # C-bet tracking — delegated to a CbetDetector so simulator
+        # paths that bypass MemoryManager can drive the same state
+        # machine. Reset on hand start.
+        self._cbet_detector = CbetDetector()
 
         # Phase 6.7a: per-street live aggressor for spot-aware exploitation.
         # Reset on hand start AND each street transition. Updated only on
@@ -87,11 +88,11 @@ class AIMemoryManager:
     def last_preflop_aggressor(self) -> Optional[str]:
         """Name of the last player to make an accepted preflop raise/all-in.
 
-        Phase 6.6: surfaces the existing `_preflop_raiser` hand-level state
+        Phase 6.6: surfaces the c-bet detector's preflop-aggressor state
         for HU c-bet exploitation gating. Resets at hand start. Reads
         from accepted-action recording, not controller intent.
         """
-        return self._preflop_raiser
+        return self._cbet_detector.preflop_aggressor
 
     @property
     def recent_aggressor_name(self) -> Optional[str]:
@@ -113,10 +114,12 @@ class AIMemoryManager:
 
         Production paths reach this state via `on_action()` and shouldn't
         call this directly. Simulators that bypass MemoryManager (e.g.
-        simulate_bb100, analyze_6max_vs_rules) can call this to provide
-        the same last-aggressor signal.
+        simulate_bb100, analyze_6max_vs_rules) drive their own
+        CbetDetector instead; this method exists for tests that hold a
+        MemoryManager and want to seed the aggressor without firing a
+        full on_action.
         """
-        self._preflop_raiser = player_name
+        self._cbet_detector.record_preflop_aggression(player_name)
 
     def record_postflop_aggression(self, player_name: str, phase: str) -> None:
         """Manually record a postflop aggressor (sim-path hook).
@@ -175,10 +178,8 @@ class AIMemoryManager:
         self.hand_count = hand_number
         self.hand_recorder.start_hand(game_state, hand_number, deck_seed=deck_seed)
 
-        # Reset c-bet tracking for new hand
-        self._preflop_raiser = None
-        self._cbet_made = False
-        self._players_facing_cbet = set()
+        # Reset c-bet tracking for new hand.
+        self._cbet_detector.reset_for_new_hand()
 
         # Phase 6.7a: reset per-street aggressor state.
         self._recent_aggressor_name = None
@@ -239,42 +240,27 @@ class AIMemoryManager:
             and self._recent_aggressor_name != player_name
         )
 
-        # Track preflop raiser for c-bet detection AND for the Phase 6.6
-        # last-preflop-aggressor signal consumed by HU c-bet exploitation.
-        # Set from accepted actions (after play_turn validates), not
-        # controller intent. all_in is the most aggressive preflop action
-        # and must count alongside raise.
-        if phase == 'PRE_FLOP' and action in ('raise', 'all_in'):
-            self._preflop_raiser = player_name
-
         # Phase 6.7a: postflop live aggressor — last accepted bet/raise/
         # all_in on flop/turn/river. Used by select_primary_aggressor()
         # to disambiguate tied-bet spots when multiple opponents called.
         if phase in ('FLOP', 'TURN', 'RIVER') and action in ('bet', 'raise', 'all_in'):
             self._recent_aggressor_name = player_name
 
-        # Detect c-bet: preflop raiser bets on flop
-        if (phase == 'FLOP' and
-            action in ('bet', 'raise') and
-            player_name == self._preflop_raiser and
-            not self._cbet_made):
-            self._cbet_made = True
-            # All other active players are facing the c-bet
-            if active_players:
-                self._players_facing_cbet = {p for p in active_players if p != player_name}
-            logger.debug(f"C-bet detected from {player_name}, facing: {self._players_facing_cbet}")
-
-        # Track response to c-bet
-        if self._cbet_made and player_name in self._players_facing_cbet:
-            folded = (action == 'fold')
-            # Update fold_to_cbet for all AI observers
+        # C-bet detection (preflop aggressor → flop bet → response). The
+        # detector also owns the preflop-aggressor field that Phase 6.6's
+        # `last_preflop_aggressor` property surfaces.
+        cbet_responses = self._cbet_detector.record_action(
+            player_name=player_name, action=action, phase=phase,
+            active_players=active_players,
+        )
+        for opp_name, folded in cbet_responses:
+            logger.debug(
+                f"{opp_name} {'folded to' if folded else 'called/raised'} c-bet"
+            )
             for observer in self.initialized_players:
-                if observer != player_name:
-                    model = self.opponent_model_manager.get_model(observer, player_name)
+                if observer != opp_name:
+                    model = self.opponent_model_manager.get_model(observer, opp_name)
                     model.tendencies.update_fold_to_cbet(folded)
-            # Remove from facing set (they've responded)
-            self._players_facing_cbet.discard(player_name)
-            logger.debug(f"{player_name} {'folded to' if folded else 'called/raised'} c-bet")
 
         # Update opponent models for all observers (including self-observation
         # for coaching stats like VPIP/PFR)

@@ -47,6 +47,7 @@ from poker.strategy.deviation_profiles import DEVIATION_PROFILES
 from poker.tiered_bot_controller import TieredBotController, BaselineSolverBot
 from poker.rule_based_controller import RuleBasedController, RuleConfig, CHAOS_BOTS
 from poker.memory.opponent_model import OpponentModelManager
+from poker.memory.cbet_detector import CbetDetector
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +306,10 @@ def run_hand(
     # Phase 6.7a: track current street so we can reset _sim_recent_aggressor
     # on each street transition.
     sim_current_street: Optional[str] = None
+    # C-bet detector drives the production state machine. Without this
+    # the sim never feeds fold_to_cbet observations into opponent
+    # models, leaving the c-bet exploit silently inert.
+    cbet_detector = CbetDetector()
 
     while sm.phase not in TERMINAL_PHASES:
         sm.run_until(list(TERMINAL_PHASES))
@@ -347,6 +352,12 @@ def run_hand(
                 f"{f' to {raise_to}' if raise_to else ''}"
             )
 
+        # Snapshot active players BEFORE play_turn — CbetDetector needs
+        # the pre-fold view to seed its facing-set on flop c-bets.
+        active_players_snapshot = [
+            p.name for p in gs.players if not getattr(p, 'is_folded', False)
+        ]
+
         # Phase 6: feed non-hero actions into hero's opponent model so the
         # tiered bot can detect tendencies (VPIP/PFR/AF/all-in freq) and
         # adapt across hands. Hero's own actions are skipped.
@@ -366,6 +377,21 @@ def run_hand(
 
         # play_turn expects raise_to as absolute amount for 'raise' action
         new_gs = play_turn(gs, action, raise_to)
+
+        # Drive the c-bet detector and apply any fold_to_cbet
+        # observations to the hero's opponent model. Hero's own actions
+        # still feed the state machine (e.g. hero's preflop raise sets
+        # them as c-bet aggressor) but produce no self-observation.
+        if opponent_manager is not None and hero_name is not None:
+            cbet_responses = cbet_detector.record_action(
+                player_name=current_player.name, action=action,
+                phase=phase_name, active_players=active_players_snapshot,
+            )
+            for opp_name, folded in cbet_responses:
+                if opp_name == hero_name:
+                    continue  # hero observing hero is not useful
+                model = opponent_manager.get_model(hero_name, opp_name)
+                model.tendencies.update_fold_to_cbet(folded)
 
         # Phase 6.6: track last accepted preflop aggressor on hero's
         # controller. Set after play_turn() so we mirror MemoryManager
