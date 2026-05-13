@@ -295,12 +295,16 @@ def run_hand(
     controller_map = {c.player_name: c for c in controllers}
     action_count = 0
 
-    # Phase 6.6: reset sim-path last-preflop-aggressor on hero's controller
+    # Phase 6.6/6.7a: reset sim-path aggressor state on hero's controller
     # at hand start. Production paths get this via MemoryManager.on_hand_start;
     # the sim bypasses MM, so we drive it directly here.
     hero_controller = controller_map.get(hero_name) if hero_name else None
     if hero_controller is not None:
         hero_controller._sim_last_preflop_aggressor = None
+        hero_controller._sim_recent_aggressor = None
+    # Phase 6.7a: track current street so we can reset _sim_recent_aggressor
+    # on each street transition.
+    sim_current_street: Optional[str] = None
 
     while sm.phase not in TERMINAL_PHASES:
         sm.run_until(list(TERMINAL_PHASES))
@@ -373,6 +377,18 @@ def run_hand(
             and hero_controller is not None
         ):
             hero_controller._sim_last_preflop_aggressor = current_player.name
+
+        # Phase 6.7a: per-street postflop live aggressor. Reset on street
+        # change; update on accepted postflop bet/raise/all_in.
+        if hero_controller is not None:
+            if sim_current_street != phase_name:
+                hero_controller._sim_recent_aggressor = None
+                sim_current_street = phase_name
+            if (
+                phase_name in ('FLOP', 'TURN', 'RIVER')
+                and action in ('bet', 'raise', 'all_in')
+            ):
+                hero_controller._sim_recent_aggressor = current_player.name
         advanced = advance_to_next_active_player(new_gs)
         sm.game_state = advanced if advanced is not None else new_gs
 

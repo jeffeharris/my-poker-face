@@ -34,6 +34,9 @@ from .strategy.exploitation import (
     classify_detected_patterns,
     DecisionContext,
     AggregatedOpponentStats,
+    OpponentSpot,
+    aggregate_from_spots,
+    select_primary_aggressor,
 )
 from .strategy.value_override import (
     HandStrengthClass,
@@ -468,22 +471,20 @@ class TieredBotController(AIPlayerController):
         if manager is None or anchors is None:
             return strategy
 
-        decision_context = self._build_decision_context(game_state, player_idx)
         tilt_factor = self._zone_to_tilt_factor(emotional_state)
 
-        hero_name = self.player_name
-        active_opponents = [
-            p.name for p in game_state.players
-            if not getattr(p, 'is_folded', False) and p.name != hero_name
-        ]
-        money_committed = self._get_money_committed(game_state)
+        # Phase 6.7a: build spots once, then route stat selection through
+        # the spot-aware path. The legacy aggregate fields are preserved
+        # via aggregate_from_spots(), so unmigrated rules see identical
+        # behavior in unambiguous cases.
+        spots = self._build_opponent_spots(game_state, manager)
+        stats, aggressor_name, ambiguous = (
+            self._select_exploitation_stats_from_spots(spots, game_state)
+        )
 
-        # Prefer per-aggressor stats when facing a bet. Aggregated stats
-        # across 5 mixed opponents wash out individual signals — a maniac
-        # in a 5-rule mix produces avg AF ~2 (below the trigger). Looking
-        # at the specific aggressor's stats correctly identifies them.
-        stats = self._select_exploitation_stats(
-            game_state, manager, hero_name, active_opponents, money_committed,
+        decision_context = self._build_decision_context(
+            game_state, player_idx,
+            facing_aggressor_name=aggressor_name,
         )
 
         exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
@@ -498,7 +499,10 @@ class TieredBotController(AIPlayerController):
 
         # Diagnostic counters: track detection vs firing per rule. Useful
         # for sim runs to see if exploitation is actually engaging.
-        self._tally_exploitation_event(stats, offsets, decision_context)
+        self._tally_exploitation_event(
+            stats, offsets, decision_context, spots=spots,
+            ambiguous_aggressor=ambiguous,
+        )
 
         if not offsets:
             return strategy
@@ -554,17 +558,19 @@ class TieredBotController(AIPlayerController):
         if manager is None or anchors is None:
             return strategy
 
-        decision_context = self._build_decision_context(game_state, player_idx)
         tilt_factor = self._zone_to_tilt_factor(emotional_state)
 
-        hero_name = self.player_name
-        active_opponents = [
-            p.name for p in game_state.players
-            if not getattr(p, 'is_folded', False) and p.name != hero_name
-        ]
-        money_committed = self._get_money_committed(game_state)
-        stats = self._select_exploitation_stats(
-            game_state, manager, hero_name, active_opponents, money_committed,
+        # Phase 6.7a: route through spots so value override sees the same
+        # aggressor selection as exploitation. Behavior is identical to
+        # the legacy path in unambiguous cases.
+        spots = self._build_opponent_spots(game_state, manager)
+        stats, aggressor_name, _ambiguous = (
+            self._select_exploitation_stats_from_spots(spots, game_state)
+        )
+
+        decision_context = self._build_decision_context(
+            game_state, player_idx,
+            facing_aggressor_name=aggressor_name,
         )
 
         should_fire = should_apply_value_override(
@@ -682,7 +688,10 @@ class TieredBotController(AIPlayerController):
         if fired:
             c['value_override_fired'] += 1
 
-    def _tally_exploitation_event(self, stats, offsets, decision_context):
+    def _tally_exploitation_event(
+        self, stats, offsets, decision_context,
+        spots=None, ambiguous_aggressor=False,
+    ):
         """Increment diagnostic counters for this decision.
 
         Counters live on opponent_model_manager (persists across hands)
@@ -706,6 +715,24 @@ class TieredBotController(AIPlayerController):
                                             heads-up
           fired_high_fold_to_cbet         — the c-bet rule contributed
                                             non-zero offsets
+
+        Phase 6.7a adds spot-aware counters:
+          spot_built_decisions            — any decision where spots
+                                            were constructed
+          selected_aggressor_decisions    — select_primary_aggressor
+                                            returned a non-None spot
+          ambiguous_aggressor_decisions   — facing a bet, multiple tied
+                                            spots, no aggressor flag,
+                                            no recent_aggressor_name —
+                                            fell back to
+                                            aggregate_from_spots
+          multiway_cbet_opportunity_logged
+                                          — multiway flop spot where
+                                            hero is preflop aggressor
+                                            AND opponent stats would
+                                            trigger high_fold_to_cbet
+                                            in 6.7b. Diagnostic only;
+                                            6.7a does not act on it.
         """
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None:
@@ -715,6 +742,33 @@ class TieredBotController(AIPlayerController):
             manager._exploitation_counters = Counter()
         c = manager._exploitation_counters
         c['decisions'] += 1
+
+        # Phase 6.7a spot-aware counters. spots is provided when the
+        # caller goes through the spot-aware path; legacy callers omit it.
+        if spots is not None:
+            c['spot_built_decisions'] += 1
+            if decision_context.facing_aggressor_name is not None:
+                c['selected_aggressor_decisions'] += 1
+            if ambiguous_aggressor:
+                c['ambiguous_aggressor_decisions'] += 1
+
+            # Phase 6.7a diagnostic: log multiway flop c-bet spots where
+            # high_fold_to_cbet would fire in 6.7b. Does NOT influence
+            # behavior in 6.7a.
+            if (
+                decision_context.is_flop_as_preflop_aggressor
+                and decision_context.active_opponent_count > 1
+            ):
+                continuing = [
+                    s for s in spots
+                    if s.is_active and not s.is_all_in
+                ]
+                if continuing and all(
+                    s.stats.fold_to_cbet > 0.60
+                    and s.stats.cbet_faced_count >= 5
+                    for s in continuing
+                ):
+                    c['multiway_cbet_opportunity_logged'] += 1
 
         # Phase 6.6 c-bet spot counters track DECISION CONTEXT availability,
         # not just whether stats triggered a fire. Useful to confirm the
@@ -763,17 +817,110 @@ class TieredBotController(AIPlayerController):
         else:
             c['no_pattern_matched'] += 1
 
+    def _build_opponent_spots(self, game_state, manager) -> List[OpponentSpot]:
+        """Build one OpponentSpot per non-hero player at decision time.
+
+        Phase 6.7a infrastructure. Folded players are excluded from the
+        active set via is_active=False (kept in the list for diagnostic
+        completeness but filtered by aggregate_from_spots and
+        select_primary_aggressor). All other fields come from the
+        game state plus the hero's existing opponent model entries.
+
+        is_aggressor reflects MemoryManager-tracked accepted-action
+        aggression for the current street (recent_aggressor_name) or the
+        preflop aggressor when current street is PRE_FLOP. Never inferred
+        from equal bet amounts.
+        """
+        hero_name = self.player_name
+        phase = self.state_machine.current_phase
+        phase_name = phase.name if phase is not None else None
+
+        if phase_name == 'PRE_FLOP':
+            live_aggressor = self._last_preflop_aggressor()
+        else:
+            mm = getattr(self, 'memory_manager', None)
+            if mm is not None:
+                live_aggressor = getattr(mm, 'recent_aggressor_name', None)
+            else:
+                live_aggressor = getattr(self, '_sim_recent_aggressor', None)
+
+        # Hero position relative to action — used for has_position_on_hero.
+        hero_idx = None
+        for i, p in enumerate(game_state.players):
+            if p.name == hero_name:
+                hero_idx = i
+                break
+
+        spots: List[OpponentSpot] = []
+        for i, p in enumerate(game_state.players):
+            if p.name == hero_name:
+                continue
+
+            is_folded = bool(getattr(p, 'is_folded', False))
+            is_active = not is_folded
+            stack = int(getattr(p, 'stack', 0) or 0)
+            bet = int(getattr(p, 'bet', 0) or 0)
+            total = getattr(p, 'total_bet', None)
+            committed_hand = int(total if total is not None else bet)
+            is_all_in = is_active and stack <= 0
+
+            # Pull stats from existing opponent model if present. Use
+            # the manager's get_model() — matches the rest of the
+            # controller's stats access and lets test mocks substitute a
+            # single model for the whole manager. Filter via
+            # hands_observed > 0 so auto-created empty models from
+            # get_model don't produce false stats.
+            stats = AggregatedOpponentStats()
+            if manager is not None:
+                try:
+                    model = manager.get_model(hero_name, p.name)
+                except Exception:
+                    model = None
+                if model is not None:
+                    t = getattr(model, 'tendencies', None)
+                    try:
+                        has_obs = t is not None and t.hands_observed > 0
+                    except (TypeError, AttributeError):
+                        has_obs = False
+                    if has_obs:
+                        stats = AggregatedOpponentStats(
+                            hands_observed=t.hands_observed,
+                            vpip=t.vpip,
+                            pfr=t.pfr,
+                            aggression_factor=t.aggression_factor,
+                            all_in_frequency=t.all_in_frequency,
+                            fold_to_cbet=t.fold_to_cbet,
+                            cbet_faced_count=t._cbet_faced_count,
+                        )
+
+            spots.append(OpponentSpot(
+                name=p.name,
+                stats=stats,
+                is_active=is_active,
+                is_aggressor=(is_active and p.name == live_aggressor),
+                is_all_in=is_all_in,
+                current_bet=bet,
+                stack=stack,
+                committed_this_street=bet,
+                committed_this_hand=committed_hand,
+                # 6.7a leaves position/can-act-behind unset (False/False);
+                # 6.7b preflop steal rule will populate them.
+                can_act_behind=False,
+                has_position_on_hero=(hero_idx is not None and i > hero_idx),
+            ))
+        return spots
+
     def _select_exploitation_stats(
         self, game_state, manager, hero_name,
         active_opponents, money_committed,
     ):
-        """Choose stats source: per-aggressor when facing a bet, aggregated otherwise.
+        """Legacy stats selector — preserved for tests / callers not yet on spots.
 
-        Aggregated stats wash out individual opponent signals in mixed
-        fields. When one opponent is driving the action (their current
-        bet > everyone else's), we exploit *their* stats directly. When
-        no single aggressor exists (open spots, limped pots), fall back
-        to aggregated stats with the multiway 60% rule.
+        Phase 6.7a routes both _apply_exploitation and _apply_value_override
+        through _select_exploitation_stats_from_spots below. This method
+        stays so existing unit tests that exercise the per-aggressor /
+        aggregate path keep working, and to provide a behavior-identical
+        fallback if a caller can't build spots.
         """
         call_amount = getattr(game_state, 'call_amount', 0) or 0
         if call_amount > 0:
@@ -796,6 +943,62 @@ class TieredBotController(AIPlayerController):
             active_opponents=active_opponents,
             money_committed=money_committed,
         )
+
+    def _select_exploitation_stats_from_spots(
+        self, spots, game_state,
+    ):
+        """Phase 6.7a: spot-aware facing-aggression selection.
+
+        Returns (stats, aggressor_name, ambiguous) where:
+          - stats: AggregatedOpponentStats driving exploitation rules.
+            Comes from the selected aggressor's spot when facing a bet
+            with an unambiguous primary aggressor; otherwise from
+            aggregate_from_spots (60%-rule preserved).
+          - aggressor_name: the picked aggressor (None if aggregate
+            fallback).
+          - ambiguous: True when facing a bet but select_primary_aggressor
+            returned None (multiple opponents tied with no flag and no
+            recent_aggressor_name) — used to bump the ambiguous-aggressor
+            diagnostic counter.
+
+        Behavior parity with the legacy _select_exploitation_stats:
+          - Open spots / limped pots → aggregate stats (the live highest
+            bet is 0 so select_primary_aggressor won't fire).
+          - Single clear aggressor at the live highest bet → that
+            opponent's stats verbatim (matches per-aggressor branch).
+          - Ambiguous tied-bet spots → aggregate fallback (matches
+            today's None-from-_identify_recent_aggressor path).
+        """
+        call_amount = getattr(game_state, 'call_amount', 0) or 0
+        ambiguous = False
+
+        if call_amount > 0:
+            # Compute the live highest bet on the current street among
+            # non-folded non-hero opponents.
+            hero_name = self.player_name
+            highest = 0
+            for p in game_state.players:
+                if p.name == hero_name or getattr(p, 'is_folded', False):
+                    continue
+                bet = getattr(p, 'bet', 0) or 0
+                if bet > highest:
+                    highest = bet
+
+            recent = None
+            mm = getattr(self, 'memory_manager', None)
+            if mm is not None:
+                recent = getattr(mm, 'recent_aggressor_name', None)
+            else:
+                recent = getattr(self, '_sim_recent_aggressor', None)
+
+            if highest > 0:
+                primary = select_primary_aggressor(spots, highest, recent)
+                if primary is not None and primary.stats.hands_observed > 0:
+                    return primary.stats, primary.name, False
+                if primary is None:
+                    ambiguous = True
+
+        return aggregate_from_spots(spots), None, ambiguous
 
     def _identify_recent_aggressor(self, game_state):
         """Return the single non-hero opponent with the strictly highest
@@ -834,7 +1037,9 @@ class TieredBotController(AIPlayerController):
             return getattr(mm, 'last_preflop_aggressor', None)
         return getattr(self, '_sim_last_preflop_aggressor', None)
 
-    def _build_decision_context(self, game_state, player_idx):
+    def _build_decision_context(
+        self, game_state, player_idx, facing_aggressor_name: Optional[str] = None,
+    ):
         """Build DecisionContext from game state.
 
         - is_preflop: phase.name == 'PRE_FLOP'
@@ -846,6 +1051,8 @@ class TieredBotController(AIPlayerController):
           last preflop aggressor, no live bet facing hero, and has a legal
           bet/raise. Gate for HU c-bet exploit.
         - active_opponent_count (Phase 6.6): non-folded non-hero opponents.
+        - facing_aggressor_name (Phase 6.7a): diagnostic — name of the
+          opponent select_primary_aggressor returned for this decision.
         """
         phase = self.state_machine.current_phase
         is_preflop = phase is not None and phase.name == 'PRE_FLOP'
@@ -922,6 +1129,7 @@ class TieredBotController(AIPlayerController):
             facing_big_bet=facing_big_bet,
             is_flop_as_preflop_aggressor=is_flop_as_preflop_aggressor,
             active_opponent_count=active_opponent_count,
+            facing_aggressor_name=facing_aggressor_name,
         )
 
     def _zone_to_tilt_factor(self, emotional_state) -> float:

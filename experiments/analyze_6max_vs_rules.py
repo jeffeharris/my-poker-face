@@ -60,12 +60,16 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
     action_count = 0
     last_pot = 0
 
-    # Phase 6.6: reset sim-path last-preflop-aggressor on hero's controller
+    # Phase 6.6/6.7a: reset sim-path aggressor state on hero's controller
     # at hand start. Production paths get this via MemoryManager.on_hand_start;
     # the sim bypasses MM, so we drive it directly here.
     hero_controller = controller_map.get(archetype_seat)
     if hero_controller is not None:
         hero_controller._sim_last_preflop_aggressor = None
+        hero_controller._sim_recent_aggressor = None
+    # Phase 6.7a: track current street so we can reset _sim_recent_aggressor
+    # on each street transition (mirrors MemoryManager.on_action).
+    sim_current_street: Optional[str] = None
 
     while sm.phase not in TERMINAL_PHASES:
         sm.run_until(list(TERMINAL_PHASES))
@@ -121,6 +125,19 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
             and hero_controller is not None
         ):
             hero_controller._sim_last_preflop_aggressor = cur.name
+
+        # Phase 6.7a: per-street live aggressor for spot-aware exploit
+        # selection. Reset on street change; update on accepted postflop
+        # bet/raise/all_in.
+        if hero_controller is not None:
+            if sim_current_street != phase:
+                hero_controller._sim_recent_aggressor = None
+                sim_current_street = phase
+            if (
+                phase in ('FLOP', 'TURN', 'RIVER')
+                and action in ('bet', 'raise', 'all_in')
+            ):
+                hero_controller._sim_recent_aggressor = cur.name
         advanced = advance_to_next_active_player(new_gs)
         sm.game_state = advanced if advanced is not None else new_gs
 
@@ -327,6 +344,10 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
                 'fired_high_fold_to_cbet',
                 'flop_as_preflop_aggressor_spots',
                 'heads_up_cbet_spots',
+                'spot_built_decisions',
+                'selected_aggressor_decisions',
+                'ambiguous_aggressor_decisions',
+                'multiway_cbet_opportunity_logged',
                 'detected_but_no_fire',
                 'no_pattern_matched',
                 'value_override_eligible_strong',

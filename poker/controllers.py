@@ -611,9 +611,13 @@ class AIPlayerController:
         # production attachment paths). Used by Phase 6.6 HU c-bet
         # exploitation to read MemoryManager.last_preflop_aggressor.
         # Simulators that bypass MemoryManager can set
-        # _sim_last_preflop_aggressor directly instead.
+        # _sim_last_preflop_aggressor / _sim_recent_aggressor directly.
         self.memory_manager = None
         self._sim_last_preflop_aggressor: Optional[str] = None
+        # Phase 6.7a: per-street live aggressor (postflop) for sim paths
+        # that bypass MemoryManager. Production reads
+        # memory_manager.recent_aggressor_name instead.
+        self._sim_recent_aggressor: Optional[str] = None
 
         # Hand number tracking (set by memory manager)
         self.current_hand_number = None

@@ -61,6 +61,13 @@ class AIMemoryManager:
         self._cbet_made: bool = False  # Has a c-bet been made this hand
         self._players_facing_cbet: set = set()  # Players who need to respond to c-bet
 
+        # Phase 6.7a: per-street live aggressor for spot-aware exploitation.
+        # Reset on hand start AND each street transition. Updated only on
+        # accepted postflop bet/raise/all_in. Preflop aggressor still lives
+        # in _preflop_raiser; this field is the post-flop counterpart.
+        self._recent_aggressor_name: Optional[str] = None
+        self._current_street: Optional[str] = None
+
         # Thread safety for parallel commentary generation
         self._lock = threading.Lock()
         self._last_recorded_hand: Optional[RecordedHand] = None
@@ -86,6 +93,21 @@ class AIMemoryManager:
         """
         return self._preflop_raiser
 
+    @property
+    def recent_aggressor_name(self) -> Optional[str]:
+        """Name of the most recent postflop aggressor on the current street.
+
+        Phase 6.7a: surfaces the per-street live aggressor for
+        select_primary_aggressor() tie-break in multiway facing-bet
+        spots. Reset on hand start and on each street transition.
+        Updated only on accepted postflop bet/raise/all_in.
+
+        Returns None on preflop streets (preflop aggression uses
+        `last_preflop_aggressor` instead) and whenever no postflop
+        aggression has occurred on the current street yet.
+        """
+        return self._recent_aggressor_name
+
     def record_preflop_aggression(self, player_name: str) -> None:
         """Manually record a preflop aggressor (test / sim-path hook).
 
@@ -95,6 +117,19 @@ class AIMemoryManager:
         the same last-aggressor signal.
         """
         self._preflop_raiser = player_name
+
+    def record_postflop_aggression(self, player_name: str, phase: str) -> None:
+        """Manually record a postflop aggressor (sim-path hook).
+
+        Production paths reach this state via `on_action()`; sims that
+        bypass MemoryManager (analyze_6max_vs_rules, simulate_bb100) use
+        this to feed the same signal. Caller is responsible for street
+        transition (passing the correct phase) — this method does not
+        reset on its own.
+        """
+        if phase in ('FLOP', 'TURN', 'RIVER'):
+            self._recent_aggressor_name = player_name
+            self._current_street = phase
 
     def initialize_for_player(self, player_name: str) -> None:
         """Set up memory systems for an AI player.
@@ -145,6 +180,10 @@ class AIMemoryManager:
         self._cbet_made = False
         self._players_facing_cbet = set()
 
+        # Phase 6.7a: reset per-street aggressor state.
+        self._recent_aggressor_name = None
+        self._current_street = None
+
         # Phase 6/6.5: record that each opponent was dealt this hand. This
         # is the correct denominator for VPIP/PFR/all_in_frequency — opponents
         # who fold before action reaches them never trigger observe_action,
@@ -176,6 +215,15 @@ class AIMemoryManager:
         # Record to hand history
         self.hand_recorder.record_action(player_name, action, amount, phase, pot_total)
 
+        # Phase 6.7a: per-street live aggressor reset. When the phase
+        # changes between actions, the previous street's aggression no
+        # longer applies. Detect the transition off the prior action's
+        # phase rather than off a separate street-transition hook so
+        # all callers go through one path.
+        if self._current_street != phase:
+            self._recent_aggressor_name = None
+            self._current_street = phase
+
         # Track preflop raiser for c-bet detection AND for the Phase 6.6
         # last-preflop-aggressor signal consumed by HU c-bet exploitation.
         # Set from accepted actions (after play_turn validates), not
@@ -183,6 +231,12 @@ class AIMemoryManager:
         # and must count alongside raise.
         if phase == 'PRE_FLOP' and action in ('raise', 'all_in'):
             self._preflop_raiser = player_name
+
+        # Phase 6.7a: postflop live aggressor — last accepted bet/raise/
+        # all_in on flop/turn/river. Used by select_primary_aggressor()
+        # to disambiguate tied-bet spots when multiple opponents called.
+        if phase in ('FLOP', 'TURN', 'RIVER') and action in ('bet', 'raise', 'all_in'):
+            self._recent_aggressor_name = player_name
 
         # Detect c-bet: preflop raiser bets on flop
         if (phase == 'FLOP' and
