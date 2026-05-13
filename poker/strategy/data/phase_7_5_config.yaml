@@ -1,0 +1,98 @@
+# Phase 7.5 adjustment-layer config
+#
+# Single source of truth for the thresholds used by:
+#   - _determine_clamp() (three-tier exploitation clamp)
+#   - should_apply_bluff_catch_override() (bluff-catch trigger)
+#   - tier ratchet-down (confidence decay)
+#   - benchmark-bot prior (validation accelerator)
+#
+# Values below are PLACEHOLDERS for v1 ship. Step 0.5 (the
+# instrumentation sweep) calibrates them from real opponent stat
+# distributions before Items 1+2 ship.
+#
+# See docs/plans/PHASE_7_5_ADJUSTMENT_LAYER_WIDENING.md for the
+# semantics of each field.
+
+exploitation_clamps:
+  # L1 cap on the total probability mass shift introduced by
+  # apply_exploitation_offsets(). The three tiers escalate as
+  # detection confidence + signal strength rise.
+  default_max_total_shift: 0.4   # cold start / weak detection
+  medium_max_total_shift:  0.6   # confirmed aggressive
+  extreme_max_total_shift: 0.8   # confirmed extreme aggressive
+
+sample_thresholds:
+  # Sample axis for tier classification. Two parallel counters are
+  # used depending on which signal axis is the winning one:
+  #   - facing_bet_opportunities for AF_postflop / all_in_per_facing_bet
+  #   - postflop_open_opportunities for postflop_jam_open_rate
+  # Either reaching the tier's threshold satisfies the sample gate
+  # for that axis.
+  medium_min_opportunities:  60
+  extreme_min_opportunities: 120
+
+signal_thresholds:
+  # All three axes are postflop-only. Preflop jammy behavior pollutes
+  # the postflop-bluff-frequency signal we're trying to read.
+  # Tier classification uses sample-required + signal-OR semantics:
+  # any axis crossing its threshold qualifies the tier.
+
+  # Postflop aggression factor (bet+raise+all-in / call) on
+  # flop/turn/river only. Pre-cap raw-count fallback applied when
+  # call_count_postflop is zero.
+  medium_af_postflop:     4.0
+  extreme_af_postflop:    6.0
+
+  # Response-aggression axis: all-ins per facing-bet opportunity
+  # (NOT per hand, NOT per decision).
+  medium_all_in_per_facing_bet:  0.15
+  extreme_all_in_per_facing_bet: 0.30
+
+  # Open-aggression axis: opening-jams / postflop open opportunities.
+  # An open opportunity is any postflop decision where (a) no live
+  # bet faces the opponent on the current street AND (b) a legal
+  # bet/all-in is available — includes check-behinds.
+  medium_postflop_jam_open_rate:  0.10
+  extreme_postflop_jam_open_rate: 0.20
+
+tier_decay:
+  # Recent-window ratchet-down: when the recent window's tier is
+  # below the cumulative tier, cap at the recent. Handles opponent
+  # behavior shifts and early-sample noise.
+  window_size: 50                      # recent betting decisions kept
+  require_recent_window_full: 30       # min recent samples before decay applies
+
+benchmark_prior:
+  # Validation accelerator: synthetic test bots classified EXTREME
+  # on first contact, bypassing the sample warm-up. Production
+  # default is OFF; enable per-experiment via env or config.
+  enabled: false
+  confirmed_extreme_archetypes:
+    - ManiacBot
+
+bluff_catch:
+  # Pot-odds × hand-class call probability matrix, then dampened by
+  # board texture and street. See _bluff_catch_call_probability in
+  # value_override.py for the full table.
+  #
+  # Base call prob — medium_made by bet/pot ratio:
+  medium_made:
+    cap_le_50_pct: 0.95      # bet ≤ 0.50× pot
+    cap_le_100_pct: 0.80     # bet ≤ 1.00× pot
+    cap_le_200_pct: 0.50     # bet ≤ 2.00× pot
+    cap_gt_200_pct: 0.20     # bet > 2.00× pot (jam-ish)
+  # Base call prob — weak_made by bet/pot ratio:
+  weak_made:
+    cap_le_33_pct: 0.70      # bet ≤ 0.33× pot
+    cap_le_67_pct: 0.40      # bet ≤ 0.67× pot
+    cap_gt_67_pct: 0.10      # bet > 0.67× pot
+
+  # Board-danger dampener multipliers (applied in sequence to base
+  # call prob). Final call prob = base * street_mult * texture_mult
+  # * paired_weak_mult.
+  dampener:
+    street_river:   0.6
+    street_turn:    0.9
+    street_flop:    1.0
+    dangerous_texture_mult: 0.5     # four_flush / four_straight / paired_high / monotone
+    weak_made_on_paired_mult: 0.5   # additional dampener for weak_made on paired board
