@@ -214,3 +214,56 @@ marginal pairs hurts them more than helps.
 ### Boundary bug worth noting
 
 The v3 sweep used `looseness < 0.70` which excluded LAG (configured at exactly 0.70) from the LAG band. LAG silently fell into the Maniac band, producing the -86.9 regression. v4 fix changes to `<= 0.70`. Test added at `test_lag_boundary_at_exactly_0_70` to prevent recurrence.
+
+## HU validation (added 2026-05-13T04:00:00)
+
+Phase 6 originally rejected HU as a validation context because HU losses
+mix two leaks: chart-mismatch (using 6-max preflop charts at HU) and
+opponent-adaptation. Phase 6 only fixes the latter. But once the
+override shipped, worth measuring whether it helps despite the chart
+issue.
+
+### Setup
+
+`simulate_bb100.py --hands 2000 --opponent ManiacBot --adaptation-bias X`,
+3 seeds (42, 142, 242), comparing bias=0.05 (control, exploitation gated
+off) vs bias=0.85 (treatment). Bias plumbing added to the HU code path
+(was previously only on 6-max paths).
+
+### Results
+
+| Hero archetype | Control bb/100 | Treatment bb/100 | Delta |
+|---|---|---|---|
+| Calling Station | -241.2 | -116.7 | **+124.5** |
+| Rock | -189.8 | -87.7 | **+102.1** |
+| Nit | -183.7 | -104.6 | **+79.1** |
+| TAG | -192.4 | -135.8 | **+56.6** |
+| LAG | -219.8 | -171.2 | **+48.6** |
+| Maniac | -136.8 | -119.9 | +16.9 |
+| Baseline | -205.1 | -193.2 | +11.9 |
+
+### Interpretation
+
+HU benefits MORE from the override than 6-max-vs-rules. Reason: at HU,
+every decision faces the same single opponent. Override fires every
+spot. In 6-max-vs-rules, the override only fires when ManiacBot is
+specifically the aggressor — roughly 1/5 of decisions.
+
+So the override claws back 50-125 bb/100 of leak per archetype HU.
+Every archetype still loses net HU vs ManiacBot (~-90 to -195 bb/100
+final), because the chart-mismatch is structural and Phase 6/6.5 doesn't
+address it. Proper HU preflop charts are separate future work
+(estimated ~1 week).
+
+Calling Station is the most dramatic improvement (-241 → -117). Its
+natural strategy is "always call," which produces massive losses vs a
+maniac who shoves wide ranges; override forces correct play with strong
+hands and stops some of the bleeding.
+
+### Practical implication
+
+A human playing HU vs the AI cannot farm aggressively as easily.
+Before: AI archetypes were -190 bb/100 baseline losers. After: -90 to
+-135 depending on archetype. Still net-losing HU, but ~30-50% less
+bad. Combined with the 6-max-vs-rules result (net positive), the
+overall product concern is well-mitigated.

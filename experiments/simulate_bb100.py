@@ -354,13 +354,16 @@ def run_matchup(
     starting_stack: int = 10000,
     base_seed: int = 42,
     verbose: bool = False,
+    hero_adaptation_bias: Optional[float] = None,
 ) -> List[float]:
     """Run n_hands between two archetypes.
 
     Returns list of per-hand chip deltas for player A.
     Uses unique player names (P1/P2) to avoid collision in mirror matchups.
     """
-    config_a = ARCHETYPES[archetype_a]
+    config_a = apply_adaptation_bias_override(
+        ARCHETYPES[archetype_a], hero_adaptation_bias
+    )
     config_b = ARCHETYPES[archetype_b]
     name_a = 'P1'
     name_b = 'P2'
@@ -780,10 +783,13 @@ def run_all_vs_tag(
     seed: int,
     verbose: bool = False,
     opponent: str = 'TAG',
+    hero_adaptation_bias: Optional[float] = None,
 ):
     """Run each archetype heads-up vs TAG (or specified opponent)."""
     print(f"\nBB/100 Simulation: {n_hands} hands per matchup, seed={seed}")
     print(f"Opponent: {opponent}, Stack: {starting_stack}, BB: {big_blind}")
+    if hero_adaptation_bias is not None:
+        print(f"Hero adaptation_bias overridden to: {hero_adaptation_bias}")
     print("=" * 67)
 
     results: Dict[str, MatchupStats] = {}
@@ -793,6 +799,7 @@ def run_all_vs_tag(
             name, opponent, n_hands, strategy_table,
             big_blind=big_blind, starting_stack=starting_stack,
             base_seed=seed, verbose=verbose,
+            hero_adaptation_bias=hero_adaptation_bias,
         )
         results[name] = compute_stats(deltas, big_blind)
 
@@ -947,6 +954,7 @@ def main():
             args.hands, strategy_table, args.big_blind,
             args.stack, args.seed, verbose=args.verbose,
             opponent=args.opponent,
+            hero_adaptation_bias=args.adaptation_bias,
         )
 
 
