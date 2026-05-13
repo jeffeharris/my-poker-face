@@ -2,7 +2,7 @@
 purpose: Plan to define and gate new exploitation rule families (value-vs-station, steal/pressure) by archetype playstyle
 type: design
 created: 2026-05-13
-last_updated: 2026-05-13T23:00:00
+last_updated: 2026-05-14T00:00:00
 ---
 
 # Phase 8: Playstyle-gated rule families
@@ -408,11 +408,16 @@ diagnostics; they just don't contribute offsets.
 
 Counters per archetype + rule family:
 
-- `value_vs_station_eligible_<archetype>`
-- `value_vs_station_fired_<archetype>` (zero unless playstyle gate
-  passes)
-- `value_vs_station_diagnostic_only_<archetype>` (eligible but
-  gated off by playstyle)
+- `value_vs_station_eligible_<archetype>`: stats + spots + hand
+  strength all qualify (intensity would be > 0). Independent of
+  whether the override path then superseded.
+- `value_vs_station_fired_<archetype>`: offsets emitted AND
+  survived to the final strategy (override did NOT replace this
+  decision). Zero unless playstyle gate passes.
+- `value_vs_station_superseded_by_override_<archetype>`: offsets
+  emitted but Phase 6.5 then replaced the strategy. See Risk #3.
+- `value_vs_station_diagnostic_only_<archetype>`: eligible but
+  gated off by playstyle.
 - `steal_pressure_eligible_<archetype>`
 - `steal_pressure_fired_<archetype>`
 - `steal_pressure_diagnostic_only_<archetype>`
@@ -421,7 +426,13 @@ Counters per archetype + rule family:
 
 This makes it easy to see "Nit had 200 steal opportunities but the
 playstyle gate suppressed them" vs "TAG fired value_vs_station 30
-times this run."
+times this run" vs "TAG had 50 value_vs_station opportunities but
+40 of them were absorbed by Phase 6.5's override."
+
+The
+`value_vs_station_eligible == value_vs_station_fired + value_vs_station_superseded_by_override`
+identity should hold by construction (post-playstyle-gate).
+Add an assertion or test that confirms this.
 
 ## Architecture
 
@@ -444,35 +455,104 @@ chart → personality → exploitation → value_override → short_stack → ma
 
 `value_vs_station` is an offset-shaped rule (frequency shift, not
 strategy replacement), so it lives in the exploitation step
-alongside the existing patterns and multiway c-bet. It does NOT
-displace Phase 6.5's value override — that still runs after
-exploitation and is mutually exclusive at the per-decision level
-(see Risk #3).
+alongside the existing patterns and multiway c-bet.
+
+**`value_vs_station` is postflop-only.** It gates on
+`HandStrengthClass.STRONG_MADE` / `NUTS`, which are values produced
+by `_classify_postflop_hand_strength`. The preflop classifier
+(`_classify_preflop_hand_strength`) returns the different
+`STRONG`/`NOT_STRONG` two-class enum used by Phase 6.5's preflop
+value-override path; Phase 8 does NOT use that classifier.
+`steal_pressure` is preflop-only by construction and does not
+consume hand strength.
+
+### Interaction with Phase 6.5 value_override (supersedes)
+
+**Important: when Phase 6.5 fires, it REPLACES the strategy that
+exploitation produced.** Pipeline order is `exploitation →
+value_override`, so any offsets Phase 8 emits inside
+`_apply_exploitation` are discarded if `_apply_value_override` then
+fires on the same decision.
+
+In practice this is rare: Phase 6.5 fires only when opponent is
+`hyper_aggressive`; Phase 8's `value_vs_station` fires only when
+opponent is `vpip > VPIP_LOOSE AND AF < AF_PASSIVE`. Those
+profiles are mutually exclusive at the per-opponent level. But in
+multiway with mixed opponents — or when stat detection straddles a
+threshold — both gates can pass on the same decision.
+
+When that happens:
+
+- **Phase 6.5 wins (semantically correct).** Override is the
+  stronger signal: hero has a strong hand AND faces aggression →
+  collapse to the override's call/raise distribution rather than
+  emit a frequency nudge that gets thrown away.
+- **Phase 8's intensity is still computed and tallied separately.**
+  Add a `value_vs_station_superseded_by_override` counter that
+  increments when both gates passed but override won. Distinguishes
+  "rule had no opportunity" from "rule had an opportunity but
+  override took it." Critical for diagnosing whether Phase 8 is
+  pulling its weight.
+- `value_vs_station_fired` counts decisions where the offset
+  contributed AND survived (i.e. override didn't fire that
+  decision). The simplest implementation: controller already calls
+  `_tally_exploitation_event` from inside `_apply_exploitation`; for
+  Phase 8 the tally moves to AFTER `_apply_value_override` returns,
+  with a `value_override_fired` flag passed back from the override
+  step so the tally can choose between `value_vs_station_fired` and
+  `value_vs_station_superseded_by_override`.
 
 ### Controller-side intensity computation
 
 The controller knows things `compute_exploitation_offsets` cannot:
-- Hero's hand strength (via `_classify_postflop_hand_strength` and
-  `_classify_preflop_hand_strength`)
+- Hero's hand strength (postflop only — via
+  `_classify_postflop_hand_strength`; computed in the caller, NOT
+  inside `_apply_exploitation`)
 - Hero's archetype (`self.archetype_name`)
 - All opponent spots (`_build_opponent_spots`)
 - The action queue (for `can_act_behind`)
+- `game_state` directly (for `call_amount`, legal actions, etc.)
 
 The controller computes the family intensities BEFORE calling
-`compute_exploitation_offsets`. Pseudocode:
+`compute_exploitation_offsets`. `_apply_exploitation` is extended
+to accept a new optional `hand_strength` parameter computed by the
+caller — currently `_get_postflop_decision` and the preflop path
+build `node` / `canonical_hand` themselves, so they're the right
+place to compute hand-strength too:
 
 ```python
-# Inside _apply_exploitation, after spots are built:
+# In _get_postflop_decision, after building node:
 hand_strength = self._classify_postflop_hand_strength(node)
+modified_strategy = self._apply_exploitation(
+    modified_strategy, game_state, player_idx, valid_actions,
+    anchors, emotional_state,
+    hand_strength=hand_strength,     # NEW Phase 8 param
+)
+
+# In the preflop path:
+modified_strategy = self._apply_exploitation(
+    ...,
+    hand_strength=None,              # value_vs_station is postflop-only
+)
+```
+
+Inside `_apply_exploitation`, AFTER spots are built:
+
+```python
 archetype = self.archetype_name
+call_amount = getattr(game_state, 'call_amount', 0) or 0
+has_bet_legal = any(
+    a == 'bet' or a.startswith('bet_') or a == 'raise' or a == 'all_in'
+    for a in valid_actions
+)
 
 value_vs_station_intensity = 0.0
 if (
     is_value_vs_station_enabled(archetype)
-    and hand_strength in {HandStrengthClass.STRONG_MADE,
-                          HandStrengthClass.NUTS}
-    and decision_context.call_amount == 0
-    and decision_context.has_bet_or_raise_legal
+    and hand_strength in {HandStrengthClass.STRONG_MADE.value,
+                          HandStrengthClass.NUTS.value}
+    and call_amount == 0
+    and has_bet_legal
 ):
     value_vs_station_intensity = compute_value_vs_station_intensity(spots)
 
@@ -480,10 +560,11 @@ steal_pressure_intensity = 0.0
 if (
     is_steal_pressure_enabled(archetype)
     and decision_context.is_preflop
-    and decision_context.is_open_spot
+    and call_amount == 0   # open spot — no live raise to face
+    and has_bet_legal
 ):
     steal_pressure_intensity = compute_steal_pressure_intensity(
-        spots, hero_position=...,
+        spots, hero_player_idx=player_idx, game_state=game_state,
     )
 
 offsets = compute_exploitation_offsets(
@@ -493,6 +574,21 @@ offsets = compute_exploitation_offsets(
     steal_pressure_intensity=steal_pressure_intensity,
 )
 ```
+
+Notes:
+
+- `call_amount`, `has_bet_legal` are derived from `game_state` and
+  `valid_actions` inline — **not** stored on `DecisionContext`. The
+  `decision_context` fields used here (`is_preflop`,
+  `facing_aggressor_name`, `is_flop_as_preflop_aggressor`) already
+  exist from Phase 6.6/6.7a.
+- `hand_strength` is the existing `HandStrengthClass` enum from
+  `value_override.py`; use `.value` for string comparison since
+  the classifiers return string values, not enum members.
+- `compute_steal_pressure_intensity` takes the hero's player index
+  + game_state so it can derive `can_act_behind` correctly from the
+  state machine's action queue (see Risk #5 — preflop action order
+  is not seat order).
 
 Inside `compute_exploitation_offsets`, the new branches mirror the
 multiway c-bet shape:
@@ -514,9 +610,9 @@ Part A.
 ## Migration plan
 
 1. Add `compute_value_vs_station_intensity(spots) -> float` and
-   `compute_steal_pressure_intensity(spots, hero_position) -> float`
+   `compute_steal_pressure_intensity(spots, hero_player_idx, game_state) -> float`
    as pure functions in `poker/strategy/exploitation.py`. No behavior
-   change yet — these are unused until step 4.
+   change yet — these are unused until step 5.
 2. Extend `compute_exploitation_offsets` signature with two new
    optional scalar parameters (`value_vs_station_intensity=0.0`,
    `steal_pressure_intensity=0.0`). Add the two new branches inside.
@@ -524,15 +620,40 @@ Part A.
 3. Add `is_value_vs_station_enabled(archetype)` and
    `is_steal_pressure_enabled(archetype)` pure helpers (frozenset
    lookups).
-4. Update `tiered_bot_controller._apply_exploitation` to compute the
-   two new intensities from spots + hand strength + archetype, then
-   thread them through to `compute_exploitation_offsets`.
-5. Populate `OpponentSpot.can_act_behind` correctly (see Risk #5
-   below — preflop action order is not seat order).
-6. Validation: run 6-max vs rule mix at multiple `adaptation_bias`
+4. Extend `_apply_exploitation` signature with optional
+   `hand_strength: Optional[str] = None` parameter. Update both
+   callers (`_get_postflop_decision` passes
+   `_classify_postflop_hand_strength(node)`; preflop path passes
+   `None`).
+5. Inside `_apply_exploitation`, compute the two new intensities
+   from spots + hand_strength + archetype + game_state (gate values
+   like `call_amount`, `has_bet_legal` derived inline from
+   `game_state`/`valid_actions` — NOT new `DecisionContext` fields).
+   Thread them through to `compute_exploitation_offsets`.
+6. Populate `OpponentSpot.can_act_behind` correctly (see Risk #5
+   below — preflop action order is not seat order; use the state
+   machine's action queue, not seat traversal).
+7. **Diagnostic ordering for value_vs_station fired counter.**
+   `_tally_exploitation_event` currently runs inside
+   `_apply_exploitation`. For Phase 8, the
+   `value_vs_station_fired` counter needs to know whether
+   `_apply_value_override` ran AFTER and replaced the strategy
+   (which would discard Phase 8's offsets). Two implementations:
+   - **Option A (recommended)**: have `_apply_value_override`
+     return a `(strategy, fired: bool)` tuple. After it returns,
+     the controller calls a Phase-8-specific tally helper that
+     increments `value_vs_station_fired` or
+     `value_vs_station_superseded_by_override` based on the flag.
+   - **Option B**: split `_tally_exploitation_event` into a
+     pre-tally (counters that don't depend on override) and a
+     post-tally (the Phase 8 fire vs superseded distinction),
+     called after `_apply_value_override`.
+   Either works; Option A is closer to the existing diagnostic
+   tally call sites.
+8. Validation: run 6-max vs rule mix at multiple `adaptation_bias`
    values + the 3-seed CaseBot-heavy mix. Confirm firing rates match
    expectation per archetype, no regression in spot-aware diagnostics.
-7. After validation, decide whether to enable Phase 8.1 (hyper_passive
+9. After validation, decide whether to enable Phase 8.1 (hyper_passive
    fold-mass suppression) based on observed CaseBot drain. See
    "Risks / known interactions" for the gate.
 
@@ -651,15 +772,50 @@ transfer, not just headline bb/100.** A run where CaseBot drain
 shrinks from −2400 to −800 but ABCBot gain stays flat is the win,
 even if headline noise hides it.
 
-### Risk #3: 6.5 / 8 mutual exclusivity
+### Risk #3: 6.5 / 8 ordering — override supersedes, not the reverse
 
 Phase 6.5 fires for `STRONG hand vs hyper_aggressive opponent`.
-Phase 8 fires for `STRONG hand vs passive station`. A hand class
-can't be both "vs aggressive" and "vs passive" at the same
-opponent, but multiway pots could have both. Add a controller-level
-guard: if 6.5 already replaced the strategy this decision, skip
-Phase 8 entirely. The override path should never run twice on the
-same decision.
+Phase 8 fires for `STRONG hand vs passive station`. The opponent
+profiles are mutually exclusive at the per-opponent level, but
+multiway pots could have both, and stat detection at threshold
+boundaries means the gates can occasionally co-fire on the same
+decision.
+
+**Pipeline order is `exploitation → value_override`.** When both
+gates pass:
+
+- Phase 8 emits offsets inside `_apply_exploitation`. The offsets
+  ARE applied to the strategy at that point.
+- `_apply_value_override` then runs. If 6.5's gate also passes, it
+  REPLACES the strategy entirely. **Phase 8's offsets are
+  discarded.**
+- This is semantically correct: override is the stronger signal
+  (strong hand + aggression → collapse to override's call/raise
+  distribution).
+
+The risk is **diagnostic, not behavioral**. Without explicit
+handling, `value_vs_station_fired` would increment whenever the
+offsets were emitted, regardless of whether they survived the
+override step. That makes the diagnostic misleading.
+
+**Resolution**: split the fired counter into two:
+
+- `value_vs_station_fired`: counts decisions where offsets were
+  emitted AND survived (override did not fire that decision).
+- `value_vs_station_superseded_by_override`: counts decisions
+  where Phase 8 would have contributed offsets but override
+  replaced the strategy.
+
+The tally requires `_apply_value_override` to expose whether it
+fired (see Migration step 7). With both counters present, operator
+can answer "did Phase 8 actually contribute" vs "did Phase 8's
+opportunity get absorbed by 6.5."
+
+The semantic guard (skip Phase 8 entirely when 6.5 will fire) is
+NOT recommended: it would require evaluating override eligibility
+before exploitation, which inverts the current pipeline and adds
+two-pass complexity. Computing Phase 8 offsets and then discarding
+them via override is cheap.
 
 ## Effort estimate
 
