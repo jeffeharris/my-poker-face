@@ -2,7 +2,7 @@
 purpose: Plan to define and gate new exploitation rule families (value-vs-station, steal/pressure) by archetype playstyle
 type: design
 created: 2026-05-13
-last_updated: 2026-05-14T00:00:00
+last_updated: 2026-05-14T00:30:00
 ---
 
 # Phase 8: Playstyle-gated rule families
@@ -246,10 +246,13 @@ NOT add more frequency on marginals — it must add value
 extraction specifically when hero is ahead.
 
 The controller (not `compute_exploitation_offsets`) is responsible
-for the gate. It already classifies hand strength via
-`_classify_postflop_hand_strength` / `_classify_preflop_hand_strength`
-to drive Phase 6.5; Phase 8 reuses those classifications. See
-"Architecture" below for the data-flow.
+for the gate. `value_vs_station` is **postflop-only** and reuses
+`_classify_postflop_hand_strength(node)` — the same classifier
+Phase 6.5 already uses for its postflop override path. See
+"Architecture" below for the data-flow. The preflop classifier
+(`_classify_preflop_hand_strength`) returns a different
+two-class enum (STRONG / NOT_STRONG) and is **not** used by
+Phase 8.
 
 Fires when ALL of:
 
@@ -406,33 +409,59 @@ diagnostics; they just don't contribute offsets.
 
 ## Diagnostics
 
-Counters per archetype + rule family:
+Counters per archetype + rule family. Naming distinguishes the
+two gates (stat-eligibility vs playstyle-enablement) so the
+identity below is well-defined.
+
+`value_vs_station`:
 
 - `value_vs_station_eligible_<archetype>`: stats + spots + hand
-  strength all qualify (intensity would be > 0). Independent of
-  whether the override path then superseded.
-- `value_vs_station_fired_<archetype>`: offsets emitted AND
-  survived to the final strategy (override did NOT replace this
-  decision). Zero unless playstyle gate passes.
-- `value_vs_station_superseded_by_override_<archetype>`: offsets
-  emitted but Phase 6.5 then replaced the strategy. See Risk #3.
-- `value_vs_station_diagnostic_only_<archetype>`: eligible but
-  gated off by playstyle.
+  strength all qualify (intensity would be > 0). Counted
+  **before** the playstyle gate, so this includes decisions that
+  end up `diagnostic_only`.
+- `value_vs_station_enabled_eligible_<archetype>`: subset of
+  eligible where the playstyle gate is ON (intensity actually
+  flows into `compute_exploitation_offsets`).
+- `value_vs_station_fired_<archetype>`: subset of
+  enabled_eligible where the resulting offsets survived to the
+  final strategy (Phase 6.5 override did NOT replace this
+  decision).
+- `value_vs_station_superseded_by_override_<archetype>`: subset
+  of enabled_eligible where Phase 6.5 replaced the strategy and
+  Phase 8's offsets were discarded. See Risk #3.
+- `value_vs_station_diagnostic_only_<archetype>`: subset of
+  eligible where the playstyle gate is OFF.
+
+`steal_pressure`:
+
 - `steal_pressure_eligible_<archetype>`
-- `steal_pressure_fired_<archetype>`
+- `steal_pressure_enabled_eligible_<archetype>`
+- `steal_pressure_fired_<archetype>` (no override interaction —
+  Phase 6.5 doesn't fire preflop on station-style opponents)
 - `steal_pressure_diagnostic_only_<archetype>`
+
+Cross-family:
+
 - `playstyle_gated_rule_family_<archetype>` (value_vs_station /
   steal_pressure / diagnostic_only)
 
-This makes it easy to see "Nit had 200 steal opportunities but the
-playstyle gate suppressed them" vs "TAG fired value_vs_station 30
-times this run" vs "TAG had 50 value_vs_station opportunities but
-40 of them were absorbed by Phase 6.5's override."
+**Identities that should hold by construction** (testable):
 
-The
-`value_vs_station_eligible == value_vs_station_fired + value_vs_station_superseded_by_override`
-identity should hold by construction (post-playstyle-gate).
-Add an assertion or test that confirms this.
+```
+eligible        = enabled_eligible + diagnostic_only
+enabled_eligible = fired + superseded_by_override   # value_vs_station
+enabled_eligible = fired                            # steal_pressure
+```
+
+So `eligible = fired + superseded_by_override + diagnostic_only`
+for `value_vs_station`. Add a regression test that asserts both
+identities at the end of a sim run.
+
+This makes it easy to see "Nit had 200 steal opportunities but the
+playstyle gate suppressed them" (diagnostic_only) vs "TAG fired
+value_vs_station 30 times this run" (fired) vs "TAG had 50
+value_vs_station opportunities but 40 of them were absorbed by
+Phase 6.5's override" (superseded_by_override).
 
 ## Architecture
 
@@ -563,9 +592,7 @@ if (
     and call_amount == 0   # open spot — no live raise to face
     and has_bet_legal
 ):
-    steal_pressure_intensity = compute_steal_pressure_intensity(
-        spots, hero_player_idx=player_idx, game_state=game_state,
-    )
+    steal_pressure_intensity = compute_steal_pressure_intensity(spots)
 
 offsets = compute_exploitation_offsets(
     stats=stats, ...,
@@ -585,10 +612,15 @@ Notes:
 - `hand_strength` is the existing `HandStrengthClass` enum from
   `value_override.py`; use `.value` for string comparison since
   the classifiers return string values, not enum members.
-- `compute_steal_pressure_intensity` takes the hero's player index
-  + game_state so it can derive `can_act_behind` correctly from the
-  state machine's action queue (see Risk #5 — preflop action order
-  is not seat order).
+- `compute_steal_pressure_intensity` stays **pure** —
+  `(spots) -> float`. It reads `spot.can_act_behind` directly. The
+  action-queue logic (preflop is not seat order — see Risk #5)
+  lives in `_build_opponent_spots`, which already takes
+  `game_state` and is the natural place to compute action-queue
+  membership. Keeping the intensity helper pure matches the pattern
+  for `compute_multiway_cbet_intensity` and
+  `compute_value_vs_station_intensity`, and keeps
+  `poker/strategy/exploitation.py` free of controller dependencies.
 
 Inside `compute_exploitation_offsets`, the new branches mirror the
 multiway c-bet shape:
@@ -610,8 +642,11 @@ Part A.
 ## Migration plan
 
 1. Add `compute_value_vs_station_intensity(spots) -> float` and
-   `compute_steal_pressure_intensity(spots, hero_player_idx, game_state) -> float`
-   as pure functions in `poker/strategy/exploitation.py`. No behavior
+   `compute_steal_pressure_intensity(spots) -> float` as pure
+   functions in `poker/strategy/exploitation.py`. Both read only
+   from spots; the action-queue logic lives in
+   `_build_opponent_spots` where it can consume `game_state`
+   without polluting the pure exploitation module. No behavior
    change yet — these are unused until step 5.
 2. Extend `compute_exploitation_offsets` signature with two new
    optional scalar parameters (`value_vs_station_intensity=0.0`,
@@ -630,9 +665,13 @@ Part A.
    like `call_amount`, `has_bet_legal` derived inline from
    `game_state`/`valid_actions` — NOT new `DecisionContext` fields).
    Thread them through to `compute_exploitation_offsets`.
-6. Populate `OpponentSpot.can_act_behind` correctly (see Risk #5
-   below — preflop action order is not seat order; use the state
-   machine's action queue, not seat traversal).
+6. Populate `OpponentSpot.can_act_behind` correctly inside
+   `_build_opponent_spots` (which already takes `game_state`). This
+   is where the action-queue logic lives — preflop action order is
+   not seat order (see Risk #5). Use the state machine's action
+   queue, not seat traversal. Once spots carry the correct flag,
+   `compute_steal_pressure_intensity(spots)` becomes purely
+   spot-driven and stays controller-agnostic.
 7. **Diagnostic ordering for value_vs_station fired counter.**
    `_tally_exploitation_event` currently runs inside
    `_apply_exploitation`. For Phase 8, the
@@ -665,7 +704,7 @@ Part A.
   - `compute_value_vs_station_intensity(spots)` returns 0 when no
     opponent matches, max-of-station-intensities when one matches,
     dampened by tightest opponent when a tight player is also active.
-  - `compute_steal_pressure_intensity(spots, hero_position)` returns
+  - `compute_steal_pressure_intensity(spots)` returns
     0 when no eligible player is left to act, scales with blind
     tightness, **returns 0 when any player-behind has high PFR**
     (the false-steal guard).
@@ -687,9 +726,15 @@ Part A.
   CO folds, BTN raises). Verify SB and BB have `can_act_behind=True`,
   BTN has `can_act_behind=False`. Then BB 3-bets — verify only BTN
   has `can_act_behind=True` (action is on BTN to call/fold/raise).
-- **6.5 / 8 mutual exclusivity**: when both rules' gates pass on the
-  same decision, only one path executes (Phase 6.5 wins because it
-  runs first; Phase 8 sees the replaced strategy and short-circuits).
+- **6.5 / 8 ordering (override supersedes)**: when both rules'
+  gates pass on the same decision, Phase 6.5 wins because it runs
+  AFTER exploitation and replaces the strategy entirely. Verify:
+  Phase 8's offsets are emitted into the exploitation result, but
+  the final strategy returned to the sampler matches Phase 6.5's
+  override output, not the exploitation-with-offsets result. The
+  Phase-8 fired counter increments
+  `value_vs_station_superseded_by_override` (not `fired`) in this
+  case.
 - **No regression**: full Phase 6.7a + Phase 6.7b Part A test suite
   passes unchanged with both new intensities at 0.
 
