@@ -271,3 +271,189 @@ class TestSelectPrimaryAggressor:
         ]
         result = select_primary_aggressor(spots, 300, None)
         assert result is None  # no flag in the tied set
+
+
+# ── Phase 6.7b Part A: conservative multiway c-bet intensity ─────────────
+
+from poker.strategy.exploitation import (
+    FULL_CBET_SAMPLE_CONFIDENCE,
+    HIGH_FOLD_TO_CBET_THRESHOLD,
+    MIN_CBET_FACED_FOR_DETECTION,
+    compute_multiway_cbet_intensity,
+)
+
+
+def _foldy_stats(
+    fold_to_cbet: float = 0.85,
+    cbet_faced_count: int = FULL_CBET_SAMPLE_CONFIDENCE,
+) -> AggregatedOpponentStats:
+    return AggregatedOpponentStats(
+        hands_observed=100,
+        fold_to_cbet=fold_to_cbet,
+        cbet_faced_count=cbet_faced_count,
+    )
+
+
+class TestComputeMultiwayCbetIntensity:
+    def test_empty_spots_returns_zero(self):
+        assert compute_multiway_cbet_intensity([]) == 0.0
+
+    def test_hu_returns_zero(self):
+        """HU (1 active) is handled by the existing HU c-bet rule."""
+        spots = [_spot('A', stats=_foldy_stats())]
+        assert compute_multiway_cbet_intensity(spots) == 0.0
+
+    def test_all_foldy_with_full_samples_returns_min(self):
+        """min(intensity) across 2 fully-foldy opponents."""
+        a = _spot('A', stats=_foldy_stats(fold_to_cbet=0.85, cbet_faced_count=10))
+        b = _spot('B', stats=_foldy_stats(fold_to_cbet=0.85, cbet_faced_count=10))
+        # Both at full intensity (rate 1.0 × sample 1.0)
+        assert compute_multiway_cbet_intensity([a, b]) == pytest.approx(1.0)
+
+    def test_one_foldy_one_partial_returns_min(self):
+        """Mixed sample sizes → take the smaller intensity."""
+        full = _spot('Full', stats=_foldy_stats(
+            fold_to_cbet=0.85, cbet_faced_count=10,
+        ))
+        partial = _spot('Partial', stats=_foldy_stats(
+            fold_to_cbet=0.85, cbet_faced_count=7,  # ramp = 0.5 confidence
+        ))
+        result = compute_multiway_cbet_intensity([full, partial])
+        assert result == pytest.approx(0.5, rel=1e-6)
+
+    def test_one_not_foldy_returns_zero(self):
+        """If any opponent's fold_to_cbet <= 0.60, intensity is 0."""
+        foldy = _spot('Foldy', stats=_foldy_stats(fold_to_cbet=0.85))
+        station = _spot('Station', stats=_foldy_stats(fold_to_cbet=0.30))
+        assert compute_multiway_cbet_intensity([foldy, station]) == 0.0
+
+    def test_at_threshold_returns_zero(self):
+        """Strict > on fold_to_cbet — at the threshold is NOT foldy."""
+        foldy = _spot('Foldy', stats=_foldy_stats(fold_to_cbet=0.85))
+        at_thresh = _spot(
+            'AtThresh',
+            stats=_foldy_stats(fold_to_cbet=HIGH_FOLD_TO_CBET_THRESHOLD),
+        )
+        assert compute_multiway_cbet_intensity([foldy, at_thresh]) == 0.0
+
+    def test_one_low_sample_returns_zero(self):
+        """If any opponent has fewer than MIN samples, intensity is 0."""
+        a = _spot('A', stats=_foldy_stats())
+        b = _spot(
+            'B',
+            stats=_foldy_stats(cbet_faced_count=MIN_CBET_FACED_FOR_DETECTION - 1),
+        )
+        assert compute_multiway_cbet_intensity([a, b]) == 0.0
+
+    def test_unknown_opponent_returns_zero(self):
+        """Default stats (no observations) block the bluff."""
+        a = _spot('Foldy', stats=_foldy_stats())
+        b = _spot('Unknown', stats=AggregatedOpponentStats())  # all defaults
+        assert compute_multiway_cbet_intensity([a, b]) == 0.0
+
+    def test_any_all_in_returns_zero(self):
+        """An all-in player can't fold — pure bluff EV collapses."""
+        foldy = _spot('Foldy', stats=_foldy_stats())
+        all_in = _spot(
+            'AllIn', stats=_foldy_stats(), is_all_in=True, stack=0,
+        )
+        assert compute_multiway_cbet_intensity([foldy, all_in]) == 0.0
+
+    def test_inactive_excluded_from_eligible_set(self):
+        """Folded opponents don't count toward the all-foldy gate."""
+        a = _spot('A', stats=_foldy_stats())
+        b = _spot('B', stats=_foldy_stats())
+        folded_station = _spot(
+            'FoldedStation', is_active=False,
+            stats=_foldy_stats(fold_to_cbet=0.10),
+        )
+        # The station is inactive, so 2 active foldy opponents fire.
+        assert compute_multiway_cbet_intensity([a, b, folded_station]) > 0.0
+
+
+# ── compute_exploitation_offsets multiway c-bet integration ──────────────
+
+from poker.strategy.exploitation import (
+    DecisionContext,
+    compute_exploitation_offsets,
+)
+
+
+class TestMultiwayCbetOffsets:
+    def test_fires_in_multiway_flop_aggressor_spot(self):
+        ctx = DecisionContext(
+            is_flop_as_preflop_aggressor=True, active_opponent_count=2,
+        )
+        offsets = compute_exploitation_offsets(
+            stats=AggregatedOpponentStats(hands_observed=100),
+            adaptation_bias=0.85,
+            decision_context=ctx,
+            available_actions=['check', 'bet_33', 'bet_67'],
+            multiway_cbet_intensity=1.0,
+        )
+        assert offsets.get('bet_33', 0.0) > 0.0
+        assert offsets.get('bet_67', 0.0) > 0.0
+        assert offsets.get('check', 0.0) < 0.0
+
+    def test_zero_intensity_does_not_fire(self):
+        ctx = DecisionContext(
+            is_flop_as_preflop_aggressor=True, active_opponent_count=3,
+        )
+        offsets = compute_exploitation_offsets(
+            stats=AggregatedOpponentStats(hands_observed=100),
+            adaptation_bias=0.85,
+            decision_context=ctx,
+            available_actions=['check', 'bet_33'],
+            multiway_cbet_intensity=0.0,
+        )
+        assert offsets == {}
+
+    def test_does_not_fire_hu(self):
+        """multiway_cbet_intensity must be ignored when active_opponent_count == 1
+        (the HU rule handles those spots from aggregate stats)."""
+        ctx = DecisionContext(
+            is_flop_as_preflop_aggressor=True, active_opponent_count=1,
+        )
+        offsets = compute_exploitation_offsets(
+            stats=AggregatedOpponentStats(hands_observed=100),
+            adaptation_bias=0.85,
+            decision_context=ctx,
+            available_actions=['check', 'bet_33'],
+            multiway_cbet_intensity=1.0,  # provided but ignored
+        )
+        # HU rule reads from `stats`, which has fold_to_cbet=0.5 default,
+        # so it produces no offsets either. Net: no multiway path fires.
+        assert offsets.get('bet_33', 0.0) == 0.0
+
+    def test_does_not_fire_outside_c_bet_spot(self):
+        """is_flop_as_preflop_aggressor=False suppresses the rule."""
+        ctx = DecisionContext(
+            is_flop_as_preflop_aggressor=False, active_opponent_count=3,
+        )
+        offsets = compute_exploitation_offsets(
+            stats=AggregatedOpponentStats(hands_observed=100),
+            adaptation_bias=0.85,
+            decision_context=ctx,
+            available_actions=['check', 'bet_33'],
+            multiway_cbet_intensity=1.0,
+        )
+        assert offsets.get('bet_33', 0.0) == 0.0
+
+    def test_partial_intensity_scales_offsets(self):
+        """Half intensity → half offset magnitude."""
+        ctx = DecisionContext(
+            is_flop_as_preflop_aggressor=True, active_opponent_count=2,
+        )
+        full = compute_exploitation_offsets(
+            stats=AggregatedOpponentStats(hands_observed=100),
+            adaptation_bias=0.85, decision_context=ctx,
+            available_actions=['check', 'bet_33'],
+            multiway_cbet_intensity=1.0,
+        )
+        half = compute_exploitation_offsets(
+            stats=AggregatedOpponentStats(hands_observed=100),
+            adaptation_bias=0.85, decision_context=ctx,
+            available_actions=['check', 'bet_33'],
+            multiway_cbet_intensity=0.5,
+        )
+        assert half['bet_33'] == pytest.approx(full['bet_33'] * 0.5, rel=1e-6)

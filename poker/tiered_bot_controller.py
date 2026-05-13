@@ -36,6 +36,7 @@ from .strategy.exploitation import (
     AggregatedOpponentStats,
     OpponentSpot,
     aggregate_from_spots,
+    compute_multiway_cbet_intensity,
     select_primary_aggressor,
 )
 from .strategy.value_override import (
@@ -487,6 +488,18 @@ class TieredBotController(AIPlayerController):
             facing_aggressor_name=aggressor_name,
         )
 
+        # Phase 6.7b Part A: pre-compute multiway c-bet intensity from
+        # spots when the decision context suggests we might fire (flop
+        # as preflop aggressor + >1 active opponents). The helper
+        # returns 0 unless all gates pass (all foldy, adequate samples,
+        # no all-in opponents); the offset rule treats 0 as "don't fire."
+        multiway_cbet_intensity = 0.0
+        if (
+            decision_context.is_flop_as_preflop_aggressor
+            and decision_context.active_opponent_count > 1
+        ):
+            multiway_cbet_intensity = compute_multiway_cbet_intensity(spots)
+
         exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
         offsets = compute_exploitation_offsets(
             stats=stats,
@@ -495,6 +508,7 @@ class TieredBotController(AIPlayerController):
             available_actions=list(strategy.action_probabilities.keys()),
             tilt_factor=tilt_factor,
             exploitation_strength=exploitation_strength,
+            multiway_cbet_intensity=multiway_cbet_intensity,
         )
 
         # Diagnostic counters: track detection vs firing per rule. Useful
@@ -502,6 +516,7 @@ class TieredBotController(AIPlayerController):
         self._tally_exploitation_event(
             stats, offsets, decision_context, spots=spots,
             ambiguous_aggressor=ambiguous,
+            multiway_cbet_intensity=multiway_cbet_intensity,
         )
 
         if not offsets:
@@ -691,6 +706,7 @@ class TieredBotController(AIPlayerController):
     def _tally_exploitation_event(
         self, stats, offsets, decision_context,
         spots=None, ambiguous_aggressor=False,
+        multiway_cbet_intensity: float = 0.0,
     ):
         """Increment diagnostic counters for this decision.
 
@@ -752,23 +768,39 @@ class TieredBotController(AIPlayerController):
             if ambiguous_aggressor:
                 c['ambiguous_aggressor_decisions'] += 1
 
-            # Phase 6.7a diagnostic: log multiway flop c-bet spots where
-            # high_fold_to_cbet would fire in 6.7b. Does NOT influence
-            # behavior in 6.7a.
+            # Phase 6.7a/6.7b: multiway flop c-bet diagnostic. The
+            # opportunity_logged counter MUST mirror the same gates the
+            # actual rule uses (compute_multiway_cbet_intensity) so the
+            # logged count is the would-have-fired count, not a looser
+            # superset. That means: all active opponents have fold_to_cbet
+            # > 0.60, cbet_faced_count >= 5, none is all-in.
             if (
                 decision_context.is_flop_as_preflop_aggressor
                 and decision_context.active_opponent_count > 1
             ):
-                continuing = [
-                    s for s in spots
-                    if s.is_active and not s.is_all_in
-                ]
-                if continuing and all(
-                    s.stats.fold_to_cbet > 0.60
-                    and s.stats.cbet_faced_count >= 5
-                    for s in continuing
+                active = [s for s in spots if s.is_active]
+                if (
+                    active
+                    and not any(s.is_all_in for s in active)
+                    and all(
+                        s.stats.fold_to_cbet > 0.60
+                        and s.stats.cbet_faced_count >= 5
+                        for s in active
+                    )
                 ):
                     c['multiway_cbet_opportunity_logged'] += 1
+                    # Phase 6.7b Part A: separate counter for when the
+                    # rule actually contributed offsets, so we can
+                    # distinguish "stats qualify" from "rule fired".
+                    # multiway_cbet_intensity == 0 here only when the
+                    # cold-start / adaptation_bias gate blocked it.
+                    if multiway_cbet_intensity > 0.0 and offsets:
+                        cbet_fired = any(
+                            a.startswith('bet_') or a == 'check'
+                            for a in offsets
+                        )
+                        if cbet_fired:
+                            c['fired_multiway_cbet'] += 1
 
         # Phase 6.6 c-bet spot counters track DECISION CONTEXT availability,
         # not just whether stats triggered a fire. Useful to confirm the
