@@ -587,8 +587,9 @@ class GameRepository(BaseRepository):
                         INSERT OR REPLACE INTO opponent_models
                         (game_id, observer_name, opponent_name, hands_observed,
                          vpip, pfr, aggression_factor, fold_to_cbet,
-                         bluff_frequency, showdown_win_rate, recent_trend, notes, last_updated)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                         bluff_frequency, showdown_win_rate, recent_trend, notes,
+                         tendencies_json, last_updated)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     """, (
                         game_id,
                         observer_name,
@@ -601,7 +602,8 @@ class GameRepository(BaseRepository):
                         tendencies.get('bluff_frequency', 0.3),
                         tendencies.get('showdown_win_rate', 0.5),
                         tendencies.get('recent_trend', 'stable'),
-                        notes
+                        notes,
+                        json.dumps(tendencies)
                     ))
 
                     # Save memorable hands
@@ -648,26 +650,40 @@ class GameRepository(BaseRepository):
                 if observer_name not in models_dict:
                     models_dict[observer_name] = {}
 
-                # Build tendencies dict matching OpponentTendencies.to_dict() format
-                tendencies = {
-                    'hands_observed': row['hands_observed'],
-                    'vpip': row['vpip'],
-                    'pfr': row['pfr'],
-                    'aggression_factor': row['aggression_factor'],
-                    'fold_to_cbet': row['fold_to_cbet'],
-                    'bluff_frequency': row['bluff_frequency'],
-                    'showdown_win_rate': row['showdown_win_rate'],
-                    'recent_trend': row['recent_trend'] or 'stable',
-                    # Counters - we can't restore these perfectly, but we can estimate
-                    '_vpip_count': int(row['vpip'] * row['hands_observed']),
-                    '_pfr_count': int(row['pfr'] * row['hands_observed']),
-                    '_bet_raise_count': 0,  # Can't restore
-                    '_call_count': 0,  # Can't restore
-                    '_fold_to_cbet_count': 0,  # Can't restore
-                    '_cbet_faced_count': 0,  # Can't restore
-                    '_showdowns': 0,  # Can't restore
-                    '_showdowns_won': 0,  # Can't restore
-                }
+                tendencies_json = (
+                    row['tendencies_json']
+                    if 'tendencies_json' in row.keys() else None
+                )
+                tendencies = None
+                if tendencies_json:
+                    try:
+                        tendencies = json.loads(tendencies_json)
+                    except json.JSONDecodeError:
+                        tendencies = None
+
+                if tendencies is None:
+                    # Legacy rows only have derived rates. Preserve old load
+                    # behavior, but prefer tendencies_json whenever available
+                    # so counters and hands_dealt survive reloads exactly.
+                    tendencies = {
+                        'hands_observed': row['hands_observed'],
+                        'vpip': row['vpip'],
+                        'pfr': row['pfr'],
+                        'aggression_factor': row['aggression_factor'],
+                        'fold_to_cbet': row['fold_to_cbet'],
+                        'bluff_frequency': row['bluff_frequency'],
+                        'showdown_win_rate': row['showdown_win_rate'],
+                        'recent_trend': row['recent_trend'] or 'stable',
+                        # Counters - we can't restore these perfectly, but we can estimate
+                        '_vpip_count': int(row['vpip'] * row['hands_observed']),
+                        '_pfr_count': int(row['pfr'] * row['hands_observed']),
+                        '_bet_raise_count': 0,  # Can't restore
+                        '_call_count': 0,  # Can't restore
+                        '_fold_to_cbet_count': 0,  # Can't restore
+                        '_cbet_faced_count': 0,  # Can't restore
+                        '_showdowns': 0,  # Can't restore
+                        '_showdowns_won': 0,  # Can't restore
+                    }
 
                 # Restore narrative_observations from JSON-serialized notes column
                 notes_json = row['notes'] if 'notes' in row.keys() else None

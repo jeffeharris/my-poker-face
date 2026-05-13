@@ -47,7 +47,8 @@ logger = logging.getLogger(__name__)
 # v76: Add metadata_json to prompt_captures for enricher data (bounded_options, equity, etc.)
 # v77: Add bounded_replay_results table for multi-sample option-framing replay experiments
 # v78: Add quality_score and menu compliance columns to player_decision_analysis
-SCHEMA_VERSION = 78
+# v79: Add tendencies_json to opponent_models for full opponent stat persistence
+SCHEMA_VERSION = 79
 
 
 
@@ -279,6 +280,7 @@ class SchemaManager:
                     showdown_win_rate REAL DEFAULT 0.5,
                     recent_trend TEXT,
                     notes TEXT,
+                    tendencies_json TEXT,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(game_id, observer_name, opponent_name)
                 )
@@ -1078,6 +1080,7 @@ class SchemaManager:
             76: (self._migrate_v76_add_metadata_json, "Add metadata_json column to prompt_captures for enricher data"),
             77: (self._migrate_v77_add_bounded_replay_results, "Add bounded_replay_results table for multi-sample replay experiments"),
             78: (self._migrate_v78_add_quality_scores, "Add quality_score and menu compliance columns to player_decision_analysis"),
+            79: (self._migrate_v79_add_opponent_tendencies_json, "Add tendencies_json to opponent_models for full tendency persistence"),
         }
 
         with self._get_connection() as conn:
@@ -3418,3 +3421,14 @@ class SchemaManager:
                 logger.debug(f"Added {col_name} column to player_decision_analysis")
 
         logger.info("Migration v78 complete: quality_score and menu compliance columns added")
+
+    def _migrate_v79_add_opponent_tendencies_json(self, conn: sqlite3.Connection) -> None:
+        """Migration v79: Persist full opponent tendency state as JSON."""
+        cursor = conn.execute("PRAGMA table_info(opponent_models)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'tendencies_json' not in existing_columns:
+            conn.execute("ALTER TABLE opponent_models ADD COLUMN tendencies_json TEXT")
+            logger.debug("Added tendencies_json column to opponent_models")
+
+        logger.info("Migration v79 complete: opponent tendency JSON added")

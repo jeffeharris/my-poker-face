@@ -4,6 +4,7 @@ import pytest
 from poker.repositories.game_repository import GameRepository, SavedGame
 from poker.poker_game import PokerGameState, Player
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
+from poker.memory.opponent_model import OpponentModelManager
 from core.card import Card
 
 
@@ -324,6 +325,40 @@ def test_opponent_models_save_load(repo):
     assert bob_model["narrative_observations"] == ["Aggressive player"]
     assert len(bob_model["memorable_hands"]) == 1
     assert bob_model["memorable_hands"][0]["memory_type"] == "big_bluff"
+
+
+def test_opponent_model_full_tendencies_survive_reload_and_next_hand(repo):
+    manager = OpponentModelManager()
+    model = manager.get_model("Alice", "Bob")
+
+    for hand_number in range(1, 11):
+        model.record_hand_dealt(hand_number=hand_number)
+    for hand_number in (1, 3, 5):
+        model.observe_action("call", "PRE_FLOP", hand_number=hand_number)
+    for hand_number in (7, 9):
+        model.observe_action("all_in", "PRE_FLOP", hand_number=hand_number)
+
+    repo.save_opponent_models("game1", manager)
+    loaded = repo.load_opponent_models("game1")
+    restored = OpponentModelManager.from_dict(loaded)
+    restored_model = restored.get_model("Alice", "Bob")
+
+    # Continue the original and reloaded paths identically. Rates should match
+    # exactly because persisted counters and hands_dealt were restored, not
+    # reconstructed from rounded legacy rates.
+    model.record_hand_dealt(hand_number=11)
+    restored_model.record_hand_dealt(hand_number=11)
+
+    assert restored_model.tendencies.hands_dealt == model.tendencies.hands_dealt
+    assert restored_model.tendencies.hands_observed == model.tendencies.hands_observed
+    assert restored_model.tendencies._vpip_count == model.tendencies._vpip_count
+    assert restored_model.tendencies._pfr_count == model.tendencies._pfr_count
+    assert restored_model.tendencies._all_in_count == model.tendencies._all_in_count
+    assert restored_model.tendencies.vpip == pytest.approx(model.tendencies.vpip)
+    assert restored_model.tendencies.pfr == pytest.approx(model.tendencies.pfr)
+    assert restored_model.tendencies.all_in_frequency == pytest.approx(
+        model.tendencies.all_in_frequency
+    )
 
 
 def test_opponent_models_empty(repo):

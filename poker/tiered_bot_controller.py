@@ -740,12 +740,24 @@ class TieredBotController(AIPlayerController):
         facing_all_in = False
         hero_name = self.player_name
         if call_amount > 0:
+            highest_opponent_bet = max(
+                (
+                    getattr(p, 'bet', 0) or 0
+                    for p in game_state.players
+                    if p.name != hero_name and not getattr(p, 'is_folded', False)
+                ),
+                default=0,
+            )
             for p in game_state.players:
                 if p.name == hero_name:
                     continue
                 if getattr(p, 'is_folded', False):
                     continue
-                if getattr(p, 'stack', 1) <= 0:
+                opponent_bet = getattr(p, 'bet', 0) or 0
+                if (
+                    opponent_bet == highest_opponent_bet
+                    and getattr(p, 'stack', 1) <= 0
+                ):
                     facing_all_in = True
                     break
 
