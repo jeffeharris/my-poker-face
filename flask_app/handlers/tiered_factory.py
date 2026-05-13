@@ -9,7 +9,7 @@ import logging
 from typing import Optional
 
 from poker.tiered_bot_controller import TieredBotController
-from poker.strategy.strategy_table import load_strategy_table
+from poker.strategy.strategy_table import load_strategy_table, load_hu_strategy_table
 from poker.strategy.expression_generator import ExpressionGenerator
 from core.llm import LLMClient, CallType
 
@@ -31,10 +31,12 @@ def build_tiered_controller(
     """Build a TieredBotController, optionally with the Layer 3 expression generator wired."""
     llm_config = llm_config or {}
     strategy_table = load_strategy_table()
+    hu_strategy_table = load_hu_strategy_table()  # None if file missing
     controller = TieredBotController(
         player_name=player_name,
         state_machine=state_machine,
         strategy_table=strategy_table,
+        hu_strategy_table=hu_strategy_table,
         llm_config=llm_config,
         game_id=game_id,
         owner_id=owner_id,

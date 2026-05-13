@@ -133,6 +133,7 @@ class TestTieredBotController:
         controller.player_name = 'TestBot'
         controller.state_machine = sm
         controller.strategy_table = table
+        controller.hu_strategy_table = None
         controller.debug_logging = True
         controller.rng = random.Random(42)
         controller._deviation_profile = None

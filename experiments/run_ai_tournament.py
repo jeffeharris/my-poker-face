@@ -901,13 +901,17 @@ class AITournamentRunner:
                 # Tiered bot: solver baselines + personality distortion, no LLM decisions.
                 # Optionally wires the Layer 3 expression generator for in-character narration.
                 from poker.tiered_bot_controller import TieredBotController
-                from poker.strategy.strategy_table import load_strategy_table
+                from poker.strategy.strategy_table import (
+                    load_strategy_table, load_hu_strategy_table,
+                )
 
                 strategy_table = load_strategy_table()
+                hu_strategy_table = load_hu_strategy_table()
                 controller = TieredBotController(
                     player_name=player.name,
                     state_machine=state_machine,
                     strategy_table=strategy_table,
+                    hu_strategy_table=hu_strategy_table,
                     llm_config=player_llm_config,
                     game_id=tournament_id,
                     owner_id=self._owner_id,

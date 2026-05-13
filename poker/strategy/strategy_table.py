@@ -287,3 +287,29 @@ def load_strategy_table(
         postflop_data = _parse_postflop_json(postflop_raw)
 
     return StrategyTable(preflop_data, postflop_data)
+
+
+def load_hu_strategy_table(json_path: str = None) -> Optional[StrategyTable]:
+    """Load the heads-up preflop strategy table.
+
+    Default path: poker/strategy/data/preflop_100bb_hu.json. Returns None
+    if the file does not exist (callers fall back to the 6-max table).
+
+    The HU table reuses the same JSON schema as the 6-max table; only the
+    populated scenarios differ (rfi.SB, vs_open.BB_vs_SB, vs_3bet.SB_vs_BB,
+    vs_4bet.BB_vs_SB). No postflop data — HU shares the 6-max postflop
+    table for now (Phase 7 scope is preflop only).
+
+    See poker/strategy/data/hu_preflop_chart_README.md for the spec.
+    """
+    if json_path is None:
+        data_dir = os.path.join(os.path.dirname(__file__), 'data')
+        json_path = os.path.join(data_dir, 'preflop_100bb_hu.json')
+
+    if not os.path.exists(json_path):
+        return None
+
+    with open(json_path) as f:
+        preflop_raw = json.load(f)
+    preflop_data = _parse_json_to_preflop_data(preflop_raw)
+    return StrategyTable(preflop_data, postflop_data={})

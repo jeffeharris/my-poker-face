@@ -2,8 +2,24 @@
 purpose: Plan to build heads-up specific preflop strategy charts to fix the chart-mismatch leak
 type: design
 created: 2026-05-13
-last_updated: 2026-05-13T14:00:00
+last_updated: 2026-05-13T15:30:00
 ---
+
+## Implementation decisions (resolved 2026-05-13)
+
+- **No new `HUPreflopNode` dataclass.** HU chart reuses the existing `PreflopNode` /
+  `StrategyTable` types and the existing JSON schema. Only two things change:
+  (a) a second JSON file (`preflop_100bb_hu.json`) loaded into a second
+  `StrategyTable` instance, and (b) routing in `TieredBotController` picks
+  the HU table when `len(game_state.players) == 2`. `get_6max_position`
+  already returns `'SB'`/`'BB'` for HU, so the node builder is unchanged.
+- **Single opening sizing: `raise_3bb`.** Action vocabulary already supports
+  it (see `_RAISE_ACTIONS` in `strategy_table.py`). No 2.5x and no preflop
+  limps in v1. SB VPIP target band correspondingly tightens to ~55-70%
+  (3bb opens narrower than 2.5x).
+- Step 1 (HUPreflopNode) below is **superseded** — leave the section for
+  history but the implementation skips it. Step 3 (classifier) likewise
+  reuses existing `build_preflop_node` unchanged.
 
 # Phase 7: HU preflop charts
 

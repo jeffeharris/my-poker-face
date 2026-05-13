@@ -38,7 +38,11 @@ from poker.poker_game import (
 )
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.psychology_model import PersonalityAnchors
-from poker.strategy.strategy_table import load_strategy_table, StrategyTable
+from poker.strategy.strategy_table import (
+    load_strategy_table,
+    load_hu_strategy_table,
+    StrategyTable,
+)
 from poker.strategy.deviation_profiles import DEVIATION_PROFILES
 from poker.tiered_bot_controller import TieredBotController, BaselineSolverBot
 from poker.rule_based_controller import RuleBasedController, RuleConfig, CHAOS_BOTS
@@ -168,12 +172,26 @@ class MatchupStats:
 
 # ── Controller factory ───────────────────────────────────────────────────────
 
+_HU_TABLE_CACHE: Optional[StrategyTable] = None
+_HU_TABLE_CACHED: bool = False
+
+
+def _get_hu_table() -> Optional[StrategyTable]:
+    """Lazy-load + cache the HU preflop table. Returns None if file missing."""
+    global _HU_TABLE_CACHE, _HU_TABLE_CACHED
+    if not _HU_TABLE_CACHED:
+        _HU_TABLE_CACHE = load_hu_strategy_table()
+        _HU_TABLE_CACHED = True
+    return _HU_TABLE_CACHE
+
+
 def make_controller(
     name: str,
     archetype_config: dict,
     strategy_table: StrategyTable,
     sm: PokerStateMachine,
     rng_seed: Optional[int] = None,
+    hu_strategy_table: Optional[StrategyTable] = None,
 ):
     """Build a controller without LLM/persistence dependencies.
 
@@ -210,6 +228,11 @@ def make_controller(
     controller.player_name = name
     controller.state_machine = sm
     controller.strategy_table = strategy_table
+    # Lazy-load HU table from disk if not explicitly passed. Cached
+    # module-wide so the lookup only happens once per process.
+    controller.hu_strategy_table = (
+        hu_strategy_table if hu_strategy_table is not None else _get_hu_table()
+    )
     controller.debug_logging = False
     controller.rng = random.Random(rng_seed)
     controller.skip_personality_distortion = is_baseline

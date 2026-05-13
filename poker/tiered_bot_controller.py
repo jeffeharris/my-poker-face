@@ -67,6 +67,7 @@ class TieredBotController(AIPlayerController):
         rng_seed=None,
         skip_personality_distortion: bool = False,
         expression_generator: Optional[ExpressionGenerator] = None,
+        hu_strategy_table: Optional[StrategyTable] = None,
         **kwargs,
     ):
         super().__init__(
@@ -76,6 +77,7 @@ class TieredBotController(AIPlayerController):
             **kwargs,
         )
         self.strategy_table = strategy_table
+        self.hu_strategy_table = hu_strategy_table
         self.debug_logging = debug_logging
         self.rng = random.Random(rng_seed)
         self._deviation_profile: Optional[DeviationProfile] = None
@@ -164,14 +166,25 @@ class TieredBotController(AIPlayerController):
 
         node = build_preflop_node(game_state, player_idx, canonical_hand)
 
+        # Phase 7: route to HU chart when the hand started 2-handed. Gate on
+        # seated count (not non-folded count) so 6-max spots that collapse to
+        # 2 players after folds still use the 6-max chart.
+        num_seated = len(game_state.players)
+        preflop_table = (
+            self.hu_strategy_table
+            if num_seated == 2 and self.hu_strategy_table is not None
+            else self.strategy_table
+        )
+
         if self.debug_logging:
             logger.info(
                 f"[TIERED_BOT] {self.player_name}: "
-                f"hand={canonical_hand} node_key={node.key}"
+                f"hand={canonical_hand} node_key={node.key} "
+                f"chart={'HU' if preflop_table is self.hu_strategy_table else '6max'}"
             )
 
         # Layer 1: Lookup base strategy
-        base_strategy = self.strategy_table.lookup_with_fallback(node, valid_actions)
+        base_strategy = preflop_table.lookup_with_fallback(node, valid_actions)
 
         if self.debug_logging:
             logger.info(
@@ -1078,6 +1091,7 @@ class BaselineSolverBot(TieredBotController):
         llm_config=None,
         debug_logging: bool = False,
         rng_seed=None,
+        hu_strategy_table: Optional[StrategyTable] = None,
         **kwargs,
     ):
         kwargs.pop('skip_personality_distortion', None)
@@ -1089,5 +1103,6 @@ class BaselineSolverBot(TieredBotController):
             debug_logging=debug_logging,
             rng_seed=rng_seed,
             skip_personality_distortion=True,
+            hu_strategy_table=hu_strategy_table,
             **kwargs,
         )

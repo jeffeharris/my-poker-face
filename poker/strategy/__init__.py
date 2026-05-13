@@ -7,7 +7,7 @@ for the TieredBotController architecture.
 
 from .nodes import PreflopNode, PostflopNode
 from .strategy_profile import StrategyProfile
-from .strategy_table import StrategyTable, load_strategy_table
+from .strategy_table import StrategyTable, load_strategy_table, load_hu_strategy_table
 
 __all__ = [
     'PreflopNode',
@@ -15,6 +15,7 @@ __all__ = [
     'StrategyProfile',
     'StrategyTable',
     'load_strategy_table',
+    'load_hu_strategy_table',
 ]
 
 # Modules below are imported when available (incremental build).
