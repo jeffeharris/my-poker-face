@@ -2,10 +2,67 @@
 purpose: Plan to widen the adjustment layer so the tiered bot realizes equity vs confirmed extreme opponents (maniacs)
 type: design
 created: 2026-05-13
-last_updated: 2026-05-13T17:30:00
+last_updated: 2026-05-13T18:00:00
 ---
 
 # Phase 7.5: Adjustment-layer widening
+
+## Sequencing & cross-plan dependencies
+
+This plan ships **last** in the opponent-modeling sequence and depends on
+both predecessors landing first:
+
+1. [Phase 6.6](PHASE_6_6_CBET_PLUS_CONFIDENCE.md) — HU c-bet +
+   confidence-weighted offsets. **Required before 7.5.** 6.6 extends
+   `AggregatedOpponentStats` (`fold_to_cbet`, `cbet_faced_count`) and
+   `DecisionContext` (`is_flop_as_preflop_aggressor`,
+   `active_opponent_count`); 7.5 stacks its fields on top.
+2. [Phase 6.7](PHASE_6_7_OPPONENT_SPOTS.md) — independent multiway opponent
+   spots. **Required before 7.5.** 6.7 ships `OpponentSpot` and
+   `select_primary_aggressor()`, which 7.5's bluff-catch override consumes
+   (see §Risks #3 — per-aggressor stats requirement).
+3. **Phase 7.5 (this plan)** — three-tier exploitation clamp + bluff-catch
+   override + opportunity-normalized stats.
+
+Shared types this plan touches (incrementally, on top of 6.6 + 6.7):
+
+- `AggregatedOpponentStats` in `poker/strategy/exploitation.py` —
+  7.5 adds `all_in_per_facing_bet`, `facing_bet_opportunities`,
+  `aggression_factor_postflop` on top of 6.6's `fold_to_cbet`,
+  `cbet_faced_count`.
+- `DecisionContext` in `poker/strategy/exploitation.py` —
+  7.5 adds `bet_size_pot_ratio` on top of 6.6's HU c-bet flags and 6.7's
+  `facing_aggressor_name`.
+
+Coordination notes:
+
+- **`_pick_max_total_shift` lives in `tiered_bot_controller.py` (line 519
+  today) and implements a two-tier clamp.** This plan's `_determine_clamp`
+  in `exploitation.py` replaces it; add a Files-to-Modify entry for the
+  controller deletion when implementing.
+- **`compute_pattern_intensity()` (Phase 6.6) and `_determine_clamp()` (this
+  plan) coexist at different pipeline layers** — intensity scales offsets;
+  the clamp caps the L1 shift. They are not redundant. Step 0 instrumentation
+  should confirm the interaction: at MEDIUM tier with AF in [4, 5], the
+  hyper_aggressive intensity from 6.6 is still zero (its ramp starts at
+  AF=5), so MEDIUM clamp permits movement that intensity gates to zero —
+  expected behavior, but worth verifying.
+- **`all_in_per_facing_bet` replaces `all_in_frequency` semantically.**
+  Phase 6.6's hyper_aggressive ramp still reads `all_in_frequency` (per-hand).
+  When this plan ships, migrate 6.6's ramp threshold (`0.30 → 0.70`) onto
+  `all_in_per_facing_bet` and recalibrate, since the denominator is now
+  facing-bet opportunities (not hands). Add this migration to the Step 0
+  calibration table output so the new threshold value is data-driven.
+- **AF raw-count fallback cap** (this plan's Step 0 change to
+  `OpponentTendencies._recalculate_stats`) pins hyper_aggressive AF at
+  `MEDIUM_AF_THRESHOLD` for opponents with zero calls observed. Phase 6.6's
+  AF-axis intensity will then be flat for those opponents — the all-in axis
+  still drives detection. Document this in the intensity ramp's docstring.
+- **Item 3 (postflop opponent-awareness, deferred)** should consume Phase
+  6.7's `OpponentSpot`/`select_primary_aggressor()` for the
+  `bettor_archetype` axis rather than re-deriving aggressor identification.
+  Diagnostics shipping in Step 0 should already log the spot's identified
+  aggressor.
 
 ## Codex review history
 
@@ -16,7 +73,7 @@ Plan reviewed by Codex twice on 2026-05-13. Revisions incorporated below.
 - **Step 0 instrumentation** as prerequisite (was implicit)
 - **Bluff-catch splits pot-odds-conditional**, not fixed
 - **Three-tier exploitation ramp** (0.4 / 0.6 / 0.8), not binary
-- **Opportunity-normalized stats** — `all_in_per_decision` replaces
+- **Opportunity-normalized stats** — `all_in_per_facing_bet` replaces
   per-hand denominator; AF raw-count fallback capped
 - **Item 1 explicitly consumes Item 2's envelope**
 - **bb/100 targets as directional bands**, not commitments
@@ -47,8 +104,10 @@ Plan reviewed by Codex twice on 2026-05-13. Revisions incorporated below.
 - **AF should be postflop-only** for the extreme-tier signal —
   preflop jammy behavior (e.g. short-stack 3-bet jams) pollutes the
   meaning when we're trying to read postflop bluff-frequency
-- **`all_in_per_decision` denominator clarified** — facing-bet
-  opportunities (not all decisions; not all hands)
+- **`all_in_per_facing_bet` is the canonical name and denominator** —
+  numerator is all-ins by opponent when facing a bet; denominator is
+  facing-bet opportunities (not all decisions; not all hands). Earlier
+  drafts used `all_in_per_decision`; that name is retired
 
 ## Context (read before starting)
 
@@ -381,10 +440,18 @@ def _determine_clamp(
     1. Benchmark prior shortcut: if config.benchmark_prior.enabled
        and bettor_archetype is in confirmed_extreme_archetypes,
        return EXTREME tier immediately (validation accelerator).
-    2. Otherwise classify cumulative stats by two-axis gating:
+    2. Otherwise classify cumulative stats:
        - Sample axis: facing_bet_opportunities meets threshold
-       - Signal axis: af_postflop AND all_in_per_facing_bet BOTH
-         meet threshold for that tier
+         (REQUIRED — no signal without enough samples).
+       - Signal axis: af_postflop meets threshold OR
+         all_in_per_facing_bet meets threshold (EITHER one
+         qualifies). Rationale: a maniac who bets/raises constantly
+         but rarely jams is still extreme; requiring both stats to
+         cross would miss this case. The two signals are different
+         expressions of the same trait; require sample, allow either
+         signal.
+       - For tier classification: pick the HIGHEST tier whose sample
+         threshold is met AND whose either-signal test passes.
     3. If recent_stats supplied AND recent window has enough samples
        (≥ tier_decay.require_recent_window_full), cap the cumulative
        tier at the recent-window tier — so opponent behavior shifts
@@ -394,33 +461,50 @@ def _determine_clamp(
     """
 ```
 
+**AND vs OR rationale**: an earlier draft used AND on both signal
+axes — a Codex reviewer flagged that this would miss common maniacs
+who raise constantly but rarely jam (high `af_postflop`, modest
+`all_in_per_facing_bet`). Both stats measure the same underlying
+trait (willingness to put chips in without strong holdings); either
+crossing its threshold is sufficient evidence given enough sample.
+Sample size remains required (no signal from 5 hands), but the two
+signals are now treated as **alternative evidence**, not joint
+requirements.
+
 ### Opportunity-normalization (addresses Codex's biggest concern)
 
 Today's `all_in_frequency = all_ins / hands_dealt` in
 `poker/memory/opponent_model.py:149`. This is per-hand, not per
-betting-decision. A player who jams 20% of hands they're dealt but
-never sees a flop has 0.20 all-in-freq; a player who sees flops 60%
-of the time and jams every flop has 0.20 all-in-freq too — but the
-signals are very different.
+facing-bet opportunity. A player who jams 20% of hands they're dealt
+but never sees a flop has 0.20 all-in-freq; a player who sees flops
+60% of the time and jams every facing-bet decision has 0.20
+all-in-freq too — but the signals are very different.
 
 **Required Step 0 change** (in `poker/memory/opponent_model.py`):
 
 ```python
-# New field on OpponentTendencies
-_betting_decisions: int = 0  # incremented on each fold/check/call/raise/all-in
+# New fields on OpponentTendencies
+_facing_bet_opportunities: int = 0   # incremented when opponent has fold-or-call decision
+_all_ins_facing_bet: int = 0         # subset: when opponent's response is all-in
 
-# Derived stat
+# Derived stat — the canonical "is this opponent prone to overbets / jams
+# when facing aggression" signal. Denominator is facing-bet opportunities,
+# NOT all decisions (which would include free checks) and NOT hands
+# (which would include hands where opponent never faced a bet).
 @property
-def all_in_per_decision(self) -> float:
-    if self._betting_decisions == 0:
+def all_in_per_facing_bet(self) -> float:
+    if self._facing_bet_opportunities == 0:
         return 0.0
-    return self._all_in_count / self._betting_decisions
+    return self._all_ins_facing_bet / self._facing_bet_opportunities
 ```
 
-Threading: `AggregatedOpponentStats` (in `exploitation.py:57`) needs
-a new `all_in_per_decision` field; manager aggregator computes it
-weighted same as `all_in_frequency`. Existing `all_in_frequency` is
-kept for backward compat but the NEW thresholds use the new field.
+Threading: `AggregatedOpponentStats` (in `exploitation.py:57`) gets
+new `all_in_per_facing_bet` and `facing_bet_opportunities` fields;
+manager aggregator computes them weighted same as existing stats.
+Existing `all_in_frequency` (per-hand) is kept for backward compat —
+Phase 6.6's hyper_aggressive ramp still reads it. When Phase 7.5
+ships, the 6.6 ramp threshold should migrate from `all_in_frequency`
+to `all_in_per_facing_bet` (see Sequencing notes at top of file).
 
 ### AF raw-count fallback edge case
 
@@ -732,11 +816,19 @@ If common (> 20%), Item 3 ships next.
   windowed boundaries
 
 `tests/test_strategy/test_exploitation_three_tier_clamp.py` (Item 2)
-- `_determine_clamp` returns DEFAULT when below MEDIUM thresholds
-- Returns MEDIUM when sample, AF_postflop, AND all-in-per-facing-bet
-  all meet their MEDIUM thresholds
-- Returns EXTREME when all three meet their EXTREME thresholds
-- Returns DEFAULT (not MEDIUM) when any one axis is missing
+- `_determine_clamp` returns DEFAULT when sample below MEDIUM threshold
+- Returns MEDIUM when sample ≥ MEDIUM threshold AND (AF_postflop ≥
+  MEDIUM OR all_in_per_facing_bet ≥ MEDIUM) — sample required, either
+  signal qualifies
+- Returns EXTREME when sample ≥ EXTREME threshold AND (AF_postflop ≥
+  EXTREME OR all_in_per_facing_bet ≥ EXTREME)
+- Returns DEFAULT when sample insufficient even if signals are strong
+- **High-AF-only maniac**: sample ≥ EXTREME, AF_postflop = 8.0,
+  all_in_per_facing_bet = 0.05 → returns EXTREME (signal-OR semantics
+  catches this case; the earlier AND draft would have missed it)
+- **High-all-in-only opponent**: sample ≥ EXTREME, AF_postflop = 2.0,
+  all_in_per_facing_bet = 0.45 → returns EXTREME (same rationale,
+  flipped axis)
 - **Tier decay (round 2)**: recent-window tier caps cumulative tier —
   setup with cumulative=EXTREME and recent=DEFAULT → returns DEFAULT
 - **Benchmark prior (round 2)**: when config enables prior and bettor
@@ -802,13 +894,36 @@ done
 wait
 ```
 
-**Gates (directional, not delta-committed):**
-- All four key archetypes (Baseline, TAG, LAG, Nit) improve by a
-  margin larger than their CI half-width vs the Phase 7 baseline.
-  That is, `phase_7_5 > phase_7 + 1.96*sigma` per archetype.
-- No archetype regresses below Phase 7 baseline.
-- Maniac archetype improves OR stays within noise (its personality is
-  already wide; adjustment-layer effect should be smaller).
+**Gates (matched-seed delta, directional, not delta-committed):**
+
+Run Phase 7 baseline and Phase 7.5 candidate with the **same seed set**
+(42, 142, 242). This pairs the runs — each seed produces one
+`(phase_7, phase_7_5)` pair per archetype, so we compare them as
+**matched samples**, not independent groups. Compute the per-seed
+delta `Δ_i = phase_7_5_i - phase_7_i` for each seed.
+
+Per archetype:
+- **Mean delta is positive**: `mean(Δ_i) > 0` across all three seeds.
+- **No seed regresses materially**: every individual `Δ_i > -30` bb/100.
+  (Rationale: even one seed with a -50 bb/100 regression is a real
+  signal that the change hurts in some game states.)
+- **Mean delta CI excludes zero** (preferred but not required at
+  3 seeds): bootstrap or t-test on the three matched deltas; report
+  the 90% CI in the analysis output. With only 3 seeds the CI is
+  wide, so "mean > 0 and no seed materially regresses" is the
+  primary gate; CI is reported for transparency, not used as a hard
+  bar.
+- **Maniac archetype** can have `mean(Δ) ≥ -10` (allow modest
+  regression since the personality is already extreme; the
+  adjustment layer is designed for opponents that *we* should treat
+  as maniacs, not for *being* one).
+
+The earlier draft used `phase_7_5 > phase_7 + 1.96*sigma`, which a
+reviewer correctly flagged as not well-defined: it ignored Phase 7
+baseline uncertainty and conflated within-sweep CI with between-run
+variance. The matched-seed delta gate above is more robust because
+it cancels seed-specific opponent luck (same opponent samples in
+both runs) and explicitly handles multi-seed variance.
 
 **Per-street bb/100 reporting** (Codex round 2):
 Global bb/100 improvements can hide per-street regressions — e.g.
