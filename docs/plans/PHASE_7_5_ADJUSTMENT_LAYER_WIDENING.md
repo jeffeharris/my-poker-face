@@ -17,12 +17,13 @@ both predecessors landing first:
    `AggregatedOpponentStats` (`fold_to_cbet`, `cbet_faced_count`) and
    `DecisionContext` (`is_flop_as_preflop_aggressor`,
    `active_opponent_count`); 7.5 stacks its fields on top.
-2. [Phase 6.7](PHASE_6_7_OPPONENT_SPOTS.md) — independent multiway opponent
-   spots. **Required before 7.5.** 6.7 ships `OpponentSpot` and
-   `select_primary_aggressor()`, which 7.5's bluff-catch override consumes
-   (see §Risks #3 — per-aggressor stats requirement).
+2. [Phase 6.7a](PHASE_6_7_OPPONENT_SPOTS.md) — independent multiway opponent
+   spots, **selection-correctness slice only**. **Required before 7.5.**
+   6.7a ships `OpponentSpot`, `select_primary_aggressor()`, and
+   `aggregate_from_spots()`, all of which 7.5 consumes. 6.7b (multiway
+   c-bet enablement) is independent of 7.5 and can ship before or after.
 3. **Phase 7.5 (this plan)** — three-tier exploitation clamp + bluff-catch
-   override + opportunity-normalized stats.
+   override + opportunity-normalized stats. Requires 6.7a but NOT 6.7b.
 
 Shared types this plan touches (incrementally, on top of 6.6 + 6.7):
 
@@ -74,6 +75,27 @@ Coordination notes:
   `bettor_archetype` axis rather than re-deriving aggressor identification.
   Diagnostics shipping in Step 0 should already log the spot's identified
   aggressor.
+- **`aggregate_from_spots()` must learn 7.5's new fields.** 6.7a ships
+  `aggregate_from_spots()` knowing only about the 6.6-extended
+  `AggregatedOpponentStats`. When 7.5 lands its five new fields
+  (`all_in_per_facing_bet`, `postflop_jam_open_rate`,
+  `facing_bet_opportunities`, `postflop_open_opportunities`,
+  `aggression_factor_postflop`), it must EXTEND `aggregate_from_spots()`
+  in `poker/strategy/exploitation.py` to aggregate them too — otherwise
+  the fallback path (when `select_primary_aggressor()` returns None) sees
+  zero-valued new fields and the tier classifier silently misfires.
+  The extension preserves the 6.7a aggregation semantics (60% rule on
+  hand-level money committed) and adds field-by-field aggregation for
+  the new fields using the same weighting policy. **This work is owned
+  by 7.5 (not 6.7) and is listed in Files-to-Modify below.**
+- **First-in vs response jam disambiguation depends on 6.7a tracking.**
+  `_postflop_jam_opens` (the new 7.5 counter) increments only for
+  first-in postflop jams, not response jams. To tell them apart, the
+  recording code reads 6.7a's per-street `recent_aggressor_name`: if
+  null at the moment of opponent's all-in action, it's a first-in jam
+  (counter +1); if non-null and not the opponent themselves, it's a
+  response jam (handled by `_all_ins_facing_bet` instead). 6.7a is a
+  hard prerequisite for the open-jam counter to be correct.
 
 ## Codex review history
 
@@ -815,6 +837,121 @@ threshold as too loose for postflop-specific signals — using
 EXTREME-tier opportunities (which are facing-bet samples specifically)
 fixes this.
 
+### Per-aggressor stats threading (consumes 6.7a)
+
+The tier classification for the bluff-catch gate must read **the
+specific aggressor's stats**, not the aggregate `AggregatedOpponentStats`.
+In a 3-way pot vs a maniac + a passive caller, the aggregate dilutes
+the maniac's signal and the gate fails to fire when it should — or,
+worse in the other direction, the aggregate could overstate maniac
+behavior when the passive caller has been quiet but is still in the
+hand.
+
+Threading at the call site (in `tiered_bot_controller.py`):
+
+```python
+# At the bluff-catch decision point (postflop, facing a bet)
+spots = build_opponent_spots(game_state, hero_idx)   # 6.7a helper
+aggressor_spot = select_primary_aggressor(            # 6.7a helper
+    spots,
+    highest_current_bet=game_state.highest_bet,
+    recent_aggressor_name=mm.recent_aggressor_name,
+)
+
+if aggressor_spot is None:
+    # Ambiguous spot per 6.7a rule 3 (tied bets, no aggressor flag,
+    # no recent aggressor name). Fall back to aggregate stats for
+    # the tier check — same compatibility path other unmigrated
+    # rules use. Bluff-catch is allowed to fire from aggregate
+    # stats but with stricter gating (see "Aggregate fallback" below).
+    stats_for_tier = aggregate_from_spots(spots)
+    aggressor_name = None
+else:
+    stats_for_tier = aggressor_spot.stats
+    aggressor_name = aggressor_spot.name
+
+clamp, tier, winning_axis = _determine_clamp(
+    stats=stats_for_tier,
+    recent_stats=..., bettor_archetype=aggressor_name,
+)
+```
+
+**Aggregate fallback for bluff-catch**: when `select_primary_aggressor`
+returns None, the aggregate path is allowed but with one additional
+gate — **all continuing opponents** must have at least MEDIUM-tier
+sample counts. Otherwise the override doesn't fire (back to table
+strategy). Rationale: when we can't identify the specific aggressor,
+the safety net is "every continuing opponent has enough sample for
+us to be confident the aggregate read isn't being driven by a single
+noisy player." Diagnostic logs `clamp_tier_winning_axis = 'aggregate'`
+in this branch.
+
+### Multiway pot suppression
+
+Phase 6.7 multiway c-bet plan suppresses bluffs when any continuing
+opponent is a station / unknown / all-in. Bluff-catch deserves the
+same kind of suppression: calling down with a marginal made hand in
+a multiway pot is structurally worse than HU because a passive
+caller likely has showdown value that beats our weak/medium pair.
+
+**Multiway suppression rule for bluff-catch:**
+
+```python
+def should_apply_bluff_catch_override(
+    spots, hand_strength, decision_context, ..., aggressor_spot,
+):
+    # ... existing gates (tier, hand class, facing_bet, tilt) ...
+
+    # Phase 7.5 multiway suppressor — counts continuing opponents
+    # (active, not folded, not the aggressor themselves).
+    continuing = [
+        s for s in spots
+        if s.is_active and not s.is_folded
+        and (aggressor_spot is None or s.name != aggressor_spot.name)
+    ]
+
+    # Heads-up (zero continuing opponents besides the aggressor):
+    # bluff-catch is allowed at full pot-odds-table strength.
+    if len(continuing) == 0:
+        return True  # HU path — original logic applies
+
+    # Multiway with at least one continuing opponent:
+    # Bluff-catch suppressed if ANY continuing opponent is:
+    #   (a) all-in (can't fold, our equity calc was vs aggressor only)
+    #   (b) a station (high VPIP, low fold-frequency) — likely has
+    #       showdown value, dominates our weak_made/medium_made
+    #   (c) tight/unknown (insufficient sample) — could be a slowplay
+    for opp in continuing:
+        if opp.is_all_in:
+            return False
+        if _is_station(opp.stats):
+            return False
+        if opp.stats.facing_bet_opportunities < MEDIUM_MIN_OPPORTUNITIES:
+            return False  # low-sample opponent in the pot — too risky
+    return True
+
+
+def _is_station(stats: AggregatedOpponentStats) -> bool:
+    """Detect call-station tendencies that dominate our bluff-catch."""
+    return (
+        stats.vpip > 0.55
+        and stats.aggression_factor < 1.5
+        and stats.hands_observed >= MEDIUM_MIN_OPPORTUNITIES
+    )
+```
+
+**Why this rule shape (matches 6.7's c-bet suppression):** symmetric
+suppression on both sides of the maniac. When we bluff-catch the
+maniac, the passive caller's range plays the same role as a
+"continuing opponent" in 6.7's c-bet logic — they cap our equity by
+having showdown value we can't beat.
+
+The multiway suppression only blocks the OVERRIDE — the underlying
+strategy table still runs, so hero defaults to whatever the chart says
+for `medium_made` / `weak_made` facing a bet (typically fold-heavy at
+those classifications). We don't FORCE folds in multiway; we just
+don't OVERRIDE folds with calls.
+
 ### Envelope semantics — bluff-catch selects within the tier-expanded envelope
 
 Codex's round-2 reframe: "supersedes" makes it sound like value_
@@ -1021,6 +1158,55 @@ If common (> 20%), Item 3 ships next.
   adaptation bias gate)
 - Returns False for: strong hands (use existing path), weak draw,
   open spot, balanced opponent, MEDIUM-tier opponent, low sample
+- **Multiway suppression — all-in opponent**: aggressor is EXTREME,
+  hero has medium_made, one continuing opponent is all-in →
+  override returns False (can't fold an all-in stack)
+- **Multiway suppression — station**: aggressor is EXTREME, hero has
+  medium_made, one continuing opponent has VPIP=0.70 / AF=1.0 /
+  hands_observed=150 → `_is_station` returns True → override
+  returns False
+- **Multiway suppression — low-sample**: aggressor is EXTREME, one
+  continuing opponent has facing_bet_opportunities=20 → override
+  returns False (insufficient read on third party)
+- **Multiway allow**: aggressor is EXTREME, all continuing opponents
+  are above sample threshold AND not stations AND not all-in →
+  override returns True
+- **HU path unchanged**: aggressor is EXTREME, zero continuing
+  opponents (HU pot) → multiway suppression skipped → override
+  returns True under existing logic
+
+`tests/test_strategy/test_bluff_catch_per_aggressor.py` (Item 1)
+- `select_primary_aggressor` returns a specific spot → tier
+  classification uses that spot's stats, NOT the aggregate
+- `select_primary_aggressor` returns None (ambiguous spot) → falls
+  back to `aggregate_from_spots()` for tier classification, BUT
+  bluff-catch requires all continuing opponents to be at MEDIUM
+  sample threshold or higher (stricter than the per-aggressor path)
+- Diagnostic captures `clamp_tier_winning_axis = 'aggregate'` when
+  the fallback path fires
+
+`tests/test_strategy/test_aggregate_from_spots_phase75_fields.py` (Step 0)
+- Aggregating spots with the 60%-dominant opponent rule weights
+  `all_in_per_facing_bet`, `postflop_jam_open_rate`, and the new
+  opportunity-count fields the same way as legacy stats
+- Weighted-average path (no dominant opponent) produces field-by-
+  field averages consistent with the legacy implementation
+- Empty spots list → all new fields default to 0.0 / 0
+- Spots with mixed sample sizes → fields weighted by sample count
+  per opponent (not by player count)
+
+`tests/test_memory/test_postflop_jam_open_counter.py` (Step 0)
+- Opponent jams as first-to-act on flop (recent_aggressor_name is
+  None at jam time) → `_postflop_jam_opens` += 1,
+  `_all_ins_facing_bet` unchanged
+- Opponent jams in response to a bet (recent_aggressor_name is the
+  bettor at jam time) → `_all_ins_facing_bet` += 1,
+  `_postflop_jam_opens` unchanged
+- Opponent jams preflop → neither counter increments (postflop-only
+  scope)
+- Street transition resets recent_aggressor_name correctly per 6.7a
+  contract; verify a flop-first-in-jam is detected as first-in even
+  if there was a preflop raiser
 
 ### Integration tests
 
@@ -1037,6 +1223,19 @@ If common (> 20%), Item 3 ships next.
 - **Per-street attribution (round 2)**: end-to-end test verifies
   per-decision capture records the street and street_chip_delta so
   validation analysis can group bb/100 per street
+- **Multiway scenario (this revision)**: 3-handed flop, hero has
+  medium_made facing a bet from ManiacBot, one passive opponent
+  (VPIP=0.65, AF=0.9) called the bet → controller folds (multiway
+  station suppressor blocks the override; underlying chart says
+  fold) rather than calling. Same scenario HU (no passive caller)
+  → controller calls
+- **Per-aggressor tier (this revision)**: 3-handed flop, hero faces
+  a bet from a NIT (AF_postflop=0.8) but a maniac is in the pot
+  behind — `select_primary_aggressor` returns the NIT (they made
+  the bet), tier classification uses NIT stats, override does NOT
+  fire (NIT isn't EXTREME). Aggregate stats would have looked
+  EXTREME from the maniac contribution; per-aggressor reading
+  prevents the false fire.
 
 ### Existing test regression
 
@@ -1240,9 +1439,13 @@ tighten before retesting.
 3. **Multiway hands**: stats are aggregated across active opponents
    with a 60% rule. Vs multiway with one maniac + one nit, the
    aggregated AF/all-in stats can paint a misleading picture. The
-   plan: bluff-catch should require the SPECIFIC aggressor (per-
-   aggressor stats, not aggregate) to trigger. Step 0 instrumentation
-   captures per-aggressor stats; the gate uses them.
+   plan addresses this two ways (see §"Per-aggressor stats threading"
+   and §"Multiway pot suppression" under Item 1):
+   - Tier classification uses 6.7a's `select_primary_aggressor()`
+     to read the SPECIFIC aggressor's stats, not the aggregate.
+   - Override fires only when ALL continuing opponents (besides the
+     aggressor) are above sample threshold AND not stations AND not
+     all-in. This mirrors 6.7's multiway c-bet suppression rule.
 
 4. **AF inflation by personality bots**: our own Maniac archetype has
    high AF too. When Maniac plays vs ManiacBot, both view each other
@@ -1307,16 +1510,21 @@ behavior.
 | `poker/memory/opponent_model.py` (Item 2) | Modify | Apply raw-count cap to legacy `aggression_factor` (was Step 0, now lands with Item 2 to keep Step 0 behavior-neutral) |
 | `poker/memory/opponent_model.py` (sliding window) | Modify | Add recent-window counters (window_size from config) for tier ratchet-down |
 | `poker/strategy/exploitation.py` | Modify | `_determine_clamp` with two-axis gating + benchmark prior + tier decay; AggregatedOpponentStats adds postflop-AF + opportunity-normalized fields |
-| `poker/strategy/exploitation.py` (DecisionContext) | Modify | Add `bet_size_pot_ratio`, `street`, `board_texture` fields |
-| `poker/strategy/value_override.py` | Modify | Add `should_apply_bluff_catch_override`, `compute_bluff_catch_strategy`, `_bluff_catch_call_probability`, `_base_call_prob`, `_board_danger_dampener`, `_clamp_to_envelope`; new `BLUFF_CATCH_TRIGGER_CLASSES` |
-| `poker/tiered_bot_controller.py` | Modify | Wire bluff-catch override after strong-hand; thread tier from `_determine_clamp` into exploitation + override; populate new DecisionContext fields; emit per-decision diagnostic |
+| `poker/strategy/exploitation.py` (DecisionContext) | Modify | Add `bet_size_pot_ratio` field |
+| `poker/strategy/exploitation.py` (`aggregate_from_spots()`) | Modify | **Owned by 7.5, not 6.7.** Extend the 6.7a-shipped aggregator to also aggregate 7.5's new fields (`all_in_per_facing_bet`, `postflop_jam_open_rate`, `facing_bet_opportunities`, `postflop_open_opportunities`, `aggression_factor_postflop`). Preserves 6.7a's 60% rule + weighting policy; just adds field-by-field aggregation for the new fields. |
+| `poker/strategy/value_override.py` | Modify | Add `should_apply_bluff_catch_override` (with multiway suppression + station detection), `compute_bluff_catch_strategy`, `_bluff_catch_call_probability`, `_base_call_prob`, `_board_danger_dampener`, `_clamp_to_envelope`, `_is_station` helper; new `BLUFF_CATCH_TRIGGER_CLASSES` |
+| `poker/tiered_bot_controller.py` | Modify | Wire bluff-catch override after strong-hand; **call 6.7a's `select_primary_aggressor()` to get per-aggressor stats for tier classification, with `aggregate_from_spots()` fallback when ambiguous**; thread tier from `_determine_clamp`; populate new DecisionContext fields; emit per-decision diagnostic |
+| `poker/memory/opponent_model.py` (jam-open counter wiring) | Modify | When incrementing `_postflop_jam_opens` / `_postflop_open_opportunities`, **read 6.7a's per-street `recent_aggressor_name`** to distinguish first-in jams (counter +1) from response jams (already handled by `_all_ins_facing_bet`). 6.7a's tracking is the source of truth. |
 | `poker/persistence.py` or analysis schema | Modify | Add new diagnostic columns (see Step 0 schema) |
 | `poker/strategy/counterfactual.py` | **NEW** | Heuristic opponent-aware action lookup for Item 3 diagnostics |
 | `experiments/analyze_adjustment_firings.py` | **NEW** | Step 0 firing-rate + per-street bb/100 + calibration table output |
 | `tests/test_strategy/test_opportunity_normalized_stats.py` | **NEW** | Step 0 stats tests (denominators, postflop-AF, AF raw-count cap) |
 | `tests/test_strategy/test_exploitation_three_tier_clamp.py` | **NEW** | Item 2 tests (tier gating, decay ratchet-down, benchmark prior) |
-| `tests/test_strategy/test_bluff_catch_override.py` | **NEW** | Item 1 unit tests (pot-odds matrix, dampener, envelope clamp) |
-| `tests/test_strategy/test_tiered_bot_bluff_catch.py` | **NEW** | Combined integration test (controller end-to-end) |
+| `tests/test_strategy/test_bluff_catch_override.py` | **NEW** | Item 1 unit tests (pot-odds matrix, dampener, envelope clamp, multiway suppression, station detection) |
+| `tests/test_strategy/test_bluff_catch_per_aggressor.py` | **NEW** | Verifies per-aggressor stats threading via `select_primary_aggressor()` + aggregate fallback when spot is ambiguous |
+| `tests/test_strategy/test_aggregate_from_spots_phase75_fields.py` | **NEW** | Verifies 7.5's `aggregate_from_spots()` extension aggregates the new fields correctly (60% rule case + weighted-average case for each new field) |
+| `tests/test_memory/test_postflop_jam_open_counter.py` | **NEW** | Verifies first-in vs response jam disambiguation using 6.7a's `recent_aggressor_name` (first-in → `_postflop_jam_opens` +1, response → `_all_ins_facing_bet` +1 instead) |
+| `tests/test_strategy/test_tiered_bot_bluff_catch.py` | **NEW** | Combined integration test (controller end-to-end) including multiway suppression scenarios |
 | `docs/analysis/PHASE_7_5_RESULTS.md` | **NEW** | Validation findings (post-implementation) |
 
 ## Reproducibility
