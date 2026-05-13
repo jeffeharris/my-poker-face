@@ -60,6 +60,13 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
     action_count = 0
     last_pot = 0
 
+    # Phase 6.6: reset sim-path last-preflop-aggressor on hero's controller
+    # at hand start. Production paths get this via MemoryManager.on_hand_start;
+    # the sim bypasses MM, so we drive it directly here.
+    hero_controller = controller_map.get(archetype_seat)
+    if hero_controller is not None:
+        hero_controller._sim_last_preflop_aggressor = None
+
     while sm.phase not in TERMINAL_PHASES:
         sm.run_until(list(TERMINAL_PHASES))
         if sm.phase in TERMINAL_PHASES:
@@ -100,6 +107,16 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
                     is_voluntary=True,
                     hand_number=hand_number,
                 )
+
+        # Phase 6.6: track the last accepted preflop aggressor on the
+        # hero's controller for HU c-bet exploit gating. Matches
+        # MemoryManager.on_action's ('raise', 'all_in') condition.
+        if (
+            phase == 'PRE_FLOP'
+            and action in ('raise', 'all_in')
+            and hero_controller is not None
+        ):
+            hero_controller._sim_last_preflop_aggressor = cur.name
 
         new_gs = play_turn(gs, action, raise_to)
         advanced = advance_to_next_active_player(new_gs)
@@ -303,7 +320,11 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
                 'detected_hyper_aggressive',
                 'detected_hyper_passive',
                 'detected_tight_nit',
+                'detected_high_fold_to_cbet',
                 'fired',
+                'fired_high_fold_to_cbet',
+                'flop_as_preflop_aggressor_spots',
+                'heads_up_cbet_spots',
                 'detected_but_no_fire',
                 'no_pattern_matched',
                 'value_override_eligible_strong',
@@ -320,7 +341,7 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
         print("\n── PER-OPPONENT TENDENCIES (hero's view) ──")
         print(f"  {'opponent':<18} {'dealt':>6} {'acted':>6} "
               f"{'VPIP':>6} {'PFR':>6} {'AF':>6} {'all_in%':>8} "
-              f"{'_vpip':>6} {'_calls':>7} {'_aggr':>7} triggers")
+              f"{'f2cbet':>7} {'cbet_n':>7} triggers")
         for opp_name, model in sorted(hero_models.items()):
             t = model.tendencies
             triggers = []
@@ -332,12 +353,15 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
                 triggers.append('PASSIVE')
             if t.vpip < 0.15:
                 triggers.append('NIT')
+            # Phase 6.6: high_fold_to_cbet detection trigger
+            if t.fold_to_cbet > 0.60 and t._cbet_faced_count >= 5:
+                triggers.append('F2C>0.60')
             trigger_str = ' '.join(triggers) if triggers else '-'
             print(f"  {opp_name:<18} "
                   f"{t.hands_dealt:>6} {t.hands_observed:>6} "
                   f"{t.vpip:>6.2f} {t.pfr:>6.2f} "
                   f"{t.aggression_factor:>6.2f} {t.all_in_frequency:>8.2f} "
-                  f"{t._vpip_count:>6} {t._call_count:>7} {t._bet_raise_count:>7} "
+                  f"{t.fold_to_cbet:>7.2f} {t._cbet_faced_count:>7d} "
                   f"{trigger_str}")
 
 

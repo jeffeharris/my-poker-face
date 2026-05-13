@@ -607,6 +607,13 @@ class AIPlayerController:
         # Memory systems (optional - set by memory manager)
         self.session_memory = session_memory
         self.opponent_model_manager = opponent_model_manager
+        # Optional back-reference to the full AIMemoryManager (set by
+        # production attachment paths). Used by Phase 6.6 HU c-bet
+        # exploitation to read MemoryManager.last_preflop_aggressor.
+        # Simulators that bypass MemoryManager can set
+        # _sim_last_preflop_aggressor directly instead.
+        self.memory_manager = None
+        self._sim_last_preflop_aggressor: Optional[str] = None
 
         # Hand number tracking (set by memory manager)
         self.current_hand_number = None

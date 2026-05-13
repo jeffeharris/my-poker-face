@@ -295,6 +295,13 @@ def run_hand(
     controller_map = {c.player_name: c for c in controllers}
     action_count = 0
 
+    # Phase 6.6: reset sim-path last-preflop-aggressor on hero's controller
+    # at hand start. Production paths get this via MemoryManager.on_hand_start;
+    # the sim bypasses MM, so we drive it directly here.
+    hero_controller = controller_map.get(hero_name) if hero_name else None
+    if hero_controller is not None:
+        hero_controller._sim_last_preflop_aggressor = None
+
     while sm.phase not in TERMINAL_PHASES:
         sm.run_until(list(TERMINAL_PHASES))
 
@@ -352,6 +359,17 @@ def run_hand(
                 is_voluntary=True,
                 hand_number=hand_number,
             )
+
+        # Phase 6.6: track last accepted preflop aggressor on hero's
+        # controller. Matches MemoryManager.on_action's gating —
+        # ('raise', 'all_in') from any player on PRE_FLOP transfers
+        # aggression to that player.
+        if (
+            phase_name == 'PRE_FLOP'
+            and action in ('raise', 'all_in')
+            and hero_controller is not None
+        ):
+            hero_controller._sim_last_preflop_aggressor = current_player.name
 
         # play_turn expects raise_to as absolute amount for 'raise' action
         new_gs = play_turn(gs, action, raise_to)

@@ -697,6 +697,15 @@ class TieredBotController(AIPlayerController):
                                   (e.g. tight_nit detected outside open spot,
                                    or gated by adaptation_bias × tilt floor)
           no_pattern_matched    — past cold-start, no pattern matched stats
+
+        Phase 6.6 adds c-bet-specific counters:
+          flop_as_preflop_aggressor_spots — hero reached a potential
+                                            c-bet spot (regardless of
+                                            opponent stats)
+          heads_up_cbet_spots             — the potential c-bet spot was
+                                            heads-up
+          fired_high_fold_to_cbet         — the c-bet rule contributed
+                                            non-zero offsets
         """
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None:
@@ -707,6 +716,15 @@ class TieredBotController(AIPlayerController):
         c = manager._exploitation_counters
         c['decisions'] += 1
 
+        # Phase 6.6 c-bet spot counters track DECISION CONTEXT availability,
+        # not just whether stats triggered a fire. Useful to confirm the
+        # gating math (is_flop_as_preflop_aggressor + HU constraint) is
+        # actually producing spots before debugging firing rate.
+        if decision_context.is_flop_as_preflop_aggressor:
+            c['flop_as_preflop_aggressor_spots'] += 1
+            if decision_context.active_opponent_count == 1:
+                c['heads_up_cbet_spots'] += 1
+
         # Cold-start gating is internal to compute_exploitation_offsets;
         # we mirror its checks here for diagnostic visibility.
         if stats.hands_observed < 15:
@@ -716,6 +734,15 @@ class TieredBotController(AIPlayerController):
         patterns_this_decision = classify_detected_patterns(stats)
         for pattern in patterns_this_decision:
             c[f'detected_{pattern}'] += 1
+
+        # Phase 6.6: c-bet fire detection. The c-bet rule contributes
+        # 'bet_*' and 'check' offsets when active, so look for either.
+        if 'high_fold_to_cbet' in patterns_this_decision and offsets:
+            cbet_fired = any(
+                a.startswith('bet_') or a == 'check' for a in offsets
+            )
+            if cbet_fired and decision_context.is_flop_as_preflop_aggressor:
+                c['fired_high_fold_to_cbet'] += 1
 
         if offsets:
             c['fired'] += 1
@@ -751,6 +778,8 @@ class TieredBotController(AIPlayerController):
                         pfr=t.pfr,
                         aggression_factor=t.aggression_factor,
                         all_in_frequency=t.all_in_frequency,
+                        fold_to_cbet=t.fold_to_cbet,
+                        cbet_faced_count=t._cbet_faced_count,
                     )
         return manager.aggregate_active_opponents(
             observer=hero_name,
@@ -782,6 +811,19 @@ class TieredBotController(AIPlayerController):
             return None
         return candidates[0]
 
+    def _last_preflop_aggressor(self) -> Optional[str]:
+        """Return the last-preflop-aggressor name, if known.
+
+        Reads from `self.memory_manager.last_preflop_aggressor` when a
+        MemoryManager is attached (production path). Falls back to
+        `self._sim_last_preflop_aggressor` for simulator paths that
+        bypass the memory pipeline. Returns None when neither is set.
+        """
+        mm = getattr(self, 'memory_manager', None)
+        if mm is not None:
+            return getattr(mm, 'last_preflop_aggressor', None)
+        return getattr(self, '_sim_last_preflop_aggressor', None)
+
     def _build_decision_context(self, game_state, player_idx):
         """Build DecisionContext from game state.
 
@@ -790,9 +832,14 @@ class TieredBotController(AIPlayerController):
           opponent has stack 0 (they're all-in)
         - facing_big_bet: call_amount > 10 BB AND call_amount > pot/2,
           AND NOT facing_all_in
+        - is_flop_as_preflop_aggressor (Phase 6.6): hero on flop, was the
+          last preflop aggressor, no live bet facing hero, and has a legal
+          bet/raise. Gate for HU c-bet exploit.
+        - active_opponent_count (Phase 6.6): non-folded non-hero opponents.
         """
         phase = self.state_machine.current_phase
         is_preflop = phase is not None and phase.name == 'PRE_FLOP'
+        is_flop = phase is not None and phase.name == 'FLOP'
 
         big_blind = getattr(game_state, 'big_blind', 100) or 100
         call_amount = getattr(game_state, 'call_amount', 0) or 0
@@ -833,10 +880,38 @@ class TieredBotController(AIPlayerController):
             and call_amount > pot_total / 2
         )
 
+        active_opponent_count = sum(
+            1 for p in game_state.players
+            if p.name != hero_name and not getattr(p, 'is_folded', False)
+        )
+
+        # Phase 6.6 HU c-bet: hero on flop, was last preflop aggressor,
+        # no live bet, has a legal bet/raise action. The HU constraint
+        # (active_opponent_count == 1) is enforced inside the offset rule
+        # itself, not on this flag.
+        valid_actions: List[str] = []
+        try:
+            valid_actions = list(game_state.current_player_options or [])
+        except Exception:
+            valid_actions = []
+        hero_has_bet_raise = (
+            'raise' in valid_actions
+            or 'bet' in valid_actions
+            or 'all_in' in valid_actions
+        )
+        is_flop_as_preflop_aggressor = (
+            is_flop
+            and call_amount == 0
+            and hero_has_bet_raise
+            and self._last_preflop_aggressor() == hero_name
+        )
+
         return DecisionContext(
             is_preflop=is_preflop,
             facing_all_in=facing_all_in,
             facing_big_bet=facing_big_bet,
+            is_flop_as_preflop_aggressor=is_flop_as_preflop_aggressor,
+            active_opponent_count=active_opponent_count,
         )
 
     def _zone_to_tilt_factor(self, emotional_state) -> float:

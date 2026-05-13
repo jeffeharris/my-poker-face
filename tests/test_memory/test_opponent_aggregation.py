@@ -28,6 +28,8 @@ def _seed_tendencies(
     pfr: float = 0.25,
     aggression_factor: float = 1.5,
     all_in_frequency: float = 0.05,
+    fold_to_cbet: float = 0.5,
+    cbet_faced_count: int = 0,
 ) -> None:
     """Inject specific OpponentTendencies values directly into a model.
 
@@ -43,6 +45,8 @@ def _seed_tendencies(
     t.pfr = pfr
     t.aggression_factor = aggression_factor
     t.all_in_frequency = all_in_frequency
+    t.fold_to_cbet = fold_to_cbet
+    t._cbet_faced_count = cbet_faced_count
 
 
 class TestAggregateActiveOpponents(unittest.TestCase):
@@ -285,6 +289,50 @@ class TestHandsDealt(unittest.TestCase):
         self.assertEqual(d['hands_dealt'], 10)
         restored = OpponentTendencies.from_dict(d)
         self.assertEqual(restored.hands_dealt, 10)
+
+
+class TestCbetFieldsInAggregation(unittest.TestCase):
+    """Phase 6.6: c-bet stats survive aggregate_active_opponents().
+
+    The HU c-bet exploit reads fold_to_cbet + cbet_faced_count off the
+    AggregatedOpponentStats produced by this path. If the aggregator
+    drops the fields, the exploit never fires.
+    """
+
+    def test_single_opponent_propagates_cbet_fields(self):
+        manager = OpponentModelManager()
+        _seed_tendencies(
+            manager, "Hero", "Foldy",
+            hands_observed=50, fold_to_cbet=0.85, cbet_faced_count=12,
+        )
+        result = manager.aggregate_active_opponents("Hero", ["Foldy"])
+        self.assertAlmostEqual(result.fold_to_cbet, 0.85)
+        self.assertEqual(result.cbet_faced_count, 12)
+
+    def test_dominant_opponent_propagates_cbet_fields(self):
+        """60% rule path also surfaces c-bet fields from the dominant opp."""
+        manager = OpponentModelManager()
+        _seed_tendencies(
+            manager, "Hero", "A",
+            hands_observed=120, fold_to_cbet=0.80, cbet_faced_count=20,
+        )
+        _seed_tendencies(
+            manager, "Hero", "B",
+            hands_observed=80, fold_to_cbet=0.20, cbet_faced_count=5,
+        )
+        result = manager.aggregate_active_opponents(
+            "Hero", ["A", "B"],
+            money_committed={"A": 700, "B": 200},  # A is dominant
+        )
+        self.assertAlmostEqual(result.fold_to_cbet, 0.80)
+        self.assertEqual(result.cbet_faced_count, 20)
+
+    def test_default_when_no_observations(self):
+        manager = OpponentModelManager()
+        result = manager.aggregate_active_opponents("Hero", ["nobody"])
+        # No history → default-init AggregatedOpponentStats
+        self.assertEqual(result.cbet_faced_count, 0)
+        self.assertAlmostEqual(result.fold_to_cbet, 0.5)
 
 
 if __name__ == '__main__':

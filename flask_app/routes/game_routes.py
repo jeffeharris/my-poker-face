@@ -488,6 +488,7 @@ def api_game_state(game_id):
                         controller = ai_controllers[player.name]
                         controller.session_memory = memory_manager.get_session_memory(player.name)
                         controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+                        controller.memory_manager = memory_manager
                     elif player.is_human:
                         # Initialize human player for opponent observation tracking
                         memory_manager.initialize_human_observer(player.name)
@@ -1017,6 +1018,7 @@ def api_new_game():
             controller = ai_controllers[player.name]
             controller.session_memory = memory_manager.get_session_memory(player.name)
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+            controller.memory_manager = memory_manager
         else:
             # Initialize human player for opponent observation tracking
             memory_manager.initialize_human_observer(player.name)

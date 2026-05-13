@@ -118,6 +118,7 @@ def create_controllers_for_resume(
             session_memory=memory_manager.get_session_memory(player.name),
             opponent_model_manager=memory_manager.get_opponent_model_manager(),
         )
+        controller.memory_manager = memory_manager
 
         # Restore conversation history if available
         if player.name in ai_states:

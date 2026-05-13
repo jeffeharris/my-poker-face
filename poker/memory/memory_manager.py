@@ -76,6 +76,26 @@ class AIMemoryManager:
         """
         self._persistence = hand_history_repo
 
+    @property
+    def last_preflop_aggressor(self) -> Optional[str]:
+        """Name of the last player to make an accepted preflop raise/all-in.
+
+        Phase 6.6: surfaces the existing `_preflop_raiser` hand-level state
+        for HU c-bet exploitation gating. Resets at hand start. Reads
+        from accepted-action recording, not controller intent.
+        """
+        return self._preflop_raiser
+
+    def record_preflop_aggression(self, player_name: str) -> None:
+        """Manually record a preflop aggressor (test / sim-path hook).
+
+        Production paths reach this state via `on_action()` and shouldn't
+        call this directly. Simulators that bypass MemoryManager (e.g.
+        simulate_bb100, analyze_6max_vs_rules) can call this to provide
+        the same last-aggressor signal.
+        """
+        self._preflop_raiser = player_name
+
     def initialize_for_player(self, player_name: str) -> None:
         """Set up memory systems for an AI player.
 
@@ -156,8 +176,12 @@ class AIMemoryManager:
         # Record to hand history
         self.hand_recorder.record_action(player_name, action, amount, phase, pot_total)
 
-        # Track preflop raiser for c-bet detection
-        if phase == 'PRE_FLOP' and action == 'raise':
+        # Track preflop raiser for c-bet detection AND for the Phase 6.6
+        # last-preflop-aggressor signal consumed by HU c-bet exploitation.
+        # Set from accepted actions (after play_turn validates), not
+        # controller intent. all_in is the most aggressive preflop action
+        # and must count alongside raise.
+        if phase == 'PRE_FLOP' and action in ('raise', 'all_in'):
             self._preflop_raiser = player_name
 
         # Detect c-bet: preflop raiser bets on flop

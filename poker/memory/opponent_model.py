@@ -567,6 +567,8 @@ class OpponentModelManager:
                 pfr=t.pfr,
                 aggression_factor=t.aggression_factor,
                 all_in_frequency=t.all_in_frequency,
+                fold_to_cbet=t.fold_to_cbet,
+                cbet_faced_count=t._cbet_faced_count,
             )
 
         # Multiple opponents with history. Check 60% rule.
@@ -593,16 +595,26 @@ class OpponentModelManager:
                             pfr=t.pfr,
                             aggression_factor=t.aggression_factor,
                             all_in_frequency=t.all_in_frequency,
+                            fold_to_cbet=t.fold_to_cbet,
+                            cbet_faced_count=t._cbet_faced_count,
                         )
 
         # Equal-weight average across opponents-with-history.
         # hands_observed is the MIN (limiting factor for exploit confidence).
+        # c-bet sample is also the MIN to match the same "confidence
+        # bottleneck" semantics; the rate averages.
         n = len(models_with_history)
         avg_vpip = sum(m.tendencies.vpip for m in models_with_history) / n
         avg_pfr = sum(m.tendencies.pfr for m in models_with_history) / n
         avg_af = sum(m.tendencies.aggression_factor for m in models_with_history) / n
         avg_all_in = sum(m.tendencies.all_in_frequency for m in models_with_history) / n
+        avg_fold_to_cbet = sum(
+            m.tendencies.fold_to_cbet for m in models_with_history
+        ) / n
         min_hands = min(m.tendencies.hands_observed for m in models_with_history)
+        min_cbet_faced = min(
+            m.tendencies._cbet_faced_count for m in models_with_history
+        )
 
         return AggregatedOpponentStats(
             hands_observed=min_hands,
@@ -610,6 +622,8 @@ class OpponentModelManager:
             pfr=avg_pfr,
             aggression_factor=avg_af,
             all_in_frequency=avg_all_in,
+            fold_to_cbet=avg_fold_to_cbet,
+            cbet_faced_count=min_cbet_faced,
         )
 
     def to_dict(self) -> Dict[str, Any]:

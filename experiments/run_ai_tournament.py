@@ -958,6 +958,7 @@ class AITournamentRunner:
                 )
             controllers[player.name] = controller
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+            controller.memory_manager = memory_manager
 
         return state_machine, controllers, memory_manager
 
