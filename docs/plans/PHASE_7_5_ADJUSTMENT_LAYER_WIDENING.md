@@ -52,16 +52,19 @@ Coordination notes:
 - **`all_in_per_facing_bet` + `postflop_jam_open_rate` together replace
   `all_in_frequency` semantically.** Phase 6.6's hyper_aggressive ramp
   still reads `all_in_frequency` (per-hand). When this plan ships, the
-  6.6 ramp migrates to the combined signal:
+  6.6 ramp migrates to **`max(all_in_per_facing_bet, postflop_jam_open_rate)`**
+  — MAX, not AND — so first-in jammers and response jammers are each
+  detected when their dominant expression crosses threshold:
   - `all_in_per_facing_bet` = response-aggression axis (jams when
     facing a bet)
   - `postflop_jam_open_rate` = open-aggression axis (first-in jams /
-    overbet shoves when first to act postflop)
+    overbet shoves into a no-bet pot)
   A maniac who first-in-jams every flop has
   `all_in_per_facing_bet = 0` because they never faced a bet — the
-  open-rate axis catches them. Both signals are included in the
-  signal-OR test for tier classification (§Item 2). Step 0 calibration
-  measures both distributions so the new thresholds are data-driven.
+  open-rate axis catches them via MAX. Both signals also feed the
+  signal-OR test in `_determine_clamp` (§Item 2) for tier
+  classification. Step 0 calibration measures both distributions so
+  the new thresholds are data-driven.
 - **AF raw-count fallback cap** (lands with Item 2's commit, NOT Step 0 —
   see §"AF raw-count fallback edge case" for the rationale). Pins
   `aggression_factor` at `MEDIUM_AF_THRESHOLD` for opponents with zero
@@ -283,13 +286,14 @@ fields):
 | `bluff_catch_override_fired` | bool | NEW (Item 1) |
 | `exploit_clamp_tier` | str | 'none' / 'default' / 'medium' / 'extreme' (NEW Item 2) |
 | `clamp_tier_winning_axis` | str | NEW: which signal axis triggered the tier — 'af_postflop' / 'all_in_per_facing_bet' / 'postflop_jam_open_rate' / 'benchmark_prior' / 'none'. When multiple axes cross threshold simultaneously, the highest-margin axis wins (deterministic tie-break). |
+| `stats_source` | str | NEW: where the stats came from for this decision — 'per_aggressor' / 'aggregate' / 'none'. Distinct from `winning_axis`: an aggregate-fallback decision can still record which axis crossed within the aggregated stats. |
 | `clamp_tier_ratcheted_down` | bool | NEW: did confidence decay reduce the tier this decision? |
 | `opponent_af_at_decision` | float | Bettor's AF at decision time |
 | `opponent_af_postflop` | float | NEW: AF computed from postflop actions only (excludes preflop jams) |
 | `opponent_all_in_per_facing_bet` | float | NEW: all-ins / facing-bet opportunities (response-aggression axis) |
 | `opponent_facing_bet_opportunities` | int | NEW: facing-bet sample count |
-| `opponent_postflop_jam_open_rate` | float | NEW: open-jams / postflop first-to-act opportunities (open-aggression axis) |
-| `opponent_postflop_open_opportunities` | int | NEW: postflop first-to-act sample count |
+| `opponent_postflop_jam_open_rate` | float | NEW: open-jams / postflop **open opportunities** (no live bet, legal bet/all-in available) — open-aggression axis |
+| `opponent_postflop_open_opportunities` | int | NEW: postflop sample count where opponent had a legal bet/all-in into a no-bet pot (not strictly "first to act") |
 | `opponent_hands_observed` | int | Existing |
 | `hand_strength_class` | str | nuts/strong_made/medium_made/weak_made/air/etc |
 | `facing_bet_size_pot_ratio` | float | NEW: bet size / pot when applicable |
@@ -308,10 +312,10 @@ specified to avoid the ambiguity that motivated the round-2 review.**
 | Stat | Numerator | Denominator |
 |---|---|---|
 | `all_in_per_facing_bet` | All-in raises by opponent when facing a bet | Times opponent faced a bet (had `fold/call/raise` available) — **response-aggression axis** |
-| `postflop_jam_open_rate` | Postflop all-in opens (first-in jam, overbet shove when first to act on a street) | Postflop opportunities where opponent was first-to-act on a street — **open-aggression axis** |
+| `postflop_jam_open_rate` | Postflop all-in opens (first-in jam, overbet shove into a no-bet pot) | Postflop spots where opponent had a legal bet/all-in available with NO live bet facing them and no prior bet on this street yet — **open-aggression axis** |
 | `aggression_factor_postflop` | (bet + raise + all-in) on flop/turn/river | calls on flop/turn/river |
 | `facing_bet_opportunities` | — | Count of opponent's decisions where `fold` was an option |
-| `postflop_open_opportunities` | — | Count of opponent's first-to-act postflop spots |
+| `postflop_open_opportunities` | — | Count of opponent's postflop decisions where: (a) no live bet faces them yet on this street AND (b) a legal bet or all-in action is available. **Not literal "first-to-act"** — a player who checks behind another check still has this opportunity, because their decision could have been a bet. Captures the "opportunity to open aggression" semantics. |
 | `betting_decisions_postflop` | — | Total postflop fold/check/call/raise/all-in by opponent |
 
 Preflop all-ins and preflop AF still computed (used elsewhere), but
@@ -611,9 +615,18 @@ new `all_in_per_facing_bet`, `facing_bet_opportunities`,
 manager aggregator computes them weighted same as existing stats.
 Existing `all_in_frequency` (per-hand) is kept for backward compat —
 Phase 6.6's hyper_aggressive ramp still reads it. When Phase 7.5
-ships, the 6.6 ramp threshold should migrate from `all_in_frequency`
-to the combined signal of `all_in_per_facing_bet` AND
-`postflop_jam_open_rate` (see Sequencing notes at top of file).
+ships, the 6.6 ramp migrates to a **combined-via-MAX** signal:
+`combined_all_in_rate = max(all_in_per_facing_bet, postflop_jam_open_rate)`.
+
+MAX, not AND: these two stats measure different expressions of the
+same trait (response-jamming vs open-jamming). A response-jammer with
+`all_in_per_facing_bet=0.4` and `postflop_jam_open_rate=0` is just as
+extreme as an open-jammer with the reverse profile — AND would
+under-detect both kinds. MAX promotes whichever expression is
+strongest. This is consistent with the OR-semantics in
+`_determine_clamp` (each axis qualifies the tier independently); the
+6.6 ramp gets a single scalar to threshold against, hence MAX rather
+than literal disjunction. (See Sequencing notes at top of file.)
 
 ### AF raw-count fallback edge case — moved to Item 2 (was Step 0)
 
@@ -830,12 +843,27 @@ postflop node already in scope at the override decision point.
 
 ### Sample threshold
 
-Bluff-catch fires only when **Item 2's EXTREME tier also fires**. This
-means the same `facing_bet_opportunities ≥ EXTREME_MIN_OPPORTUNITIES`
-(= 120) threshold gates both. Codex flagged the original 100-hand
-threshold as too loose for postflop-specific signals — using
-EXTREME-tier opportunities (which are facing-bet samples specifically)
-fixes this.
+Bluff-catch fires only when **Item 2's EXTREME tier also fires**. The
+sample gate is satisfied by **whichever axis is the winning_axis for
+that opponent's tier classification**, not specifically by
+`facing_bet_opportunities`:
+
+- If `winning_axis == 'af_postflop'` or `'all_in_per_facing_bet'`:
+  gate satisfied by `facing_bet_opportunities ≥ EXTREME_MIN_OPPORTUNITIES`
+  (the sample that informs both AF_postflop and response-jam stats).
+- If `winning_axis == 'postflop_jam_open_rate'`: gate satisfied by
+  `postflop_open_opportunities ≥ EXTREME_MIN_OPPORTUNITIES` (the
+  sample for the first-in jam axis). An opponent who first-in-jams
+  every flop but has never faced a bet can still reach EXTREME via
+  this axis — their facing-bet sample is zero, but their open-jam
+  sample is non-zero.
+- If `winning_axis == 'benchmark_prior'`: no sample gate (the prior
+  itself is the assertion that sample isn't required).
+
+Codex flagged the original 100-hand threshold as too loose for
+postflop-specific signals — the per-axis sample gate fixes this while
+also unblocking first-in jammers from being trapped by a non-applicable
+facing-bet sample requirement.
 
 ### Per-aggressor stats threading (consumes 6.7a)
 
@@ -883,8 +911,10 @@ sample counts. Otherwise the override doesn't fire (back to table
 strategy). Rationale: when we can't identify the specific aggressor,
 the safety net is "every continuing opponent has enough sample for
 us to be confident the aggregate read isn't being driven by a single
-noisy player." Diagnostic logs `clamp_tier_winning_axis = 'aggregate'`
-in this branch.
+noisy player." Diagnostic logs `stats_source = 'aggregate'` in this
+branch. `clamp_tier_winning_axis` still records the signal axis that
+crossed (within the aggregated stats), so the diagnostic captures
+both "which stats" and "which signal."
 
 ### Multiway pot suppression
 
@@ -1064,10 +1094,14 @@ If common (> 20%), Item 3 ships next.
   jams preflop → `_postflop_jam_opens` stays at 0,
   `_postflop_open_opportunities` stays at 0. Only postflop
   streets (flop / turn / river) advance the postflop counters.
-- `_postflop_open_opportunities` increments whenever opponent is
-  first to act on a postflop street, regardless of action taken
-  (check/bet/raise/jam all count as opportunities; only jams
-  increment the numerator)
+- `_postflop_open_opportunities` increments whenever opponent has
+  a postflop decision with NO live bet facing them on this street
+  AND a legal bet/all-in available — not strictly "first to act."
+  Includes check-behind scenarios (e.g. BTN checking behind a BB
+  check on the flop) where opponent could have bet but chose not to.
+  Excludes any decision where opponent already faces a bet.
+  (check/bet/all-in into a no-bet pot all count as opportunities;
+  only opening jams increment the numerator)
 - **Per-opponent isolation**: stats updates on opponent A don't
   leak into opponent B's `OpponentTendencies` (each opponent has
   their own counter struct; aggregator weights per-opponent
@@ -1092,10 +1126,21 @@ If common (> 20%), Item 3 ships next.
   `MEDIUM_AF_THRESHOLD` when call_count is 0, no longer reports raw
   count as ratio. (This test ships with Item 2 because that's where
   the cap actually lands.)
-- `classify_detected_patterns` for an opponent with zero calls and
-  many raises returns the same patterns after the cap as before
-  (within expected behavior shift documented in §AF raw-count
-  fallback edge case)
+- **Intended behavior shift**: for an opponent with 10 raises and 0
+  calls (pre-cap AF = 10.0, post-cap AF = MEDIUM_AF_THRESHOLD = 4.0),
+  `classify_detected_patterns` DROPS `'hyper_aggressive'` from the
+  result (since 4.0 < HYPER_AGG_AF_THRESHOLD = 5.0). The
+  `'hyper_aggressive'` pattern in this case is reinstated only if
+  the opponent's `all_in_frequency` independently crosses
+  HYPER_AGG_ALL_IN_FREQ_THRESHOLD (= 0.30) — i.e. the OR-form of the
+  hyper_aggressive detector. This is INTENDED — the cap is the
+  whole point — and downstream impact (Phase 6.5 value override may
+  not fire as often on these specific edge-case opponents) is
+  acceptable because no-calls / many-raises is the exact noisy-
+  signal case we wanted to suppress.
+- `'hyper_aggressive'` still fires for opponents with non-zero
+  call_count + AF ≥ 5.0 — the cap only affects the call_count=0
+  edge case.
 
 `tests/test_strategy/test_exploitation_three_tier_clamp.py` (Item 2)
 - `_determine_clamp` returns DEFAULT when sample below MEDIUM threshold
@@ -1182,18 +1227,28 @@ If common (> 20%), Item 3 ships next.
   back to `aggregate_from_spots()` for tier classification, BUT
   bluff-catch requires all continuing opponents to be at MEDIUM
   sample threshold or higher (stricter than the per-aggressor path)
-- Diagnostic captures `clamp_tier_winning_axis = 'aggregate'` when
-  the fallback path fires
+- Diagnostic captures `stats_source = 'aggregate'` when the
+  fallback path fires; `clamp_tier_winning_axis` still records the
+  signal axis (e.g. `'af_postflop'`) within the aggregated stats —
+  the two fields are independent dimensions
 
 `tests/test_strategy/test_aggregate_from_spots_phase75_fields.py` (Step 0)
-- Aggregating spots with the 60%-dominant opponent rule weights
-  `all_in_per_facing_bet`, `postflop_jam_open_rate`, and the new
-  opportunity-count fields the same way as legacy stats
-- Weighted-average path (no dominant opponent) produces field-by-
-  field averages consistent with the legacy implementation
+- Aggregating spots with the 60%-dominant opponent rule returns the
+  dominant opponent's values verbatim for `all_in_per_facing_bet`,
+  `postflop_jam_open_rate`, and `aggression_factor_postflop`
+- Opportunity-count fields (`facing_bet_opportunities`,
+  `postflop_open_opportunities`) use **MIN across active spots** in
+  the non-60%-rule path, consistent with 6.7a's treatment of
+  `hands_observed` and `cbet_faced_count`. Rationale: limiting
+  sample is the bottleneck for confidence.
+- Float rate fields (`all_in_per_facing_bet`, `postflop_jam_open_rate`,
+  `aggression_factor_postflop`) use **equal-weight average across
+  active spots** in the non-60%-rule path, matching the 6.7a
+  aggregator's policy for `vpip`/`pfr`/`aggression_factor`/`fold_to_cbet`.
+  This is intentionally consistent with legacy — NOT sample-weighted.
+  Step 0 calibration data will show if sample-weighting produces
+  better signal; if so, that's a 7.5 follow-up, not part of v1.
 - Empty spots list → all new fields default to 0.0 / 0
-- Spots with mixed sample sizes → fields weighted by sample count
-  per opponent (not by player count)
 
 `tests/test_memory/test_postflop_jam_open_counter.py` (Step 0)
 - Opponent jams as first-to-act on flop (recent_aggressor_name is
