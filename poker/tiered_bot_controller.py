@@ -40,6 +40,7 @@ from .strategy.value_override import (
     should_apply_value_override,
     compute_value_override_strategy,
 )
+from .strategy.short_stack import apply_short_stack_heuristics
 from .hand_tiers import is_hand_in_range
 from .strategy.expression_context import ExpressionContext
 from .strategy.expression_generator import ExpressionGenerator
@@ -215,6 +216,15 @@ class TieredBotController(AIPlayerController):
             hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
         )
 
+        # Phase 6 Step B: short-stack heuristic. Depth-aware suppression
+        # of medium-raise probability mass below 20 BB effective stack.
+        # Independent of opponent type — always fires when stack is short.
+        modified_strategy = apply_short_stack_heuristics(
+            modified_strategy,
+            effective_stack_bb=self._compute_effective_stack_bb(game_state, player_idx),
+            legal_actions=valid_actions,
+        )
+
         # Math floor: override when pot odds / pot-committed / short stack
         # make personality-driven folds clearly -EV.
         modified_strategy = self._apply_math_floor(
@@ -370,6 +380,15 @@ class TieredBotController(AIPlayerController):
             modified_strategy, game_state, player_idx, valid_actions,
             anchors, emotional_state,
             hand_strength=self._classify_postflop_hand_strength(node),
+        )
+
+        # 6a.6 Phase 6 Step B: short-stack heuristic. Suppress medium-raise
+        # probability mass below 20 BB effective stack — non-jam raises
+        # are structurally bad at short depth.
+        modified_strategy = apply_short_stack_heuristics(
+            modified_strategy,
+            effective_stack_bb=self._compute_effective_stack_bb(game_state, player_idx),
+            legal_actions=valid_actions,
         )
 
         # 6b. Math floor — override when arithmetic mandates a call/jam.
@@ -593,6 +612,28 @@ class TieredBotController(AIPlayerController):
         if is_hand_in_range(canonical_hand, threshold):
             return HandStrengthClass.STRONG.value
         return HandStrengthClass.NOT_STRONG.value
+
+    def _compute_effective_stack_bb(self, game_state, player_idx):
+        """Effective stack in big blinds — min(hero stack, max opponent stack).
+
+        Effective stack matters more than hero's raw stack because you
+        can't lose more than the smaller of the two stacks in a heads-up
+        confrontation. In multiway pots this is approximate but still
+        the right depth signal for "raise or jam?" decisions.
+        """
+        big_blind = getattr(game_state, 'big_blind', 100) or 100
+        if big_blind <= 0:
+            big_blind = 100
+        hero = game_state.players[player_idx]
+        hero_stack = getattr(hero, 'stack', 0) or 0
+        opp_stacks = [
+            getattr(p, 'stack', 0) or 0
+            for i, p in enumerate(game_state.players)
+            if i != player_idx and not getattr(p, 'is_folded', False)
+        ]
+        if not opp_stacks:
+            return hero_stack / big_blind
+        return min(hero_stack, max(opp_stacks)) / big_blind
 
     def _classify_postflop_hand_strength(self, node):
         """Map PostflopNode → simplified hand class string ('nuts',
