@@ -2,7 +2,7 @@
 purpose: Plan to define and gate new exploitation rule families (value-vs-station, steal/pressure) by archetype playstyle
 type: design
 created: 2026-05-13
-last_updated: 2026-05-13T22:00:00
+last_updated: 2026-05-13T23:00:00
 ---
 
 # Phase 8: Playstyle-gated rule families
@@ -210,20 +210,28 @@ below.
    - Phase 6.6 HU c-bet behavior.
    - Phase 6.7a spot construction and aggregator selection.
    - Phase 6.7b Part A multiway c-bet firing rate.
-5. **Concrete bb/100 targets** (vs the empirical baselines documented
-   below):
-   - **TAG vs CaseBot HU (1000 hands, seed=42)**: move from
-     `−77.8 bb/100 [CI −152, −4]` toward FoldyBot's `−35.6`. Stretch:
-     statistically indistinguishable from FoldyBot.
-   - **TAG vs CaseBot-heavy 6-max mix (3-seed mean of 500 hands each:
-     42, 142, 242)**: move from baseline `−57.7 bb/100` (range
-     [−97, −16]) toward 0. Stretch: net positive mean.
-   - **Per-opponent decomposition** (more reliable than headline due
-     to seed variance): CaseBot drain shrinks from `~−2400 BB` mean
-     toward `~−1000 BB`; ABCBot gain stays at or above `~+2800 BB`
-     mean.
-   - No archetype's HU-vs-balanced (GTO-Lite) result moves by more
-     than ±20 bb/100 from Phase 7 baseline.
+5. **Concrete v1 bb/100 targets** (intentionally modest — see
+   Risk #1 below; most of the CaseBot drain comes from
+   `hyper_passive` not from missing value extraction, so v1 alone
+   cannot reach FoldyBot's −35.6 floor):
+   - **No regression**: TAG vs CaseBot HU mean stays ≥ `−77.8 bb/100`
+     (the current baseline); 6-max 3-seed mean stays ≥ `−57.7`.
+   - **Strong-hand extraction visible in diagnostics**:
+     `value_vs_station_fired` non-zero in 6-max runs, with `~5-15%`
+     of decisions hitting the gate.
+   - **Moderate measurable improvement**: per-opponent CaseBot drain
+     shrinks from `~−2400 BB` mean toward `~−1800 to −2000 BB` mean
+     (10-25% improvement), without the ABCBot gain dropping below
+     `~+2500 BB`.
+   - HU-vs-balanced (GTO-Lite): no archetype moves by more than
+     ±20 bb/100 from Phase 7 baseline.
+
+6. **Phase 8.1 stretch targets** (require enabling `hyper_passive`
+   fold-mass suppression — see Risk #1; gated on v1 diagnostics):
+   - TAG vs CaseBot HU mean moves toward `−35.6` (FoldyBot floor).
+   - 6-max 3-seed mean moves toward 0 (net flat or positive).
+   - Per-opponent CaseBot drain shrinks from `~−2400 BB` toward
+     `~−1000 BB` while ABCBot gain stays at or above `~+2800 BB`.
 
 ## Rule semantics
 
@@ -236,6 +244,12 @@ vs CaseBot) is unambiguous: **the existing exploit machinery
 already over-bets weak hands against stations**. Phase 8 must
 NOT add more frequency on marginals — it must add value
 extraction specifically when hero is ahead.
+
+The controller (not `compute_exploitation_offsets`) is responsible
+for the gate. It already classifies hand strength via
+`_classify_postflop_hand_strength` / `_classify_preflop_hand_strength`
+to drive Phase 6.5; Phase 8 reuses those classifications. See
+"Architecture" below for the data-flow.
 
 Fires when ALL of:
 
@@ -279,22 +293,44 @@ Important constraints:
   safety factor uses the **min** profile (tightest opponent in the
   field).
 
-### `steal_pressure`
+### `steal_pressure` (v1: tightness-proxy)
 
-Fires when:
+**Important caveat for v1**: `OpponentTendencies` does NOT currently
+track `fold_to_open`, `fold_to_steal`, or `fold_to_3bet`. The only
+defending-tightness signal available today is VPIP. **Using tight
+VPIP alone is a weak proxy** — a TAG opponent (VPIP=0.20) folds wide
+to opens preflop but 3-bets back aggressively. Stealing into a
+TAG defender is −EV.
+
+v1 ships as **"tightness-proxy steal" with conservative thresholds**
+explicitly to avoid false steals into tight-aggressive defenders.
+The proper fix (add `fold_to_open` / `fold_to_3bet` counters to
+`OpponentTendencies`) is a Phase 8.2 follow-up that requires new
+hand-level state in `MemoryManager` (track preflop opens by seat,
+attribute defending responses). Documented but not scoped here.
+
+Fires when ALL of:
 
 - Hero is preflop, open spot (no live raise, position warrants a
   steal — late position or blinds).
+- Every player left to act behind hero is either (a) NOT in the
+  defender bucket OR (b) in the "looks tight" bucket:
+  `vpip < VPIP_TIGHT` AND `pfr < PFR_LOOSE` (the second clause is
+  the defense-against-false-positives — tight-passive players
+  fold to steals; tight-aggressive players 3-bet back).
 - At least one player left to act behind hero is the BB or SB.
-- Players-behind have high fold-to-3-bet or generally tight VPIP.
 
 Action:
 
-- Compute "steal opportunity" intensity from players-left-to-act spots
-  only. Folded players, players already all-in, and players who have
-  already acted on this street are excluded from this rule's input.
+- Compute "steal opportunity" intensity from players-left-to-act
+  spots only. Folded players, players already all-in, and players
+  who have already acted on this street are excluded from this
+  rule's input.
 - Net offset: increase raise_* probability proportional to intensity,
-  weighted heavier when blinds are tight.
+  weighted heavier when blinds meet the tight-AND-passive filter.
+- **Conservative v1 magnitude**: cap the net offset at `0.15` (half
+  of `value_vs_station`'s `0.30`) until validation supports more.
+  The proxy is weak; the magnitude reflects that uncertainty.
 
 Important constraints:
 
@@ -302,6 +338,9 @@ Important constraints:
 - The folded-player exclusion is critical — if `Player1` already
   folded preflop this hand, their tendency shouldn't contribute to
   hero's stealing decision against Players 2/3.
+- The PFR upper-bound clause (`pfr < PFR_LOOSE`) is what prevents
+  steals into TAG defenders. If we later add `fold_to_3bet`, the
+  PFR proxy can relax.
 
 ### `can_act_behind` and `has_position_on_hero` (6.7a deferred fields)
 
@@ -309,13 +348,31 @@ Important constraints:
 fields, but 6.7a leaves them at `False` (the steal rule wasn't yet
 defined). Phase 8 populates them in `_build_opponent_spots`:
 
-- `can_act_behind`: True when the opponent has not yet acted on the
-  current betting round AND has not folded. Requires the controller
-  to know seat order and whose turn has come. Today this can be
-  derived from `game_state.current_player_idx` and seat traversal.
+- `can_act_behind`: True when the opponent **has not yet acted on the
+  current betting round** AND has not folded. **Preflop action order
+  is NOT seat order** — blinds act last (UTG → ... → BTN → SB → BB
+  in 6-max); after a raise, action continues from the seat to the
+  left of the raiser, with the raiser themselves locked out of
+  acting again unless re-raised. **Use the state machine's action
+  queue, not seat traversal.** Concretely: derive from
+  `game_state.has_acted_this_round` (or equivalent — verify against
+  `poker.poker_state_machine` for the canonical "who's left to act"
+  signal) plus the live `current_player_idx`. Do not assume
+  `idx > hero_idx` means "acts behind preflop" — that breaks for
+  blind seats.
 - `has_position_on_hero`: already populated for postflop position
-  signals; the steal rule uses the preflop variant (player_idx > hero
-  on the action order).
+  signals. For postflop, position is straight seat order from the
+  button. For preflop, the steal rule cares about action-order
+  position (who will act after hero in this round), which is what
+  `can_act_behind` captures. Keep `has_position_on_hero` as the
+  postflop-relevant flag; the steal rule reads `can_act_behind`
+  for its preflop-specific semantics.
+- **Verification test required**: after implementing
+  `can_act_behind`, add a test that walks through a 6-max preflop
+  round (BTN raises, SB and BB still to act) and asserts that BTN's
+  spot has `can_act_behind=False` while SB and BB have
+  `can_act_behind=True`. The seat-traversal-naive implementation
+  would get this wrong.
 
 ## Playstyle classification
 
@@ -324,9 +381,14 @@ returns one of `'nit'`, `'rock'`, `'tag'`, `'lag'`, `'maniac'`,
 `'baseline'`, `'calling_station'`).
 
 ```python
-VALUE_VS_STATION_PLAYSTYLES = frozenset({'nit', 'rock', 'tag', 'calling_station'})
+VALUE_VS_STATION_PLAYSTYLES = frozenset({'nit', 'rock', 'tag'})
 STEAL_PRESSURE_PLAYSTYLES   = frozenset({'lag', 'maniac'})
-# Baseline / unknown: configurable, default to value_vs_station.
+# Baseline / calling_station / unknown: neither rule enabled in v1.
+# - Baseline: pure-chart reference, no exploitation by design.
+# - Calling Station hero: archetype itself is a station; the value
+#   extraction the rule provides requires a sizing model the
+#   archetype's chart doesn't have. Defer until sizing-aware
+#   exploitation lands (Phase 7.5 sizing work or later).
 ```
 
 Rule activation logic:
@@ -361,37 +423,154 @@ This makes it easy to see "Nit had 200 steal opportunities but the
 playstyle gate suppressed them" vs "TAG fired value_vs_station 30
 times this run."
 
+## Architecture
+
+Phase 8 follows the **Phase 6.7b Part A pattern** that's already
+proven in the codebase: the pure offset function stays pure, the
+controller pre-computes scalar intensities from spots + archetype +
+hand strength, then passes those scalars into
+`compute_exploitation_offsets`. **The function signature gains two
+new scalar parameters** (`value_vs_station_intensity`,
+`steal_pressure_intensity`) — not new collection-typed inputs.
+
+### Where Phase 8 runs in the controller pipeline
+
+Today's pipeline (`tiered_bot_controller._get_postflop_decision`):
+
+```
+chart → personality → exploitation → value_override → short_stack → math_floor
+                       └─ Phase 8 fires HERE, inside _apply_exploitation
+```
+
+`value_vs_station` is an offset-shaped rule (frequency shift, not
+strategy replacement), so it lives in the exploitation step
+alongside the existing patterns and multiway c-bet. It does NOT
+displace Phase 6.5's value override — that still runs after
+exploitation and is mutually exclusive at the per-decision level
+(see Risk #3).
+
+### Controller-side intensity computation
+
+The controller knows things `compute_exploitation_offsets` cannot:
+- Hero's hand strength (via `_classify_postflop_hand_strength` and
+  `_classify_preflop_hand_strength`)
+- Hero's archetype (`self.archetype_name`)
+- All opponent spots (`_build_opponent_spots`)
+- The action queue (for `can_act_behind`)
+
+The controller computes the family intensities BEFORE calling
+`compute_exploitation_offsets`. Pseudocode:
+
+```python
+# Inside _apply_exploitation, after spots are built:
+hand_strength = self._classify_postflop_hand_strength(node)
+archetype = self.archetype_name
+
+value_vs_station_intensity = 0.0
+if (
+    is_value_vs_station_enabled(archetype)
+    and hand_strength in {HandStrengthClass.STRONG_MADE,
+                          HandStrengthClass.NUTS}
+    and decision_context.call_amount == 0
+    and decision_context.has_bet_or_raise_legal
+):
+    value_vs_station_intensity = compute_value_vs_station_intensity(spots)
+
+steal_pressure_intensity = 0.0
+if (
+    is_steal_pressure_enabled(archetype)
+    and decision_context.is_preflop
+    and decision_context.is_open_spot
+):
+    steal_pressure_intensity = compute_steal_pressure_intensity(
+        spots, hero_position=...,
+    )
+
+offsets = compute_exploitation_offsets(
+    stats=stats, ...,
+    multiway_cbet_intensity=multiway_cbet_intensity,
+    value_vs_station_intensity=value_vs_station_intensity,
+    steal_pressure_intensity=steal_pressure_intensity,
+)
+```
+
+Inside `compute_exploitation_offsets`, the new branches mirror the
+multiway c-bet shape:
+
+```python
+if value_vs_station_intensity > 0.0:
+    scale = multiplier * value_vs_station_intensity
+    for action in available_actions:
+        if action.startswith('bet_'):
+            offsets[action] = offsets.get(action, 0.0) + 0.3 * scale
+    if 'check' in available_actions:
+        offsets['check'] = offsets.get('check', 0.0) - 0.15 * scale
+```
+
+This keeps `compute_exploitation_offsets` referentially transparent
+and unit-testable in isolation, matching the pattern from Phase 6.7b
+Part A.
+
 ## Migration plan
 
-1. Define detection helpers (`is_value_vs_station_spot`,
-   `is_steal_pressure_spot`) as pure functions on
-   `(spots, decision_context, hero_archetype)`. No behavior change.
-2. Define offset functions for each family. Plug them into
-   `compute_exploitation_offsets` as new branches, gated on the
-   archetype-specific activation predicate.
-3. Populate `OpponentSpot.can_act_behind` from the controller. Verify
-   it agrees with the existing action-order logic.
-4. Validation: run 6-max vs rule mix at multiple `adaptation_bias`
-   values, confirm firing rates match expectation per archetype, no
-   regression in spot-aware diagnostics.
-5. After validation, decide whether to swap the active family for any
-   archetype based on observed bb/100 impact. The plan starts with
-   the conservative defaults above.
+1. Add `compute_value_vs_station_intensity(spots) -> float` and
+   `compute_steal_pressure_intensity(spots, hero_position) -> float`
+   as pure functions in `poker/strategy/exploitation.py`. No behavior
+   change yet — these are unused until step 4.
+2. Extend `compute_exploitation_offsets` signature with two new
+   optional scalar parameters (`value_vs_station_intensity=0.0`,
+   `steal_pressure_intensity=0.0`). Add the two new branches inside.
+   Existing call sites unaffected.
+3. Add `is_value_vs_station_enabled(archetype)` and
+   `is_steal_pressure_enabled(archetype)` pure helpers (frozenset
+   lookups).
+4. Update `tiered_bot_controller._apply_exploitation` to compute the
+   two new intensities from spots + hand strength + archetype, then
+   thread them through to `compute_exploitation_offsets`.
+5. Populate `OpponentSpot.can_act_behind` correctly (see Risk #5
+   below — preflop action order is not seat order).
+6. Validation: run 6-max vs rule mix at multiple `adaptation_bias`
+   values + the 3-seed CaseBot-heavy mix. Confirm firing rates match
+   expectation per archetype, no regression in spot-aware diagnostics.
+7. After validation, decide whether to enable Phase 8.1 (hyper_passive
+   fold-mass suppression) based on observed CaseBot drain. See
+   "Risks / known interactions" for the gate.
 
 ## Tests
 
-- Detection: `value_vs_station` detection on (station active, foldy
-  inactive, tight caller, mixed); `steal_pressure` detection on
-  (blinds left to act behind, players already folded excluded,
-  hero-facing-bet suppression).
-- Offset shape: each family produces the right action direction
-  (value-bet increases bet_* in value spots; steal increases raise_*
-  in open spots).
-- Gating: for each playstyle bucket, verify the right family fires
-  and the other family stays diagnostic-only.
-- `can_act_behind` derivation: action order respected, folded players
-  excluded, players who have already acted in the current round
-  excluded.
+- **Pure-function intensity helpers** (in
+  `tests/test_strategy/test_opponent_spots.py` or a new
+  `test_phase_8.py`):
+  - `compute_value_vs_station_intensity(spots)` returns 0 when no
+    opponent matches, max-of-station-intensities when one matches,
+    dampened by tightest opponent when a tight player is also active.
+  - `compute_steal_pressure_intensity(spots, hero_position)` returns
+    0 when no eligible player is left to act, scales with blind
+    tightness, **returns 0 when any player-behind has high PFR**
+    (the false-steal guard).
+- **Hand-strength gate** (controller-level): `value_vs_station`
+  intensity is 0 when hand_strength is `medium_made` / `weak_made` /
+  `air`. The empirical insight (existing exploit machinery spews on
+  weak hands) demands this test exist before the feature ships.
+- **`compute_exploitation_offsets` integration**: with the new scalar
+  parameters non-zero, offsets land on the expected actions (bet_*
+  positive, check negative for value_vs_station; raise_* positive
+  for steal_pressure). With both zero, behavior is byte-identical
+  to today.
+- **Playstyle gating**: for each archetype bucket, verify the right
+  family fires and the other stays diagnostic-only.
+  `value_vs_station_fired_lag` should always be 0 by construction;
+  `steal_pressure_fired_nit` should always be 0.
+- **`can_act_behind` preflop semantics** (the seat-order-naive
+  pitfall): walk through a 6-max preflop round (UTG folds, MP folds,
+  CO folds, BTN raises). Verify SB and BB have `can_act_behind=True`,
+  BTN has `can_act_behind=False`. Then BB 3-bets — verify only BTN
+  has `can_act_behind=True` (action is on BTN to call/fold/raise).
+- **6.5 / 8 mutual exclusivity**: when both rules' gates pass on the
+  same decision, only one path executes (Phase 6.5 wins because it
+  runs first; Phase 8 sees the replaced strategy and short-circuits).
+- **No regression**: full Phase 6.7a + Phase 6.7b Part A test suite
+  passes unchanged with both new intensities at 0.
 
 ## Validation
 
@@ -494,13 +673,14 @@ Expected total: 4–5 days.
 
 ## Open questions
 
-- Should `Calling Station` archetype get `value_vs_station` or its
-  own behavior? Listed with conservative styles for now because it
-  shouldn't be pressured into steals, but its passive call tendency
-  means it can't drive value bets without a sizing model.
 - Should the playstyle gate be configurable per experiment (e.g.
   enable both rule families for `Baseline` to A/B test outcomes)?
   Probably yes for validation, default off in production.
 - Sizing tier selection for value bets is deferred. When does it
   become important enough to add — after 6-max regression evidence,
   or only if Phase 7.5's sizing work doesn't already address it?
+- Phase 8.2 scope: when do we add `fold_to_open` /
+  `fold_to_3bet` counters to `OpponentTendencies`? They require
+  new hand-level state in `MemoryManager` (track preflop opens by
+  seat, attribute defending responses). Cost is moderate; payoff
+  is making `steal_pressure` exit "tightness-proxy v1" status.
