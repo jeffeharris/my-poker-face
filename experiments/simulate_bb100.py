@@ -122,6 +122,13 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'abc',
     },
+    # FoldyBot: c-bet exploit validation target. Calls wide preflop,
+    # folds tight to flop pressure. See _strategy_foldy in
+    # poker/rule_based_controller.py for full semantics.
+    'FoldyBot': {
+        'kind': 'rule_bot',
+        'strategy': 'foldy',
+    },
     'CaseBot': {
         'kind': 'rule_bot',
         'strategy': 'case_based',

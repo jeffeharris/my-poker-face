@@ -149,6 +149,47 @@ def _strategy_abc(context: Dict) -> Dict:
     return {'action': 'fold', 'raise_to': 0}
 
 
+def _strategy_foldy(context: Dict) -> Dict:
+    """
+    Loose preflop, tight postflop — the classic c-bet exploit target.
+
+    Designed as a validation fixture for Phase 6.6 HU c-bet exploitation
+    and Phase 6.7b Part A multiway c-bet: high fold_to_cbet rate while
+    still seeing flops, so the detection threshold (fold_to_cbet > 0.60
+    AND cbet_faced_count >= 5) can actually trip.
+
+    Behavior:
+      - Free postflop → check.
+      - Preflop facing ≤ 2BB → call wide (any hand).
+      - Preflop facing > 2BB → fold.
+      - Postflop facing a bet → fold unless equity >= 0.75 (strong made
+        hand). No raises ever.
+
+    Net stats vs typical opens: VPIP high (~0.50-0.80 depending on
+    sizing distribution), PFR ~0, fold_to_cbet ~0.70-0.85.
+    """
+    cost_to_call = context['cost_to_call']
+    phase = context.get('phase', 'PRE_FLOP')
+    equity = context.get('equity', 0.5)
+    big_blind = context.get('big_blind', 100) or 100
+
+    if cost_to_call == 0:
+        return {'action': 'check', 'raise_to': 0}
+
+    if phase == 'PRE_FLOP':
+        # Call cheaply, fold to anything larger than a 2bb open.
+        if cost_to_call <= 2 * big_blind:
+            if 'call' in context['valid_actions']:
+                return {'action': 'call', 'raise_to': 0}
+        return {'action': 'fold', 'raise_to': 0}
+
+    # Postflop facing a bet — fold unless strong made hand.
+    if equity >= 0.75:
+        if 'call' in context['valid_actions']:
+            return {'action': 'call', 'raise_to': 0}
+    return {'action': 'fold', 'raise_to': 0}
+
+
 def _strategy_position_aware(context: Dict) -> Dict:
     """
     Position-based strategy:
@@ -507,6 +548,7 @@ BUILT_IN_STRATEGIES = {
     'always_raise': _strategy_always_raise,
     'always_all_in': _strategy_always_all_in,
     'abc': _strategy_abc,
+    'foldy': _strategy_foldy,
     'position_aware': _strategy_position_aware,
     'pot_odds_robot': _strategy_pot_odds_robot,
     'maniac': _strategy_maniac,
@@ -988,6 +1030,7 @@ CHAOS_BOTS = {
     'always_raise': RuleConfig(strategy='always_raise', name='AggBot'),
     'always_all_in': RuleConfig(strategy='always_all_in', name='YOLOBot'),
     'abc': RuleConfig(strategy='abc', name='ABCBot'),
+    'foldy': RuleConfig(strategy='foldy', name='FoldyBot'),
     'position_aware': RuleConfig(strategy='position_aware', name='PositionBot'),
     'pot_odds_robot': RuleConfig(strategy='pot_odds_robot', name='GTO-Lite'),
     'maniac': RuleConfig(strategy='maniac', name='ManiacBot'),
