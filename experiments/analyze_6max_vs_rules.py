@@ -108,17 +108,19 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
                     hand_number=hand_number,
                 )
 
+        new_gs = play_turn(gs, action, raise_to)
+
         # Phase 6.6: track the last accepted preflop aggressor on the
-        # hero's controller for HU c-bet exploit gating. Matches
-        # MemoryManager.on_action's ('raise', 'all_in') condition.
+        # hero's controller for HU c-bet exploit gating. Matches the
+        # production MemoryManager.on_action path — set only after
+        # play_turn() has validated the action so we don't record
+        # controller intent that the engine rejected.
         if (
             phase == 'PRE_FLOP'
             and action in ('raise', 'all_in')
             and hero_controller is not None
         ):
             hero_controller._sim_last_preflop_aggressor = cur.name
-
-        new_gs = play_turn(gs, action, raise_to)
         advanced = advance_to_next_active_player(new_gs)
         sm.game_state = advanced if advanced is not None else new_gs
 

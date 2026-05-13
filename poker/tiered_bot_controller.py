@@ -735,13 +735,23 @@ class TieredBotController(AIPlayerController):
         for pattern in patterns_this_decision:
             c[f'detected_{pattern}'] += 1
 
-        # Phase 6.6: c-bet fire detection. The c-bet rule contributes
-        # 'bet_*' and 'check' offsets when active, so look for either.
-        if 'high_fold_to_cbet' in patterns_this_decision and offsets:
+        # Phase 6.6: c-bet fire detection. The c-bet rule is the only
+        # source of bet_*/check offsets when ALL of these hold:
+        # is_flop_as_preflop_aggressor + active_opponent_count == 1 +
+        # high_fold_to_cbet pattern detected. Other rules (hyper_passive,
+        # tight_nit) can emit bet_* offsets too, so we must replicate the
+        # full c-bet rule gate to avoid overcounting in multiway spots
+        # where a different pattern produced the bet_* offset.
+        if (
+            'high_fold_to_cbet' in patterns_this_decision
+            and offsets
+            and decision_context.is_flop_as_preflop_aggressor
+            and decision_context.active_opponent_count == 1
+        ):
             cbet_fired = any(
                 a.startswith('bet_') or a == 'check' for a in offsets
             )
-            if cbet_fired and decision_context.is_flop_as_preflop_aggressor:
+            if cbet_fired:
                 c['fired_high_fold_to_cbet'] += 1
 
         if offsets:

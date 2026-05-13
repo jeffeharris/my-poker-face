@@ -360,19 +360,19 @@ def run_hand(
                 hand_number=hand_number,
             )
 
+        # play_turn expects raise_to as absolute amount for 'raise' action
+        new_gs = play_turn(gs, action, raise_to)
+
         # Phase 6.6: track last accepted preflop aggressor on hero's
-        # controller. Matches MemoryManager.on_action's gating —
-        # ('raise', 'all_in') from any player on PRE_FLOP transfers
-        # aggression to that player.
+        # controller. Set after play_turn() so we mirror MemoryManager
+        # .on_action's "accepted action" semantics — controller intent
+        # that the engine rejects should not change the c-bet aggressor.
         if (
             phase_name == 'PRE_FLOP'
             and action in ('raise', 'all_in')
             and hero_controller is not None
         ):
             hero_controller._sim_last_preflop_aggressor = current_player.name
-
-        # play_turn expects raise_to as absolute amount for 'raise' action
-        new_gs = play_turn(gs, action, raise_to)
         advanced = advance_to_next_active_player(new_gs)
         sm.game_state = advanced if advanced is not None else new_gs
 
