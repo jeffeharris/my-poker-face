@@ -47,12 +47,19 @@ Coordination notes:
   hyper_aggressive intensity from 6.6 is still zero (its ramp starts at
   AF=5), so MEDIUM clamp permits movement that intensity gates to zero —
   expected behavior, but worth verifying.
-- **`all_in_per_facing_bet` replaces `all_in_frequency` semantically.**
-  Phase 6.6's hyper_aggressive ramp still reads `all_in_frequency` (per-hand).
-  When this plan ships, migrate 6.6's ramp threshold (`0.30 → 0.70`) onto
-  `all_in_per_facing_bet` and recalibrate, since the denominator is now
-  facing-bet opportunities (not hands). Add this migration to the Step 0
-  calibration table output so the new threshold value is data-driven.
+- **`all_in_per_facing_bet` + `postflop_jam_open_rate` together replace
+  `all_in_frequency` semantically.** Phase 6.6's hyper_aggressive ramp
+  still reads `all_in_frequency` (per-hand). When this plan ships, the
+  6.6 ramp migrates to the combined signal:
+  - `all_in_per_facing_bet` = response-aggression axis (jams when
+    facing a bet)
+  - `postflop_jam_open_rate` = open-aggression axis (first-in jams /
+    overbet shoves when first to act postflop)
+  A maniac who first-in-jams every flop has
+  `all_in_per_facing_bet = 0` because they never faced a bet — the
+  open-rate axis catches them. Both signals are included in the
+  signal-OR test for tier classification (§Item 2). Step 0 calibration
+  measures both distributions so the new thresholds are data-driven.
 - **AF raw-count fallback cap** (this plan's Step 0 change to
   `OpponentTendencies._recalculate_stats`) pins hyper_aggressive AF at
   `MEDIUM_AF_THRESHOLD` for opponents with zero calls observed. Phase 6.6's
@@ -189,15 +196,23 @@ validate combined.
 
 ```
 Step 0: Instrumentation + opportunity-norm stats + config loader
-        (1.5 days, ships first, NO behavior change)
+        (1.5 days, ships first, behavior-neutral within noise)
+        — adds new fields and counters; legacy AF formula untouched.
+        Confirm 6-max regression test passes after Step 0 lands
+        (no archetype regresses > 5 bb/100). See "Step 0 behavior
+        check" in Validation.
    ↓
-Step 0.5: Run one Phase-7-baseline sweep with instrumentation on
-          to produce the calibration table (no behavior change)
+Step 0.5: Run Phase-7-baseline sweep with instrumentation on
+          to produce the calibration table. Sweep also produces
+          the seed-matched Phase 7 baseline logs that Step 4
+          validation will compare against.
    ↓
         ← UPDATE phase_7_5_config.yaml from calibration data ←
    ↓
-Item 2: Three-tier exploitation clamp (0.75 day) — uses calibrated
-        thresholds, not placeholders
+Item 2: Three-tier exploitation clamp + legacy AF raw-count cap
+        (0.75 day) — uses calibrated thresholds; AF cap intentionally
+        lands here, not in Step 0, so the (minor) behavior shift
+        ships with the intentional Item 2 changes.
    ↓ (smoke-test against GTO-Lite to confirm no false fires)
 Item 1: Bluff-catch override w/ pot-odds + board-danger dampener
         (1.5 days) — gated on Item 2's EXTREME tier
@@ -258,14 +273,24 @@ specified to avoid the ambiguity that motivated the round-2 review.**
 
 | Stat | Numerator | Denominator |
 |---|---|---|
-| `all_in_per_facing_bet` | All-in raises by opponent | Times opponent faced a bet from someone (i.e. had `fold/call/raise` to choose from) |
+| `all_in_per_facing_bet` | All-in raises by opponent when facing a bet | Times opponent faced a bet (had `fold/call/raise` available) — **response-aggression axis** |
+| `postflop_jam_open_rate` | Postflop all-in opens (first-in jam, overbet shove when first to act on a street) | Postflop opportunities where opponent was first-to-act on a street — **open-aggression axis** |
 | `aggression_factor_postflop` | (bet + raise + all-in) on flop/turn/river | calls on flop/turn/river |
 | `facing_bet_opportunities` | — | Count of opponent's decisions where `fold` was an option |
+| `postflop_open_opportunities` | — | Count of opponent's first-to-act postflop spots |
 | `betting_decisions_postflop` | — | Total postflop fold/check/call/raise/all-in by opponent |
 
 Preflop all-ins and preflop AF still computed (used elsewhere), but
 the **tier-classification logic uses postflop-only signals** to avoid
 the pollution Codex flagged.
+
+The two all-in axes (`all_in_per_facing_bet` and
+`postflop_jam_open_rate`) measure different facets of the same trait.
+Real maniacs may show up on either or both. The tier classification
+treats them as alternatives — if either crosses its threshold, the
+signal-OR test passes. A reviewer correctly flagged that a
+response-only stat would miss first-in jammers; the two-axis design
+fixes this.
 
 ### Confidence-decay / tier ratchet-down
 
@@ -407,10 +432,14 @@ signal_thresholds:
   # the postflop-bluff-frequency signal we're trying to read.
   medium_af_postflop:     4.0
   extreme_af_postflop:    6.0
-  # all-ins per facing-bet opportunity (NOT per hand, NOT per
-  # decision — see Stat-definition glossary above).
+  # Response-aggression axis: all-ins per facing-bet opportunity.
   medium_all_in_per_facing_bet:  0.15
   extreme_all_in_per_facing_bet: 0.30
+  # Open-aggression axis: first-in jams / overbet shoves per
+  # postflop open opportunity. Catches the first-in-jammer maniac
+  # whose all_in_per_facing_bet is 0 (they never face a bet).
+  medium_postflop_jam_open_rate:  0.10
+  extreme_postflop_jam_open_rate: 0.20
 
 tier_decay:
   # Recent-window-based ratchet-down. See Confidence-decay section.
@@ -442,16 +471,22 @@ def _determine_clamp(
        return EXTREME tier immediately (validation accelerator).
     2. Otherwise classify cumulative stats:
        - Sample axis: facing_bet_opportunities meets threshold
-         (REQUIRED — no signal without enough samples).
-       - Signal axis: af_postflop meets threshold OR
-         all_in_per_facing_bet meets threshold (EITHER one
-         qualifies). Rationale: a maniac who bets/raises constantly
-         but rarely jams is still extreme; requiring both stats to
-         cross would miss this case. The two signals are different
-         expressions of the same trait; require sample, allow either
-         signal.
+         (REQUIRED — no signal without enough samples). Use
+         postflop_open_opportunities as a fallback sample gate
+         when the opponent is the type that mostly opens rather
+         than faces bets.
+       - Signal axis: ANY of these crosses its threshold qualifies
+         the tier:
+           a. af_postflop ≥ tier threshold
+           b. all_in_per_facing_bet ≥ tier threshold (response-jamming)
+           c. postflop_jam_open_rate ≥ tier threshold (open-jamming)
+         Rationale: these three stats are different expressions of
+         the same trait (willingness to put chips in without strong
+         holdings). Real maniacs vary in HOW they express it — some
+         raise constantly, some respond-jam, some first-in-jam.
+         Sample is required; any signal axis qualifies.
        - For tier classification: pick the HIGHEST tier whose sample
-         threshold is met AND whose either-signal test passes.
+         threshold is met AND whose any-signal test passes.
     3. If recent_stats supplied AND recent window has enough samples
        (≥ tier_decay.require_recent_window_full), cap the cumulative
        tier at the recent-window tier — so opponent behavior shifts
@@ -461,15 +496,18 @@ def _determine_clamp(
     """
 ```
 
-**AND vs OR rationale**: an earlier draft used AND on both signal
-axes — a Codex reviewer flagged that this would miss common maniacs
-who raise constantly but rarely jam (high `af_postflop`, modest
-`all_in_per_facing_bet`). Both stats measure the same underlying
-trait (willingness to put chips in without strong holdings); either
-crossing its threshold is sufficient evidence given enough sample.
-Sample size remains required (no signal from 5 hands), but the two
-signals are now treated as **alternative evidence**, not joint
-requirements.
+**AND vs OR rationale**: an earlier draft used AND on the AF and
+all-in signal axes — a reviewer flagged that this would miss common
+maniacs who raise constantly but rarely jam. Subsequent review also
+flagged that the original `all_in_per_facing_bet` only captured
+response-jamming, missing first-in jammers. The current design uses
+THREE signal axes (af_postflop, all_in_per_facing_bet,
+postflop_jam_open_rate), all combined via OR. Each is a different
+expression of the same trait; any one crossing threshold qualifies
+given sufficient sample. The sample axis is the only hard requirement
+(no signal from 5 hands), and we accept either facing-bet samples
+OR postflop-open samples for it (an opponent who only ever opens
+should be classifiable by their open behavior).
 
 ### Opportunity-normalization (addresses Codex's biggest concern)
 
@@ -506,7 +544,7 @@ Phase 6.6's hyper_aggressive ramp still reads it. When Phase 7.5
 ships, the 6.6 ramp threshold should migrate from `all_in_frequency`
 to `all_in_per_facing_bet` (see Sequencing notes at top of file).
 
-### AF raw-count fallback edge case
+### AF raw-count fallback edge case — moved to Item 2 (was Step 0)
 
 Today: when `_call_count == 0` and `_bet_raise_count > 0`, AF falls
 back to `_bet_raise_count` (raw count, not a ratio). This breaks the
@@ -514,12 +552,24 @@ back to `_bet_raise_count` (raw count, not a ratio). This breaks the
 10 hands gets AF=6, indistinguishable from a player with 60 raises
 and 10 calls (a real maniac).
 
-**Required Step 0 change**: when call_count is 0 but bet_raise_count >
-0, return a **conservative** AF that doesn't trigger extreme tiers
-without enough calls. Simplest fix:
+**A reviewer correctly flagged: capping this fallback in Step 0
+would change behavior immediately**, because
+`classify_detected_patterns()` (used by today's exploitation and
+strong-hand value override) consumes the field. To preserve Step 0's
+"no behavior change" property, the cap is **moved to Item 2's ship**.
+
+Step 0 ADDS the new postflop-only AF stat
+(`aggression_factor_postflop`) but leaves the existing
+`aggression_factor` formula untouched. Item 2's commit cuts over to
+the new postflop AF for tier classification AND applies the
+raw-count cap to the legacy `aggression_factor` in the same change,
+so any behavior shift from the cap lands together with the
+intentional new behavior from Items 1+2.
+
+Implementation in Item 2 commit:
 
 ```python
-# In _recalculate_stats:
+# In OpponentTendencies._recalculate_stats — landed with Item 2
 if self._call_count == 0:
     if self._bet_raise_count == 0:
         self.aggression_factor = 1.0
@@ -534,9 +584,17 @@ else:
     self.aggression_factor = self._bet_raise_count / self._call_count
 ```
 
-The downstream tiering then correctly says "this opponent might be
-extreme, but we don't have call samples to confirm — stay at MEDIUM
-clamp."
+The new `aggression_factor_postflop` field (Step 0) has the same cap
+logic from day one — there's no legacy consumer to protect, so no
+deferral needed.
+
+### Why three tiers instead of binary
+
+Codex flagged 0.4 → 0.8 as too large a single-step permission change.
+0.6 mid-tier gives us a soft landing — if the bot starts mis-firing
+behavior, we see it at MEDIUM before going to EXTREME, and we can
+adjust the thresholds for the higher tier without losing all the
+adjustment.
 
 ### Why three tiers instead of binary
 
@@ -587,10 +645,12 @@ def _bluff_catch_call_probability(
     street, and board texture.
 
     Pot-odds for calling: required_equity = bet / (pot + 2*bet)
-      - 1/3 pot bet → need 17% equity
-      - pot-size bet → need 25% equity
-      - 2x pot bet  → need 29% equity
-      - jam (assume 3x pot) → need ~33% equity
+    where `pot` is the pot BEFORE opponent's bet.
+      - 1/3 pot bet → need 20% equity (0.33 / 1.66)
+      - 1/2 pot bet → need 25% equity (0.50 / 2.00)
+      - pot-size bet → need 33% equity (1.0 / 3.0)
+      - 2x pot bet  → need 40% equity (2.0 / 5.0)
+      - jam (assume 3x pot) → need ~43% equity (3.0 / 7.0)
 
     Equity estimates (rough — see note below):
       - medium_made vs wide c-bet range: ~55%
@@ -601,11 +661,21 @@ def _bluff_catch_call_probability(
     bets on dangerous boards.
 
     Note on equity numbers: 55% / 35% are coarse poker-theory
-    averages. The function is BEHAVIORAL — it's saying "stop
-    overfolding versus confirmed over-aggression in spots where our
-    bluff-catcher likely has equity" — not a literal equity
-    calculation. Board-danger dampener is the safety net for spots
-    where the equity assumption breaks down (four-flush rivers, etc.).
+    averages and likely OVERSTATE equity in many real spots (vs an
+    aggressor's actual range that includes some value). The function
+    is BEHAVIORAL — it's saying "stop overfolding versus confirmed
+    over-aggression in spots where our bluff-catcher likely has
+    equity" — not a literal equity calculation. Board-danger dampener
+    is the safety net for spots where the equity assumption breaks
+    down. Step 0 instrumentation collects showdown data that can
+    refine these numbers in a future calibration pass.
+
+    Sanity check using corrected pot-odds: weak_made at 35% equity
+    facing a 0.67-pot bet (28% required) is only marginally +EV at
+    raw odds, so the base call rate of 0.40 is the right order of
+    magnitude — the dampener can push it lower on dangerous boards.
+    medium_made at 55% equity facing a 2x-pot bet (40% required) is
+    still positive at raw odds, so 0.50 base × dampener is defensible.
     """
     # Base call probability from pot-odds × hand class
     base = _base_call_prob(hand_strength, bet_size_pot_ratio)
@@ -884,7 +954,27 @@ are entangled.
 
 ### Primary sweep: HU vs ManiacBot
 
+**The matched-seed gate requires baseline AND candidate runs at the
+same seeds.** Only seed 42 was captured during Phase 7 validation;
+seeds 142 and 242 are missing. Step 0.5 (the calibration sweep)
+should be configured to use the same seed set, providing the
+matched-seed Phase 7 baseline as a side effect. Concretely:
+
 ```bash
+# Step 0.5: Phase 7 baseline at seeds 142, 242 (seed 42 already in
+# /tmp/phase7_hu/seed42_bias05.log from the original Phase 7 sweep).
+# Run BEFORE Items 1+2 ship (i.e. immediately after Step 0 lands).
+mkdir -p /tmp/phase7_baseline
+for seed in 142 242; do
+  docker exec my-poker-face-hybrid-ai-backend-1 \
+    python -m experiments.simulate_bb100 \
+    --hands 2000 --seed $seed --opponent ManiacBot --adaptation-bias 0.05 \
+    > /tmp/phase7_baseline/maniac_seed${seed}.log 2>&1 &
+done
+wait
+
+# Step 4 candidate sweep (after Items 1+2 ship): same seed set.
+mkdir -p /tmp/phase7_5
 for seed in 42 142 242; do
   docker exec my-poker-face-hybrid-ai-backend-1 \
     python -m experiments.simulate_bb100 \
@@ -893,6 +983,18 @@ for seed in 42 142 242; do
 done
 wait
 ```
+
+Analysis script consumes both directories:
+
+```bash
+python -m experiments.analyze_adjustment_firings \
+  --baseline-dir /tmp/phase7_baseline \
+  --candidate-dir /tmp/phase7_5 \
+  --baseline-seed42 /tmp/phase7_hu/seed42_bias05.log
+```
+
+The script pairs seeds across directories, computes `Δ_i` per
+archetype, and emits the per-street + per-archetype delta table.
 
 **Gates (matched-seed delta, directional, not delta-committed):**
 
@@ -956,6 +1058,27 @@ docker exec my-poker-face-hybrid-ai-backend-1 \
 - Bluff-catch override firing rate < 5% (instrumented).
 - Extreme clamp tier firing rate < 5% (instrumented).
 
+### Step 0 behavior check (run after Step 0 lands, before Step 0.5)
+
+Step 0 ADDS new fields and counters but does not change the legacy
+`aggression_factor` formula — so behavior should be neutral within
+noise. Confirm before proceeding to Step 0.5:
+
+```bash
+docker compose exec backend python -m pytest tests/test_strategy/ -q
+# All existing tests must pass.
+
+docker exec my-poker-face-hybrid-ai-backend-1 \
+  python -m experiments.simulate_bb100 \
+  --hands 2000 --seed 42 --opponent ManiacBot --adaptation-bias 0.05
+# Each archetype's bb/100 must match the Phase 7 baseline within
+# ±5 bb/100. Larger deviations indicate Step 0 unintentionally
+# changed behavior — investigate before proceeding.
+```
+
+The AF raw-count cap (which DOES change behavior) lives in Item 2,
+not Step 0, exactly to keep this check clean.
+
 ### 6-max regression: 6-max-vs-rules
 
 Re-run the 6-max-vs-rules harness and verify no archetype regresses
@@ -1006,11 +1129,14 @@ tighten before retesting.
    made` spots identically. Step 0's diagnostic log catches the
    residual leaks.
 
-6. **Threshold calibration**: the AF/all-in/sample thresholds in
-   Item 2 are placeholders. Step 0 instrumentation will tell us
-   where ManiacBot actually lands (AF distribution, all-in-per-dec
-   distribution). Final thresholds calibrated *after* Step 0 ships
-   and runs once, *before* Items 1+2 ship.
+6. **Threshold calibration**: the AF/all-in/jam-open/sample
+   thresholds in Item 2 are placeholders. Step 0 instrumentation
+   will tell us where ManiacBot actually lands (AF_postflop
+   distribution, all_in_per_facing_bet distribution,
+   postflop_jam_open_rate distribution, facing_bet_opportunities
+   and postflop_open_opportunities counts). Final thresholds
+   calibrated *after* Step 0 ships and runs once, *before* Items 1+2
+   ship.
 
 ## Effort estimate (v3, after Codex round 2)
 
