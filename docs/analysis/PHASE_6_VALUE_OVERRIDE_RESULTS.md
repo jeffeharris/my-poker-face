@@ -2,7 +2,7 @@
 purpose: Validation results for Phase 6 (exploitation offsets) + Phase 6.5 (strong-hand value override)
 type: analysis
 created: 2026-05-13
-last_updated: 2026-05-13T04:00:00
+last_updated: 2026-05-13T13:00:00
 ---
 
 # Phase 6 + 6.5 Validation Results
@@ -267,3 +267,55 @@ Before: AI archetypes were -190 bb/100 baseline losers. After: -90 to
 -135 depending on archetype. Still net-losing HU, but ~30-50% less
 bad. Combined with the 6-max-vs-rules result (net positive), the
 overall product concern is well-mitigated.
+
+## Phase 6 Step B validation: short-stack heuristic
+
+The original Phase 6 plan included a depth-aware action shaping step
+(Step B) that was deferred when exploitation/override shipped. Step B
+just landed (commit `848f25c7`) — `poker/strategy/short_stack.py`.
+
+### What it does
+
+Suppresses medium-raise probability mass linearly from 0% at 20 BB
+to 100% at 10 BB effective stack. Suppressed mass redistributes to
+`jam` (if `all_in` is legal) or `fold` (fallback). At 12 BB depth we
+suppress 80% of medium-raise mass; at 15 BB, 50%.
+
+### Smoke validation
+
+Compared deep (100 BB stack) vs short (12 BB stack) HU vs ManiacBot,
+3 seeds, 1000 hands, `--adaptation-bias 0.05` (isolates the short-stack
+heuristic from exploitation/override).
+
+| Hero | Deep (100 BB) | Short (12 BB) | Delta |
+|---|---|---|---|
+| Maniac | -136.5 | **+24.0** | +160.5 |
+| LAG | -206.8 | -20.2 | +186.6 |
+| TAG | -192.4 | -42.6 | +149.8 |
+| Nit | -183.4 | -64.6 | +118.8 |
+| Rock | -195.3 | -61.2 | +134.1 |
+| Calling Station | -219.9 | -55.6 | +164.3 |
+| Baseline | -201.7 | -53.0 | +148.7 |
+
+### Interpretation
+
+Every archetype improves 120-187 bb/100 at short stacks. Maniac specifically goes POSITIVE vs ManiacBot at 12 BB (+24 bb/100) where the same matchup is -137 at 100 BB.
+
+The architecture working as designed: at short stacks, the chart-mismatch leak (using 6-max preflop charts at HU) becomes dramatically smaller because medium-raise sizings get converted to `jam`. Decisions cleanly bucket into "jam or fold" instead of "raise to 2.5bb then face shove with terrible pot odds."
+
+Note: at 12 BB stacks, hands resolve preflop most of the time. The bb/100 metric reflects this simpler decision space, which is part of why the effect is so large. But it's the right effect — converting the architecture's bad short-stack decisions into clean push/fold play.
+
+### Pipeline pieces (final)
+
+```
+strategy_table
+  → personality (modify_strategy)
+  → exploitation (logit offsets for marginal hands)
+  → value_override (strategy replacement for strong hands vs aggressors)
+  → short_stack (depth-aware raise→jam conversion)
+  → math_floor (pot-odds / pot-committed final overrides)
+  → sample
+```
+
+Six layers, each handling a different concern. Math floor remains the
+final safety net for sub-3 BB spots.
