@@ -2,7 +2,7 @@
 purpose: Plan to define and gate new exploitation rule families (value-vs-station, steal/pressure) by archetype playstyle
 type: design
 created: 2026-05-13
-last_updated: 2026-05-13
+last_updated: 2026-05-13T22:00:00
 ---
 
 # Phase 8: Playstyle-gated rule families
@@ -66,6 +66,96 @@ Phase 8 adds two new rule families that consume the spot model and
 gates them by hero's playstyle so the bot doesn't try to be all
 exploitation patterns at once.
 
+## Empirical baselines (2026-05-13 sweep)
+
+Concrete numbers Phase 8 needs to move:
+
+### HU vs CaseBot — every architecture loses
+
+Full HU sweep, 1000 hands per matchup, seed=42, `adaptation_bias=0.85`:
+
+| Hero | bb/100 vs CaseBot | 95% CI | Note |
+|---|---:|---|---|
+| **FoldyBot** | **−35.6** | [−44, −27] | Best non-mirror result — by NOT spewing |
+| CallStation | −45.1 | [−64, −26] | |
+| Rock | −54.2 | [−116, +8] | |
+| Nit | −64.8 | [−131, +2] | |
+| CaseBot (mirror) | −70.4 | [−244, +103] | |
+| **TAG** | **−77.8** | [−152, −4] | |
+| LAG | −112.1 | [−207, −17] | |
+| Baseline | −119.7 | [−192, −47] | Pure chart, no exploitation |
+| GTO-Lite | −197.6 | [−241, −154] | |
+| Maniac | −265.2 | [−379, −151] | |
+| **ManiacBot** | **−701.1** | [−783, −619] | Bluffing a station = donation |
+
+**Key insight: FoldyBot beating TAG by ~42 bb/100 vs CaseBot is a
+damning signal.** A bot built specifically to BE exploited
+outperforms the architecturally sophisticated TAG against a station,
+because it doesn't try to bluff or extract — it just calls cheap
+preflop and folds tight postflop. The exploitation pipeline as it
+stands today (hyper_passive rule firing on every CaseBot decision)
+adds spew without compensating value extraction. **This is the core
+gap Phase 8 must close.**
+
+### 6-max TAG vs CaseBot-heavy mix — per-opponent decomposition
+
+`TAG + 2×CaseBot + 2×ABCBot + GTO-Lite`, 500 hands,
+`adaptation_bias=0.85`:
+
+| Opponent | seed=42 (BB) | seed=142 (BB) | seed=242 (BB) | Pattern |
+|---|---:|---:|---:|---|
+| ABCBot01 | +709 | +1248 | +1807 | TAG wins |
+| ABCBot02 | +1636 | +1438 | +1258 | TAG wins big |
+| GTO-Lite | +34 | +67 | +228 | Flat (balanced) |
+| CaseBot01 | −238 | −415 | −1335 | TAG loses |
+| CaseBot02 | −2103 | −1714 | −1387 | TAG loses heavily |
+| **Headline** | **−60.3** | **−16.0** | **−96.8** | Wide seed variance |
+
+**3-seed baseline: mean −57.7 bb/100 (range −16 to −97).** The
+headline varies because CaseBot drain (~−2400 BB mean) and
+ABCBot+GTO gain (~+2800 BB mean) are similar in magnitude with
+opposite signs, so net flips around. **Phase 8 target: move TAG's
+mean toward 0 by reducing the CaseBot drain while preserving the
+ABCBot edge.** This is the headline regression number to beat.
+
+The headline bb/100 varies widely with seed but the **per-opponent
+pattern is rock-solid**: TAG wins from every non-CaseBot opponent
+and bleeds to CaseBots. Net loss size depends almost entirely on
+how much chip volume runs through the CaseBot seats.
+
+### Adding ManiacBot to the table doesn't fix it
+
+`TAG + 2×CaseBot + LAG + Nit + ManiacBot`, seed=42: TAG +2335 BB
+from ManiacBot (Phase 6.5 value override fires 110 times),
++481 BB from LAG, +406 BB from Nit, but **−3550 BB combined from
+the two CaseBots** → headline −65.6 bb/100. **The CaseBot deficit
+is the dominant loss term across every mix we've measured.**
+
+### The hyper_passive ↔ CaseBot interaction (most important finding)
+
+CaseBot's profile vs TAG in 6-max:
+`VPIP=0.89, PFR=0.03, AF=0.40-0.48, all_in%=0.09-0.14, f2cbet=0.31-0.93`
+
+The `hyper_passive` rule today fires because CaseBot has
+`VPIP > 0.60 AND AF < 0.80`. It applies offsets:
+
+- `+0.3 × multiplier` to all raise-like actions
+- `−0.2 × multiplier` to fold
+
+Against a pure calling station with `all_in% = 0`, reducing fold
+mass is harmless — the station never punishes hero's marginal calls.
+But CaseBot **jams 9-14% of hands**. Those jams are real hands
+(AF=0.5 means CaseBot raises slightly more than it calls postflop;
+its jams aren't bluffs). When TAG's fold mass is reduced and CaseBot
+jams, TAG calls more often than the chart prescribes. TAG loses the
+big pots.
+
+Phase 8's `value_vs_station` extracts more **when TAG has a strong
+hand** but does nothing about hyper_passive's spew **when TAG has
+marginals against a station that occasionally jams**. The plan
+needs to address both halves — see "Risks / known interactions"
+below.
+
 ## Resolved Decisions
 
 - New rule families are gated **deterministically** by playstyle. The
@@ -81,6 +171,21 @@ exploitation patterns at once.
 - Phase 8 must not regress 6-max-vs-rules bb/100. The playstyle gate
   exists specifically to avoid spewy behavior on archetypes that
   shouldn't be running the rule.
+- **`value_vs_station` is hand-strength gated** (STRONG_MADE / NUTS
+  only). The empirical sweep showed the existing exploit machinery
+  already over-bets weak hands vs stations; Phase 8 must not amplify
+  that. Hand-strength gating makes Phase 8 symmetric with Phase 6.5
+  (which is strong-vs-aggressive): together they form
+  "strong-hand-vs-extreme-opponent" coverage.
+- **Initial ship does NOT modify `hyper_passive`.** Risk #1 below
+  documents the interaction problem but the recommended first ship
+  is `value_vs_station` alone, instrumented to track co-fires with
+  `hyper_passive`. Data-driven decision on whether to suppress
+  `hyper_passive`'s fold-mass reduction in Phase 8.1.
+- **Validate against per-opponent chip transfer, not just headline
+  bb/100.** Three-seed mean baseline ranges −97 to −16 bb/100 (CI
+  ±~47) but per-opponent contribution is much tighter (CaseBot drain
+  ±~300 BB; ABCBot gain ±~450 BB).
 
 ## Goal — definition of done
 
@@ -105,21 +210,44 @@ exploitation patterns at once.
    - Phase 6.6 HU c-bet behavior.
    - Phase 6.7a spot construction and aggregator selection.
    - Phase 6.7b Part A multiway c-bet firing rate.
-5. 6-max bb/100 vs rule mix: no archetype regresses materially.
-   Target: stable within ±20 bb/100 vs Phase 6.7 baseline per
-   archetype.
+5. **Concrete bb/100 targets** (vs the empirical baselines documented
+   below):
+   - **TAG vs CaseBot HU (1000 hands, seed=42)**: move from
+     `−77.8 bb/100 [CI −152, −4]` toward FoldyBot's `−35.6`. Stretch:
+     statistically indistinguishable from FoldyBot.
+   - **TAG vs CaseBot-heavy 6-max mix (3-seed mean of 500 hands each:
+     42, 142, 242)**: move from baseline `−57.7 bb/100` (range
+     [−97, −16]) toward 0. Stretch: net positive mean.
+   - **Per-opponent decomposition** (more reliable than headline due
+     to seed variance): CaseBot drain shrinks from `~−2400 BB` mean
+     toward `~−1000 BB`; ABCBot gain stays at or above `~+2800 BB`
+     mean.
+   - No archetype's HU-vs-balanced (GTO-Lite) result moves by more
+     than ±20 bb/100 from Phase 7 baseline.
 
 ## Rule semantics
 
 ### `value_vs_station`
 
-Fires when:
+**Hand-strength gated** — mirrors Phase 6.5's value-override
+pattern (strong-vs-aggressive) but for the strong-vs-passive
+spot. The empirical evidence (FoldyBot beating TAG by 42 bb/100
+vs CaseBot) is unambiguous: **the existing exploit machinery
+already over-bets weak hands against stations**. Phase 8 must
+NOT add more frequency on marginals — it must add value
+extraction specifically when hero is ahead.
 
-- Hero is value-betting (postflop made hand, no live bet, has a legal
-  bet/raise action).
-- The most call-happy continuing opponent has `vpip > VPIP_LOOSE`
-  AND `aggression_factor < AF_PASSIVE`. Reuse archetype thresholds.
-- At least one opponent has adequate sample.
+Fires when ALL of:
+
+- Hero's hand strength classifies as **STRONG_MADE or NUTS**
+  (reuse the existing `HandStrengthClass` from `value_override.py`).
+  Specifically NOT `medium_made` / `weak_made` / `air` — those go
+  through the chart and stay there.
+- Hero has a legal `bet_*` or `raise_*` action.
+- At least one active continuing opponent has
+  `vpip > VPIP_LOOSE` AND `aggression_factor < AF_PASSIVE` AND
+  adequate sample. Reuse archetype thresholds.
+- Hero is not facing a live bet (open-action spot).
 
 Action:
 
@@ -135,12 +263,21 @@ Action:
 
 Important constraints:
 
+- **The hand-strength gate is non-negotiable.** Without it the rule
+  amplifies the existing hyper_passive overspew on weak hands (see
+  "Risks / known interactions" below). The gate makes Phase 8
+  complementary to Phase 6.5: 6.5 is strong-vs-aggressive, 8 is
+  strong-vs-passive — symmetric coverage.
 - A station behind doesn't erase the risk of a tight caller's stronger
   range. The dampener is what prevents this rule from spewing into
-  cooler hands.
+  cooler spots even with strong hands.
 - Sizing distinction is out of scope for v1 — keep the rule as
   bet/raise frequency only. Sizing tier selection (bet_33 vs bet_67
   vs bet_100) is a follow-up after firing rate validates.
+- Multiway-aware: when multiple stations are continuing, the upside
+  intensity is the **max** across them (stations love to call). The
+  safety factor uses the **min** profile (tightest opponent in the
+  field).
 
 ### `steal_pressure`
 
@@ -276,6 +413,74 @@ Outcome gates:
   rules are mostly multiway-relevant; HU should be unaffected).
 - No regression on Phase 6.5 value-override counters or Phase 6.6
   c-bet counters.
+
+## Risks / known interactions
+
+### Risk #1: `hyper_passive` makes things worse vs stations that occasionally jam
+
+The empirical sweep exposes a structural problem **independent of
+this plan** that Phase 8 must coexist with cleanly:
+
+The existing `hyper_passive` exploit fires on every CaseBot decision
+(`VPIP=0.89, AF=0.4` → both gates trip). It applies:
+
+- `+0.3 × multiplier` to all raise-like actions (including
+  bluff-raise spots)
+- `−0.2 × multiplier` to fold
+
+Against a pure calling station with `all_in_frequency = 0`, reducing
+fold mass is harmless. Against CaseBot, which jams 9-14% of hands
+postflop with real holdings, **reducing fold mass loses big pots**.
+This is most of TAG's −2400 BB mean drain vs CaseBot seats.
+
+Phase 8's `value_vs_station` does NOT solve this. It adds frequency
+on STRONG hands but doesn't undo `hyper_passive`'s spew on MARGINAL
+hands. Three options for handling the interaction:
+
+1. **Suppress `hyper_passive`'s fold-mass reduction** when
+   `value_vs_station` is enabled AND the same opponent is the
+   driver. Keeps `hyper_passive`'s raise-frequency push (which is
+   complementary to `value_vs_station`) but removes the
+   fold-frequency reduction (which is the part that punishes hero
+   on marginal hands vs occasional-jammer stations). Add this as a
+   modification inside `compute_exploitation_offsets` — when both
+   rules would fire, blend the fold offset (e.g. min with
+   `value_vs_station`'s `0` rather than `hyper_passive`'s `−0.2`).
+2. **Add a "passive-with-jams" pattern** that detects
+   `vpip > 0.60 AND all_in_freq > 0.05 AND AF < 0.80` and
+   suppresses `hyper_passive` for those opponents. This is a Phase
+   7.5 territory move (sizing/all-in-aware exploitation) rather
+   than Phase 8, so flagging it as cross-cut work.
+3. **Defer.** Ship `value_vs_station` as designed, accept that
+   `hyper_passive` still spews on marginals, validate that
+   `value_vs_station`'s extraction on strong hands compensates.
+   If it doesn't (FoldyBot's −35.6 stays unattainable), add
+   option 1 in Phase 8.1.
+
+**Recommended: ship option 3 first, instrument the
+`hyper_passive` vs `value_vs_station` co-fire pattern, then
+decide on options 1 or 2 from the data.** This keeps the
+behavior-change envelope tight for the first Phase 8 ship.
+
+### Risk #2: per-opponent decomposition is much tighter than headline bb/100
+
+The 3-seed baseline shows the headline ranging −16 to −97 bb/100,
+but the per-opponent contribution is tight: CaseBot drain stays
+in [−2722, −2129] BB and ABCBot+GTO gain stays in
+[+2379, +3293] BB. **Validate Phase 8 against per-opponent chip
+transfer, not just headline bb/100.** A run where CaseBot drain
+shrinks from −2400 to −800 but ABCBot gain stays flat is the win,
+even if headline noise hides it.
+
+### Risk #3: 6.5 / 8 mutual exclusivity
+
+Phase 6.5 fires for `STRONG hand vs hyper_aggressive opponent`.
+Phase 8 fires for `STRONG hand vs passive station`. A hand class
+can't be both "vs aggressive" and "vs passive" at the same
+opponent, but multiway pots could have both. Add a controller-level
+guard: if 6.5 already replaced the strategy this decision, skip
+Phase 8 entirely. The override path should never run twice on the
+same decision.
 
 ## Effort estimate
 
