@@ -462,6 +462,24 @@ export function MobilePokerTable({
           const isDealer = opponentIdx === dealerIdx;
           const isDebugEnabled = config.ENABLE_AI_DEBUG && !!opponent.llm_debug;
 
+          // Swap the avatar image to the "thinking" emotion variant
+          // when the AI for this seat is the one currently deciding.
+          // Mirrors PokerTable.tsx — the backend serves a per-emotion
+          // image at /api/avatar/{name}/{emotion}, so we rewrite the
+          // URL rather than just toggling a CSS class. Without the
+          // rewrite the same default avatar shows the whole hand
+          // even though the player object exposes avatar_emotion.
+          const isAiThinking = isCurrentPlayer && aiThinking && !opponent.is_human;
+          const avatarUrl = isAiThinking && opponent.avatar_url
+            ? opponent.avatar_url.replace(
+                /\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/,
+                '/api/avatar/$1/thinking$2'
+              )
+            : opponent.avatar_url;
+          const avatarEmotion = isAiThinking
+            ? 'thinking'
+            : (opponent.avatar_emotion || 'avatar');
+
           return (
             <div
               key={opponent.name}
@@ -490,12 +508,12 @@ export function MobilePokerTable({
                 tabIndex={isDebugEnabled ? 0 : undefined}
                 aria-label={isDebugEnabled ? `View ${opponent.name}'s AI model info` : undefined}
               >
-                {opponent.avatar_url ? (
+                {avatarUrl ? (
                   <img
-                    src={`${config.API_URL}${opponent.avatar_url}`}
-                    alt={`${opponent.name} - ${opponent.avatar_emotion || 'avatar'}`}
+                    src={`${config.API_URL}${avatarUrl}`}
+                    alt={`${opponent.name} - ${avatarEmotion}`}
                     className={`avatar-image ${
-                      opponent.avatar_emotion === 'thinking' ? 'avatar-image--thinking' : ''
+                      isAiThinking ? 'avatar-image--thinking' : ''
                     } ${isShowdown ? 'avatar-image--showdown' : ''}`}
                     onError={(e) => {
                       // Hide broken image if avatar fails to load
