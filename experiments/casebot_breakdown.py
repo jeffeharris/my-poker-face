@@ -91,6 +91,10 @@ def _run_hand_instrumented(
     hero_fold_bet_bucket: Optional[str] = None
     hero_fold_required_equity: float = 0.0
     hero_fold_opponent_archetype: Optional[str] = None
+    # Plan §7 follow-up: per-decision capture for value-bet / bluff
+    # frequency aggregation. (phase, action, hand_class, archetype)
+    # tuples for each postflop hero decision.
+    hero_postflop_decisions: List[Tuple[str, str, str, str]] = []
 
     while sm.phase not in TERMINAL_PHASES:
         sm.run_until(list(TERMINAL_PHASES))
@@ -124,6 +128,19 @@ def _run_hand_instrumented(
 
         if current_player.name == hero_name:
             hero_actions.append((phase_name, action, raise_to))
+            # Plan §7 follow-up: capture (phase, action, hand_class,
+            # archetype) for postflop hero decisions so the aggregate
+            # value-bet / bluff frequency report can compute rates by
+            # hand class × opponent archetype.
+            if phase_name in ('FLOP', 'TURN', 'RIVER'):
+                snap = getattr(
+                    controller, '_last_pipeline_snapshot', None,
+                ) or {}
+                hand_class = snap.get('hand_strength') or 'unknown'
+                archetype = snap.get('opponent_archetype') or 'unknown'
+                hero_postflop_decisions.append(
+                    (phase_name, action, hand_class, archetype),
+                )
             if action == 'fold' and hero_folded_at is None:
                 hero_folded_at = sm.phase
                 community_at_fold = [
@@ -259,6 +276,8 @@ def _run_hand_instrumented(
         'hero_fold_bet_bucket': hero_fold_bet_bucket,
         'hero_fold_required_equity': hero_fold_required_equity,
         'hero_fold_opponent_archetype': hero_fold_opponent_archetype,
+        # Plan §7 follow-up: per-decision capture
+        'hero_postflop_decisions': hero_postflop_decisions,
         'reached_showdown': reached_showdown,
         'hero_hand': hero_hand,
     }
@@ -326,6 +345,11 @@ def run_breakdown(
     # more vs sticky_jammer than pure_station? cold_start?"
     fold_archetype_counts: Counter = Counter()
     fold_archetype_deltas: Dict[str, int] = defaultdict(int)
+    # Plan §7 follow-up: per-decision aggressive-action counters by
+    # (hand_class, archetype). aggressive_counts[k] / decision_counts[k]
+    # gives the value-bet (or bluff) frequency for that bucket.
+    decision_counts: Counter = Counter()       # keyed by (hand_class, archetype)
+    aggressive_counts: Counter = Counter()     # subset where hero bet/raised
     captured_hands: List[Dict] = []
 
     for hand_num in tqdm(range(n_hands), desc=f"  seed={seed}", leave=False, file=sys.stderr):
@@ -409,11 +433,33 @@ def run_breakdown(
                     'opponent_archetype': archetype,
                 })
 
+        # Plan §7 follow-up: aggregate per-decision aggressive-rate
+        # buckets across the full hand. Counts every postflop hero
+        # decision, not just folds — so the rates are computed over
+        # the right denominator (all decisions with that hand_class +
+        # archetype). 'all_in' counts as aggressive; 'check' / 'call'
+        # / 'fold' do not.
+        for phase, action, hand_class, archetype in result.get(
+            'hero_postflop_decisions', (),
+        ):
+            decision_key = (hand_class, archetype)
+            decision_counts[decision_key] += 1
+            is_aggressive = (
+                action == 'bet'
+                or action.startswith('bet_')
+                or action == 'raise'
+                or action.startswith('raise_')
+                or action == 'all_in'
+            )
+            if is_aggressive:
+                aggressive_counts[decision_key] += 1
+
     return (
         bucket_counts, bucket_deltas,
         fold_class_counts, fold_class_deltas, captured_hands,
         fold_multi_axis_counts, fold_multi_axis_deltas,
         fold_archetype_counts, fold_archetype_deltas,
+        decision_counts, aggressive_counts,
     )
 
 
@@ -524,6 +570,67 @@ def print_multi_axis_breakdown(
         )
 
 
+_VALUE_HAND_CLASSES = frozenset({'strong_made', 'nuts'})
+_BLUFF_HAND_CLASSES = frozenset({'air_no_draw', 'air_strong_draw'})
+
+
+def print_value_and_bluff_freq_breakdown(
+    decision_counts: Counter,
+    aggressive_counts: Counter,
+):
+    """Plan §7 follow-up: postflop hero aggressive-action rate by
+    (hand_class, opponent_archetype).
+
+    Two sections:
+      - Value-bet frequency for `strong_made`/`nuts` hands. Higher is
+        better (extract chips from passive opponents).
+      - Bluff frequency for `air_*` hands. Lower is generally better
+        against low-fold opponents; §5's bluff_reduction rule pushes
+        this down vs station archetypes.
+
+    'Aggressive' = bet/raise/all_in. check/call/fold count as non-
+    aggressive. The denominator is *every* postflop hero decision in
+    the bucket, not just non-fold decisions — so rates measure
+    "how often does hero choose the aggressive line."
+    """
+    if not decision_counts:
+        return
+
+    def _print_section(title: str, classes: frozenset):
+        rows = [
+            ((hc, arche), count)
+            for (hc, arche), count in decision_counts.items()
+            if hc in classes
+        ]
+        if not rows:
+            return
+        rows.sort(key=lambda kv: -kv[1])
+        print("\n" + "=" * 72)
+        print(f"  {title}")
+        print("=" * 72)
+        print(
+            f"  {'hand_class':<16}  {'archetype':<18}  "
+            f"{'decisions':>10}  {'aggressive':>11}  {'rate':>7}"
+        )
+        print('  ' + '-' * 70)
+        for (hc, arche), total in rows:
+            agg = aggressive_counts.get((hc, arche), 0)
+            rate = (100.0 * agg / total) if total else 0
+            print(
+                f"  {hc:<16}  {arche:<18}  {total:>10}  "
+                f"{agg:>11}  {rate:>6.1f}%"
+            )
+
+    _print_section(
+        'Value-bet frequency (aggressive %) for strong_made / nuts:',
+        _VALUE_HAND_CLASSES,
+    )
+    _print_section(
+        'Bluff frequency (aggressive %) for air_no_draw / air_strong_draw:',
+        _BLUFF_HAND_CLASSES,
+    )
+
+
 def print_archetype_breakdown(
     counts: Counter, deltas: Dict[str, int],
     n_hands: int, big_blind: int,
@@ -628,11 +735,15 @@ def main():
     overall_multi_axis_deltas: Dict[Tuple[str, str, str, str], int] = defaultdict(int)
     overall_archetype_counts: Counter = Counter()
     overall_archetype_deltas: Dict[str, int] = defaultdict(int)
+    # Plan §7 follow-up aggregators
+    overall_decision_counts: Counter = Counter()
+    overall_aggressive_counts: Counter = Counter()
     overall_captured: List[Dict] = []
     for seed in seeds:
         (
             counts, deltas, fc_counts, fc_deltas, captured,
             ma_counts, ma_deltas, arch_counts, arch_deltas,
+            dec_counts, agg_counts,
         ) = run_breakdown(
             args.hero, args.villain, args.hands, seed,
             args.adaptation_bias,
@@ -661,6 +772,10 @@ def main():
             overall_archetype_counts[k] += v
         for k, v in arch_deltas.items():
             overall_archetype_deltas[k] += v
+        for k, v in dec_counts.items():
+            overall_decision_counts[k] += v
+        for k, v in agg_counts.items():
+            overall_aggressive_counts[k] += v
         overall_captured.extend(captured)
 
     if len(seeds) > 1:
@@ -687,6 +802,11 @@ def main():
             overall_archetype_counts, overall_archetype_deltas,
             args.hands * len(seeds), 100,
         )
+
+    # Plan §7 follow-up: aggregate value-bet / bluff frequency report.
+    print_value_and_bluff_freq_breakdown(
+        overall_decision_counts, overall_aggressive_counts,
+    )
 
     print_captured_hands(overall_captured, args.hero, args.villain)
 

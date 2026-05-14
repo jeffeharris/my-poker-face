@@ -759,19 +759,21 @@ cost of a new framework didn't justify the effort.
 | Strong / nut-equity overfold rate | Same multi-axis report |
 | Marginal large-bet call rate | Same — `(medium_made, large/jam bucket)` rows |
 | Net bb/100 vs rule-bot suite | `casebot_breakdown` aggregate report |
-| Value-bet frequency with strong hands | **Soft gap** — visible in per-decision traces but not aggregated across runs |
-| Bluff frequency into low-fold opponents | **Soft gap** — `bluff_reduction` unit tests verify offset direction; sim-level aggregate isn't reported |
+| Value-bet frequency with strong hands | `casebot_breakdown.print_value_and_bluff_freq_breakdown` — aggregates by `(hand_class, opponent_archetype)`; shows aggressive% for `strong_made`/`nuts` |
+| Bluff frequency into low-fold opponents | Same report — aggressive% for `air_no_draw`/`air_strong_draw` (the §5 `bluff_reduction` impact is visible: ~10% air_no_draw bluff rate vs `pure_station` in 200-hand smoke runs) |
 
-**Soft gaps (deferred as follow-up work):**
+**Soft gaps (resolved during §7 follow-up):**
 
-The two metrics flagged above (sim-level value-bet / bluff
-frequency aggregates) are not currently reported by
-`casebot_breakdown`. Adding them would require new per-decision
-aggregation in the sim harness. The unit tests already verify
-each rule's *direction* (e.g., `bluff_reduction` reduces bet_*
-mass; `value_vs_station` increases it); the gap is just the
-aggregated cross-run report. Adding these aggregates is a
-self-contained 1-2 hour follow-up.
+The sim-level value-bet / bluff frequency aggregates were
+shipped as a follow-up: a new
+`print_value_and_bluff_freq_breakdown` section in
+`casebot_breakdown` aggregates per-decision aggressive-action
+rates across the run, grouped by `(hand_class,
+opponent_archetype)`. Aggressive = `bet`/`raise_*`/`all_in`;
+non-aggressive = `check`/`call`/`fold`. The denominator is
+every postflop hero decision in the bucket, not just non-fold
+decisions — so rates measure "how often does hero choose the
+aggressive line."
 
 A scenario-replay framework that captures snapshots from live
 sims and replays them as fixtures was scoped during §7
