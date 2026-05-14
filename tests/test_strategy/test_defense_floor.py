@@ -285,29 +285,28 @@ class TestPlanExamples:
 
     def test_example_3_nut_flush_at_42_pct_pot_odds(self):
         # Hero A♠3♠ on A♦T♠8♠8♥7♠ — nut spade flush. Paired board.
-        # After §1: hand_class='strong_made' (downgraded from nuts because
-        # paired_board → FULL_HOUSE_POSSIBLE → nut_status drops).
-        # Wait: actually with my §1, hand_rank=5 (flush) → nut_status =
-        # NUT_ACTUAL if no danger, NUT_NON_NUT_STRONG if FULL_HOUSE_POSSIBLE.
-        # For Ax-flush, hero has the nut card but FH is possible →
-        # NUT_NON_NUT_STRONG. _apply_made_tier_downgrade: 'nuts' +
-        # 'non_nut_strong' → 'strong_made'.
+        # After §1: hand_class='strong_made' (downgraded), nut_status
+        # = non_nut_strong (paired_board → FULL_HOUSE_POSSIBLE).
+        #
+        # At 42% required equity:
+        #   - Row 3 (≤45% req) needs near/actual_nuts — we have
+        #     non_nut_strong, so row 3 doesn't match.
+        #   - Row 4 (≤35% req) caps below 42%.
+        # No row fires → hero folds.
+        #
+        # A candidate "row 4b" (req ≤50% + non_nut_strong + strong+
+        # → target 0.65) was implemented, tested, and *rejected* via
+        # 1000×5 sim (the extra calls were net-negative against
+        # CaseBot's actual jam range — the assumed "wide jam range"
+        # turned out to be tighter than expected). See the
+        # ROW_JAM_VALUE_CALL_MAX_REQ comment in defense_floor.py for
+        # the empirical reasoning.
         s = _make_strategy(call=0.05, fold=0.95)
-        # At 42% required equity, row 4 fires (≤35% req)? NO, 42% > 35%.
-        # Row 3 fires (≤45% req, but we need near/actual_nuts — we have
-        # non_nut_strong, so row 3 doesn't match).
-        # So at 42% req with non_nut_strong, NO row matches.
-        # Update: this means §2 won't fix Example 3 with these labels.
-        # The plan's expectation might be that the price was <45% AND
-        # nut_status stayed near_nuts. Document this with a softer test.
         new_s, trace = apply_defense_floor(
             s, hand_class='strong_made', nut_status=NUT_NON_NUT_STRONG,
             danger_flags=frozenset({PAIRED_BOARD}),
             required_equity=0.42, facing_bet=True,
         )
-        # The 42% req exceeds row 4's 35% ceiling — floor doesn't fire.
-        # This is a known limitation: row 3 needs near/actual_nuts but
-        # paired_board downgrades nut flush to non_nut_strong.
         assert trace.fired is False
 
     def test_example_3_variant_below_35_pct_fires(self):

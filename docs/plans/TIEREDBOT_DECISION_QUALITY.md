@@ -436,6 +436,17 @@ strong hands when the price is cheap."
   | ≤ 35% | `hand_class ∈ {strong_made, nuts}` OR `nut_status == non_nut_strong` | keep call alive |
   | ≤ 20% | `hand_class ∈ {medium_made, strong_made, nuts}` | keep call alive |
 
+  **Sim-validated decision (post-§6)**: a candidate "jam-price
+  value-call" row (req ≤ 50% AND non_nut_strong AND strong+
+  → 0.65) was implemented and tested. The 1000×5 sim showed
+  the extra calls were net-negative (~-3.5 bb/100) — the
+  assumed "wide jam range" against CaseBot turned out to be
+  tighter than expected, so folding non_nut_strong to jams is
+  correct. The row was reverted. If a future opponent profile
+  has a demonstrably wider jam range, the row could be
+  reintroduced with archetype gating (`pure_station` / `lag`
+  / `maniac` only).
+
   Rows are evaluated top-down at decision time; the first
   matching row wins. The `air` and `bluff_catcher` exits come
   **first** so §7.5's bluff-catch override stays authoritative
