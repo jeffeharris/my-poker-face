@@ -333,6 +333,20 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state = current_game_data['state_machine'].game_state
     game_state_dict = game_state.to_dict()
 
+    # Resolve the human player name once so we can attach their observations of
+    # each AI opponent to the corresponding player_dict below.
+    human_player_name = next(
+        (p.get('name') for p in game_state_dict.get('players', []) if p.get('is_human', False)),
+        None,
+    )
+    memory_manager = current_game_data.get('memory_manager')
+    opponent_models = (
+        memory_manager.opponent_model_manager.models
+        if memory_manager and hasattr(memory_manager, 'opponent_model_manager')
+        else {}
+    )
+    pressure_stats = current_game_data.get('pressure_stats')
+
     # Add avatar data and psychology to AI players
     ai_controllers = current_game_data.get('ai_controllers', {})
     for player_dict in game_state_dict.get('players', []):
@@ -371,6 +385,35 @@ def update_and_emit_game_state(game_id: str) -> None:
                 }
                 player_dict['psychology'] = psych_data
                 logger.debug(f"[HeadsUp] Psychology for {player_name}: {psych_data}")
+
+        # Attach observation about this player (from human's perspective, with
+        # fallback to any observer that has hands recorded). Powers
+        # HeadsUpOpponentPanel without polling the admin-only memory-debug route.
+        observation_model = None
+        if human_player_name:
+            observation_model = opponent_models.get(human_player_name, {}).get(player_name)
+        if observation_model is None or observation_model.tendencies.hands_observed == 0:
+            for observer_models in opponent_models.values():
+                candidate = observer_models.get(player_name)
+                if candidate and candidate.tendencies.hands_observed > 0:
+                    observation_model = candidate
+                    break
+        if observation_model is not None:
+            tendencies = observation_model.tendencies
+            player_dict['observation'] = {
+                'hands_observed': tendencies.hands_observed,
+                'vpip': round(tendencies.vpip, 2),
+                'pfr': round(tendencies.pfr, 2),
+                'aggression_factor': round(tendencies.aggression_factor, 2),
+                'play_style': tendencies.get_play_style_label(),
+            }
+
+        # Attach pressure stats summary so the panel can show heads-up record,
+        # biggest pot, and signature move without polling pressure-stats.
+        if pressure_stats is not None:
+            player_pressure = pressure_stats.player_stats.get(player_name)
+            if player_pressure is not None:
+                player_dict['pressure_summary'] = player_pressure.get_summary()
 
     # Add LLM debug info for AI players (when enabled)
     if config.enable_ai_debug:

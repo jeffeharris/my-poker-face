@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, act } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { HeadsUpOpponentPanel } from '../../components/mobile/HeadsUpOpponentPanel';
-import type { Player } from '../../types';
+import type { Player, OpponentObservation, PlayerPressureSummary } from '../../types';
 
 // Mock framer-motion to avoid animation complexities in tests
 vi.mock('framer-motion', () => ({
@@ -13,6 +13,38 @@ vi.mock('framer-motion', () => ({
   },
   AnimatePresence: ({ children }: React.PropsWithChildren<Record<string, unknown>>) => <>{children}</>,
 }));
+
+function makeObservation(overrides: Partial<OpponentObservation> = {}): OpponentObservation {
+  return {
+    hands_observed: 10,
+    vpip: 0.65,
+    pfr: 0.3,
+    aggression_factor: 2.1,
+    play_style: 'loose-aggressive',
+    ...overrides,
+  };
+}
+
+function makePressureSummary(overrides: Partial<PlayerPressureSummary> = {}): PlayerPressureSummary {
+  return {
+    total_events: 10,
+    wins: 5,
+    big_wins: 2,
+    big_losses: 1,
+    successful_bluffs: 3,
+    bluffs_caught: 1,
+    bad_beats: 0,
+    eliminations: 1,
+    biggest_pot_won: 500,
+    biggest_pot_lost: 200,
+    tilt_score: 0.1,
+    aggression_score: 1.5,
+    signature_move: 'Late-position steals',
+    headsup_wins: 5,
+    headsup_losses: 3,
+    ...overrides,
+  };
+}
 
 function makeOpponent(overrides: Partial<Player> = {}): Player {
   return {
@@ -29,107 +61,24 @@ function makeOpponent(overrides: Partial<Player> = {}): Player {
       tilt_category: 'none',
       losing_streak: 0,
     },
+    observation: makeObservation(),
+    pressure_summary: makePressureSummary(),
     ...overrides,
   };
-}
-
-function makePressureStatsResponse(opponentName: string, overrides: Record<string, unknown> = {}) {
-  return {
-    player_summaries: {
-      [opponentName]: {
-        total_events: 10,
-        big_wins: 2,
-        big_losses: 1,
-        successful_bluffs: 3,
-        bluffs_caught: 1,
-        bad_beats: 0,
-        eliminations: 1,
-        biggest_pot_won: 500,
-        biggest_pot_lost: 200,
-        tilt_score: 0.1,
-        aggression_score: 1.5,
-        signature_move: 'Late-position steals',
-        headsup_wins: 5,
-        headsup_losses: 3,
-        ...overrides,
-      },
-    },
-  };
-}
-
-function makeMemoryDebugResponse(
-  observerName: string,
-  opponentName: string,
-  overrides: Record<string, unknown> = {}
-) {
-  return {
-    opponent_models: {
-      [observerName]: {
-        [opponentName]: {
-          hands_observed: 10,
-          vpip: 0.65,
-          pfr: 0.3,
-          aggression_factor: 2.1,
-          play_style: 'loose-aggressive',
-          summary: 'Plays many hands aggressively',
-          ...overrides,
-        },
-      },
-    },
-  };
-}
-
-function mockFetchResponses(
-  pressureStats: Record<string, unknown> | null,
-  memoryDebug: Record<string, unknown> | null
-) {
-  global.fetch = vi.fn((url: string | URL | Request) => {
-    const urlStr = typeof url === 'string' ? url : url.toString();
-    if (urlStr.includes('/pressure-stats')) {
-      return Promise.resolve({
-        ok: pressureStats !== null,
-        json: () => Promise.resolve(pressureStats || {}),
-      } as Response);
-    }
-    if (urlStr.includes('/memory-debug')) {
-      return Promise.resolve({
-        ok: memoryDebug !== null,
-        json: () => Promise.resolve(memoryDebug || {}),
-      } as Response);
-    }
-    return Promise.resolve({ ok: false, json: () => Promise.resolve({}) } as Response);
-  });
 }
 
 describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  describe('Case 1: With psychology data', () => {
-    it('shows "Reading [name]..." header', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
-      render(
-        <HeadsUpOpponentPanel
-          opponent={makeOpponent()}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
-        />
-      );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
+  describe('Case 1: With observation data', () => {
+    it('shows "Reading [name]..." header', () => {
+      render(<HeadsUpOpponentPanel opponent={makeOpponent()} />);
 
       const header = document.querySelector('.panel-header');
       expect(header).toBeTruthy();
@@ -137,46 +86,16 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
       expect(header!.textContent).toContain('The Dark Knight');
     });
 
-    it('shows play style label when enough hands observed', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
-      render(
-        <HeadsUpOpponentPanel
-          opponent={makeOpponent()}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
-        />
-      );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
+    it('shows play style label when enough hands observed', () => {
+      render(<HeadsUpOpponentPanel opponent={makeOpponent()} />);
 
       const label = document.querySelector('.playstyle-label');
       expect(label).toBeTruthy();
       expect(label!.textContent).toBe('Loose & Aggressive');
     });
 
-    it('shows VPIP and aggression stats', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
-      render(
-        <HeadsUpOpponentPanel
-          opponent={makeOpponent()}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
-        />
-      );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
+    it('shows VPIP and aggression stats', () => {
+      render(<HeadsUpOpponentPanel opponent={makeOpponent()} />);
 
       const details = document.querySelector('.playstyle-details');
       expect(details).toBeTruthy();
@@ -184,23 +103,8 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
       expect(details!.textContent).toContain('Very aggressive');
     });
 
-    it('shows hands observed count', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
-      render(
-        <HeadsUpOpponentPanel
-          opponent={makeOpponent()}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
-        />
-      );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
+    it('shows hands observed count', () => {
+      render(<HeadsUpOpponentPanel opponent={makeOpponent()} />);
 
       const handsObserved = document.querySelector('.hands-observed');
       expect(handsObserved).toBeTruthy();
@@ -209,12 +113,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
   });
 
   describe('Case 2: With tilt', () => {
-    it('shows tilt section with severity label for moderate tilt', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
+    it('shows tilt section with severity label for moderate tilt', () => {
       const opponent = makeOpponent({
         psychology: {
           tilt_level: 0.6,
@@ -224,17 +123,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
         },
       });
 
-      render(
-        <HeadsUpOpponentPanel
-          opponent={opponent}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
-        />
-      );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
+      render(<HeadsUpOpponentPanel opponent={opponent} />);
 
       const tiltSection = document.querySelector('.tilt-section');
       expect(tiltSection).toBeTruthy();
@@ -245,12 +134,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
       expect(tiltLabel!.textContent).toContain('Frustrated after bad beat');
     });
 
-    it('shows tilt meter bar with correct width percentage', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
+    it('shows tilt meter bar with correct width percentage', () => {
       const opponent = makeOpponent({
         psychology: {
           tilt_level: 0.6,
@@ -260,29 +144,14 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
         },
       });
 
-      render(
-        <HeadsUpOpponentPanel
-          opponent={opponent}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
-        />
-      );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
+      render(<HeadsUpOpponentPanel opponent={opponent} />);
 
       const meterFill = document.querySelector('.tilt-meter-fill') as HTMLElement;
       expect(meterFill).toBeTruthy();
       expect(meterFill.style.width).toBe('60%');
     });
 
-    it('shows losing streak description for losing_streak tilt source', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
+    it('shows losing streak description for losing_streak tilt source', () => {
       const opponent = makeOpponent({
         psychology: {
           tilt_level: 0.4,
@@ -292,17 +161,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
         },
       });
 
-      render(
-        <HeadsUpOpponentPanel
-          opponent={opponent}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
-        />
-      );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
+      render(<HeadsUpOpponentPanel opponent={opponent} />);
 
       const tiltLabel = document.querySelector('.tilt-label');
       expect(tiltLabel).toBeTruthy();
@@ -311,12 +170,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
   });
 
   describe('Case 3: Calm state', () => {
-    it('shows "Playing steady" text when no tilt and no emotional content', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
+    it('shows "Playing steady" text when no tilt and no emotional content', () => {
       const opponent = makeOpponent({
         psychology: {
           tilt_level: 0.0,
@@ -325,17 +179,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
         },
       });
 
-      render(
-        <HeadsUpOpponentPanel
-          opponent={opponent}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
-        />
-      );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
+      render(<HeadsUpOpponentPanel opponent={opponent} />);
 
       const calmSection = document.querySelector('.calm-section');
       expect(calmSection).toBeTruthy();
@@ -344,12 +188,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
       expect(calmText!.textContent).toBe('Playing steady');
     });
 
-    it('does not show calm section when there is emotional content', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
+    it('does not show calm section when there is emotional content', () => {
       const opponent = makeOpponent({
         psychology: {
           tilt_level: 0.0,
@@ -360,17 +199,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
         },
       });
 
-      render(
-        <HeadsUpOpponentPanel
-          opponent={opponent}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
-        />
-      );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
+      render(<HeadsUpOpponentPanel opponent={opponent} />);
 
       const calmSection = document.querySelector('.calm-section');
       expect(calmSection).toBeNull();
@@ -384,23 +213,14 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
   });
 
   describe('Case 4: Heads-up record', () => {
-    it('shows win/loss display', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman', { headsup_wins: 5, headsup_losses: 3 }),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
+    it('shows win/loss display', () => {
       render(
         <HeadsUpOpponentPanel
-          opponent={makeOpponent()}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
+          opponent={makeOpponent({
+            pressure_summary: makePressureSummary({ headsup_wins: 5, headsup_losses: 3 }),
+          })}
         />
       );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
 
       const statsSection = document.querySelector('.stats-section');
       expect(statsSection).toBeTruthy();
@@ -414,66 +234,40 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
       expect(losses!.textContent).toBe('3L');
     });
 
-    it('shows best pot won', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman', { biggest_pot_won: 500 }),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
+    it('shows best pot won', () => {
       render(
         <HeadsUpOpponentPanel
-          opponent={makeOpponent()}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
+          opponent={makeOpponent({
+            pressure_summary: makePressureSummary({ biggest_pot_won: 500 }),
+          })}
         />
       );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
 
       const bestPot = document.querySelector('.biggest-pot');
       expect(bestPot).toBeTruthy();
       expect(bestPot!.textContent).toContain('$500');
     });
 
-    it('shows signature move', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman', { signature_move: 'Late-position steals' }),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
+    it('shows signature move', () => {
       render(
         <HeadsUpOpponentPanel
-          opponent={makeOpponent()}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
+          opponent={makeOpponent({
+            pressure_summary: makePressureSummary({ signature_move: 'Late-position steals' }),
+          })}
         />
       );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
 
       const signatureMove = document.querySelector('.signature-move');
       expect(signatureMove).toBeTruthy();
       expect(signatureMove!.textContent).toContain('Late-position steals');
     });
 
-    it('shows 0W - 0L when no stats available', async () => {
-      mockFetchResponses(null, null);
-
+    it('shows 0W - 0L when no stats available', () => {
       render(
         <HeadsUpOpponentPanel
-          opponent={makeOpponent()}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
+          opponent={makeOpponent({ pressure_summary: undefined })}
         />
       );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
 
       const wins = document.querySelector('.wins');
       expect(wins).toBeTruthy();
@@ -486,23 +280,14 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
   });
 
   describe('Still reading state', () => {
-    it('shows "Still reading..." when fewer than 10 hands observed', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman', { hands_observed: 2 })
-      );
-
+    it('shows "Still reading..." when fewer than 10 hands observed', () => {
       render(
         <HeadsUpOpponentPanel
-          opponent={makeOpponent()}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
+          opponent={makeOpponent({
+            observation: makeObservation({ hands_observed: 2 }),
+          })}
         />
       );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
 
       const label = document.querySelector('.playstyle-label');
       expect(label).toBeTruthy();
@@ -512,38 +297,21 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
       expect(handsObserved).toBeTruthy();
       expect(handsObserved!.textContent).toContain('2 hands observed');
     });
-  });
 
-  describe('Polling behavior', () => {
-    it('fetches data on 5-second interval', async () => {
-      mockFetchResponses(
-        makePressureStatsResponse('Batman'),
-        makeMemoryDebugResponse('TestPlayer', 'Batman')
-      );
-
+    it('shows 0 hands observed when no observation data provided', () => {
       render(
         <HeadsUpOpponentPanel
-          opponent={makeOpponent()}
-          gameId="test-game"
-          humanPlayerName="TestPlayer"
+          opponent={makeOpponent({ observation: undefined })}
         />
       );
 
-      // Initial fetch (2 calls: pressure-stats + memory-debug)
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
+      const label = document.querySelector('.playstyle-label');
+      expect(label).toBeTruthy();
+      expect(label!.textContent).toBe('Still reading...');
 
-      const initialCallCount = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
-      expect(initialCallCount).toBe(2);
-
-      // Advance 5 seconds for next poll
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000);
-      });
-
-      const afterPollCallCount = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
-      expect(afterPollCallCount).toBe(4); // 2 more calls
+      const handsObserved = document.querySelector('.hands-observed');
+      expect(handsObserved).toBeTruthy();
+      expect(handsObserved!.textContent).toContain('0 hands observed');
     });
   });
 });

@@ -1,121 +1,21 @@
-import { memo, useState, useEffect, type ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { Target, Flame, Square, Phone, Search, Frown, Angry, Meh, Smile, type LucideIcon } from 'lucide-react';
 import type { Player } from '../../types';
-import { logger } from '../../utils/logger';
-import { config } from '../../config';
 import './HeadsUpOpponentPanel.css';
-
-interface PlayerSummary {
-  total_events: number;
-  big_wins: number;
-  big_losses: number;
-  successful_bluffs: number;
-  bluffs_caught: number;
-  bad_beats: number;
-  eliminations: number;
-  biggest_pot_won: number;
-  biggest_pot_lost: number;
-  tilt_score: number;
-  aggression_score: number;
-  signature_move: string;
-  headsup_wins: number;
-  headsup_losses: number;
-}
-
-interface OpponentObservation {
-  hands_observed: number;
-  vpip: number;
-  pfr: number;
-  aggression_factor: number;
-  play_style: string;
-  summary: string;
-}
 
 interface HeadsUpOpponentPanelProps {
   opponent: Player;
-  gameId: string;
+  gameId?: string;
   humanPlayerName?: string;
 }
 
-export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: HeadsUpOpponentPanelProps) {
-  const [opponentStats, setOpponentStats] = useState<PlayerSummary | null>(null);
-  const [observation, setObservation] = useState<OpponentObservation | null>(null);
-
-  // Fetch pressure stats and opponent observations
-  useEffect(() => {
-    if (!gameId) return;
-
-    let mounted = true;
-    let timerId: ReturnType<typeof setTimeout>;
-    let delayMs = 5000;
-
-    const fetchData = async () => {
-      let rateLimited = false;
-      try {
-        // Fetch pressure stats
-        const statsResponse = await fetch(`${config.API_URL}/api/game/${gameId}/pressure-stats`);
-        if (statsResponse.status === 429) {
-          rateLimited = true;
-        } else if (!statsResponse.ok) {
-          logger.error(`Pressure stats returned ${statsResponse.status}`);
-        } else if (mounted) {
-          const data = await statsResponse.json();
-          const stats = data.player_summaries?.[opponent.name];
-          if (stats) {
-            setOpponentStats(stats);
-          }
-        }
-
-        // Fetch opponent observations from memory debug
-        const memoryResponse = await fetch(`${config.API_URL}/api/game/${gameId}/memory-debug`);
-        if (memoryResponse.status === 429) {
-          rateLimited = true;
-        } else if (!memoryResponse.ok) {
-          logger.error(`Memory debug returned ${memoryResponse.status}`);
-        } else if (mounted) {
-          const memoryData = await memoryResponse.json();
-          const opponentModels = memoryData.opponent_models || {};
-
-          // First try to find human player's observations about this opponent
-          let found = false;
-          if (humanPlayerName && opponentModels[humanPlayerName]?.[opponent.name]) {
-            const obs = opponentModels[humanPlayerName][opponent.name];
-            if (obs.hands_observed > 0) {
-              setObservation(obs);
-              found = true;
-            }
-          }
-
-          if (!found) {
-            // Fallback: find observations about our opponent from any observer
-            for (const observer of Object.keys(opponentModels)) {
-              const obs = opponentModels[observer]?.[opponent.name];
-              if (obs && obs.hands_observed > 0) {
-                setObservation(obs);
-                break;
-              }
-            }
-          }
-        }
-
-        delayMs = rateLimited ? Math.min(delayMs * 2, 60000) : 5000;
-      } catch (error) {
-        logger.error('Failed to fetch opponent data:', error);
-      }
-
-      if (mounted) {
-        timerId = setTimeout(fetchData, delayMs);
-      }
-    };
-
-    fetchData();
-
-    return () => {
-      mounted = false;
-      clearTimeout(timerId);
-    };
-  }, [gameId, opponent.name, humanPlayerName]);
-
+export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponent }: HeadsUpOpponentPanelProps) {
+  // Observation and pressure summary now flow through the socket game-state
+  // payload (see flask_app/handlers/game_handler.update_and_emit_game_state).
+  // Previously this component polled admin-only debug routes every 5s, which
+  // returned 401 for non-admin players in heads-up mode.
+  const observation = opponent.observation;
+  const opponentStats = opponent.pressure_summary;
   const psych = opponent.psychology;
 
   const getPlayStyleLabel = (style: string): { label: string; icon: LucideIcon } => {
