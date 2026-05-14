@@ -2,14 +2,54 @@
 purpose: Plan for a per-decision intervention-trace framework that unifies attribution and LLM narration
 type: design
 created: 2026-05-13
-last_updated: 2026-05-14
+last_updated: 2026-05-14T10:00:00
 ---
 
 # Phase 7.6: Intervention-trace framework
 
 ## Codex review history
 
-Plan reviewed by Codex on 2026-05-13. Key revisions (v2):
+### Round 2 revisions (v3, 2026-05-14)
+
+- **`operation` enum on `InterventionTrace`** + `replaced_prior_action`
+  / `prior_action_source` / `preserved_prior_intent` fields — without
+  these, layer overwrites (e.g. bluff-catch replacing an exploitation
+  result) make the superseded layer look causally responsible when it
+  was overridden. Operation values: `no_op` / `suggest` / `adjust` /
+  `clamp` / `override` / `veto`.
+- **Poker-specific companions to `effect_size`**: `action_changed`
+  (bool), `primary_action_before/after`, `amount_bucket_before/after`.
+  L1 distance alone doesn't distinguish "flipped fold→call" from
+  "shifted call probability by 30%."
+- **NarrationFacts ranking + cap to top 2-3 facts** to prevent LLM
+  rambling. Adapter now ranks facts by importance and selects a
+  `primary_factor` for the narration prompt's lead.
+- **NarrationFacts additional fields**: `action_intent`, `street`,
+  `position_context`, `risk_posture`, `certainty_bucket` (separate
+  from `intensity_bucket` — "strong effect" ≠ "high confidence"),
+  `suppressed_facts_count` (debug, not sent to LLM).
+- **Mode 1 legality check** — shadow-eval only valid when each
+  variant produces a legal action in the frozen state. Otherwise
+  fall back to Mode 2/3.
+- **Post-divergence exclusion zone** — after the first action
+  divergence in a matched-seed paired run, per-decision attribution
+  is labeled "different trajectory context" or suppressed. Prevents
+  Mode 3 leakage into decision-level claims.
+- **`config_snapshot` bloat guardrail** — limit to stable knobs
+  (thresholds, enabled flags, version ids). Don't dump full config
+  objects or prompts.
+- **Retention policy: experiment runs isolated from production
+  pruning**. Privacy deletion alignment open question.
+- **Reopened: exploitation rule_id completeness** — the existing 5
+  rule_ids (hyper_aggressive, hyper_passive, tight_nit,
+  high_fold_to_cbet, multiway_cbet) may not capture the Phase 7.5
+  three-tier clamp's internal tier distinctions. Open question
+  whether tier should be encoded as a separate rule_id, a
+  `reason_code` value, or a field within exploitation traces.
+
+### Round 1 revisions (v2)
+
+Plan reviewed by Codex on 2026-05-13. Key revisions:
 
 - **Sub-rule granularity for exploitation** — `exploitation` has 4-5
   internal rules (hyper_aggressive, hyper_passive, tight_nit, c-bet,
@@ -181,10 +221,27 @@ the narrow v1 loses most of the architectural payoff.
 # poker/strategy/intervention_trace.py
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 
 TRACE_SCHEMA_VERSION = 1
+
+
+class InterventionOperation(str, Enum):
+    """How this layer's trace relates to the prior strategy.
+
+    v3 (Codex r2): explicit overwrite semantics. `rule_id` + `layer_order`
+    alone don't distinguish "refined the prior layer's work" from
+    "threw it out." `operation` makes the relationship explicit so
+    attribution doesn't mistakenly credit a superseded earlier layer.
+    """
+    NO_OP = 'no_op'        # gates failed; strategy unchanged
+    SUGGEST = 'suggest'    # produced advice but didn't modify
+    ADJUST = 'adjust'      # additive offsets / nudges; prior intent preserved
+    CLAMP = 'clamp'        # bounded the prior distribution
+    OVERRIDE = 'override'  # replaced the strategy distribution entirely
+    VETO = 'veto'          # forced a specific action (math floor, etc.)
 
 
 @dataclass(frozen=True)
@@ -218,14 +275,47 @@ class InterventionTrace:
 
     # Outcome
     fired: bool = False      # did this rule actually modify the strategy?
+    operation: str = InterventionOperation.NO_OP.value
+                             # v3: see InterventionOperation. The analytical
+                             # relationship to the prior strategy. Required
+                             # for honest layer-overwrite attribution.
     effect: str = 'no_op'    # 'no_op' / 'offsets_applied' /
                              # 'distribution_replaced' / 'distribution_clamped'
-    effect_size: float = 0.0 # normalized magnitude of the change, in [0, 2]:
-                             #   0   = no change
-                             #   L1(output, input) for distribution edits
-                             # Different units across layers but always
-                             # comparable as "did this layer move the
-                             # distribution a lot or a little?"
+                             # — legacy sub-categorization; may collapse
+                             # into `operation` in a future schema version.
+    effect_size: float = 0.0 # L1 distance between input and output
+                             # distributions, in [0, 2]:
+                             #   0 = no change, 2 = full swap.
+                             # L1 alone doesn't say WHAT changed — see
+                             # action_changed / primary_action_* below
+                             # for poker-action semantics.
+
+    # v3: poker-specific action-level companions to effect_size. L1 alone
+    # doesn't distinguish "flipped fold→call" from "shifted call by 30%".
+    action_changed: bool = False
+                             # True if argmax action differs in/out
+    primary_action_before: str = ''
+                             # argmax of input_strategy_summary
+    primary_action_after: str = ''
+                             # argmax of output_strategy_summary
+    amount_bucket_before: str = ''
+                             # for raise/bet: 'small'/'medium'/'large'/'jam'.
+                             # Empty for fold/call/check.
+    amount_bucket_after: str = ''
+
+    # v3: layer-overwrite tracking — what this layer did to the prior
+    # pipeline state. Critical for attribution: prevents an overridden
+    # earlier layer's trace from looking causally responsible.
+    replaced_prior_action: bool = False
+                             # True when operation in {OVERRIDE, VETO}
+                             # AND primary_action_before != primary_action_after
+    prior_action_source: str = ''
+                             # 'layer.rule_id' of the layer that last set
+                             # primary_action_before. Empty if no prior
+                             # layer fired.
+    preserved_prior_intent: bool = True
+                             # False if this layer overrode the prior
+                             # action. Defaults True for ADJUST/CLAMP/NO_OP.
 
     # Why
     reason_code: str = ''    # categorical: 'hand_class_not_eligible',
@@ -248,8 +338,12 @@ class InterventionTrace:
 
     # Config snapshot — relevant threshold values active at decision time.
     # Lets traces survive config changes without misinterpretation.
-    # Layer-specific (e.g. exploitation logs the active clamp tier;
-    # bluff-catch logs the call-prob matrix bands it used).
+    #
+    # v3 (Codex r2): KEEP THIS SMALL. Limit to stable knobs that affect
+    # this intervention's behavior — thresholds, enabled flags, version
+    # ids. DO NOT dump full config objects, prompts, or computed state.
+    # The trace builder's `_select_config_for_trace(layer)` helper
+    # enforces an allowlist per layer (similar to NARRATION_ALLOWLIST).
     config_snapshot: Dict[str, Any] = field(default_factory=dict)
 
     # Layer-specific structured extras that don't fit elsewhere.
@@ -297,8 +391,17 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     "layer_order": 0,
     "decision_id": "g123_h45_d2",
     "fired": true,
+    "operation": "adjust",
     "effect": "offsets_applied",
     "effect_size": 0.22,
+    "action_changed": false,
+    "primary_action_before": "fold",
+    "primary_action_after": "fold",
+    "amount_bucket_before": "",
+    "amount_bucket_after": "",
+    "replaced_prior_action": false,
+    "prior_action_source": "",
+    "preserved_prior_intent": true,
     "reason_code": "deviation_profile_applied",
     "rationale": "LAG personality: +0.15 raise, -0.10 fold",
     "confidence": 1.0,
@@ -315,8 +418,17 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     "layer_order": 1,
     "decision_id": "g123_h45_d2",
     "fired": true,
+    "operation": "adjust",
     "effect": "offsets_applied",
     "effect_size": 0.45,
+    "action_changed": true,
+    "primary_action_before": "fold",
+    "primary_action_after": "call",
+    "amount_bucket_before": "",
+    "amount_bucket_after": "",
+    "replaced_prior_action": false,
+    "prior_action_source": "personality.default",
+    "preserved_prior_intent": true,
     "reason_code": "extreme_tier_via_jam_open",
     "rationale": "Opp postflop_jam_open_rate=0.32 (≥ extreme 0.20); call_prob nudged up.",
     "confidence": 0.85,
@@ -339,8 +451,17 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     "layer_order": 1,
     "decision_id": "g123_h45_d2",
     "fired": false,
+    "operation": "no_op",
     "effect": "no_op",
     "effect_size": 0.0,
+    "action_changed": false,
+    "primary_action_before": "",
+    "primary_action_after": "",
+    "amount_bucket_before": "",
+    "amount_bucket_after": "",
+    "replaced_prior_action": false,
+    "prior_action_source": "",
+    "preserved_prior_intent": true,
     "reason_code": "no_passive_opponent_detected",
     "rationale": "",
     "confidence": 0.0,
@@ -357,8 +478,17 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     "layer_order": 3,
     "decision_id": "g123_h45_d2",
     "fired": true,
+    "operation": "override",
     "effect": "distribution_replaced",
     "effect_size": 0.62,
+    "action_changed": false,
+    "primary_action_before": "call",
+    "primary_action_after": "call",
+    "amount_bucket_before": "",
+    "amount_bucket_after": "",
+    "replaced_prior_action": true,
+    "prior_action_source": "exploitation.hyper_aggressive",
+    "preserved_prior_intent": false,
     "reason_code": "medium_made_vs_extreme_facing_bet",
     "rationale": "Medium pair vs extreme jammer, flop wet_rainbow, bet 0.5x pot",
     "confidence": 0.85,
@@ -551,22 +681,38 @@ TRACE_PARSERS = {
 
 Per-decision traces are high-volume — a 10K-hand session × 4 decisions
 per hand × ~5 traces per decision = 200K trace rows / 200K JSON
-blobs. At ~200 bytes per trace JSON, that's ~40MB per long session.
-Need a policy:
+blobs. At ~300 bytes per trace JSON (v3, slightly bigger), that's
+~60MB per long session. Need a policy with explicit isolation:
 
 - **Production (real games)**: persist only the LAST 100 hands' traces
   per game. Older traces can be summarized into aggregate counters
   (which already exist in `manager._exploitation_counters`) and the
   raw rows pruned. A cron-style cleanup script handles this.
-- **Experiment runs**: persist everything for the session, since the
-  analysis script needs full traces. Disk usage is bounded by the
-  experiment hand count.
+- **Experiment runs**: persist everything for the session. **Critical
+  (Codex r2): experiment runs MUST be isolated from production
+  pruning** — distinguished by a `game.kind` field or game_id prefix
+  (`exp_*`). `prune_old_traces()` checks this and skips experiment
+  games unconditionally. Otherwise mid-experiment pruning corrupts
+  analysis.
+- **Validation artifacts** (the runs producing `PHASE_7_5_RESULTS.md`,
+  etc.): same as experiment runs — never auto-pruned. Annotated with
+  `game.kind = 'validation'`.
 - **Dev / debugging**: persist everything indefinitely on the local
   database. Disk is cheap.
 
+**Privacy deletion alignment (open question, v3, Codex r2)**: if the
+project has GDPR-style "delete my data" support, do trace rows
+delete together with user hand history, or do they get retained
+because they're "derived analytics not PII"? Either policy is
+defensible; needs alignment with the project's broader privacy
+posture before shipping. Captured in §"Remaining open questions."
+
 Implementation: a `prune_old_traces(game_id, keep_last_n_hands=100)`
-function that runs on `on_hand_end` for completed games (or as a
-nightly batch). Skipped in experiment mode via a config flag.
+function that:
+1. Reads `game.kind` from the games table.
+2. Skips entirely if `kind in {'experiment', 'validation'}`.
+3. Otherwise keeps the last N hands' traces and prunes the rest.
+4. Runs on `on_hand_end` for completed games (or as a nightly batch).
 
 ### Attribution analysis: four complementary modes
 
@@ -593,6 +739,16 @@ Live's chosen-action probability and Shadow's gives a direct per-
 decision attribution to the toggled rule with no trajectory
 divergence concerns.
 
+**Counterfactual legality check (v3, Codex r2)**: shadow-eval is only
+valid when each variant produces an action that is legal in the
+frozen state and comparable under the same legal-action mask. If
+disabling a rule causes the shadow distribution to choose an
+illegal action (e.g. raise when only fold/call/all-in are legal),
+the comparison is invalid — that decision is excluded from Mode 1
+analysis and labeled `'legality_invalid'` in the output. The script
+falls back to Mode 2/3 signal for those decisions, with a clear
+"sample size after legality filter" line in the report.
+
 ```bash
 python -m experiments.analyze_intervention_traces \
   --mode shadow \
@@ -601,7 +757,8 @@ python -m experiments.analyze_intervention_traces \
 ```
 
 Cost: one extra pipeline invocation per decision per disabled rule.
-Cheap (no game-tree advance), scales linearly with rules.
+Cheap (no game-tree advance), scales linearly with rules. Legality-
+filter exclusion rate is reported alongside the attribution result.
 
 **Mode 2: First-divergence analysis**
 
@@ -616,6 +773,26 @@ Layer: bluff_catch_override
   (Says nothing about the AVERAGE effect — only the
    point-where-things-start-to-differ effect.)
 ```
+
+**Post-divergence exclusion zone (v3, Codex r2)**: after the first
+action divergence in a hand, the two trajectories are in different
+states — pot size, stack, board, opponent response all differ.
+Per-decision attribution AFTER that point is labeled
+`'different_trajectory_context'` and excluded from layer-level
+attribution claims. The output reports it as a separate diagnostic:
+
+```
+Mode 2 output:
+  First-divergence decisions: 6000
+    Layer attributions for first divergence: ...
+
+  Post-divergence decisions: 18,400 (excluded from per-decision attribution)
+    Labeled 'different_trajectory_context' — these MAY have layer
+    differences but the comparison is no longer apples-to-apples.
+```
+
+This explicitly prevents Mode 3 (aggregate) leakage into Mode 2
+(decision-level) claims.
 
 Cost: free if you already have the paired sweep. Useful for
 "which layer is the most behavioral-change leverage?" but doesn't
@@ -680,6 +857,9 @@ NarrationFacts`, filtering and rephrasing for player-facing use:
 ```python
 # poker/strategy/narration_facts.py
 
+NARRATION_MAX_FACTS = 3   # Cap top facts surfaced to LLM (Codex r2)
+
+
 @dataclass(frozen=True)
 class NarrationFact:
     """One narration-safe observation derived from a fired intervention.
@@ -693,28 +873,64 @@ class NarrationFact:
     why_it_matters: str     # "Their bet range is mostly bluffs here"
                             # (player-facing, not "high all_in_per_facing_bet")
     decision_taken: str     # "I'm calling instead of folding"
-    intensity: str          # 'subtle' / 'noticeable' / 'strong'
-                            # (categorical mapping from effect_size,
-                            #  NOT a raw float — LLMs misread numbers)
+    action_intent: str      # v3: 'value_bet' / 'bluff' / 'bluff_catch' /
+                            # 'pot_control' / 'protection' / 'steal' /
+                            # 'induce' / 'give_up'. Derived from layer +
+                            # primary_action_after + hand_strength.
+    intensity_bucket: str   # 'subtle' / 'noticeable' / 'strong'
+                            # — magnitude of distribution change
+    certainty_bucket: str   # v3: 'tentative' / 'confident' / 'sure'
+                            # — separate from intensity (Codex r2:
+                            # "strong effect" ≠ "high confidence")
+    importance: float       # 0-1 ranking score for top-N selection;
+                            # never exposed to LLM directly
+
+
+@dataclass(frozen=True)
+class NarrationContext:
+    """Decision-level context the LLM needs alongside the facts.
+
+    v3: pulled out of per-fact entries to keep facts focused on
+    'observations' and put state context in one place.
+    """
+    street: str             # 'preflop' / 'flop' / 'turn' / 'river'
+    position_context: str   # 'in_position' / 'out_of_position' /
+                            # 'big_blind' / 'small_blind' / 'button'
+    risk_posture: str       # 'conservative' / 'balanced' / 'aggressive'
+                            # — derived from hero's anchors
 
 
 @dataclass(frozen=True)
 class NarrationFacts:
     """The narration-safe view of one decision's trace.
 
-    Built by `traces_to_narration_facts(traces) -> NarrationFacts` which:
+    Built by `traces_to_narration_facts(traces, hero_anchors,
+    decision_context) -> NarrationFacts` which:
       - filters to only fired traces
       - rejects layers/rule_ids not in the narration allowlist
       - maps `reason_code` to a player-facing observation via
         REASON_CODE_TO_OBSERVATION (a hand-curated dict)
       - maps `effect_size` to intensity bucket
+      - maps `confidence` to certainty bucket
+      - scores each candidate fact via `_score_fact_importance`
+      - ranks by importance and CAPS to NARRATION_MAX_FACTS (= 3)
+      - selects the top-1 fact as `primary_factor` for the lead
       - strips any input fields not in NARRATION_INPUT_ALLOWLIST
     """
-    facts: List[NarrationFact]
-    summary_intensity: str  # 'subtle' / 'noticeable' / 'strong' — the
-                            # overall "how unusual was this decision"
-                            # signal for the expression layer's drama
-                            # calibration.
+    facts: List[NarrationFact]               # capped at NARRATION_MAX_FACTS
+    primary_factor: Optional[NarrationFact]  # the lead — typically the
+                                             # one with action_changed=True
+                                             # at the highest layer_order
+    context: NarrationContext
+    summary_intensity: str                   # overall "how unusual was
+                                             # this decision" signal —
+                                             # max intensity_bucket across
+                                             # surfaced facts
+    suppressed_facts_count: int              # v3: how many facts were
+                                             # filtered or capped. Debug-
+                                             # only, NOT sent to LLM, but
+                                             # useful for "narration feels
+                                             # thin" diagnostics
 
 
 # What can show up in narration. Anything not here is dev-facing only.
@@ -744,6 +960,25 @@ REASON_CODE_TO_OBSERVATION: Dict[str, Tuple[str, str]] = {
     ),
     # ... etc
 }
+
+
+def _score_fact_importance(
+    trace: InterventionTrace,
+    decision_context,
+) -> float:
+    """Rank facts so top-N selection is principled, not first-come.
+
+    Heuristic ordering (highest importance first):
+    - operation == 'override' or 'veto' with action_changed → highest
+    - operation == 'override' without action change → high
+    - operation == 'adjust' with effect_size > 0.3 → medium
+    - operation == 'adjust' with effect_size <= 0.3 → low
+    - operation == 'no_op' → 0 (filtered before ranking anyway)
+
+    Tie-break by layer_order DESC (later layers' effects are more
+    consequential since they had final say).
+    """
+    ...
 ```
 
 The expression generator's prompt template then renders
@@ -1036,22 +1271,35 @@ Start from any commit at or after Phase 7.5 ships (the Item 1d sweep
 in `/tmp/phase7_5_3seed/`). The trace framework is additive — once
 shipped, all subsequent phases (Phase 8 etc.) automatically participate.
 
-## Resolved by Codex review (v2)
+## Resolved by Codex review (v2 + v3)
 
-- ✅ **Sub-layer attribution within `exploitation`** — multiple
+- ✅ **Sub-layer attribution within `exploitation`** (v2) — multiple
   traces per layer with distinct `rule_id`, NOT in `extra`. See
   `_RULE_IDS_BY_LAYER` in the trace data type section.
-- ✅ **Narration-vs-analysis separation** — `NarrationFacts` adapter
-  is a distinct surface; the LLM never sees the raw analytical trace.
-- ✅ **Attribution methodology causality limits** — Mode 1 shadow-eval
-  is the strongest per-decision tool; Mode 3 paired-sweep gives
-  aggregate signal only. Analysis script labels each number by mode.
-- ✅ **Persistence schema choice** — deferred to Step 3a access-pattern
-  audit before locking JSON-column vs separate table.
-- ✅ **Schema versioning** — `schema_version` field + minor/major
-  versioning policy.
-- ✅ **Retention/pruning** — `prune_old_traces` for production
-  (last 100 hands); experiments persist everything.
+- ✅ **Narration-vs-analysis separation** (v2) — `NarrationFacts`
+  adapter is a distinct surface; the LLM never sees the raw
+  analytical trace.
+- ✅ **Attribution methodology causality limits** (v2 + v3) — Mode 1
+  shadow-eval is the strongest per-decision tool with a legality-
+  filter exclusion; Mode 2 has a post-divergence exclusion zone;
+  Mode 3 paired-sweep gives aggregate signal only. Analysis script
+  labels each number by mode.
+- ✅ **Persistence schema choice** (v2) — deferred to Step 3a
+  access-pattern audit.
+- ✅ **Schema versioning** (v2) — `schema_version` field +
+  minor/major versioning policy.
+- ✅ **Retention/pruning + experiment isolation** (v2 + v3) —
+  `prune_old_traces` for production (last 100 hands); experiments
+  and validation runs skipped via `game.kind` field.
+- ✅ **Layer-overwrite semantics** (v3) — `operation` enum + the
+  three overwrite-tracking fields capture how each layer relates
+  to the prior strategy.
+- ✅ **Poker-action companions to `effect_size`** (v3) — `action_
+  changed`, `primary_action_before/after`, `amount_bucket_*`.
+- ✅ **NarrationFacts ranking + cap** (v3) — top-3 facts via
+  `_score_fact_importance`; `primary_factor` lead selected for prompt.
+- ✅ **`config_snapshot` bloat guardrail** (v3) — per-layer allowlist
+  via `_select_config_for_trace`.
 
 ## Remaining open questions (pre-implementation)
 
@@ -1067,17 +1315,48 @@ shipped, all subsequent phases (Phase 8 etc.) automatically participate.
    back to a controller-held accumulator with explicit reset
    semantics — the trace data shape doesn't change.
 
-3. **Mode 1 shadow-eval cost** (new): each shadow-eval call invokes
-   the full strategy pipeline (minus the disabled layer) for one
-   decision. For 6000 decisions × 6 layers to ablate, that's 36k
-   extra pipeline runs. Estimate: ~5-15 min per analysis run, but
-   bears measuring once a real sweep exists.
+3. **Mode 1 shadow-eval cost** (still open): each shadow-eval call
+   invokes the full strategy pipeline (minus the disabled layer)
+   for one decision. For 6000 decisions × 6 layers to ablate,
+   that's 36k extra pipeline runs. Estimate: ~5-15 min per analysis
+   run, but bears measuring once a real sweep exists.
 
-4. **Layer-overwrite semantics for `effect_size`** (new): when one
-   layer replaces a previous layer's output, what should the later
-   layer's `effect_size` measure — L1 distance from the immediately
-   prior strategy, or from the original chart baseline? The latter
-   is more meaningful for narration ("this layer contributed X% of
-   the total move"); the former is simpler. Default to "L1 from
-   immediately prior strategy" (simpler, locally measurable);
-   revisit after seeing real traces.
+4. **Layer-overwrite semantics for `effect_size`** (still open):
+   when one layer replaces a previous layer's output, what should
+   the later layer's `effect_size` measure — L1 distance from the
+   immediately prior strategy, or from the original chart baseline?
+   The latter is more meaningful for narration ("this layer
+   contributed X% of the total move"); the former is simpler.
+   Default to "L1 from immediately prior strategy"; revisit after
+   seeing real traces.
+
+5. **Exploitation rule_id completeness** (v3, Codex r2): the five
+   declared exploitation `rule_id`s (hyper_aggressive, hyper_passive,
+   tight_nit, high_fold_to_cbet, multiway_cbet) may not capture
+   Phase 7.5's three-tier clamp's internal tier distinctions. When
+   the clamp escalates from MEDIUM to EXTREME tier, that's a
+   meaningful behavioral shift in the same `hyper_aggressive` rule.
+   Three options:
+   - Add `tier` as a `reason_code` value (`extreme_tier_via_jam_open`
+     vs `medium_tier_via_af`)
+   - Add a sibling `clamp_tier` field at the InterventionTrace level
+   - Split into separate `rule_id`s per tier
+     (`hyper_aggressive_medium`, `hyper_aggressive_extreme`)
+   Recommend option 1 (reason_code) for v1 — already structured for
+   this kind of distinction; can promote to its own field if
+   attribution needs the granularity.
+
+6. **Trace volume / performance budget** (v3, Codex r2): the 60MB
+   per long session estimate hasn't been measured against real
+   workloads. Confirm acceptable size on the production DB before
+   committing to per-decision traces in production (vs experiment-
+   only). Also: per-decision JSON serialization cost in the hot
+   decision path is non-zero — measure overhead during Step 1
+   bluff_catch migration and fail-fast if it exceeds ~5% of
+   decision latency.
+
+7. **Privacy deletion alignment** (v3, Codex r2): GDPR-style "delete
+   my data" — do trace rows delete with hand history, or are they
+   retained as "derived analytics"? Either policy is defensible;
+   needs decision before shipping to production. Doesn't block
+   implementation.
