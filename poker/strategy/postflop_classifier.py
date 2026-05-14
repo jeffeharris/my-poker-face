@@ -9,7 +9,7 @@ from typing import List
 
 from poker.board_analyzer import classify_texture_bucket
 from poker.card_utils import card_to_string
-from poker.strategy.hand_classification import classify_hand
+from poker.strategy.hand_classification import classify_hand_full
 from poker.strategy.nodes import PostflopNode
 from poker.strategy.preflop_classifier import get_6max_position
 
@@ -123,7 +123,7 @@ def build_postflop_node(
 
     position = _determine_position(game_state, player_idx)
     board_texture = classify_texture_bucket(community_cards)
-    made_tier, draw_modifier = classify_hand(hole_cards, community_cards)
+    classification = classify_hand_full(hole_cards, community_cards)
     facing_action = _determine_facing_action(game_state)
     spr_bucket = _determine_spr_bucket(game_state, player_idx)
 
@@ -132,8 +132,10 @@ def build_postflop_node(
         position=position,
         pot_type='SRP',
         board_texture=board_texture,
-        made_tier=made_tier,
-        draw_modifier=draw_modifier,
+        made_tier=classification.made_tier,
+        draw_modifier=classification.draw_modifier,
         facing_action=facing_action,
         spr_bucket=spr_bucket,
+        nut_status=classification.nut_status,
+        danger_flags=classification.danger_flags,
     )

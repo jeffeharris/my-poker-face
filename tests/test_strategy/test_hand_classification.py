@@ -3,7 +3,19 @@
 import pytest
 
 from poker.strategy.hand_classification import (
+    FOUR_FLUSH_BOARD,
+    FOUR_STRAIGHT_BOARD,
+    FULL_HOUSE_POSSIBLE,
+    HIGHER_FLUSH_POSSIBLE,
+    HIGHER_STRAIGHT_POSSIBLE,
+    NUT_ACTUAL,
+    NUT_BLUFF_CATCHER,
+    NUT_NEAR,
+    NUT_NON_NUT_STRONG,
+    PAIRED_BOARD,
+    TRIPS_ON_BOARD,
     classify_hand,
+    classify_hand_full,
     simplify_hand_class,
 )
 
@@ -178,3 +190,231 @@ class TestEndToEnd:
         # Actually Ah-5h with Kh-7h is 4 hearts → flush draw
         # But Ah is high card only (no pair) → air + strong_draw
         assert simplify_hand_class(made, draw) == 'air_strong_draw'
+
+
+# ---------------------------------------------------------------------------
+# §1: Danger flag detection
+# ---------------------------------------------------------------------------
+
+class TestDangerFlags:
+    """Board-level + hand-vs-board danger flag detection."""
+
+    def test_paired_board_flag(self):
+        result = classify_hand_full(['Ah', 'Kd'], ['Ts', 'Tc', '4h'])
+        assert PAIRED_BOARD in result.danger_flags
+
+    def test_trips_on_board_flag(self):
+        result = classify_hand_full(['Ah', 'Kd'], ['Ts', 'Tc', 'Td'])
+        assert TRIPS_ON_BOARD in result.danger_flags
+        assert PAIRED_BOARD in result.danger_flags  # superset
+
+    def test_four_flush_board_flag(self):
+        # Four hearts on the board, hero unrelated suits
+        result = classify_hand_full(['As', 'Kc'], ['Th', '7h', '2h', '4h'])
+        assert FOUR_FLUSH_BOARD in result.danger_flags
+
+    def test_four_straight_board_flag(self):
+        # 7-8-9-T on board → 4 consecutive ranks
+        result = classify_hand_full(['As', 'Kc'], ['7h', '8d', '9c', 'Ts'])
+        assert FOUR_STRAIGHT_BOARD in result.danger_flags
+
+    def test_dry_board_no_flags(self):
+        # K-7-2 rainbow: nothing dangerous
+        result = classify_hand_full(['Ah', 'Kd'], ['Ks', '7c', '2h'])
+        assert result.danger_flags == frozenset()
+
+    def test_higher_straight_possible_fires_on_4_straight_board(self):
+        # Hero 6♠Q♦ on 7♥T♥8♠2♣9♣ — Example 1 from the plan.
+        # Board 7-T-8-9 has 4 consecutive ranks (7,8,9,T); hero has 10-high
+        # straight; J-high straight is possible if opp holds a J.
+        result = classify_hand_full(['6s', 'Qd'], ['7h', 'Th', '8s', '2c', '9c'])
+        assert FOUR_STRAIGHT_BOARD in result.danger_flags
+        assert HIGHER_STRAIGHT_POSSIBLE in result.danger_flags
+
+    def test_higher_straight_not_possible_on_3_card_board(self):
+        # 5-6-7 flop with hero 9-8: 9-high straight is the nut straight
+        # (opp can't have a higher straight without using hero's 8 or 9).
+        result = classify_hand_full(['9h', '8d'], ['7s', '6c', '5h'])
+        assert FOUR_STRAIGHT_BOARD not in result.danger_flags
+        assert HIGHER_STRAIGHT_POSSIBLE not in result.danger_flags
+
+    def test_full_house_possible_on_paired_board_with_pair_hand(self):
+        # Hero K-9 on T-T-4: one pair (9s)... wait, no pair from hole.
+        # Hero K-T on T-T-4: trips. Paired board, hand_rank=7 (trips).
+        # FULL_HOUSE_POSSIBLE should fire since paired board + non-FH hand.
+        result = classify_hand_full(['Kh', 'Td'], ['Ts', 'Tc', '4h'])
+        assert PAIRED_BOARD in result.danger_flags
+        assert FULL_HOUSE_POSSIBLE in result.danger_flags
+
+    def test_higher_flush_possible_when_hero_doesnt_hold_nut_card(self):
+        # Hero T♠ 9♠ on monotone spade board, no A or K of spades in
+        # hero's hand or board → higher flush possible
+        result = classify_hand_full(['Ts', '9s'], ['7s', '5s', '2s'])
+        assert HIGHER_FLUSH_POSSIBLE in result.danger_flags
+
+    def test_nut_flush_no_higher_possible(self):
+        # Hero As-Ks on spade-heavy board → hero has nut flush, no
+        # higher flush possible
+        result = classify_hand_full(['As', 'Ks'], ['7s', '5s', '2s'])
+        assert HIGHER_FLUSH_POSSIBLE not in result.danger_flags
+
+
+# ---------------------------------------------------------------------------
+# §1: nut_status assignment
+# ---------------------------------------------------------------------------
+
+class TestNutStatus:
+    """nut_status: actual_nuts / near_nuts / non_nut_strong / bluff_catcher."""
+
+    def test_quads_is_actual_nuts(self):
+        result = classify_hand_full(['Ah', 'Ad'], ['As', 'Ac', '2h'])
+        assert result.nut_status == NUT_ACTUAL
+
+    def test_full_house_safe_board_is_actual_nuts(self):
+        result = classify_hand_full(['Kh', 'Kd'], ['Ks', '7c', '7h'])
+        assert result.nut_status == NUT_ACTUAL
+
+    def test_full_house_trips_on_board_drops_to_near_nuts(self):
+        # Board trips means a bigger FH is possible; hero's FH is no
+        # longer the deck-best.
+        result = classify_hand_full(['9h', '9d'], ['Ts', 'Tc', 'Td'])
+        assert result.nut_status == NUT_NEAR
+
+    def test_nut_flush_is_actual_nuts(self):
+        result = classify_hand_full(['As', 'Ks'], ['7s', '5s', '2s'])
+        assert result.nut_status == NUT_ACTUAL
+
+    def test_non_nut_flush_is_non_nut_strong(self):
+        result = classify_hand_full(['Ts', '9s'], ['7s', '5s', '2s'])
+        assert result.nut_status == NUT_NON_NUT_STRONG
+
+    def test_nut_straight_on_dry_board_is_actual_nuts(self):
+        # 9-high straight on 5-6-7 flop using hero's 8-9 is the nut
+        # straight (no higher straight reachable).
+        result = classify_hand_full(['9h', '8d'], ['7s', '6c', '5h'])
+        assert result.nut_status == NUT_ACTUAL
+
+    def test_non_nut_straight_when_higher_possible(self):
+        # Example 1 from plan: 10-high straight, J-high possible.
+        result = classify_hand_full(['6s', 'Qd'], ['7h', 'Th', '8s', '2c', '9c'])
+        assert result.nut_status == NUT_NON_NUT_STRONG
+
+    def test_set_on_dry_board_is_near_nuts(self):
+        # Set of 7s on K-7-2 board, no danger flags
+        result = classify_hand_full(['7h', '7d'], ['7s', 'Kc', '2h'])
+        assert result.nut_status == NUT_NEAR
+
+    def test_trips_on_paired_board_is_non_nut_strong(self):
+        # Hero K-9 on 9-9-A-2 (paired board, hero has trip 9s — NOT
+        # a "set", since set + paired board would already be FH).
+        # FULL_HOUSE_POSSIBLE fires; nut_status drops to non_nut_strong.
+        result = classify_hand_full(['Kh', '9d'], ['9s', '9c', 'Ah', '2c'])
+        assert FULL_HOUSE_POSSIBLE in result.danger_flags
+        assert result.nut_status == NUT_NON_NUT_STRONG
+
+    def test_top_pair_on_4broadway_is_bluff_catcher(self):
+        # Hero K-3 on 4-Q-J-K-T board (Example 5 from plan): top pair on
+        # 4-Broadway → bluff catcher.
+        result = classify_hand_full(['Kd', '3s'], ['4c', 'Qd', 'Jc', 'Kh', 'Ts'])
+        assert FOUR_STRAIGHT_BOARD in result.danger_flags
+        assert result.nut_status == NUT_BLUFF_CATCHER
+
+    def test_pair_on_paired_board_is_bluff_catcher(self):
+        # Pair on a paired board: bluff catcher
+        result = classify_hand_full(['9h', '8d'], ['Ts', 'Tc', '4h'])
+        # Hero plays one pair (Ts) — actually this becomes two pair if
+        # hero pairs the board. With 9-8 hole + T-T-4 board hero has
+        # just one pair (the board T's), with kicker 9. Wait — pair on
+        # paired board means hero's hand is the board pair plus kickers.
+        # That's hand_rank=9. Bluff catcher.
+        assert PAIRED_BOARD in result.danger_flags
+        assert result.nut_status == NUT_BLUFF_CATCHER
+
+    def test_high_card_is_bluff_catcher(self):
+        result = classify_hand_full(['Ah', 'Qd'], ['Ks', '8c', '3h'])
+        assert result.nut_status == NUT_BLUFF_CATCHER
+
+
+# ---------------------------------------------------------------------------
+# §1: made_tier downgrades
+# ---------------------------------------------------------------------------
+
+class TestMadeTierDowngrades:
+    """The downgrade flow: raw 'nuts' / 'strong_made' → corrected tier."""
+
+    def test_non_nut_straight_downgrades_from_nuts_to_strong_made(self):
+        # Example 1 from plan: 10-high straight with J-high possible.
+        # Raw classifier would call it 'nuts' (hand_rank=6). The §1
+        # downgrade should make it 'strong_made'.
+        made, _ = classify_hand(['6s', 'Qd'], ['7h', 'Th', '8s', '2c', '9c'])
+        assert made == 'strong_made'
+
+    def test_nut_straight_stays_nuts(self):
+        # 9-high straight on 5-6-7 flop is the nut straight.
+        made, _ = classify_hand(['9h', '8d'], ['7s', '6c', '5h'])
+        assert made == 'nuts'
+
+    def test_non_nut_flush_downgrades_from_nuts_to_strong_made(self):
+        # Hero holds a non-nut flush; raw classifier calls 'nuts' → downgrade.
+        made, _ = classify_hand(['Ts', '9s'], ['7s', '5s', '2s'])
+        assert made == 'strong_made'
+
+    def test_nut_flush_stays_nuts(self):
+        made, _ = classify_hand(['As', 'Ks'], ['7s', '5s', '2s'])
+        assert made == 'nuts'
+
+    def test_top_pair_on_4broadway_downgrades_to_medium(self):
+        # Example 5 from plan. Top pair K with 3 kicker on K-Q-J-T-4
+        # board. Raw classifier returns 'medium_made' already (kicker
+        # too weak for strong_made path). nut_status = bluff_catcher
+        # because of FOUR_STRAIGHT_BOARD. Downgrade only kicks in for
+        # 'strong_made' → 'medium_made', so this stays 'medium_made'.
+        made, _ = classify_hand(['Kd', '3s'], ['4c', 'Qd', 'Jc', 'Kh', 'Ts'])
+        assert made == 'medium_made'
+
+    def test_tptk_on_paired_board_downgrades_to_medium(self):
+        # TPTK (A-K hole, K paired with paired board) — raw classifier
+        # would return 'strong_made'; danger flag PAIRED_BOARD makes
+        # nut_status=bluff_catcher (one pair on paired board); downgrade
+        # 'strong_made' → 'medium_made'.
+        made, _ = classify_hand(['Ah', 'Kd'], ['Ks', '7c', '7h'])
+        # Hero plays K-7-7 + A kicker + K = two pair (KK+77). hand_rank=8.
+        # Two pair on paired board → nut_status = non_nut_strong, NOT
+        # bluff_catcher (per the rule). 'strong_made' stays.
+        assert made == 'strong_made'
+
+    def test_one_pair_on_paired_board_downgrades(self):
+        # Hero 9-8 with T-T-4: hero's hand is one pair (TT on board),
+        # kicker 9. nut_status = bluff_catcher (paired_board); raw
+        # classifier returns... let's compute. hand_rank=9 (one pair).
+        # _classify_made_tier: pair_rank = 10 (T). hero hole ranks
+        # [9, 8] don't match board, so matching_ranks=[]. Falls into
+        # 'weak_made' (line 78). So raw = 'weak_made', downgrade noop.
+        made, _ = classify_hand(['9h', '8d'], ['Ts', 'Tc', '4h'])
+        assert made == 'weak_made'
+
+
+# ---------------------------------------------------------------------------
+# §1: HandClassification dataclass shape
+# ---------------------------------------------------------------------------
+
+class TestHandClassificationDataclass:
+    """The new `classify_hand_full` returns a populated dataclass."""
+
+    def test_all_fields_populated(self):
+        result = classify_hand_full(['Ah', 'Kd'], ['Ks', '7c', '2h'])
+        assert result.made_tier == 'strong_made'
+        assert result.draw_modifier == 'no_draw'
+        assert result.hand_class == 'strong_made'
+        assert result.nut_status == NUT_NON_NUT_STRONG
+        assert isinstance(result.danger_flags, frozenset)
+
+    def test_dataclass_is_frozen(self):
+        result = classify_hand_full(['Ah', 'Kd'], ['Ks', '7c', '2h'])
+        with pytest.raises(Exception):  # FrozenInstanceError
+            result.made_tier = 'air'
+
+    def test_preflop_no_community_cards_returns_empty_flags(self):
+        # No community cards → danger_flags empty
+        result = classify_hand_full(['Ah', 'Kd'], [])
+        assert result.danger_flags == frozenset()

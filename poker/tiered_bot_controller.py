@@ -718,6 +718,12 @@ class TieredBotController(AIPlayerController):
         hand_strength = self._classify_postflop_hand_strength(node)
         # Snapshot hand_strength for Mode 1 replay.
         self._last_pipeline_snapshot['hand_strength'] = hand_strength
+        # Plan §1: snapshot extended classification (nut_status, danger
+        # flags) so diagnostic traces and §2 defense-floor consumers can
+        # read the joint (hand_class, nut_status) gate without
+        # re-classifying.
+        self._last_pipeline_snapshot['nut_status'] = node.nut_status
+        self._last_pipeline_snapshot['danger_flags'] = node.danger_flags
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
         modified_strategy, exploitation_traces = self._apply_exploitation(

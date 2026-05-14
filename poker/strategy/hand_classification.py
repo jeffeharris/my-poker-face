@@ -3,11 +3,24 @@
 Classifies a player's hand into a made-hand tier and draw modifier,
 then maps those to a simplified 6-class bucket used by the postflop
 strategy table.
+
+The classifier is *board-aware*: it downgrades made hands whose
+strength is undermined by board texture (non-nut straights when
+higher straights are possible, pairs on paired boards, top pair on
+4-Broadway / 4-flush boards, etc.). Downgrades happen here rather
+than in each consumer so every downstream rule
+(`value_override`, `value_vs_station`, `bluff_catch_override`, the
+defense-floor matrix in plan §2) sees the same corrected value.
+
+The richer output (`nut_status`, `danger_flags`) is available via
+`classify_hand_full`; the legacy `classify_hand` tuple is a thin
+wrapper that returns the downgraded `made_tier` + `draw_modifier`.
 """
 
 from collections import Counter
+from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import List, Tuple
+from typing import FrozenSet, List, Tuple
 
 from poker.board_analyzer import analyze_board_texture
 from poker.hand_evaluator import HandEvaluator, _has_straight_draw
@@ -16,6 +29,41 @@ RANK_VALUES = {
     '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
     '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14,
 }
+
+# --- Danger flag names (constants for grep-ability) ----------------
+PAIRED_BOARD = 'paired_board'
+TRIPS_ON_BOARD = 'trips_on_board'
+FOUR_STRAIGHT_BOARD = 'four_straight_board'
+FOUR_FLUSH_BOARD = 'four_flush_board'
+HIGHER_STRAIGHT_POSSIBLE = 'higher_straight_possible'
+HIGHER_FLUSH_POSSIBLE = 'higher_flush_possible'
+FULL_HOUSE_POSSIBLE = 'full_house_possible'
+
+# --- Nut status values ---------------------------------------------
+NUT_ACTUAL = 'actual_nuts'
+NUT_NEAR = 'near_nuts'
+NUT_NON_NUT_STRONG = 'non_nut_strong'
+NUT_BLUFF_CATCHER = 'bluff_catcher'
+
+
+@dataclass(frozen=True)
+class HandClassification:
+    """Full hand classification including board danger and nut status.
+
+    Fields:
+        made_tier: 'nuts' | 'strong_made' | 'medium_made' | 'weak_made' | 'air'
+            (post-downgrade)
+        draw_modifier: 'strong_draw' | 'weak_draw' | 'backdoor' | 'no_draw'
+        hand_class: 6-value simplified label from `simplify_hand_class`
+            applied to the *downgraded* made_tier
+        nut_status: 'actual_nuts' | 'near_nuts' | 'non_nut_strong' | 'bluff_catcher'
+        danger_flags: frozenset of danger flag strings (see PAIRED_BOARD etc.)
+    """
+    made_tier: str
+    draw_modifier: str
+    hand_class: str
+    nut_status: str
+    danger_flags: FrozenSet[str]
 
 
 def _parse_card(card_str: str) -> SimpleNamespace:
@@ -29,7 +77,7 @@ def _classify_made_tier(
     board_ranks: List[int],
     community_cards: List[str],
 ) -> str:
-    """Classify the made-hand strength tier."""
+    """Classify the raw made-hand strength tier (pre-downgrade)."""
     # Flush/straight or better
     if hand_rank <= 6:
         return 'nuts'
@@ -144,11 +192,273 @@ def _classify_draw_modifier(
     return 'no_draw'
 
 
+# --- Board-aware danger / nut-status helpers -----------------------
+
+def _has_four_in_window(ranks: List[int]) -> bool:
+    """True if 4 distinct ranks form a 4-consecutive run (including wheel)."""
+    unique = sorted(set(ranks))
+    for i in range(len(unique) - 3):
+        if unique[i + 3] - unique[i] == 3:
+            return True
+    # Wheel: treat A as 1 for low straight (A-2-3-4)
+    if 14 in unique:
+        low = sorted(set([1] + [r for r in unique if r <= 5]))
+        for i in range(len(low) - 3):
+            if low[i + 3] - low[i] == 3:
+                return True
+    return False
+
+
+def _max_straight_high_using_board(board_ranks: List[int]) -> int:
+    """Highest straight high-card reachable using ≥ 4 of the board ranks
+    + 1 (unspecified) opponent hole card.
+
+    A 4-rank window of the board lets opponent complete a higher straight
+    with a single hole card, so this captures the case where hero's
+    straight can be outranked without opponent needing both hole cards.
+
+    Returns 0 if no 4-rank board window exists.
+    """
+    unique = sorted(set(board_ranks))
+    extended = sorted(set(([1] + unique) if 14 in unique else unique))
+
+    best_high = 0
+    for high in range(14, 4, -1):
+        window = set(range(high - 4, high + 1))
+        if len(window & set(extended)) >= 4:
+            best_high = high
+            break  # iterate high to low; first match is the highest
+    return best_high
+
+
+def _compute_danger_flags(
+    hole_cards: List[str],
+    community_cards: List[str],
+    hand_rank: int,
+    hand_values: List[int],
+) -> FrozenSet[str]:
+    """Compute board + hand-vs-board danger flags.
+
+    Flags are *strategic* annotations on the situation. They do not
+    encode actual hand strength on their own — that's `nut_status`'s
+    job. Consumers (e.g., §2 defense floor) read them as dampeners.
+    """
+    flags = set()
+    if len(community_cards) < 3:
+        return frozenset()
+
+    board_ranks = [RANK_VALUES[c[0]] for c in community_cards]
+    board_suits = [c[1] for c in community_cards]
+    rank_counts = Counter(board_ranks)
+    suit_counts = Counter(board_suits)
+
+    if any(c >= 2 for c in rank_counts.values()):
+        flags.add(PAIRED_BOARD)
+    if any(c >= 3 for c in rank_counts.values()):
+        flags.add(TRIPS_ON_BOARD)
+    if any(c >= 4 for c in suit_counts.values()):
+        flags.add(FOUR_FLUSH_BOARD)
+    if _has_four_in_window(board_ranks):
+        flags.add(FOUR_STRAIGHT_BOARD)
+
+    # Hero has a straight (rank 6); check if a higher straight is reachable
+    # given the board has 4 connected ranks (so opponent needs only 1 hole
+    # card, not 2, to complete).
+    if hand_rank == 6 and FOUR_STRAIGHT_BOARD in flags:
+        hero_high = hand_values[0] if hand_values else 0
+        max_board_high = _max_straight_high_using_board(board_ranks)
+        if max_board_high > hero_high:
+            flags.add(HIGHER_STRAIGHT_POSSIBLE)
+
+    # Full house possible: board paired + hero's hand is below FH strength.
+    # (Hero already has FH or better → flag is irrelevant.)
+    if PAIRED_BOARD in flags and hand_rank > 4:
+        flags.add(FULL_HOUSE_POSSIBLE)
+
+    # Higher flush possible: hero made a flush but doesn't hold the top
+    # flush cards (and they aren't on the board), so a higher flush is
+    # reachable by an opponent with the missing high card of the suit.
+    if hand_rank == 5:
+        flush_suit = max(suit_counts, key=suit_counts.get)
+        hole_flush_ranks = {
+            RANK_VALUES[c[0]] for c in hole_cards if c[1] == flush_suit
+        }
+        board_flush_ranks = {
+            RANK_VALUES[c[0]] for c in community_cards if c[1] == flush_suit
+        }
+        seen = hole_flush_ranks | board_flush_ranks
+        hero_top_flush = max(hole_flush_ranks | {0}, default=0)
+        for higher in (14, 13, 12):
+            if higher in seen:
+                continue
+            if higher > hero_top_flush:
+                flags.add(HIGHER_FLUSH_POSSIBLE)
+                break
+
+    return frozenset(flags)
+
+
+def _classify_nut_status(
+    hand_rank: int,
+    hole_ranks: List[int],
+    board_ranks: List[int],
+    danger_flags: FrozenSet[str],
+) -> str:
+    """Assign nut_status from hand_rank + danger flags.
+
+    The four labels capture *strategic* nut-ness, not made-hand
+    strength. A non-nut straight is `non_nut_strong`; a pair on a
+    paired board is `bluff_catcher`; etc.
+    """
+    # Royal / straight flush / quads — always actual nuts
+    if hand_rank <= 3:
+        return NUT_ACTUAL
+
+    # Full house — actual nuts unless opp can have a bigger FH or quads
+    # (rare; treat as near_nuts on trips boards).
+    if hand_rank == 4:
+        if TRIPS_ON_BOARD in danger_flags:
+            return NUT_NEAR
+        return NUT_ACTUAL
+
+    # Flush — actual nuts only if hero holds the nut-suit ace
+    if hand_rank == 5:
+        if HIGHER_FLUSH_POSSIBLE in danger_flags:
+            return NUT_NON_NUT_STRONG
+        if FULL_HOUSE_POSSIBLE in danger_flags:
+            return NUT_NON_NUT_STRONG
+        return NUT_ACTUAL
+
+    # Straight — non-nut if a higher straight is possible
+    if hand_rank == 6:
+        if HIGHER_STRAIGHT_POSSIBLE in danger_flags:
+            return NUT_NON_NUT_STRONG
+        if FULL_HOUSE_POSSIBLE in danger_flags:
+            return NUT_NON_NUT_STRONG
+        return NUT_ACTUAL
+
+    # Three of a kind (set or trips)
+    if hand_rank == 7:
+        if FULL_HOUSE_POSSIBLE in danger_flags:
+            return NUT_NON_NUT_STRONG
+        if (FOUR_FLUSH_BOARD in danger_flags
+                or FOUR_STRAIGHT_BOARD in danger_flags):
+            return NUT_NON_NUT_STRONG
+        return NUT_NEAR
+
+    # Two pair
+    if hand_rank == 8:
+        if FULL_HOUSE_POSSIBLE in danger_flags:
+            return NUT_NON_NUT_STRONG
+        if (FOUR_FLUSH_BOARD in danger_flags
+                or FOUR_STRAIGHT_BOARD in danger_flags):
+            return NUT_BLUFF_CATCHER
+        return NUT_NON_NUT_STRONG
+
+    # One pair
+    if hand_rank == 9:
+        # Pair on paired board: hero's "second pair" is the board pair,
+        # which everyone shares — hero's hole-card pair is the only edge.
+        # Treat as bluff catcher regardless of which pair hero holds.
+        if PAIRED_BOARD in danger_flags:
+            return NUT_BLUFF_CATCHER
+        # Pair on highly coordinated board (4-flush / 4-straight)
+        if (FOUR_FLUSH_BOARD in danger_flags
+                or FOUR_STRAIGHT_BOARD in danger_flags):
+            return NUT_BLUFF_CATCHER
+        return NUT_NON_NUT_STRONG
+
+    # High card / air
+    return NUT_BLUFF_CATCHER
+
+
+def _apply_made_tier_downgrade(
+    raw_made_tier: str,
+    nut_status: str,
+    danger_flags: FrozenSet[str],
+) -> str:
+    """Downgrade `_classify_made_tier`'s raw output based on nut status
+    and board danger.
+
+    Downgrade rules (the §1 fix):
+    - `nuts` + `non_nut_strong` → `strong_made` (e.g., non-nut straight
+      on a 4-straight board)
+    - `nuts` + `bluff_catcher` → `medium_made` (e.g., one pair labeled
+      as a "set" because the classifier conflates pocket pair + board
+      paired, though the made-tier path generally guards this)
+    - `strong_made` + `bluff_catcher` → `medium_made` (e.g., top pair on
+      a paired or 4-Broadway board) — `strong_made` stays for
+      `non_nut_strong` because it's still a value hand
+    - Everything else passes through
+    """
+    if raw_made_tier == 'nuts':
+        if nut_status == NUT_NON_NUT_STRONG:
+            return 'strong_made'
+        if nut_status == NUT_BLUFF_CATCHER:
+            return 'medium_made'
+        return 'nuts'
+
+    if raw_made_tier == 'strong_made':
+        if nut_status == NUT_BLUFF_CATCHER:
+            return 'medium_made'
+        return 'strong_made'
+
+    return raw_made_tier
+
+
+def classify_hand_full(
+    hole_cards: List[str],
+    community_cards: List[str],
+) -> HandClassification:
+    """Classify a hand into the full (made_tier, draw_modifier,
+    hand_class, nut_status, danger_flags) tuple.
+
+    `made_tier` and `hand_class` reflect the *post-downgrade* values.
+    """
+    all_card_objs = [_parse_card(c) for c in hole_cards + community_cards]
+    result = HandEvaluator(all_card_objs).evaluate_hand()
+    hand_rank = result['hand_rank']
+    hand_values = result.get('hand_values') or []
+
+    hole_ranks = [RANK_VALUES[c[0]] for c in hole_cards]
+    board_ranks = [RANK_VALUES[c[0]] for c in community_cards]
+
+    danger_flags = _compute_danger_flags(
+        hole_cards, community_cards, hand_rank, hand_values,
+    )
+    nut_status = _classify_nut_status(
+        hand_rank, hole_ranks, board_ranks, danger_flags,
+    )
+    raw_made_tier = _classify_made_tier(
+        hand_rank, hole_ranks, board_ranks, community_cards,
+    )
+    made_tier = _apply_made_tier_downgrade(
+        raw_made_tier, nut_status, danger_flags,
+    )
+    draw_modifier = _classify_draw_modifier(
+        hand_rank, hole_cards, community_cards,
+    )
+    hand_class = simplify_hand_class(made_tier, draw_modifier)
+
+    return HandClassification(
+        made_tier=made_tier,
+        draw_modifier=draw_modifier,
+        hand_class=hand_class,
+        nut_status=nut_status,
+        danger_flags=danger_flags,
+    )
+
+
 def classify_hand(
     hole_cards: List[str],
     community_cards: List[str],
 ) -> Tuple[str, str]:
     """Classify a hand into (made_tier, draw_modifier).
+
+    Thin wrapper around `classify_hand_full` for legacy callers; the
+    returned `made_tier` is the *downgraded* tier (so existing
+    consumers like `simplify_hand_class` and the postflop strategy
+    table see the corrected value without code changes).
 
     Args:
         hole_cards: Two card strings like ['Ah', 'Kd']
@@ -159,17 +469,8 @@ def classify_hand(
         - made_tier: 'nuts', 'strong_made', 'medium_made', 'weak_made', 'air'
         - draw_modifier: 'strong_draw', 'weak_draw', 'backdoor', 'no_draw'
     """
-    all_card_objs = [_parse_card(c) for c in hole_cards + community_cards]
-    result = HandEvaluator(all_card_objs).evaluate_hand()
-    hand_rank = result['hand_rank']
-
-    hole_ranks = [RANK_VALUES[c[0]] for c in hole_cards]
-    board_ranks = [RANK_VALUES[c[0]] for c in community_cards]
-
-    made_tier = _classify_made_tier(hand_rank, hole_ranks, board_ranks, community_cards)
-    draw_modifier = _classify_draw_modifier(hand_rank, hole_cards, community_cards)
-
-    return made_tier, draw_modifier
+    classification = classify_hand_full(hole_cards, community_cards)
+    return classification.made_tier, classification.draw_modifier
 
 
 def simplify_hand_class(made_tier: str, draw_modifier: str) -> str:
