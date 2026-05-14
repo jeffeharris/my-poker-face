@@ -40,24 +40,9 @@ from .board_analyzer import build_board_read
 from .hand_narrator import narrate_hand_breakdown
 from .minimal_prompt import get_position_abbrev
 from .ai_resilience import parse_json_response
+from core.card import Card
 
 logger = logging.getLogger(__name__)
-
-# Short suit letter → full suit name for Card constructor
-_SUIT_NAMES = {'s': 'Spades', 'h': 'Hearts', 'd': 'Diamonds', 'c': 'Clubs'}
-
-
-def _str_to_card(s: str):
-    """Convert short card string ('Ah', 'Td') to a Card object."""
-    from core.card import Card
-    s = s.strip()
-    if len(s) == 3 and s[:2] == '10':
-        rank, suit_ch = '10', s[2]
-    elif s[0] == 'T':
-        rank, suit_ch = '10', s[1]
-    else:
-        rank, suit_ch = s[0], s[1]
-    return Card(rank, _SUIT_NAMES.get(suit_ch, suit_ch))
 
 
 class LeanBoundedController(HybridAIController):
@@ -340,8 +325,8 @@ class LeanBoundedController(HybridAIController):
         # Hand breakdown (postflop) or preflop classification
         if community_cards and hole_cards:
             try:
-                hole_objs = [_str_to_card(c) for c in hole_cards]
-                comm_objs = [_str_to_card(c) for c in community_cards]
+                hole_objs = [Card.from_short(c) for c in hole_cards]
+                comm_objs = [Card.from_short(c) for c in community_cards]
                 breakdown = narrate_hand_breakdown(hole_objs, comm_objs)
                 if breakdown:
                     parts.append(breakdown)

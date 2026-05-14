@@ -171,7 +171,8 @@ In HU (2-player) pots, the bounded options system applies dedicated adjustments:
 
 ### Integration Points
 
-- `hybrid_ai_controller.py`: Calls `generate_bounded_options()`, then optionally `apply_composed_nudges()`, `apply_emotional_window_shift()`, and shuffle
+- `hybrid_ai_controller.py`: Calls `generate_bounded_options()`, then optionally `apply_composed_nudges()`, `apply_emotional_window_shift()`, and shuffle. Runs the full parent prompt pipeline (persona, chattiness, GTO equity, etc.) and appends bounded options.
+- `lean_bounded_controller.py`: Subclass that always uses the lean decision path — bypasses the parent prompt pipeline and sends only cards + numbered options. Selected via `bot_type='lean'` (web) or `player_types[name].type='lean'` (experiments).
 - `_get_best_fallback_option()`: Picks best option when LLM returns invalid response
 - Profile selection via `style_aware_options` flag on PromptConfig
 - Range gate via `preflop_range_gate` flag on PromptConfig
@@ -187,10 +188,31 @@ Full design doc: `docs/technical/BOUNDED_OPTIONS_DECISION_FRAMEWORK.md`
 | File | Purpose |
 |------|---------|
 | `bounded_options.py` | Option generation, flat generator, profiles, emotional shift |
-| `hybrid_ai_controller.py` | Lean prompt assembly, option integration, fallback logic |
+| `hybrid_ai_controller.py` | Full-prompt + bounded-options controller (the `standard` bot type) |
+| `lean_bounded_controller.py` | Minimal-prompt subclass of hybrid (the `lean` bot type) |
+| `rule_strategies.py` | Shared library of `BUILT_IN_STRATEGIES`, `CHAOS_BOTS`, `RuleConfig`, helpers. Consumed by `rule_based_controller.py` and `rule_bot_controller.py`. |
+| `rule_based_controller.py` | Pure rule controller; re-exports `rule_strategies` names for back-compat. |
+| `rule_bot_controller.py` | Rule controller with full psychology infrastructure (the `casebot` / `gto_lite` bot types). |
 | `moment_analyzer.py` | Drama factor detection and level determination |
 | `prompt_manager.py` | DRAMA_CONTEXTS mapping, prompt assembly |
 | `controllers.py` | Calls MomentAnalyzer, passes drama_context to prompt |
 | `pressure_detector.py` | Post-hand pressure events (uses shared thresholds) |
 | `response_validator.py` | Validates dramatic_sequence field |
 | `prompt_config.py` | Toggle switches for drama features |
+
+## Bot Controller Lineup
+
+Production bot types selected per-player via `bot_types` (route) or
+`player_types[name].type` (experiments):
+
+| `bot_type` | Class | Decision path |
+|---|---|---|
+| `chaos` | `poker.controllers.AIPlayerController` | Full LLM, full personality, no bounded options |
+| `standard` | `poker.hybrid_ai_controller.HybridAIController` | Full prompt pipeline + bounded options (default) |
+| `lean` | `poker.lean_bounded_controller.LeanBoundedController` | Minimal prompt, options-only |
+| `sharp` | `poker.tiered_bot_controller.TieredBotController` | Solver tables + personality |
+| `casebot` / `gto_lite` | `poker.rule_bot_controller.RuleBotController` | Pure rules + psychology |
+
+Legacy values `hybrid` / `tiered` are accepted at the API boundary and
+remapped to `standard` / `sharp`. They are intentionally not advertised
+in error responses.

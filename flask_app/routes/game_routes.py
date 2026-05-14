@@ -124,7 +124,9 @@ def load_game_mode_preset(game_mode: str) -> PromptConfig:
     in the prompt_presets table, unifying them with user-defined presets.
 
     Legacy 'competitive' mode is auto-mapped to 'pro' with a warning to
-    keep older stored games loadable.
+    keep older stored games loadable. We normalize before the DB lookup
+    so we don't end up warning twice through `PromptConfig.from_mode_name`
+    on the fallback path.
 
     Args:
         game_mode: The game mode name ('casual', 'standard', 'pro')
