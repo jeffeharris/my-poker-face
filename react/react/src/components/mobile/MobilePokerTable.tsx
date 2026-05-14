@@ -515,9 +515,27 @@ export function MobilePokerTable({
                     className={`avatar-image ${
                       isAiThinking ? 'avatar-image--thinking' : ''
                     } ${isShowdown ? 'avatar-image--showdown' : ''}`}
+                    onLoad={(e) => {
+                      // Clear any display:none left over from a prior 404.
+                      // Without this, the avatar stays hidden after switching
+                      // back from a missing /thinking variant to a valid URL.
+                      e.currentTarget.style.display = '';
+                    }}
                     onError={(e) => {
-                      // Hide broken image if avatar fails to load
                       const img = e.currentTarget;
+                      // If the rewritten /thinking variant 404s, fall back to
+                      // the server-provided avatar_url (which has its own
+                      // emotion fallback). Avoids loop by tracking attempt.
+                      if (
+                        isAiThinking
+                        && opponent.avatar_url
+                        && img.dataset.thinkingFallbackTried !== 'true'
+                        && img.src !== `${config.API_URL}${opponent.avatar_url}`
+                      ) {
+                        img.dataset.thinkingFallbackTried = 'true';
+                        img.src = `${config.API_URL}${opponent.avatar_url}`;
+                        return;
+                      }
                       img.style.display = 'none';
                     }}
                   />

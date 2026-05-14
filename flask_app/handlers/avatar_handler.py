@@ -36,14 +36,18 @@ _generation_lock = threading.Lock()
 _generation_in_progress: set[tuple[str, str]] = set()
 
 
-def _emit_avatar_update(game_id: str, player_name: str, emotion: str) -> None:
+def _emit_avatar_update(game_id: Optional[str], player_name: str, emotion: str) -> None:
     """Emit a socket event after a single emotion image is generated.
 
     Args:
-        game_id: The game identifier (socket room)
+        game_id: Socket room (game id), or None to skip the emit when there's
+            no specific room to notify (e.g., on-demand generation triggered
+            by the avatar-serving endpoint).
         player_name: Player whose avatar was generated
         emotion: The emotion that was generated
     """
+    if not game_id:
+        return
     avatar_url = get_full_avatar_url(player_name, emotion) or get_avatar_url(player_name, emotion)
     if avatar_url:
         socketio.emit('avatar_update', {
@@ -139,7 +143,7 @@ def get_avatar_url_with_fallback(game_id: str, player_name: str, emotion: str) -
     return avatar_url
 
 
-def generate_single_emotion_background(game_id: str, player_name: str, emotion: str) -> None:
+def generate_single_emotion_background(game_id: Optional[str], player_name: str, emotion: str) -> None:
     """Generate a single emotion image in the background.
 
     Used for on-demand generation when a specific emotion is requested
@@ -187,14 +191,16 @@ def start_background_avatar_generation(game_id: str, ai_player_names: list) -> N
         thread.start()
 
 
-def start_single_emotion_generation(game_id: str, player_name: str, emotion: str) -> None:
+def start_single_emotion_generation(game_id: Optional[str], player_name: str, emotion: str) -> None:
     """Start a background thread to generate a single missing emotion.
 
     Thread-safe: uses a lock to prevent duplicate generation threads for
     the same player/emotion combination.
 
     Args:
-        game_id: The game identifier
+        game_id: The game identifier (socket room). May be None when the
+            trigger comes from the unauthenticated avatar-serving endpoint
+            and there's no specific game room to notify.
         player_name: Player name
         emotion: Emotion to generate
     """

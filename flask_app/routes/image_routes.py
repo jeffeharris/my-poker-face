@@ -25,6 +25,7 @@ from poker.character_images import (
     EMOTIONS,
 )
 from ..extensions import personality_repo, persistence_db_path
+from ..handlers.avatar_handler import PRIORITY_EMOTIONS, start_single_emotion_generation
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,37 @@ def _detect_image_mimetype(image_data: bytes) -> str:
     return 'image/png'
 
 GENERATED_IMAGES_DIR = Path(__file__).parent.parent.parent / 'generated_images'
+
+
+def _load_with_priority_fallback(
+    personality_name: str,
+    emotion: str,
+    loader,
+):
+    """Load avatar image bytes for `emotion`, falling back to a priority
+    emotion if the requested one is missing.
+
+    Some personalities were seeded before `thinking` was added to
+    PRIORITY_EMOTIONS, so they have `confident`/`poker_face` rows only.
+    The frontend rewrites avatar URLs to `/thinking` when an AI is
+    deciding (mobile + desktop); without this fallback those requests 404
+    and break the avatar element.
+
+    Returns:
+        (image_bytes_or_None, served_emotion_or_None, is_fallback)
+    """
+    image_data = loader(personality_name, emotion)
+    if image_data:
+        return image_data, emotion, False
+
+    for fallback in PRIORITY_EMOTIONS:
+        if fallback == emotion:
+            continue
+        image_data = loader(personality_name, fallback)
+        if image_data:
+            return image_data, fallback, True
+
+    return None, None, False
 
 
 @image_bp.route('/api/character-images', methods=['GET'])
@@ -200,23 +232,42 @@ def serve_avatar(personality_name: str, emotion: str):
         emotion: Emotion name (confident, happy, thinking, nervous, angry, shocked)
 
     Returns:
-        PNG image or 404 if not found
+        PNG image. When the requested emotion is missing, serves a priority
+        emotion image as a transparent fallback and kicks off on-demand
+        generation for the missing one. Returns 404 only when no images
+        exist for the personality at all.
     """
     try:
-        # Normalize emotion
         emotion = emotion.lower()
         if emotion not in EMOTIONS:
             emotion = 'confident'
 
-        # Load from database (primary) or filesystem (fallback)
-        image_data = load_avatar_image(personality_name, emotion)
+        image_data, served_emotion, is_fallback = _load_with_priority_fallback(
+            personality_name, emotion, load_avatar_image,
+        )
 
         if image_data:
+            if is_fallback:
+                # Kick off generation of the requested emotion so it's ready
+                # next time. Optional game_id query param routes the socket
+                # 'avatar_update' event to the right room when generation
+                # completes.
+                game_id = request.args.get('game_id')
+                start_single_emotion_generation(game_id, personality_name, emotion)
+                # Short cache so the real image is picked up promptly once
+                # generated.
+                cache_header = 'public, max-age=60'
+            else:
+                cache_header = 'public, max-age=86400'
+
             mimetype = _detect_image_mimetype(image_data)
             return Response(
                 image_data,
                 mimetype=mimetype,
-                headers={'Cache-Control': 'public, max-age=86400'}
+                headers={
+                    'Cache-Control': cache_header,
+                    'X-Avatar-Served-Emotion': served_emotion or emotion,
+                },
             )
 
         return jsonify({'error': f'Avatar not found for {personality_name} - {emotion}'}), 404
@@ -238,33 +289,42 @@ def serve_full_avatar(personality_name: str, emotion: str):
         emotion: Emotion name (confident, happy, thinking, nervous, angry, shocked)
 
     Returns:
-        Full PNG image or 404 if not found
+        Full PNG image. When the requested emotion is missing, falls back
+        through priority emotions (full image first, then cropped icon) and
+        kicks off on-demand generation. Returns 404 only when no images
+        exist for the personality at all.
     """
     try:
-        # Normalize emotion
         emotion = emotion.lower()
         if emotion not in EMOTIONS:
             emotion = 'confident'
 
-        # Load full image from database
-        image_data = load_full_avatar_image(personality_name, emotion)
-
-        if image_data:
-            mimetype = _detect_image_mimetype(image_data)
-            return Response(
-                image_data,
-                mimetype=mimetype,
-                headers={'Cache-Control': 'public, max-age=86400'}
+        # Prefer full images across priority emotions, then fall back to
+        # cropped icons. Both pass through the same priority-emotion ladder.
+        image_data, served_emotion, is_fallback = _load_with_priority_fallback(
+            personality_name, emotion, load_full_avatar_image,
+        )
+        if image_data is None:
+            image_data, served_emotion, is_fallback = _load_with_priority_fallback(
+                personality_name, emotion, load_avatar_image,
             )
 
-        # Fall back to regular avatar if full not available
-        image_data = load_avatar_image(personality_name, emotion)
         if image_data:
+            if is_fallback:
+                game_id = request.args.get('game_id')
+                start_single_emotion_generation(game_id, personality_name, emotion)
+                cache_header = 'public, max-age=60'
+            else:
+                cache_header = 'public, max-age=86400'
+
             mimetype = _detect_image_mimetype(image_data)
             return Response(
                 image_data,
                 mimetype=mimetype,
-                headers={'Cache-Control': 'public, max-age=86400'}
+                headers={
+                    'Cache-Control': cache_header,
+                    'X-Avatar-Served-Emotion': served_emotion or emotion,
+                },
             )
 
         return jsonify({'error': f'Full avatar not found for {personality_name} - {emotion}'}), 404
