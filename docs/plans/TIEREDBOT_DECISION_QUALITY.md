@@ -164,6 +164,168 @@ this proposal's defense floors) inherits the noise.
   The downgrade has to be done at the classifier layer, not in
   consumers, so every rule sees the same corrected value.
 
+### 1.5. Unified opponent-archetype classifier
+
+Today's exploitation logic detects opponent traits **piecewise**:
+multiple independent `_is_<pattern>` functions in
+`poker/strategy/exploitation.py` (`_is_hyper_aggressive`,
+`_is_hyper_passive`, `_is_passive_with_jams`, `_is_tight_nit`,
+`_is_high_fold_to_cbet`) each consume aggregate stats. An
+opponent can match multiple patterns simultaneously
+(`['hyper_passive', 'passive_with_jams']`), and each strategy rule
+independently calls the detectors it cares about.
+
+Separately, `OpponentTendencies.get_play_style_label()` produces a
+4-quadrant label (`tight-aggressive` / `loose-aggressive` /
+`tight-passive` / `loose-passive` / `unknown`), but **no strategy
+rule reads it** — it's used only for human-readable AI prompts,
+and its thresholds aren't aligned with the exploitation detectors.
+
+This creates three problems:
+
+1. **Threshold drift**: each detector defines its own constants.
+   When a tuning change is needed, it touches multiple files. No
+   single source of truth for "what counts as a station."
+2. **Stacking surprises**: rules that gate on independent
+   patterns can compound (Phase 8 `value_vs_station` and legacy
+   `hyper_passive` both fire on CaseBot, both push `bet_*`
+   positive). Phase 7.5's three-tier clamp catches gross
+   over-shifts but per-rule budgets are implicit, not enforced.
+3. **Diagnostic noise**: counters surface `detected_hyper_passive`
+   and `detected_passive_with_jams` separately. Operator has to
+   join them mentally to ask "what archetype was this opponent?"
+
+**The proposal:** introduce a single
+`classify_opponent_archetype(stats) -> str | None` that returns
+one label per opponent. Strategy rules gate off the single
+label; the existing `_is_<pattern>` detectors stay as
+implementation details (the unified classifier composes them).
+
+```
+classify_opponent_archetype(stats) -> Optional[str]
+    # Returns one of:
+    #   'maniac'         — hyper_aggressive with sticky calling
+    #   'lag'            — loose, aggressive, balanced bluff/value mix
+    #   'tag'            — tight, aggressive, solver-style
+    #   'nit'            — very tight, low aggression
+    #   'rock'           — tight-passive (lower VPIP than station)
+    #   'pure_station'   — loose, passive, low jam frequency
+    #   'sticky_jammer'  — loose, passive, meaningful jam frequency
+    #   'balanced'       — none of the above match (GTO-style)
+    #   None             — cold-start, insufficient sample
+```
+
+**Detector composition (proposed, behavior-faithful to existing
+patterns):**
+
+```
+if hands_observed < MIN_HANDS_FOR_LABEL:        return None
+if _is_hyper_aggressive(stats):
+    if vpip > VPIP_LOOSE: return 'maniac'
+    else: return 'lag'  # maniac with low VPIP shouldn't happen but treat as LAG
+if _is_passive_with_jams(stats):                 return 'sticky_jammer'
+if _is_hyper_passive(stats):                     return 'pure_station'
+if _is_tight_nit(stats):
+    if aggression_factor < 1.0: return 'nit'
+    else: return 'rock'  # tight + non-passive but not aggressive enough
+                          # for TAG could be 'rock' or 'tag' — calibrate
+if vpip < VPIP_TAG and aggression_factor > AF_TAG:
+    return 'tag'
+if vpip > VPIP_LAG_FLOOR and aggression_factor > AF_LAG:
+    return 'lag'
+return 'balanced'
+```
+
+Exact thresholds are a tuning question (and need to align with
+the existing `HYPER_PASSIVE_VPIP_THRESHOLD`,
+`TIGHT_NIT_VPIP_THRESHOLD`, etc.). Key design points:
+
+- **Single source of truth.** Threshold changes happen in one
+  file; every strategy rule's idea of "what's a station" stays
+  consistent.
+- **Single label per opponent.** Removes the "multiple patterns
+  fire simultaneously" surprise.
+- **Sample-size gating built in.** Returns `None` (not a default
+  label) when sample is below `MIN_HANDS_FOR_LABEL` — strategy
+  rules can no-op on `None` instead of accidentally exploiting
+  cold-start noise.
+- **Each axis has a denominator check.** Pattern detectors that
+  use opportunity-normalized stats (`all_in_per_facing_bet`,
+  `cbet_attempt_rate`, `postflop_jam_open_rate`) check their own
+  per-axis sample. See §3 for the
+  one-of-three-jam-signals-with-confidence pattern.
+
+**`cbet_attempt_rate` coverage caveat** (repeated here because
+the classifier is where it most matters): a near-pure caller
+like CaseBot has PFR=0.03, so `cbet_attempt_rate` won't
+accumulate samples. The classifier's `sticky_jammer` path uses
+jam-frequency signals (which DO accumulate against pure callers),
+with `cbet_attempt_rate` as supplemental refinement for passive
+PFRs only. See §3 for the detector form.
+
+**Deliverables:**
+
+- `classify_opponent_archetype` in
+  `poker/strategy/exploitation.py` (alongside the existing
+  detectors).
+- Migration: existing rules that today call
+  `_is_<pattern>(stats)` switch to reading the unified
+  archetype. The piecewise detectors stay as
+  building blocks (they're still useful for the classifier's
+  internals and for backwards-compat diagnostics).
+- Per-archetype diagnostic counters:
+  `archetype_classified_<label>_<hero_archetype>` so operators
+  can see "across this run, hero saw X% pure_station / Y%
+  sticky_jammer / Z% balanced."
+- Tests:
+  - threshold boundary tests per archetype label
+  - sample-size gate (returns `None` below threshold)
+  - mutual exclusion (no opponent matches two archetypes
+    simultaneously by construction)
+  - faithfulness: existing `_is_<pattern>` detectors still
+    return the same booleans they always did (the classifier
+    composes them but doesn't replace them).
+
+**Existing-layer interactions:**
+
+- **§3 (passive profile split)** consumes the classifier directly.
+  Strategy adjustments key off `archetype == 'pure_station'` vs
+  `archetype == 'sticky_jammer'` instead of independently calling
+  `_is_passive_with_jams`.
+- **§5 (station exploitation rebalance)** keys off the unified
+  classifier for the value-bet / reduce-bluff direction.
+- **Phase 6.5 `value_override`** currently fires on
+  `'hyper_aggressive' in classify_detected_patterns(stats)`. After
+  this section lands, it can simplify to
+  `classify_opponent_archetype(stats) in {'maniac', 'lag-ish-aggro'}`.
+  The behavior change should be zero — the new classifier composes
+  the same `_is_hyper_aggressive` detector.
+- **Phase 7.5 `bluff_catch_override`** currently consumes the
+  three-tier clamp signal (`_determine_clamp`) which keys off
+  `AF_postflop`, `all_in_per_facing_bet`, `postflop_jam_open_rate`.
+  That stays independent — the clamp is about confidence in
+  extreme-tier classification, not about archetype labeling. The
+  two systems coexist.
+- **Phase 8 `value_vs_station`** currently uses the spot-driven
+  `compute_value_vs_station_intensity` which already operates on
+  per-opponent station detection. It can either stay
+  spot-driven (using its own `_is_hyper_passive` check) or
+  migrate to gate on
+  `classify_opponent_archetype == 'pure_station'`. **Recommend
+  migrating** so the "what's a station" definition is shared.
+
+**Risks:**
+
+- Migrating existing rules to the unified classifier is a
+  behavior-change opportunity even when the intent is to preserve
+  behavior. Each migration step needs an apples-to-apples sim
+  comparison to confirm zero regression.
+- Calibration: the proposed archetype labels need ground-truth
+  validation. Running the classifier across known opponents (TAG
+  / LAG / Nit / Rock / GTO-Lite / CaseBot / ManiacBot / Calling
+  Station / Maniac archetype) and confirming each gets its own
+  intended label is the minimum bar.
+
 ### 2. Price-sensitive defense floors
 
 Hero pure-folds reasonable made hands at favorable pot odds
@@ -209,70 +371,16 @@ strong hands when the price is cheap."
   should respect override's output (don't down-weight after
   override has set the distribution).
 
-### 3. Refine passive opponent profiles
+### 3. Refine passive opponent profiles (application)
 
-Today's `hyper_passive` pattern fires on every CaseBot decision
-(VPIP > 0.60 AND AF < 0.80 trips for any passive opponent).
-Phase 8.1a added `_is_passive_with_jams` and
-`cbet_attempt_rate`, which together can distinguish:
+§1.5 introduces the unified classifier that separates
+`pure_station` from `sticky_jammer`. This section is about how
+strategy *behavior* changes based on that label.
 
-- **pure_station**: high VPIP, low AF, low jam frequency, low
-  cbet_attempt_rate
-- **sticky_jammer**: high VPIP, low AF, **meaningful jam
-  frequency** (Phase 8.1b's `_is_passive_with_jams` detector)
-
-**Detector with sample-size confidence:**
-
-The naive `vpip + AF + all_in_frequency` triple is the right
-*shape*, but each axis needs a denominator check so cold-start
-noise can't trip the detector. Recommended form:
-
-```
-sticky_jammer if:
-    vpip > 0.60
-    aggression_factor < 0.80
-    AND one of:
-      all_in_frequency  > THRESHOLD   with enough hands_observed
-      all_in_per_facing_bet > THRESHOLD with enough facing_bet_opportunities
-      postflop_jam_open_rate > THRESHOLD with enough postflop_open_opportunities
-
-pure_station if:
-    vpip > 0.60
-    aggression_factor < 0.80
-    AND none of the above jam signals trip with confidence
-```
-
-The three jam signals are different lenses on the same underlying
-trait. Using `one of` (not all) makes the detector robust when one
-denominator is sparse but another is well-populated.
-
-**Note on `cbet_attempt_rate` coverage:**
-
-`cbet_attempt_rate` (Phase 8.1a, shipped today) is useful for
-identifying passive opponents who sometimes take the preflop
-lead and then decline to continuation-bet. However, it only
-accumulates samples when the opponent was the preflop raiser AND
-sees a flop.
-
-For near-pure callers with very low PFR (CaseBot has PFR=0.03),
-this stat will remain sparse and **should not be used as the
-primary station-subtype signal**. In those cases,
-`all_in_frequency`, `postflop_jam_open_rate`, and
-`all_in_per_facing_bet` remain the better splitters for
-distinguishing pure station from sticky-jammer.
-
-Practically:
-
-- Use `cbet_attempt_rate` as a **supplemental** signal for
-  passive opponents with enough PFR / c-bet opportunities (e.g.
-  passive LAGs who raise preflop but don't fire flop bets).
-- Use jam / all-in frequency signals as the **primary** splitter
-  for low-PFR passive opponents.
-
-The sticky-jammer detector above works without `cbet_attempt_rate`
-because the jam signals are the core trait. `cbet_attempt_rate`
-just adds precision for opponents who happen to take the preflop
-lead occasionally.
+The detector itself lives in §1.5 — including the
+one-of-three-jam-signals-with-confidence form and the
+`cbet_attempt_rate` coverage caveat. Don't re-implement the
+detection logic here.
 
 **Strategy differences:**
 
@@ -292,22 +400,22 @@ Versus `sticky_jammer`:
 
 **Deliverables:**
 
-- Behavior-profile detector reading existing tracked stats
-  (vpip, aggression_factor, all_in_frequency, cbet_attempt_rate).
-- Updated exploitation offsets keyed by profile.
-- Tests for detection thresholds + action-shaping differences.
+- Updated exploitation offsets keyed off
+  `classify_opponent_archetype(stats)` (from §1.5).
+- Tests for action-shaping differences per archetype label —
+  hero's bet/raise/check/fold distributions should differ
+  between `pure_station` and `sticky_jammer` in the documented
+  ways above.
 
 **Existing-layer interactions:**
 
-- Phase 8.1a `cbet_attempt_rate` shipped today (commit
-  `cd94a668`) — gives a clean signal for distinguishing passive
-  PFRs.
-- Phase 8.1b `_is_passive_with_jams` detector shipped earlier
-  today but its behavior change was reverted — only the detector
-  + `classify_detected_patterns` entry are live. This proposal
-  uses the detector but does NOT re-enable the failed fold-mass
-  suppression. Instead, the protective behavior comes from the
-  defense floor (#2) which is hand-class-gated.
+- Phase 8.1b `_is_passive_with_jams` detector is the basis for
+  the `sticky_jammer` archetype in §1.5. Its behavior change
+  (fold-mass suppression) was reverted; the detector remains as
+  an input to the unified classifier.
+- The protective behavior for marginal hands vs jams comes from
+  the defense floor (§2), which is hand-class-gated. It does
+  NOT re-enable the failed fold-mass suppression.
 
 ### 4. Bet-size-aware decisions
 
@@ -444,14 +552,19 @@ quality across common poker situations.
    Every other layer reads `hand_class` / `nut_status` /
    `danger_flags`. Without this, diagnostics still conflate
    classifier noise with real leaks.
+1.5. **Unified opponent-archetype classifier** — single source
+   of truth for "what is this opponent." All subsequent
+   opponent-aware rules gate off the unified label. Behavior-
+   neutral on its own (it composes existing detectors); enables
+   §3 and §5 to use a clean handle.
 2. **Bet-size classifier and required-equity diagnostics** —
    foundational input for layers 3-5.
 3. **Price-sensitive defense floor** — the highest-impact
    behavior change; addresses Examples 3 and 5.
-4. **Passive profile split** — adds `pure_station` vs
-   `sticky_jammer` detection.
+4. **Passive profile split application** — uses §1.5's classifier
+   to shape strategy per `pure_station` vs `sticky_jammer`.
 5. **Station exploitation rebalance** — bluff reduction and
-   value emphasis keyed off the profile split.
+   value emphasis keyed off the unified archetype.
 6. **Expanded diagnostics / reporting** — supports validation
    and ongoing analysis.
 7. **Full validation matrix** — confirms each step is net
