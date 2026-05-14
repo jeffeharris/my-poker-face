@@ -128,6 +128,28 @@ class CommentaryGenerator:
         self.owner_id = owner_id
         # Use dedicated LLM client with minimal reasoning for fast/cheap commentary
         self._llm_client = LLMClient(model=get_default_model(), provider=get_default_provider(), reasoning_effort="minimal")
+        # Lazy fast-tier client for dramatic_sequence beat cleanup. Built
+        # on first use so callers that never produce malformed beats
+        # never instantiate a second client.
+        self._cleanup_client = None
+
+    def _get_cleanup_client(self):
+        """Lazy fast-tier client for post-LLM beat normalization."""
+        if self._cleanup_client is not None:
+            return self._cleanup_client
+        try:
+            from core.llm.settings import get_fast_provider, get_fast_model
+            self._cleanup_client = LLMClient(
+                provider=get_fast_provider(),
+                model=get_fast_model(),
+            )
+        except Exception as e:
+            logger.warning(
+                f"[COMMENTARY] Could not build fast cleanup client; "
+                f"falling back to commentary client: {e}"
+            )
+            self._cleanup_client = self._llm_client
+        return self._cleanup_client
 
     def _should_reflect(
         self,
@@ -453,6 +475,30 @@ class CommentaryGenerator:
             # Suppress table_comment if hand isn't dramatic enough to speak about
             # Handle dramatic_sequence as list of beats or plain string
             raw_dramatic_sequence = commentary_data.get('dramatic_sequence') if should_speak else None
+
+            # Same beat-cleanup pipeline used by the in-hand narration
+            # path: split mixed action+speech beats with the regex
+            # normalizer, then if anything still looks malformed (missing
+            # asterisks, quote-wrapped, etc.) ask a fast-tier LLM to
+            # repair it while preserving wording. Both steps degrade
+            # silently — table_comment never fails because of cleanup.
+            if isinstance(raw_dramatic_sequence, list):
+                from poker.response_validator import (
+                    normalize_dramatic_sequence,
+                    needs_llm_normalization,
+                    llm_normalize_beats,
+                )
+                raw_dramatic_sequence = normalize_dramatic_sequence(
+                    raw_dramatic_sequence
+                )
+                if needs_llm_normalization(raw_dramatic_sequence):
+                    raw_dramatic_sequence = llm_normalize_beats(
+                        raw_dramatic_sequence,
+                        self._get_cleanup_client(),
+                        game_id=self.game_id,
+                        player_name=player_name,
+                    )
+
             table_comment = self._format_beats_for_chat(raw_dramatic_sequence)
 
             return HandCommentary(
