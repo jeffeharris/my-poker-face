@@ -1,0 +1,49 @@
+{
+  "name": "personality_leakage_test",
+  "description": "Test whether player names leak into bounded option decisions. All 4 players have identical anchors (0.30/0.50 = tight_aggressive), identical system prompts, and identical configs. Only the NAME differs. If the bounded system controls behavior, all 4 should play identically.",
+  "hypothesis": "All players should have similar raise/call/fold rates (~8-15% raise). If 'aggressive-sounding' names (Blackbeard, Honey Badger) raise significantly more than 'passive-sounding' names (Bob Ross, Librarian), personality is leaking via action summary.",
+  "tags": ["personality-leakage", "name-bias", "lean-bounded", "diagnostic"],
+  "num_tournaments": 10,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 10,
+  "personalities": ["Blackbeard", "Bob Ross", "The Honey Badger", "The Librarian"],
+  "player_types": {
+    "Blackbeard": {"type": "hybrid"},
+    "Bob Ross": {"type": "hybrid"},
+    "The Honey Badger": {"type": "hybrid"},
+    "The Librarian": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "ev-per-profile",
+    "enable_psychology": true,
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true,
+      "composed_nudges": true,
+      "preflop_range_gate": true,
+      "show_ev_labels": null
+    }
+  },
+  "variants": [
+    {
+      "label": "ev-always-show",
+      "enable_psychology": true,
+      "prompt_config": {
+        "lean_bounded": true,
+        "style_aware_options": true,
+        "composed_nudges": true,
+        "preflop_range_gate": true,
+        "show_ev_labels": true
+      }
+    }
+  ],
+  "random_seed": 42,
+  "shuffle_seating": true
+}

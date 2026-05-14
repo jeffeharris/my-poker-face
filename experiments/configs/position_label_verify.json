@@ -1,0 +1,29 @@
+{
+  "name": "position_label_verify",
+  "description": "Quick verification that position labels (UTG, CO, BTN, etc.) appear in lean prompt captures.",
+  "num_tournaments": 1,
+  "hands_per_tournament": 10,
+  "num_players": 5,
+  "starting_stack": 5000,
+  "big_blind": 100,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "reset_on_elimination": true,
+  "personalities": ["Batman", "Napoleon", "Sherlock Holmes", "Bob Ross", "Cleopatra"],
+  "player_types": {
+    "Batman": {"type": "hybrid"},
+    "Napoleon": {"type": "hybrid"},
+    "Sherlock Holmes": {"type": "hybrid"},
+    "Bob Ross": {"type": "hybrid"},
+    "Cleopatra": {"type": "hybrid"}
+  },
+  "control": {
+    "label": "lean-positions",
+    "prompt_config": {
+      "lean_bounded": true,
+      "style_aware_options": true
+    }
+  },
+  "random_seed": 99
+}
