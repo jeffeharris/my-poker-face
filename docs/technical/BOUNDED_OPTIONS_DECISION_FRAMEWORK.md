@@ -2,7 +2,7 @@
 purpose: Flat generator architecture and emotional window mechanic for bounded option generation
 type: design
 created: 2026-02-12
-last_updated: 2026-02-15
+last_updated: 2026-05-14
 ---
 
 # Bounded Options Decision Framework
@@ -300,6 +300,7 @@ menu that's been deliberately skewed.
 |------|------|
 | `poker/bounded_options.py` | Flat generator, blocking logic, profiles, emotional shift |
 | `poker/nudge_phrases.py` | Composed nudge phrases and classifier |
-| `poker/hybrid_ai_controller.py` | Lean prompt assembly, hand plan, profile selection, nudge/shuffle wiring |
-| `poker/prompt_config.py` | Feature flags (lean_bounded, composed_nudges, randomize_option_order, preflop_range_gate) |
+| `poker/hybrid_ai_controller.py` | Full prompt pipeline + bounded options (the `standard` bot type) |
+| `poker/lean_bounded_controller.py` | Minimal-prompt subclass (the `lean` bot type) |
+| `poker/prompt_config.py` | Feature flags (composed_nudges, option_order, preflop_range_gate, style_aware_options) |
 | `config/game_modes.yaml` | Game mode presets |

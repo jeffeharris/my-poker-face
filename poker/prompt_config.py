@@ -79,9 +79,6 @@ class PromptConfig:
     # When True, expect simple {"action": "...", "raise_to": ...} instead of rich format
     use_simple_response_format: bool = False
 
-    # Lean bounded mode — bypass full prompt pipeline, use minimal options-only prompt
-    lean_bounded: bool = False
-
     # Style-aware options — map psychology playstyle to option profiles in lean mode
     style_aware_options: bool = True
 
@@ -126,6 +123,11 @@ class PromptConfig:
         data.pop('bb_normalized', None)
         data.pop('use_dollar_amounts', None)
         data.pop('hand_plan', None)
+        # `lean_bounded` was a per-config flag that toggled the lean prompt path.
+        # The 4-mode controller lineup (chaos/standard/lean/sharp) replaced it —
+        # callers now select the LeanBoundedController explicitly. Drop silently
+        # so stored configs and presets continue to load.
+        data.pop('lean_bounded', None)
 
         # Migrate nudge_show_ev -> show_ev_labels
         if 'nudge_show_ev' in data and 'show_ev_labels' not in data:
@@ -247,21 +249,22 @@ class PromptConfig:
         )
 
     @classmethod
-    def competitive(cls) -> 'PromptConfig':
-        """Competitive mode - full GTO guidance with personality and trash talk."""
-        return cls(
-            gto_equity=True,
-            gto_verdict=True,
-            guidance_injection=cls.EXPLOITATIVE_GUIDANCE,
-        )
-
-    @classmethod
     def from_mode_name(cls, mode: str) -> 'PromptConfig':
         """Resolve a game mode by name string.
 
         Tries YAML config first, falls back to factory methods.
+
+        Legacy 'competitive' mode is auto-mapped to 'pro' with a warning.
         """
         mode = mode.lower()
+
+        # Legacy alias: competitive → pro
+        if mode == 'competitive':
+            logger.warning(
+                "Game mode 'competitive' is deprecated; mapping to 'pro'. "
+                "Update your config to use 'pro' directly."
+            )
+            mode = 'pro'
 
         # Try YAML-based config first
         try:
@@ -276,7 +279,6 @@ class PromptConfig:
             'casual': cls.casual,
             'standard': cls.standard,
             'pro': cls.pro,
-            'competitive': cls.competitive,
         }
         if mode not in modes:
             raise ValueError(f"Invalid game mode: {mode}. Valid: {list(modes.keys())}")

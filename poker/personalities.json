@@ -1341,6 +1341,63 @@
         "*uses a gentle but firm tone*"
       ],
       "nickname": "Teacher"
+    },
+    "CaseBot": {
+      "play_style": "deterministic case-based decision tree; adapts to opponent VPIP and aggression",
+      "default_confidence": "steady",
+      "default_attitude": "focused",
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.4,
+        "ego": 0.2,
+        "poise": 0.95,
+        "expressiveness": 0.0,
+        "risk_identity": 0.45,
+        "adaptation_bias": 0.7,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [],
+      "physical_tics": [],
+      "nickname": "CaseBot"
+    },
+    "GTO-Lite": {
+      "play_style": "pure pot-odds math; calls when getting the right price, folds otherwise",
+      "default_confidence": "steady",
+      "default_attitude": "analytical",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.35,
+        "ego": 0.1,
+        "poise": 1.0,
+        "expressiveness": 0.0,
+        "risk_identity": 0.3,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [],
+      "physical_tics": [],
+      "nickname": "GTO-Lite"
+    },
+    "BaselineSolver": {
+      "play_style": "solver-table baseline; no personality distortion, no chat",
+      "default_confidence": "steady",
+      "default_attitude": "neutral",
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.5,
+        "ego": 0.0,
+        "poise": 1.0,
+        "expressiveness": 0.0,
+        "risk_identity": 0.5,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [],
+      "physical_tics": [],
+      "nickname": "Solver"
     }
   }
 }

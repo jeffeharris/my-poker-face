@@ -2,7 +2,13 @@
   "name": "bounded_options_v2_validation",
   "description": "Validate the bounded options v2 refactor (case matrix, position awareness, bluff gating, stack depth, emotional window shift). Mix of play styles to exercise TAG/LAG/passive profiles. Compare lean-bounded with style-aware options vs CaseBot baseline.",
   "hypothesis": "The v2 case matrix with position awareness and style-aware profiles should produce more aggressive value betting (fewer missed value bets on strong hands) and better fold discipline (fewer bad calls) compared to the old system.",
-  "tags": ["bounded-options-v2", "case-matrix", "style-profiles", "emotional-window", "validation"],
+  "tags": [
+    "bounded-options-v2",
+    "case-matrix",
+    "style-profiles",
+    "emotional-window",
+    "validation"
+  ],
   "num_tournaments": 5,
   "hands_per_tournament": 50,
   "num_players": 5,
@@ -21,16 +27,26 @@
     "CaseBot"
   ],
   "player_types": {
-    "Napoleon": {"type": "hybrid"},
-    "Bob Ross": {"type": "hybrid"},
-    "Sherlock Holmes": {"type": "hybrid"},
-    "Gordon Ramsay": {"type": "hybrid"},
-    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+    "Napoleon": {
+      "type": "lean"
+    },
+    "Bob Ross": {
+      "type": "lean"
+    },
+    "Sherlock Holmes": {
+      "type": "lean"
+    },
+    "Gordon Ramsay": {
+      "type": "lean"
+    },
+    "CaseBot": {
+      "type": "rule_bot",
+      "strategy": "case_based"
+    }
   },
   "control": {
     "label": "bounded-v2-style-aware",
     "prompt_config": {
-      "lean_bounded": true,
       "style_aware_options": true
     },
     "enable_psychology": true
@@ -39,7 +55,6 @@
     {
       "label": "bounded-v2-default-profile",
       "prompt_config": {
-        "lean_bounded": true,
         "style_aware_options": false
       },
       "enable_psychology": true

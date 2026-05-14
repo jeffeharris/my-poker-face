@@ -203,16 +203,22 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
     except Exception as e:
         logger.warning(f"Could not load controller/emotional states: {e}")
 
+    # Legacy bot_type aliases for stored games predating the chaos/standard/lean/sharp lineup.
+    # hybrid → standard (full Hybrid path; previously also covered lean-bounded forced default)
+    # tiered → sharp
+    _BOT_TYPE_ALIASES = {'hybrid': 'standard', 'tiered': 'sharp'}
+
     for player in state_machine.game_state.players:
         if not player.is_human:
             # Check if this player should use a special controller type
             if player.name in bot_types:
-                strategy = bot_types[player.name]
+                raw_strategy = bot_types[player.name]
+                strategy = _BOT_TYPE_ALIASES.get(raw_strategy, raw_strategy)
                 # Get player-specific llm_config or fall back to default (for personality loading)
                 llm_config = player_llm_configs.get(player.name, default_llm_config)
 
-                if strategy == 'hybrid':
-                    # Hybrid mode: LLM picks from rule-bounded options
+                if strategy == 'standard':
+                    # Standard: HybridAIController (full prompt pipeline + bounded options)
                     controller = HybridAIController(
                         player_name=player.name,
                         state_machine=state_machine,
@@ -223,8 +229,8 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
                         decision_analysis_repo=decision_analysis_repo,
                     )
                     logger.info(f"[RESTORE] Created HybridAIController for {player.name}")
-                elif strategy == 'tiered':
-                    # Tiered mode: solver baselines + personality distortion + LLM expression
+                elif strategy == 'sharp':
+                    # Sharp: solver baselines + personality distortion + LLM expression
                     from flask_app.handlers.tiered_factory import build_tiered_controller
                     controller = build_tiered_controller(
                         player_name=player.name,
@@ -238,8 +244,64 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
                         debug_logging=True,
                     )
                     logger.info(f"[RESTORE] Created TieredBotController for {player.name} (with expression)")
+                elif strategy == 'baseline_solver':
+                    # Pure solver, no personality distortion, no expression layer
+                    from flask_app.handlers.tiered_factory import build_tiered_controller
+                    controller = build_tiered_controller(
+                        player_name=player.name,
+                        state_machine=state_machine,
+                        llm_config=llm_config,
+                        game_id=game_id,
+                        owner_id=owner_id,
+                        capture_label_repo=capture_label_repo,
+                        decision_analysis_repo=decision_analysis_repo,
+                        baseline=True,
+                    )
+                    logger.info(f"[RESTORE] Created BaselineSolverBot for {player.name}")
+                elif strategy in ('casebot', 'gto_lite'):
+                    # Rule bots exposed in Custom Game for training/practice
+                    strategy_for_type = {
+                        'casebot': 'case_based',
+                        'gto_lite': 'pot_odds_robot',
+                    }[strategy]
+                    controller = RuleBotController(
+                        player_name=player.name,
+                        state_machine=state_machine,
+                        strategy=strategy_for_type,
+                        llm_config=llm_config,
+                        game_id=game_id,
+                        owner_id=owner_id,
+                        capture_label_repo=capture_label_repo,
+                        decision_analysis_repo=decision_analysis_repo,
+                    )
+                    logger.info(f"[RESTORE] Created RuleBotController for {player.name} ({strategy} → {strategy_for_type})")
+                elif strategy == 'chaos':
+                    # Chaos: full LLM, full personality, no bounded options
+                    controller = AIPlayerController(
+                        player_name=player.name,
+                        state_machine=state_machine,
+                        llm_config=llm_config,
+                        game_id=game_id,
+                        owner_id=owner_id,
+                        capture_label_repo=capture_label_repo,
+                        decision_analysis_repo=decision_analysis_repo,
+                    )
+                    logger.info(f"[RESTORE] Created AIPlayerController (chaos) for {player.name}")
+                elif strategy == 'lean':
+                    # Lean: minimal LLM prompt, options-bounded
+                    from poker.lean_bounded_controller import LeanBoundedController
+                    controller = LeanBoundedController(
+                        player_name=player.name,
+                        state_machine=state_machine,
+                        llm_config=llm_config,
+                        game_id=game_id,
+                        owner_id=owner_id,
+                        capture_label_repo=capture_label_repo,
+                        decision_analysis_repo=decision_analysis_repo,
+                    )
+                    logger.info(f"[RESTORE] Created LeanBoundedController for {player.name}")
                 else:
-                    # Rule-based controller with psychology
+                    # Rule-based controller with psychology (e.g., case_based, abc, always_fold)
                     controller = RuleBotController(
                         player_name=player.name,
                         state_machine=state_machine,
@@ -347,6 +409,10 @@ def update_and_emit_game_state(game_id: str) -> None:
     )
     pressure_stats = current_game_data.get('pressure_stats')
 
+    # Lazy import to avoid circulars; used for is_rule_bot detection.
+    from poker.rule_bot_controller import RuleBotController
+    from poker.tiered_bot_controller import BaselineSolverBot
+
     # Add avatar data and psychology to AI players
     ai_controllers = current_game_data.get('ai_controllers', {})
     for player_dict in game_state_dict.get('players', []):
@@ -364,6 +430,10 @@ def update_and_emit_game_state(game_id: str) -> None:
             avatar_url = get_avatar_url_with_fallback(game_id, player_name, display_emotion)
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
+
+            # Rule-bot flag drives the UI's "bot" badge overlay.
+            if isinstance(controller, (RuleBotController, BaselineSolverBot)):
+                player_dict['is_rule_bot'] = True
 
             # Add nickname from personality config (for compact UI display)
             # RuleBasedController has no ai_player, so check first

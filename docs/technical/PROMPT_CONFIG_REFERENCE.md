@@ -2,7 +2,7 @@
 purpose: Reference for all PromptConfig fields, game modes, and experiment overrides
 type: reference
 created: 2026-02-12
-last_updated: 2026-02-15
+last_updated: 2026-05-14
 ---
 
 # PromptConfig Reference
@@ -17,12 +17,18 @@ Game Mode / Experiment Config
         ▼
    PromptConfig          ← dataclass with defaults
         │
-        ├──▶ AIPlayerController.decide_action()       (poker/controllers.py)
+        ├──▶ AIPlayerController.decide_action()           (poker/controllers.py)
         │       └── PromptManager.render_decision_prompt()
         │
-        └──▶ HybridAIController.decide_action()       (poker/hybrid_ai_controller.py)
-                └── _decide_action_lean()  (when lean_bounded=True)
+        ├──▶ HybridAIController.decide_action()            (poker/hybrid_ai_controller.py)
+        │       └── full prompt pipeline + bounded options
+        │
+        └──▶ LeanBoundedController.decide_action()         (poker/lean_bounded_controller.py)
+                └── minimal prompt: cards + numbered options only
 ```
+
+The `bot_type` (or experiment `player_types[name].type`) selects which
+controller runs — `lean_bounded` is no longer a runtime flag.
 
 ## Field Reference
 
@@ -82,12 +88,15 @@ Game Mode / Experiment Config
 | `include_personality` | bool | True | Use celebrity personality prompt (False = generic prompt) | controllers.py |
 | `use_simple_response_format` | bool | False | Simple `{"action", "raise_to"}` JSON instead of rich format with dramatic_sequence | controllers.py |
 
-### Lean Bounded Mode (Hybrid Controller)
+### Bounded Options Profile
 
 | Field | Type | Default | Description | Consumer |
 |-------|------|---------|-------------|----------|
-| `lean_bounded` | bool | False | Bypass full prompt pipeline; use minimal options-only prompt | hybrid_ai_controller.py |
-| `style_aware_options` | bool | True | Map psychology playstyle axes to option profiles | hybrid_ai_controller.py |
+| `style_aware_options` | bool | True | Map psychology playstyle axes to option profiles | hybrid_ai_controller.py, lean_bounded_controller.py |
+
+> The historic `lean_bounded` flag was removed in the 4-mode controller
+> refactor (`chaos` / `standard` / `lean` / `sharp`). Select
+> `LeanBoundedController` explicitly via `bot_type='lean'` instead.
 
 ### Option Framing (Hybrid Controller)
 
@@ -124,13 +133,13 @@ Experiment JSON configs (`experiments/configs/*.json`) override `prompt_config` 
 {
   "control": {
     "prompt_config": {
-      "lean_bounded": true
+      "style_aware_options": false
     }
   },
   "variants": [
     {
       "prompt_config": {
-        "lean_bounded": true
+        "style_aware_options": true
       }
     }
   ]

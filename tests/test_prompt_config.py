@@ -29,7 +29,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 28)  # 24 bool + 1 Optional[bool] + 1 int + 2 str
+        self.assertEqual(len(d), 27)  # 23 bool + 1 Optional[bool] + 1 int + 2 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('dramatic_sequence', d)
@@ -170,7 +170,6 @@ class TestPromptConfig(unittest.TestCase):
             gto_equity=True,
             gto_verdict=True,
             use_simple_response_format=True,
-            lean_bounded=True,
             composed_nudges=True,
             option_order='shuffle',
             preflop_range_gate=True,
@@ -388,11 +387,12 @@ class TestZoneToggles(unittest.TestCase):
         self.assertTrue(config.zone_benefits)   # Still get sweet spot guidance
         self.assertFalse(config.tilt_effects)   # No tilting - harder opponents
 
-    def test_competitive_mode_full_psychology(self):
-        """Competitive mode keeps full psychology (zone tuning deferred to Phase 10)."""
-        config = PromptConfig.competitive()
-        self.assertTrue(config.zone_benefits)
-        self.assertTrue(config.tilt_effects)
+    def test_competitive_mode_maps_to_pro(self):
+        """Legacy 'competitive' mode auto-maps to 'pro' with a warning."""
+        config = PromptConfig.from_mode_name('competitive')
+        # After mapping to pro: gto_verdict on, no tilt
+        self.assertTrue(config.gto_verdict)
+        self.assertFalse(config.tilt_effects)
 
     def test_from_dict_backward_compat(self):
         """Old saved games without zone toggles default to True."""

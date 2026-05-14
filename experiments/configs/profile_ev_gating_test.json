@@ -2,7 +2,14 @@
   "name": "profile_ev_gating_test",
   "description": "3-way test of EV label visibility: always show, per-profile (LAG/LP hide, TAG/TP show), always hide. All conditions use nudges + rangegate (113863 winner). Tests whether per-profile EV gating improves VPIP differentiation vs global show/hide.",
   "hypothesis": "Per-profile EV gating will match or beat always-hide VPIP spread (~54pp) while giving TAG/TP the math anchoring they need for tighter play, producing the best of both worlds.",
-  "tags": ["profile-ev-gating", "show-ev-labels", "vpip-spread", "lean-bounded", "nudges", "range-gate"],
+  "tags": [
+    "profile-ev-gating",
+    "show-ev-labels",
+    "vpip-spread",
+    "lean-bounded",
+    "nudges",
+    "range-gate"
+  ],
   "num_tournaments": 10,
   "hands_per_tournament": 30,
   "num_players": 4,
@@ -13,18 +20,30 @@
   "capture_prompts": true,
   "reset_on_elimination": true,
   "parallel_tournaments": 10,
-  "personalities": ["Joan of Arc", "Buddha", "Alice", "Napoleon"],
+  "personalities": [
+    "Joan of Arc",
+    "Buddha",
+    "Alice",
+    "Napoleon"
+  ],
   "player_types": {
-    "Joan of Arc": {"type": "hybrid"},
-    "Buddha": {"type": "hybrid"},
-    "Alice": {"type": "hybrid"},
-    "Napoleon": {"type": "hybrid"}
+    "Joan of Arc": {
+      "type": "lean"
+    },
+    "Buddha": {
+      "type": "lean"
+    },
+    "Alice": {
+      "type": "lean"
+    },
+    "Napoleon": {
+      "type": "lean"
+    }
   },
   "control": {
     "label": "ev-always-show",
     "enable_psychology": true,
     "prompt_config": {
-      "lean_bounded": true,
       "style_aware_options": true,
       "composed_nudges": true,
       "preflop_range_gate": true,
@@ -36,7 +55,6 @@
       "label": "ev-per-profile",
       "enable_psychology": true,
       "prompt_config": {
-        "lean_bounded": true,
         "style_aware_options": true,
         "composed_nudges": true,
         "preflop_range_gate": true,
@@ -47,7 +65,6 @@
       "label": "ev-always-hide",
       "enable_psychology": true,
       "prompt_config": {
-        "lean_bounded": true,
         "style_aware_options": true,
         "composed_nudges": true,
         "preflop_range_gate": true,

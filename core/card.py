@@ -23,6 +23,7 @@ class Card:
     """
     SUIT_TO_ASCII = {'Hearts': '♥', 'Diamonds': '♦', 'Clubs': '♣', 'Spades': '♠'}
     ASCII_TO_SUIT = {v: k for k, v in SUIT_TO_ASCII.items()}
+    SHORT_TO_SUIT = {'s': 'Spades', 'h': 'Hearts', 'd': 'Diamonds', 'c': 'Clubs'}
     RANK_VALUES = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,'8': 8,
                    '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
 
@@ -60,6 +61,18 @@ class Card:
         for card_dict in card_dict_list:
             card_list.append(cls.from_dict(card_dict))
         return card_list
+
+    @classmethod
+    def from_short(cls, s: str) -> 'Card':
+        """Build a Card from short notation: 'As', 'Td', '10h'."""
+        s = s.strip()
+        if len(s) == 3 and s[:2] == '10':
+            rank, suit_ch = '10', s[2]
+        elif s[0] == 'T':
+            rank, suit_ch = '10', s[1]
+        else:
+            rank, suit_ch = s[0], s[1]
+        return cls(rank, cls.SHORT_TO_SUIT.get(suit_ch, suit_ch))
 
     def get_rank_value(self) -> int:
         return Card.RANK_VALUES[self.rank]

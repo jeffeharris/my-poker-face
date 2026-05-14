@@ -8,6 +8,7 @@ from core.card import Card
 from poker.bounded_options import BoundedOption, OptionProfile, generate_bounded_options
 from poker.hand_tiers import is_hand_in_range
 from poker.hybrid_ai_controller import HybridAIController
+from poker.lean_bounded_controller import LeanBoundedController
 from poker.nudge_phrases import HEADS_UP_NUDGE_OVERRIDES, apply_composed_nudges
 from poker.poker_game import initialize_game_state, set_betting_round_start_player, setup_hand
 from poker.range_guidance import classify_preflop_hand_for_player, looseness_to_range_pct
@@ -45,8 +46,8 @@ def _make_lean_prompt_stub():
     cfg.composed_nudges = False
     cfg.show_ev_labels = None
     stub.prompt_config = cfg
-    stub._build_lean_prompt = HybridAIController._build_lean_prompt.__get__(stub)
-    stub._build_street_action_summary = HybridAIController._build_street_action_summary.__get__(stub)
+    stub._build_lean_prompt = LeanBoundedController._build_lean_prompt.__get__(stub)
+    stub._build_street_action_summary = LeanBoundedController._build_street_action_summary.__get__(stub)
     return stub
 
 

@@ -2,7 +2,12 @@
   "name": "hu_eval_2player_gpt5mini",
   "description": "2-player HU archetype comparison using gpt-5-mini. Tests whether a larger model produces better HU behavior and archetype differentiation.",
   "hypothesis": "gpt-5-mini should show similar or stronger HU adjustments compared to gpt-5-nano, with potentially better archetype differentiation and less noise.",
-  "tags": ["heads-up-eval", "2player", "gpt-5-mini", "archetype"],
+  "tags": [
+    "heads-up-eval",
+    "2player",
+    "gpt-5-mini",
+    "archetype"
+  ],
   "num_tournaments": 10,
   "hands_per_tournament": 50,
   "num_players": 2,
@@ -13,16 +18,22 @@
   "capture_prompts": true,
   "reset_on_elimination": true,
   "parallel_tournaments": 5,
-  "personalities": ["Sun Tzu", "Blackbeard"],
+  "personalities": [
+    "Sun Tzu",
+    "Blackbeard"
+  ],
   "player_types": {
-    "Sun Tzu": {"type": "hybrid"},
-    "Blackbeard": {"type": "hybrid"}
+    "Sun Tzu": {
+      "type": "lean"
+    },
+    "Blackbeard": {
+      "type": "lean"
+    }
   },
   "control": {
     "label": "hu-tag-vs-lag-mini",
     "enable_psychology": true,
     "prompt_config": {
-      "lean_bounded": true,
       "style_aware_options": true,
       "composed_nudges": true,
       "preflop_range_gate": true

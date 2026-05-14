@@ -120,15 +120,26 @@ def _authorize_game_access(game_id: str, current_game_data: dict = None):
 def load_game_mode_preset(game_mode: str) -> PromptConfig:
     """Load a game mode as a preset from the database.
 
-    Game modes (casual, standard, pro, competitive) are stored as system presets
+    Game modes (casual, standard, pro) are stored as system presets
     in the prompt_presets table, unifying them with user-defined presets.
 
+    Legacy 'competitive' mode is auto-mapped to 'pro' with a warning to
+    keep older stored games loadable. We normalize before the DB lookup
+    so we don't end up warning twice through `PromptConfig.from_mode_name`
+    on the fallback path.
+
     Args:
-        game_mode: The game mode name ('casual', 'standard', 'pro', 'competitive')
+        game_mode: The game mode name ('casual', 'standard', 'pro')
 
     Returns:
         PromptConfig with the preset's settings applied
     """
+    if game_mode == 'competitive':
+        logger.warning(
+            "Game mode 'competitive' is deprecated; mapping to 'pro'."
+        )
+        game_mode = 'pro'
+
     preset = prompt_preset_repo.get_prompt_preset_by_name(game_mode)
     if preset:
         prompt_config = preset.get('prompt_config')
@@ -861,6 +872,7 @@ def api_new_game():
 
     # Validate game mode (if provided)
     game_mode = data.get('game_mode', 'standard').lower()
+    # 'competitive' is auto-mapped to 'pro' downstream (kept here for backward compat).
     VALID_GAME_MODES = {'casual', 'standard', 'pro', 'competitive'}
     if game_mode not in VALID_GAME_MODES:
         return jsonify({
@@ -879,17 +891,29 @@ def api_new_game():
 
     # Note: UI warns if starting stack < 10x big blind, but we allow it
 
-    # Per-player controller selection (defaults to 'hybrid' for omitted entries)
-    VALID_BOT_TYPES = {'hybrid', 'tiered'}
+    # Per-player controller selection (defaults to 'standard' for omitted entries).
+    # Legacy values 'hybrid' / 'tiered' are accepted on input but auto-mapped to
+    # 'standard' / 'sharp' before storage. They are NOT advertised in error
+    # responses so new clients don't pick them up as legitimate choices.
+    VALID_BOT_TYPES = {
+        'chaos', 'standard', 'lean', 'sharp',
+        'casebot', 'gto_lite', 'baseline_solver',
+    }
+    _BOT_TYPE_ALIASES = {'hybrid': 'standard', 'tiered': 'sharp'}
+    _ACCEPTED_BOT_TYPES = VALID_BOT_TYPES | set(_BOT_TYPE_ALIASES)
     bot_types = data.get('bot_types', {}) or {}
     if not isinstance(bot_types, dict):
         return jsonify({'error': 'bot_types must be an object mapping player name to bot type'}), 400
     for _name, _bt in bot_types.items():
-        if not isinstance(_name, str) or not isinstance(_bt, str) or _bt not in VALID_BOT_TYPES:
+        if not isinstance(_name, str) or not isinstance(_bt, str) or _bt not in _ACCEPTED_BOT_TYPES:
             return jsonify({
                 'error': f'Invalid bot_type for {_name!r}: {_bt!r}',
                 'valid_bot_types': sorted(VALID_BOT_TYPES),
             }), 400
+
+    # Normalize legacy aliases (hybrid → standard, tiered → sharp).
+    # Done after validation so callers can still send legacy values during the transition.
+    bot_types = {n: _BOT_TYPE_ALIASES.get(bt, bt) for n, bt in bot_types.items()}
 
     # Parse personalities - supports both string names and objects with llm_config/game_mode
     # Format: ["Batman", {"name": "Sherlock", "llm_config": {"provider": "groq"}, "game_mode": "pro"}]
@@ -976,8 +1000,9 @@ def api_new_game():
             # Use per-player config if set, otherwise use default
             player_config = player_llm_configs.get(player.name, default_llm_config)
             player_prompt_config = player_prompt_configs.get(player.name, default_prompt_config)
-            bot_type = bot_types.get(player.name, 'hybrid')
-            if bot_type == 'tiered':
+            bot_type = bot_types.get(player.name, 'standard')
+
+            if bot_type == 'sharp':
                 from flask_app.handlers.tiered_factory import build_tiered_controller
                 new_controller = build_tiered_controller(
                     player_name=player.name,
@@ -989,16 +1014,68 @@ def api_new_game():
                     decision_analysis_repo=decision_analysis_repo,
                     expression_enabled=True,
                 )
-            else:
-                # Use HybridAIController with lean bounded mode
-                hybrid_prompt_config = player_prompt_config.copy(
-                    lean_bounded=True,
+            elif bot_type == 'baseline_solver':
+                from flask_app.handlers.tiered_factory import build_tiered_controller
+                new_controller = build_tiered_controller(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=player_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
+                    baseline=True,
                 )
+            elif bot_type in ('casebot', 'gto_lite'):
+                # Rule-based bots exposed in Custom Game for training/practice
+                from poker.rule_bot_controller import RuleBotController
+                strategy_for_type = {
+                    'casebot': 'case_based',
+                    'gto_lite': 'pot_odds_robot',
+                }[bot_type]
+                new_controller = RuleBotController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    strategy=strategy_for_type,
+                    llm_config=player_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
+                )
+            elif bot_type == 'chaos':
+                # Full LLM, full personality — no bounded options
+                from poker.controllers import AIPlayerController
+                new_controller = AIPlayerController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=player_config,
+                    prompt_config=player_prompt_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
+                )
+            elif bot_type == 'lean':
+                # Minimal LLM prompt, options-bounded — cheap path
+                from poker.lean_bounded_controller import LeanBoundedController
+                new_controller = LeanBoundedController(
+                    player.name,
+                    state_machine,
+                    llm_config=player_config,
+                    prompt_config=player_prompt_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
+                )
+            else:
+                # Standard: HybridAIController (full prompt pipeline + bounded options)
                 new_controller = HybridAIController(
                     player.name,
                     state_machine,
                     llm_config=player_config,
-                    prompt_config=hybrid_prompt_config,
+                    prompt_config=player_prompt_config,
                     game_id=game_id,
                     owner_id=owner_id,
                     capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo

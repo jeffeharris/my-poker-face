@@ -2,7 +2,12 @@
   "name": "lean_bounded_test",
   "description": "Test lean bounded prompts (~200 chars, options-only) vs regular hybrid (~6000 chars, full pipeline) vs CaseBot baseline. Lean mode bypasses all prompt building and sends only cards + EV-labeled options.",
   "hypothesis": "Stripping the prompt to just numbered options with EV labels will produce better decisions than the full hybrid prompt. The LLM doesn't need personality, emotional state, or game context to pick from 2-4 pre-computed options.",
-  "tags": ["lean-bounded", "hybrid", "prompt-minimalism", "casebot"],
+  "tags": [
+    "lean-bounded",
+    "hybrid",
+    "prompt-minimalism",
+    "casebot"
+  ],
   "num_tournaments": 10,
   "hands_per_tournament": 50,
   "num_players": 4,
@@ -13,12 +18,26 @@
   "capture_prompts": true,
   "reset_on_elimination": true,
   "parallel_tournaments": 10,
-  "personalities": ["Batman", "Napoleon", "Sherlock Holmes", "CaseBot"],
+  "personalities": [
+    "Batman",
+    "Napoleon",
+    "Sherlock Holmes",
+    "CaseBot"
+  ],
   "player_types": {
-    "Batman": {"type": "hybrid"},
-    "Napoleon": {"type": "hybrid"},
-    "Sherlock Holmes": {"type": "hybrid"},
-    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+    "Batman": {
+      "type": "hybrid"
+    },
+    "Napoleon": {
+      "type": "hybrid"
+    },
+    "Sherlock Holmes": {
+      "type": "hybrid"
+    },
+    "CaseBot": {
+      "type": "rule_bot",
+      "strategy": "case_based"
+    }
   },
   "control": {
     "label": "hybrid-regular",
@@ -27,8 +46,17 @@
   "variants": [
     {
       "label": "hybrid-lean",
-      "prompt_config": {
-        "lean_bounded": true
+      "prompt_config": {},
+      "player_types": {
+        "Batman": {
+          "type": "lean"
+        },
+        "Napoleon": {
+          "type": "lean"
+        },
+        "Sherlock Holmes": {
+          "type": "lean"
+        }
       }
     }
   ],

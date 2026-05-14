@@ -2,7 +2,13 @@
   "name": "hybrid_vs_casebot_hu_eval",
   "description": "Heads-up hybrid AI vs CaseBot with lean bounded pipeline and HU adjustments enabled. Tests whether hybrid AI with wider HU ranges and HU nudges can compete against a rule-based opponent.",
   "hypothesis": "Hybrid AI with HU adjustments should play wider and more aggressively heads-up, competing better against CaseBot than pre-HU-support.",
-  "tags": ["heads-up", "casebot", "hybrid", "lean-bounded", "eval"],
+  "tags": [
+    "heads-up",
+    "casebot",
+    "hybrid",
+    "lean-bounded",
+    "eval"
+  ],
   "num_tournaments": 5,
   "hands_per_tournament": 100,
   "num_players": 2,
@@ -13,16 +19,23 @@
   "capture_prompts": true,
   "reset_on_elimination": true,
   "parallel_tournaments": 5,
-  "personalities": ["Batman", "CaseBot"],
+  "personalities": [
+    "Batman",
+    "CaseBot"
+  ],
   "player_types": {
-    "Batman": {"type": "hybrid"},
-    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+    "Batman": {
+      "type": "lean"
+    },
+    "CaseBot": {
+      "type": "rule_bot",
+      "strategy": "case_based"
+    }
   },
   "control": {
     "label": "hybrid_hu_lean",
     "enable_psychology": true,
     "prompt_config": {
-      "lean_bounded": true,
       "style_aware_options": true,
       "composed_nudges": true,
       "preflop_range_gate": true
