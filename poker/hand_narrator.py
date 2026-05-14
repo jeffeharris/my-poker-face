@@ -740,8 +740,11 @@ def _format_actions(actions: list, big_blind: Optional[int]) -> List[str]:
         elif a.action == "check":
             parts.append(f"{name} checked.")
         elif a.action == "call":
-            amt = _fmt_amount(a.amount, big_blind)
-            parts.append(f"{name} called {amt}.")
+            if a.amount > 0:
+                amt = _fmt_amount(a.amount, big_blind)
+                parts.append(f"{name} called {amt}.")
+            else:
+                parts.append(f"{name} called.")
         elif a.action == "raise":
             amt = _fmt_amount(a.amount, big_blind)
             parts.append(f"{name} raised to {amt}.")

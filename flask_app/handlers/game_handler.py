@@ -1119,9 +1119,6 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
         def _on_events_resolved(all_events, resolved_results, controllers):
             """Callback for UI updates after events are resolved."""
-            event_names = [e[0] for e in all_events]
-            send_message(game_id, "System", f"[Debug] Pressure events: {', '.join(event_names)}", "system")
-
             if 'pressure_stats' in game_data:
                 pressure_stats = game_data['pressure_stats']
                 for event_name, affected_players in all_events:
@@ -1737,7 +1734,14 @@ def handle_ai_action(game_id: str) -> None:
     hand_number = memory_manager.hand_count if memory_manager else None
     analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
 
-    record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
+    # Normalize the recorded amount for calls: the LLM/UI passes raise_to=0 for
+    # calls since they're not raising, but downstream consumers (opponent model,
+    # c-bet detector, hand recap, decision analysis) expect the actual call
+    # cost. Compute it from the pre-action state.
+    record_amount = amount
+    if action == 'call':
+        record_amount = max(0, min(pre_action_state.highest_bet - current_player.bet, current_player.stack))
+    record_action_in_memory(current_game_data, current_player.name, action, record_amount, game_state, state_machine)
     advanced_state = advance_to_next_active_player(game_state)
     # If None, no active players remain - keep current state, let progress_game handle phase transition
     if advanced_state is not None:

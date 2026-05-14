@@ -51,6 +51,24 @@ class ExpressionContext:
     emotional_state: str = 'composed'
     emotional_severity: str = 'none'
 
+    # Richer situation context (Phase: tieredbot-messages). All optional and
+    # default to empty — pre-existing callers render identical prompts.
+    position: str = ''
+    stack_bb: float = 0.0
+    pot_bb: float = 0.0
+    cost_to_call_bb: float = 0.0
+
+    # Readable hand-strength label (e.g. "Two Pair - Strong" postflop,
+    # "Premium" preflop). When non-empty, the prompt includes a "Your read
+    # on your hand" line so the narration can riff on hand strength.
+    hand_name: str = ''
+
+    # Pre-formatted multi-line recent-actions text (already BB-converted by
+    # the caller — same shape hybrid's Recent Actions block uses). When
+    # non-empty, the prompt includes a Recent Actions block so the narration
+    # can reference opponents by name.
+    recent_actions: str = ''
+
     # Phase 7.6 Step 5: per-decision strategy reads from the
     # intervention trace, mapped via narration_facts adapter. When
     # present and non-empty, ExpressionGenerator appends a

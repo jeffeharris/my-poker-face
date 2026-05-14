@@ -125,6 +125,21 @@ class ExpressionGenerator:
 
         return self._parse_response(response, context)
 
+    # Section order for assembling the decision_expression prompt. Optional
+    # sections (hand_read, recent_actions) are included only when their
+    # context fields are populated. dramatic_sequence_format is always
+    # included when the YAML defines it.
+    _SECTION_ORDER = (
+        'intro',
+        'situation',
+        'hand_read',
+        'recent_actions',
+        'emotional_state',
+        'drama',
+        'dramatic_sequence_format',
+        'output_format',
+    )
+
     def _render_prompt(self, ctx: ExpressionContext) -> str:
         template = self.prompt_manager.get_template('decision_expression')
         drama_context = self.drama_contexts.get(ctx.drama_level, '')
@@ -136,24 +151,47 @@ class ExpressionGenerator:
             else ''
         )
 
-        base_prompt = template.render(
-            personality_name=ctx.personality_name,
-            play_style=ctx.play_style,
-            default_attitude=ctx.default_attitude,
-            verbal_tics=', '.join(ctx.verbal_tics) if ctx.verbal_tics else '(none)',
-            physical_tics=', '.join(ctx.physical_tics) if ctx.physical_tics else '(none)',
-            hand_cards=', '.join(ctx.hand_cards) if ctx.hand_cards else '(hidden)',
-            community_cards=', '.join(ctx.community_cards) if ctx.community_cards else '(none)',
-            phase=ctx.phase,
-            pot_size=ctx.pot_size,
-            opponent_count=ctx.opponent_count,
-            action_taken=ctx.action_taken,
-            raise_clause=raise_clause,
-            emotional_state=ctx.emotional_state,
-            emotional_severity=ctx.emotional_severity,
-            drama_context=drama_context,
-            tone_modifier=tone_modifier,
-        )
+        vars_ = {
+            'personality_name': ctx.personality_name,
+            'play_style': ctx.play_style,
+            'default_attitude': ctx.default_attitude,
+            'verbal_tics': ', '.join(ctx.verbal_tics) if ctx.verbal_tics else '(none)',
+            'physical_tics': ', '.join(ctx.physical_tics) if ctx.physical_tics else '(none)',
+            'hand_cards': ', '.join(ctx.hand_cards) if ctx.hand_cards else '(hidden)',
+            'community_cards': ', '.join(ctx.community_cards) if ctx.community_cards else '(none)',
+            'phase': ctx.phase,
+            'pot_size': ctx.pot_size,
+            'opponent_count': ctx.opponent_count,
+            'action_taken': ctx.action_taken,
+            'raise_clause': raise_clause,
+            'emotional_state': ctx.emotional_state,
+            'emotional_severity': ctx.emotional_severity,
+            'drama_context': drama_context,
+            'tone_modifier': tone_modifier,
+            'position': ctx.position or '(unknown)',
+            'stack_bb': f"{ctx.stack_bb:.1f}",
+            'pot_bb': f"{ctx.pot_bb:.1f}",
+            'cost_to_call_bb': f"{ctx.cost_to_call_bb:.1f}",
+            'hand_name': ctx.hand_name,
+            'recent_actions': ctx.recent_actions,
+        }
+
+        # Skip optional sections when their context field is empty.
+        skip = set()
+        if not ctx.hand_name:
+            skip.add('hand_read')
+        if not ctx.recent_actions:
+            skip.add('recent_actions')
+
+        rendered_sections = []
+        for section_name in self._SECTION_ORDER:
+            if section_name in skip:
+                continue
+            section = template.sections.get(section_name)
+            if section is None:
+                continue
+            rendered_sections.append(section.format(**vars_))
+        base_prompt = "\n\n".join(rendered_sections)
 
         # Phase 7.6 Step 5: append narration_facts block if available.
         # This grounds the LLM narration in the bot's actual strategic

@@ -193,6 +193,79 @@ def test_generate_without_holder_omits_enricher(context, prompt_manager):
     assert mock_llm.complete.call_args.kwargs.get('capture_enricher') is None
 
 
+def _capture_prompt(mock_llm) -> str:
+    """Extract the rendered prompt string passed to llm_client.complete."""
+    call = mock_llm.complete.call_args
+    messages = call.kwargs.get('messages') or call.args[0]
+    return messages[0]['content']
+
+
+def _stub_response():
+    return SimpleNamespace(content=json.dumps({
+        'dramatic_sequence': [],
+        'inner_monologue': '',
+        'hand_strategy': '',
+        'bluff_likelihood': 0,
+    }))
+
+
+def test_optional_sections_omitted_when_fields_empty(context, prompt_manager):
+    """hand_read and recent_actions sections are skipped for default ctx."""
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = _stub_response()
+
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    gen.generate(context)
+
+    prompt = _capture_prompt(mock_llm)
+    assert 'Your read on your hand' not in prompt
+    assert 'Recent actions at the table' not in prompt
+    # Format rules always present (no input variables)
+    assert 'DRAMATIC SEQUENCE' in prompt
+    assert 'FORMATTING RULES' in prompt
+
+
+def test_optional_sections_render_when_fields_populated(prompt_manager):
+    ctx = ExpressionContext(
+        action_taken='raise',
+        raise_to=600,
+        hand_cards=['As', 'Ah'],
+        community_cards=['Kd', '7c', '2s'],
+        phase='flop',
+        pot_size=900,
+        opponent_count=2,
+        personality_name='Test Character',
+        play_style='aggressive',
+        default_attitude='confident',
+        verbal_tics=[],
+        physical_tics=[],
+        position='BTN',
+        stack_bb=42.0,
+        pot_bb=9.0,
+        cost_to_call_bb=2.5,
+        hand_name='Top Pair Top Kicker',
+        recent_actions="Alice raised to 3 BB\nBob called",
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = _stub_response()
+
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    gen.generate(ctx)
+
+    prompt = _capture_prompt(mock_llm)
+    # hand_read block present with the hand label
+    assert 'Top Pair Top Kicker' in prompt
+    # recent_actions block present, with opponents by name
+    assert 'Alice raised to 3 BB' in prompt
+    assert 'Bob called' in prompt
+    # situation block carries new fields
+    assert 'BTN' in prompt
+    assert '42.0' in prompt        # stack_bb
+    assert '9.0' in prompt         # pot_bb
+    assert '2.5' in prompt         # cost_to_call_bb
+
+
 def test_generate_with_empty_tics(prompt_manager):
     ctx = ExpressionContext(
         action_taken='check',

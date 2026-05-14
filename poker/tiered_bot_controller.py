@@ -384,6 +384,10 @@ class TieredBotController(AIPlayerController):
         The optional expression layer (Layer 3) is invoked inside
         _get_ai_decision via _attach_expression after the action commits.
         """
+        # Stash recent table activity for the Layer 3 narration prompt.
+        # The action is already locked by then; this is descriptive context
+        # so the LLM can reference opponents by name and react in character.
+        self._current_game_messages = game_messages
         game_state = self.state_machine.game_state
         try:
             valid_actions = game_state.current_player_options
@@ -2219,6 +2223,14 @@ class TieredBotController(AIPlayerController):
             emotional = get_emotional_shift(self.psychology)
             active_count = sum(1 for p in game_state.players if not p.is_folded)
 
+            # Richer situation context for Layer 3 narration: hand label,
+            # BB-normalized stack/pot/cost, position, recent actions. All
+            # best-effort — any sub-step that fails leaves the field empty
+            # and the corresponding YAML section is skipped.
+            extras = self._build_expression_extras(
+                game_state, player, hand_cards, community_cards,
+            )
+
             # Phase 7.6 Step 5: build NarrationFacts from the per-decision
             # intervention trace. Best-effort — failure here logs WARN and
             # leaves narration_facts as None (LLM falls back to the
@@ -2246,6 +2258,12 @@ class TieredBotController(AIPlayerController):
                 drama_tone=drama_tone,
                 emotional_state=emotional.state,
                 emotional_severity=emotional.severity,
+                position=extras['position'],
+                stack_bb=extras['stack_bb'],
+                pot_bb=extras['pot_bb'],
+                cost_to_call_bb=extras['cost_to_call_bb'],
+                hand_name=extras['hand_name'],
+                recent_actions=extras['recent_actions'],
                 narration_facts=narration_facts,
             )
 
@@ -2291,6 +2309,87 @@ class TieredBotController(AIPlayerController):
                     f"[TIERED_BOT] {self.player_name}: "
                     f"capture_id linkage failed: {e}"
                 )
+
+    def _build_expression_extras(
+        self, game_state, player, hand_cards: List[str], community_cards: List[str],
+    ) -> Dict[str, Any]:
+        """Compute hand label, BB-normalized situation, and recent-actions
+        text for the Layer 3 narration prompt.
+
+        Each sub-step is best-effort: any failure populates the affected
+        field with a safe default ('' for strings, 0.0 for floats), and the
+        corresponding YAML section is skipped by ExpressionGenerator.
+        """
+        from .controllers import (
+            evaluate_hand_strength,
+            classify_preflop_hand,
+            summarize_messages,
+        )
+
+        big_blind = getattr(game_state, 'current_ante', 0) or 0
+
+        def _to_bb(amount: int) -> float:
+            if not big_blind:
+                return 0.0
+            return round(amount / big_blind, 1)
+
+        # Hand label: postflop uses eval7, preflop uses classifier
+        hand_name = ''
+        try:
+            if community_cards:
+                hand_name = evaluate_hand_strength(hand_cards, community_cards) or ''
+            elif hand_cards:
+                hand_name = classify_preflop_hand(hand_cards) or ''
+        except Exception:
+            hand_name = ''
+
+        # Position from table_positions
+        position = ''
+        try:
+            positions = getattr(game_state, 'table_positions', {}) or {}
+            for pos, name in positions.items():
+                if name == player.name:
+                    position = pos
+                    break
+        except Exception:
+            position = ''
+
+        # BB-normalized stack/pot/cost
+        try:
+            stack_bb = _to_bb(player.stack)
+        except Exception:
+            stack_bb = 0.0
+        try:
+            pot_total = getattr(game_state, 'pot_total', 0) or 0
+            pot_bb = _to_bb(pot_total)
+        except Exception:
+            pot_bb = 0.0
+        try:
+            raw_cost = max(0, game_state.highest_bet - player.bet)
+            cost_to_call_bb = _to_bb(min(raw_cost, player.stack))
+        except Exception:
+            cost_to_call_bb = 0.0
+
+        # Recent actions: game_messages from the flask layer is a list of
+        # dicts (sender/content/action/...), not strings. Use the same
+        # summarizer hybrid uses so dict messages — including chat — render
+        # as readable lines with senders, actions, and quoted content.
+        recent_actions = ''
+        try:
+            raw = getattr(self, '_current_game_messages', None)
+            if raw:
+                recent_actions = summarize_messages(raw, self.player_name) or ''
+        except Exception:
+            recent_actions = ''
+
+        return {
+            'hand_name': hand_name,
+            'position': position,
+            'stack_bb': stack_bb,
+            'pot_bb': pot_bb,
+            'cost_to_call_bb': cost_to_call_bb,
+            'recent_actions': recent_actions,
+        }
 
     def _postflop_fallback(self, valid_actions: List[str]) -> Dict:
         """Emergency fallback: check if possible, otherwise fold."""

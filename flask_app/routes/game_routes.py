@@ -1215,7 +1215,12 @@ def api_player_action(game_id):
         if current_player.is_human:
             _evaluate_coach_progression(game_id, current_player.name, action, amount, current_game_data, pre_action_state)
 
-        record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
+        # Normalize the recorded amount for calls: callers pass amount=0 since
+        # they're not raising. Downstream consumers expect the true call cost.
+        record_amount = amount
+        if action == 'call':
+            record_amount = max(0, min(pre_action_state.highest_bet - current_player.bet, current_player.stack))
+        record_action_in_memory(current_game_data, current_player.name, action, record_amount, game_state, state_machine)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")
@@ -1535,7 +1540,12 @@ def register_socket_events(sio):
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")
 
-        record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
+        # Normalize the recorded amount for calls: callers pass amount=0 since
+        # they're not raising. Downstream consumers expect the true call cost.
+        record_amount = amount
+        if action == 'call':
+            record_amount = max(0, min(pre_action_state.highest_bet - current_player.bet, current_player.stack))
+        record_action_in_memory(current_game_data, current_player.name, action, record_amount, game_state, state_machine)
 
         advanced_state = advance_to_next_active_player(game_state)
         # If None, no active players remain - keep current state, let progress_game handle phase transition
