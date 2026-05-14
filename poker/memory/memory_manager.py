@@ -304,6 +304,20 @@ class AIMemoryManager:
                     model = self.opponent_model_manager.get_model(observer, opp_name)
                     model.tendencies.update_fold_to_cbet(folded)
 
+        # Phase 8.1a: drain PFR-attempt events (typically zero or one
+        # per call). When the preflop aggressor takes their first
+        # flop action with a clean c-bet decision (bet/raise/check
+        # without anyone donk-betting ahead of them), apply the
+        # attempt to every observer's model of that player.
+        for pfr_name, attempted in self._cbet_detector.consume_pfr_attempt_events():
+            logger.debug(
+                f"{pfr_name} {'attempted' if attempted else 'declined'} c-bet"
+            )
+            for observer in self.initialized_players:
+                if observer != pfr_name:
+                    model = self.opponent_model_manager.get_model(observer, pfr_name)
+                    model.tendencies.update_cbet_attempt(attempted)
+
         # Update opponent models for all observers (including self-observation
         # for coaching stats like VPIP/PFR)
         for observer in self.initialized_players:

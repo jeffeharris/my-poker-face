@@ -29,6 +29,16 @@ class CbetDetector:
         self._preflop_raiser: Optional[str] = None
         self._cbet_made: bool = False
         self._players_facing_cbet: Set[str] = set()
+        # Phase 8.1a: PFR-attempt tracking. Records one
+        # `(name, attempted: bool)` event per hand when the preflop
+        # aggressor has a clean c-bet decision on the flop — bet/raise
+        # when no one had bet first (`attempted=True`) or check when
+        # no one had bet first (`attempted=False`). Donk-bet-into-PFR
+        # scenarios are intentionally excluded since the PFR didn't
+        # have a clean opportunity to c-bet.
+        self._pfr_attempt_recorded: bool = False
+        self._flop_bet_made: bool = False
+        self._pending_pfr_attempts: List[Tuple[str, bool]] = []
 
     # ── Read-only views ────────────────────────────────────────────────
 
@@ -53,6 +63,9 @@ class CbetDetector:
         self._preflop_raiser = None
         self._cbet_made = False
         self._players_facing_cbet = set()
+        self._pfr_attempt_recorded = False
+        self._flop_bet_made = False
+        self._pending_pfr_attempts = []
 
     def record_preflop_aggression(self, player_name: str) -> None:
         """Manually set the preflop aggressor.
@@ -95,7 +108,37 @@ class CbetDetector:
         if phase == 'PRE_FLOP' and action in ('raise', 'all_in'):
             self._preflop_raiser = player_name
 
-        # 2. Detect the c-bet itself. Only the first qualifying flop
+        # 2. Phase 8.1a — PFR's first flop action. Only record an
+        #    attempt event when the PFR has a CLEAN c-bet opportunity:
+        #    either they're first to act and choose to bet/check, or
+        #    no one has bet ahead of them and they choose to bet/check.
+        #    A donk-bet-into-PFR scenario means the PFR's first action
+        #    is responding to a bet, not voluntarily c-betting, so
+        #    that opportunity is excluded from the rate.
+        if (
+            phase == 'FLOP'
+            and self._preflop_raiser is not None
+            and player_name == self._preflop_raiser
+            and not self._pfr_attempt_recorded
+            and not self._flop_bet_made
+        ):
+            if action in ('bet', 'raise', 'all_in'):
+                self._pending_pfr_attempts.append((player_name, True))
+                self._pfr_attempt_recorded = True
+            elif action == 'check':
+                self._pending_pfr_attempts.append((player_name, False))
+                self._pfr_attempt_recorded = True
+            # call/fold by PFR with no prior bet is impossible — fall
+            # through silently if state is somehow corrupted.
+
+        # 2b. Track any flop bet so we can disambiguate "PFR voluntarily
+        #     c-bet" from "PFR called a donk" in step 2 on subsequent
+        #     actions. Set AFTER the PFR-attempt check above so the
+        #     PFR's own opening bet doesn't trip the donk filter.
+        if phase == 'FLOP' and action in ('bet', 'raise', 'all_in'):
+            self._flop_bet_made = True
+
+        # 3. Detect the c-bet itself. Only the first qualifying flop
         #    bet/raise from the preflop raiser counts.
         if (
             phase == 'FLOP'
@@ -109,7 +152,7 @@ class CbetDetector:
                     p for p in active_players if p != player_name
                 }
 
-        # 3. Track facing-player responses. Phase-agnostic by design —
+        # 4. Track facing-player responses. Phase-agnostic by design —
         #    the facing set is drained as players respond, so non-flop
         #    responses only fire if a player stayed in the set across
         #    streets (shouldn't happen in normal play).
@@ -119,3 +162,17 @@ class CbetDetector:
             self._players_facing_cbet.discard(player_name)
 
         return responses
+
+    def consume_pfr_attempt_events(self) -> List[Tuple[str, bool]]:
+        """Drain Phase 8.1a PFR-attempt events queued by record_action.
+
+        Returns a list of `(name, attempted: bool)` tuples, typically
+        zero or one element per call. Caller (MemoryManager in
+        production) applies each via
+        `OpponentTendencies.update_cbet_attempt(attempted)` on the
+        appropriate observer/opponent models. The internal queue is
+        cleared on read so successive calls don't double-emit.
+        """
+        events = self._pending_pfr_attempts
+        self._pending_pfr_attempts = []
+        return events

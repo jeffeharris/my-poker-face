@@ -57,6 +57,7 @@ class OpponentTendencies:
     pfr: float = 0.5            # Pre-flop raise % (how often they raise pre-flop)
     aggression_factor: float = 1.0  # (bet+raise+all-in) / call ratio
     fold_to_cbet: float = 0.5   # Fold to continuation bet %
+    cbet_attempt_rate: float = 0.5  # Phase 8.1a: PFR's c-bet attempt rate
     bluff_frequency: float = 0.3    # Estimated bluff rate
     showdown_win_rate: float = 0.5  # Win rate at showdown
     all_in_frequency: float = 0.0   # All-in actions per hand dealt
@@ -82,6 +83,15 @@ class OpponentTendencies:
     _all_in_count: int = 0      # Total all-in actions (subset of _bet_raise_count)
     _fold_to_cbet_count: int = 0
     _cbet_faced_count: int = 0
+    # Phase 8.1a: PFR-side c-bet attempt tracking. Denominator is hands
+    # where this player WAS the preflop aggressor AND had a clean c-bet
+    # opportunity on the flop (i.e. wasn't donk-bet into). Numerator is
+    # hands where they took the c-bet. Together they yield
+    # `cbet_attempt_rate` — a station-vs-LAG signal that VPIP alone
+    # can't distinguish (a passive PFR with cbet_attempt_rate=0.20 plays
+    # very differently from a LAG with 0.85 at the same VPIP).
+    _cbet_attempt_count: int = 0
+    _postflop_seen_as_pfr_count: int = 0
     _showdowns: int = 0
     _showdowns_won: int = 0
 
@@ -298,6 +308,19 @@ class OpponentTendencies:
             self._fold_to_cbet_count += 1
         self._recalculate_stats()
 
+    def update_cbet_attempt(self, attempted: bool):
+        """Phase 8.1a: record one PFR-flop-attempt event.
+
+        Increments the denominator (`_postflop_seen_as_pfr_count`) on
+        every call and the numerator (`_cbet_attempt_count`) only when
+        `attempted=True`. Caller should ensure the player had a CLEAN
+        c-bet opportunity (CbetDetector emits only those events).
+        """
+        self._postflop_seen_as_pfr_count += 1
+        if attempted:
+            self._cbet_attempt_count += 1
+        self._recalculate_stats()
+
     def _recalculate_stats(self):
         """Recalculate derived statistics.
 
@@ -335,6 +358,14 @@ class OpponentTendencies:
 
         if self._cbet_faced_count > 0:
             self.fold_to_cbet = self._fold_to_cbet_count / self._cbet_faced_count
+
+        # Phase 8.1a: cbet_attempt_rate. Stays at the 0.5 neutral
+        # default until we have at least one observed opportunity —
+        # mirrors fold_to_cbet's "no sample = neutral prior" stance.
+        if self._postflop_seen_as_pfr_count > 0:
+            self.cbet_attempt_rate = (
+                self._cbet_attempt_count / self._postflop_seen_as_pfr_count
+            )
 
         if self._showdowns > 0:
             self.showdown_win_rate = self._showdowns_won / self._showdowns
@@ -444,6 +475,7 @@ class OpponentTendencies:
             'pfr': self.pfr,
             'aggression_factor': self.aggression_factor,
             'fold_to_cbet': self.fold_to_cbet,
+            'cbet_attempt_rate': self.cbet_attempt_rate,
             'bluff_frequency': self.bluff_frequency,
             'showdown_win_rate': self.showdown_win_rate,
             'all_in_frequency': self.all_in_frequency,
@@ -459,6 +491,9 @@ class OpponentTendencies:
             '_all_in_count': self._all_in_count,
             '_fold_to_cbet_count': self._fold_to_cbet_count,
             '_cbet_faced_count': self._cbet_faced_count,
+            # Phase 8.1a counters
+            '_cbet_attempt_count': self._cbet_attempt_count,
+            '_postflop_seen_as_pfr_count': self._postflop_seen_as_pfr_count,
             '_showdowns': self._showdowns,
             '_showdowns_won': self._showdowns_won,
             # Phase 7.5 counters
@@ -485,6 +520,7 @@ class OpponentTendencies:
             pfr=data.get('pfr', 0.5),
             aggression_factor=data.get('aggression_factor', 1.0),
             fold_to_cbet=data.get('fold_to_cbet', 0.5),
+            cbet_attempt_rate=data.get('cbet_attempt_rate', 0.5),
             bluff_frequency=data.get('bluff_frequency', 0.3),
             showdown_win_rate=data.get('showdown_win_rate', 0.5),
             all_in_frequency=data.get('all_in_frequency', 0.0),
@@ -501,6 +537,9 @@ class OpponentTendencies:
         tendencies._all_in_count = data.get('_all_in_count', 0)
         tendencies._fold_to_cbet_count = data.get('_fold_to_cbet_count', 0)
         tendencies._cbet_faced_count = data.get('_cbet_faced_count', 0)
+        # Phase 8.1a counters — default 0 for migration tolerance.
+        tendencies._cbet_attempt_count = data.get('_cbet_attempt_count', 0)
+        tendencies._postflop_seen_as_pfr_count = data.get('_postflop_seen_as_pfr_count', 0)
         tendencies._showdowns = data.get('_showdowns', 0)
         tendencies._showdowns_won = data.get('_showdowns_won', 0)
         # Phase 7.5 counter defaults (0 — missing-field tolerance)
@@ -622,6 +661,10 @@ class OpponentModel:
     def observe_fold_to_cbet(self, folded: bool):
         """Record fold/call response to continuation bet."""
         self.tendencies.update_fold_to_cbet(folded)
+
+    def observe_cbet_attempt(self, attempted: bool):
+        """Phase 8.1a: record this opponent's PFR-flop attempt event."""
+        self.tendencies.update_cbet_attempt(attempted)
 
     def add_narrative_observation(self, observation: str) -> None:
         """Add an AI-generated observation about this opponent.
