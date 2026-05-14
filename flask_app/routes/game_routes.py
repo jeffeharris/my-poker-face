@@ -1150,12 +1150,22 @@ def api_new_game():
     }
     game_state_service.set_game(game_id, game_data)
 
+    # Stamp the resolved bot type for every AI player so the saved game is
+    # self-describing on restore. The front-end omits bot_types from the
+    # request when all opponents are on the default ('standard'); without
+    # this, the dict on disk is empty and restoration can't tell that the
+    # standard path was wanted.
+    saved_bot_types = dict(bot_types)
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            saved_bot_types.setdefault(player.name, 'standard')
+
     game_repo.save_game(
         game_id, state_machine._state_machine, owner_id, owner_name,
         llm_configs={
             'player_llm_configs': player_llm_configs,
             'default_llm_config': default_llm_config,
-            'bot_types': bot_types,
+            'bot_types': saved_bot_types,
         }
     )
     game_repo.save_tournament_tracker(game_id, tournament_tracker)

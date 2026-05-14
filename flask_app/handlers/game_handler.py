@@ -316,17 +316,21 @@ def restore_ai_controllers(game_id: str, state_machine, game_repo,
                 ai_controllers[player.name] = controller
                 continue
 
-            # Get player-specific llm_config or fall back to default
+            # No bot_types entry — match the new-game route's default of
+            # 'standard' (HybridAIController). Without this, games where the
+            # front-end omitted bot_types (all opponents on the default) were
+            # rehydrating every AI as plain chaos, losing bounded options.
             llm_config = player_llm_configs.get(player.name, default_llm_config)
-            controller = AIPlayerController(
-                player.name,
-                state_machine,
+            controller = HybridAIController(
+                player_name=player.name,
+                state_machine=state_machine,
                 llm_config=llm_config,
                 game_id=game_id,
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,
-                decision_analysis_repo=decision_analysis_repo
+                decision_analysis_repo=decision_analysis_repo,
             )
+            logger.info(f"[RESTORE] Created HybridAIController for {player.name} (default fall-through)")
 
             if player.name in ai_states:
                 saved_state = ai_states[player.name]
