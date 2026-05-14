@@ -11,9 +11,10 @@ Phases:
 - Postflop: hand-crafted flop strategies + turn/river heuristics + personality
 """
 
+import dataclasses
 import logging
 import random
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .controllers import AIPlayerController, _get_canonical_hand
 from .card_utils import card_to_string
@@ -30,15 +31,21 @@ from .strategy.multiway import apply_multiway_adjustment
 from .strategy.math_floor import apply_pot_odds_floor
 from .strategy.exploitation import (
     compute_exploitation_offsets,
+    compute_exploitation_offsets_with_traces,
     apply_exploitation_offsets,
     classify_detected_patterns,
     DecisionContext,
     AggregatedOpponentStats,
     ClampTier,
+    GATING_FLOOR,
     OpponentSpot,
     _determine_clamp,
     aggregate_from_spots,
     compute_multiway_cbet_intensity,
+    compute_steal_pressure_intensity,
+    compute_value_vs_station_intensity,
+    is_steal_pressure_enabled,
+    is_value_vs_station_enabled,
     select_primary_aggressor,
 )
 from .strategy.value_override import (
@@ -49,6 +56,12 @@ from .strategy.value_override import (
     should_apply_bluff_catch_override,
     should_apply_value_override,
 )
+from .strategy.intervention_trace import (
+    InterventionOperation,
+    InterventionTrace,
+    layer_order_for,
+    make_no_op_trace,
+)
 from .strategy.short_stack import apply_short_stack_heuristics
 from .hand_tiers import is_hand_in_range
 from .strategy.expression_context import ExpressionContext
@@ -56,6 +69,77 @@ from .strategy.expression_generator import ExpressionGenerator
 from .archetypes import classify_from_anchors
 
 logger = logging.getLogger(__name__)
+
+
+# Canonical exploitation rule order — mirrors compute_exploitation_offsets_
+# with_traces. Kept in one place so the controller-level early-out (when
+# manager / anchors unavailable) emits the same rule_id surface as a
+# normal-path evaluation that gated each rule out individually.
+_EXPLOITATION_RULE_ORDER: Tuple[Tuple[str, str], ...] = (
+    ('exploitation', 'hyper_aggressive'),
+    ('exploitation', 'hyper_passive'),
+    ('exploitation', 'tight_nit'),
+    ('exploitation', 'high_fold_to_cbet'),
+    ('exploitation', 'multiway_cbet'),
+    ('value_vs_station', 'default'),
+    ('steal_pressure', 'default'),
+)
+
+
+def _exploitation_no_op_traces(reason_code: str) -> List[InterventionTrace]:
+    """One no-op trace per declared exploitation/Phase 8 rule.
+
+    Used for the controller-level early-out paths (manager / anchors
+    unavailable) where compute_exploitation_offsets_with_traces never
+    runs. Keeps the per-decision trace surface consistent across
+    decisions — `rule_id`-level firing-rate analyses see all 7 rules
+    every decision, just with different reason codes.
+    """
+    from .strategy.intervention_trace import (
+        layer_order_for,
+        make_no_op_trace,
+    )
+    return [
+        make_no_op_trace(
+            layer=layer, rule_id=rule_id,
+            layer_order=layer_order_for(layer),
+            reason_code=reason_code,
+        )
+        for (layer, rule_id) in _EXPLOITATION_RULE_ORDER
+    ]
+
+
+def _fill_prior_action_source(
+    current_trace: InterventionTrace,
+    earlier_traces: List[InterventionTrace],
+) -> InterventionTrace:
+    """Set `current_trace.prior_action_source` from the last fired
+    earlier trace in `earlier_traces`. Returns a new InterventionTrace
+    (the dataclass is frozen).
+
+    Phase 7.6 Step 2: bluff_catch is now downstream of value_override
+    in the postflop pipeline, so when both fire we want bluff_catch's
+    trace to record `prior_action_source='strong_hand_override.default'`
+    (or whichever earlier layer last took the action). This makes the
+    overwrite chain visible without an O(n²) walk at analysis time.
+
+    If no earlier layer fired (or `current_trace` itself is fired=False),
+    the field is left as-is. Layers that did not modify the strategy
+    don't count as the "source" of the prior action.
+    """
+    if not current_trace.fired:
+        return current_trace
+    if current_trace.prior_action_source:
+        # Already filled (e.g. layer set it directly) — don't clobber.
+        return current_trace
+
+    for prior in reversed(earlier_traces):
+        if prior.fired:
+            return dataclasses.replace(
+                current_trace,
+                prior_action_source=f'{prior.layer}.{prior.rule_id}',
+            )
+    return current_trace
 
 
 class TieredBotController(AIPlayerController):
@@ -92,6 +176,10 @@ class TieredBotController(AIPlayerController):
         self._deviation_profile: Optional[DeviationProfile] = None
         self.skip_personality_distortion = skip_personality_distortion
         self.expression_generator = expression_generator
+        # Phase 7.6: per-decision intervention trace accumulator. Reset
+        # at the start of each decision method; default empty so readers
+        # never see a stale list from a prior controller instance.
+        self._last_intervention_trace: List[InterventionTrace] = []
 
     @property
     def deviation_profile(self) -> DeviationProfile:
@@ -166,6 +254,12 @@ class TieredBotController(AIPlayerController):
             )
 
         # ── Preflop decision ──
+        # Phase 7.6 (Step 2): per-decision intervention trace accumulator.
+        # Reset at the top so a fallback / early-return path doesn't leak
+        # a stale trace from the prior decision. Symmetric with the
+        # postflop method's init at line ~316.
+        self._last_intervention_trace: List[InterventionTrace] = []
+
         hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
         canonical_hand = _get_canonical_hand(hole_cards) if hole_cards else ''
 
@@ -223,20 +317,33 @@ class TieredBotController(AIPlayerController):
             )
 
         # Phase 6: opponent exploitation (between personality and math floor)
-        modified_strategy = self._apply_exploitation(
+        # Preflop passes hand_strength=None — value_vs_station is
+        # postflop-only and the preflop classifier returns a different
+        # two-class enum (STRONG / NOT_STRONG) consumed only by the
+        # value_override path below.
+        modified_strategy, exploitation_traces = self._apply_exploitation(
             modified_strategy, game_state, player_idx, valid_actions,
             anchors, emotional_state,
+            hand_strength=None,
         )
+        self._last_intervention_trace.extend(exploitation_traces)
 
         # Phase 6.5: strong-hand value override.
         # Replaces strategy entirely when hero has a top-tier hand vs a
         # detected hyper-aggressive opponent — offsets can't shift
         # probability mass enough for these spots.
-        modified_strategy = self._apply_value_override(
+        modified_strategy, value_override_trace = self._apply_value_override(
             modified_strategy, game_state, player_idx, valid_actions,
             anchors, emotional_state,
             hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
         )
+        self._last_intervention_trace.append(value_override_trace)
+
+        # Playstyle-gated rule diagnostics. Preflop only sees the
+        # steal_pressure counters fire (value_vs_station is
+        # postflop-only). Same call site shape as postflop so the
+        # method is symmetric.
+        self._tally_playstyle_rule_event()
 
         # Phase 6 Step B: short-stack heuristic. Depth-aware suppression
         # of medium-raise probability mass below 20 BB effective stack.
@@ -296,6 +403,12 @@ class TieredBotController(AIPlayerController):
     ) -> Dict:
         """Postflop decision: strategy table + personality + multiway + guardrails."""
         player = game_state.players[player_idx]
+
+        # Phase 7.6 (Step 1): per-decision intervention trace accumulator.
+        # Reset at the top so a fallback / early-return path doesn't leak
+        # a stale trace from the prior decision. Only bluff_catch is
+        # migrated in Step 1; other layers append once they migrate.
+        self._last_intervention_trace: List[InterventionTrace] = []
 
         # 1. Convert cards to string format
         hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
@@ -388,22 +501,36 @@ class TieredBotController(AIPlayerController):
                     f"result={modified_strategy.action_probabilities}"
                 )
 
+        # Hand strength is consumed by exploitation (value_vs_station
+        # gate) AND by value_override + bluff_catch below, so compute
+        # it once up front. The classifier is pure on `node`, so the
+        # ordering shift vs older revisions is safe.
+        hand_strength = self._classify_postflop_hand_strength(node)
+
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
-        modified_strategy = self._apply_exploitation(
+        modified_strategy, exploitation_traces = self._apply_exploitation(
             modified_strategy, game_state, player_idx, valid_actions,
             anchors, emotional_state,
+            hand_strength=hand_strength,
         )
+        self._last_intervention_trace.extend(exploitation_traces)
 
         # 6a.5 Phase 6.5: strong-hand value override.
         # Replaces strategy when hero has a strong made hand vs a detected
         # hyper-aggressive opponent. Sits after exploitation so it takes
         # precedence on the few decisions where it fires.
-        hand_strength = self._classify_postflop_hand_strength(node)
-        modified_strategy = self._apply_value_override(
+        modified_strategy, value_override_trace = self._apply_value_override(
             modified_strategy, game_state, player_idx, valid_actions,
             anchors, emotional_state,
             hand_strength=hand_strength,
         )
+        self._last_intervention_trace.append(value_override_trace)
+
+        # Playstyle-gated rule diagnostics. Must run after value_override
+        # so the fired-vs-superseded distinction for value_vs_station is
+        # correct (override replaces the strategy, which discards
+        # Phase-8 offsets — counter tracks that case separately).
+        self._tally_playstyle_rule_event()
 
         # 6a.5b Phase 7.5 Item 1: bluff-catch override.
         # Mutually exclusive with the strong-hand override above (trigger
@@ -411,11 +538,19 @@ class TieredBotController(AIPlayerController):
         # a pot-odds-conditional {call, fold} distribution when hero has
         # a marginal made hand (medium/weak) vs a confirmed EXTREME-tier
         # aggressor, with multiway / dangerous-board suppression applied.
-        modified_strategy = self._apply_bluff_catch_override(
+        modified_strategy, bluff_catch_trace = self._apply_bluff_catch_override(
             modified_strategy, game_state, player_idx, valid_actions,
             anchors, emotional_state,
             hand_strength=hand_strength,
         )
+        # Fill in prior_action_source — if an earlier layer fired (made
+        # `replaced_prior_action=True` true), record which one. Today
+        # only value_override is the candidate; later steps add more
+        # earlier layers and the same loop covers them.
+        bluff_catch_trace = _fill_prior_action_source(
+            bluff_catch_trace, self._last_intervention_trace,
+        )
+        self._last_intervention_trace.append(bluff_catch_trace)
 
         # 6a.6 Phase 6 Step B: short-stack heuristic. Suppress medium-raise
         # probability mass below 20 BB effective stack — non-jam raises
@@ -477,7 +612,8 @@ class TieredBotController(AIPlayerController):
     def _apply_exploitation(
         self, strategy, game_state, player_idx, valid_actions,
         anchors, emotional_state,
-    ):
+        hand_strength: Optional[str] = None,
+    ) -> Tuple['StrategyProfile', List[InterventionTrace]]:
         """Phase 6 opponent exploitation step.
 
         Inserts between personality distortion and math floor. No-ops when:
@@ -485,10 +621,22 @@ class TieredBotController(AIPlayerController):
         - anchors is None (BaselineSolverBot)
         - aggregated stats produce no offsets (cold start, low adaptation_bias,
           heavy tilt, or no opponent matches an exploitation rule)
+
+        hand_strength is the postflop class string from
+        `_classify_postflop_hand_strength` (see HandStrengthClass). The
+        postflop caller computes it once and passes it in; the preflop
+        caller passes None. Consumed only by the value_vs_station gate
+        (STRONG_MADE / NUTS only).
+
+        Phase 7.6 (Step 3): returns `(strategy, traces)` where `traces`
+        is one InterventionTrace per declared rule (5 exploitation
+        sub-rules + 2 Phase 8 layers). Even when the layer-level early-
+        out fires (manager None, anchors None), all rules emit no_op
+        traces so analysis sees a consistent rule_id surface.
         """
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None or anchors is None:
-            return strategy
+            return strategy, _exploitation_no_op_traces('manager_unavailable')
 
         tilt_factor = self._zone_to_tilt_factor(emotional_state)
 
@@ -518,8 +666,49 @@ class TieredBotController(AIPlayerController):
         ):
             multiway_cbet_intensity = compute_multiway_cbet_intensity(spots)
 
+        # Playstyle-gated rule families: spot context for stealing /
+        # value extraction. The "raw" intensity is computed regardless
+        # of the playstyle gate so the diagnostic counters can
+        # distinguish `eligible` (intensity would be > 0) from
+        # `enabled_eligible` (intensity actually flows through). The
+        # "used" intensity (passed to compute_exploitation_offsets) is
+        # zeroed when the archetype isn't in the rule's frozenset.
+        archetype = self.archetype_name
+        call_amount = getattr(game_state, 'call_amount', 0) or 0
+        has_bet_legal = any(
+            a == 'bet' or a.startswith('bet_')
+            or a == 'raise' or a.startswith('raise_')
+            or a == 'all_in'
+            for a in valid_actions
+        )
+
+        vvs_intensity_raw = 0.0
+        if (
+            hand_strength in {
+                HandStrengthClass.STRONG_MADE.value,
+                HandStrengthClass.NUTS.value,
+            }
+            and call_amount == 0
+            and has_bet_legal
+        ):
+            vvs_intensity_raw = compute_value_vs_station_intensity(spots)
+        vvs_intensity_used = (
+            vvs_intensity_raw if is_value_vs_station_enabled(archetype) else 0.0
+        )
+
+        steal_intensity_raw = 0.0
+        if (
+            decision_context.is_preflop
+            and call_amount == 0
+            and has_bet_legal
+        ):
+            steal_intensity_raw = compute_steal_pressure_intensity(spots)
+        steal_intensity_used = (
+            steal_intensity_raw if is_steal_pressure_enabled(archetype) else 0.0
+        )
+
         exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
-        offsets = compute_exploitation_offsets(
+        offsets, exploitation_traces = compute_exploitation_offsets_with_traces(
             stats=stats,
             adaptation_bias=anchors.adaptation_bias,
             decision_context=decision_context,
@@ -527,7 +716,27 @@ class TieredBotController(AIPlayerController):
             tilt_factor=tilt_factor,
             exploitation_strength=exploitation_strength,
             multiway_cbet_intensity=multiway_cbet_intensity,
+            value_vs_station_intensity=vvs_intensity_used,
+            steal_pressure_intensity=steal_intensity_used,
         )
+
+        # Stash for the Phase-8 tally helper (called AFTER value_override
+        # below so we know whether the override absorbed the offsets).
+        # `phase_8_will_emit` mirrors the gate inside
+        # compute_exploitation_offsets — when False, the function bails
+        # before the Phase 8 branches regardless of intensity, so
+        # `fired` shouldn't increment even though intensity was
+        # "enabled_eligible." (The aggregate cold-start gate no longer
+        # blocks Phase 8 — see exploitation.py docstring.)
+        effective_bias = anchors.adaptation_bias * tilt_factor
+        phase_8_will_emit = effective_bias > GATING_FLOOR
+
+        self._last_value_vs_station_intensity_raw = vvs_intensity_raw
+        self._last_value_vs_station_intensity_used = vvs_intensity_used
+        self._last_steal_pressure_intensity_raw = steal_intensity_raw
+        self._last_steal_pressure_intensity_used = steal_intensity_used
+        self._last_phase_8_will_emit = phase_8_will_emit
+        self._last_exploitation_archetype = archetype
 
         # Diagnostic counters: track detection vs firing per rule. Useful
         # for sim runs to see if exploitation is actually engaging.
@@ -538,7 +747,7 @@ class TieredBotController(AIPlayerController):
         )
 
         if not offsets:
-            return strategy
+            return strategy, exploitation_traces
 
         if self.debug_logging:
             logger.info(
@@ -559,12 +768,13 @@ class TieredBotController(AIPlayerController):
         self._last_clamp_tier = clamp_tier
         self._last_clamp_axis = winning_axis
 
-        return apply_exploitation_offsets(
+        updated_strategy = apply_exploitation_offsets(
             strategy=strategy,
             offsets=offsets,
             legal_actions=valid_actions,
             max_total_shift=clamp_value,
         )
+        return updated_strategy, exploitation_traces
 
     def _compute_clamp(
         self, stats, manager, primary_spot,
@@ -604,7 +814,7 @@ class TieredBotController(AIPlayerController):
     def _apply_value_override(
         self, strategy, game_state, player_idx, valid_actions,
         anchors, emotional_state, hand_strength,
-    ):
+    ) -> Tuple['StrategyProfile', InterventionTrace]:
         """Phase 6.5: strong-hand value override.
 
         Replaces the strategy distribution (not nudges it) when hero has
@@ -615,10 +825,24 @@ class TieredBotController(AIPlayerController):
         Same gating as exploitation: no-ops when manager not attached,
         anchors None, opponent not aggressive, hand not strong enough,
         or psychology gates suppress.
+
+        Phase 7.6 (Step 2): returns `(strategy, trace)`. Each early-out
+        path emits a `fired=False` trace with a distinct `reason_code`
+        so attribution analysis can distinguish "manager not attached"
+        (cold start) from "gate rejected" (opponent not aggressive).
         """
+        # Default for the Phase-8 tally — set unconditionally so the
+        # postflop caller never reads a stale flag from a prior decision.
+        self._last_value_override_fired = False
+
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None or anchors is None:
-            return strategy
+            return strategy, make_no_op_trace(
+                layer='strong_hand_override',
+                rule_id='default',
+                layer_order=layer_order_for('strong_hand_override'),
+                reason_code='manager_unavailable',
+            )
 
         tilt_factor = self._zone_to_tilt_factor(emotional_state)
 
@@ -645,8 +869,19 @@ class TieredBotController(AIPlayerController):
 
         self._tally_value_override_event(stats, hand_strength, should_fire)
 
+        # Stash for the Phase-8 tally — distinguishes
+        # value_vs_station_fired (offsets contributed AND survived) from
+        # value_vs_station_superseded_by_override (offsets emitted but
+        # replaced by this override).
+        self._last_value_override_fired = bool(should_fire)
+
         if not should_fire:
-            return strategy
+            return strategy, make_no_op_trace(
+                layer='strong_hand_override',
+                rule_id='default',
+                layer_order=layer_order_for('strong_hand_override'),
+                reason_code='gate_rejected',
+            )
 
         if self.debug_logging:
             logger.info(
@@ -726,7 +961,7 @@ class TieredBotController(AIPlayerController):
     def _apply_bluff_catch_override(
         self, strategy, game_state, player_idx, valid_actions,
         anchors, emotional_state, hand_strength,
-    ):
+    ) -> Tuple['StrategyProfile', InterventionTrace]:
         """Phase 7.5 Item 1: bluff-catch override for marginal hands
         vs confirmed extreme aggressors.
 
@@ -737,6 +972,12 @@ class TieredBotController(AIPlayerController):
         (dampened by board texture / street / paired-board flag) and
         clamps the L1 shift to the active EXTREME tier envelope.
 
+        Phase 7.6 (Step 1): returns `(strategy, trace)`. Every code path
+        emits a trace — no-op early-outs each get a `fired=False` trace
+        with a distinct `reason_code` so attribution analysis can see
+        "this rule wasn't on the path" vs "this rule was evaluated but
+        gated out."
+
         Early-out paths:
           - manager not attached or anchors None
           - hand_strength outside bluff-catch trigger classes (skip
@@ -744,13 +985,23 @@ class TieredBotController(AIPlayerController):
         """
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None or anchors is None:
-            return strategy
+            return strategy, make_no_op_trace(
+                layer='bluff_catch_override',
+                rule_id='default',
+                layer_order=layer_order_for('bluff_catch_override'),
+                reason_code='manager_unavailable',
+            )
 
         # Cheap gate: skip the spot/stats build entirely when the hand
         # class doesn't trigger bluff-catch. Avoids work on the bulk of
         # postflop decisions (strong / not_strong / weak_draw / etc.).
         if hand_strength not in BLUFF_CATCH_TRIGGER_CLASSES:
-            return strategy
+            return strategy, make_no_op_trace(
+                layer='bluff_catch_override',
+                rule_id='default',
+                layer_order=layer_order_for('bluff_catch_override'),
+                reason_code='hand_class_not_eligible',
+            )
 
         tilt_factor = self._zone_to_tilt_factor(emotional_state)
 
@@ -784,13 +1035,21 @@ class TieredBotController(AIPlayerController):
         self._tally_bluff_catch_event(hand_strength, should_fire)
 
         if not should_fire:
-            return strategy
+            return strategy, make_no_op_trace(
+                layer='bluff_catch_override',
+                rule_id='default',
+                layer_order=layer_order_for('bluff_catch_override'),
+                reason_code='gate_rejected',
+            )
 
-        override = compute_bluff_catch_strategy(
+        override, trace = compute_bluff_catch_strategy(
             strategy=strategy,
             decision_context=decision_context,
             hand_strength=hand_strength,
             max_total_shift=clamp_value,
+            legal_actions=valid_actions,
+            tier_label=clamp_tier.value.lower() if hasattr(clamp_tier, 'value')
+                else str(clamp_tier).lower(),
         )
 
         if self.debug_logging:
@@ -804,7 +1063,99 @@ class TieredBotController(AIPlayerController):
                 f"{dict(override.action_probabilities)}"
             )
 
-        return override
+        return override, trace
+
+    def _tally_playstyle_rule_event(self):
+        """Diagnostic counters for the playstyle-gated rule families
+        (value_vs_station, steal_pressure).
+
+        Reads stashed state set by `_apply_exploitation` and the
+        `_last_value_override_fired` flag set by `_apply_value_override`.
+        Must be called AFTER `_apply_value_override` returns so the
+        fired-vs-superseded distinction is correct.
+
+        Counters land under `manager._exploitation_counters` alongside
+        the existing diagnostic counters. Per-archetype keys so a 6-max
+        sim with mixed archetypes can answer "did the rule fire for
+        TAG specifically" without summing across the whole table.
+
+        Identities that hold by construction:
+          eligible = enabled_eligible + diagnostic_only
+          For value_vs_station:
+              enabled_eligible = fired
+                               + superseded_by_override
+                               + blocked_by_bias_floor
+          For steal_pressure (no override interaction):
+              enabled_eligible = fired + blocked_by_bias_floor
+
+        `blocked_by_bias_floor` captures the case where the rule was
+        enabled for the archetype AND would have driven non-zero
+        intensity, but `compute_exploitation_offsets` bailed before
+        the Phase 8 branches because `effective_bias = adaptation_bias
+        × tilt_factor <= GATING_FLOOR` (heavy tilt or very-low
+        adaptation_bias). Tracked so `fired` cleanly counts decisions
+        where Phase 8 actually contributed offsets.
+        """
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return
+
+        archetype = getattr(self, '_last_exploitation_archetype', None)
+        if archetype is None:
+            # _apply_exploitation never ran (early-out path), nothing
+            # to tally — also means no override fired this decision
+            # so the post-override reset is a no-op.
+            return
+
+        if not hasattr(manager, '_exploitation_counters'):
+            from collections import Counter
+            manager._exploitation_counters = Counter()
+        c = manager._exploitation_counters
+
+        vvs_raw = getattr(self, '_last_value_vs_station_intensity_raw', 0.0)
+        vvs_used = getattr(self, '_last_value_vs_station_intensity_used', 0.0)
+        steal_raw = getattr(self, '_last_steal_pressure_intensity_raw', 0.0)
+        steal_used = getattr(self, '_last_steal_pressure_intensity_used', 0.0)
+        override_fired = getattr(self, '_last_value_override_fired', False)
+        will_emit = getattr(self, '_last_phase_8_will_emit', False)
+
+        # value_vs_station
+        if vvs_raw > 0.0:
+            c[f'value_vs_station_eligible_{archetype}'] += 1
+            if vvs_used > 0.0:
+                c[f'value_vs_station_enabled_eligible_{archetype}'] += 1
+                if not will_emit:
+                    c[f'value_vs_station_blocked_by_bias_floor_{archetype}'] += 1
+                elif override_fired:
+                    c[f'value_vs_station_superseded_by_override_{archetype}'] += 1
+                else:
+                    c[f'value_vs_station_fired_{archetype}'] += 1
+            else:
+                c[f'value_vs_station_diagnostic_only_{archetype}'] += 1
+
+        # steal_pressure (no override interaction — preflop open spot
+        # and the override path requires facing aggression)
+        if steal_raw > 0.0:
+            c[f'steal_pressure_eligible_{archetype}'] += 1
+            if steal_used > 0.0:
+                c[f'steal_pressure_enabled_eligible_{archetype}'] += 1
+                if will_emit:
+                    c[f'steal_pressure_fired_{archetype}'] += 1
+                else:
+                    c[f'steal_pressure_blocked_by_bias_floor_{archetype}'] += 1
+            else:
+                c[f'steal_pressure_diagnostic_only_{archetype}'] += 1
+
+        # Reset per-decision stash so the next decision starts clean.
+        # Without this, an early-out _apply_exploitation could leave
+        # stale intensities visible to the next tally call.
+        self._last_value_vs_station_intensity_raw = 0.0
+        self._last_value_vs_station_intensity_used = 0.0
+        self._last_steal_pressure_intensity_raw = 0.0
+        self._last_steal_pressure_intensity_used = 0.0
+        self._last_phase_8_will_emit = False
+        self._last_exploitation_archetype = None
+        self._last_value_override_fired = False
 
     def _tally_bluff_catch_event(self, hand_strength, fired):
         """Per-decision diagnostic counters for bluff-catch."""
@@ -1027,6 +1378,11 @@ class TieredBotController(AIPlayerController):
                 hero_idx = i
                 break
 
+        # Blind seats — preserved across streets so postflop callers
+        # can still see who started the hand as SB / BB.
+        sb_idx = getattr(game_state, 'small_blind_idx', None)
+        bb_idx = getattr(game_state, 'big_blind_idx', None)
+
         spots: List[OpponentSpot] = []
         for i, p in enumerate(game_state.players):
             if p.name == hero_name:
@@ -1039,6 +1395,19 @@ class TieredBotController(AIPlayerController):
             total = getattr(p, 'total_bet', None)
             committed_hand = int(total if total is not None else bet)
             is_all_in = is_active and stack <= 0
+
+            # can_act_behind: opponent is still alive AND has not yet
+            # acted on the current betting round. Player.has_acted is
+            # reset by the state machine whenever an accepted raise
+            # reopens the action, so this naturally captures BB option
+            # and re-opens after a 3-bet without seat-order traversal.
+            has_acted = bool(getattr(p, 'has_acted', False))
+            can_act_behind = is_active and not is_all_in and not has_acted
+
+            is_blind = (
+                (sb_idx is not None and i == sb_idx)
+                or (bb_idx is not None and i == bb_idx)
+            )
 
             # Pull stats from existing opponent model if present. Use
             # the non-creating accessor — spot construction runs at every
@@ -1090,10 +1459,9 @@ class TieredBotController(AIPlayerController):
                 stack=stack,
                 committed_this_street=bet,
                 committed_this_hand=committed_hand,
-                # 6.7a leaves position/can-act-behind unset (False/False);
-                # 6.7b preflop steal rule will populate them.
-                can_act_behind=False,
+                can_act_behind=can_act_behind,
                 has_position_on_hero=(hero_idx is not None and i > hero_idx),
+                is_blind=is_blind,
             ))
         return spots
 
@@ -1344,11 +1712,11 @@ class TieredBotController(AIPlayerController):
         )
 
         # Phase 7.5 Item 1c: postflop spot detail for bluff-catch.
-        # bet_size_pot_ratio is computed pre-call (pot before opponent's
-        # bet would be pot_total - call_amount, but the absolute bet to
-        # face is call_amount itself; the standard ratio is bet / pot).
-        # Use call_amount as the "bet to face" and pot_total - call_amount
-        # as the pot BEFORE the bet for the canonical pot-odds ratio.
+        # This is the price-to-call ratio, not a reconstructed original bet
+        # or raise size. In raise chains the controller no longer has enough
+        # history to derive the aggressor's incremental raise cleanly, but
+        # the call price is exactly the value the bluff-catch matrix needs.
+        # Field name is kept for API compatibility with the 7.5 plan/tests.
         bet_size_pot_ratio = 0.0
         if call_amount > 0:
             pot_before_bet = max(pot_total - call_amount, 1)

@@ -159,7 +159,7 @@ class TestBluffCatchFires:
         anchors = SimpleNamespace(adaptation_bias=0.5)
         emotional = SimpleNamespace(state='composed')
 
-        result = controller._apply_bluff_catch_override(
+        result, _trace = controller._apply_bluff_catch_override(
             strategy=baseline, game_state=controller.state_machine.game_state,
             player_idx=0, valid_actions=['fold', 'call'],
             anchors=anchors, emotional_state=emotional,
@@ -181,7 +181,7 @@ class TestBluffCatchFires:
         anchors = SimpleNamespace(adaptation_bias=0.5)
         emotional = SimpleNamespace(state='composed')
 
-        result = controller._apply_bluff_catch_override(
+        result, _trace = controller._apply_bluff_catch_override(
             strategy=baseline, game_state=controller.state_machine.game_state,
             player_idx=0, valid_actions=['fold', 'call'],
             anchors=anchors, emotional_state=emotional,
@@ -207,7 +207,7 @@ class TestBluffCatchFires:
         anchors = SimpleNamespace(adaptation_bias=0.5)
         emotional = SimpleNamespace(state='composed')
 
-        result = controller._apply_bluff_catch_override(
+        result, _trace = controller._apply_bluff_catch_override(
             strategy=baseline, game_state=gs, player_idx=0,
             valid_actions=['fold', 'all_in'],
             anchors=anchors, emotional_state=emotional,
@@ -232,7 +232,7 @@ class TestBluffCatchBlocks:
         anchors = SimpleNamespace(adaptation_bias=0.5)
         emotional = SimpleNamespace(state='composed')
 
-        result = controller._apply_bluff_catch_override(
+        result, _trace = controller._apply_bluff_catch_override(
             strategy=baseline, game_state=controller.state_machine.game_state,
             player_idx=0, valid_actions=['fold', 'call'],
             anchors=anchors, emotional_state=emotional,
@@ -254,7 +254,7 @@ class TestBluffCatchBlocks:
         anchors = SimpleNamespace(adaptation_bias=0.5)
         emotional = SimpleNamespace(state='composed')
 
-        result = controller._apply_bluff_catch_override(
+        result, _trace = controller._apply_bluff_catch_override(
             strategy=baseline, game_state=controller.state_machine.game_state,
             player_idx=0, valid_actions=['fold', 'call'],
             anchors=anchors, emotional_state=emotional,
@@ -277,7 +277,7 @@ class TestBluffCatchBlocks:
         anchors = SimpleNamespace(adaptation_bias=0.5)
         emotional = SimpleNamespace(state='composed')
 
-        result = controller._apply_bluff_catch_override(
+        result, _trace = controller._apply_bluff_catch_override(
             strategy=baseline, game_state=gs, player_idx=0,
             valid_actions=['check', 'bet'],
             anchors=anchors, emotional_state=emotional,
@@ -295,7 +295,7 @@ class TestBluffCatchBlocks:
         anchors = SimpleNamespace(adaptation_bias=0.5)
         emotional = SimpleNamespace(state='shaken')  # tilt_factor=0
 
-        result = controller._apply_bluff_catch_override(
+        result, _trace = controller._apply_bluff_catch_override(
             strategy=baseline, game_state=controller.state_machine.game_state,
             player_idx=0, valid_actions=['fold', 'call'],
             anchors=anchors, emotional_state=emotional,

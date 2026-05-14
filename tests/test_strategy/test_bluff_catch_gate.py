@@ -310,7 +310,7 @@ class TestComputeBluffCatchStrategy:
         Result: fold=1.0+(0.5)*(0.2-1.0)=0.6, call=0+(0.5)*0.8=0.4."""
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(street='flop', board_texture='dry_high', bet_size_pot_ratio=1.0)
-        result = compute_bluff_catch_strategy(
+        result, _trace = compute_bluff_catch_strategy(
             baseline, ctx, 'medium_made', max_total_shift=0.8,
         )
         # Proposed: call=0.80, fold=0.20. L1 vs baseline = 1.6.
@@ -319,13 +319,27 @@ class TestComputeBluffCatchStrategy:
         assert result.action_probabilities['call'] == pytest.approx(0.4)
         assert result.action_probabilities['fold'] == pytest.approx(0.6)
 
+    def test_uses_all_in_as_call_equivalent_when_call_is_illegal(self):
+        """Short-stack call-offs expose all_in, not call. Bluff-catch must
+        put continuing mass on the legal call-equivalent action."""
+        baseline = StrategyProfile(action_probabilities={'fold': 1.0})
+        ctx = _ctx(street='flop', board_texture='dry_high', bet_size_pot_ratio=1.0)
+        result, _trace = compute_bluff_catch_strategy(
+            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            legal_actions=['fold', 'all_in'],
+        )
+
+        assert 'call' not in result.action_probabilities
+        assert result.action_probabilities['all_in'] == pytest.approx(0.4)
+        assert result.action_probabilities['fold'] == pytest.approx(0.6)
+
     def test_dangerous_river_pulls_call_low(self):
         """River + monotone + pot-size + medium_made: base 0.80,
         dampener 0.30 → composed 0.24. Baseline fold; L1 = 1.52,
         scale = 0.8/1.52 ≈ 0.526. Final call ≈ 0.126."""
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(street='river', board_texture='monotone', bet_size_pot_ratio=1.0)
-        result = compute_bluff_catch_strategy(
+        result, _trace = compute_bluff_catch_strategy(
             baseline, ctx, 'medium_made', max_total_shift=0.8,
         )
         # Proposed: call=0.24, fold=0.76. L1 = 0.24+0.24 = 0.48.
@@ -341,7 +355,7 @@ class TestComputeBluffCatchStrategy:
             street='river', board_texture='monotone',
             is_paired_board=True, bet_size_pot_ratio=1.0,
         )
-        result = compute_bluff_catch_strategy(
+        result, _trace = compute_bluff_catch_strategy(
             baseline, ctx, 'weak_made', max_total_shift=0.8,
         )
         # Composed prob = 0.015 — well under cap, returned as-is.
@@ -355,7 +369,7 @@ class TestComputeBluffCatchStrategy:
         ctx = _ctx(
             street='flop', board_texture='dry_high', bet_size_pot_ratio=0.3,
         )
-        result = compute_bluff_catch_strategy(
+        result, _trace = compute_bluff_catch_strategy(
             baseline, ctx, 'medium_made', max_total_shift=0.8,
         )
         # L1(baseline, proposed) = 2*0.95 = 1.9. Cap 0.8. Scale ≈ 0.421.
@@ -370,7 +384,7 @@ class TestComputeBluffCatchStrategy:
         ctx = _ctx(
             street='flop', board_texture='dry_high', bet_size_pot_ratio=0.3,
         )
-        result = compute_bluff_catch_strategy(
+        result, _trace = compute_bluff_catch_strategy(
             baseline, ctx, 'medium_made', max_total_shift=0.4,
         )
         # L1 = 1.9, cap 0.4 → scale 0.21.

@@ -125,7 +125,7 @@ class TestComputeValueOverrideFacingAllIn:
 
     def test_with_call_available(self):
         s = StrategyProfile(action_probabilities={'fold': 0.5, 'call': 0.5})
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_all_in=True),
             hand_strength=HandStrengthClass.NUTS.value,
@@ -134,7 +134,7 @@ class TestComputeValueOverrideFacingAllIn:
 
     def test_with_only_jam_available(self):
         s = StrategyProfile(action_probabilities={'fold': 0.5, 'jam': 0.5})
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_all_in=True),
             hand_strength=HandStrengthClass.NUTS.value,
@@ -143,7 +143,7 @@ class TestComputeValueOverrideFacingAllIn:
 
     def test_no_call_no_jam_falls_back(self):
         s = StrategyProfile(action_probabilities={'fold': 1.0})
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_all_in=True),
             hand_strength=HandStrengthClass.NUTS.value,
@@ -159,7 +159,7 @@ class TestComputeValueOverrideFacingBet:
         s = StrategyProfile(action_probabilities={
             'fold': 0.5, 'call': 0.3, 'raise_3bb': 0.2,
         })
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
             hand_strength=HandStrengthClass.STRONG_MADE.value,
@@ -172,7 +172,7 @@ class TestComputeValueOverrideFacingBet:
         s = StrategyProfile(action_probabilities={
             'fold': 0.4, 'call': 0.2, 'raise_3bb': 0.2, 'raise_67': 0.2,
         })
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
             hand_strength=HandStrengthClass.STRONG_MADE.value,
@@ -184,7 +184,7 @@ class TestComputeValueOverrideFacingBet:
 
     def test_only_call_when_no_raise_available(self):
         s = StrategyProfile(action_probabilities={'fold': 0.7, 'call': 0.3})
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
             hand_strength=HandStrengthClass.STRONG_MADE.value,
@@ -199,7 +199,7 @@ class TestComputeValueOverrideOpenSpot:
         s = StrategyProfile(action_probabilities={
             'check': 0.5, 'bet_67': 0.5,
         })
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(is_preflop=False),
             hand_strength=HandStrengthClass.NUTS.value,
@@ -211,7 +211,7 @@ class TestComputeValueOverrideOpenSpot:
         s = StrategyProfile(action_probabilities={
             'check': 0.5, 'bet_67': 0.5,
         })
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(is_preflop=False),
             hand_strength=HandStrengthClass.STRONG_MADE.value,
@@ -223,7 +223,7 @@ class TestComputeValueOverrideOpenSpot:
         s = StrategyProfile(action_probabilities={
             'check': 0.5, 'raise_3bb': 0.5,
         })
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(is_preflop=True),
             hand_strength=HandStrengthClass.STRONG.value,
@@ -235,7 +235,7 @@ class TestComputeValueOverrideOpenSpot:
         s = StrategyProfile(action_probabilities={
             'check': 0.5, 'bet_67': 0.3, 'bet_100': 0.2,
         })
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(is_preflop=False),
             hand_strength=HandStrengthClass.NUTS.value,
@@ -250,7 +250,7 @@ class TestComputeValueOverrideOpenSpot:
         s = StrategyProfile(action_probabilities={
             'call': 0.5, 'raise_3bb': 0.5,
         })
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(is_preflop=True),
             hand_strength=HandStrengthClass.STRONG.value,
@@ -266,7 +266,7 @@ class TestComputeValueOverrideGeneral:
         s = StrategyProfile(action_probabilities={
             'fold': 0.4, 'call': 0.4, 'raise_3bb': 0.2,
         })
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
             hand_strength=HandStrengthClass.STRONG_MADE.value,
@@ -279,7 +279,7 @@ class TestComputeValueOverrideGeneral:
         s = StrategyProfile(action_probabilities={
             'fold': 0.5, 'call': 0.3, 'raise_3bb': 0.2,
         })
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
             hand_strength=HandStrengthClass.STRONG_MADE.value,
@@ -293,7 +293,7 @@ class TestComputeValueOverrideGeneral:
         s = StrategyProfile(action_probabilities={
             'fold': 0.8, 'call': 0.2,
         })
-        result = compute_value_override_strategy(
+        result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
             hand_strength=HandStrengthClass.STRONG_MADE.value,

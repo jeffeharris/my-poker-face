@@ -2,7 +2,7 @@
 purpose: Plan for a per-decision intervention-trace framework that unifies attribution and LLM narration
 type: design
 created: 2026-05-13
-last_updated: 2026-05-14T11:00:00
+last_updated: 2026-05-14
 ---
 
 # Phase 7.6: Intervention-trace framework
@@ -1461,6 +1461,214 @@ pressured.
 Start from any commit at or after Phase 7.5 ships (the Item 1d sweep
 in `/tmp/phase7_5_3seed/`). The trace framework is additive — once
 shipped, all subsequent phases (Phase 8 etc.) automatically participate.
+
+## Implementation log
+
+### Step 1 (2026-05-14): bluff_catch_override reference migration
+
+**Status: complete.**
+
+Files landed:
+- `poker/strategy/intervention_trace.py` (NEW) — `InterventionTrace`,
+  `InterventionOperation` enum, `_LAYER_NAMES`, `_RULE_IDS_BY_LAYER`,
+  `l1_distance` / `primary_action` / `summarize_strategy` /
+  `amount_bucket` helpers, `_safe_serialize` (handles enums,
+  dataclasses, numpy-like scalars, non-finite floats), `validate_trace`
+  (enforces canonical layer + OVERRIDE ⇒ replaced_prior_action
+  invariant), `make_no_op_trace` convenience constructor.
+- `poker/strategy/value_override.py` — `compute_bluff_catch_strategy`
+  now returns `Tuple[StrategyProfile, InterventionTrace]` with a
+  fire trace (`operation=OVERRIDE`, populated inputs / summaries /
+  config snapshot, dynamic reason_code `{hand_class}_vs_{tier}_facing_bet`).
+  New `_build_bluff_catch_trace` + `_select_bluff_catch_config`
+  helpers; the strategy builder itself stays focused on producing
+  the distribution.
+- `poker/tiered_bot_controller.py` — `_apply_bluff_catch_override`
+  returns `(strategy, trace)`. No-op traces emitted on each early-out
+  path with distinct reason_code (`manager_unavailable`,
+  `hand_class_not_eligible`, `gate_rejected`). Controller now stashes
+  `self._last_intervention_trace: List[InterventionTrace]`, reset
+  at the top of `_get_postflop_decision` and at `__init__`.
+- `tests/test_strategy/test_intervention_trace.py` (NEW, 24 tests) —
+  schema invariants, JSON round-trip with enum / dataclass / non-finite
+  edge cases, pure-helper coverage.
+- `tests/test_strategy/test_intervention_trace_bluff_catch.py` (NEW,
+  15 tests) — fire-trace shape, reason_code encoding, strategy
+  summaries, controller-level no-op early-outs.
+- `tests/test_strategy/test_bluff_catch_gate.py` — updated 6 existing
+  call sites to unpack the new tuple return.
+- `tests/test_strategy/test_tiered_bot_bluff_catch.py` — updated 7
+  existing call sites.
+
+**Test results: 716 strategy tests pass** (up from 677 pre-Step-1;
++39 new trace tests). End-to-end smoke check: 200-hand
+`simulate_bb100 --opponent ManiacBot` completed cleanly (exit 0,
+164s wall-clock).
+
+**Performance budget measurement** (Codex r3 risk #11, <5% of
+decision latency):
+
+| Path | ns/call | μs/call |
+|---|---|---|
+| Pre-7.6 strategy-only (baseline) | 7,853 | 7.85 |
+| Strategy + trace (fire path) | 26,964 | 26.96 |
+| Trace construction overhead | 19,111 | 19.11 |
+| No-op trace (`make_no_op_trace`) | 3,936 | 3.94 |
+
+The fire-path trace adds ~19μs per fire (~243% of the strategy
+build's own cost in isolation, but absolute overhead is microseconds).
+The dominant decision-latency budget in the tiered controller is the
+LLM call upstream (~50ms typical, can reach 200ms+); the trace
+overhead is therefore **0.0382% of a 50ms decision — 131× under
+the 5% budget**. The much more common no-op path (hand class not
+in trigger set) costs ~4μs.
+
+No optimization mitigations from §Risks #11 applied — the budget
+passes by a wide margin even on the fire path. The `_select_
+bluff_catch_config` helper's use of `dir()` is the biggest single
+contributor (~5-10μs) and could be lowered by hard-coding the
+allowlist later if subsequent layers push overhead over the budget,
+but that's not needed yet.
+
+**Threading vs accumulator decision** (open question #2): threading
+held up cleanly. Five test files updated, signature change was
+mechanical, no controller state-reset gotchas. Recommend continuing
+with threading for Step 2.
+
+**Open observations carried forward:**
+- `prior_action_source` is currently `''` on the bluff_catch trace
+  because no other layer emits traces yet. Step 2 will add the
+  post-hoc fill-in from the prior trace entry.
+- Preflop path does not yet initialize `_last_intervention_trace`
+  per-decision (only postflop does). Preflop has no bluff_catch
+  call, so no leak today, but the symmetry should be added when
+  Step 2 migrates the personality / exploitation layers (both
+  fire preflop).
+- `_BLUFF_CATCH_LAYER_ORDER = 3` is hard-coded in `value_override.py`.
+  Step 2 should promote layer_order to a single source of truth
+  (an enum or `_LAYER_ORDER` dict in `intervention_trace.py`).
+
+### Step 2 (2026-05-14): strong_hand_override migration + carry-forwards
+
+**Status: complete.**
+
+Files updated:
+- `poker/strategy/intervention_trace.py` — added shared `_LAYER_ORDER`
+  dict, `MAX_LAYER_ORDER` constant, and `layer_order_for(layer)` helper.
+  Single source of truth for pipeline ordinals; no more hard-coded
+  layer_order constants at each migration site. Mapping:
+  `personality=0, exploitation=1, value_vs_station=1, steal_pressure=1,
+  strong_hand_override=2, bluff_catch_override=3, short_stack=4,
+  math_floor=5`.
+- `poker/strategy/value_override.py:142` — `compute_value_override_
+  strategy` returns `Tuple[StrategyProfile, InterventionTrace]`. Per-
+  spot reason codes: `facing_all_in_call/jam`, `facing_bet_call_or_
+  raise/call_only/raise_only`, `open_value_bet_{nuts/strong_made/
+  strong}`. Pathological "degenerate legal-action-set" branches emit
+  `fired=False` traces with distinct codes (e.g. `facing_all_in_no_
+  continuing_action`) so attribution doesn't mis-credit them as
+  overrides.
+- `poker/tiered_bot_controller.py:717` — `_apply_value_override`
+  returns `(strategy, trace)` with no-op early-out traces
+  (`manager_unavailable`, `gate_rejected`). Both postflop and preflop
+  call sites updated; preflop now initializes `_last_intervention_
+  trace = []` symmetrically with postflop.
+- `poker/tiered_bot_controller.py:72` — new module-level `_fill_
+  prior_action_source(current, earlier)` helper. Threads through
+  `dataclasses.replace` (the trace is frozen) and walks `earlier` in
+  reverse to find the most recent fired trace, populating
+  `current.prior_action_source = f'{prior.layer}.{prior.rule_id}'`.
+  Bluff_catch's trace now correctly records the overwrite chain when
+  the strong-hand override fires earlier (mutually exclusive by hand
+  class today, but the same helper will compose correctly with
+  exploitation in Step 3).
+- 19 new trace tests in `test_intervention_trace_strong_hand.py`
+  covering each spot type, JSON round-trip, and 5
+  `_fill_prior_action_source` semantics tests (fills from last fired,
+  no_op left unchanged, no earlier fired layer leaves empty, does not
+  clobber existing value, picks most recent fired when multiple).
+- 19 existing call sites updated across `test_value_override.py` (14)
+  + `test_tiered_bot_exploitation.py` (5).
+
+**Test results: 733 strategy tests pass** (up from 716 after Step 1;
++17 new). End-to-end quick-suite: 3069 tests pass.
+
+### Step 3 (2026-05-14): per-rule exploitation traces + Phase 8 layers
+
+**Status: complete.**
+
+The complex step — exploitation emits one trace per rule (5
+exploitation sub-rules + 2 Phase 8 layers), not one trace per layer.
+Backwards-compat is preserved through a wrapper because
+`compute_exploitation_offsets` has 60+ test callers.
+
+Files updated:
+- `poker/strategy/exploitation.py:664` — added
+  `compute_exploitation_offsets_with_traces` returning
+  `Tuple[Dict[str, float], List[InterventionTrace]]`. Each rule
+  tracks its own offset contributions in a `rule_offsets` accumulator
+  separately from the combined `offsets` dict. Per-rule trace emits
+  `operation='adjust'`, `effect='offsets_applied'`, `effect_size = L1
+  norm of the rule's own offsets`, with `extra['offsets']` containing
+  the rule's contribution dict.
+  - Legacy `compute_exploitation_offsets` is now a thin wrapper that
+    discards traces — 60+ existing callers keep working unchanged.
+- **Tier-aware reason codes** (Codex r2 open Q #5 resolved via option 1
+  — encode tier in `reason_code`, not a separate field). hyper_aggressive
+  emits one of `extreme_tier_via_all_in_frequency`,
+  `extreme_tier_via_aggression_factor`,
+  `medium_tier_via_all_in_frequency`,
+  `medium_tier_via_aggression_factor`. Tier threshold: intensity ≥ 0.7
+  → extreme; else medium. Winning axis = whichever ramp reached higher
+  intensity (`all_in_frequency` wins ties).
+- **Always-7-traces invariant**: every call emits exactly 7 traces
+  (5 exploitation + value_vs_station + steal_pressure), even early-
+  outs. Reason codes distinguish paths: `gating_floor_blocked`,
+  `aggregate_cold_start`, `intensity_below_threshold`, `not_open_spot`,
+  `not_hu_cbet_spot`, `not_multiway_cbet_spot`, `intensity_zero_or_
+  gated`. Downstream firing-rate analysis sees a consistent rule_id
+  surface across decisions.
+- **Phase 8 layer separation**: value_vs_station and steal_pressure
+  emit traces with `layer='value_vs_station'` / `layer='steal_pressure'`,
+  NOT under `layer='exploitation'`. They share `layer_order=1` with
+  exploitation because they nest into the same pipeline step, but
+  they're distinct layers for analysis grouping.
+- `poker/tiered_bot_controller.py:72` — added module-level
+  `_EXPLOITATION_RULE_ORDER` tuple + `_exploitation_no_op_traces`
+  helper. Controller-level early-outs (manager None, anchors None)
+  emit the same 7-rule surface as a normal evaluation that gated
+  each rule out individually.
+- `_apply_exploitation` returns `(strategy, List[InterventionTrace])`,
+  switches to `compute_exploitation_offsets_with_traces`. Both
+  postflop and preflop call sites `extend()` the controller-level
+  trace accumulator.
+- 16 new trace tests in `test_intervention_trace_exploitation.py`
+  covering: always-7 invariant on all early-out paths, per-rule fire
+  semantics for hyper_aggressive / hyper_passive / tight_nit, medium-
+  vs-extreme tier reason codes, Phase 8 layer separation, combined-
+  offsets attribution invariant (Σ per-rule offsets == combined
+  dict), legacy wrapper backcompat, JSON round-trip.
+- 6 existing call sites updated in `test_tiered_bot_exploitation.py`.
+
+**Test results: 749 strategy tests pass** (up from 733 after Step 2;
++16 new). End-to-end quick-suite: 3084 tests pass (one Flask
+game-routes test flaked under xdist concurrency — passes in
+isolation, unrelated to trace migration).
+
+**Carried forward into Step 4 (personality layer):**
+- The `_fill_prior_action_source` helper now picks the most recent
+  fired trace across the longer trace list (7 exploitation rules +
+  strong_hand_override), so bluff_catch's prior_action_source is
+  meaningful even when individual exploitation sub-rules fired.
+- Combined-offsets attribution invariant is testable end-to-end:
+  analysis can reconstruct combined behavior from per-rule trace
+  decomposition.
+- Per-rule effect_size uses L1 of the offset vector (logit space),
+  not L1 of distribution change — documented in the rule's
+  `extra['offset_l1']` for downstream filters. This differs from
+  bluff_catch / strong_hand_override which use distribution L1.
+  Acceptable difference: offsets compose multiplicatively, so per-
+  rule isolated distribution L1 would be misleading.
 
 ## Resolved by Codex review (v2 + v3 + v4)
 

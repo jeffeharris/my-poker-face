@@ -2,8 +2,52 @@
 purpose: Plan to define and gate new exploitation rule families (value-vs-station, steal/pressure) by archetype playstyle
 type: design
 created: 2026-05-13
-last_updated: 2026-05-14T00:30:00
+last_updated: 2026-05-14
 ---
+
+## v1 implementation status (2026-05-14)
+
+Shipped in the v1 PR:
+
+- `compute_value_vs_station_intensity(spots)` and
+  `compute_steal_pressure_intensity(spots)` as pure functions in
+  `poker/strategy/exploitation.py`.
+- `compute_exploitation_offsets` extended with
+  `value_vs_station_intensity` and `steal_pressure_intensity` scalar
+  parameters and matching offset branches.
+- `is_value_vs_station_enabled` / `is_steal_pressure_enabled`
+  frozenset gates.
+- `OpponentSpot.is_blind` field. `can_act_behind` populated inside
+  `_build_opponent_spots` from `Player.has_acted` (much simpler than
+  the seat-traversal sketch in the original plan body — see "Resolved
+  implementation choices" below).
+- `_apply_exploitation` extended with optional `hand_strength`
+  parameter; postflop caller computes once via
+  `_classify_postflop_hand_strength(node)` and passes through.
+- `_tally_playstyle_rule_event()` on the controller; called after
+  `_apply_value_override` in both preflop and postflop paths to track
+  eligible / enabled_eligible / fired / superseded_by_override /
+  diagnostic_only counters per archetype + family.
+- Tests in `tests/test_strategy/test_playstyle_rule_families.py`
+  (50 tests). Naming is behavior-driven, not phase-numbered.
+
+**`steal_pressure` ships disabled** — `STEAL_PRESSURE_PLAYSTYLES = frozenset()`
+so no archetype enables it. Piping + diagnostics are live, so the
+counters tell us how often it WOULD have fired across a sim run. The
+proper activation (and the hyper_passive co-fire question from
+Risk #1) lives in `PHASE_8_1_TRACKING_AND_HYPER_PASSIVE.md`.
+
+### Resolved implementation choices
+
+| Question | Resolution |
+|---|---|
+| `value_vs_station` intensity formula | `upside × safety` where upside = max hyper_passive intensity over stations and safety = `1 - VVS_SAFETY_WEIGHT × max tight_nit intensity over non-stations` (VVS_SAFETY_WEIGHT=0.5). Hardcode existing thresholds; expose only VVS_SAFETY_WEIGHT as module constant. |
+| `steal_pressure` magnitude | `0.15` (half of value_vs_station's `0.30`) — the VPIP+PFR proxy is weak; conservative until fold_to_open lands. |
+| `can_act_behind` derivation | `not p.is_folded and not p.is_all_in and not p.has_acted` — `Player.has_acted` is reset by the state machine on every accepted raise, so this naturally handles BB option and 3-bet re-opens without seat traversal. |
+| Override-supersedes diagnostic | `_last_value_override_fired` stashed on controller (mirrors existing `_last_clamp_tier` pattern), read by post-override tally helper. Less invasive than changing `_apply_value_override` return signature. |
+| Eligibility counter computation | Pure intensity helpers run regardless of playstyle gate; gate masks the value passed to `compute_exploitation_offsets` to 0 for inactive archetypes. This makes the diagnostic split (eligible / enabled_eligible / diagnostic_only) cheap to maintain. |
+| Steal_pressure blind weighting | `OpponentSpot.is_blind` (single bool, derived from `game_state.small_blind_idx` / `big_blind_idx`). Weight is 1.5× per blind defender in the intensity helper. |
+| Test naming | `tests/test_strategy/test_playstyle_rule_families.py` — phase-number-free. |
 
 # Phase 8: Playstyle-gated rule families
 

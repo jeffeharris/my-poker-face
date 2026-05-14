@@ -31,7 +31,7 @@ offset framework can't express it. This module does.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .exploitation import (
     AggregatedOpponentStats,
@@ -39,6 +39,14 @@ from .exploitation import (
     GATING_FLOOR,
     MIN_HANDS_DEFAULT,
     classify_detected_patterns,
+)
+from .intervention_trace import (
+    InterventionOperation,
+    InterventionTrace,
+    l1_distance,
+    layer_order_for,
+    primary_action,
+    summarize_strategy,
 )
 from .strategy_profile import StrategyProfile
 
@@ -135,7 +143,7 @@ def compute_value_override_strategy(
     strategy: StrategyProfile,
     decision_context: DecisionContext,
     hand_strength: str,
-) -> StrategyProfile:
+) -> Tuple[StrategyProfile, InterventionTrace]:
     """Build a 'get money in' distribution over the strategy's existing keys.
 
     Does NOT invent new action labels — only redistributes probability mass
@@ -151,6 +159,13 @@ def compute_value_override_strategy(
     "Facing a bet" is detected by the presence of 'fold' in available
     actions — fold is only legal when there's something to call. This
     avoids needing call_amount in decision_context.
+
+    Phase 7.6 (Step 2): returns `(strategy, trace)`. The trace captures
+    which of the three spots was taken (`reason_code`), the hand class
+    that gated the open-spot ramp, and before/after distribution
+    summaries. Pathological branches (no raise / no call / no jam — the
+    rare leg where the function returns `strategy` unchanged) emit a
+    `fired=False` trace because no override actually happened.
     """
     available = list(strategy.action_probabilities.keys())
     has_fold = 'fold' in available
@@ -163,11 +178,23 @@ def compute_value_override_strategy(
     # Detected via decision_context flag set by the controller.
     if decision_context.facing_all_in:
         if has_call:
-            return StrategyProfile(action_probabilities={'call': 1.0})
+            output = StrategyProfile(action_probabilities={'call': 1.0})
+            return output, _build_strong_hand_trace(
+                input_strategy=strategy, output_strategy=output,
+                hand_strength=hand_strength, spot='facing_all_in',
+                reason_code='facing_all_in_call',
+            )
         if 'jam' in available:
-            return StrategyProfile(action_probabilities={'jam': 1.0})
+            output = StrategyProfile(action_probabilities={'jam': 1.0})
+            return output, _build_strong_hand_trace(
+                input_strategy=strategy, output_strategy=output,
+                hand_strength=hand_strength, spot='facing_all_in',
+                reason_code='facing_all_in_jam',
+            )
         # Pathological: no call or jam available. Fall back to strategy.
-        return strategy
+        return strategy, _strong_hand_pathological_trace(
+            'facing_all_in_no_continuing_action'
+        )
 
     # ── Facing any other bet (big or small) ──
     if has_fold:
@@ -177,16 +204,33 @@ def compute_value_override_strategy(
             dist: Dict[str, float] = {'call': 0.5}
             for action in raises:
                 dist[action] = 0.5 / n
-            return StrategyProfile(action_probabilities=dist)
+            output = StrategyProfile(action_probabilities=dist)
+            return output, _build_strong_hand_trace(
+                input_strategy=strategy, output_strategy=output,
+                hand_strength=hand_strength, spot='facing_bet',
+                reason_code='facing_bet_call_or_raise',
+            )
         if has_call:
-            return StrategyProfile(action_probabilities={'call': 1.0})
+            output = StrategyProfile(action_probabilities={'call': 1.0})
+            return output, _build_strong_hand_trace(
+                input_strategy=strategy, output_strategy=output,
+                hand_strength=hand_strength, spot='facing_bet',
+                reason_code='facing_bet_call_only',
+            )
         if has_raise:
             n = len(raises)
-            return StrategyProfile(action_probabilities={
+            output = StrategyProfile(action_probabilities={
                 a: 1.0 / n for a in raises
             })
+            return output, _build_strong_hand_trace(
+                input_strategy=strategy, output_strategy=output,
+                hand_strength=hand_strength, spot='facing_bet',
+                reason_code='facing_bet_raise_only',
+            )
         # Pathological — leave strategy alone
-        return strategy
+        return strategy, _strong_hand_pathological_trace(
+            'facing_bet_no_continuing_action'
+        )
 
     # ── Open spot (no bet to face) ──
     # Raise probability scales with hand strength: nuts > strong_pre > strong_made.
@@ -208,10 +252,94 @@ def compute_value_override_strategy(
         else:
             # Only raises available — give them all the mass.
             dist = {a: 1.0 / n for a in raises}
-        return StrategyProfile(action_probabilities=dist)
+        output = StrategyProfile(action_probabilities=dist)
+        return output, _build_strong_hand_trace(
+            input_strategy=strategy, output_strategy=output,
+            hand_strength=hand_strength, spot='open',
+            reason_code=f'open_value_bet_{hand_strength}',
+            extra={'raise_prob': round(raise_prob, 4)},
+        )
 
     # No raise option (pathological for an open spot) — leave alone.
-    return strategy
+    return strategy, _strong_hand_pathological_trace(
+        'open_no_raise_action'
+    )
+
+
+def _build_strong_hand_trace(
+    input_strategy: StrategyProfile,
+    output_strategy: StrategyProfile,
+    hand_strength: str,
+    spot: str,
+    reason_code: str,
+    extra: Optional[Dict] = None,
+) -> InterventionTrace:
+    """Construct the InterventionTrace for a fired strong-hand override.
+
+    `spot` is the branch taken ('facing_all_in' / 'facing_bet' / 'open');
+    `reason_code` is the more specific outcome within that branch (e.g.
+    'facing_bet_call_only', 'open_value_bet_nuts'). The caller fills in
+    `prior_action_source` after the fact via the controller's trace
+    aggregation pass.
+    """
+    in_probs = input_strategy.action_probabilities
+    out_probs = output_strategy.action_probabilities
+
+    primary_before = primary_action(in_probs)
+    primary_after = primary_action(out_probs)
+    effect_size = l1_distance(in_probs, out_probs)
+
+    rationale = (
+        f"Strong hand ({hand_strength}) — {spot.replace('_', ' ')}: "
+        f"primary action {primary_before or '(none)'} → "
+        f"{primary_after or '(none)'}"
+    )
+
+    inputs = {
+        'hand_strength': hand_strength,
+        'spot': spot,
+    }
+
+    return InterventionTrace(
+        layer='strong_hand_override',
+        rule_id='default',
+        layer_order=layer_order_for('strong_hand_override'),
+        fired=True,
+        operation=InterventionOperation.OVERRIDE.value,
+        effect='distribution_replaced',
+        effect_size=round(effect_size, 4),
+        action_changed=(primary_before != primary_after),
+        primary_action_before=primary_before,
+        primary_action_after=primary_after,
+        replaced_prior_action=True,
+        prior_action_source='',  # filled in by controller aggregation
+        preserved_prior_intent=False,
+        reason_code=reason_code,
+        rationale=rationale,
+        confidence=1.0,
+        inputs=inputs,
+        input_strategy_summary=summarize_strategy(in_probs),
+        output_strategy_summary=summarize_strategy(out_probs),
+        extra=extra or {},
+    )
+
+
+def _strong_hand_pathological_trace(reason_code: str) -> InterventionTrace:
+    """No-op trace for the rare pathological legal-action sets where the
+    override would have fired but couldn't redistribute mass (e.g. no
+    raise action in an open spot, no call/jam vs all-in).
+
+    `fired=False` because the strategy is returned unchanged. Distinct
+    `reason_code` from the gate-rejection case so analysis can spot
+    these as data-shape anomalies separately from "the gate said no."
+    """
+    from .intervention_trace import make_no_op_trace
+    return make_no_op_trace(
+        layer='strong_hand_override',
+        rule_id='default',
+        layer_order=layer_order_for('strong_hand_override'),
+        reason_code=reason_code,
+    )
 
 
 # ── Phase 7.5 Item 1: bluff-catch override building blocks ──────────────
@@ -544,7 +672,9 @@ def compute_bluff_catch_strategy(
     decision_context,
     hand_strength: str,
     max_total_shift: float,
-) -> StrategyProfile:
+    legal_actions=None,
+    tier_label: str = 'extreme',
+) -> Tuple[StrategyProfile, InterventionTrace]:
     """Build the bluff-catch override distribution and clamp to envelope.
 
     Reads bet_size_pot_ratio, street, board_texture, and is_paired_board
@@ -554,11 +684,22 @@ def compute_bluff_catch_strategy(
     then `_clamp_to_envelope`d against the original strategy so the
     total L1 shift doesn't exceed the active clamp tier's cap.
 
-    Action vocabulary: bluff-catch produces a {call, fold} distribution
-    only — raise variants and check are removed. This is the
-    "supersede with a specific distribution" pattern from §"Envelope
-    semantics."
+    Action vocabulary: bluff-catch produces a call-equivalent / fold
+    distribution only — raise variants and check are removed. If `call` is
+    not legal but `all_in` is legal, the call-equivalent mass uses `all_in`
+    so short-stack call-offs do not become invalid calls downstream.
+
+    Phase 7.6 (Step 1): returns `(strategy, trace)` where trace records
+    the override with `operation=OVERRIDE`, the input/output
+    distributions (summarized), the configuration knobs that produced
+    the call probability, and the rationale inputs (bet ratio, street,
+    texture, paired flag, hand strength, tier label). The caller (the
+    controller) supplies `prior_action_source` post-hoc by inspecting
+    the prior layer's trace — that's the controller's responsibility,
+    not this function's.
     """
+    from .phase_7_5_config import CONFIG
+
     bet_ratio = getattr(decision_context, 'bet_size_pot_ratio', 0.0) or 0.0
     street = (getattr(decision_context, 'street', '') or '').lower()
     texture = getattr(decision_context, 'board_texture', '') or ''
@@ -569,8 +710,160 @@ def compute_bluff_catch_strategy(
     )
     fold_prob = max(0.0, 1.0 - call_prob)
 
+    legal = set(legal_actions or ())
+    call_action = 'call'
+    if legal and 'call' not in legal and 'all_in' in legal:
+        call_action = 'all_in'
+
     proposed = StrategyProfile(action_probabilities={
-        'call': call_prob,
+        call_action: call_prob,
         'fold': fold_prob,
     })
-    return _clamp_to_envelope(proposed, strategy, max_total_shift)
+    clamped = _clamp_to_envelope(proposed, strategy, max_total_shift)
+
+    trace = _build_bluff_catch_trace(
+        input_strategy=strategy,
+        output_strategy=clamped,
+        proposed_call_prob=call_prob,
+        call_action=call_action,
+        hand_strength=hand_strength,
+        bet_ratio=bet_ratio,
+        street=street,
+        texture=texture,
+        is_paired=is_paired,
+        tier_label=tier_label,
+        max_total_shift=max_total_shift,
+        config=CONFIG,
+    )
+    return clamped, trace
+
+
+def _build_bluff_catch_trace(
+    input_strategy: StrategyProfile,
+    output_strategy: StrategyProfile,
+    proposed_call_prob: float,
+    call_action: str,
+    hand_strength: str,
+    bet_ratio: float,
+    street: str,
+    texture: str,
+    is_paired: bool,
+    tier_label: str,
+    max_total_shift: float,
+    config,
+) -> InterventionTrace:
+    """Construct the InterventionTrace for a fired bluff-catch override.
+
+    Kept separate from `compute_bluff_catch_strategy` so the strategy
+    builder stays focused on producing the distribution. The trace is
+    pure data derived from the inputs + the input/output distributions
+    — never reaches back into the controller for context.
+    """
+    in_probs = input_strategy.action_probabilities
+    out_probs = output_strategy.action_probabilities
+
+    primary_before = primary_action(in_probs)
+    primary_after = primary_action(out_probs)
+    effect_size = l1_distance(in_probs, out_probs)
+
+    rationale = (
+        f"{hand_strength} vs {tier_label}-tier aggressor, "
+        f"{street or 'postflop'} {texture or 'unclassified'}, "
+        f"bet {bet_ratio:.2f}x pot"
+    )
+    reason_code = f"{hand_strength}_vs_{tier_label}_facing_bet"
+
+    inputs = {
+        'hand_strength': hand_strength,
+        'bet_size_pot_ratio': round(bet_ratio, 4),
+        'street': street,
+        'board_texture': texture,
+        'is_paired_board': is_paired,
+        'tier': tier_label,
+    }
+
+    config_snapshot = _select_bluff_catch_config(config, street, hand_strength)
+
+    return InterventionTrace(
+        layer='bluff_catch_override',
+        rule_id='default',
+        layer_order=layer_order_for('bluff_catch_override'),
+        fired=True,
+        operation=InterventionOperation.OVERRIDE.value,
+        effect='distribution_replaced',
+        effect_size=round(effect_size, 4),
+        action_changed=(primary_before != primary_after),
+        primary_action_before=primary_before,
+        primary_action_after=primary_after,
+        amount_bucket_before='',  # call/fold actions have no sizing
+        amount_bucket_after='',
+        replaced_prior_action=True,
+        prior_action_source='',  # filled in by controller's aggregation
+        preserved_prior_intent=False,
+        reason_code=reason_code,
+        rationale=rationale,
+        confidence=1.0,  # gate-validated fire path; refine per-rule later
+        inputs=inputs,
+        input_strategy_summary=summarize_strategy(in_probs),
+        output_strategy_summary=summarize_strategy(out_probs),
+        config_snapshot=config_snapshot,
+        extra={
+            'composed_call_prob': round(proposed_call_prob, 4),
+            'call_action': call_action,
+            'max_total_shift': round(max_total_shift, 4),
+        },
+    )
+
+
+def _select_bluff_catch_config(config, street: str, hand_strength: str) -> Dict:
+    """Allowlisted phase_7_5 knobs relevant to a bluff-catch fire.
+
+    Per Phase 7.6 plan §"config_snapshot bloat guardrail": keep this
+    small. Only thresholds/multipliers that materially affect the call
+    probability for this decision. Failure to look up a knob is silent
+    — config layout may evolve; we'd rather emit a thinner snapshot
+    than crash the controller.
+    """
+    snapshot: Dict[str, float] = {}
+    try:
+        bluff = config.bluff_catch
+        # Hand-class sizing band for THIS hero hand.
+        sizing = getattr(bluff, 'sizing', None)
+        if sizing is not None:
+            hand_bands = getattr(sizing, hand_strength, None)
+            if hand_bands is not None:
+                # Dump the {pot_ratio_threshold: base_call_prob} bands —
+                # tiny structure, ~3-5 entries.
+                snapshot[f'sizing.{hand_strength}'] = _safe_band_dump(hand_bands)
+        # Street and texture dampeners that scaled the base.
+        dampener = getattr(bluff, 'dampener', None)
+        if dampener is not None:
+            for attr in (f'street_{street}', 'dangerous_texture_mult',
+                         'paired_board_mult'):
+                value = getattr(dampener, attr, None)
+                if isinstance(value, (int, float)):
+                    snapshot[f'dampener.{attr}'] = float(value)
+    except AttributeError:
+        # Config layout drift — degrade quietly. The trace is still
+        # valid; config_snapshot just becomes thinner.
+        pass
+    return snapshot
+
+
+def _safe_band_dump(band) -> Dict[str, float]:
+    """Best-effort {threshold: prob} dump for a phase_7_5 sizing band.
+
+    Handles dataclass, mapping, and attribute-bag shapes. Returns an
+    empty dict on unknown shape rather than raising.
+    """
+    if isinstance(band, dict):
+        return {str(k): float(v) for k, v in band.items()
+                if isinstance(v, (int, float))}
+    out: Dict[str, float] = {}
+    for attr in dir(band):
+        if attr.startswith('_'):
+            continue
+        value = getattr(band, attr, None)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[attr] = float(value)
+    return out
