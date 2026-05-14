@@ -199,7 +199,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
     selectedPersonalities: Array<string | { name: string; llm_config: { provider: string; model: string; reasoning_effort?: string }; game_mode?: string }>,
     llmConfig?: { provider: string; model: string; reasoning_effort: string; starting_stack?: number; big_blind?: number; blind_growth?: number; blinds_increase?: number; max_blind?: number },
     gameMode?: string,
-    botTypes?: Record<string, 'hybrid' | 'tiered'>
+    botTypes?: Record<string, 'chaos' | 'standard' | 'lean' | 'sharp'>
   ) => {
     if (isCreatingGame) return;
     setIsCreatingGame(true);

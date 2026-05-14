@@ -51,7 +51,7 @@ interface LLMConfig {
   max_blind?: number;
 }
 
-type BotType = 'hybrid' | 'tiered';
+type BotType = 'chaos' | 'standard' | 'lean' | 'sharp';
 
 interface CustomGameConfigProps {
   onStartGame: (
@@ -362,7 +362,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
     const botTypes: Record<string, BotType> = {};
     for (const name of filled) {
       const bt = opponentBotTypes[name];
-      if (bt && bt !== 'hybrid') botTypes[name] = bt;
+      if (bt && bt !== 'standard') botTypes[name] = bt;
     }
 
     onStartGame(personalities, {
@@ -976,14 +976,16 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
                   <label className="config-sheet__label">Controller</label>
                   <select
                     className="config-sheet__select"
-                    value={opponentBotTypes[configName] ?? 'hybrid'}
+                    value={opponentBotTypes[configName] ?? 'standard'}
                     onChange={e => setOpponentBotTypes(prev => ({
                       ...prev, [configName]: e.target.value as BotType,
                     }))}
                     disabled={useDefaults}
                   >
-                    <option value="hybrid">Hybrid (default)</option>
-                    <option value="tiered">Tiered (experimental)</option>
+                    <option value="standard">Standard (default)</option>
+                    <option value="chaos">Chaos — full LLM, full personality</option>
+                    <option value="lean">Lean — cheap LLM, options-bounded</option>
+                    <option value="sharp">Sharp — solver-based GTO</option>
                   </select>
                 </div>
               </div>

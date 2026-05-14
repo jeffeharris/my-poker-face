@@ -23,9 +23,9 @@ def _make_controller_stub(profile_key='tight_aggressive'):
 
     We import and bind the method directly to avoid full controller setup.
     """
-    from poker.hybrid_ai_controller import HybridAIController
+    from poker.lean_bounded_controller import LeanBoundedController
 
-    stub = MagicMock(spec=HybridAIController)
+    stub = MagicMock(spec=LeanBoundedController)
     stub.player_name = 'TestPlayer'
     stub._current_game_messages = []
 
@@ -36,8 +36,8 @@ def _make_controller_stub(profile_key='tight_aggressive'):
     stub.prompt_config = config
 
     # Bind the real _build_lean_prompt and _build_street_action_summary
-    stub._build_lean_prompt = HybridAIController._build_lean_prompt.__get__(stub)
-    stub._build_street_action_summary = HybridAIController._build_street_action_summary.__get__(stub)
+    stub._build_lean_prompt = LeanBoundedController._build_lean_prompt.__get__(stub)
+    stub._build_street_action_summary = LeanBoundedController._build_street_action_summary.__get__(stub)
 
     return stub
 

@@ -1,0 +1,664 @@
+"""
+Rule strategies for deterministic poker bots.
+
+Pure-function strategy library shared between RuleBotController (production
+opponents) and the experiment tournament runner (chaos baselines). Each
+strategy is a function `(context: Dict) -> Dict` that returns
+`{'action', 'raise_to'}`. The context dict is built by the calling
+controller from game state — strategies themselves are stateless.
+
+Strategy registry:
+    BUILT_IN_STRATEGIES: name → strategy fn
+    CHAOS_BOTS: name → preset RuleConfig (display name + strategy)
+
+Custom rules can be expressed via _strategy_custom + RuleConfig.rules.
+"""
+
+import json
+import logging
+from dataclasses import dataclass, field
+from typing import Dict
+
+from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RuleConfig:
+    """Configuration for rule-based decision making."""
+    strategy: str = "always_fold"  # Built-in strategy name
+    rules: tuple = field(default_factory=tuple)  # Custom rules for "custom" strategy
+    raise_size: str = "min"  # Default raise sizing: "min", "pot", "half_pot", "all_in"
+    name: str = "RuleBot"  # Display name for the bot
+
+    @classmethod
+    def from_dict(cls, d: Dict) -> 'RuleConfig':
+        rules = tuple(d.get('rules', []))
+        return cls(
+            strategy=d.get('strategy', 'always_fold'),
+            rules=rules,
+            raise_size=d.get('raise_size', 'min'),
+            name=d.get('name', 'RuleBot'),
+        )
+
+    @classmethod
+    def from_json_file(cls, path: str) -> 'RuleConfig':
+        with open(path) as f:
+            return cls.from_dict(json.load(f))
+
+
+# ============================================================================
+# Built-in Strategies
+# ============================================================================
+
+def _strategy_always_fold(context: Dict) -> Dict:
+    """Fold everything except free checks."""
+    if context['cost_to_call'] == 0:
+        return {'action': 'check', 'raise_to': 0}
+    return {'action': 'fold', 'raise_to': 0}
+
+
+def _strategy_always_call(context: Dict) -> Dict:
+    """Call any bet, check when free."""
+    if context['cost_to_call'] == 0:
+        return {'action': 'check', 'raise_to': 0}
+    if 'call' in context['valid_actions']:
+        return {'action': 'call', 'raise_to': 0}
+    # Can't call (maybe all-in situation) - fold as fallback
+    return {'action': 'fold', 'raise_to': 0}
+
+
+def _strategy_always_raise(context: Dict) -> Dict:
+    """Raise whenever possible, otherwise call."""
+    if 'raise' in context['valid_actions']:
+        return {'action': 'raise', 'raise_to': context['max_raise']}
+    if 'call' in context['valid_actions']:
+        return {'action': 'call', 'raise_to': 0}
+    if context['cost_to_call'] == 0:
+        return {'action': 'check', 'raise_to': 0}
+    return {'action': 'fold', 'raise_to': 0}
+
+
+def _strategy_always_all_in(context: Dict) -> Dict:
+    """Go all-in every hand."""
+    if 'all_in' in context['valid_actions']:
+        return {'action': 'all_in', 'raise_to': 0}
+    if 'raise' in context['valid_actions']:
+        return {'action': 'raise', 'raise_to': context['player_stack']}
+    if 'call' in context['valid_actions']:
+        return {'action': 'call', 'raise_to': 0}
+    return {'action': 'check', 'raise_to': 0}
+
+
+def _strategy_abc(context: Dict) -> Dict:
+    """
+    Simple ABC poker:
+    - Raise with premium hands
+    - Call with decent hands
+    - Fold weak hands
+    """
+    canonical = context.get('canonical_hand', '')
+    equity = context.get('equity', 0.5)
+    cost_to_call = context['cost_to_call']
+
+    # Free check always
+    if cost_to_call == 0:
+        # Bet with good hands
+        if equity >= 0.65 and 'raise' in context['valid_actions']:
+            return {'action': 'raise', 'raise_to': context['min_raise']}
+        return {'action': 'check', 'raise_to': 0}
+
+    # Premium hands - raise
+    if canonical in PREMIUM_HANDS or equity >= 0.75:
+        if 'raise' in context['valid_actions']:
+            return {'action': 'raise', 'raise_to': context['min_raise']}
+        return {'action': 'call', 'raise_to': 0}
+
+    # Good hands - call with odds
+    pot_odds = context.get('pot_odds', 1)
+    required_equity = 1 / (pot_odds + 1)
+
+    if canonical in TOP_20_HANDS or equity >= required_equity:
+        if 'call' in context['valid_actions']:
+            return {'action': 'call', 'raise_to': 0}
+
+    # Default fold
+    return {'action': 'fold', 'raise_to': 0}
+
+
+def _strategy_foldy(context: Dict) -> Dict:
+    """
+    Loose preflop, tight postflop — the classic c-bet exploit target.
+
+    Designed as a validation fixture for Phase 6.6 HU c-bet exploitation
+    and Phase 6.7b Part A multiway c-bet: high fold_to_cbet rate while
+    still seeing flops, so the detection threshold (fold_to_cbet > 0.60
+    AND cbet_faced_count >= 5) can actually trip.
+
+    Behavior:
+      - Free postflop → check.
+      - Preflop facing ≤ 2BB → call wide (any hand).
+      - Preflop facing > 2BB → fold.
+      - Postflop facing a bet → fold unless equity >= 0.75 (strong made
+        hand). No raises ever.
+
+    Net stats vs typical opens: VPIP high (~0.50-0.80 depending on
+    sizing distribution), PFR ~0, fold_to_cbet ~0.70-0.85.
+    """
+    cost_to_call = context['cost_to_call']
+    phase = context.get('phase', 'PRE_FLOP')
+    equity = context.get('equity', 0.5)
+    big_blind = context.get('big_blind', 100) or 100
+
+    if cost_to_call == 0:
+        return {'action': 'check', 'raise_to': 0}
+
+    if phase == 'PRE_FLOP':
+        # Call cheaply, fold to anything larger than a 2bb open.
+        if cost_to_call <= 2 * big_blind:
+            if 'call' in context['valid_actions']:
+                return {'action': 'call', 'raise_to': 0}
+        return {'action': 'fold', 'raise_to': 0}
+
+    # Postflop facing a bet — fold unless strong made hand.
+    if equity >= 0.75:
+        if 'call' in context['valid_actions']:
+            return {'action': 'call', 'raise_to': 0}
+    return {'action': 'fold', 'raise_to': 0}
+
+
+def _strategy_position_aware(context: Dict) -> Dict:
+    """
+    Position-based strategy:
+    - Late position (button, cutoff): wider range, more aggressive
+    - Early position: tight, premium hands only
+    """
+    position = context.get('position', 'button')
+    canonical = context.get('canonical_hand', '')
+    equity = context.get('equity', 0.5)
+    cost_to_call = context['cost_to_call']
+
+    # Determine position type
+    late_positions = {'button', 'cutoff', 'btn', 'co'}
+    is_late_position = position.lower() in late_positions
+
+    # Free check
+    if cost_to_call == 0:
+        if equity >= 0.55 and 'raise' in context['valid_actions']:
+            return {'action': 'raise', 'raise_to': context['min_raise']}
+        return {'action': 'check', 'raise_to': 0}
+
+    # Late position - play wider
+    if is_late_position:
+        if canonical in TOP_35_HANDS or equity >= 0.50:
+            if 'raise' in context['valid_actions'] and equity >= 0.60:
+                return {'action': 'raise', 'raise_to': context['min_raise']}
+            if 'call' in context['valid_actions']:
+                return {'action': 'call', 'raise_to': 0}
+
+    # Early position - play tight
+    else:
+        if canonical in TOP_10_HANDS or equity >= 0.70:
+            if 'raise' in context['valid_actions']:
+                return {'action': 'raise', 'raise_to': context['min_raise']}
+            if 'call' in context['valid_actions']:
+                return {'action': 'call', 'raise_to': 0}
+
+    return {'action': 'fold', 'raise_to': 0}
+
+
+def _strategy_pot_odds_robot(context: Dict) -> Dict:
+    """
+    Pure GTO-ish: only call/raise when pot odds justify it.
+    No personality, no bluffing - just math.
+    """
+    equity = context.get('equity', 0.5)
+    cost_to_call = context['cost_to_call']
+    pot = context['pot_total']
+
+    if cost_to_call == 0:
+        # Bet for value with strong hands
+        if equity >= 0.65 and 'raise' in context['valid_actions']:
+            # Bet 2/3 pot
+            bet_size = int(pot * 0.67)
+            bet_size = max(context['min_raise'], min(bet_size, context['max_raise']))
+            return {'action': 'raise', 'raise_to': bet_size}
+        return {'action': 'check', 'raise_to': 0}
+
+    # Calculate required equity
+    pot_odds = pot / cost_to_call if cost_to_call > 0 else float('inf')
+    required_equity = 1 / (pot_odds + 1)
+
+    # Pure EV calculation
+    if equity >= required_equity:
+        # +EV to call - but should we raise?
+        if equity >= 0.70 and 'raise' in context['valid_actions']:
+            # Value raise
+            raise_size = int(pot * 0.75)
+            raise_size = max(context['min_raise'], min(raise_size, context['max_raise']))
+            return {'action': 'raise', 'raise_to': raise_size}
+        if 'call' in context['valid_actions']:
+            return {'action': 'call', 'raise_to': 0}
+
+    return {'action': 'fold', 'raise_to': 0}
+
+
+def _strategy_maniac(context: Dict) -> Dict:
+    """
+    Hyper-aggressive: raises most hands, barrels all streets.
+
+    Tests if AI can call down light against constant aggression.
+    - Raise 80% of hands preflop
+    - Triple barrel (bet flop, turn, river) with 75% pot sizing
+    - Only slow down with absolute air (< 20% equity)
+    """
+    equity = context.get('equity', 0.5)
+    pot = context['pot_total']
+    cost_to_call = context['cost_to_call']
+
+    # Always try to raise/bet
+    if 'raise' in context['valid_actions']:
+        # 75% pot sizing
+        bet_size = int(pot * 0.75)
+        bet_size = max(context['min_raise'], min(bet_size, context['max_raise']))
+
+        # Only check with total air when it's free
+        if cost_to_call == 0 and equity < 0.20:
+            return {'action': 'check', 'raise_to': 0}
+
+        return {'action': 'raise', 'raise_to': bet_size}
+
+    # Can't raise - call if we have anything
+    if 'call' in context['valid_actions'] and equity >= 0.25:
+        return {'action': 'call', 'raise_to': 0}
+
+    if cost_to_call == 0:
+        return {'action': 'check', 'raise_to': 0}
+
+    return {'action': 'fold', 'raise_to': 0}
+
+
+def _strategy_bluffbot(context: Dict) -> Dict:
+    """
+    Bluffs missed draws, especially on river.
+
+    Tests if AI can detect bluffs and make hero calls.
+    - On river with low equity but checked to us, bluff pot-sized
+    - Value bet strong hands normally
+    - Uses pot odds for calling decisions
+    """
+    equity = context.get('equity', 0.5)
+    pot = context['pot_total']
+    cost_to_call = context['cost_to_call']
+    phase = context.get('phase', 'PRE_FLOP')
+
+    if cost_to_call == 0:  # Can bet
+        # River bluff with weak hands (representing missed draws)
+        if phase == 'RIVER' and equity < 0.35 and 'raise' in context['valid_actions']:
+            # Big bluff - pot-sized bet
+            bluff_size = int(pot * 1.0)
+            bluff_size = max(context['min_raise'], min(bluff_size, context['max_raise']))
+            return {'action': 'raise', 'raise_to': bluff_size}
+
+        # Value bet strong hands
+        if equity >= 0.60 and 'raise' in context['valid_actions']:
+            bet_size = int(pot * 0.66)
+            bet_size = max(context['min_raise'], min(bet_size, context['max_raise']))
+            return {'action': 'raise', 'raise_to': bet_size}
+
+        return {'action': 'check', 'raise_to': 0}
+
+    # Facing bet - only continue with decent equity (pot odds)
+    pot_odds = pot / cost_to_call if cost_to_call > 0 else float('inf')
+    required_equity = 1 / (pot_odds + 1)
+
+    if equity >= required_equity and 'call' in context['valid_actions']:
+        return {'action': 'call', 'raise_to': 0}
+
+    return {'action': 'fold', 'raise_to': 0}
+
+
+def _position_category(position: str) -> str:
+    """Categorize position for case matching."""
+    pos = position.lower() if position else ''
+    if pos in ['button', 'cutoff']:
+        return 'late'
+    elif pos in ['under_the_gun', 'middle_position_1']:
+        return 'early'
+    elif pos in ['small_blind_player', 'big_blind_player']:
+        return 'blind'
+    return 'middle'
+
+
+def _stack_category(stack_bb: float) -> str:
+    """Categorize stack depth."""
+    if stack_bb <= 15:
+        return 'short'
+    elif stack_bb <= 40:
+        return 'mid'
+    return 'deep'
+
+
+def _equity_category(equity: float) -> str:
+    """Categorize hand strength."""
+    if equity >= 0.75:
+        return 'premium'
+    elif equity >= 0.60:
+        return 'strong'
+    elif equity >= 0.45:
+        return 'medium'
+    elif equity >= 0.25:
+        return 'weak'
+    return 'air'
+
+
+def _strategy_case_based(context: Dict) -> Dict:
+    """
+    Case-based strategy using pattern matching on game state.
+    Balances value betting, bluffing, and pot odds by situation.
+
+    Adaptive features (v2):
+    - Bluffs more vs high-fold opponents (fold_to_cbet > 60%)
+    - Bluffs less vs calling stations (fold_to_cbet < 30%)
+    - Calls lighter vs aggressive opponents (aggression > 2.0)
+    - Calls tighter vs passive opponents (aggression < 0.5)
+    """
+    equity = context['equity']
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    phase = context['phase']
+    position = context.get('position', '')
+    stack_bb = context.get('stack_bb', 100)
+    spr = context.get('spr', 10)
+    valid = context['valid_actions']
+
+    # Opponent modeling stats
+    opp_fold_rate = context.get('opp_fold_to_cbet', 0.5)
+    opp_aggression = context.get('opp_aggression', 1.0)
+    opp_hands = context.get('opp_hands_observed', 0)
+
+    # Calculate adjustments based on opponent tendencies
+    # Only adapt if we have enough observations (5+ hands)
+    bluff_adjust = 1.0  # Multiplier for bluff frequency
+    call_adjust = 0.0   # Additive adjustment to equity threshold
+
+    if opp_hands >= 5:
+        # Adjust bluff threshold based on opponent fold rate
+        # If they fold > 60%, bluffs are more profitable
+        if opp_fold_rate > 0.6:
+            bluff_adjust = 1.5  # Bluff more
+        elif opp_fold_rate < 0.3:
+            bluff_adjust = 0.5  # Bluff less (calling station)
+
+        # Adjust calling threshold based on aggression
+        # High aggression = they bluff more = call lighter
+        if opp_aggression > 2.0:
+            call_adjust = -0.08  # Need 8% less equity to call
+        elif opp_aggression < 0.5:
+            call_adjust = 0.05  # Need more equity (they're not bluffing)
+
+    # Categorize inputs
+    pos = _position_category(position)
+    stack = _stack_category(stack_bb)
+    hand = _equity_category(equity)
+    facing = 'bet' if cost > 0 else 'check'
+
+    # Helpers
+    def bet(fraction):
+        size = int(pot * fraction)
+        size = max(context['min_raise'], min(size, context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        return {'action': 'check', 'raise_to': 0}
+
+    def call():
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0}
+
+    def check():
+        if 'check' in valid:
+            return {'action': 'check', 'raise_to': 0}
+        return {'action': 'fold', 'raise_to': 0}
+
+    def fold():
+        return {'action': 'fold', 'raise_to': 0}
+
+    def shove():
+        if 'all_in' in valid:
+            return {'action': 'all_in', 'raise_to': 0}
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': context['max_raise']}
+        return call()
+
+    # Pot odds calculation with opponent adjustment
+    pot_odds_needed = cost / (pot + cost) if cost > 0 else 0
+    adjusted_pot_odds = pot_odds_needed + call_adjust
+
+    # === LOW SPR: Commit or fold ===
+    if spr < 3:
+        if hand in ['premium', 'strong']:
+            return shove()
+        if facing == 'bet' and hand == 'medium' and equity >= adjusted_pot_odds:
+            return call()
+        if facing == 'check':
+            return check()
+        return fold()
+
+    # === SHORT STACK: Push/fold ===
+    if stack == 'short':
+        if hand in ['premium', 'strong']:
+            return shove()
+        if facing == 'bet' and equity >= adjusted_pot_odds:
+            return call()
+        if facing == 'check':
+            return check()
+        return fold()
+
+    # === FACING BET ===
+    if facing == 'bet':
+        # Premium: raise for value
+        if hand == 'premium':
+            return bet(0.75)
+
+        # Strong: call (raise sometimes in position)
+        if hand == 'strong':
+            if pos == 'late' and phase == 'FLOP':
+                return bet(0.67)  # Raise flop IP
+            return call()
+
+        # Medium: call if pot odds are right (adjusted for opponent tendencies)
+        if hand == 'medium' and equity >= adjusted_pot_odds:
+            return call()
+
+        # Weak with odds: call (adjusted for opponent tendencies)
+        if hand == 'weak' and equity >= adjusted_pot_odds * 0.9:
+            return call()
+
+        return fold()
+
+    # === CAN BET (checked to us) ===
+
+    # Premium: bet big for value
+    if hand == 'premium':
+        return bet(0.75)
+
+    # Strong: bet for value, size by position
+    if hand == 'strong':
+        if pos == 'late':
+            return bet(0.67)
+        return bet(0.5)
+
+    # Medium: bet in position, check OOP
+    if hand == 'medium':
+        if pos == 'late':
+            return bet(0.5)
+        return check()
+
+    # Weak: check (no showdown value but not pure air)
+    if hand == 'weak':
+        return check()
+
+    # Air: bluff in position on river (adjusted by opponent fold rate)
+    if hand == 'air':
+        # Bluff more vs folders, less vs calling stations
+        should_bluff_river = pos == 'late' and phase == 'RIVER' and bluff_adjust >= 1.0
+        should_bluff_earlier = (
+            pos == 'late' and
+            phase in ['FLOP', 'TURN'] and
+            equity > 0.15 and
+            bluff_adjust >= 0.75
+        )
+
+        if should_bluff_river:
+            return bet(0.67)
+        if should_bluff_earlier:
+            return bet(0.5)
+        return check()
+
+    return check()
+
+
+BUILT_IN_STRATEGIES = {
+    'always_fold': _strategy_always_fold,
+    'always_call': _strategy_always_call,
+    'always_raise': _strategy_always_raise,
+    'always_all_in': _strategy_always_all_in,
+    'abc': _strategy_abc,
+    'foldy': _strategy_foldy,
+    'position_aware': _strategy_position_aware,
+    'pot_odds_robot': _strategy_pot_odds_robot,
+    'maniac': _strategy_maniac,
+    'bluffbot': _strategy_bluffbot,
+    'case_based': _strategy_case_based,
+}
+
+
+# ============================================================================
+# Custom Rule Evaluation
+# ============================================================================
+
+def _evaluate_condition(condition: str, context: Dict) -> bool:
+    """
+    Evaluate a condition string against the context.
+
+    Supported variables:
+        equity, pot_odds, cost_to_call, pot_total, player_stack,
+        stack_bb, position, phase, canonical_hand, is_premium,
+        is_top_10, is_top_20, is_suited, is_pair
+
+    Supported operators:
+        ==, !=, >=, <=, >, <, and, or, in
+
+    Examples:
+        "equity >= 0.65"
+        "pot_odds >= 3 and equity >= 0.30"
+        "canonical_hand in ['AA', 'KK', 'QQ']"
+        "is_premium"
+        "default"
+    """
+    if condition == 'default':
+        return True
+
+    # Build evaluation namespace
+    canonical = context.get('canonical_hand', '')
+    namespace = {
+        'equity': context.get('equity', 0.5),
+        'pot_odds': context.get('pot_odds', 1.0),
+        'cost_to_call': context.get('cost_to_call', 0),
+        'pot_total': context.get('pot_total', 0),
+        'player_stack': context.get('player_stack', 0),
+        'stack_bb': context.get('stack_bb', 100),
+        'position': context.get('position', 'button'),
+        'phase': context.get('phase', 'PRE_FLOP'),
+        'canonical_hand': canonical,
+        'is_premium': canonical in PREMIUM_HANDS,
+        'is_top_10': canonical in TOP_10_HANDS,
+        'is_top_20': canonical in TOP_20_HANDS,
+        'is_top_35': canonical in TOP_35_HANDS,
+        'is_suited': canonical.endswith('s') if canonical else False,
+        'is_pair': len(canonical) == 2 and canonical[0] == canonical[1] if canonical else False,
+        'num_opponents': context.get('num_opponents', 1),
+        'is_heads_up': context.get('num_opponents', 1) == 1,
+    }
+
+    try:
+        # Safe eval with restricted namespace
+        result = eval(condition, {"__builtins__": {}}, namespace)
+        return bool(result)
+    except Exception as e:
+        logger.warning(f"Rule condition evaluation failed: {condition} - {e}")
+        return False
+
+
+def _calculate_raise_size(size_spec: str, context: Dict) -> int:
+    """Calculate raise amount based on size specification."""
+    pot = context.get('pot_total', 0)
+    min_raise = context.get('min_raise', 100)
+    max_raise = context.get('max_raise', 1000)
+
+    if size_spec == 'min':
+        return min_raise
+    elif size_spec == 'pot':
+        return max(min_raise, min(pot, max_raise))
+    elif size_spec == 'half_pot':
+        return max(min_raise, min(pot // 2, max_raise))
+    elif size_spec == 'all_in':
+        return max_raise
+    elif size_spec.endswith('x'):
+        # Multiplier: "3x" means 3x the big blind
+        try:
+            multiplier = float(size_spec[:-1])
+            bb = context.get('big_blind', 100)
+            return max(min_raise, min(int(bb * multiplier), max_raise))
+        except ValueError:
+            return min_raise
+    else:
+        # Try to parse as integer
+        try:
+            return max(min_raise, min(int(size_spec), max_raise))
+        except ValueError:
+            return min_raise
+
+
+def _strategy_custom(context: Dict, rules: tuple) -> Dict:
+    """
+    Evaluate custom rules in priority order.
+    First matching rule wins.
+    """
+    for rule in rules:
+        condition = rule.get('condition', 'default')
+        if _evaluate_condition(condition, context):
+            action = rule.get('action', 'fold')
+
+            # Handle raise sizing
+            if action == 'raise':
+                size_spec = rule.get('raise_size', 'min')
+                raise_to = _calculate_raise_size(size_spec, context)
+                return {'action': 'raise', 'raise_to': raise_to}
+
+            return {'action': action, 'raise_to': 0}
+
+    # No rules matched - fold as ultimate fallback
+    return {'action': 'fold', 'raise_to': 0}
+
+
+# ============================================================================
+# Bot Presets
+# ============================================================================
+
+# Pre-defined bot configurations for common experiments
+CHAOS_BOTS = {
+    'always_fold': RuleConfig(strategy='always_fold', name='FoldBot'),
+    'always_call': RuleConfig(strategy='always_call', name='CallStation'),
+    'always_raise': RuleConfig(strategy='always_raise', name='AggBot'),
+    'always_all_in': RuleConfig(strategy='always_all_in', name='YOLOBot'),
+    'abc': RuleConfig(strategy='abc', name='ABCBot'),
+    'foldy': RuleConfig(strategy='foldy', name='FoldyBot'),
+    'position_aware': RuleConfig(strategy='position_aware', name='PositionBot'),
+    'pot_odds_robot': RuleConfig(strategy='pot_odds_robot', name='GTO-Lite'),
+    'maniac': RuleConfig(strategy='maniac', name='ManiacBot'),
+    'bluffbot': RuleConfig(strategy='bluffbot', name='BluffBot'),
+    'case_based': RuleConfig(strategy='case_based', name='CaseBot'),
+}

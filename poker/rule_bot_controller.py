@@ -13,15 +13,17 @@ Everything else (psychology, memory, opponent models) works independently.
 import logging
 from typing import Dict, List, Optional
 
-from .controllers import AIPlayerController
-from .rule_based_controller import (
+from .controllers import (
+    AIPlayerController,
+    calculate_quick_equity,
+    _get_canonical_hand,
+    card_to_string,
+)
+from .rule_strategies import (
     RuleConfig,
     BUILT_IN_STRATEGIES,
     _strategy_custom,
     _strategy_always_fold,
-    calculate_quick_equity,
-    _get_canonical_hand,
-    card_to_string,
 )
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 

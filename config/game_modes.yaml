@@ -30,15 +30,3 @@ presets:
         (2) Call wider - their raising range is weaker than normal,
         (3) Don't bluff them - they won't fold, value bet relentlessly instead,
         (4) Let them hang themselves with aggression.
-
-  competitive:
-    description: "Full GTO guidance with personality and trash talk"
-    prompt_config:
-      show_equity_always: true
-      show_equity_verdict: true
-      guidance_injection: >-
-        EXPLOIT AGGRESSIVE OPPONENTS: When facing players who rarely fold and raise frequently,
-        adjust your strategy: (1) Trap with strong hands - check to induce bluffs rather than betting,
-        (2) Call wider - their raising range is weaker than normal,
-        (3) Don't bluff them - they won't fold, value bet relentlessly instead,
-        (4) Let them hang themselves with aggression.

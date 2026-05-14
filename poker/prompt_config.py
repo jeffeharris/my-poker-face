@@ -247,21 +247,22 @@ class PromptConfig:
         )
 
     @classmethod
-    def competitive(cls) -> 'PromptConfig':
-        """Competitive mode - full GTO guidance with personality and trash talk."""
-        return cls(
-            gto_equity=True,
-            gto_verdict=True,
-            guidance_injection=cls.EXPLOITATIVE_GUIDANCE,
-        )
-
-    @classmethod
     def from_mode_name(cls, mode: str) -> 'PromptConfig':
         """Resolve a game mode by name string.
 
         Tries YAML config first, falls back to factory methods.
+
+        Legacy 'competitive' mode is auto-mapped to 'pro' with a warning.
         """
         mode = mode.lower()
+
+        # Legacy alias: competitive → pro
+        if mode == 'competitive':
+            logger.warning(
+                "Game mode 'competitive' is deprecated; mapping to 'pro'. "
+                "Update your config to use 'pro' directly."
+            )
+            mode = 'pro'
 
         # Try YAML-based config first
         try:
@@ -276,7 +277,6 @@ class PromptConfig:
             'casual': cls.casual,
             'standard': cls.standard,
             'pro': cls.pro,
-            'competitive': cls.competitive,
         }
         if mode not in modes:
             raise ValueError(f"Invalid game mode: {mode}. Valid: {list(modes.keys())}")

@@ -388,11 +388,12 @@ class TestZoneToggles(unittest.TestCase):
         self.assertTrue(config.zone_benefits)   # Still get sweet spot guidance
         self.assertFalse(config.tilt_effects)   # No tilting - harder opponents
 
-    def test_competitive_mode_full_psychology(self):
-        """Competitive mode keeps full psychology (zone tuning deferred to Phase 10)."""
-        config = PromptConfig.competitive()
-        self.assertTrue(config.zone_benefits)
-        self.assertTrue(config.tilt_effects)
+    def test_competitive_mode_maps_to_pro(self):
+        """Legacy 'competitive' mode auto-maps to 'pro' with a warning."""
+        config = PromptConfig.from_mode_name('competitive')
+        # After mapping to pro: gto_verdict on, no tilt
+        self.assertTrue(config.gto_verdict)
+        self.assertFalse(config.tilt_effects)
 
     def test_from_dict_backward_compat(self):
         """Old saved games without zone toggles default to True."""
