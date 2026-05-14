@@ -121,16 +121,22 @@ class TestPatternClassification:
         assert 'passive_with_jams' in patterns
 
 
-# ── compute_exploitation_offsets auto-suppression behavior ────────────
+# ── compute_exploitation_offsets: fold-mass reduction always fires ───
+#
+# Phase 8.1b originally suppressed hyper_passive's fold-mass reduction
+# when the aggregate matched passive_with_jams. That behavior change
+# REGRESSED bb/100 across a 5-seed 6-max sim and was reverted (see
+# module docstring). The tests below now lock in the reverted
+# behavior: fold-mass reduction fires for ANY hyper_passive opponent,
+# regardless of whether they also match passive_with_jams.
 
-class TestFoldMassAutoSuppression:
+class TestFoldMassReductionRegardlessOfPassiveWithJams:
     def _default_actions(self):
         return ['fold', 'call', 'bet_50', 'all_in']
 
     def test_pure_station_emits_full_hyper_passive(self):
-        # all_in_frequency=0 → not passive_with_jams → fold-mass
-        # reduction fires (legacy behavior preserved for non-jam
-        # stations).
+        # all_in_frequency=0 — classic calling station. Fold-mass
+        # reduction fires (the historical behavior, never suppressed).
         offsets = compute_exploitation_offsets(
             stats=_stats(vpip=0.85, aggression_factor=0.4, all_in_frequency=0.0),
             adaptation_bias=0.9,
@@ -140,9 +146,11 @@ class TestFoldMassAutoSuppression:
         assert offsets['bet_50'] > 0.0
         assert offsets['fold'] < 0.0
 
-    def test_casebot_aggregate_auto_suppresses_fold_mass(self):
-        # all_in_frequency above threshold → passive_with_jams → fold
-        # reduction stripped, raise push preserved.
+    def test_casebot_aggregate_still_emits_full_hyper_passive(self):
+        # all_in_frequency above threshold → passive_with_jams detected.
+        # After the 8.1b revert, the detector flags it but the offset
+        # branch emits the SAME fold-mass reduction as the pure-station
+        # case — the suppression behavior is no longer in the code path.
         offsets = compute_exploitation_offsets(
             stats=_stats(vpip=0.89, aggression_factor=0.4, all_in_frequency=0.12),
             adaptation_bias=0.9,
@@ -150,11 +158,13 @@ class TestFoldMassAutoSuppression:
             available_actions=self._default_actions(),
         )
         assert offsets['bet_50'] > 0.0
-        assert 'fold' not in offsets or offsets['fold'] == 0.0
+        assert offsets['fold'] < 0.0
 
-    def test_threshold_boundary_no_suppression(self):
+    def test_threshold_boundary_emits_fold_reduction(self):
         # all_in_frequency exactly at threshold → strict inequality
-        # means NOT passive_with_jams → fold reduction still fires.
+        # means the detector does NOT flag passive_with_jams. Fold
+        # reduction fires for the same reason it always does —
+        # hyper_passive intensity is positive.
         offsets = compute_exploitation_offsets(
             stats=_stats(
                 vpip=0.85, aggression_factor=0.4,
