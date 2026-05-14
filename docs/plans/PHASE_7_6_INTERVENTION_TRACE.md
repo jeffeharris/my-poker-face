@@ -7,6 +7,11 @@ last_updated: 2026-05-14
 
 # Phase 7.6: Intervention-trace framework
 
+> **Implementation complete.** This document is the design plan plus
+> per-step implementation logs (appended after each step shipped). For
+> the validation writeup + scope-summary + acceptance-criteria check,
+> see [`docs/analysis/PHASE_7_6_RESULTS.md`](../analysis/PHASE_7_6_RESULTS.md).
+
 ## Codex review history
 
 ### Round 3 revisions (v4, 2026-05-14)

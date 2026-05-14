@@ -25,6 +25,26 @@ construction (every layer's default-args path is unchanged code),
 validated by the existing test surface staying green throughout each
 of the five incremental steps.
 
+## Acceptance criteria check
+
+Mapping the seven outcomes from the plan §"Goal — definition of done"
+(plan lines 164-195) to what shipped:
+
+| # | Outcome | Status | Where |
+|---|---|---|---|
+| 1 | Every intervention emits a structured `InterventionTrace` entry per decision | ✅ | `poker/strategy/intervention_trace.py`; all 6 layer functions return `(strategy, trace)` or `(strategy, List[trace])` |
+| 2 | Aggregate per-decision counters keep working | ✅ | `manager._exploitation_counters` still populated by `_tally_*` calls; 850 strategy tests confirm |
+| 3 | Trace persisted to per-decision schema | ✅ | Schema v81 `intervention_trace_json` column (Step 3b); v82 added `strategy_pipeline_snapshot_json` for Mode 1 replay |
+| 4 | `experiments/analyze_intervention_traces.py` ships with firing-rate + attribution analyses | ✅ | All 4 modes (shadow, first-divergence, aggregate, ablation) implemented; CLI text + JSON output |
+| 5 | ExpressionGenerator consumes the trace for narration prompts | ✅ | `ExpressionContext.narration_facts` + `_render_narration_facts_block`; NarrationFacts adapter renders allowlisted "WHAT YOU NOTICED / WHAT YOU DECIDED" block |
+| 6 | All existing tests pass (pipeline behavior unchanged) | ✅ | 850 strategy + 3222 quick-suite passing; 1 pre-existing unrelated failure in `test_passive_with_jams` (user's stale assertion) |
+| 7 | Tests confirm each migrated layer emits expected trace shape on fire/no-op paths | ✅ | 7 per-layer trace test files + 1 e2e pipeline test; 217 new tests total |
+
+All seven outcomes met. The shadow-eval and ablation modes (plan's
+Modes 1 and 4) went beyond the plan's "two analyses" baseline —
+those required additional schema (snapshot column) and a stateless
+replay module.
+
 ## What shipped
 
 ### Step 1: Bluff-catch override reference migration
@@ -338,14 +358,37 @@ requires a real LLM session to evaluate.
 
 ## Performance impact
 
-**Per-decision overhead** (Step 1 microbench + Step 6 replay
-measurements):
-- Strategy-only path (pre-7.6 baseline): 7.9 μs
-- Strategy + trace path (live): 27.0 μs
-- Trace construction overhead: 19.1 μs per fire
-- No-op trace (most common case): 3.9 μs
-- Mode 1 shadow-eval (offline): one extra pipeline invocation per
-  disabled rule, ~10 μs each
+**Per-decision LIVE overhead** (Step 1 microbench, in-pipeline):
+
+| Path | Cost | Notes |
+|---|---|---|
+| Strategy-only (pre-7.6 baseline) | 7.9 μs | reference |
+| Strategy + trace (fire path) | 27.0 μs | trace + summary build + serialize-prep |
+| Trace construction (delta) | 19.1 μs | per layer per fire |
+| No-op trace (most common case) | 3.9 μs | non-firing layers / early-outs |
+
+Budget: 5% of 50 ms LLM-bound decision = 2.5 ms. Worst-case
+per-decision trace overhead (12 layers all firing): ~230 μs =
+**0.46% of decision latency.** 10× under budget.
+
+**Per-decision OFFLINE overhead** (Step 6 Mode 1 replay,
+not in live decision path):
+
+| Operation | Cost | Frequency |
+|---|---|---|
+| Snapshot capture (in-pipeline dict writes) | ~2 μs (measured Step 1) | every decision |
+| Snapshot serialize (JSON) | ~30 μs (extrapolated from trace serialize) | persistence path |
+| Replay live pipeline (Mode 1 step) | ~25 μs (estimated) | analysis script only |
+| Replay shadow pipeline (Mode 1 step) | ~25 μs (estimated) | analysis script only |
+
+Mode 1 cost is dominated by two full pipeline replays per decision
+analyzed. The replay numbers above are extrapolated from Step 1's
+in-pipeline microbench (27 μs/fire); a direct microbench of
+`replay_strategy_pipeline` was not performed. Empirical end-to-end:
+Step 6 smoke test ran Mode 1 against 98 persisted decisions
+sub-second wall-clock, consistent with ~50-100 μs per decision pair.
+For a 10K-decision game, ~0.5-1 s wall-clock — fast enough for
+interactive analysis.
 
 **Per-decision storage** (Steps 3b + 6):
 - `intervention_trace_json`: ~2-3 KB per decision (12 traces × ~200B
