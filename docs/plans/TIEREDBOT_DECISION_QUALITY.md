@@ -367,11 +367,31 @@ PFRs only. See §3 for the detector form.
   two systems coexist.
 - **Phase 8 `value_vs_station`** currently uses the spot-driven
   `compute_value_vs_station_intensity` which already operates on
-  per-opponent station detection. It can either stay
-  spot-driven (using its own `_is_hyper_passive` check) or
-  migrate to gate on
-  `classify_opponent_archetype == 'pure_station'`. **Recommend
-  migrating** so the "what's a station" definition is shared.
+  per-opponent station detection. Migration deferred — see the
+  "precedence limitation" note below. Stays on the direct
+  `_is_hyper_passive` check until §1.5b's richer taxonomy ships.
+
+**Precedence limitation (discovered during §1.5a implementation):**
+
+`_is_hyper_aggressive` and `_is_hyper_passive` are *not*
+globally disjoint — an opponent with high VPIP, low AF, AND
+`all_in_frequency > 0.30` (a passive-but-jammy caller) satisfies
+both detectors. The unified classifier's single-label precedence
+returns `'hyper_aggressive'` first and *hides* the
+`_is_hyper_passive` signal for these compound cases. Legacy
+callers reading the detectors directly still see both signals.
+
+Consequence: only callers whose semantics align with the
+hyper_aggressive-first precedence can be migrated faithfully in
+§1.5a. That's `value_override._should_apply_value_override` (the
+hyper_aggressive branch fires first in both old and new paths).
+The `value_vs_station` station filter and
+`detect_passive_with_jams_in_field` cannot — migrating them
+loses the compound-case classification and changes behavior.
+Those sites stay on direct detector calls until §1.5b introduces
+a label that captures the compound case (likely something
+like `'maniac_station'` or by splitting `_is_hyper_aggressive`'s
+disjunction into separate detectors).
 
 **Risks:**
 
@@ -691,10 +711,14 @@ quality across common poker situations.
    existing `_is_<pattern>` detectors into a single
    `classify_opponent_archetype` that returns only the labels
    existing rules consume (`hyper_aggressive`, `pure_station`,
-   `sticky_jammer`, `None`). Validation target: zero behavior
-   delta on apples-to-apples sims. Migrate `value_override`,
-   `value_vs_station`, and §3/§5 consumers to read the unified
-   label.
+   `sticky_jammer`, `None`). Migrates `value_override` to gate
+   off the unified label; `value_vs_station` and
+   `detect_passive_with_jams_in_field` stay on direct detectors
+   due to the precedence limitation (see §1.5 above).
+   Validation: unit-level grid invariance test proves the
+   `value_override` migration is behavior-faithful across the
+   stats input space. Sim-level validation deferred because
+   variance dominates at feasible sample sizes.
 2. **Bet-size classifier and required-equity diagnostics** —
    foundational input for layers 3-5.
 3. **Price-sensitive defense floor** — the highest-impact

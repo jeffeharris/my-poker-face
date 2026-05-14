@@ -39,6 +39,7 @@ from .exploitation import (
     GATING_FLOOR,
     MIN_HANDS_DEFAULT,
     classify_detected_patterns,
+    classify_opponent_archetype,
 )
 from .intervention_trace import (
     InterventionOperation,
@@ -136,7 +137,12 @@ def should_apply_value_override(
         return False
     if adaptation_bias * tilt_factor <= GATING_FLOOR:
         return False
-    if 'hyper_aggressive' not in classify_detected_patterns(stats):
+    # §1.5a: gate on the unified archetype classifier. Behavior-equivalent
+    # to the previous `'hyper_aggressive' in classify_detected_patterns(stats)`
+    # check because the classifier returns 'hyper_aggressive' iff
+    # `_is_hyper_aggressive(stats)` does (and the conditions for the other
+    # archetypes are mutually exclusive with hyper_aggressive by construction).
+    if classify_opponent_archetype(stats) != 'hyper_aggressive':
         return False
     return True
 

@@ -34,6 +34,7 @@ from .strategy.exploitation import (
     compute_exploitation_offsets_with_traces,
     apply_exploitation_offsets,
     classify_detected_patterns,
+    classify_opponent_archetype,
     DecisionContext,
     AggregatedOpponentStats,
     ClampTier,
@@ -1463,7 +1464,7 @@ class TieredBotController(AIPlayerController):
         }
         if is_strong:
             c['value_override_eligible_strong'] += 1
-        if 'hyper_aggressive' in classify_detected_patterns(stats):
+        if classify_opponent_archetype(stats) == 'hyper_aggressive':
             c['value_override_eligible_aggro'] += 1
         if fired:
             c['value_override_fired'] += 1
@@ -1585,6 +1586,15 @@ class TieredBotController(AIPlayerController):
         patterns_this_decision = classify_detected_patterns(stats)
         for pattern in patterns_this_decision:
             c[f'detected_{pattern}'] += 1
+
+        # §1.5a: per-archetype counter, in addition to the per-pattern
+        # `detected_<pattern>` counters above. Operators can read the
+        # archetype distribution ("hero saw X% pure_station / Y%
+        # sticky_jammer / ...") in one place. `None` is bucketed as
+        # `unmatched` so cold-start vs. genuinely-balanced opponents
+        # show up rather than getting silently dropped.
+        archetype = classify_opponent_archetype(stats) or 'unmatched'
+        c[f'archetype_classified_{archetype}'] += 1
 
         # Phase 6.6: c-bet fire detection. The c-bet rule is the only
         # source of bet_*/check offsets when ALL of these hold:
