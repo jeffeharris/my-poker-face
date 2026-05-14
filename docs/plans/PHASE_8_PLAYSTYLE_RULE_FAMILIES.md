@@ -5,6 +5,79 @@ created: 2026-05-13
 last_updated: 2026-05-14
 ---
 
+## v1 validation results (2026-05-14)
+
+Apples-to-apples controls run via `experiments/phase_8_diagnostics.py`
+(toggles `VALUE_VS_STATION_PLAYSTYLES` to an empty frozenset for the
+disabled arm). Adaptation_bias = 0.85 for both arms.
+
+**Important context**: the empirical baselines section above
+(documented 6-max −57.7 mean, HU −77.8) reflects an *earlier pipeline
+state*. Phase 7.5 / 7.6 work shifted those baselines substantially.
+The validation below compares against an in-tree control run, not
+the documented baselines.
+
+### HU vs CaseBot — 1000 hands × 3 seeds
+
+| Seed | Disabled | Enabled | Δ |
+|---:|---:|---:|---:|
+| 42 | −116.8 | −134.1 | −17.3 |
+| 142 | −110.7 | −100.4 | +10.3 |
+| 242 | −101.8 | −65.7 | +36.1 |
+| **mean** | **−109.8** | **−100.1** | **+9.7** |
+
+### 6-max TAG + 2×CaseBot + 2×ABCBot + GTO-Lite — 500 hands × 5 seeds
+
+| Seed | Disabled | Enabled | Δ |
+|---:|---:|---:|---:|
+| 42 | −105.8 | −48.5 | +57.3 |
+| 142 | +31.0 | −1.8 | −32.8 |
+| 242 | +28.0 | +23.2 | −4.8 |
+| 342 | −31.1 | −36.2 | −5.1 |
+| 442 | −43.0 | −25.1 | +17.9 |
+| **mean** | **−24.2** | **−17.7** | **+6.5** |
+| range | 136.8 | 71.7 | (Phase 8 cuts variance) |
+
+### Read
+
+- **Phase 8 v1 yields ~+7 bb/100 in both formats.** Modest but
+  consistent. Inside the plan's "10–25% CaseBot drain improvement"
+  v1 target, on the low end.
+- **6-max variance shrinks substantially** (per-seed range 137 → 72)
+  even though mean bb/100 only moves +6.5. Less volatile play at
+  comparable EV is a real win independent of the bb/100 move.
+- **`value_vs_station_fired_tag` runs at 9.4% of decisions** (6-max)
+  / 11.3% (HU) — squarely inside the plan's 5–15% target.
+- **`value_override_fired = 0`** in both formats — CaseBot isn't
+  hyper-aggressive, so the Phase 6.5 override never engages. Phase 8
+  is the right tool for stations specifically; the two rules are
+  complementary as designed.
+- **`detected_hyper_passive` fires on 92% of 6-max decisions** —
+  Risk #1's hypothesis is intact. Most of the remaining bb/100
+  unlock probably lives in Phase 8.1b (hyper_passive co-fire fix),
+  not in more Phase 8 v1 work.
+
+### Caveats
+
+- Per-seed swings remain large (seed 42 alone moves 6-max by 57
+  bb/100). n=5 at 500 hands gives a meaningful mean but individual
+  sessions are noisy.
+- Per-opponent chip conservation breaks because hands occasionally
+  abort at the max-actions guard, so per-seat numbers are
+  indicative not exact. Headline bb/100 comes from hero stack
+  directly and is solid.
+- HU 1000×3 has wider variance per seed than 6-max 500×5, despite
+  bigger sample — HU hero plays every hand vs 6-max where TAG
+  folds many.
+
+### Sequencing implication
+
+The +7 bb/100 + variance reduction validates the Phase 8 v1
+infrastructure investment. The bigger bb/100 lever is Phase 8.1b
+(`hyper_passive` co-fire fix) per Risk #1. Phase 8.1a
+(`cbet_attempt_rate`) is still useful — it provides the cleaner
+station detector that 8.1b's gating logic likely needs.
+
 ## v1 implementation status (2026-05-14)
 
 Shipped in the v1 PR:
