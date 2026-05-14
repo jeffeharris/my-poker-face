@@ -97,6 +97,16 @@ mislabels (the fold was right), 1 was a defensible fold of an
 oversold label, and **2 were real leaks** (folding nut flush
 to a wide jam range; folding top pair to a tiny river bet).
 
+**Implied real-leak floor.** If the 2/5 rate generalizes, the
+recoverable real-leak portion of the "fold nuts/strong_made"
+contribution is roughly **40% × −79.5 ≈ −32 bb/100**, not the
+full −79.5. The remaining ~60% is classifier noise that goes
+away once §1 lands (the "fold" is correct; the *label* was
+wrong). The 5-example sample is small, so this number is a
+working estimate, not a hard floor — Phase 1 of the validation
+suite (§7) should re-derive it on a larger labeled set after
+the classifier downgrades ship.
+
 Until the classifier downgrades land, we can't measure the *real*
 size of the fold leak. That's why classifier fixes come first.
 
@@ -201,6 +211,24 @@ one label per opponent. Strategy rules gate off the single
 label; the existing `_is_<pattern>` detectors stay as
 implementation details (the unified classifier composes them).
 
+**Phased delivery.** To keep the migration auditable, split this
+into two sub-phases:
+
+- **§1.5a — Behavior-faithful refactor (ships first).** The
+  classifier returns only the labels existing strategy rules
+  already gate on: `hyper_aggressive`, `pure_station`,
+  `sticky_jammer`, `None`. Every consumer (`value_override`,
+  `value_vs_station`, §3 application, §5 rebalance) migrates to
+  read the unified label. Validation target: zero behavior delta
+  on apples-to-apples sims. This is a refactor, measured as one.
+- **§1.5b — Extended taxonomy (ships only when a consumer needs
+  it).** The additional labels (`maniac`, `lag`, `tag`, `nit`,
+  `rock`, `balanced`) are added incrementally, each gated by an
+  actual rule that consumes them. Until then they would be dead
+  code in a strategy classifier, which accumulates calibration
+  debt. The taxonomy below documents the *target* shape, not
+  what ships in §1.5a.
+
 ```
 classify_opponent_archetype(stats) -> Optional[str]
     # Returns one of:
@@ -215,8 +243,22 @@ classify_opponent_archetype(stats) -> Optional[str]
     #   None             — cold-start, insufficient sample
 ```
 
-**Detector composition (proposed, behavior-faithful to existing
-patterns):**
+**Detector composition — §1.5a (ships first, behavior-faithful):**
+
+```
+if hands_observed < MIN_HANDS_FOR_LABEL:    return None
+if _is_hyper_aggressive(stats):              return 'hyper_aggressive'
+if _is_passive_with_jams(stats):             return 'sticky_jammer'
+if _is_hyper_passive(stats):                 return 'pure_station'
+return None  # all other opponents — strategy rules no-op
+```
+
+This is the only form that ships in §1.5a. Returning `None` for
+unmatched opponents (rather than `'balanced'`) keeps existing
+rules that gate on the legacy detectors no-ops in the same
+spots they're no-ops today.
+
+**Detector composition — §1.5b target shape (deferred):**
 
 ```
 if hands_observed < MIN_HANDS_FOR_LABEL:        return None
@@ -236,19 +278,31 @@ if vpip > VPIP_LAG_FLOOR and aggression_factor > AF_LAG:
 return 'balanced'
 ```
 
+This is the target shape, **not what ships in §1.5a**. Each new
+label here lands incrementally as a consumer rule needs it.
+
 Exact thresholds are a tuning question (and need to align with
 the existing `HYPER_PASSIVE_VPIP_THRESHOLD`,
 `TIGHT_NIT_VPIP_THRESHOLD`, etc.). Key design points:
 
 - **Single source of truth.** Threshold changes happen in one
-  file; every strategy rule's idea of "what's a station" stays
-  consistent.
+  file — `poker/strategy/exploitation.py`, which already owns
+  `HYPER_PASSIVE_VPIP_THRESHOLD`, `TIGHT_NIT_VPIP_THRESHOLD`,
+  and the other detector constants. The unified classifier reads
+  these constants directly rather than defining its own, so the
+  existing `_is_<pattern>` detectors and the new
+  `classify_opponent_archetype` cannot drift.
 - **Single label per opponent.** Removes the "multiple patterns
   fire simultaneously" surprise.
 - **Sample-size gating built in.** Returns `None` (not a default
   label) when sample is below `MIN_HANDS_FOR_LABEL` — strategy
   rules can no-op on `None` instead of accidentally exploiting
-  cold-start noise.
+  cold-start noise. Starting value: reuse the existing
+  `MIN_HANDS_DEFAULT = 15` cold-start floor in
+  `poker/strategy/exploitation.py` rather than introducing a new
+  constant. Calibrate against the validation suite (§7) before
+  locking in — archetype labels may want a higher bar than the
+  per-detector gate.
 - **Each axis has a denominator check.** Pattern detectors that
   use opportunity-normalized stats (`all_in_per_facing_bet`,
   `cbet_attempt_rate`, `postflop_jam_open_rate`) check their own
@@ -276,7 +330,9 @@ PFRs only. See §3 for the detector form.
 - Per-archetype diagnostic counters:
   `archetype_classified_<label>_<hero_archetype>` so operators
   can see "across this run, hero saw X% pure_station / Y%
-  sticky_jammer / Z% balanced."
+  sticky_jammer / Z% hyper_aggressive / W% unmatched (None)."
+  Additional labels (`balanced`, `tag`, etc.) light up when
+  §1.5b ships them.
 - Tests:
   - threshold boundary tests per archetype label
   - sample-size gate (returns `None` below threshold)
@@ -296,10 +352,13 @@ PFRs only. See §3 for the detector form.
   classifier for the value-bet / reduce-bluff direction.
 - **Phase 6.5 `value_override`** currently fires on
   `'hyper_aggressive' in classify_detected_patterns(stats)`. After
-  this section lands, it can simplify to
-  `classify_opponent_archetype(stats) in {'maniac', 'lag-ish-aggro'}`.
+  §1.5a lands, it simplifies to
+  `classify_opponent_archetype(stats) == 'hyper_aggressive'`.
   The behavior change should be zero — the new classifier composes
-  the same `_is_hyper_aggressive` detector.
+  the same `_is_hyper_aggressive` detector. If §1.5b later splits
+  `hyper_aggressive` into `'maniac'` and `'lag'`, this gate
+  expands to `in {'hyper_aggressive', 'maniac', 'lag'}` at that
+  point (not before).
 - **Phase 7.5 `bluff_catch_override`** currently consumes the
   three-tier clamp signal (`_determine_clamp`) which keys off
   `AF_postflop`, `all_in_per_facing_bet`, `postflop_jam_open_rate`.
@@ -338,11 +397,36 @@ strong hands when the price is cheap."
   ```
   required_equity = call_amount / (pot + call_amount)
   ```
-- Preserve minimum call frequency based on hand strength + price:
-  - small price (≤20% req'd equity) + `medium_made` or better → keep call alive
-  - moderate price (≤35%) + `strong_made` or better → keep call alive
-  - reasonable price (≤45%) + `nuts` / `near_nuts` → strongly prefer continue
-- Treat board danger as a *dampener*, not auto-fold.
+- Floor matrix gates on the **joint `(hand_class, nut_status)`
+  pair** from §1, not the raw made hand. §1 defines two
+  orthogonal dimensions: `hand_class ∈ {nuts, strong_made,
+  medium_made, weak_made, air}` and `nut_status ∈ {actual_nuts,
+  near_nuts, non_nut_strong, bluff_catcher}`. The floor reads
+  both. After §1 lands, Example 1's 10-high straight becomes
+  `(strong_made, non_nut_strong)` (or `(medium_made,
+  non_nut_strong)` on more dangerous coordination), and top pair
+  on 4-Broadway becomes `(medium_made, bluff_catcher)`. The
+  matrix:
+
+  | Price (req. equity) | Gate: `(hand_class, nut_status)` | Floor behavior |
+  |---|---|---|
+  | any   | `hand_class == air` | no floor (explicit exit) |
+  | any   | `nut_status == bluff_catcher` (incl. paired-board pair, top pair on 4-liner) | no floor; defer to bluff-catch override §7.5 Item 1 (explicit exit) |
+  | ≤ 45% | `nut_status ∈ {near_nuts, actual_nuts}` | strongly prefer continue |
+  | ≤ 35% | `hand_class ∈ {strong_made, nuts}` OR `nut_status == non_nut_strong` | keep call alive |
+  | ≤ 20% | `hand_class ∈ {medium_made, strong_made, nuts}` | keep call alive |
+
+  Rows are evaluated top-down at decision time; the first
+  matching row wins. The `air` and `bluff_catcher` exits come
+  **first** so §7.5's bluff-catch override stays authoritative
+  for marginal hands — without that ordering, a
+  `(strong_made, bluff_catcher)` would incorrectly match the
+  35% row's OR clause and trigger a floor.
+
+- Treat board danger as a *dampener*, not auto-fold. Danger
+  flags from §1 (`paired_board`, `four_straight_board`, etc.)
+  reduce the floor magnitude by a fixed factor rather than
+  zeroing it.
 - Keep all-in handling bet-size-aware:
   - tighten marginal bluff-catchers
   - preserve strong / nut-equity continues when price supports it
@@ -375,28 +459,24 @@ strong hands when the price is cheap."
 
 §1.5 introduces the unified classifier that separates
 `pure_station` from `sticky_jammer`. This section is about how
-strategy *behavior* changes based on that label.
+strategy *behavior* changes based on that label. The detector
+itself lives in §1.5 — don't re-implement detection here.
 
-The detector itself lives in §1.5 — including the
-one-of-three-jam-signals-with-confidence form and the
-`cbet_attempt_rate` coverage caveat. Don't re-implement the
-detection logic here.
+**Scope.** §3 covers only the passive archetypes
+(`pure_station`, `sticky_jammer`). Behavior vs
+`hyper_aggressive` opponents stays out of §3 scope and is
+handled by Phase 6.5 `value_override` plus the Phase 7.5
+bluff-catch override / three-tier clamp, which already cover
+that case.
 
-**Strategy differences:**
+**Behavior deltas, by archetype:**
 
-Versus `pure_station`:
-- value bet strong hands more often (Phase 8 `value_vs_station`
-  already does this)
-- reduce bluff frequency
-- allow wider continues at good prices (new defense floor)
-
-Versus `sticky_jammer`:
-- value bet strong hands (Phase 8 `value_vs_station`)
-- reduce bluff frequency
-- **do NOT** expand marginal continues against large bets / jams
-  — Phase 8.1b's experiment regressed by doing this
-- **DO** preserve continues with strong / nut-equity hands at
-  good prices (this is the gap the defense floor fills)
+| Behavior | `pure_station` | `sticky_jammer` |
+|---|---|---|
+| Value bet strong hands | ↑ (Phase 8 `value_vs_station`) | ↑ (Phase 8 `value_vs_station`) |
+| Bluff frequency | ↓ (§5) | ↓ (§5) |
+| Marginal continues vs large bets / jams | allow wider at good prices (§2 floor) | **no change** — Phase 8.1b regressed when this expanded |
+| Strong / nut-equity continues at good prices | preserve (§2 floor) | preserve (§2 floor) — this is the gap the floor fills |
 
 **Deliverables:**
 
@@ -490,6 +570,59 @@ Make station exploitation explicitly value-heavy and bluff-light.
   exceed clamp. Phase 7.5 three-tier clamp is the safety net but
   each new rule should respect intended magnitude.
 
+### 5.5. Per-rule offset budgets
+
+Stacking is a known risk: `value_vs_station` (+0.3 bet),
+`hyper_passive_intensity` (+0.3 raise, −0.2 fold), and the new
+§5 "reduce bluffs vs stations" rule can all push the same
+direction on the same decision. The Phase 7.5 three-tier clamp
+is the safety net, but it's a *gross-shift* check at the
+distribution level; it doesn't enforce per-rule envelopes.
+
+**Implementation:**
+
+- Each strategy rule that mutates the action distribution
+  declares an offset budget (e.g.,
+  `MAX_L1_SHIFT_value_vs_station = 0.30`,
+  `MAX_L1_SHIFT_reduce_bluffs = 0.15`).
+- Apply rules sequentially through a small accumulator that
+  tracks per-rule shift magnitude. If a rule's effective shift
+  (after clamping by remaining headroom) is reduced, log it as
+  a diagnostic counter `budget_clamped_<rule_name>`.
+- Total budget across all opponent-aware rules ≤ the three-tier
+  clamp's envelope **for the current decision's clamp tier**
+  (not a static global ceiling). Phase 7.5's clamp varies by
+  confidence/tier/spot, so §5.5's accumulator queries the active
+  envelope at decision time and reserves headroom against
+  *that* number. If a decision lands in a tighter tier, the
+  per-rule envelopes proportionally shrink; rules that already
+  applied earlier in the pipeline don't get retroactively
+  budget-clamped, but later rules absorb the tighter envelope.
+  The clamp remains the outermost safety net but rarely fires.
+
+**Deliverables:**
+
+- Per-rule constants alongside each rule's gate.
+- Sequential application order spec'd in
+  `tiered_bot_controller.py` (or wherever the offset pipeline
+  lives) — order matters for headroom accounting.
+- Diagnostic counters per rule: how often it was budget-clamped
+  vs applied at full intent.
+- Tests: stacking scenario where 3 rules want to push the same
+  direction; assert total shift ≤ envelope and each rule's
+  individual budget held.
+
+**Existing-layer interactions:**
+
+- The three-tier clamp (`_determine_clamp`) stays as-is and acts
+  as the final wrapper. Per-rule budgets are a tighter inner
+  bound.
+- Phase 8.1b's regression was partly stacking-shaped (multiple
+  rules suppressing folds in the same spot). Explicit budgets
+  give us a primitive to prevent that class of bug from
+  recurring without having to add ad-hoc "rule X disables rule
+  Y" conditionals.
+
 ### 6. Upgrade diagnostics and review tools
 
 Make future analysis easier. Phase 7.6 intervention_trace already
@@ -503,7 +636,9 @@ provides the per-decision framework — extend it.
 - danger flags (new)
 - required equity (new)
 - bet bucket (new)
-- opponent profile (new — pure_station / sticky_jammer / etc.)
+- opponent archetype (new — the §1.5
+  `classify_opponent_archetype` label, including `None` for
+  cold-start)
 - active strategy layers (current via intervention_trace)
 - final sampled action (current)
 - probability distribution before/after each layer (current via
@@ -515,10 +650,10 @@ provides the per-decision framework — extend it.
   `DecisionContext` extension.
 - Update `experiments/casebot_breakdown.py`-style report to group
   folds/calls by:
-  - hand class (post-downgrade)
+  - hand class (post-§1 downgrade)
   - price bucket
-  - board danger
-  - opponent profile
+  - board danger flags
+  - opponent archetype (§1.5 label)
   - layer that changed the decision
 
 ### 7. Validation suite
@@ -552,23 +687,42 @@ quality across common poker situations.
    Every other layer reads `hand_class` / `nut_status` /
    `danger_flags`. Without this, diagnostics still conflate
    classifier noise with real leaks.
-1.5. **Unified opponent-archetype classifier** — single source
-   of truth for "what is this opponent." All subsequent
-   opponent-aware rules gate off the unified label. Behavior-
-   neutral on its own (it composes existing detectors); enables
-   §3 and §5 to use a clean handle.
+1.5a. **Behavior-faithful archetype classifier** — composes
+   existing `_is_<pattern>` detectors into a single
+   `classify_opponent_archetype` that returns only the labels
+   existing rules consume (`hyper_aggressive`, `pure_station`,
+   `sticky_jammer`, `None`). Validation target: zero behavior
+   delta on apples-to-apples sims. Migrate `value_override`,
+   `value_vs_station`, and §3/§5 consumers to read the unified
+   label.
 2. **Bet-size classifier and required-equity diagnostics** —
    foundational input for layers 3-5.
 3. **Price-sensitive defense floor** — the highest-impact
-   behavior change; addresses Examples 3 and 5.
-4. **Passive profile split application** — uses §1.5's classifier
+   behavior change; addresses Examples 3 and 5. Floor matrix
+   keyed on post-§1 labels.
+4. **Passive profile split application** — uses §1.5a's labels
    to shape strategy per `pure_station` vs `sticky_jammer`.
 5. **Station exploitation rebalance** — bluff reduction and
    value emphasis keyed off the unified archetype.
+5.5. **Per-rule offset budgets** — lands alongside or
+   immediately after §5, before stacking effects compound.
+   Cannot ship after §5 without first auditing the existing
+   stacked rules.
 6. **Expanded diagnostics / reporting** — supports validation
    and ongoing analysis.
 7. **Full validation matrix** — confirms each step is net
-   positive without regressing the rule-bot benchmark.
+   positive without regressing the rule-bot benchmark. Phase 1
+   of the validation suite should re-derive the real-leak
+   floor estimate (currently ~−32 bb/100, from a 2/5 example
+   sample) on a larger labeled set.
+
+**Deferred (not on the critical path):**
+
+- **§1.5b — Extended archetype taxonomy.** `maniac`, `lag`,
+  `tag`, `nit`, `rock`, `balanced` labels added incrementally,
+  each gated by a consumer rule that actually needs them. Until
+  a consumer exists, the labels are dead code in a strategy
+  classifier and accumulate calibration debt.
 
 ## Success criteria
 
@@ -577,11 +731,39 @@ not documented baselines which are stale):**
 
 | Metric | Target |
 |---|---|
-| TAG vs CaseBot HU, 1000 hands × 5 seeds | bb/100 improves by ≥ 20 vs control, CI doesn't cross zero |
-| TAG vs (ABCBot + LAG + Nit + GTO-Lite + Rock) 6-max, 500 × 5 | bb/100 doesn't regress from current −17.2 |
-| Folded nuts/strong_made on river | drops from 50/1500 → ≤ 15/1500 after classifier fix + defense floors |
+| TAG vs CaseBot HU, 1000 hands × 5 seeds | bb/100 improves by ≥ 20 vs control; 95% CI on the **paired delta** (treatment − control, per-seed pairing) doesn't cross zero |
+| TAG vs (ABCBot + LAG + Nit + GTO-Lite + Rock) 6-max, 500 × 5 | bb/100 doesn't regress from current −17.2 (see note below) |
+| Folded nuts/strong_made on river, **using post-§1 labels** | drops from 50/1500 → ≤ 15/1500 after classifier fix + defense floors |
 | Showdown win rate | stays ≥ 65% (down from 73% acceptable — trading some over-folds for fewer marginal call-offs) |
-| Classifier accuracy on ground-truth set | ≥ 95% correct labels on a held-out 100-hand validation set |
+| Classifier accuracy on ground-truth set | ≥ 95% correct labels on a held-out 100-hand validation set (see caveat below) |
+
+**Notes on the bars:**
+
+- **River fold target uses post-§1 labels.** The 50/1500
+  baseline counts folds against the *current* (noisy)
+  classifier. With ~60% of those folds estimated to be
+  classifier mislabels (per the honest-read math), the
+  post-§1 baseline will already be closer to ~20/1500 before
+  any defense floors land. The ≤15 target is therefore a
+  modest gain on top of the re-classification, not on top of
+  the legacy count. Don't move the goalposts by counting both
+  effects in the same row.
+- **6-max scope.** HU is prioritized because (a) the −96.8
+  bb/100 deficit there is the largest concentrated leak, and
+  (b) the failure mode (postflop folding to a wide-jam
+  opponent) is structurally clean to attribute. 6-max
+  improvements are out of scope for this work; "doesn't
+  regress" is the bar, not the ceiling. A follow-up plan
+  should set positive 6-max improvement targets once the HU
+  fixes ship.
+- **Classifier validation set.** Ground truth for *strategic*
+  hand strength is partly subjective (top pair on 4-Broadway
+  can reasonably be `medium_made` or `weak_made` depending on
+  philosophy). The 95% bar may need recalibration once the
+  validation set is built and reviewed. If reasonable
+  reviewers disagree on > 5% of labels, the bar should be
+  expressed as "≥ 95% agreement with the modal label" rather
+  than a hard accuracy number.
 
 **Soft criteria (qualitative, helpful but not blocking):**
 - Diagnostic "fold nuts/strong" separates classifier errors from
@@ -633,10 +815,10 @@ Each new rule should ship with:
 
 **Risks:**
 
-- Each new rule adds offset magnitude. Even with the Phase 7.5
-  three-tier clamp, stacking effects could push behavior outside
-  the intended envelope. Per-rule offset budgets need explicit
-  enforcement.
+- Each new rule adds offset magnitude. The §5.5 per-rule offset
+  budgets are the proposed mitigation; without them, the Phase
+  7.5 three-tier clamp is the only safety net and it operates
+  on the combined shift, not per-rule.
 - "Don't fold marginals to jams" and "do call strong hands at
   reasonable prices" are similar in shape but opposite in
   intent. Conflating them was the Phase 8.1b mistake; hand-class
