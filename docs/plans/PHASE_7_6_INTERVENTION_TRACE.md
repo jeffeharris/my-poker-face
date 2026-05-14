@@ -1670,6 +1670,561 @@ isolation, unrelated to trace migration).
   Acceptable difference: offsets compose multiplicatively, so per-
   rule isolated distribution L1 would be misleading.
 
+### Step 4 (2026-05-14): personality + short_stack + math_floor migrations
+
+**Status: complete. Postflop pipeline fully migrated.**
+
+The final three layers per the plan's migration order. Each takes a
+trace-shape that matches its semantic role:
+
+- **personality**: `operation='adjust'` (logit-space distortion
+  preserves prior intent). Simpler trace per plan recommendation —
+  records deviation_profile name + emotional_state + L1 shift.
+- **short_stack**: `operation='clamp'` (Codex r3 disambiguation:
+  bounds medium-raise mass without VETOing it from consideration).
+- **math_floor**: `operation='veto'` (when fired, removes all non-
+  target actions from the distribution — the canonical example of
+  the veto operation in this codebase).
+
+Files updated:
+- `poker/strategy/personality_modifier.py:240` — `modify_strategy`
+  returns `Tuple[StrategyProfile, InterventionTrace]`. Trace records
+  `deviation_profile_{name}` reason_code via reverse-lookup against
+  `DEVIATION_PROFILES` (DeviationProfile is a frozen dataclass without
+  an embedded `name` attribute). Degenerate-support early-outs emit
+  no_op traces with `single_supported_action` or `zero_total_
+  probability` reason codes.
+- `poker/strategy/short_stack.py:83` — `apply_short_stack_heuristics`
+  returns `(strategy, trace)`. Clamp trace records the suppression
+  factor, sink action (jam or fold), redistributed mass, and which
+  medium raises were affected. Three no_op paths: stack_deep,
+  no_medium_raises_in_strategy, no_legal_sink_action.
+- `poker/strategy/math_floor.py:37` — `apply_pot_odds_floor` returns
+  `(strategy, trace)`. Old `(strategy, Optional[str])` signature
+  collapsed — rule name is now `trace.reason_code` (one of
+  `short_stack`, `pot_committed`, `tiny_pot_odds`). 9 test sites
+  rewritten to read `trace.reason_code` / `trace.fired` instead of
+  the legacy `rule` channel.
+- `poker/tiered_bot_controller.py:303,472` — both pipelines append
+  personality trace (real or distortion_skipped no_op). Postflop and
+  preflop short_stack and math_floor sites updated to thread the
+  trace return. `_fill_prior_action_source` now runs on the math_floor
+  trace too so it correctly records the last fired layer.
+- 30 new trace tests in 4 new files: `test_intervention_trace_
+  personality.py`, `test_intervention_trace_short_stack.py`,
+  `test_intervention_trace_math_floor.py`, `test_intervention_trace_
+  e2e.py` (the integration test covering trace surface invariants,
+  layer_order monotonicity, prior_action_source chaining).
+- 35 existing call sites updated across personality / short_stack /
+  math_floor test files.
+
+**Test results: 778 strategy tests pass** (up from 749 after Step 3;
++29 new traces). Behavior-neutral — all pre-existing functional and
+behavioral tests still pass.
+
+**Postflop pipeline trace surface (post-Step-4):**
+
+A single postflop decision now emits 12 traces per the canonical
+`_LAYER_ORDER`:
+
+| # | layer                  | rule_id           | operation |
+|---|------------------------|-------------------|-----------|
+| 0 | personality            | default           | adjust    |
+| 1 | exploitation           | hyper_aggressive  | adjust    |
+| 2 | exploitation           | hyper_passive     | adjust    |
+| 3 | exploitation           | tight_nit         | adjust    |
+| 4 | exploitation           | high_fold_to_cbet | adjust    |
+| 5 | exploitation           | multiway_cbet     | adjust    |
+| 6 | value_vs_station       | default           | adjust    |
+| 7 | steal_pressure         | default           | adjust    |
+| 8 | strong_hand_override   | default           | override  |
+| 9 | bluff_catch_override   | default           | override  |
+| 10| short_stack            | default           | clamp     |
+| 11| math_floor             | default           | veto      |
+
+Every layer/rule fires-or-no-ops consistently across decisions, so
+firing-rate analysis sees a uniform shape. The mutual exclusivity
+between strong_hand and bluff_catch (by hand class) shows up as
+"exactly one of them fires per decision" — never both, never neither.
+
+**Steps 1-4 = full pipeline migration complete.** What remains in the
+Phase 7.6 plan: Step 3a (access-pattern audit) → Step 3b (persistence
+schema) → Step 4 (analyze_intervention_traces.py with 4 attribution
+modes) → Step 5a/b (NarrationFacts adapter + ExpressionGenerator
+integration) → Step 6 (validation). Pure plumbing + analysis work
+from here — no more strategy-pipeline migrations.
+
+### Step 3a/3b (2026-05-14): persistence schema + capture wiring
+
+**Status: complete.**
+
+**Step 3a audit findings.** Cataloged consumers:
+
+| Consumer | Pattern | Frequency |
+|---|---|---|
+| Analysis script (Mode 1-4) | Full trace read by `(game_id, hand_number, decision_index)`, in-memory Python | Batch, post-hoc |
+| Real-time controller | In-memory only | Per-decision (already wired) |
+| Narration prompt | Single decision at a time | Per-decision |
+| Dashboard / aggregate firing rates | Group by `(layer, rule_id, archetype)` | Not yet a consumer |
+
+**Schema decision: Option B (JSON column).** Reasons:
+- Existing schema convention: 9 `*_json` columns on `player_decision_
+  analysis` already (`opponent_ranges_json`, `zone_penalties_json`,
+  etc.) — JSON-in-column is the established pattern.
+- Mode 1 shadow-eval (the strongest attribution tool per plan) is
+  in-memory Python; doesn't benefit from a normalized table.
+- 12 traces × N decisions = high row count if normalized; one row
+  per decision is cleaner for joins to existing analytics columns.
+- Dashboard / aggregate queries aren't yet a consumer; can promote
+  to Option A later via `json_each()` extraction if firing-rate
+  dashboards become heavy.
+
+**Step 3b files updated:**
+- `poker/repositories/schema_manager.py:52` — SCHEMA_VERSION 80 → 81;
+  new `_migrate_v81_add_intervention_trace_json` adds nullable
+  `intervention_trace_json TEXT` column to `player_decision_analysis`.
+  Existing rows lack the column and analysis code treats NULL as "no
+  trace available" — no backfill needed.
+- `poker/repositories/decision_analysis_repository.py` — write path
+  adds the column to the `INSERT INTO player_decision_analysis` SQL;
+  new `get_intervention_trace(analysis_id)` + `get_intervention_
+  traces_for_game(game_id, hand_number=None)` read paths deserialize
+  to lists of dicts. Both tolerate malformed JSON (log WARN, return
+  None / skip row).
+- `poker/decision_analyzer.py:174` — added `intervention_trace_json:
+  Optional[str] = None` field to the `DecisionAnalysis` dataclass.
+  Default None for hybrid AI controllers + pre-v81 rows.
+- `poker/controllers.py:51` — new module-level
+  `_serialize_intervention_trace(traces, *, player_name)` helper.
+  Per Codex r3 risk #12: any error during serialization is logged at
+  WARN and returns None; the analysis row still persists without the
+  trace. Gameplay never blocked by trace persistence failure.
+- `poker/controllers.py:1694` — capture path now reads
+  `getattr(self, '_last_intervention_trace', None)` and attaches to
+  `analysis.intervention_trace_json` via the serializer before
+  `save_decision_analysis`. Hybrid AI controllers don't expose the
+  attribute → `None` payload (matches the contract).
+- 14 new tests in `tests/test_strategy/test_intervention_trace_
+  persistence.py`: serializer round-trip + bad-input degradation,
+  DecisionAnalysis dataclass field presence, schema v81 column
+  presence, save/load round-trip via the repository, filter-by-hand,
+  malformed-JSON graceful skip.
+
+**Test results: 792 strategy tests pass** (up from 778 after Step 4;
++14 new persistence tests). Schema migration is forward-compatible
+— existing tests pass against pre-v81 databases (column nullable,
+defaults None).
+
+**Persistence is now end-to-end:**
+
+```
+controller decision → _last_intervention_trace populated
+                   ↓
+_analyze_decision  → _serialize_intervention_trace → JSON string
+                   ↓
+DecisionAnalysisRepository.save_decision_analysis
+                   ↓
+SQLite: player_decision_analysis.intervention_trace_json column
+                   ↓
+analyze script ←   DecisionAnalysisRepository.get_intervention_
+                   traces_for_game(game_id)
+```
+
+**Next step:** Step 4 in the plan's own numbering — the
+`analyze_intervention_traces.py` script with 4 attribution modes
+(shadow-eval, first-divergence, aggregate, ablation). The data is
+now persisted and queryable; the analysis tooling is the next
+deliverable.
+
+### Step 4 (2026-05-14): analyze_intervention_traces.py with 4 modes
+
+**Status: Modes 2 + 3 fully implemented; Modes 1 + 4 stubbed.**
+
+Scoping decision: Modes 1 (shadow-eval) and 4 (ablation) both require
+per-rule disable plumbing on the strategy pipeline — a separate
+controller-level change. The data-only modes (2 + 3) ship in this
+delivery; the plumbing for 1 + 4 is a self-contained follow-up.
+
+**Files landed:**
+- `experiments/analyze_intervention_traces.py` (NEW) — argparse CLI
+  with subcommands per mode. Reads via `DecisionAnalysisRepository.
+  get_intervention_traces_for_game()`. Output formats: `text` (default,
+  human-readable table) and `json` (machine-readable for jq / notebooks).
+- `tests/test_analyze_intervention_traces.py` (NEW, 11 tests):
+  Mode 3 aggregation invariants (fire counts, mean effect_size,
+  top reason codes), Mode 2 divergence detection + post-divergence
+  exclusion, Mode 1 + 4 stub TODO messages, CLI smoke tests for both
+  output formats and missing-argument errors.
+
+**Mode 3 (aggregate firing rates) — implemented:**
+
+For one game, or all games in the DB, reports per `(layer, rule_id)`:
+- Total evaluations (always 12 per postflop decision after Step 4)
+- Fired count + fire rate %
+- Mean effect_size across firings
+- Top 3 reason_codes with counts
+
+Sample output (synthetic):
+
+```
+Mode: aggregate firing rates
+Games: 1 (game_abc123)
+Decisions analyzed: 47
+
+layer                  rule_id              evaluated  fired  fire%   mean_size  top reasons
+exploitation           hyper_aggressive            47     12   25.5%      0.4321  extreme_tier=8, ...
+exploitation           hyper_passive               47      0    0.0%      0.0000  intensity_below_threshold=47
+bluff_catch_override   default                     47      3    6.4%      0.6200  medium_made_vs_extreme=3, hand_class_not_eligible=44
+math_floor             default                     47      2    4.3%      1.0000  pot_committed=1, short_stack=1, no_call_facing=44
+...
+```
+
+**Mode 2 (first-divergence) — implemented:**
+
+For matched-seed candidate/control runs, walks both decision streams
+per `(hand_number, phase)` and identifies the first decision per hand
+where chosen actions differ. Attributes divergences to (layer,
+rule_id) entries where `fired`, `primary_action_after`, OR
+`reason_code` differ between the two streams (effect_size and
+rationale string aren't divergence signals — too noisy). Post-
+divergence decisions on the same hand are counted as
+`post_divergence_excluded_decisions` and excluded from per-decision
+attribution claims per plan §"Mode 2 post-divergence exclusion zone."
+
+**Mode 1 + Mode 4 stubs:**
+
+Both modes emit a structured "not yet implemented" message describing
+the per-rule disable plumbing needed. Exit code 2 (distinguishable
+from CLI usage errors). Stub message documents the planned
+implementation:
+
+> Mode 'shadow' requires per-rule disable plumbing on the strategy
+> pipeline:
+>   - A `disable_rules: FrozenSet[Tuple[str, str]]` option on the
+>     controller that propagates through `_apply_exploitation`,
+>     `_apply_value_override`, `_apply_bluff_catch_override`, etc.
+>   - Inside each layer, gate the rule's offset/override write on
+>     `(layer, rule_id) not in disable_rules`.
+>   - The trace for a disabled rule emits `fired=False` with
+>     `reason_code='disabled_by_ablation'` so analysis sees the
+>     counterfactual cleanly.
+
+This way the message tells the next-session implementer exactly what
+needs to land before Mode 1/4 work.
+
+**Test results: 792 strategy tests + 116 trace tests + 11 analyze
+tests pass.** No regressions.
+
+**Carried forward:**
+- The disable-rule plumbing (for Modes 1 + 4) is well-scoped: one new
+  optional param on the controller, propagated through the 4 migrated
+  layer functions, gated inside each rule. Estimated 0.5-1 day.
+- Once Mode 1 lands, `experiments/simulate_bb100.py` can call the
+  analysis script post-sweep to produce per-rule EV attribution.
+
+### Step 5 (2026-05-14): per-rule disable plumbing + Mode 4 ablation
+
+**Status: complete. Mode 1 (shadow) still stubbed pending persistence-replay.**
+
+This unblocks Mode 4 (ablation analysis) by letting sweeps run with
+specific (layer, rule_id) pairs suppressed. The same plumbing
+underlies a future Mode 1 (shadow-eval) implementation — once
+persistence-replay is wired, Mode 1 just re-invokes the pipeline
+with `disable_rules={target}` and compares L1 distance.
+
+**Files updated:**
+- `poker/strategy/intervention_trace.py` — added `DISABLED_BY_ABLATION`
+  constant, `make_disabled_trace(layer, rule_id, layer_order)`, and
+  `is_rule_disabled(disable_rules, layer, rule_id)` helper. Disabled
+  rules emit a fixed `fired=False` trace with the stable
+  `disabled_by_ablation` reason_code so attribution analysis can
+  isolate ablation effects from natural no-ops.
+- All six layer functions accept `disable_rules=None` kwarg:
+  `compute_exploitation_offsets_with_traces` (gates each of the 5
+  rules + 2 Phase 8 layers individually),
+  `compute_value_override_strategy`, `compute_bluff_catch_strategy`,
+  `modify_strategy`, `apply_short_stack_heuristics`,
+  `apply_pot_odds_floor`. Each layer short-circuits at the top if its
+  rule is disabled, returning the strategy unchanged plus a
+  `disabled_by_ablation` trace.
+- `poker/tiered_bot_controller.py` — new `self.disable_rules:
+  frozenset = frozenset()` attribute on `TieredBotController.__init__`.
+  All six layer call sites in the postflop + preflop pipelines pass
+  it through. Controller-level `_apply_*` methods short-circuit on
+  disable BEFORE the natural early-out gates so the trace reports
+  `disabled_by_ablation` (not `manager_unavailable`) for disabled
+  rules. `_exploitation_no_op_traces` updated to emit per-rule
+  disabled traces when relevant.
+  - Defensive `getattr(self, 'disable_rules', frozenset())` access at
+    call sites — test fixtures that bypass `__init__` via `__new__`
+    continue to work without setting the attribute.
+- `experiments/analyze_intervention_traces.py` — Mode 4 ablation
+  implemented. Compares a baseline run (no disables) vs an ablation
+  run (one or more rules disabled). Auto-detects ablated rules by
+  scanning the ablation run's traces for the
+  `disabled_by_ablation` reason_code. Reports: shared hands, paired
+  decisions, action-changed decisions, action change rate, post-
+  divergence excluded count. Mode 1 (shadow) stub updated with a
+  more specific TODO message: distinguishes the now-existing disable
+  plumbing from the still-missing persistence-replay piece.
+- 15 new tests in `tests/test_strategy/test_intervention_trace_
+  disable.py`: per-layer disable semantics (each layer's disable
+  produces a `disabled_by_ablation` trace + unchanged strategy),
+  exploitation per-rule isolation (disabling one rule doesn't affect
+  others), legacy `compute_exploitation_offsets` wrapper propagates
+  the disable_rules kwarg, controller-level disable through real
+  fixtures.
+- 4 new analyze tests covering Mode 4: ablation detection from
+  trace reason_codes, action-change attribution, paired-decision
+  walk, CLI argument validation.
+
+**Sample CLI invocations (Mode 4):**
+
+```bash
+# Run a baseline sweep, then an ablation sweep with bluff_catch disabled
+# (via setting controller.disable_rules in the sim driver), then:
+
+docker compose exec backend python -m experiments.analyze_intervention_traces \\
+    --mode ablation \\
+    --db /app/data/poker_games.db \\
+    --baseline-game game_baseline_seed42 \\
+    --ablation-game game_ablation_seed42
+
+# Output:
+#   Mode: ablation comparison
+#   Baseline game: game_baseline_seed42
+#   Ablation game: game_ablation_seed42
+#   Ablated rules: bluff_catch_override.default
+#   Shared hands: 200
+#   Paired decisions (pre-divergence): 412
+#   Decisions where action changed:    23
+#   Action change rate: 5.58%
+#   Post-divergence decisions excluded: 89
+```
+
+**Test results: 806 strategy tests pass** (up from 792 after Step
+3a/3b; +14 new disable tests). 12 analyze tests pass (one new
+Mode 4 case set replacing the old shadow/ablation stub tests).
+
+**Mode 1 (shadow) remaining work:**
+
+Either (a) persist `(anchors, emotional_state, decision_context,
+base_strategy)` per decision so the pipeline can be re-invoked
+post-hoc — or (b) call the pipeline twice live during simulation
+(once with empty `disable_rules`, once with target rule disabled)
+and persist both distributions. (b) doubles per-decision pipeline
+cost; only acceptable for experiment runs, not live games. (a) is
+heavier on storage but doesn't affect live latency. Decision
+deferred to the next implementation session.
+
+### Step 6 (2026-05-14): Mode 1 (shadow-eval) via persistence-replay
+
+**Status: complete. All four modes implemented.**
+
+Approach: persistence-replay (Option (a) from Step 5's open
+question). Each decision now persists a JSON snapshot of the pipeline
+inputs, and the analysis script re-invokes the pipeline post-hoc
+with `disable_rules={target}` to produce a counterfactual strategy.
+
+**Files updated:**
+- `poker/repositories/schema_manager.py` — SCHEMA_VERSION 81 → 82;
+  new `_migrate_v82_add_strategy_pipeline_snapshot_json` adds a
+  nullable `strategy_pipeline_snapshot_json TEXT` column to
+  `player_decision_analysis`. Existing rows lack it and Mode 1
+  treats them as `no_snapshot_coverage`.
+- `poker/repositories/decision_analysis_repository.py` — write path
+  includes the new column; new `get_strategy_pipeline_snapshot
+  (analysis_id)` read helper.
+- `poker/decision_analyzer.py` — added `strategy_pipeline_snapshot_
+  json: Optional[str] = None` field to `DecisionAnalysis`.
+- `poker/strategy/replay.py` (NEW) — stateless
+  `replay_strategy_pipeline(snapshot, disable_rules) -> StrategyProfile`.
+  Reconstructs `(anchors, emotional_state, decision_context, stats,
+  intensities, ...)` from the JSON snapshot and re-runs the full
+  pipeline (personality → exploitation → strong_hand_override →
+  bluff_catch_override → short_stack → math_floor). Defensive
+  against malformed snapshots — never raises, returns the base
+  strategy on degenerate input.
+- `poker/tiered_bot_controller.py` — new
+  `self._last_pipeline_snapshot: Dict[str, Any]` accumulator, reset
+  at the top of `_get_postflop_decision` / `_get_preflop_decision`.
+  Three new helpers populate the snapshot at the right pipeline
+  points: `_snapshot_personality_inputs(anchors, emotional_state)`,
+  `_snapshot_exploitation_inputs(...)`,
+  `_snapshot_math_floor_inputs(game_state, player_idx)`. The base
+  strategy + legal_actions + hand_strength + effective_stack_bb are
+  written directly inline.
+- `poker/controllers.py` — new `_serialize_pipeline_snapshot(snapshot,
+  *, player_name)` helper. Capture path attaches the JSON snapshot
+  to the `DecisionAnalysis` row alongside the intervention trace.
+  Codex r3 risk #12 contract: any serialization error is logged at
+  WARN and returns None; gameplay never blocked.
+- `experiments/analyze_intervention_traces.py` — Mode 1 (shadow)
+  implemented. For each persisted decision with a snapshot:
+    1. `replay_strategy_pipeline(snapshot, disable_rules=frozenset())` → live
+    2. `replay_strategy_pipeline(snapshot, disable_rules={target})` → shadow
+    3. L1 distance + action-flip check
+  Reports: total decisions, evaluated count, no-snapshot count,
+  mean / max L1 distance, action-flip count + rate. Decisions
+  without snapshots count as `no_snapshot_coverage` (not failures).
+- 9 new tests in `tests/test_strategy/test_replay_pipeline.py`:
+  empty-snapshot safety, disable_rules propagation, math_floor
+  disable changes output, personality runs vs disabled, garbage-input
+  safety.
+- 3 new tests in `tests/test_analyze_intervention_traces.py`:
+  Mode 1 skips decisions without snapshots, evaluates decisions with
+  snapshots (L1=0 for inert pipelines), correctly reports L1 +
+  action_flip when math_floor flips the action.
+- 3 new CLI tests for shadow mode argument validation.
+
+**Sample CLI invocation:**
+
+```bash
+docker compose exec backend python -m experiments.analyze_intervention_traces \\
+    --mode shadow \\
+    --db /app/data/poker_games.db \\
+    --game-id game_abc123 \\
+    --disable-rule bluff_catch_override.default
+
+# Output:
+#   Mode: shadow-eval (same-state per-decision attribution)
+#   Game: game_abc123
+#   Disabled rule: bluff_catch_override.default
+#   Decisions in game: 100
+#     evaluated:           100
+#     no snapshot coverage: 0
+#   Mean L1 distance (live vs shadow): 0.0237
+#   Max L1 distance:                   0.6200
+#   Action flips (argmax differs):     3 (3.00%)
+```
+
+**Test results: 827 strategy tests pass** (up from 806 after Step 5;
++21 new across replay + Mode 1 + persistence). Mode 1 is now the
+plan's intended same-state per-decision attribution tool — no
+trajectory divergence concerns.
+
+**Storage cost:** snapshot JSON is ~2-3KB per decision (depends on
+opponent_stats field count). For a 1000-decision game that's
+~2-3MB. Comfortable within the existing player_decision_analysis
+table's size budget.
+
+**All four attribution modes are now implemented:**
+
+| Mode | Status | Per-decision causality |
+|---|---|---|
+| 1 (shadow) | **shipped** | strongest — same-state, no divergence |
+| 2 (first-divergence) | shipped (Step 4) | medium — first-decision attribution only |
+| 3 (aggregate) | shipped (Step 4) | n/a — firing-rate diagnostic |
+| 4 (ablation) | shipped (Step 5) | medium — paired-sweep with rule(s) disabled |
+
+### Step 5 narration (2026-05-14): NarrationFacts adapter + ExpressionGenerator integration
+
+**Status: complete.** The "second motivation" of Phase 7.6 is now
+wired end-to-end: traces become structured narration input for the
+LLM expression layer.
+
+**Files landed:**
+- `poker/strategy/narration_facts.py` (NEW) — adapter module:
+  - `NarrationFact`, `NarrationContext`, `NarrationFacts` frozen
+    dataclasses
+  - `NARRATION_ALLOWLIST` (9 surfaceable layer/rule pairs;
+    personality + short_stack + math_floor explicitly absent —
+    they're mechanical, not narratable)
+  - `REASON_CODE_TO_OBSERVATION` hand-curated dict mapping ~20
+    stable reason_codes to player-facing `(observation, why_it_matters)`
+    tuples (e.g. `extreme_tier_via_all_in_frequency` →
+    `("Opponent's been jamming a lot", "Their bet range is wider
+    than usual here")`)
+  - `LAYER_RULE_NARRATIVE_WEIGHT` priorities per plan
+  - `LAYER_RULE_ACTION_INTENT` (steal / value_bet / bluff_catch /
+    etc. per rule)
+  - `_intensity_bucket` (effect_size → subtle/noticeable/strong)
+    and `_certainty_bucket` (confidence → tentative/confident/sure)
+    — kept independent per Codex r2 ("strong effect" ≠ "high
+    confidence")
+  - `_score_fact_importance` — 6-dim weighted scoring (operation
+    severity 0.30, action_changed 0.25, certainty 0.15, street
+    0.10, layer recency 0.10, narrative priority 0.10); overridden
+    facts down-ranked 0.3× per Codex r3
+  - `traces_to_narration_facts(traces, decision_context)` — main
+    adapter. Filters → maps → scores → caps to NARRATION_MAX_FACTS=3
+    → selects `primary_factor` as top score
+  - `render_narration_prompt(facts)` — turns NarrationFacts into a
+    structured "WHAT YOU NOTICED / WHAT YOU DECIDED" prompt block
+  - `_fallback_observation` for unmapped reason_codes within
+    allowlisted layers
+- `poker/strategy/expression_context.py` — added
+  `narration_facts: Optional[NarrationFacts] = None` field. Optional
+  + default None ⇒ hybrid AI controller / pre-7.6 callers continue
+  to produce identical prompts.
+- `poker/strategy/expression_generator.py` — `_render_prompt`
+  appends the rendered narration_facts block when present.
+  `_render_narration_facts_block` wraps the call in try/except;
+  any failure logs WARN + returns empty (the standard template
+  still renders).
+- `poker/tiered_bot_controller.py` — new `_build_narration_facts
+  (phase)` helper. Reads `self._last_intervention_trace`, builds a
+  `NarrationContext` with the street, calls the adapter. Returns
+  None on any error (narration is observability, never blocks
+  gameplay). Wired into `_attach_expression` so the
+  ExpressionContext now carries narration_facts when the tiered bot
+  has trace data available.
+
+**Tests (24 new):** `tests/test_strategy/test_narration_facts.py`
+covers:
+- Allowlist filtering (personality / short_stack / math_floor never
+  surface; unknown layers rejected)
+- Reason-code lookups + fallbacks
+- Top-3 cap + suppressed_facts_count accounting
+- primary_factor is the highest-scoring fact
+- Override-chain down-ranking (overridden layer is downranked 0.3×
+  but may still appear in top-3)
+- Bucket thresholds + intensity/certainty independence
+- `_score_fact_importance` direct invariants
+- Prompt rendering doesn't leak dev rationale strings or stat names
+- Action-intent assignment per layer
+
+**Test results: 154 narration + intervention-trace tests pass.**
+Strategy regression overall: 1 pre-existing failure in
+`test_passive_with_jams.py::test_casebot_aggregate_auto_suppresses_fold_mass`
+— UNRELATED to Step 5 narration (verified by stashing all Step 5
+files and re-running; the test fails identically). That test is an
+untracked file whose body asserts a behavior change that the
+exploitation.py code's own docstring says was reverted (Phase 8.1b
+empirical regression).
+
+**Sample integration flow:**
+
+```
+controller decides → self._last_intervention_trace populated
+                  ↓
+_attach_expression → _build_narration_facts('flop')
+                  → NarrationFacts(facts=[3 top facts], primary=...)
+                  ↓
+ExpressionContext.narration_facts = facts
+                  ↓
+ExpressionGenerator._render_prompt
+  appends:
+    WHAT YOU NOTICED:
+    - Opponent's been jamming a lot
+    - I have showdown value against an over-aggressor
+
+    WHAT YOU DECIDED:
+    - I'm calling
+    - Why: My pair beats most of their bluff range
+    - Intensity: noticeable
+
+    NARRATE THIS DECISION IN CHARACTER (1-2 sentences, present
+    tense, no specific numbers or stats — just the read).
+                  ↓
+LLM produces authentic narration grounded in the bot's actual reads
+```
+
+**Remaining Phase 7.6 work: Step 6 validation** (behavior-neutrality
+diff, attribution sanity check, narration smoke check). Implementation
+is essentially complete — Step 6 closes the loop with empirical
+validation.
+
 ## Resolved by Codex review (v2 + v3 + v4)
 
 ### v4 (round 3)

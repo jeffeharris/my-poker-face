@@ -49,7 +49,9 @@ logger = logging.getLogger(__name__)
 # v78: Add quality_score and menu compliance columns to player_decision_analysis
 # v79: Add tendencies_json to opponent_models for full opponent stat persistence
 # v80: Add community_cards_by_phase_json to hand_history for phase-level card tracking
-SCHEMA_VERSION = 80
+# v81: Add intervention_trace_json to player_decision_analysis for Phase 7.6 per-decision attribution
+# v82: Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1 (shadow-eval) replay
+SCHEMA_VERSION = 82
 
 
 
@@ -697,6 +699,8 @@ class SchemaManager:
                     menu_chosen_ev TEXT,
                     menu_picked_best INTEGER,
                     menu_num_options INTEGER,
+                    intervention_trace_json TEXT,
+                    strategy_pipeline_snapshot_json TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
                 )
             """)
@@ -1084,6 +1088,8 @@ class SchemaManager:
             78: (self._migrate_v78_add_quality_scores, "Add quality_score and menu compliance columns to player_decision_analysis"),
             79: (self._migrate_v79_add_opponent_tendencies_json, "Add tendencies_json to opponent_models for full tendency persistence"),
             80: (self._migrate_v80_add_community_cards_by_phase, "Add community_cards_by_phase_json column to hand_history"),
+            81: (self._migrate_v81_add_intervention_trace_json, "Add intervention_trace_json to player_decision_analysis for Phase 7.6"),
+            82: (self._migrate_v82_add_strategy_pipeline_snapshot_json, "Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1"),
         }
 
         with self._get_connection() as conn:
@@ -3446,3 +3452,55 @@ class SchemaManager:
             logger.debug("Added community_cards_by_phase_json column to hand_history")
 
         logger.info("Migration v80 complete: community_cards_by_phase_json added to hand_history")
+
+    def _migrate_v81_add_intervention_trace_json(self, conn: sqlite3.Connection) -> None:
+        """Migration v81: Add intervention_trace_json to player_decision_analysis.
+
+        Phase 7.6 (Step 3b): per-decision intervention trace persistence.
+        Stores the controller's `_last_intervention_trace` as a JSON
+        array of trace objects (one per pipeline layer/rule, 12 entries
+        per postflop decision). Nullable — existing rows lack the
+        column and analysis code treats NULL as "no trace available."
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'intervention_trace_json' not in existing_columns:
+            conn.execute(
+                "ALTER TABLE player_decision_analysis "
+                "ADD COLUMN intervention_trace_json TEXT"
+            )
+            logger.debug("Added intervention_trace_json column to player_decision_analysis")
+
+        logger.info(
+            "Migration v81 complete: intervention_trace_json added to player_decision_analysis"
+        )
+
+    def _migrate_v82_add_strategy_pipeline_snapshot_json(self, conn: sqlite3.Connection) -> None:
+        """Migration v82: Add strategy_pipeline_snapshot_json to player_decision_analysis.
+
+        Phase 7.6 (Step 6): per-decision strategy pipeline snapshot for
+        Mode 1 (shadow-eval) replay. Stores the inputs the controller
+        passed to each strategy layer at decision time so the pipeline
+        can be re-invoked post-hoc with `disable_rules={target}` to
+        compute shadow distributions for per-decision attribution.
+
+        Nullable — existing rows lack the column and Mode 1 skips them
+        with a `no_snapshot_coverage` count in the report.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'strategy_pipeline_snapshot_json' not in existing_columns:
+            conn.execute(
+                "ALTER TABLE player_decision_analysis "
+                "ADD COLUMN strategy_pipeline_snapshot_json TEXT"
+            )
+            logger.debug(
+                "Added strategy_pipeline_snapshot_json column to "
+                "player_decision_analysis"
+            )
+
+        logger.info(
+            "Migration v82 complete: strategy_pipeline_snapshot_json added"
+        )

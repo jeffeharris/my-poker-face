@@ -57,7 +57,7 @@ def test_high_aggression_boosts_raises():
     anchors = _make_anchors(baseline_aggression=0.9)
     profile = DEVIATION_PROFILES['lag']
 
-    result = modify_strategy(
+    result, _trace = modify_strategy(
         BASE_STRATEGY, BASE_ACTIONS, anchors, COMPOSED, profile
     )
 
@@ -71,7 +71,7 @@ def test_high_looseness_penalizes_fold():
     anchors = _make_anchors(baseline_looseness=0.9)
     profile = DEVIATION_PROFILES['lag']
 
-    result = modify_strategy(
+    result, _trace = modify_strategy(
         BASE_STRATEGY, BASE_ACTIONS, anchors, COMPOSED, profile
     )
 
@@ -91,7 +91,7 @@ def test_zero_support_preserved():
     emotional = EmotionalShift(state='tilted', severity='extreme', intensity=0.8)
     profile = DEVIATION_PROFILES['maniac']
 
-    result = modify_strategy(
+    result, _trace = modify_strategy(
         base, ['fold', 'call', 'raise_2.5bb', 'jam'],
         anchors, emotional, profile,
     )
@@ -111,7 +111,7 @@ def test_kl_within_budget():
     base_arr = np.array([BASE_PROBS[a] for a in BASE_ACTIONS])
 
     for name, profile in DEVIATION_PROFILES.items():
-        result = modify_strategy(
+        result, _trace = modify_strategy(
             BASE_STRATEGY, BASE_ACTIONS, anchors, emotional, profile
         )
         result_arr = np.array([
@@ -133,7 +133,7 @@ def test_per_action_cap_holds():
     emotional = EmotionalShift(state='tilted', severity='extreme', intensity=0.95)
 
     for name, profile in DEVIATION_PROFILES.items():
-        result = modify_strategy(
+        result, _trace = modify_strategy(
             BASE_STRATEGY, BASE_ACTIONS, anchors, emotional, profile
         )
 
@@ -158,7 +158,7 @@ def test_no_negative_probabilities():
     emotional = EmotionalShift(state='shaken', severity='extreme', intensity=1.0)
     profile = DEVIATION_PROFILES['nit']
 
-    result = modify_strategy(
+    result, _trace = modify_strategy(
         base, ['fold', 'call', 'raise_2.5bb', 'jam'],
         anchors, emotional, profile,
     )
@@ -179,7 +179,7 @@ def test_probabilities_sum_to_one():
     )
     profile = DEVIATION_PROFILES['lag']
 
-    result = modify_strategy(
+    result, _trace = modify_strategy(
         BASE_STRATEGY, BASE_ACTIONS, anchors, emotional, profile
     )
 
@@ -236,7 +236,7 @@ def test_composed_emotional_no_effect():
     )
     profile = DEVIATION_PROFILES['tag']
 
-    result = modify_strategy(
+    result, _trace = modify_strategy(
         BASE_STRATEGY, BASE_ACTIONS, anchors, COMPOSED, profile
     )
 

@@ -14,7 +14,7 @@ Phases:
 import dataclasses
 import logging
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .controllers import AIPlayerController, _get_canonical_hand
 from .card_utils import card_to_string
@@ -86,7 +86,10 @@ _EXPLOITATION_RULE_ORDER: Tuple[Tuple[str, str], ...] = (
 )
 
 
-def _exploitation_no_op_traces(reason_code: str) -> List[InterventionTrace]:
+def _exploitation_no_op_traces(
+    reason_code: str,
+    disable_rules=None,
+) -> List[InterventionTrace]:
     """One no-op trace per declared exploitation/Phase 8 rule.
 
     Used for the controller-level early-out paths (manager / anchors
@@ -94,19 +97,32 @@ def _exploitation_no_op_traces(reason_code: str) -> List[InterventionTrace]:
     runs. Keeps the per-decision trace surface consistent across
     decisions — `rule_id`-level firing-rate analyses see all 7 rules
     every decision, just with different reason codes.
+
+    Phase 7.6 Step 5: when a rule is in `disable_rules`, its trace
+    reports `disabled_by_ablation` instead of `reason_code`. The
+    ablation signal wins over the natural early-out signal so Mode 4
+    can attribute correctly even on the manager-unavailable path.
     """
     from .strategy.intervention_trace import (
+        is_rule_disabled,
         layer_order_for,
+        make_disabled_trace,
         make_no_op_trace,
     )
-    return [
-        make_no_op_trace(
-            layer=layer, rule_id=rule_id,
-            layer_order=layer_order_for(layer),
-            reason_code=reason_code,
-        )
-        for (layer, rule_id) in _EXPLOITATION_RULE_ORDER
-    ]
+    out = []
+    for (layer, rule_id) in _EXPLOITATION_RULE_ORDER:
+        if is_rule_disabled(disable_rules, layer, rule_id):
+            out.append(make_disabled_trace(
+                layer=layer, rule_id=rule_id,
+                layer_order=layer_order_for(layer),
+            ))
+        else:
+            out.append(make_no_op_trace(
+                layer=layer, rule_id=rule_id,
+                layer_order=layer_order_for(layer),
+                reason_code=reason_code,
+            ))
+    return out
 
 
 def _fill_prior_action_source(
@@ -180,6 +196,147 @@ class TieredBotController(AIPlayerController):
         # at the start of each decision method; default empty so readers
         # never see a stale list from a prior controller instance.
         self._last_intervention_trace: List[InterventionTrace] = []
+        # Phase 7.6 Step 6: per-decision pipeline snapshot for Mode 1
+        # (shadow-eval) replay. Filled in incrementally during
+        # _get_postflop_decision / _get_preflop_decision.
+        self._last_pipeline_snapshot: Dict[str, Any] = {}
+        # Phase 7.6 Step 5: ablation hook. Set this to a
+        # FrozenSet[Tuple[str, str]] of (layer, rule_id) entries to
+        # suppress those rules at decision time. Default is empty —
+        # all rules fire normally. Mode 4 (ablation matrix) sweeps
+        # set this per matchup; Mode 1 (shadow-eval) uses it for
+        # counterfactual per-decision evaluation.
+        self.disable_rules: frozenset = frozenset()
+
+    def _snapshot_personality_inputs(self, anchors, emotional_state) -> None:
+        """Phase 7.6 Step 6: record the inputs `modify_strategy` consumed
+        so the replay function can re-invoke the personality layer.
+
+        Stores into `self._last_pipeline_snapshot`. Best-effort — if
+        anchors / emotional_state aren't serializable, the snapshot key
+        is omitted and replay falls back to skipping that layer.
+        """
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if snap is None:
+            return
+        if anchors is not None:
+            try:
+                snap['anchors'] = {
+                    'baseline_aggression': float(getattr(anchors, 'baseline_aggression', 0.5)),
+                    'baseline_looseness': float(getattr(anchors, 'baseline_looseness', 0.5)),
+                    'ego': float(getattr(anchors, 'ego', 0.5)),
+                    'poise': float(getattr(anchors, 'poise', 0.5)),
+                    'expressiveness': float(getattr(anchors, 'expressiveness', 0.5)),
+                    'risk_identity': float(getattr(anchors, 'risk_identity', 0.5)),
+                    'adaptation_bias': float(getattr(anchors, 'adaptation_bias', 0.5)),
+                    'baseline_energy': float(getattr(anchors, 'baseline_energy', 0.5)),
+                    'recovery_rate': float(getattr(anchors, 'recovery_rate', 0.15)),
+                }
+            except (TypeError, ValueError):
+                pass
+        if emotional_state is not None:
+            snap['emotional_state'] = {
+                'state': getattr(emotional_state, 'state', 'composed'),
+                'severity': getattr(emotional_state, 'severity', 'none'),
+                'intensity': float(getattr(emotional_state, 'intensity', 0.0) or 0.0),
+            }
+        # Deviation profile name (reverse-lookup against DEVIATION_PROFILES).
+        try:
+            from .strategy.deviation_profiles import DEVIATION_PROFILES
+            for name, candidate in DEVIATION_PROFILES.items():
+                if candidate is self.deviation_profile:
+                    snap['deviation_profile_name'] = name
+                    break
+        except Exception:
+            pass
+
+    def _build_narration_facts(self, phase: str):
+        """Phase 7.6 Step 5: build a NarrationFacts payload from the
+        controller's per-decision intervention trace.
+
+        Returns None when no trace is available or the adapter raises
+        — the ExpressionContext.narration_facts field stays None and
+        the LLM prompt falls back to the standard template.
+
+        `phase` here is the controller's narrow string (e.g. 'flop',
+        'pre_flop'); we normalize to the NarrationContext.street
+        convention.
+        """
+        traces = getattr(self, '_last_intervention_trace', None)
+        if not traces:
+            return None
+        try:
+            from .strategy.narration_facts import (
+                NarrationContext,
+                traces_to_narration_facts,
+            )
+            street = (phase or '').replace('pre_flop', 'preflop').lower()
+            ctx = NarrationContext(
+                street=street,
+                position_context='',  # not yet captured per-decision
+                risk_posture='',      # ditto
+            )
+            return traces_to_narration_facts(traces, ctx)
+        except Exception as e:  # noqa: BLE001 — narration is observability
+            logger.warning(
+                f"[TIERED_BOT] {self.player_name}: "
+                f"narration_facts build failed: {e}"
+            )
+            return None
+
+    def _snapshot_math_floor_inputs(self, game_state, player_idx: int) -> None:
+        """Phase 7.6 Step 6: record math-floor inputs for replay."""
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if snap is None:
+            return
+        try:
+            player = game_state.players[player_idx]
+            big_blind = getattr(game_state, 'current_ante', 0) or 0
+            pot_total = (
+                game_state.pot.get('total', 0)
+                if isinstance(getattr(game_state, 'pot', None), dict) else 0
+            )
+            cost_to_call = getattr(game_state, 'call_amount', 0) or 0
+            snap['cost_to_call'] = int(cost_to_call)
+            snap['pot_total'] = int(pot_total)
+            snap['player_stack'] = int(getattr(player, 'stack', 0) or 0)
+            snap['player_bet'] = int(getattr(player, 'bet', 0) or 0)
+            snap['big_blind'] = int(big_blind)
+        except (AttributeError, TypeError, IndexError):
+            # Best-effort — leave snap incomplete on weird states.
+            pass
+
+    def _snapshot_exploitation_inputs(
+        self, *, stats, decision_context, adaptation_bias: float,
+        tilt_factor: float, exploitation_strength: float,
+        multiway_cbet_intensity: float, vvs_intensity_used: float,
+        steal_intensity_used: float, clamp_value: float = 0.4,
+        clamp_tier_label: str = 'extreme',
+    ) -> None:
+        """Phase 7.6 Step 6: record exploitation pipeline inputs."""
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if snap is None:
+            return
+        if stats is not None:
+            try:
+                import dataclasses
+                snap['aggregated_stats'] = dataclasses.asdict(stats)
+            except (TypeError, ValueError):
+                pass
+        if decision_context is not None:
+            try:
+                import dataclasses
+                snap['decision_context'] = dataclasses.asdict(decision_context)
+            except (TypeError, ValueError):
+                pass
+        snap['adaptation_bias'] = float(adaptation_bias)
+        snap['tilt_factor'] = float(tilt_factor)
+        snap['exploitation_strength'] = float(exploitation_strength)
+        snap['multiway_cbet_intensity'] = float(multiway_cbet_intensity)
+        snap['value_vs_station_intensity_used'] = float(vvs_intensity_used)
+        snap['steal_pressure_intensity_used'] = float(steal_intensity_used)
+        snap['clamp_value'] = float(clamp_value)
+        snap['clamp_tier_label'] = str(clamp_tier_label)
 
     @property
     def deviation_profile(self) -> DeviationProfile:
@@ -259,6 +416,11 @@ class TieredBotController(AIPlayerController):
         # a stale trace from the prior decision. Symmetric with the
         # postflop method's init at line ~316.
         self._last_intervention_trace: List[InterventionTrace] = []
+        # Phase 7.6 (Step 6): pipeline snapshot for Mode 1 (shadow-eval).
+        self._last_pipeline_snapshot: Dict[str, Any] = {
+            'phase': 'PRE_FLOP',
+            'legal_actions': list(valid_actions),
+        }
 
         hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
         canonical_hand = _get_canonical_hand(hole_cards) if hole_cards else ''
@@ -295,20 +457,35 @@ class TieredBotController(AIPlayerController):
                 f"base_strategy={base_strategy.action_probabilities}"
             )
 
+        # Snapshot preflop base_strategy (already an input to personality).
+        self._last_pipeline_snapshot['base_strategy_probs'] = dict(
+            base_strategy.action_probabilities
+        )
+
         # Layer 2: Personality distortion (skipped for BaselineSolverBot)
         emotional_state = get_emotional_shift(self.psychology)
         anchors = self.psychology.anchors if self.psychology else None
 
+        # Snapshot personality inputs.
+        self._snapshot_personality_inputs(anchors, emotional_state)
+
         if anchors and not self.skip_personality_distortion:
-            modified_strategy = modify_strategy(
+            modified_strategy, personality_trace = modify_strategy(
                 base=base_strategy,
                 legal_actions=valid_actions,
                 anchors=anchors,
                 emotional_state=emotional_state,
                 deviation_profile=self.deviation_profile,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
             )
         else:
             modified_strategy = base_strategy
+            personality_trace = make_no_op_trace(
+                layer='personality', rule_id='default',
+                layer_order=layer_order_for('personality'),
+                reason_code='distortion_skipped',
+            )
+        self._last_intervention_trace.append(personality_trace)
 
         if self.debug_logging:
             logger.info(
@@ -348,17 +525,27 @@ class TieredBotController(AIPlayerController):
         # Phase 6 Step B: short-stack heuristic. Depth-aware suppression
         # of medium-raise probability mass below 20 BB effective stack.
         # Independent of opponent type — always fires when stack is short.
-        modified_strategy = apply_short_stack_heuristics(
+        effective_stack_bb = self._compute_effective_stack_bb(game_state, player_idx)
+        # Snapshot for Mode 1 replay.
+        self._last_pipeline_snapshot['effective_stack_bb'] = effective_stack_bb
+        modified_strategy, short_stack_trace = apply_short_stack_heuristics(
             modified_strategy,
-            effective_stack_bb=self._compute_effective_stack_bb(game_state, player_idx),
+            effective_stack_bb=effective_stack_bb,
             legal_actions=valid_actions,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
         )
+        self._last_intervention_trace.append(short_stack_trace)
 
         # Math floor: override when pot odds / pot-committed / short stack
         # make personality-driven folds clearly -EV.
-        modified_strategy = self._apply_math_floor(
+        self._snapshot_math_floor_inputs(game_state, player_idx)
+        modified_strategy, math_floor_trace = self._apply_math_floor(
             modified_strategy, game_state, player_idx, valid_actions
         )
+        math_floor_trace = _fill_prior_action_source(
+            math_floor_trace, self._last_intervention_trace,
+        )
+        self._last_intervention_trace.append(math_floor_trace)
 
         abstract_action = modified_strategy.sample_action(self.rng)
 
@@ -409,6 +596,14 @@ class TieredBotController(AIPlayerController):
         # a stale trace from the prior decision. Only bluff_catch is
         # migrated in Step 1; other layers append once they migrate.
         self._last_intervention_trace: List[InterventionTrace] = []
+
+        # Phase 7.6 (Step 6): per-decision strategy pipeline snapshot
+        # for Mode 1 (shadow-eval) replay. Filled in incrementally as
+        # the pipeline runs; capture step serializes to JSON.
+        self._last_pipeline_snapshot: Dict[str, Any] = {
+            'phase': 'POSTFLOP',
+            'legal_actions': list(valid_actions),
+        }
 
         # 1. Convert cards to string format
         hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
@@ -463,21 +658,36 @@ class TieredBotController(AIPlayerController):
                     f"multiway_adjusted ({active_count} players)="
                     f"{base_strategy.action_probabilities}"
                 )
+        # Snapshot: base_strategy AFTER multiway adjustment is the input
+        # to the personality layer — that's what replay needs.
+        self._last_pipeline_snapshot['base_strategy_probs'] = dict(
+            base_strategy.action_probabilities
+        )
 
         # 5. Personality distortion (skipped for BaselineSolverBot)
         emotional_state = get_emotional_shift(self.psychology)
         anchors = self.psychology.anchors if self.psychology else None
 
+        # Snapshot personality inputs.
+        self._snapshot_personality_inputs(anchors, emotional_state)
+
         if anchors and not self.skip_personality_distortion:
-            modified_strategy = modify_strategy(
+            modified_strategy, personality_trace = modify_strategy(
                 base=base_strategy,
                 legal_actions=valid_actions,
                 anchors=anchors,
                 emotional_state=emotional_state,
                 deviation_profile=self.deviation_profile,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
             )
         else:
             modified_strategy = base_strategy
+            personality_trace = make_no_op_trace(
+                layer='personality', rule_id='default',
+                layer_order=layer_order_for('personality'),
+                reason_code='distortion_skipped',
+            )
+        self._last_intervention_trace.append(personality_trace)
 
         if self.debug_logging:
             logger.info(
@@ -506,6 +716,8 @@ class TieredBotController(AIPlayerController):
         # it once up front. The classifier is pure on `node`, so the
         # ordering shift vs older revisions is safe.
         hand_strength = self._classify_postflop_hand_strength(node)
+        # Snapshot hand_strength for Mode 1 replay.
+        self._last_pipeline_snapshot['hand_strength'] = hand_strength
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
         modified_strategy, exploitation_traces = self._apply_exploitation(
@@ -555,17 +767,26 @@ class TieredBotController(AIPlayerController):
         # 6a.6 Phase 6 Step B: short-stack heuristic. Suppress medium-raise
         # probability mass below 20 BB effective stack — non-jam raises
         # are structurally bad at short depth.
-        modified_strategy = apply_short_stack_heuristics(
+        effective_stack_bb = self._compute_effective_stack_bb(game_state, player_idx)
+        self._last_pipeline_snapshot['effective_stack_bb'] = effective_stack_bb
+        modified_strategy, short_stack_trace = apply_short_stack_heuristics(
             modified_strategy,
-            effective_stack_bb=self._compute_effective_stack_bb(game_state, player_idx),
+            effective_stack_bb=effective_stack_bb,
             legal_actions=valid_actions,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
         )
+        self._last_intervention_trace.append(short_stack_trace)
 
         # 6b. Math floor — override when arithmetic mandates a call/jam.
         # Runs AFTER personality + river guardrail so it has final say.
-        modified_strategy = self._apply_math_floor(
+        self._snapshot_math_floor_inputs(game_state, player_idx)
+        modified_strategy, math_floor_trace = self._apply_math_floor(
             modified_strategy, game_state, player_idx, valid_actions
         )
+        math_floor_trace = _fill_prior_action_source(
+            math_floor_trace, self._last_intervention_trace,
+        )
+        self._last_intervention_trace.append(math_floor_trace)
 
         # 7. Sample action
         abstract_action = modified_strategy.sample_action(self.rng)
@@ -636,7 +857,9 @@ class TieredBotController(AIPlayerController):
         """
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None or anchors is None:
-            return strategy, _exploitation_no_op_traces('manager_unavailable')
+            return strategy, _exploitation_no_op_traces(
+                'manager_unavailable', disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
 
         tilt_factor = self._zone_to_tilt_factor(emotional_state)
 
@@ -718,6 +941,7 @@ class TieredBotController(AIPlayerController):
             multiway_cbet_intensity=multiway_cbet_intensity,
             value_vs_station_intensity=vvs_intensity_used,
             steal_pressure_intensity=steal_intensity_used,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
         )
 
         # Stash for the Phase-8 tally helper (called AFTER value_override
@@ -767,6 +991,22 @@ class TieredBotController(AIPlayerController):
         # Stash tier diagnostic for downstream callers / capture.
         self._last_clamp_tier = clamp_tier
         self._last_clamp_axis = winning_axis
+
+        # Phase 7.6 Step 6: snapshot exploitation inputs for replay.
+        clamp_tier_label = (
+            clamp_tier.value.lower() if hasattr(clamp_tier, 'value')
+            else str(clamp_tier).lower()
+        )
+        self._snapshot_exploitation_inputs(
+            stats=stats, decision_context=decision_context,
+            adaptation_bias=anchors.adaptation_bias, tilt_factor=tilt_factor,
+            exploitation_strength=exploitation_strength,
+            multiway_cbet_intensity=multiway_cbet_intensity,
+            vvs_intensity_used=vvs_intensity_used,
+            steal_intensity_used=steal_intensity_used,
+            clamp_value=clamp_value,
+            clamp_tier_label=clamp_tier_label,
+        )
 
         updated_strategy = apply_exploitation_offsets(
             strategy=strategy,
@@ -830,10 +1070,22 @@ class TieredBotController(AIPlayerController):
         path emits a `fired=False` trace with a distinct `reason_code`
         so attribution analysis can distinguish "manager not attached"
         (cold start) from "gate rejected" (opponent not aggressive).
+
+        Phase 7.6 (Step 5): when the rule is ablation-disabled, this
+        method short-circuits BEFORE the manager check so the trace
+        reports `disabled_by_ablation` (not `manager_unavailable`).
         """
         # Default for the Phase-8 tally — set unconditionally so the
         # postflop caller never reads a stale flag from a prior decision.
         self._last_value_override_fired = False
+
+        # Phase 7.6 Step 5: ablation short-circuit.
+        from .strategy.intervention_trace import is_rule_disabled, make_disabled_trace
+        if is_rule_disabled(getattr(self, "disable_rules", frozenset()), 'strong_hand_override', 'default'):
+            return strategy, make_disabled_trace(
+                layer='strong_hand_override', rule_id='default',
+                layer_order=layer_order_for('strong_hand_override'),
+            )
 
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None or anchors is None:
@@ -893,6 +1145,7 @@ class TieredBotController(AIPlayerController):
             strategy=strategy,
             decision_context=decision_context,
             hand_strength=hand_strength,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
         )
 
     def _classify_preflop_hand_strength(self, canonical_hand, anchors=None):
@@ -982,7 +1235,17 @@ class TieredBotController(AIPlayerController):
           - manager not attached or anchors None
           - hand_strength outside bluff-catch trigger classes (skip
             without expensive spot/stats build)
+          - rule is ablation-disabled (Step 5)
         """
+        # Phase 7.6 Step 5: ablation short-circuit before any other
+        # gating, so the trace reports `disabled_by_ablation`.
+        from .strategy.intervention_trace import is_rule_disabled, make_disabled_trace
+        if is_rule_disabled(getattr(self, "disable_rules", frozenset()), 'bluff_catch_override', 'default'):
+            return strategy, make_disabled_trace(
+                layer='bluff_catch_override', rule_id='default',
+                layer_order=layer_order_for('bluff_catch_override'),
+            )
+
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None or anchors is None:
             return strategy, make_no_op_trace(
@@ -1050,6 +1313,7 @@ class TieredBotController(AIPlayerController):
             legal_actions=valid_actions,
             tier_label=clamp_tier.value.lower() if hasattr(clamp_tier, 'value')
                 else str(clamp_tier).lower(),
+            disable_rules=getattr(self, "disable_rules", frozenset()),
         )
 
         if self.debug_logging:
@@ -1803,12 +2067,13 @@ class TieredBotController(AIPlayerController):
 
     def _apply_math_floor(
         self, strategy, game_state, player_idx: int, valid_actions: List[str],
-    ):
+    ) -> Tuple['StrategyProfile', InterventionTrace]:
         """Run apply_pot_odds_floor with the right context pulled from game state.
 
-        Returns the (possibly overridden) strategy. Any unexpected error here
-        returns the strategy unchanged — the floor is a safety net, not a
-        critical path.
+        Returns the (possibly overridden) strategy and trace. Any
+        unexpected error returns the strategy unchanged with a no-op
+        trace tagged `math_floor_internal_error` — the floor is a
+        safety net, not a critical path.
         """
         try:
             player = game_state.players[player_idx]
@@ -1818,7 +2083,7 @@ class TieredBotController(AIPlayerController):
                 if isinstance(getattr(game_state, 'pot', None), dict) else 0
             )
             cost_to_call = getattr(game_state, 'call_amount', 0) or 0
-            override, rule = apply_pot_odds_floor(
+            override, trace = apply_pot_odds_floor(
                 strategy=strategy,
                 cost_to_call=cost_to_call,
                 pot_total=pot_total,
@@ -1826,19 +2091,24 @@ class TieredBotController(AIPlayerController):
                 player_bet=getattr(player, 'bet', 0) or 0,
                 big_blind=big_blind,
                 legal_actions=valid_actions,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
             )
-            if rule is not None and self.debug_logging:
+            if trace.fired and self.debug_logging:
                 logger.info(
                     f"[TIERED_BOT] {self.player_name}: "
-                    f"math_floor={rule} -> {override.action_probabilities}"
+                    f"math_floor={trace.reason_code} -> {override.action_probabilities}"
                 )
-            return override
+            return override, trace
         except Exception as e:
             logger.warning(
                 f"[TIERED_BOT] {self.player_name}: "
                 f"math_floor failed safely: {e}"
             )
-            return strategy
+            return strategy, make_no_op_trace(
+                layer='math_floor', rule_id='default',
+                layer_order=layer_order_for('math_floor'),
+                reason_code='math_floor_internal_error',
+            )
 
     def _attach_expression(
         self, decision: Dict, game_state, player_idx: int, phase: str,
@@ -1883,6 +2153,12 @@ class TieredBotController(AIPlayerController):
             emotional = get_emotional_shift(self.psychology)
             active_count = sum(1 for p in game_state.players if not p.is_folded)
 
+            # Phase 7.6 Step 5: build NarrationFacts from the per-decision
+            # intervention trace. Best-effort — failure here logs WARN and
+            # leaves narration_facts as None (LLM falls back to the
+            # standard prompt template).
+            narration_facts = self._build_narration_facts(phase)
+
             context = ExpressionContext(
                 action_taken=decision['action'],
                 raise_to=decision.get('raise_to', 0) or 0,
@@ -1904,6 +2180,7 @@ class TieredBotController(AIPlayerController):
                 drama_tone=drama_tone,
                 emotional_state=emotional.state,
                 emotional_severity=emotional.severity,
+                narration_facts=narration_facts,
             )
 
             capture_id_holder = [None]

@@ -47,6 +47,56 @@ from .range_guidance import classify_preflop_hand_for_player
 logger = logging.getLogger(__name__)
 
 
+def _serialize_intervention_trace(traces, *, player_name: str) -> Optional[str]:
+    """Phase 7.6 (Step 3b): JSON-encode a list of InterventionTrace
+    objects for persistence in `player_decision_analysis.intervention_
+    trace_json`.
+
+    Returns None when `traces` is falsy (controller doesn't expose a
+    trace accumulator, or the list is empty). Any error during
+    serialization is logged at WARN and returns None — gameplay must
+    continue past trace failures (Codex r3 risk #12: "Trace
+    persistence failure must not block gameplay").
+
+    The on-disk payload is a JSON array of trace dicts produced by
+    `trace_to_json_dict`. Schema: see TRACE_SCHEMA_VERSION in
+    poker/strategy/intervention_trace.py.
+    """
+    if not traces:
+        return None
+    try:
+        from .strategy.intervention_trace import trace_to_json_dict
+        return json.dumps([trace_to_json_dict(t) for t in traces])
+    except Exception as e:  # noqa: BLE001 — observability degradation by design
+        logger.warning(
+            f"[INTERVENTION_TRACE] {player_name}: failed to serialize "
+            f"{len(traces) if hasattr(traces, '__len__') else '?'} trace(s): {e}"
+        )
+        return None
+
+
+def _serialize_pipeline_snapshot(snapshot, *, player_name: str) -> Optional[str]:
+    """Phase 7.6 (Step 6): JSON-encode the strategy pipeline snapshot
+    for Mode 1 (shadow-eval) replay.
+
+    Returns None when `snapshot` is falsy. Any error during
+    serialization is logged at WARN and returns None — Mode 1 simply
+    skips decisions that lack a usable snapshot.
+    """
+    if not snapshot:
+        return None
+    try:
+        from .strategy.intervention_trace import _safe_serialize
+        # _safe_serialize handles enums, dataclasses, non-finite floats.
+        return json.dumps(_safe_serialize(snapshot))
+    except Exception as e:  # noqa: BLE001 — observability degradation
+        logger.warning(
+            f"[PIPELINE_SNAPSHOT] {player_name}: failed to serialize "
+            f"snapshot: {e}"
+        )
+        return None
+
+
 # =============================================================================
 # Functional Helpers for Message Parsing
 # =============================================================================
@@ -1690,6 +1740,22 @@ class AIPlayerController:
             # Menu compliance: score against bounded options if available
             if bounded_options:
                 analyzer.evaluate_menu_compliance(analysis, bounded_options)
+
+            # Phase 7.6 (Step 3b): attach per-decision intervention trace
+            # when the controller exposes one (tiered bot only today).
+            # Serialization failures degrade gracefully — the analysis
+            # row still persists without the trace.
+            analysis.intervention_trace_json = _serialize_intervention_trace(
+                getattr(self, '_last_intervention_trace', None),
+                player_name=self.player_name,
+            )
+
+            # Phase 7.6 (Step 6): attach pipeline snapshot for Mode 1
+            # shadow-eval replay. Same degrade-gracefully contract.
+            analysis.strategy_pipeline_snapshot_json = _serialize_pipeline_snapshot(
+                getattr(self, '_last_pipeline_snapshot', None),
+                player_name=self.player_name,
+            )
 
             self._decision_analysis_repo.save_decision_analysis(analysis)
             equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"

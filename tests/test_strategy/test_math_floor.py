@@ -11,7 +11,7 @@ def make_strategy(probs):
 def test_short_stack_triggers_push():
     """Stack < 3 BB with all_in legal should override to push."""
     base = make_strategy({'fold': 0.8, 'call': 0.15, 'raise': 0.05})
-    out, rule = apply_pot_odds_floor(
+    out, trace = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=200,
         pot_total=600,
@@ -20,7 +20,7 @@ def test_short_stack_triggers_push():
         big_blind=100,
         legal_actions=['fold', 'call', 'raise', 'all_in'],
     )
-    assert rule == 'short_stack'
+    assert trace.reason_code == 'short_stack'
     assert out.action_probabilities['all_in'] == 1.0
     # No fold mass in override
     assert out.action_probabilities.get('fold', 0) == 0
@@ -29,7 +29,7 @@ def test_short_stack_triggers_push():
 def test_short_stack_no_all_in_falls_back_to_call():
     """Short stack without all_in option still has to call."""
     base = make_strategy({'fold': 0.8, 'call': 0.2})
-    out, rule = apply_pot_odds_floor(
+    out, trace = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=200,
         pot_total=600,
@@ -38,7 +38,7 @@ def test_short_stack_no_all_in_falls_back_to_call():
         big_blind=100,
         legal_actions=['fold', 'call'],  # no all_in
     )
-    assert rule == 'short_stack'
+    assert trace.reason_code == 'short_stack'
     # When no residual non-fold/non-target actions exist, call gets 1.0
     # (no need to reserve 5% residual mass). Either 0.95 or 1.0 is valid.
     assert out.action_probabilities['call'] >= 0.95
@@ -48,7 +48,7 @@ def test_short_stack_no_all_in_falls_back_to_call():
 def test_pot_committed_triggers_call():
     """Player_bet > player_stack means they've invested more than remaining."""
     base = make_strategy({'fold': 0.7, 'call': 0.3})
-    out, rule = apply_pot_odds_floor(
+    out, trace = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=100,
         pot_total=2000,
@@ -58,7 +58,7 @@ def test_pot_committed_triggers_call():
         legal_actions=['fold', 'call'],
     )
     # short_stack triggers first per priority, fine — both rules want call.
-    assert rule in ('short_stack', 'pot_committed')
+    assert trace.reason_code in ('short_stack', 'pot_committed')
     # When no residual non-fold/non-target actions exist, call gets 1.0
     # (no need to reserve 5% residual mass). Either 0.95 or 1.0 is valid.
     assert out.action_probabilities['call'] >= 0.95
@@ -68,7 +68,7 @@ def test_pot_committed_triggers_call():
 def test_pot_committed_only():
     """Pot-committed with deep enough stack to skip short_stack rule."""
     base = make_strategy({'fold': 0.7, 'call': 0.3})
-    out, rule = apply_pot_odds_floor(
+    out, trace = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=100,
         pot_total=5000,
@@ -77,7 +77,7 @@ def test_pot_committed_only():
         big_blind=100,
         legal_actions=['fold', 'call'],
     )
-    assert rule == 'pot_committed'
+    assert trace.reason_code == 'pot_committed'
     # When no residual non-fold/non-target actions exist, call gets 1.0
     # (no need to reserve 5% residual mass). Either 0.95 or 1.0 is valid.
     assert out.action_probabilities['call'] >= 0.95
@@ -87,7 +87,7 @@ def test_pot_committed_only():
 def test_tiny_pot_odds_triggers_call():
     """Cost <= ~5% of (cost+pot) AND cost < 5 BB — calling needs no equity."""
     base = make_strategy({'fold': 0.85, 'call': 0.15})
-    out, rule = apply_pot_odds_floor(
+    out, trace = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=200,        # 2 BB call into 5000 pot -> 200/5200 = ~3.8%, under 5%
         pot_total=5000,
@@ -96,7 +96,7 @@ def test_tiny_pot_odds_triggers_call():
         big_blind=100,
         legal_actions=['fold', 'call'],
     )
-    assert rule == 'tiny_pot_odds'
+    assert trace.reason_code == 'tiny_pot_odds'
     assert out.action_probabilities['call'] == 1.0
     assert out.action_probabilities.get('fold', 0) == 0
 
@@ -108,7 +108,7 @@ def test_tiny_pot_odds_skipped_when_call_is_large_in_BB():
     AND a small absolute call are required (poker/prompts/CLAUDE.md).
     """
     base = make_strategy({'fold': 0.6, 'call': 0.4})
-    out, rule = apply_pot_odds_floor(
+    out, trace = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=2000,       # 20 BB call — large in absolute terms
         pot_total=80000,         # gives ~2.4% pot odds, but the call is huge
@@ -117,14 +117,14 @@ def test_tiny_pot_odds_skipped_when_call_is_large_in_BB():
         big_blind=100,
         legal_actions=['fold', 'call'],
     )
-    assert rule is None
+    assert trace.fired is False
     assert out is base
 
 
 def test_no_trigger_normal_spot():
     """Healthy stack, reasonable pot odds — floor doesn't fire."""
     base = make_strategy({'fold': 0.5, 'call': 0.3, 'raise': 0.2})
-    out, rule = apply_pot_odds_floor(
+    out, trace = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=500,        # 500 into 1000 -> 33% required equity
         pot_total=1000,
@@ -133,7 +133,7 @@ def test_no_trigger_normal_spot():
         big_blind=100,
         legal_actions=['fold', 'call', 'raise'],
     )
-    assert rule is None
+    assert trace.fired is False
     # Strategy returned unchanged
     assert out is base
 
@@ -141,7 +141,7 @@ def test_no_trigger_normal_spot():
 def test_no_call_skips():
     """Free street (cost_to_call=0) doesn't fire — there's nothing to override."""
     base = make_strategy({'check': 0.7, 'raise': 0.3})
-    out, rule = apply_pot_odds_floor(
+    out, trace = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=0,
         pot_total=1000,
@@ -150,14 +150,14 @@ def test_no_call_skips():
         big_blind=100,
         legal_actions=['check', 'raise'],
     )
-    assert rule is None
+    assert trace.fired is False
     assert out is base
 
 
 def test_no_call_action_skips():
     """If 'call' isn't legal (rare — e.g. all-in already locked), don't fire."""
     base = make_strategy({'fold': 0.5, 'all_in': 0.5})
-    out, rule = apply_pot_odds_floor(
+    out, trace = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=200,
         pot_total=600,
@@ -166,7 +166,7 @@ def test_no_call_action_skips():
         big_blind=100,
         legal_actions=['fold', 'all_in'],     # no 'call'
     )
-    assert rule is None
+    assert trace.fired is False
     assert out is base
 
 

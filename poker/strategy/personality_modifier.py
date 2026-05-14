@@ -6,11 +6,22 @@ emotional state, and a deviation profile that caps how far the result can
 stray from the baseline.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 
 from .deviation_profiles import DeviationProfile
+from .intervention_trace import (
+    InterventionOperation,
+    InterventionTrace,
+    is_rule_disabled,
+    l1_distance,
+    layer_order_for,
+    make_disabled_trace,
+    make_no_op_trace,
+    primary_action,
+    summarize_strategy,
+)
 from .strategy_profile import StrategyProfile
 
 
@@ -243,7 +254,8 @@ def modify_strategy(
     anchors,
     emotional_state,
     deviation_profile: DeviationProfile,
-) -> StrategyProfile:
+    disable_rules=None,
+) -> Tuple[StrategyProfile, InterventionTrace]:
     """Apply personality distortion to a solver baseline strategy.
 
     Pipeline:
@@ -255,7 +267,25 @@ def modify_strategy(
     6. Clamp divergence
     7. Reconstruct full distribution (zeros preserved)
     8. Return new StrategyProfile
+
+    Phase 7.6 (Step 4): returns `(strategy, trace)`. Per the plan
+    §"Migration plan" recommendation, the personality trace is
+    intentionally simpler than detection-rule traces — it just records
+    which deviation profile was applied and the resulting L1 shift.
+    Distortion preserves prior intent (`operation='adjust'`,
+    `preserved_prior_intent=True`), unlike the override layers
+    downstream. fired=True when the strategy actually changed; fired=
+    False for degenerate-support early-outs.
+
+    Phase 7.6 (Step 5): when disabled, emits a `disabled_by_ablation`
+    no-op trace and returns the strategy unchanged.
     """
+    if is_rule_disabled(disable_rules, 'personality', 'default'):
+        return base, make_disabled_trace(
+            layer='personality', rule_id='default',
+            layer_order=layer_order_for('personality'),
+        )
+
     eps = 1e-12
 
     all_actions = list(base.action_probabilities.keys())
@@ -272,14 +302,22 @@ def modify_strategy(
     supported_indices = np.where(supported_mask)[0]
 
     if len(supported_indices) <= 1:
-        return base
+        return base, make_no_op_trace(
+            layer='personality', rule_id='default',
+            layer_order=layer_order_for('personality'),
+            reason_code='single_supported_action',
+        )
 
     # Step 2: Extract and renormalize supported subset
     supported_actions = [all_actions[i] for i in supported_indices]
     supported_probs = base_probs_full[supported_indices]
     total = np.sum(supported_probs)
     if total < eps:
-        return base
+        return base, make_no_op_trace(
+            layer='personality', rule_id='default',
+            layer_order=layer_order_for('personality'),
+            reason_code='zero_total_probability',
+        )
     supported_probs = supported_probs / total
 
     # Step 3: Convert to logits
@@ -309,7 +347,96 @@ def modify_strategy(
         else:
             result[action] = 0.0
 
-    return StrategyProfile(action_probabilities=result)
+    modified = StrategyProfile(action_probabilities=result)
+    trace = _build_personality_trace(
+        base=base, modified=modified,
+        anchors=anchors, emotional_state=emotional_state,
+        deviation_profile=deviation_profile,
+    )
+    return modified, trace
+
+
+def _resolve_deviation_profile_name(deviation_profile) -> str:
+    """Find the DEVIATION_PROFILES key matching `deviation_profile`.
+
+    DeviationProfile is a frozen dataclass without an embedded `name`
+    attribute, so we reverse-lookup. Returns 'unknown' on no match —
+    a custom-constructed profile that isn't in the canonical dict
+    still produces a valid trace.
+    """
+    name = getattr(deviation_profile, 'name', '') or ''
+    if name:
+        return name
+    try:
+        from .deviation_profiles import DEVIATION_PROFILES
+    except ImportError:
+        return 'unknown'
+    for profile_name, candidate in DEVIATION_PROFILES.items():
+        if candidate is deviation_profile or candidate == deviation_profile:
+            return profile_name
+    return 'unknown'
+
+
+def _build_personality_trace(
+    base: StrategyProfile,
+    modified: StrategyProfile,
+    anchors,
+    emotional_state,
+    deviation_profile: DeviationProfile,
+) -> InterventionTrace:
+    """Construct the InterventionTrace for a personality distortion pass.
+
+    Simpler than detection-rule traces (plan §"Migration plan"): just
+    the deviation profile applied and the L1 shift. Offsets aren't
+    surfaced — they're per-action and tied to internal trait math
+    (`compute_trait_offsets`) which downstream attribution can re-
+    derive from the inputs.
+    """
+    base_probs = base.action_probabilities
+    out_probs = modified.action_probabilities
+
+    effect_size = l1_distance(base_probs, out_probs)
+    fired = effect_size > 1e-9
+
+    primary_before = primary_action(base_probs)
+    primary_after = primary_action(out_probs)
+
+    profile_name = _resolve_deviation_profile_name(deviation_profile)
+    emotional_label = getattr(emotional_state, 'state', '') or ''
+
+    if not fired:
+        return make_no_op_trace(
+            layer='personality', rule_id='default',
+            layer_order=layer_order_for('personality'),
+            reason_code='no_distortion',
+        )
+
+    return InterventionTrace(
+        layer='personality',
+        rule_id='default',
+        layer_order=layer_order_for('personality'),
+        fired=True,
+        operation=InterventionOperation.ADJUST.value,
+        effect='offsets_applied',
+        effect_size=round(effect_size, 4),
+        action_changed=(primary_before != primary_after),
+        primary_action_before=primary_before,
+        primary_action_after=primary_after,
+        replaced_prior_action=False,
+        preserved_prior_intent=True,
+        reason_code=f'deviation_profile_{profile_name}',
+        rationale=(
+            f"Personality distortion via {profile_name or 'unknown'} profile "
+            f"(emotional_state={emotional_label or 'unknown'})"
+        ),
+        confidence=1.0,
+        inputs={
+            'deviation_profile': profile_name,
+            'emotional_state': emotional_label,
+        },
+        input_strategy_summary=summarize_strategy(base_probs),
+        output_strategy_summary=summarize_strategy(out_probs),
+    )
 
 
 # ── River bluff guardrail ───────────────────────────────────────────────

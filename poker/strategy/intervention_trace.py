@@ -356,3 +356,48 @@ def make_no_op_trace(
         effect='no_op',
         reason_code=reason_code,
     )
+
+
+# Sentinel reason_code emitted when a rule is suppressed via the
+# ablation API (see disable_rules below). Distinct from natural-gate
+# no-ops so attribution analysis can isolate ablation effects.
+DISABLED_BY_ABLATION = 'disabled_by_ablation'
+
+
+def make_disabled_trace(
+    layer: str,
+    rule_id: str = 'default',
+    layer_order: int = 0,
+) -> InterventionTrace:
+    """Trace emitted when a rule was suppressed by ablation.
+
+    Phase 7.6 Step 5: when the controller is configured with
+    `disable_rules={(layer, rule_id), ...}`, each suppressed rule
+    emits this trace shape instead of running its branch. Mode 1
+    (shadow-eval) and Mode 4 (ablation matrix) in
+    `experiments/analyze_intervention_traces.py` rely on the stable
+    `DISABLED_BY_ABLATION` reason_code to distinguish suppressed
+    rules from natural no-ops.
+    """
+    return make_no_op_trace(
+        layer=layer,
+        rule_id=rule_id,
+        layer_order=layer_order,
+        reason_code=DISABLED_BY_ABLATION,
+    )
+
+
+def is_rule_disabled(
+    disable_rules,
+    layer: str,
+    rule_id: str = 'default',
+) -> bool:
+    """Check whether `(layer, rule_id)` is in `disable_rules`.
+
+    Accepts a `FrozenSet[Tuple[str, str]]` (canonical), but also
+    tolerates None / empty sequences for ergonomic call sites — the
+    common case is "no rules disabled."
+    """
+    if not disable_rules:
+        return False
+    return (layer, rule_id) in disable_rules

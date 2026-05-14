@@ -48,7 +48,7 @@ class TestApplyDeepStack:
         s = StrategyProfile(action_probabilities={
             'fold': 0.3, 'call': 0.3, 'raise_2.5bb': 0.4,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=30.0,
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
@@ -58,7 +58,7 @@ class TestApplyDeepStack:
         s = StrategyProfile(action_probabilities={
             'fold': 0.3, 'call': 0.3, 'raise_2.5bb': 0.4,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=20.0,
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
@@ -72,7 +72,7 @@ class TestApplyShortStack:
         s = StrategyProfile(action_probabilities={
             'fold': 0.2, 'call': 0.3, 'raise_2.5bb': 0.5,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=8.0,
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
@@ -88,7 +88,7 @@ class TestApplyShortStack:
         s = StrategyProfile(action_probabilities={
             'fold': 0.2, 'call': 0.3, 'raise_2.5bb': 0.5,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=8.0,
             legal_actions=['fold', 'call', 'raise'],  # no all_in
         )
@@ -105,7 +105,7 @@ class TestApplyMidRange:
         s = StrategyProfile(action_probabilities={
             'fold': 0.2, 'call': 0.3, 'raise_2.5bb': 0.5,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=15.0,
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
@@ -117,7 +117,7 @@ class TestApplyMidRange:
         s = StrategyProfile(action_probabilities={
             'fold': 0.2, 'call': 0.3, 'raise_2.5bb': 0.5,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=12.0,
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
@@ -133,7 +133,7 @@ class TestApplyEdgeCases:
         s = StrategyProfile(action_probabilities={
             'fold': 0.4, 'call': 0.6,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=8.0,
             legal_actions=['fold', 'call'],
         )
@@ -144,7 +144,7 @@ class TestApplyEdgeCases:
         s = StrategyProfile(action_probabilities={
             'fold': 0.1, 'call': 0.2, 'raise_2.5bb': 0.4, 'jam': 0.3,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=8.0,
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
@@ -157,7 +157,7 @@ class TestApplyEdgeCases:
             'fold': 0.1, 'call': 0.2,
             'raise_2.5bb': 0.3, 'raise_3bb': 0.2, 'raise_4x': 0.2,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=8.0,
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
@@ -172,7 +172,7 @@ class TestApplyEdgeCases:
         s = StrategyProfile(action_probabilities={
             'fold': 0.1, 'check': 0.3, 'bet_67': 0.4, 'bet_100': 0.2,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=8.0,
             legal_actions=['fold', 'check', 'raise', 'all_in'],
         )
@@ -184,7 +184,7 @@ class TestApplyEdgeCases:
         s = StrategyProfile(action_probabilities={
             'fold': 0.2, 'call': 0.3, 'raise_2.5bb': 0.5,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=12.0,
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
@@ -196,7 +196,7 @@ class TestApplyEdgeCases:
         s = StrategyProfile(action_probabilities={
             'fold': 0.5, 'call': 0.5, 'raise_2.5bb': 0.0,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=8.0,
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
@@ -208,7 +208,7 @@ class TestApplyEdgeCases:
         s = StrategyProfile(action_probabilities={
             'call': 0.5, 'raise_2.5bb': 0.5,
         })
-        result = apply_short_stack_heuristics(
+        result, _trace = apply_short_stack_heuristics(
             s, effective_stack_bb=8.0,
             legal_actions=['call', 'raise'],  # no fold, no all_in
         )

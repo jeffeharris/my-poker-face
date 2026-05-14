@@ -174,6 +174,20 @@ class DecisionAnalysis:
     analyzer_version: str = "1.0"
     processing_time_ms: Optional[int] = None
 
+    # Phase 7.6 (Step 3b): per-decision intervention trace (JSON-encoded
+    # list of InterventionTrace dicts). Populated by the capture path
+    # in `controllers._analyze_decision` when the controller exposes a
+    # `_last_intervention_trace` accumulator (tiered bot only today).
+    # NULL for hybrid AI controllers and pre-v81 rows.
+    intervention_trace_json: Optional[str] = None
+
+    # Phase 7.6 (Step 6): per-decision strategy pipeline snapshot for
+    # Mode 1 (shadow-eval) replay. JSON blob with enough state to
+    # re-invoke the pipeline with `disable_rules={target}` and produce
+    # a shadow strategy distribution.
+    # NULL for hybrid AI controllers and pre-v82 rows.
+    strategy_pipeline_snapshot_json: Optional[str] = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary for persistence."""
         return asdict(self)
