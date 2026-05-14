@@ -725,6 +725,18 @@ class TieredBotController(AIPlayerController):
         # re-classifying.
         self._last_pipeline_snapshot['nut_status'] = node.nut_status
         self._last_pipeline_snapshot['danger_flags'] = node.danger_flags
+        # Plan §4: snapshot bet-size bucket + required_equity for
+        # diagnostics and §2 defense-floor consumers. The DecisionContext
+        # already carries these for strategy rules; snapshotting them
+        # here mirrors the pattern used for nut_status/danger_flags so
+        # post-hand analysis (casebot_breakdown etc.) can read them
+        # off the controller's last-decision state.
+        self._last_pipeline_snapshot['bet_bucket'] = (
+            decision_context.bet_bucket
+        )
+        self._last_pipeline_snapshot['required_equity'] = (
+            decision_context.required_equity
+        )
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
         modified_strategy, exploitation_traces = self._apply_exploitation(
@@ -1998,9 +2010,22 @@ class TieredBotController(AIPlayerController):
         # the call price is exactly the value the bluff-catch matrix needs.
         # Field name is kept for API compatibility with the 7.5 plan/tests.
         bet_size_pot_ratio = 0.0
+        pot_before_bet_calc = 0
         if call_amount > 0:
-            pot_before_bet = max(pot_total - call_amount, 1)
-            bet_size_pot_ratio = float(call_amount) / float(pot_before_bet)
+            pot_before_bet_calc = max(pot_total - call_amount, 1)
+            bet_size_pot_ratio = float(call_amount) / float(pot_before_bet_calc)
+
+        # Plan §4: bet-size bucket + required equity. Consumed by §2's
+        # defense floor (joint with hand_class / nut_status) and by
+        # bet-size-aware diagnostics. Uses the same call_amount and
+        # pot_before_bet inputs as bet_size_pot_ratio above so the two
+        # views are consistent.
+        from .strategy.bet_size_classification import classify_bet_size
+        bet_class = classify_bet_size(
+            call_amount=call_amount,
+            pot_before_bet=pot_before_bet_calc,
+            facing_all_in=facing_all_in,
+        )
 
         # Street label normalized lowercase ('flop' / 'turn' / 'river' / '').
         street_label = ''
@@ -2045,6 +2070,8 @@ class TieredBotController(AIPlayerController):
             street=street_label,
             board_texture=board_texture,
             is_paired_board=is_paired_board,
+            bet_bucket=bet_class.bucket,
+            required_equity=bet_class.required_equity,
         )
 
     def _zone_to_tilt_factor(self, emotional_state) -> float:
