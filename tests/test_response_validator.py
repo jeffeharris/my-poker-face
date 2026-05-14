@@ -1,5 +1,65 @@
 """Tests for response_validator, focusing on dramatic_sequence normalization."""
-from poker.response_validator import normalize_dramatic_sequence, ResponseValidator
+import json
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+from poker.response_validator import (
+    needs_llm_normalization,
+    llm_normalize_beats,
+    normalize_dramatic_sequence,
+    ResponseValidator,
+)
+
+
+class TestNeedsLlmNormalization:
+    def test_empty_is_clean(self):
+        assert needs_llm_normalization([]) is False
+
+    def test_pure_action_is_clean(self):
+        assert needs_llm_normalization(["*leans back*"]) is False
+
+    def test_pure_speech_is_clean(self):
+        assert needs_llm_normalization(["I'm calling."]) is False
+
+    def test_mixed_action_and_speech_is_dirty(self):
+        assert needs_llm_normalization(["*leans back* I'm in"]) is True
+
+    def test_quote_wrapped_is_dirty(self):
+        assert needs_llm_normalization(['"leans back"']) is True
+
+    def test_multiple_asterisks_is_dirty(self):
+        assert needs_llm_normalization(["*one* *two*"]) is True
+
+    def test_non_string_is_dirty(self):
+        assert needs_llm_normalization([42]) is True
+
+
+class TestLlmNormalizeBeats:
+    def test_returns_cleaned_beats_on_success(self):
+        mock = MagicMock()
+        mock.complete.return_value = SimpleNamespace(
+            content=json.dumps({"beats": ["*leans back*", "I'm in."]})
+        )
+        result = llm_normalize_beats(["*leans back* I'm in."], mock)
+        assert result == ["*leans back*", "I'm in."]
+
+    def test_falls_back_on_llm_failure(self):
+        mock = MagicMock()
+        mock.complete.side_effect = RuntimeError("api down")
+        original = ["*leans back* I'm in."]
+        # Defensive degradation — return the input untouched
+        assert llm_normalize_beats(original, mock) == original
+
+    def test_falls_back_on_bad_json(self):
+        mock = MagicMock()
+        mock.complete.return_value = SimpleNamespace(content="not json")
+        original = ["weird beat"]
+        assert llm_normalize_beats(original, mock) == original
+
+    def test_empty_input_short_circuits(self):
+        mock = MagicMock()
+        assert llm_normalize_beats([], mock) == []
+        mock.complete.assert_not_called()
 
 
 class TestNormalizeDramaticSequence:

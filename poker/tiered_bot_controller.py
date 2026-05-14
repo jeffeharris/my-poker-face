@@ -2231,6 +2231,17 @@ class TieredBotController(AIPlayerController):
                 game_state, player, hand_cards, community_cards,
             )
 
+            # Narration gates via the shared parent helper — identical to
+            # hybrid/chaos's "when to speak" rolls. Tiered additionally
+            # uses should_gesture (energy-driven) so silent characters can
+            # still react physically; when BOTH are False we skip the LLM
+            # call entirely since the decision already has empty defaults.
+            gate = self.compute_narration_gate(game_state, drama_level=drama_level)
+            should_speak = gate.should_speak
+            should_gesture = gate.should_gesture
+            if gate.fully_silent:
+                return
+
             # Phase 7.6 Step 5: build NarrationFacts from the per-decision
             # intervention trace. Best-effort — failure here logs WARN and
             # leaves narration_facts as None (LLM falls back to the
@@ -2264,6 +2275,8 @@ class TieredBotController(AIPlayerController):
                 cost_to_call_bb=extras['cost_to_call_bb'],
                 hand_name=extras['hand_name'],
                 recent_actions=extras['recent_actions'],
+                should_speak=should_speak,
+                should_gesture=should_gesture,
                 narration_facts=narration_facts,
             )
 

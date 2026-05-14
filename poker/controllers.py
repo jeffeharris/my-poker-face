@@ -1,4 +1,5 @@
 import json
+import random
 from datetime import datetime
 from typing import List, Optional, Dict, Tuple
 import logging
@@ -682,6 +683,124 @@ class AIPlayerController:
         """Get current trait values from psychology (elastic personality)."""
         return self.psychology.traits
 
+    def _get_cleanup_client(self):
+        """Lazy fast-tier LLM client for dramatic_sequence beat cleanup.
+
+        Built on first use so callers that never produce malformed beats
+        never pay the cost of instantiating a second client. Falls back
+        to the decision-time client if the fast-tier config can't be
+        loaded.
+        """
+        client = getattr(self, '_cleanup_client_cache', None)
+        if client is not None:
+            return client
+        try:
+            from core.llm import LLMClient
+            from core.llm.settings import get_fast_provider, get_fast_model
+            client = LLMClient(
+                provider=get_fast_provider(),
+                model=get_fast_model(),
+            )
+        except Exception as e:
+            logger.warning(
+                f"[CLEANUP_CLIENT] Falling back to decision client: {e}"
+            )
+            client = getattr(self.assistant, '_client', None) or self.assistant
+        self._cleanup_client_cache = client
+        return client
+
+    def compute_narration_gate(
+        self,
+        game_state,
+        drama_level: str = 'routine',
+        game_messages=None,
+    ) -> 'NarrationGate':
+        """Roll the per-turn speech + gesture gates for this bot.
+
+        Single source of truth for "when does the bot talk / react?" so
+        hybrid (full-prompt path) and tiered (expression layer) share
+        identical behavior. Both axes can fail silently and default to
+        permissive (True) — better to occasionally over-narrate than mute
+        a bot due to an unrelated error.
+
+        Args:
+            game_state: current PokerGameState — drives situational
+                modifiers (big_pot, all_in, heads_up, etc.).
+            drama_level: 'routine' | 'notable' | 'high_stakes' | 'climactic'
+                from MomentAnalyzer. Boosts the gesture roll on big spots
+                so even reserved characters react physically when stakes
+                spike. Defaults to 'routine' for callers that don't track
+                drama yet.
+            game_messages: optional raw message list — currently unused by
+                _build_game_context but passed through for forward-compat
+                (address-detection, long-silence modifiers).
+
+        Returns:
+            NarrationGate with should_speak / should_gesture booleans.
+        """
+        from .narration_gate import NarrationGate
+
+        # Speech roll — chattiness trait × situation
+        try:
+            traits = self.get_current_personality_traits() or {}
+            chattiness = float(traits.get(
+                'table_talk', traits.get('chattiness', 0.5)
+            ))
+        except Exception:
+            chattiness = 0.5
+
+        try:
+            ctx = self._build_game_context(game_state, game_messages) or {}
+        except Exception:
+            ctx = {}
+        if drama_level == 'climactic':
+            ctx['big_pot'] = True
+
+        try:
+            should_speak = bool(self.chattiness_manager.should_speak(
+                self.player_name, chattiness, ctx,
+            ))
+        except Exception as e:
+            logger.debug(
+                f"[NARRATION] {self.player_name}: speech roll failed safely: {e}"
+            )
+            should_speak = True
+
+        # Gesture roll — psychology.energy × drama-level boost. Independent
+        # of speech so a silent character can still slam chips when the
+        # pot blows up. Tuned so even reserved characters react frequently
+        # — players gesture on most hands at a real table; only the chatty
+        # roll is rare.
+        #   energy 0.0 → 40%  (reserved but still present)
+        #   energy 0.5 → 64%
+        #   energy 1.0 → 95%
+        # Plus +30% on climactic moments, +15% on high-stakes.
+        try:
+            psy = getattr(self, 'psychology', None)
+            energy = float(getattr(psy, 'energy', 0.5)) if psy else 0.5
+            probability = 0.40 + (energy ** 1.2) * 0.55
+            if drama_level == 'climactic':
+                probability += 0.30
+            elif drama_level == 'high_stakes':
+                probability += 0.15
+            probability = max(0.0, min(1.0, probability))
+            should_gesture = random.random() < probability
+        except Exception as e:
+            logger.debug(
+                f"[NARRATION] {self.player_name}: gesture roll failed safely: {e}"
+            )
+            should_gesture = True
+
+        logger.debug(
+            f"[NARRATION] {self.player_name}: "
+            f"speak={should_speak} gesture={should_gesture} drama={drama_level}"
+        )
+
+        return NarrationGate(
+            should_speak=should_speak,
+            should_gesture=should_gesture,
+        )
+
     @property
     def personality_traits(self):
         """Compatibility property for ai_resilience fallback."""
@@ -751,15 +870,17 @@ class AIPlayerController:
         big_blind = game_state.current_ante or 100
         game_messages = _convert_messages_to_bb(game_messages, big_blind)
 
-        # Get current table_talk trait and determine if should speak
+        # Narration gate — shared with tiered/sharp path via
+        # compute_narration_gate so "when to speak" behavior stays
+        # identical across bot types. table_talk is still resolved
+        # locally so _build_chattiness_guidance can show its level.
         current_traits = self.get_current_personality_traits()
         table_talk = current_traits.get('table_talk', current_traits.get('chattiness', 0.5))
-
-        # Build game context for chattiness decision (use original messages for address detection)
-        game_context = self._build_game_context(game_state, original_messages)
-        should_speak = self.chattiness_manager.should_speak(
-            self.player_name, table_talk, game_context
+        gate = self.compute_narration_gate(
+            game_state, game_messages=original_messages,
         )
+        should_speak = gate.should_speak
+        should_gesture = gate.should_gesture
         speaking_context = self.chattiness_manager.get_speaking_context(self.player_name)
 
         # Build message with game state — always BB-normalized, pot odds handled by YAML template
@@ -788,7 +909,8 @@ class AIPlayerController:
         # Add chattiness guidance to message (if enabled)
         if self.prompt_config.chattiness:
             chattiness_guidance = self._build_chattiness_guidance(
-                table_talk, should_speak, speaking_context, player_options
+                table_talk, should_speak, speaking_context, player_options,
+                should_gesture=should_gesture,
             )
             message = message + "\n\n" + chattiness_guidance
 
@@ -839,11 +961,30 @@ class AIPlayerController:
             big_blind=game_state.current_ante or 100,
         )
         
-        # Clean response based on speaking decision
+        # Clean response based on narration gate. should_gesture lets a
+        # silent character keep *action* beats when not speaking; both
+        # False strips dramatic_sequence entirely.
         cleaned_response = self.response_validator.clean_response(
             response_dict,
-            {'should_speak': should_speak}
+            {'should_speak': should_speak, 'should_gesture': should_gesture}
         )
+
+        # LLM-based beat cleanup — shared with the tiered/sharp path.
+        # When the cheap heuristic flags malformed beats (mixed action+
+        # speech, missing asterisks, quote-wrapped), a fast-tier model
+        # repairs the format while preserving wording. Silent on failure.
+        seq = cleaned_response.get('dramatic_sequence')
+        if seq:
+            from .response_validator import (
+                needs_llm_normalization, llm_normalize_beats,
+            )
+            if needs_llm_normalization(seq):
+                cleaned_response['dramatic_sequence'] = llm_normalize_beats(
+                    seq,
+                    self._get_cleanup_client(),
+                    game_id=self.game_id,
+                    player_name=self.player_name,
+                )
 
         # Capture DecisionPlan for reflection system (if enabled)
         if self.prompt_config.strategic_reflection:
@@ -1918,8 +2059,15 @@ class AIPlayerController:
 
 
     def _build_chattiness_guidance(self, chattiness: float, should_speak: bool,
-                                  speaking_context: Dict, valid_actions: List[str]) -> str:
-        """Build guidance for AI about speaking behavior."""
+                                  speaking_context: Dict, valid_actions: List[str],
+                                  should_gesture: bool = True) -> str:
+        """Build guidance for AI about speaking + gesturing behavior.
+
+        Three modes:
+          speak=True                 → full speech + actions encouraged
+          speak=False, gesture=True  → quiet reaction: *action* beats only
+          speak=False, gesture=False → fully silent, no dramatic_sequence
+        """
         guidance = f"Your chattiness level: {chattiness:.1f}/1.0\n"
 
         if should_speak:
@@ -1928,6 +2076,13 @@ class AIPlayerController:
                 self.player_name, chattiness
             )
             guidance += f"Speaking style: {style}\n"
+        elif should_gesture:
+            guidance += "You don't feel like talking this turn — no speech.\n"
+            guidance += (
+                "You MAY still react physically: 1–2 short *action* beats "
+                "(gestures only, lowercase, wrapped in asterisks) are fine "
+                "if the moment warrants it. NEVER include speech beats.\n"
+            )
         else:
             guidance += "You don't feel like talking this turn. Stay quiet.\n"
             guidance += "Focus on your action and inner thoughts only.\n"

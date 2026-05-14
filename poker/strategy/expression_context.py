@@ -69,6 +69,20 @@ class ExpressionContext:
     # can reference opponents by name.
     recent_actions: str = ''
 
+    # Narration gates. Chattiness controls speech (matches hybrid's
+    # ChattinessManager flow); energy controls physical gestures so a
+    # silent character can still react with body language on the right
+    # moments. Combinations:
+    #   speak=T, gesture=T → full speech + actions (default)
+    #   speak=F, gesture=T → quiet reaction: only *action* beats, no speech
+    #   speak=F, gesture=F → fully silent (caller may skip the LLM entirely)
+    #   speak=T, gesture=F → unusual; treated as full speak for now
+    # When speak is False the generator strips speech beats from any
+    # response. inner_monologue / hand_strategy are still produced — they
+    # are debug-only fields, not visible table chat.
+    should_speak: bool = True
+    should_gesture: bool = True
+
     # Phase 7.6 Step 5: per-decision strategy reads from the
     # intervention trace, mapped via narration_facts adapter. When
     # present and non-empty, ExpressionGenerator appends a

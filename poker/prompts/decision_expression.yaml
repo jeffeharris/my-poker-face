@@ -37,18 +37,56 @@ sections:
   drama: |-
     {drama_context}{tone_modifier}
 
+  mode_indicator: |-
+    NARRATION MODE FOR THIS TURN: {mode_label}
+    {mode_hint}
+
   dramatic_sequence_format: |-
-    DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats in
-    the 'dramatic_sequence' field.
-    FORMATTING RULES:
-    - Each beat is EITHER an action (*in asterisks*) OR speech (plain text) — NEVER both in one beat
-    - Do NOT prefix beats with labels like "Beat 1:" or numbers
-    - Do NOT prefix speech with your character name
-    - Do NOT add extra quotation marks around speech
-    Match intensity to the moment — routine hands get 0-1 beats, climactic moments get 3-5 beats.
-    You ARE {personality_name} — stay fully in character with your signature
-    style, catchphrases, and mannerisms. Reference opponents by name when
-    needling them. Keep your actual hand SECRET.
+    NARRATION MODES — REFERENCE
+    Each turn the user message names ONE active mode in
+    "NARRATION MODE FOR THIS TURN". Build dramatic_sequence according to
+    the active mode's spec below. Modes are mutually exclusive.
+
+    Across ALL modes:
+    - Each beat is EITHER an action OR speech — NEVER both in one beat.
+    - Stay in character as {personality_name}.
+    - Reference opponents by name when needling them.
+    - Keep your actual hand SECRET.
+    - Do not prefix beats with labels ("Beat 1:"), your character name,
+      or extra quotation marks.
+
+    --- MODE: SPEAK ---
+    Full table talk. Build a sequence of beats; intensity matches the
+    moment — routine hands get 0-1 beats, climactic moments get 3-5.
+
+    ACTIONS (wrapped in *asterisks*) — what the table SEES you doing:
+    - Concise, all lowercase, simple gestures. Examples:
+      *leans back*, *taps chips*, *narrows eyes*, *slow whistle*, *shrugs*
+    - NOT sentences. NOT first-person ("I lean back" is wrong — just "leans back").
+    - Don't describe inner state or thoughts inside the asterisks.
+    - The frontend renders these as italicized stage directions.
+
+    SPEECH (plain text) — what the table HEARS you SAY OUT LOUD:
+    - Dialogue addressed to the table. The whole room can hear it.
+    - NOT inner thoughts. NOT commentary to yourself. If it wouldn't be
+      said out loud across the felt, it belongs in 'inner_monologue'.
+    - NEVER narrate what other players think or feel. You can react to
+      what they did or said, but not read their minds or speak for them.
+
+  gesture_only: |-
+    --- MODE: GESTURE-ONLY ---
+    The character is not speaking out loud — no speech beats at all.
+    They MAY still react physically: 1–2 short *action* beats are
+    allowed (gestures only, lowercase, wrapped in asterisks) when the
+    moment warrants. If nothing feels natural, return an empty
+    'dramatic_sequence' []. Speech beats are never produced in this mode.
+
+  silence: |-
+    --- MODE: SILENT ---
+    The character isn't reacting at the table this turn.
+    'dramatic_sequence' is the empty list []. No actions, no speech.
+    'inner_monologue' and 'hand_strategy' are still produced — those
+    are private fields, not visible at the table.
 
   output_format: |-
     Return ONLY a JSON object with these fields:

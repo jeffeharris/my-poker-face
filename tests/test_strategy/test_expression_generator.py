@@ -193,11 +193,22 @@ def test_generate_without_holder_omits_enricher(context, prompt_manager):
     assert mock_llm.complete.call_args.kwargs.get('capture_enricher') is None
 
 
-def _capture_prompt(mock_llm) -> str:
-    """Extract the rendered prompt string passed to llm_client.complete."""
+def _capture_messages(mock_llm):
+    """Return the (system, user) message contents from the mock call."""
     call = mock_llm.complete.call_args
     messages = call.kwargs.get('messages') or call.args[0]
-    return messages[0]['content']
+    by_role = {m['role']: m['content'] for m in messages}
+    return by_role.get('system', ''), by_role.get('user', '')
+
+
+def _capture_prompt(mock_llm) -> str:
+    """Backward-compat: return system + user content joined.
+
+    Tests that just look for a substring anywhere in the prompt keep
+    working after the system/user split.
+    """
+    system, user = _capture_messages(mock_llm)
+    return f"{system}\n\n{user}"
 
 
 def _stub_response():
@@ -207,6 +218,30 @@ def _stub_response():
         'hand_strategy': '',
         'bluff_likelihood': 0,
     }))
+
+
+def test_system_user_split(context, prompt_manager):
+    """System message holds stable persona + format rules; user holds dynamic context."""
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = _stub_response()
+
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    gen.generate(context)
+
+    system, user = _capture_messages(mock_llm)
+
+    # System: persona, all 3 mode rule blocks, output spec
+    assert 'Test Character' in system  # persona intro
+    assert 'OUTPUT FORMAT' in system or 'dramatic_sequence' in system
+    assert 'GESTURE-ONLY' in system or 'gesture' in system.lower()
+    assert 'SPEAK' in system.upper()
+    # Mode indicator is per-turn → user
+    assert 'NARRATION MODE FOR THIS TURN' in user
+    assert 'SPEAK' in user
+
+    # Dynamic context lives in user, not system
+    assert 'Action you took' in user
+    assert 'Action you took' not in system
 
 
 def test_optional_sections_omitted_when_fields_empty(context, prompt_manager):
@@ -220,9 +255,10 @@ def test_optional_sections_omitted_when_fields_empty(context, prompt_manager):
     prompt = _capture_prompt(mock_llm)
     assert 'Your read on your hand' not in prompt
     assert 'Recent actions at the table' not in prompt
-    # Format rules always present (no input variables)
-    assert 'DRAMATIC SEQUENCE' in prompt
-    assert 'FORMATTING RULES' in prompt
+    # Format rules always present (now live in the system message as
+    # mode descriptions, picked by the user-side mode_indicator)
+    assert 'NARRATION MODES' in prompt
+    assert 'MODE: SPEAK' in prompt
 
 
 def test_optional_sections_render_when_fields_populated(prompt_manager):

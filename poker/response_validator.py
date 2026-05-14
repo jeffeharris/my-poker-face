@@ -26,6 +26,102 @@ def _clean_speech(text: str) -> str:
     return text.strip().strip(_SPEECH_ARTIFACT_CHARS).strip()
 
 
+def needs_llm_normalization(beats: List[str]) -> bool:
+    """Cheap heuristic — should we ask the fast LLM to clean these beats?
+
+    Returns True when at least one beat looks malformed: mixed action and
+    speech in one entry, missing asterisks on a likely gesture, literal
+    quote chars wrapping the beat, or a non-string element. For
+    already-clean output this returns False so we don't burn a fast-tier
+    call on every turn.
+
+    Clean shapes (skipped):
+    - Pure action:  starts and ends with exactly one *...* pair.
+    - Pure speech:  no asterisks, no surrounding quotes.
+    """
+    if not beats:
+        return False
+    for beat in beats:
+        if not isinstance(beat, str):
+            return True
+        text = beat.strip()
+        if not text:
+            continue
+        if text.startswith('*') and text.endswith('*') and text.count('*') == 2:
+            continue
+        if '*' not in text:
+            if text[0] in '"\'' and len(text) >= 2 and text[-1] in '"\'':
+                return True  # quote-wrapped speech/action
+            continue
+        return True  # has asterisks but isn't a single pure action
+    return False
+
+
+def llm_normalize_beats(
+    beats: List[str],
+    llm_client,
+    game_id: Optional[str] = None,
+    player_name: Optional[str] = None,
+) -> List[str]:
+    """Ask a fast-tier LLM to clean dramatic_sequence beats.
+
+    The model is told to: split mixed action+speech beats, wrap orphan
+    gestures in asterisks, strip literal quote chars, drop empties,
+    preserve order, and never paraphrase. Any failure falls back to the
+    original beats — defensive degradation rather than dropping table
+    talk on a transient API issue.
+    """
+    if not beats:
+        return beats
+    try:
+        import json as _json
+        from core.llm.tracking import CallType
+
+        prompt = (
+            "Clean the following dramatic_sequence beats from a poker AI character.\n"
+            "Each beat MUST be EITHER:\n"
+            "  - an ACTION: a short lowercase gesture wrapped in *asterisks* "
+            "(e.g. *leans back*, *taps chips*, *narrows eyes*)\n"
+            "  - or SPEECH: plain text dialogue the table can hear (no asterisks).\n"
+            "\n"
+            "Rules:\n"
+            "- If a beat mixes an action and speech, SPLIT into separate beats.\n"
+            "- If a beat is clearly a gesture without asterisks (e.g. 'leans back', "
+            "'shrugs'), wrap it: *leans back*.\n"
+            "- Strip surrounding literal quote characters from beats.\n"
+            "- Drop empty beats.\n"
+            "- Preserve the original order.\n"
+            "- DO NOT paraphrase or invent content. Output the same words, just "
+            "correctly formatted.\n"
+            "\n"
+            "Input beats (JSON array):\n"
+            f"{_json.dumps(beats)}\n"
+            "\n"
+            "Return ONLY JSON: {\"beats\": [<cleaned beat strings, in order>]}"
+        )
+
+        response = llm_client.complete(
+            messages=[
+                {"role": "system", "content": "You are a precise text-formatting tool. Output only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            json_format=True,
+            call_type=CallType.NARRATION_CLEANUP,
+            game_id=game_id,
+            player_name=player_name,
+            prompt_template='beat_normalizer',
+        )
+        import json as _json2
+        data = _json2.loads(response.content)
+        cleaned = data.get('beats', None) if isinstance(data, dict) else None
+        if not isinstance(cleaned, list):
+            return beats
+        return [str(b) for b in cleaned if isinstance(b, str) and b]
+    except Exception as e:
+        logger.warning(f"[BEAT_NORMALIZER] LLM cleanup failed safely: {e}")
+        return beats
+
+
 def normalize_dramatic_sequence(beats: List[str]) -> List[str]:
     """Split mixed dramatic_sequence beats into separate action and speech beats.
 
@@ -193,11 +289,26 @@ class ResponseValidator:
         """
         cleaned = response.copy()
         context = context or {}
-        
-        # Remove speech-related fields if player shouldn't speak
-        if context.get("should_speak") == False:
-            cleaned.pop("dramatic_sequence", None)
-            logger.debug(f"Removed speech fields for quiet player")
+
+        # Narration-mode filter. should_gesture is opt-in (default False)
+        # so callers that only set should_speak get the legacy strict-strip
+        # behavior. When speak is False:
+        #   gesture=True  → keep only *action* beats (silent gesturing)
+        #   gesture=False → strip dramatic_sequence entirely (legacy)
+        should_speak = context.get("should_speak", True)
+        should_gesture = context.get("should_gesture", False)
+        if should_speak == False:
+            if should_gesture and isinstance(cleaned.get("dramatic_sequence"), list):
+                cleaned["dramatic_sequence"] = [
+                    b for b in cleaned["dramatic_sequence"]
+                    if isinstance(b, str)
+                    and b.strip().startswith('*')
+                    and b.strip().endswith('*')
+                ]
+                logger.debug("Stripped speech beats — gesture-only mode")
+            else:
+                cleaned.pop("dramatic_sequence", None)
+                logger.debug("Removed speech fields for fully silent player")
 
         # Normalize dramatic_sequence beats (split mixed action+speech)
         if 'dramatic_sequence' in cleaned:
