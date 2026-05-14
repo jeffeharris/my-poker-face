@@ -10,18 +10,33 @@
   "provider": "openai",
   "capture_prompts": true,
   "reset_on_elimination": true,
-  "personalities": ["Batman", "Napoleon", "Sherlock Holmes", "Bob Ross", "Cleopatra"],
+  "personalities": [
+    "Batman",
+    "Napoleon",
+    "Sherlock Holmes",
+    "Bob Ross",
+    "Cleopatra"
+  ],
   "player_types": {
-    "Batman": {"type": "hybrid"},
-    "Napoleon": {"type": "hybrid"},
-    "Sherlock Holmes": {"type": "hybrid"},
-    "Bob Ross": {"type": "hybrid"},
-    "Cleopatra": {"type": "hybrid"}
+    "Batman": {
+      "type": "lean"
+    },
+    "Napoleon": {
+      "type": "lean"
+    },
+    "Sherlock Holmes": {
+      "type": "lean"
+    },
+    "Bob Ross": {
+      "type": "lean"
+    },
+    "Cleopatra": {
+      "type": "lean"
+    }
   },
   "control": {
     "label": "lean-positions",
     "prompt_config": {
-      "lean_bounded": true,
       "style_aware_options": true
     }
   },

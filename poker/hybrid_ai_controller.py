@@ -60,6 +60,9 @@ class HybridAIController(AIPlayerController):
     For the cheaper minimal-prompt path, see LeanBoundedController.
     """
 
+    # LeanBoundedController overrides this so captures still tag lean decisions.
+    LEAN_BOUNDED: bool = False
+
     def __init__(
         self,
         player_name: str,
@@ -489,7 +492,6 @@ CRITICAL RULES:
         player = game_state.current_player
         big_blind = game_state.current_ante or 100
 
-        lean = getattr(self.prompt_config, 'lean_bounded', False)
         rd = range_data or {}
 
         # Capture emotional shift state at enricher creation time
@@ -500,7 +502,7 @@ CRITICAL RULES:
             # Core hybrid data
             capture_data.update({
                 'hybrid_mode': True,
-                'lean_bounded': lean,
+                'lean_bounded': self.LEAN_BOUNDED,
                 'style_profile': profile_key,
                 'bounded_options': [o.to_dict() for o in options],
                 'equity': context.get('equity'),

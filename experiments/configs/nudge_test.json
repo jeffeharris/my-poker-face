@@ -2,7 +2,12 @@
   "name": "nudge_test",
   "description": "Test composed nudges (playstyle-colored phrases replacing raw EV labels) vs raw EV labels in lean bounded mode. Nudges use differential tone (decisive raise phrases vs accepting call phrases) to guide LLM selection.",
   "hypothesis": "Replacing raw [+EV]/[-EV] labels with playstyle-colored nudge phrases will increase raise-selection rate when a +EV raise is available (target: >40%, up from 29%).",
-  "tags": ["nudges", "lean-bounded", "option-framing", "raise-rate"],
+  "tags": [
+    "nudges",
+    "lean-bounded",
+    "option-framing",
+    "raise-rate"
+  ],
   "num_tournaments": 10,
   "hands_per_tournament": 50,
   "num_players": 4,
@@ -13,18 +18,30 @@
   "capture_prompts": true,
   "reset_on_elimination": true,
   "parallel_tournaments": 10,
-  "personalities": ["Sun Tzu", "Abraham Lincoln", "Blackbeard", "Mark Twain"],
+  "personalities": [
+    "Sun Tzu",
+    "Abraham Lincoln",
+    "Blackbeard",
+    "Mark Twain"
+  ],
   "player_types": {
-    "Sun Tzu": {"type": "hybrid"},
-    "Abraham Lincoln": {"type": "hybrid"},
-    "Blackbeard": {"type": "hybrid"},
-    "Mark Twain": {"type": "hybrid"}
+    "Sun Tzu": {
+      "type": "lean"
+    },
+    "Abraham Lincoln": {
+      "type": "lean"
+    },
+    "Blackbeard": {
+      "type": "lean"
+    },
+    "Mark Twain": {
+      "type": "lean"
+    }
   },
   "control": {
     "label": "lean-raw-ev",
     "enable_psychology": true,
     "prompt_config": {
-      "lean_bounded": true,
       "style_aware_options": true,
       "composed_nudges": false
     }
@@ -34,7 +51,6 @@
       "label": "lean-nudges",
       "enable_psychology": true,
       "prompt_config": {
-        "lean_bounded": true,
         "style_aware_options": true,
         "composed_nudges": true
       }
@@ -43,7 +59,6 @@
       "label": "lean-nudges-rangegate",
       "enable_psychology": true,
       "prompt_config": {
-        "lean_bounded": true,
         "style_aware_options": true,
         "composed_nudges": true,
         "preflop_range_gate": true

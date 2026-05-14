@@ -56,6 +56,7 @@ export interface Player {
   psychology?: PlayerPsychology;
   observation?: OpponentObservation;
   pressure_summary?: PlayerPressureSummary;
+  is_rule_bot?: boolean;  // True for deterministic bots (CaseBot, GTO-Lite, BaselineSolver) — drives bot badge overlay
   last_action?: 'check' | 'call' | 'raise' | 'fold' | 'all_in' | null;  // Most recent action
   llm_debug?: LLMDebugInfo;  // AI model stats (debug mode only)
 }

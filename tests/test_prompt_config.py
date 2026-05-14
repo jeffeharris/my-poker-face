@@ -170,7 +170,6 @@ class TestPromptConfig(unittest.TestCase):
             gto_equity=True,
             gto_verdict=True,
             use_simple_response_format=True,
-            lean_bounded=True,
             composed_nudges=True,
             option_order='shuffle',
             preflop_range_gate=True,

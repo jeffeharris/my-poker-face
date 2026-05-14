@@ -1,14 +1,14 @@
-"""Shared factory for constructing TieredBotController instances.
+"""Shared factory for constructing TieredBotController / BaselineSolverBot instances.
 
-Used by both `api_new_game()` (creating a new live game) and
-`restore_ai_controllers()` (rehydrating a tiered bot after server restart).
+Used by `api_new_game()` (creating a new live game) and
+`restore_ai_controllers()` (rehydrating after server restart).
 Mirrors the canonical pattern in experiments/run_ai_tournament.py.
 """
 
 import logging
 from typing import Optional
 
-from poker.tiered_bot_controller import TieredBotController
+from poker.tiered_bot_controller import TieredBotController, BaselineSolverBot
 from poker.strategy.strategy_table import load_strategy_table, load_hu_strategy_table
 from poker.strategy.expression_generator import ExpressionGenerator
 from core.llm import LLMClient, CallType
@@ -27,12 +27,19 @@ def build_tiered_controller(
     decision_analysis_repo=None,
     expression_enabled: bool = True,
     debug_logging: bool = False,
+    baseline: bool = False,
 ) -> TieredBotController:
-    """Build a TieredBotController, optionally with the Layer 3 expression generator wired."""
+    """Build a TieredBotController, optionally with the Layer 3 expression generator wired.
+
+    Args:
+        baseline: If True, instantiate BaselineSolverBot (pure solver, no personality
+            distortion, no expression layer regardless of expression_enabled).
+    """
     llm_config = llm_config or {}
     strategy_table = load_strategy_table()
     hu_strategy_table = load_hu_strategy_table()  # None if file missing
-    controller = TieredBotController(
+    controller_cls = BaselineSolverBot if baseline else TieredBotController
+    controller = controller_cls(
         player_name=player_name,
         state_machine=state_machine,
         strategy_table=strategy_table,
@@ -45,7 +52,9 @@ def build_tiered_controller(
         debug_logging=debug_logging,
     )
 
-    if expression_enabled:
+    # Baseline solver intentionally skips the expression layer — it's the
+    # "pure GTO, no personality" option.
+    if expression_enabled and not baseline:
         llm_client = LLMClient(
             provider=llm_config.get('provider', 'openai'),
             model=llm_config.get('model'),

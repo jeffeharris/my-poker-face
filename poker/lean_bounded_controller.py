@@ -67,6 +67,8 @@ class LeanBoundedController(HybridAIController):
     pipeline; sends only cards + numbered options to the LLM.
     """
 
+    LEAN_BOUNDED: bool = True
+
     LEAN_SYSTEM_PROMPT = (
         'You are a poker player. Pick one option. '
         'Return JSON: {"reasoning": "1-2 sentences explaining your choice", "choice": <number>}'

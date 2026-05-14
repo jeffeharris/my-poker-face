@@ -2,7 +2,13 @@
   "name": "hu_eval_2player_groq",
   "description": "2-player HU archetype comparison using Groq llama-3.1-8b-instant. Tests whether a fast, small open-source model follows the bounded options HU widening signals.",
   "hypothesis": "Llama 8B should follow prompt signals well like nano, producing appropriately wide HU VPIP for both archetypes.",
-  "tags": ["heads-up-eval", "2player", "groq", "llama", "archetype"],
+  "tags": [
+    "heads-up-eval",
+    "2player",
+    "groq",
+    "llama",
+    "archetype"
+  ],
   "num_tournaments": 10,
   "hands_per_tournament": 50,
   "num_players": 2,
@@ -13,16 +19,22 @@
   "capture_prompts": true,
   "reset_on_elimination": true,
   "parallel_tournaments": 5,
-  "personalities": ["Sun Tzu", "Blackbeard"],
+  "personalities": [
+    "Sun Tzu",
+    "Blackbeard"
+  ],
   "player_types": {
-    "Sun Tzu": {"type": "hybrid"},
-    "Blackbeard": {"type": "hybrid"}
+    "Sun Tzu": {
+      "type": "lean"
+    },
+    "Blackbeard": {
+      "type": "lean"
+    }
   },
   "control": {
     "label": "hu-tag-vs-lag-groq",
     "enable_psychology": true,
     "prompt_config": {
-      "lean_bounded": true,
       "style_aware_options": true,
       "composed_nudges": true,
       "preflop_range_gate": true

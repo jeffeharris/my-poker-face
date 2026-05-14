@@ -51,7 +51,9 @@ interface LLMConfig {
   max_blind?: number;
 }
 
-type BotType = 'chaos' | 'standard' | 'lean' | 'sharp';
+type BotType =
+  | 'chaos' | 'standard' | 'lean' | 'sharp'
+  | 'casebot' | 'gto_lite' | 'baseline_solver';
 
 interface CustomGameConfigProps {
   onStartGame: (
@@ -982,10 +984,17 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
                     }))}
                     disabled={useDefaults}
                   >
-                    <option value="standard">Standard (default)</option>
-                    <option value="chaos">Chaos — full LLM, full personality</option>
-                    <option value="lean">Lean — cheap LLM, options-bounded</option>
-                    <option value="sharp">Sharp — solver-based GTO</option>
+                    <optgroup label="LLM-driven">
+                      <option value="standard">Standard (default)</option>
+                      <option value="chaos">Chaos — full LLM, full personality</option>
+                      <option value="lean">Lean — cheap LLM, options-bounded</option>
+                      <option value="sharp">Sharp — solver-based GTO</option>
+                    </optgroup>
+                    <optgroup label="Training bots (deterministic, no chat)">
+                      <option value="casebot">CaseBot — adaptive case-based rules</option>
+                      <option value="gto_lite">GTO-Lite — pot-odds math</option>
+                      <option value="baseline_solver">BaselineSolver — pure solver, no personality</option>
+                    </optgroup>
                   </select>
                 </div>
               </div>

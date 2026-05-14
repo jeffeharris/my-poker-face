@@ -2,7 +2,14 @@
   "name": "lag_reraise_awareness_test",
   "description": "Post-change validation of LAG fixes: bet sizing fallback, re-raise awareness (EV demotion + escalation annotation + preflop action context), LAG call threshold rebalance (1.5->1.3, 0.75->0.60), tactical nudge phrases. Same config as 113867 winner (ev-per-profile) for direct comparison.",
   "hypothesis": "Napoleon's raise/call ratio should shift from 76%/2% toward ~55%/15%+ with more balanced action selection. VPIP spread should remain >50pp.",
-  "tags": ["lag-fix", "reraise-awareness", "bet-sizing", "nudge-rework", "call-threshold", "lean-bounded"],
+  "tags": [
+    "lag-fix",
+    "reraise-awareness",
+    "bet-sizing",
+    "nudge-rework",
+    "call-threshold",
+    "lean-bounded"
+  ],
   "num_tournaments": 10,
   "hands_per_tournament": 30,
   "num_players": 4,
@@ -13,18 +20,30 @@
   "capture_prompts": true,
   "reset_on_elimination": true,
   "parallel_tournaments": 10,
-  "personalities": ["Joan of Arc", "Buddha", "Alice", "Napoleon"],
+  "personalities": [
+    "Joan of Arc",
+    "Buddha",
+    "Alice",
+    "Napoleon"
+  ],
   "player_types": {
-    "Joan of Arc": {"type": "hybrid"},
-    "Buddha": {"type": "hybrid"},
-    "Alice": {"type": "hybrid"},
-    "Napoleon": {"type": "hybrid"}
+    "Joan of Arc": {
+      "type": "lean"
+    },
+    "Buddha": {
+      "type": "lean"
+    },
+    "Alice": {
+      "type": "lean"
+    },
+    "Napoleon": {
+      "type": "lean"
+    }
   },
   "control": {
     "label": "ev-per-profile",
     "enable_psychology": true,
     "prompt_config": {
-      "lean_bounded": true,
       "style_aware_options": true,
       "composed_nudges": true,
       "preflop_range_gate": true,
@@ -36,7 +55,6 @@
       "label": "ev-always-show",
       "enable_psychology": true,
       "prompt_config": {
-        "lean_bounded": true,
         "style_aware_options": true,
         "composed_nudges": true,
         "preflop_range_gate": true,

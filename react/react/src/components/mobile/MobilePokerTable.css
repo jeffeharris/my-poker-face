@@ -429,6 +429,23 @@
     box-shadow: 0 0 12px rgba(212, 165, 116, 0.4);
 }
 
+/* Rule-bot badge (CaseBot, GTO-Lite, BaselineSolver) */
+.bot-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    z-index: 3;
+    width: 20px;
+    height: 20px;
+    background: var(--color-bg-void, #0a0a0a);
+    color: var(--color-text-primary, #e5e5e5);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid var(--color-text-secondary, #9ca3af);
+}
+
 /* AI Debug mode - tappable avatars */
 .opponent-avatar.debug-enabled {
     cursor: pointer;

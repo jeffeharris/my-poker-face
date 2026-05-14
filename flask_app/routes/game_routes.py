@@ -890,14 +890,20 @@ def api_new_game():
     # Note: UI warns if starting stack < 10x big blind, but we allow it
 
     # Per-player controller selection (defaults to 'standard' for omitted entries).
-    # Legacy values 'hybrid' / 'tiered' are auto-mapped to 'standard' / 'sharp'.
-    VALID_BOT_TYPES = {'chaos', 'standard', 'lean', 'sharp', 'hybrid', 'tiered'}
+    # Legacy values 'hybrid' / 'tiered' are accepted on input but auto-mapped to
+    # 'standard' / 'sharp' before storage. They are NOT advertised in error
+    # responses so new clients don't pick them up as legitimate choices.
+    VALID_BOT_TYPES = {
+        'chaos', 'standard', 'lean', 'sharp',
+        'casebot', 'gto_lite', 'baseline_solver',
+    }
     _BOT_TYPE_ALIASES = {'hybrid': 'standard', 'tiered': 'sharp'}
+    _ACCEPTED_BOT_TYPES = VALID_BOT_TYPES | set(_BOT_TYPE_ALIASES)
     bot_types = data.get('bot_types', {}) or {}
     if not isinstance(bot_types, dict):
         return jsonify({'error': 'bot_types must be an object mapping player name to bot type'}), 400
     for _name, _bt in bot_types.items():
-        if not isinstance(_name, str) or not isinstance(_bt, str) or _bt not in VALID_BOT_TYPES:
+        if not isinstance(_name, str) or not isinstance(_bt, str) or _bt not in _ACCEPTED_BOT_TYPES:
             return jsonify({
                 'error': f'Invalid bot_type for {_name!r}: {_bt!r}',
                 'valid_bot_types': sorted(VALID_BOT_TYPES),
@@ -1005,6 +1011,35 @@ def api_new_game():
                     capture_label_repo=capture_label_repo,
                     decision_analysis_repo=decision_analysis_repo,
                     expression_enabled=True,
+                )
+            elif bot_type == 'baseline_solver':
+                from flask_app.handlers.tiered_factory import build_tiered_controller
+                new_controller = build_tiered_controller(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=player_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
+                    baseline=True,
+                )
+            elif bot_type in ('casebot', 'gto_lite'):
+                # Rule-based bots exposed in Custom Game for training/practice
+                from poker.rule_bot_controller import RuleBotController
+                strategy_for_type = {
+                    'casebot': 'case_based',
+                    'gto_lite': 'pot_odds_robot',
+                }[bot_type]
+                new_controller = RuleBotController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    strategy=strategy_for_type,
+                    llm_config=player_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
                 )
             elif bot_type == 'chaos':
                 # Full LLM, full personality — no bounded options

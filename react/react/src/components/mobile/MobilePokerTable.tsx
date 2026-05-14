@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
-import { Check, X, MessageCircle } from 'lucide-react';
+import { Check, X, MessageCircle, Bot } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
 import { Card } from '../cards';
@@ -525,6 +525,11 @@ export function MobilePokerTable({
                   opponent.name.charAt(0).toUpperCase()
                 )}
                 {isDealer && <span className="dealer-badge">D</span>}
+                {opponent.is_rule_bot && (
+                  <span className="bot-badge" title="Rule-based training bot">
+                    <Bot size={12} aria-hidden />
+                  </span>
+                )}
                 {/* Debug indicator badge */}
                 {config.ENABLE_AI_DEBUG && opponent.llm_debug && (
                   <span className="debug-badge" title="Tap to view AI model info"></span>

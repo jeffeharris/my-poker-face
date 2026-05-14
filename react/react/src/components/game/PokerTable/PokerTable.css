@@ -186,6 +186,23 @@
     transition: opacity 0.3s ease;
 }
 
+/* Rule-bot badge (CaseBot, GTO-Lite, BaselineSolver) */
+.player-avatar .bot-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 3;
+    width: 22px;
+    height: 22px;
+    background: rgba(10, 10, 10, 0.85);
+    color: #e5e5e5;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid #9ca3af;
+}
+
 .player-avatar .avatar-image.avatar-thinking {
     animation: avatar-thinking-pulse 2s ease-in-out infinite;
 }

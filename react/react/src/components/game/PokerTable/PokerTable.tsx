@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { Bot } from 'lucide-react';
 import { CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
@@ -345,6 +346,11 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                           />
                         ) : (
                           <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
+                        )}
+                        {player.is_rule_bot && (
+                          <span className="bot-badge" title="Rule-based training bot">
+                            <Bot size={14} aria-hidden />
+                          </span>
                         )}
                       </div>
                       <div className="player-details">

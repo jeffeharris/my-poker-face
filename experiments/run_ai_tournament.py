@@ -51,6 +51,7 @@ from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.controllers import AIPlayerController
 from poker.rule_based_controller import RuleBasedController, RuleConfig, CHAOS_BOTS
 from poker.hybrid_ai_controller import HybridAIController
+from poker.lean_bounded_controller import LeanBoundedController
 from poker.repositories import create_repos
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
@@ -856,8 +857,15 @@ class AITournamentRunner:
             else:
                 player_prompt_config = prompt_config
 
-            # Check if this player should use a special controller type
-            player_type_config = (self.config.player_types or {}).get(player.name, {})
+            # Check if this player should use a special controller type.
+            # Variant-level player_types override the experiment-level config, so
+            # different variants can swap controller types (e.g. hybrid vs lean)
+            # while keeping the same personality lineup.
+            variant_player_types = variant_config.get('player_types') if variant_config else None
+            if variant_player_types and player.name in variant_player_types:
+                player_type_config = variant_player_types.get(player.name, {})
+            else:
+                player_type_config = (self.config.player_types or {}).get(player.name, {})
             player_type = player_type_config.get('type')
 
             if player_type == 'rule_bot':
@@ -897,6 +905,21 @@ class AITournamentRunner:
                     opponent_model_manager=memory_manager.get_opponent_model_manager(),
                 )
                 logger.info(f"Player {player.name} using hybrid AI controller")
+            elif player_type == 'lean':
+                # Lean bounded controller: minimal LLM prompt, no parent pipeline.
+                controller = LeanBoundedController(
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=player_llm_config,
+                    game_id=tournament_id,
+                    owner_id=self._owner_id,
+                    prompt_config=player_prompt_config,
+                    capture_label_repo=self.capture_label_repo,
+                    decision_analysis_repo=self.decision_analysis_repo,
+                    session_memory=memory_manager.get_session_memory(player.name),
+                    opponent_model_manager=memory_manager.get_opponent_model_manager(),
+                )
+                logger.info(f"Player {player.name} using lean bounded controller")
             elif player_type == 'tiered':
                 # Tiered bot: solver baselines + personality distortion, no LLM decisions.
                 # Optionally wires the Layer 3 expression generator for in-character narration.

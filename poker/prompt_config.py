@@ -79,9 +79,6 @@ class PromptConfig:
     # When True, expect simple {"action": "...", "raise_to": ...} instead of rich format
     use_simple_response_format: bool = False
 
-    # Lean bounded mode — bypass full prompt pipeline, use minimal options-only prompt
-    lean_bounded: bool = False
-
     # Style-aware options — map psychology playstyle to option profiles in lean mode
     style_aware_options: bool = True
 
@@ -126,6 +123,11 @@ class PromptConfig:
         data.pop('bb_normalized', None)
         data.pop('use_dollar_amounts', None)
         data.pop('hand_plan', None)
+        # `lean_bounded` was a per-config flag that toggled the lean prompt path.
+        # The 4-mode controller lineup (chaos/standard/lean/sharp) replaced it —
+        # callers now select the LeanBoundedController explicitly. Drop silently
+        # so stored configs and presets continue to load.
+        data.pop('lean_bounded', None)
 
         # Migrate nudge_show_ev -> show_ev_labels
         if 'nudge_show_ev' in data and 'show_ev_labels' not in data:

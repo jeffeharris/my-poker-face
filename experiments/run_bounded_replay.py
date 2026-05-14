@@ -42,12 +42,12 @@ from poker.nudge_phrases import apply_composed_nudges
 from poker.range_guidance import looseness_to_range_pct
 from poker.hand_tiers import is_hand_in_range
 from poker.controllers import _get_canonical_hand
-from poker.hybrid_ai_controller import HybridAIController
+from poker.lean_bounded_controller import LeanBoundedController
 
 logger = logging.getLogger(__name__)
 
-# System prompt used for all bounded replay calls (matches hybrid controller)
-LEAN_SYSTEM_PROMPT = HybridAIController.LEAN_SYSTEM_PROMPT
+# System prompt used for all bounded replay calls (matches lean controller)
+LEAN_SYSTEM_PROMPT = LeanBoundedController.LEAN_SYSTEM_PROMPT
 
 # Default looseness values per style profile for captures missing effective_looseness
 PROFILE_LOOSENESS = {
