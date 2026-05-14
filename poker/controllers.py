@@ -1,5 +1,6 @@
 import json
 import random
+from collections import deque
 from datetime import datetime
 from typing import List, Optional, Dict, Tuple
 import logging
@@ -644,6 +645,12 @@ class AIPlayerController:
         self.chattiness_manager = ChattinessManager()
         self.response_validator = ResponseValidator()
 
+        # Anti-repetition memory — sliding window of the player's own
+        # SPEECH beats (no action gestures; those are signature tics and
+        # are expected to recur). Injected into the next turn's prompt so
+        # the LLM doesn't recycle the same lines.
+        self._recent_own_speech_beats: deque = deque(maxlen=5)
+
         # Prompt configuration (controls which components are included)
         self.prompt_config = prompt_config or PromptConfig()
 
@@ -682,6 +689,67 @@ class AIPlayerController:
     def get_current_personality_traits(self):
         """Get current trait values from psychology (elastic personality)."""
         return self.psychology.traits
+
+    def remember_own_beats(self, beats) -> None:
+        """Record this turn's speech beats for next turn's anti-repetition prompt.
+
+        Action beats (wrapped in *asterisks*) are skipped — those are
+        character tics and supposed to recur. Empty / short fillers are
+        also skipped to keep the buffer focused on the chat lines that
+        actually matter for variety.
+        """
+        if not beats or not isinstance(beats, list):
+            return
+        for b in beats:
+            if not isinstance(b, str):
+                continue
+            text = b.strip()
+            if not text:
+                continue
+            # Skip pure-action beats (in asterisks)
+            if text.startswith('*') and text.endswith('*'):
+                continue
+            # Skip very short standard utterances ("Call.", "Fold.")
+            if len(text.split()) <= 2:
+                continue
+            self._recent_own_speech_beats.append(text)
+
+    def recent_own_speech_beats(self) -> List[str]:
+        """Return a copy of the speech-beat ring buffer for prompt injection."""
+        return list(self._recent_own_speech_beats)
+
+    def find_callouts(self, messages, max_results: int = 3) -> List[str]:
+        """Find recent opponent chat that mentions this player by name.
+
+        Returns formatted lines like `Bob said: "Your move, Alice."` for
+        the LAST `max_results` callouts. Only scans actual AI/user chat
+        (not Table/System action messages). Returns [] when nothing
+        relevant.
+
+        This is a prompt suggestion — the LLM may pick up on it or not,
+        but surfacing the direct mention beats burying it in the message
+        log.
+        """
+        if not messages or not isinstance(messages, list):
+            return []
+        name = self.player_name or ''
+        if not name:
+            return []
+        name_lower = name.lower()
+        out: List[str] = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            sender = msg.get('sender', '') or ''
+            if not sender or sender == name or sender in ('Table', 'System'):
+                continue
+            if msg.get('message_type') not in ('ai', 'user'):
+                continue
+            content = msg.get('content', '') or msg.get('message', '') or ''
+            if not content or name_lower not in content.lower():
+                continue
+            out.append(f'{sender} said: "{content.strip()}"')
+        return out[-max_results:]
 
     def _get_cleanup_client(self):
         """Lazy fast-tier LLM client for dramatic_sequence beat cleanup.
@@ -914,6 +982,27 @@ class AIPlayerController:
             )
             message = message + "\n\n" + chattiness_guidance
 
+        # Anti-repetition memory — list recent speech beats so the LLM
+        # doesn't recycle the same lines. Skipped when buffer is empty.
+        recent_beats = self.recent_own_speech_beats()
+        if recent_beats:
+            quoted = "\n".join(f'  - "{b}"' for b in recent_beats)
+            message = message + (
+                "\n\nYour recent SPEECH beats this session — vary your "
+                "phrasing, do not repeat these lines:\n" + quoted
+            )
+
+        # Direct callouts — opponent chat that mentioned this player by
+        # name. Surface explicitly so the LLM can react instead of
+        # burying it in the message log. Prompt suggestion only.
+        callouts = self.find_callouts(original_messages)
+        if callouts:
+            block = "\n".join(f"  - {c}" for c in callouts)
+            message = message + (
+                "\n\n[CALLED OUT] An opponent just mentioned you by name — "
+                "consider reacting:\n" + block
+            )
+
         # Inject emotional state context (before tilt effects, if enabled)
         if self.prompt_config.emotional_state:
             emotional_section = self.psychology.get_prompt_section()
@@ -985,6 +1074,11 @@ class AIPlayerController:
                     game_id=self.game_id,
                     player_name=self.player_name,
                 )
+
+        # Record this turn's speech beats for next turn's anti-repetition
+        # prompt. Pure actions and short utterances are filtered inside
+        # remember_own_beats.
+        self.remember_own_beats(cleaned_response.get('dramatic_sequence'))
 
         # Capture DecisionPlan for reflection system (if enabled)
         if self.prompt_config.strategic_reflection:

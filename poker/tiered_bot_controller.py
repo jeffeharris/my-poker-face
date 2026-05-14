@@ -73,6 +73,43 @@ from .archetypes import classify_from_anchors
 logger = logging.getLogger(__name__)
 
 
+def _coarse_strength_tier(hand_name: str) -> str:
+    """Map a hand_name label to one of Monster/Strong/Marginal/Weak/Drawing.
+
+    Postflop labels from evaluate_hand_strength carry an explicit tier
+    suffix (e.g. "Two Pair - Strong"); preflop labels from
+    classify_preflop_hand carry a category prefix (e.g. "AKs - Suited
+    broadway, Top 5%"). Returns '' when the label gives no usable signal.
+    """
+    if not hand_name:
+        return ''
+    s = hand_name.lower()
+
+    # Postflop strength suffix wins when present.
+    if 'monster' in s:
+        return 'Monster'
+    if 'very strong' in s or 'full house' in s or 'quads' in s or 'four of a kind' in s or 'straight flush' in s:
+        return 'Monster'
+    if 'strong' in s or 'flush' in s or 'straight' in s or 'trip' in s or 'three of a kind' in s or 'two pair' in s:
+        return 'Strong'
+    if 'marginal' in s or 'one pair' in s:
+        return 'Marginal'
+    if 'weak' in s or 'high card' in s:
+        return 'Weak'
+
+    # Preflop preview categories.
+    if 'top 5%' in s or 'top 10%' in s or 'premium' in s or 'high pocket pair' in s:
+        return 'Monster'
+    if 'top 20%' in s or 'top 25%' in s or 'medium pocket pair' in s or 'suited broadway' in s:
+        return 'Strong'
+    if 'top 35%' in s or 'top 45%' in s or 'offsuit broadway' in s or 'suited ace' in s or 'low pocket pair' in s:
+        return 'Marginal'
+    if 'bottom' in s or 'offsuit ace' in s:
+        return 'Weak'
+
+    return ''
+
+
 # Canonical exploitation rule order — mirrors compute_exploitation_offsets_
 # with_traces. Kept in one place so the controller-level early-out (when
 # manager / anchors unavailable) emits the same rule_id surface as a
@@ -2274,7 +2311,14 @@ class TieredBotController(AIPlayerController):
                 pot_bb=extras['pot_bb'],
                 cost_to_call_bb=extras['cost_to_call_bb'],
                 hand_name=extras['hand_name'],
+                hand_strength_tier=extras['hand_strength_tier'],
+                short_stack=extras['short_stack'],
+                pot_committed=extras['pot_committed'],
                 recent_actions=extras['recent_actions'],
+                recent_own_speech_beats=self.recent_own_speech_beats(),
+                callouts=self.find_callouts(
+                    getattr(self, '_current_game_messages', None)
+                ),
                 should_speak=should_speak,
                 should_gesture=should_gesture,
                 narration_facts=narration_facts,
@@ -2293,6 +2337,9 @@ class TieredBotController(AIPlayerController):
             # Only overwrite hand_strategy if LLM produced one (preserves Layer 1+2 debug string otherwise)
             if narration.get('hand_strategy'):
                 decision['hand_strategy'] = narration['hand_strategy']
+            # Record this turn's speech beats for next turn's anti-
+            # repetition prompt (action gestures filtered inside).
+            self.remember_own_beats(narration.get('dramatic_sequence'))
         except Exception as e:
             logger.warning(
                 f"[TIERED_BOT] {self.player_name}: "
@@ -2395,6 +2442,24 @@ class TieredBotController(AIPlayerController):
         except Exception:
             recent_actions = ''
 
+        # Coarse strength tier — used for narration tone, derived from
+        # the hand_name label. Postflop labels carry an explicit suffix
+        # ("Two Pair - Strong"); preflop carry a category in the prefix
+        # ("AKs - Suited broadway, Top 5%"). Mapped to one of
+        # Monster/Strong/Marginal/Weak/Drawing/'' (unknown).
+        hand_strength_tier = _coarse_strength_tier(hand_name)
+
+        # Situational reads — borrowed from hybrid's prompt injections.
+        # short_stack: classic push/fold zone. pot_committed: rough proxy
+        # using cost_to_call vs remaining stack (player has invested
+        # enough that folding would forfeit a large multiple of what's
+        # left to call).
+        short_stack = bool(stack_bb and stack_bb < 3.0)
+        pot_committed = bool(
+            cost_to_call_bb > 0 and stack_bb > 0
+            and stack_bb < cost_to_call_bb * 3
+        )
+
         return {
             'hand_name': hand_name,
             'position': position,
@@ -2402,6 +2467,9 @@ class TieredBotController(AIPlayerController):
             'pot_bb': pot_bb,
             'cost_to_call_bb': cost_to_call_bb,
             'recent_actions': recent_actions,
+            'hand_strength_tier': hand_strength_tier,
+            'short_stack': short_stack,
+            'pot_committed': pot_committed,
         }
 
     def _postflop_fallback(self, valid_actions: List[str]) -> Dict:

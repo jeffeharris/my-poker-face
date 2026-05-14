@@ -196,7 +196,10 @@ class ExpressionGenerator:
     _USER_SECTIONS = (
         'situation',
         'hand_read',
+        'situational_reads',
         'recent_actions',
+        'callouts',
+        'recent_own_beats',
         'emotional_state',
         'drama',
         'mode_indicator',
@@ -251,6 +254,23 @@ class ExpressionGenerator:
         )
 
         mode = self._active_mode(ctx)
+
+        # Tier paren — empty when no tier so the prompt doesn't render
+        # "(Two Pair - Strong ())".
+        tier_paren = f" ({ctx.hand_strength_tier})" if ctx.hand_strength_tier else ''
+
+        # Build situational-reads bullet list from boolean flags.
+        reads_lines = []
+        if ctx.short_stack:
+            reads_lines.append(
+                "- Short stack (< 3 BB) — every chip matters; do-or-die mode."
+            )
+        if ctx.pot_committed:
+            reads_lines.append(
+                "- Pot-committed — already invested too much to fold without a fight."
+            )
+        situational_reads = "\n".join(reads_lines)
+
         vars_ = {
             'personality_name': ctx.personality_name,
             'play_style': ctx.play_style,
@@ -274,6 +294,12 @@ class ExpressionGenerator:
             'cost_to_call_bb': f"{ctx.cost_to_call_bb:.1f}",
             'hand_name': ctx.hand_name,
             'recent_actions': ctx.recent_actions,
+            'recent_own_beats': "\n".join(
+                f'  - "{b}"' for b in ctx.recent_own_speech_beats
+            ),
+            'callouts': "\n".join(f'  - {c}' for c in ctx.callouts),
+            'tier_paren': tier_paren,
+            'situational_reads': situational_reads,
             'mode_label': self._MODE_LABELS[mode],
             'mode_hint': self._MODE_HINTS[mode],
         }
@@ -285,6 +311,12 @@ class ExpressionGenerator:
             skip.add('hand_read')
         if not ctx.recent_actions:
             skip.add('recent_actions')
+        if not ctx.recent_own_speech_beats:
+            skip.add('recent_own_beats')
+        if not ctx.callouts:
+            skip.add('callouts')
+        if not situational_reads:
+            skip.add('situational_reads')
 
         def _render(names):
             out = []

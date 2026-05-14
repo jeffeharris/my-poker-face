@@ -63,6 +63,19 @@ class ExpressionContext:
     # on your hand" line so the narration can riff on hand strength.
     hand_name: str = ''
 
+    # Coarse strength tier — Monster / Strong / Marginal / Weak / Drawing.
+    # Derived from hand_name. Drives narration tone (confident vs nervous,
+    # value vs bluff).
+    hand_strength_tier: str = ''
+
+    # Situational reads borrowed from the hybrid path. Each flag is
+    # cheaply derivable from BB-normalized situation and informs how the
+    # narration should feel:
+    #   short_stack:   < 3 BB → do-or-die mode
+    #   pot_committed: invested too much to fold; "I'm in this now"
+    short_stack: bool = False
+    pot_committed: bool = False
+
     # Pre-formatted multi-line recent-actions text (already BB-converted by
     # the caller — same shape hybrid's Recent Actions block uses). When
     # non-empty, the prompt includes a Recent Actions block so the narration
@@ -82,6 +95,18 @@ class ExpressionContext:
     # are debug-only fields, not visible table chat.
     should_speak: bool = True
     should_gesture: bool = True
+
+    # Anti-repetition memory — the player's own recent SPEECH beats from
+    # prior turns. Action gestures are intentionally NOT here; those are
+    # character tics that should recur. Injected into the prompt so the
+    # LLM doesn't recycle the same chat lines.
+    recent_own_speech_beats: List[str] = field(default_factory=list)
+
+    # Direct callouts — opponent chat that mentioned this player by name.
+    # Formatted as `Sender said: "content"`. Surfaced as a [CALLED OUT]
+    # prompt block so the LLM can react instead of burying it under
+    # recent_actions.
+    callouts: List[str] = field(default_factory=list)
 
     # Phase 7.6 Step 5: per-decision strategy reads from the
     # intervention trace, mapped via narration_facts adapter. When
