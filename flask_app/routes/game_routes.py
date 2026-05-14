@@ -475,8 +475,14 @@ def api_game_state(game_id):
                 )
                 db_messages = game_repo.load_messages(game_id)
 
+                # Wire pressure_stats to the DB so past events are loaded and
+                # new events persist — matches the new-game route. Without
+                # game_id + event_repository, restored games silently lose
+                # both: past stats start empty and new events no-op.
+                from poker.repositories.sqlite_repositories import PressureEventRepository
+                event_repository = PressureEventRepository(config.DB_PATH)
                 pressure_detector = PressureEventDetector()
-                pressure_stats = PressureStatsTracker()
+                pressure_stats = PressureStatsTracker(game_id, event_repository)
 
                 memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
                 memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
@@ -527,6 +533,21 @@ def api_game_state(game_id):
                     )
                     tournament_tracker.hand_count = memory_manager.hand_count
 
+                # Seed hand_start_stacks / short_stack_players from current
+                # stacks. On mid-hand restore we don't know the real hand-start
+                # baseline, so we use the current snapshot — pressure deltas
+                # against this resolve to 0 for the in-progress hand (no false
+                # double_up/crippled fires) and the next on_hand_start will
+                # overwrite both with fresh values.
+                big_blind = state_machine.game_state.current_ante or 100
+                hand_start_stacks = {
+                    p.name: p.stack for p in state_machine.game_state.players
+                }
+                short_stack_players = {
+                    p.name for p in state_machine.game_state.players
+                    if 0 < p.stack < 10 * big_blind
+                }
+
                 current_game_data = {
                     'state_machine': state_machine,
                     'ai_controllers': ai_controllers,
@@ -540,6 +561,8 @@ def api_game_state(game_id):
                     'last_announced_phase': None,  # Reset on game load
                     'game_started': True,
                     'guest_tracking_id': current_user.get('tracking_id') if current_user else None,
+                    'hand_start_stacks': hand_start_stacks,
+                    'short_stack_players': short_stack_players,
                 }
                 game_state_service.set_game(game_id, current_game_data)
 
