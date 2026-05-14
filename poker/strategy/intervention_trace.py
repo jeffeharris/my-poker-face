@@ -67,10 +67,12 @@ _LAYER_NAMES = frozenset({
     'exploitation',
     'strong_hand_override',
     'bluff_catch_override',
+    'defense_floor',         # Plan §2
     'short_stack',
     'math_floor',
-    'value_vs_station',     # Phase 8
-    'steal_pressure',       # Phase 8
+    'value_vs_station',      # Phase 8
+    'steal_pressure',        # Phase 8
+    'bluff_reduction',       # Plan §5
 })
 
 _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
@@ -81,10 +83,12 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     }),
     'strong_hand_override':   frozenset({'default'}),
     'bluff_catch_override':   frozenset({'default'}),
+    'defense_floor':          frozenset({'default'}),
     'short_stack':            frozenset({'default'}),
     'math_floor':             frozenset({'default'}),
     'value_vs_station':       frozenset({'default'}),
     'steal_pressure':         frozenset({'default'}),
+    'bluff_reduction':        frozenset({'default'}),
 }
 
 
@@ -102,6 +106,7 @@ _LAYER_ORDER: Dict[str, int] = {
     'exploitation':          1,
     'value_vs_station':      1,  # Phase 8: feeds exploitation
     'steal_pressure':        1,  # Phase 8: feeds exploitation
+    'bluff_reduction':       1,  # Plan §5: air-vs-station mirror of value_vs_station
     'strong_hand_override':  2,
     'bluff_catch_override':  3,
     'defense_floor':         4,  # Plan §2: price-sensitive call floor

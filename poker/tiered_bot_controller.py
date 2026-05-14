@@ -990,6 +990,29 @@ class TieredBotController(AIPlayerController):
             steal_intensity_raw if is_steal_pressure_enabled(archetype) else 0.0
         )
 
+        # Plan §5: bluff reduction vs stations. Mirrors value_vs_station
+        # but with the inverse hand-strength gate — fires on air-class
+        # hands when a station is in the field. Shares the same station
+        # detection (compute_value_vs_station_intensity returns >0 iff a
+        # qualifying station is present), so reusing it keeps the
+        # "what's a station" definition consistent. Hand-strength gate
+        # below disjoint from vvs's strong+ gate; the two rules cannot
+        # fire on the same decision.
+        bluff_reduction_intensity_raw = 0.0
+        if (
+            hand_strength in {'air_no_draw', 'air_strong_draw'}
+            and has_bet_legal
+        ):
+            bluff_reduction_intensity_raw = (
+                compute_value_vs_station_intensity(spots)
+            )
+        # Re-use the value_vs_station playstyle gate — same archetypes
+        # benefit (nit/rock/tag postflop archetypes that face stations).
+        bluff_reduction_intensity_used = (
+            bluff_reduction_intensity_raw
+            if is_value_vs_station_enabled(archetype) else 0.0
+        )
+
         exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
         offsets, exploitation_traces = compute_exploitation_offsets_with_traces(
             stats=stats,
@@ -1001,6 +1024,7 @@ class TieredBotController(AIPlayerController):
             multiway_cbet_intensity=multiway_cbet_intensity,
             value_vs_station_intensity=vvs_intensity_used,
             steal_pressure_intensity=steal_intensity_used,
+            bluff_reduction_intensity=bluff_reduction_intensity_used,
             disable_rules=getattr(self, "disable_rules", frozenset()),
         )
 
