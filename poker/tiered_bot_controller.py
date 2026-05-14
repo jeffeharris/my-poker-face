@@ -726,17 +726,28 @@ class TieredBotController(AIPlayerController):
         # re-classifying.
         self._last_pipeline_snapshot['nut_status'] = node.nut_status
         self._last_pipeline_snapshot['danger_flags'] = node.danger_flags
+        # Plan §2 + §4: build DecisionContext once at the outer scope so
+        # the §4 snapshot fields and the §2 defense_floor can read it
+        # without each rebuilding via the inner `_apply_*` methods. Inner
+        # methods continue to rebuild their own context (pre-existing
+        # redundancy); the outer instance is used only by post-bluff_catch
+        # consumers and the snapshot. primary_aggressor_spot=None falls
+        # back to the aggregate path which is sufficient for the bet
+        # bucket / required_equity / facing_bet fields.
+        outer_decision_context = self._build_decision_context(
+            game_state, player_idx,
+        )
         # Plan §4: snapshot bet-size bucket + required_equity for
-        # diagnostics and §2 defense-floor consumers. The DecisionContext
-        # already carries these for strategy rules; snapshotting them
-        # here mirrors the pattern used for nut_status/danger_flags so
-        # post-hand analysis (casebot_breakdown etc.) can read them
-        # off the controller's last-decision state.
+        # diagnostics. The DecisionContext already carries these for
+        # strategy rules; snapshotting here mirrors the pattern used for
+        # nut_status/danger_flags so post-hand analysis
+        # (casebot_breakdown etc.) can read them off the controller's
+        # last-decision state.
         self._last_pipeline_snapshot['bet_bucket'] = (
-            decision_context.bet_bucket
+            outer_decision_context.bet_bucket
         )
         self._last_pipeline_snapshot['required_equity'] = (
-            decision_context.required_equity
+            outer_decision_context.required_equity
         )
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
@@ -783,6 +794,35 @@ class TieredBotController(AIPlayerController):
             bluff_catch_trace, self._last_intervention_trace,
         )
         self._last_intervention_trace.append(bluff_catch_trace)
+
+        # 6a.5c Plan §2: price-sensitive defense floor. Pumps call
+        # probability for legitimate made hands at favorable prices
+        # that the upstream rules left fold-heavy. Sits *after* both
+        # overrides so it defers when either has already replaced the
+        # distribution (prior_layer_fired). Reads §1's hand_class +
+        # nut_status + danger_flags from the postflop node and §4's
+        # required_equity + facing_bet from DecisionContext.
+        from .strategy.defense_floor import apply_defense_floor
+        prior_layer_fired = (
+            value_override_trace.fired or bluff_catch_trace.fired
+        )
+        defense_floor_facing_bet = (
+            outer_decision_context.bet_bucket is not None
+        )
+        modified_strategy, defense_floor_trace = apply_defense_floor(
+            modified_strategy,
+            hand_class=hand_strength,
+            nut_status=node.nut_status,
+            danger_flags=node.danger_flags,
+            required_equity=outer_decision_context.required_equity,
+            facing_bet=defense_floor_facing_bet,
+            prior_layer_fired=prior_layer_fired,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
+        )
+        defense_floor_trace = _fill_prior_action_source(
+            defense_floor_trace, self._last_intervention_trace,
+        )
+        self._last_intervention_trace.append(defense_floor_trace)
 
         # 6a.6 Phase 6 Step B: short-stack heuristic. Suppress medium-raise
         # probability mass below 20 BB effective stack — non-jam raises

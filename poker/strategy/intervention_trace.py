@@ -104,8 +104,9 @@ _LAYER_ORDER: Dict[str, int] = {
     'steal_pressure':        1,  # Phase 8: feeds exploitation
     'strong_hand_override':  2,
     'bluff_catch_override':  3,
-    'short_stack':           4,
-    'math_floor':            5,
+    'defense_floor':         4,  # Plan §2: price-sensitive call floor
+    'short_stack':           5,
+    'math_floor':            6,
 }
 MAX_LAYER_ORDER = max(_LAYER_ORDER.values())
 

@@ -38,7 +38,8 @@ class TestMathFloorVetoTrace:
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
         assert trace.layer == 'math_floor'
-        assert trace.layer_order == 5
+        # Plan §2 inserted defense_floor at slot 4; math_floor shifted to 6.
+        assert trace.layer_order == 6
         assert trace.fired is True
         assert trace.operation == InterventionOperation.VETO.value
         assert trace.effect == 'distribution_replaced'

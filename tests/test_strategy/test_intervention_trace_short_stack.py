@@ -40,7 +40,8 @@ class TestShortStackFireTrace:
             legal_actions=['fold', 'call', 'raise', 'all_in'],
         )
         assert trace.layer == 'short_stack'
-        assert trace.layer_order == 4
+        # Plan §2 inserted defense_floor at slot 4; short_stack shifted to 5.
+        assert trace.layer_order == 5
         assert trace.fired is True
         assert trace.operation == InterventionOperation.CLAMP.value
         assert trace.effect == 'distribution_clamped'
