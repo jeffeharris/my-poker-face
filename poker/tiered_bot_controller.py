@@ -749,6 +749,10 @@ class TieredBotController(AIPlayerController):
         self._last_pipeline_snapshot['required_equity'] = (
             outer_decision_context.required_equity
         )
+        # Plan §6: opponent_archetype is snapshotted inside
+        # `_tally_exploitation_event` (where `stats` is already
+        # selected) — see that method. Done as a side effect of the
+        # tally call so we don't duplicate _select_exploitation_stats_from_spots.
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
         modified_strategy, exploitation_traces = self._apply_exploitation(
@@ -1640,6 +1644,14 @@ class TieredBotController(AIPlayerController):
         # we mirror its checks here for diagnostic visibility.
         if stats.hands_observed < 15:
             c['cold_start'] += 1
+            # Plan §6: surface cold_start as a distinct archetype value
+            # on the snapshot — analytics need to distinguish
+            # "insufficient sample" from "past sample, no detector fired".
+            # Defensive: tests may construct controllers without going
+            # through __init__ (mocks); snapshot dict may not exist.
+            snap = getattr(self, '_last_pipeline_snapshot', None)
+            if snap is not None:
+                snap['opponent_archetype'] = 'cold_start'
             return
 
         patterns_this_decision = classify_detected_patterns(stats)
@@ -1651,9 +1663,20 @@ class TieredBotController(AIPlayerController):
         # archetype distribution ("hero saw X% pure_station / Y%
         # sticky_jammer / ...") in one place. `None` is bucketed as
         # `unmatched` so cold-start vs. genuinely-balanced opponents
-        # show up rather than getting silently dropped.
+        # show up rather than being silently dropped.
+        #
+        # Plan §6 side effect: also snapshot the archetype on the
+        # pipeline so post-decision analytics (e.g. casebot_breakdown's
+        # enriched fold capture) can correlate the archetype with hand
+        # class / nut_status / bet bucket. The aggregate-cold-start
+        # early return above means cold-start decisions get
+        # 'cold_start' rather than an archetype label — distinct from
+        # 'unmatched' (past min hands but no detector fired).
         archetype = classify_opponent_archetype(stats) or 'unmatched'
         c[f'archetype_classified_{archetype}'] += 1
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if snap is not None:
+            snap['opponent_archetype'] = archetype
 
         # Phase 6.6: c-bet fire detection. The c-bet rule is the only
         # source of bet_*/check offsets when ALL of these hold:

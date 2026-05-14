@@ -84,6 +84,13 @@ def _run_hand_instrumented(
     hero_fold_hand_class: Optional[str] = None
     hero_fold_call_amount: int = 0
     hero_fold_pot_total: int = 0
+    # Plan §6: per-fold pipeline-snapshot capture for the multi-axis
+    # diagnostic report.
+    hero_fold_nut_status: Optional[str] = None
+    hero_fold_danger_flags: Tuple[str, ...] = ()
+    hero_fold_bet_bucket: Optional[str] = None
+    hero_fold_required_equity: float = 0.0
+    hero_fold_opponent_archetype: Optional[str] = None
 
     while sm.phase not in TERMINAL_PHASES:
         sm.run_until(list(TERMINAL_PHASES))
@@ -151,6 +158,25 @@ def _run_hand_instrumented(
                     pot_total = pot.get('total', 0) if isinstance(pot, dict) else (pot or 0)
                     hero_fold_pot_total = pot_total
                     hero_fold_call_amount = getattr(gs, 'call_amount', 0) or 0
+
+                    # Plan §6: read additional snapshot fields the
+                    # controller persisted during the fold decision.
+                    # These let the multi-axis report group folds by
+                    # (hand_class, nut_status, bet_bucket) and surface
+                    # the opponent archetype hero faced.
+                    snap = getattr(
+                        controller, '_last_pipeline_snapshot', None,
+                    ) or {}
+                    hero_fold_nut_status = snap.get('nut_status')
+                    danger_flags = snap.get('danger_flags') or frozenset()
+                    hero_fold_danger_flags = tuple(sorted(danger_flags))
+                    hero_fold_bet_bucket = snap.get('bet_bucket')
+                    hero_fold_required_equity = float(
+                        snap.get('required_equity') or 0.0
+                    )
+                    hero_fold_opponent_archetype = snap.get(
+                        'opponent_archetype',
+                    )
 
         active_players_snapshot = [
             p.name for p in gs.players if not getattr(p, 'is_folded', False)
@@ -227,6 +253,12 @@ def _run_hand_instrumented(
         'hero_fold_hand_class': hero_fold_hand_class,
         'hero_fold_call_amount': hero_fold_call_amount,
         'hero_fold_pot_total': hero_fold_pot_total,
+        # Plan §6 snapshot fields:
+        'hero_fold_nut_status': hero_fold_nut_status,
+        'hero_fold_danger_flags': hero_fold_danger_flags,
+        'hero_fold_bet_bucket': hero_fold_bet_bucket,
+        'hero_fold_required_equity': hero_fold_required_equity,
+        'hero_fold_opponent_archetype': hero_fold_opponent_archetype,
         'reached_showdown': reached_showdown,
         'hero_hand': hero_hand,
     }
@@ -283,6 +315,17 @@ def run_breakdown(
     bucket_deltas: Dict[str, int] = defaultdict(int)
     fold_class_counts: Counter = Counter()
     fold_class_deltas: Dict[Tuple[str, str], int] = defaultdict(int)
+    # Plan §6: multi-axis fold breakdown keyed on
+    # (phase, hand_class, nut_status, bet_bucket) so operators can see
+    # whether folds concentrate on (e.g.) "medium_made + bluff_catcher
+    # + small bucket" (where §2 floor should fire) vs "strong_made +
+    # actual_nuts + jam bucket" (residual real leaks for §7 work).
+    fold_multi_axis_counts: Counter = Counter()
+    fold_multi_axis_deltas: Dict[Tuple[str, str, str, str], int] = defaultdict(int)
+    # Plan §6: per-archetype fold counter — answers "are we folding
+    # more vs sticky_jammer than pure_station? cold_start?"
+    fold_archetype_counts: Counter = Counter()
+    fold_archetype_deltas: Dict[str, int] = defaultdict(int)
     captured_hands: List[Dict] = []
 
     for hand_num in tqdm(range(n_hands), desc=f"  seed={seed}", leave=False, file=sys.stderr):
@@ -325,6 +368,19 @@ def run_breakdown(
             fold_class_counts[key] += 1
             fold_class_deltas[key] += delta
 
+            # Plan §6 multi-axis breakdown bookkeeping.
+            nut_status = result.get('hero_fold_nut_status') or 'unknown'
+            bet_bucket = result.get('hero_fold_bet_bucket') or 'no_bet'
+            multi_key = (phase_name, hand_class, nut_status, bet_bucket)
+            fold_multi_axis_counts[multi_key] += 1
+            fold_multi_axis_deltas[multi_key] += delta
+
+            archetype = (
+                result.get('hero_fold_opponent_archetype') or 'unknown'
+            )
+            fold_archetype_counts[archetype] += 1
+            fold_archetype_deltas[archetype] += delta
+
             if (
                 capture_interesting
                 and folded_at in _INTERESTING_FOLD_PHASES
@@ -343,11 +399,21 @@ def run_breakdown(
                     'call_amount_at_fold': result['hero_fold_call_amount'],
                     'delta': delta,
                     'actions': result['all_actions'],
+                    # Plan §6 enriched snapshot fields:
+                    'nut_status': nut_status,
+                    'danger_flags': result.get('hero_fold_danger_flags', ()),
+                    'bet_bucket': bet_bucket,
+                    'required_equity': result.get(
+                        'hero_fold_required_equity', 0.0,
+                    ),
+                    'opponent_archetype': archetype,
                 })
 
     return (
         bucket_counts, bucket_deltas,
         fold_class_counts, fold_class_deltas, captured_hands,
+        fold_multi_axis_counts, fold_multi_axis_deltas,
+        fold_archetype_counts, fold_archetype_deltas,
     )
 
 
@@ -370,6 +436,23 @@ def print_captured_hands(hands: List[Dict], hero_name: str, villain_name: str):
         print(f"  Pot at fold:    {hand['pot_at_fold']}")
         print(f"  Hero needs to call: {hand['call_amount_at_fold']}  "
               f"(pot odds {hand['call_amount_at_fold'] / max(1, hand['pot_at_fold'] + hand['call_amount_at_fold']):.2%})")
+        # Plan §6 enriched context (only present when the controller
+        # populated _last_pipeline_snapshot — may be empty on older
+        # captured fixtures, hence the .get fallbacks).
+        nut = hand.get('nut_status')
+        bucket = hand.get('bet_bucket')
+        req = hand.get('required_equity')
+        flags = hand.get('danger_flags')
+        arche = hand.get('opponent_archetype')
+        if nut or bucket or arche or flags:
+            req_str = f"{req:.3f}" if req else 'n/a'
+            flags_str = ', '.join(flags) if flags else '—'
+            print(
+                f"  Strategic context: nut={nut or 'n/a'}  "
+                f"bucket={bucket or 'n/a'}  req_eq={req_str}  "
+                f"opp_archetype={arche or 'n/a'}  "
+                f"danger=[{flags_str}]"
+            )
         print(f"  Hand delta: {hand['delta']:+.0f} chips")
         print(f"  Action sequence:")
         last_phase = None
@@ -402,6 +485,75 @@ def print_fold_class_breakdown(
         bb100 = (total / big_blind) / (n_hands / 100) if n_hands else 0
         print(f"  {phase:<8}  {hand_class:<16}  {count:>6}  "
               f"{mean:>+10.0f}  {total:>+12.0f}  {bb100:>+9.1f}")
+
+
+def print_multi_axis_breakdown(
+    counts: Counter,
+    deltas: Dict[Tuple[str, str, str, str], int],
+    n_hands: int, big_blind: int,
+):
+    """Plan §6: postflop-fold breakdown grouped by
+    (phase, hand_class, nut_status, bet_bucket).
+
+    Helps the operator see whether folds concentrate in spots the
+    plan flagged (e.g. medium_made + bluff_catcher + small bucket —
+    where §2 defense floor explicitly defers to §7.5 bluff_catch).
+    """
+    if not counts:
+        return
+    print("\n" + "=" * 72)
+    print("  Postflop folds by (phase, hand_class, nut_status, bet_bucket):")
+    print("=" * 72)
+    header = (
+        f"  {'phase':<6}  {'hand_class':<16}  {'nut_status':<16}  "
+        f"{'bucket':<8}  {'count':>5}  {'mean Δ':>9}  "
+        f"{'total Δ':>11}  {'bb/100':>8}"
+    )
+    print(header)
+    print('  ' + '-' * (len(header) - 2))
+    rows = sorted(counts.items(), key=lambda kv: -counts[kv[0]])
+    for key, count in rows:
+        phase, hand_class, nut_status, bet_bucket = key
+        total = deltas.get(key, 0)
+        mean = total / count if count else 0
+        bb100 = (total / big_blind) / (n_hands / 100) if n_hands else 0
+        print(
+            f"  {phase:<6}  {hand_class:<16}  {nut_status:<16}  "
+            f"{bet_bucket:<8}  {count:>5}  {mean:>+9.0f}  "
+            f"{total:>+11.0f}  {bb100:>+7.1f}"
+        )
+
+
+def print_archetype_breakdown(
+    counts: Counter, deltas: Dict[str, int],
+    n_hands: int, big_blind: int,
+):
+    """Plan §6: postflop-fold breakdown by opponent archetype.
+
+    Answers "are we folding more vs sticky_jammer than pure_station?
+    are cold-start folds dominating?"
+    """
+    if not counts:
+        return
+    print("\n" + "=" * 72)
+    print("  Postflop folds by opponent archetype:")
+    print("=" * 72)
+    print(
+        f"  {'archetype':<18}  {'count':>5}  {'pct':>5}  "
+        f"{'mean Δ':>9}  {'total Δ':>11}  {'bb/100':>8}"
+    )
+    print('  ' + '-' * 62)
+    total_count = sum(counts.values()) or 1
+    rows = sorted(counts.items(), key=lambda kv: -kv[1])
+    for archetype, count in rows:
+        total = deltas.get(archetype, 0)
+        mean = total / count if count else 0
+        pct = 100.0 * count / total_count
+        bb100 = (total / big_blind) / (n_hands / 100) if n_hands else 0
+        print(
+            f"  {archetype:<18}  {count:>5}  {pct:>4.1f}%  "
+            f"{mean:>+9.0f}  {total:>+11.0f}  {bb100:>+7.1f}"
+        )
 
 
 def print_breakdown(
@@ -471,9 +623,17 @@ def main():
     overall_deltas: Dict[str, int] = defaultdict(int)
     overall_fold_class_counts: Counter = Counter()
     overall_fold_class_deltas: Dict[Tuple[str, str], int] = defaultdict(int)
+    # Plan §6 aggregators
+    overall_multi_axis_counts: Counter = Counter()
+    overall_multi_axis_deltas: Dict[Tuple[str, str, str, str], int] = defaultdict(int)
+    overall_archetype_counts: Counter = Counter()
+    overall_archetype_deltas: Dict[str, int] = defaultdict(int)
     overall_captured: List[Dict] = []
     for seed in seeds:
-        counts, deltas, fc_counts, fc_deltas, captured = run_breakdown(
+        (
+            counts, deltas, fc_counts, fc_deltas, captured,
+            ma_counts, ma_deltas, arch_counts, arch_deltas,
+        ) = run_breakdown(
             args.hero, args.villain, args.hands, seed,
             args.adaptation_bias,
             capture_interesting=True,
@@ -493,6 +653,14 @@ def main():
             overall_fold_class_counts[k] += v
         for k, v in fc_deltas.items():
             overall_fold_class_deltas[k] += v
+        for k, v in ma_counts.items():
+            overall_multi_axis_counts[k] += v
+        for k, v in ma_deltas.items():
+            overall_multi_axis_deltas[k] += v
+        for k, v in arch_counts.items():
+            overall_archetype_counts[k] += v
+        for k, v in arch_deltas.items():
+            overall_archetype_deltas[k] += v
         overall_captured.extend(captured)
 
     if len(seeds) > 1:
@@ -505,6 +673,19 @@ def main():
             big_blind=100,
             fold_class_counts=overall_fold_class_counts,
             fold_class_deltas=overall_fold_class_deltas,
+        )
+
+    # Plan §6: aggregated multi-axis report (always emit, even for
+    # single-seed runs — the table is informative either way).
+    if overall_multi_axis_counts:
+        print_multi_axis_breakdown(
+            overall_multi_axis_counts, overall_multi_axis_deltas,
+            args.hands * len(seeds), 100,
+        )
+    if overall_archetype_counts:
+        print_archetype_breakdown(
+            overall_archetype_counts, overall_archetype_deltas,
+            args.hands * len(seeds), 100,
         )
 
     print_captured_hands(overall_captured, args.hero, args.villain)

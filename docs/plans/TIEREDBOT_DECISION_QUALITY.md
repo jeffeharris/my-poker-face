@@ -690,15 +690,40 @@ provides the per-decision framework — extend it.
 
 **Deliverables:**
 
-- Extend `InterventionTrace` payload or add a parallel
-  `DecisionContext` extension.
-- Update `experiments/casebot_breakdown.py`-style report to group
-  folds/calls by:
-  - hand class (post-§1 downgrade)
-  - price bucket
-  - board danger flags
-  - opponent archetype (§1.5 label)
-  - layer that changed the decision
+- ~~Extend `InterventionTrace` payload~~ — the
+  per-decision fields are already snapshotted on the
+  controller's `_last_pipeline_snapshot` dict piecewise across
+  §1 (`hand_strength`, `nut_status`, `danger_flags`), §4
+  (`bet_bucket`, `required_equity`), and §6
+  (`opponent_archetype` — added inside
+  `_tally_exploitation_event`). The `InterventionTrace`
+  extension is deferred until a consumer needs traces to carry
+  the decision context (the casebot_breakdown report reads
+  directly from the snapshot for now). Future work: promote the
+  snapshot to a per-decision Trace payload if cross-replay
+  analytics need it.
+- ✅ Multi-axis fold breakdown in
+  `experiments/casebot_breakdown.py`:
+  - `print_multi_axis_breakdown` groups postflop folds by
+    `(phase, hand_class, nut_status, bet_bucket)` so the
+    "where are folds concentrated" question gets a one-table
+    answer (immediately surfaces e.g. that bluff_catcher hands
+    dominate fold counts).
+  - `print_archetype_breakdown` groups by opponent archetype
+    (`pure_station` / `sticky_jammer` / `hyper_aggressive` /
+    `unmatched` / `cold_start`) — answers "do we fold more vs
+    sticky_jammer than pure_station?".
+  - The per-example captured-hand printout now includes
+    `nut_status`, `bet_bucket`, `required_equity`,
+    `opponent_archetype`, and `danger_flags` so individual
+    fold inspection has the full context.
+- Layer-attribution grouping (which layer changed the
+  decision) is **deferred** — `_last_intervention_trace`
+  already provides this per decision, and the existing
+  `casebot_breakdown` captured-hand action-sequence dump
+  shows the final action chain; a dedicated "fold-by-layer"
+  aggregation is future work when the existing reports prove
+  insufficient.
 
 ### 7. Validation suite
 
