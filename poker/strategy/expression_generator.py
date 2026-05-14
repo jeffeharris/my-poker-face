@@ -136,7 +136,7 @@ class ExpressionGenerator:
             else ''
         )
 
-        return template.render(
+        base_prompt = template.render(
             personality_name=ctx.personality_name,
             play_style=ctx.play_style,
             default_attitude=ctx.default_attitude,
@@ -154,6 +154,37 @@ class ExpressionGenerator:
             drama_context=drama_context,
             tone_modifier=tone_modifier,
         )
+
+        # Phase 7.6 Step 5: append narration_facts block if available.
+        # This grounds the LLM narration in the bot's actual strategic
+        # reads (e.g. "I have showdown value vs an over-aggressor")
+        # rather than free-form filler. Allowlisted, capped, sanitized
+        # via the NarrationFacts adapter.
+        facts_block = self._render_narration_facts_block(ctx)
+        if facts_block:
+            return f"{base_prompt}\n\n{facts_block}"
+        return base_prompt
+
+    def _render_narration_facts_block(self, ctx: ExpressionContext) -> str:
+        """Render the NarrationFacts block as a prompt suffix.
+
+        Returns empty string when ctx.narration_facts is None or empty —
+        the existing prompt template is used verbatim in that case.
+        Defensive against malformed NarrationFacts; logs a WARN and
+        returns empty rather than corrupting the prompt.
+        """
+        facts = getattr(ctx, 'narration_facts', None)
+        if not facts:
+            return ''
+        try:
+            from .narration_facts import render_narration_prompt
+            return render_narration_prompt(facts)
+        except Exception as e:  # noqa: BLE001 — graceful degradation
+            logger.warning(
+                f"[EXPRESSION] Failed to render narration_facts for "
+                f"{ctx.personality_name}: {e}"
+            )
+            return ''
 
     def _parse_response(self, response, ctx: ExpressionContext) -> Dict[str, Any]:
         """Extract narration fields from LLM response. Fail-safe on bad JSON."""

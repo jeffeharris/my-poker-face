@@ -4,6 +4,7 @@ Covers the player_decision_analysis table.
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Optional, Dict, Any, List
 
@@ -56,8 +57,10 @@ class DecisionAnalysisRepository(BaseRepository):
                     zone_total_penalty_strength, zone_in_neutral_territory,
                     zone_intrusive_thoughts_injected, zone_intrusive_thoughts_json,
                     zone_penalty_strategy_applied, zone_info_degraded, zone_strategy_selected,
-                    analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    analyzer_version, processing_time_ms,
+                    intervention_trace_json,
+                    strategy_pipeline_snapshot_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -127,6 +130,8 @@ class DecisionAnalysisRepository(BaseRepository):
                 data.get('zone_strategy_selected'),
                 data.get('analyzer_version'),
                 data.get('processing_time_ms'),
+                data.get('intervention_trace_json'),
+                data.get('strategy_pipeline_snapshot_json'),
             ))
             return cursor.lastrowid
 
@@ -310,6 +315,130 @@ class DecisionAnalysisRepository(BaseRepository):
                 'by_quality': by_quality,
                 'by_action': by_action,
             }
+
+    def get_strategy_pipeline_snapshot(
+        self, analysis_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Get the persisted pipeline snapshot for a decision.
+
+        Phase 7.6 Step 6: reads `strategy_pipeline_snapshot_json` and
+        deserializes. Returns None for rows that lack the column
+        (pre-v82) or that have malformed JSON. Mode 1 (shadow-eval)
+        depends on this to replay the pipeline with different
+        `disable_rules`.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT strategy_pipeline_snapshot_json "
+                "FROM player_decision_analysis WHERE id = ?",
+                (analysis_id,),
+            )
+            row = cursor.fetchone()
+            if not row or row[0] is None:
+                return None
+            try:
+                payload = json.loads(row[0])
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(
+                    f"[PIPELINE_SNAPSHOT] Malformed JSON in "
+                    f"player_decision_analysis.id={analysis_id}: {e}"
+                )
+                return None
+            if not isinstance(payload, dict):
+                return None
+            return payload
+
+    def get_intervention_trace(
+        self, analysis_id: int,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Get the intervention trace list for a single decision row.
+
+        Phase 7.6 (Step 3b): reads the `intervention_trace_json` column
+        and deserializes to a list of trace dicts (one per pipeline
+        layer/rule). Returns None when the row doesn't exist or its
+        trace column is NULL (pre-v81 rows). Returns an empty list
+        when the column is an empty JSON array.
+
+        Tolerant of legacy / malformed JSON — logs a warning and
+        returns None rather than raising so analysis scripts can
+        proceed past corrupted rows.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT intervention_trace_json "
+                "FROM player_decision_analysis WHERE id = ?",
+                (analysis_id,),
+            )
+            row = cursor.fetchone()
+            if not row or row[0] is None:
+                return None
+            try:
+                payload = json.loads(row[0])
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(
+                    f"[INTERVENTION_TRACE] Malformed JSON in "
+                    f"player_decision_analysis.id={analysis_id}: {e}"
+                )
+                return None
+            if not isinstance(payload, list):
+                logger.warning(
+                    f"[INTERVENTION_TRACE] Expected JSON array for "
+                    f"player_decision_analysis.id={analysis_id}, got "
+                    f"{type(payload).__name__}"
+                )
+                return None
+            return payload
+
+    def get_intervention_traces_for_game(
+        self, game_id: str, hand_number: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get all intervention traces for a game (optionally filtered by hand).
+
+        Phase 7.6 (Step 3b): primary read path for the per-decision
+        attribution analysis script (analyze_intervention_traces.py).
+        Returns one entry per decision with `id`, `hand_number`,
+        `phase`, `action_taken`, and `trace` (deserialized list).
+        Rows with NULL or malformed JSON are skipped silently — the
+        analysis script reports them as missing-trace coverage.
+
+        Args:
+            game_id: Game identifier.
+            hand_number: Optional filter by hand within the game.
+
+        Returns:
+            List of dicts with: id, hand_number, phase, action_taken, trace.
+        """
+        sql = (
+            "SELECT id, hand_number, phase, action_taken, "
+            "intervention_trace_json "
+            "FROM player_decision_analysis "
+            "WHERE game_id = ? AND intervention_trace_json IS NOT NULL"
+        )
+        params: List[Any] = [game_id]
+        if hand_number is not None:
+            sql += " AND hand_number = ?"
+            params.append(hand_number)
+        sql += " ORDER BY id ASC"
+
+        results: List[Dict[str, Any]] = []
+        with self._get_connection() as conn:
+            cursor = conn.execute(sql, params)
+            for row in cursor.fetchall():
+                analysis_id, hand_num, phase, action, trace_json = row
+                try:
+                    trace = json.loads(trace_json)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(trace, list):
+                    continue
+                results.append({
+                    'id': analysis_id,
+                    'hand_number': hand_num,
+                    'phase': phase,
+                    'action_taken': action,
+                    'trace': trace,
+                })
+        return results
 
     def get_range_timeline(self, game_id: str, hand_number: int) -> List[Dict[str, Any]]:
         """Get range evolution for a hand across all streets.

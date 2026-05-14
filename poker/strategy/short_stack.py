@@ -48,8 +48,19 @@ labels; we suppress them in favor of either 'jam' (preferred when legal)
 or 'fold' (fallback).
 """
 
-from typing import List
+from typing import List, Tuple
 
+from .intervention_trace import (
+    InterventionOperation,
+    InterventionTrace,
+    is_rule_disabled,
+    l1_distance,
+    layer_order_for,
+    make_disabled_trace,
+    make_no_op_trace,
+    primary_action,
+    summarize_strategy,
+)
 from .strategy_profile import StrategyProfile
 
 
@@ -84,7 +95,8 @@ def apply_short_stack_heuristics(
     strategy: StrategyProfile,
     effective_stack_bb: float,
     legal_actions: List[str],
-) -> StrategyProfile:
+    disable_rules=None,
+) -> Tuple[StrategyProfile, InterventionTrace]:
     """Suppress medium-raise mass when effective stack is short.
 
     Args:
@@ -98,13 +110,28 @@ def apply_short_stack_heuristics(
             'all_in') or must fall back to 'fold'.
 
     Returns:
-        New StrategyProfile with medium-raise mass redistributed. Returns
-        the input unchanged at deep stacks (>20 BB) or when no medium
-        raise actions are present in the strategy.
+        `(StrategyProfile, InterventionTrace)`. The strategy is the
+        input redistributed when short-stack conditions apply; the
+        trace records `operation='clamp'` (per Codex r3 disambiguation:
+        we BOUND the medium-raise mass, the action is still in the
+        distribution though possibly at zero, rather than VETOing it).
+        Returns the input unchanged with a no-op trace at deep stacks
+        (>20 BB) or when no medium raise actions are present.
     """
+    # Phase 7.6 Step 5: ablation hook. Skip if rule is disabled.
+    if is_rule_disabled(disable_rules, 'short_stack', 'default'):
+        return strategy, make_disabled_trace(
+            layer='short_stack', rule_id='default',
+            layer_order=layer_order_for('short_stack'),
+        )
+
     factor = medium_raise_suppression_factor(effective_stack_bb)
     if factor == 0.0:
-        return strategy
+        return strategy, make_no_op_trace(
+            layer='short_stack', rule_id='default',
+            layer_order=layer_order_for('short_stack'),
+            reason_code='stack_deep',
+        )
 
     medium_raises = [
         a for a in strategy.action_probabilities
@@ -112,14 +139,22 @@ def apply_short_stack_heuristics(
         and strategy.action_probabilities[a] > 0.0
     ]
     if not medium_raises:
-        return strategy
+        return strategy, make_no_op_trace(
+            layer='short_stack', rule_id='default',
+            layer_order=layer_order_for('short_stack'),
+            reason_code='no_medium_raises_in_strategy',
+        )
 
     can_jam = 'all_in' in legal_actions or 'jam' in strategy.action_probabilities
     sink_action = 'jam' if can_jam else 'fold'
     # If neither 'jam' nor 'fold' is acceptable, give up (no-op rather
     # than corrupt the distribution).
     if sink_action == 'fold' and 'fold' not in legal_actions:
-        return strategy
+        return strategy, make_no_op_trace(
+            layer='short_stack', rule_id='default',
+            layer_order=layer_order_for('short_stack'),
+            reason_code='no_legal_sink_action',
+        )
 
     # Build the redistributed distribution.
     new_dist = dict(strategy.action_probabilities)
@@ -131,5 +166,40 @@ def apply_short_stack_heuristics(
         redistributed += original - keep
 
     new_dist[sink_action] = new_dist.get(sink_action, 0.0) + redistributed
+    modified = StrategyProfile(action_probabilities=new_dist)
 
-    return StrategyProfile(action_probabilities=new_dist)
+    effect_size = l1_distance(strategy.action_probabilities, new_dist)
+    primary_before = primary_action(strategy.action_probabilities)
+    primary_after = primary_action(new_dist)
+
+    return modified, InterventionTrace(
+        layer='short_stack',
+        rule_id='default',
+        layer_order=layer_order_for('short_stack'),
+        fired=True,
+        operation=InterventionOperation.CLAMP.value,
+        effect='distribution_clamped',
+        effect_size=round(effect_size, 4),
+        action_changed=(primary_before != primary_after),
+        primary_action_before=primary_before,
+        primary_action_after=primary_after,
+        replaced_prior_action=False,
+        preserved_prior_intent=True,
+        reason_code=f'depth_clamp_sink_{sink_action}',
+        rationale=(
+            f"Short-stack medium-raise suppression at {effective_stack_bb:.1f} BB; "
+            f"factor={factor:.2f}, redistributed {redistributed:.3f} to {sink_action}"
+        ),
+        confidence=round(factor, 4),
+        inputs={
+            'effective_stack_bb': round(effective_stack_bb, 2),
+            'suppression_factor': round(factor, 4),
+            'sink_action': sink_action,
+        },
+        input_strategy_summary=summarize_strategy(strategy.action_probabilities),
+        output_strategy_summary=summarize_strategy(new_dist),
+        extra={
+            'medium_raises_suppressed': sorted(medium_raises),
+            'redistributed_mass': round(redistributed, 4),
+        },
+    )

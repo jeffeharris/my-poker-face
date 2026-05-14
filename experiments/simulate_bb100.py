@@ -20,7 +20,7 @@ import random
 import sys
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from unittest.mock import patch
 
 # Add project root to path
@@ -200,6 +200,9 @@ def make_controller(
     sm: PokerStateMachine,
     rng_seed: Optional[int] = None,
     hu_strategy_table: Optional[StrategyTable] = None,
+    decision_analysis_repo=None,
+    disable_rules: Optional[frozenset] = None,
+    game_id: Optional[str] = None,
 ):
     """Build a controller without LLM/persistence dependencies.
 
@@ -209,6 +212,12 @@ def make_controller(
 
     Uses the same mock pattern as test_tiered_bot_controller.py for tiered:
     bypass AIPlayerController.__init__ and manually set required attributes.
+
+    Phase 7.6 Step 7: when `decision_analysis_repo` is provided, attaches
+    it to the tiered controller so intervention traces + pipeline
+    snapshots get persisted via the normal capture path. `disable_rules`
+    sets the ablation hook; `game_id` is the row id for persistence.
+    These are no-ops for rule_bot / baseline paths.
     """
     # Rule-based controller path: no strategy table, no LLM, no psychology
     if archetype_config.get('kind') == 'rule_bot':
@@ -254,6 +263,17 @@ def make_controller(
     controller._current_hand_plans = []
     controller._hand_max_bluff_likelihood = 0
 
+    # Phase 7.6 Step 7: persistence + ablation wiring. Attached only
+    # to non-baseline tiered controllers; baselines/rule_bots don't
+    # produce traces so persistence is irrelevant.
+    if not is_baseline:
+        if decision_analysis_repo is not None:
+            controller._decision_analysis_repo = decision_analysis_repo
+        if disable_rules:
+            controller.disable_rules = disable_rules
+        if game_id is not None:
+            controller.game_id = game_id
+
     return controller
 
 
@@ -281,6 +301,84 @@ def make_game_state(
 
 
 # ── Hand runner ──────────────────────────────────────────────────────────────
+
+def _ensure_sim_game_row(decision_analysis_repo, game_id: str) -> None:
+    """Phase 7.6 Step 7: insert a games table row for the sim matchup.
+
+    Idempotent via INSERT OR IGNORE. Needed because
+    `player_decision_analysis.game_id` has a FOREIGN KEY → games(game_id)
+    constraint; persisting decisions without a parent games row would
+    fail. Sets minimum required columns; the rest stay NULL or defaults.
+
+    Marks the row's `phase` field as 'SIM' so analysis tools can
+    distinguish sim-produced games from production ones if needed.
+    """
+    try:
+        with decision_analysis_repo._get_connection() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO games "
+                "(game_id, phase, num_players, pot_size, game_state_json, owner_id) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (game_id, 'SIM', 2, 0.0, '{}', 'simulate_bb100'),
+            )
+            conn.commit()
+    except Exception as e:  # noqa: BLE001 — observability degradation
+        logger.warning(
+            f"[SIM_PERSIST] Failed to insert games row for {game_id}: {e}"
+        )
+
+
+def _persist_hero_decision(
+    hero_controller,
+    decision: Dict,
+    hand_number: Optional[int],
+    phase_name: str,
+) -> None:
+    """Phase 7.6 Step 7: persist a hero decision's trace + snapshot.
+
+    Bypasses the LLM-coupled `_analyze_decision` path (which requires
+    an expression_generator + capture_id). Writes the minimal row Mode
+    1/3/4 need: game_id, player_name, hand_number, phase, action_taken,
+    intervention_trace_json, strategy_pipeline_snapshot_json.
+
+    No-op when the controller lacks `_decision_analysis_repo` or
+    `game_id`. Failures log a WARN and proceed — gameplay never
+    blocked by persistence.
+    """
+    repo = getattr(hero_controller, '_decision_analysis_repo', None)
+    game_id = getattr(hero_controller, 'game_id', None)
+    if repo is None or game_id is None:
+        return
+    try:
+        from poker.controllers import (
+            _serialize_intervention_trace,
+            _serialize_pipeline_snapshot,
+        )
+        from poker.decision_analyzer import DecisionAnalysis
+
+        analysis = DecisionAnalysis(
+            game_id=game_id,
+            player_name=hero_controller.player_name,
+            hand_number=hand_number,
+            phase=phase_name,
+            action_taken=decision.get('action'),
+            raise_amount=decision.get('raise_to'),
+            intervention_trace_json=_serialize_intervention_trace(
+                getattr(hero_controller, '_last_intervention_trace', None),
+                player_name=hero_controller.player_name,
+            ),
+            strategy_pipeline_snapshot_json=_serialize_pipeline_snapshot(
+                getattr(hero_controller, '_last_pipeline_snapshot', None),
+                player_name=hero_controller.player_name,
+            ),
+        )
+        repo.save_decision_analysis(analysis)
+    except Exception as e:  # noqa: BLE001 — observability degradation
+        logger.warning(
+            f"[SIM_PERSIST] {hero_controller.player_name}: failed to "
+            f"persist decision: {e}"
+        )
+
 
 def run_hand(
     sm: PokerStateMachine,
@@ -352,6 +450,21 @@ def run_hand(
         action = decision['action']
         raise_to = decision.get('raise_to', 0) or 0
         phase_name = sm.phase.name
+
+        # Phase 7.6 Step 7: persist hero's decision trace + snapshot when
+        # the controller is configured for it. Tiered controllers only —
+        # rule_bots don't produce traces. No-op when not configured.
+        if (
+            hero_name is not None
+            and current_player.name == hero_name
+            and getattr(controller, '_decision_analysis_repo', None) is not None
+        ):
+            _persist_hero_decision(
+                hero_controller=controller,
+                decision=decision,
+                hand_number=hand_number,
+                phase_name=phase_name,
+            )
 
         if verbose:
             logger.info(
@@ -445,11 +558,19 @@ def run_matchup(
     base_seed: int = 42,
     verbose: bool = False,
     hero_adaptation_bias: Optional[float] = None,
+    decision_analysis_repo=None,
+    disable_rules: Optional[frozenset] = None,
+    game_id: Optional[str] = None,
 ) -> List[float]:
     """Run n_hands between two archetypes.
 
     Returns list of per-hand chip deltas for player A.
     Uses unique player names (P1/P2) to avoid collision in mirror matchups.
+
+    Phase 7.6 Step 7: when `decision_analysis_repo` + `game_id` are
+    provided, hero's per-decision trace + pipeline snapshot are
+    persisted for downstream Mode 1/4 analysis. `disable_rules`
+    suppresses the named (layer, rule_id) pairs in the hero pipeline.
     """
     config_a = apply_adaptation_bias_override(
         ARCHETYPES[archetype_a], hero_adaptation_bias
@@ -463,6 +584,12 @@ def run_matchup(
     # hands. Hero is name_a (the first archetype). Manager is attached to
     # ctrl_a below in the hand loop.
     opponent_manager = OpponentModelManager()
+
+    # Phase 7.6 Step 7: insert a games-table row so the FK on
+    # player_decision_analysis is satisfied. Idempotent — uses
+    # INSERT OR IGNORE.
+    if decision_analysis_repo is not None and game_id is not None:
+        _ensure_sim_game_row(decision_analysis_repo, game_id)
 
     for hand_num in tqdm(range(n_hands), desc=f"  {archetype_a} vs {archetype_b}", leave=False, file=sys.stderr):
         hand_seed = base_seed + hand_num
@@ -479,6 +606,9 @@ def run_matchup(
 
         ctrl_a = make_controller(
             name_a, config_a, strategy_table, sm, rng_seed=hand_seed,
+            decision_analysis_repo=decision_analysis_repo,
+            disable_rules=disable_rules,
+            game_id=game_id,
         )
         ctrl_b = make_controller(
             name_b, config_b, strategy_table, sm, rng_seed=hand_seed + 1_000_000,
@@ -874,22 +1004,36 @@ def run_all_vs_tag(
     verbose: bool = False,
     opponent: str = 'TAG',
     hero_adaptation_bias: Optional[float] = None,
+    decision_analysis_repo=None,
+    disable_rules: Optional[frozenset] = None,
+    game_id_prefix: Optional[str] = None,
 ):
     """Run each archetype heads-up vs TAG (or specified opponent)."""
     print(f"\nBB/100 Simulation: {n_hands} hands per matchup, seed={seed}")
     print(f"Opponent: {opponent}, Stack: {starting_stack}, BB: {big_blind}")
     if hero_adaptation_bias is not None:
         print(f"Hero adaptation_bias overridden to: {hero_adaptation_bias}")
+    if disable_rules:
+        rules_str = ', '.join(f'{l}.{r}' for (l, r) in sorted(disable_rules))
+        print(f"Disabled rules: {rules_str}")
     print("=" * 67)
 
     results: Dict[str, MatchupStats] = {}
 
     for name in ARCHETYPES:
+        # Phase 7.6 Step 7: per-matchup game_id for trace persistence.
+        matchup_game_id = (
+            f'{game_id_prefix}_{name}_vs_{opponent}'
+            if game_id_prefix is not None else None
+        )
         deltas = run_matchup(
             name, opponent, n_hands, strategy_table,
             big_blind=big_blind, starting_stack=starting_stack,
             base_seed=seed, verbose=verbose,
             hero_adaptation_bias=hero_adaptation_bias,
+            decision_analysis_repo=decision_analysis_repo,
+            disable_rules=disable_rules,
+            game_id=matchup_game_id,
         )
         results[name] = compute_stats(deltas, big_blind)
 
@@ -1002,6 +1146,32 @@ def main():
         '--verbose', action='store_true',
         help='Per-hand action logging',
     )
+    # Phase 7.6 Step 7: persistence + ablation hooks. When --db is
+    # provided, hero decisions persist intervention traces +
+    # strategy_pipeline_snapshot JSON to player_decision_analysis,
+    # making the data consumable by analyze_intervention_traces.py
+    # (Modes 1/3/4 in particular).
+    parser.add_argument(
+        '--db', type=str, default=None,
+        help='Phase 7.6: path to poker_games.db. When provided, hero '
+             'decisions persist intervention_trace_json + '
+             'strategy_pipeline_snapshot_json for analyze_intervention_'
+             'traces.py consumption. Default: no persistence.',
+    )
+    parser.add_argument(
+        '--game-id-prefix', type=str, default=None,
+        help='Phase 7.6: game_id prefix for persisted matchups. Each '
+             'matchup gets f"{prefix}_{hero}_vs_{opponent}". Defaults '
+             'to f"sim_seed{seed}".',
+    )
+    parser.add_argument(
+        '--disable-rule', type=str, action='append', default=None,
+        help='Phase 7.6: ablate a rule in the hero strategy pipeline. '
+             'Format: "layer.rule_id" (e.g. "bluff_catch_override.default"). '
+             'Repeatable for multi-rule ablation. Has no effect without '
+             '--db (the persisted traces are the only way to see the '
+             'effect downstream).',
+    )
     args = parser.parse_args()
 
     if args.verbose:
@@ -1014,6 +1184,39 @@ def main():
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
 
     strategy_table = load_strategy_table()
+
+    # Phase 7.6 Step 7: parse persistence + ablation args.
+    decision_analysis_repo = None
+    disable_rules: Optional[frozenset] = None
+    game_id_prefix = args.game_id_prefix
+    if args.db:
+        from poker.repositories.decision_analysis_repository import (
+            DecisionAnalysisRepository,
+        )
+        from poker.repositories.schema_manager import SchemaManager
+        # Ensure schema is up to date (creates DB if missing).
+        SchemaManager(args.db).ensure_schema()
+        decision_analysis_repo = DecisionAnalysisRepository(args.db)
+        if game_id_prefix is None:
+            game_id_prefix = f'sim_seed{args.seed}'
+        print(
+            f"Phase 7.6: persisting hero decision traces + snapshots "
+            f"to {args.db} with game_id prefix '{game_id_prefix}'"
+        )
+    if args.disable_rule:
+        parsed: List[Tuple[str, str]] = []
+        for entry in args.disable_rule:
+            if '.' not in entry:
+                print(f"--disable-rule {entry!r} must be in 'layer.rule_id' format")
+                sys.exit(2)
+            layer, rule_id = entry.split('.', 1)
+            parsed.append((layer, rule_id))
+        disable_rules = frozenset(parsed)
+        if not args.db:
+            print(
+                "--disable-rule has no observable effect without --db "
+                "(traces aren't persisted otherwise); proceeding anyway"
+            )
 
     if args.six_max_vs_rules:
         custom_opp = None
@@ -1045,6 +1248,9 @@ def main():
             args.stack, args.seed, verbose=args.verbose,
             opponent=args.opponent,
             hero_adaptation_bias=args.adaptation_bias,
+            decision_analysis_repo=decision_analysis_repo,
+            disable_rules=disable_rules,
+            game_id_prefix=game_id_prefix,
         )
 
 

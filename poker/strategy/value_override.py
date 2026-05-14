@@ -43,8 +43,10 @@ from .exploitation import (
 from .intervention_trace import (
     InterventionOperation,
     InterventionTrace,
+    is_rule_disabled,
     l1_distance,
     layer_order_for,
+    make_disabled_trace,
     primary_action,
     summarize_strategy,
 )
@@ -143,6 +145,7 @@ def compute_value_override_strategy(
     strategy: StrategyProfile,
     decision_context: DecisionContext,
     hand_strength: str,
+    disable_rules=None,
 ) -> Tuple[StrategyProfile, InterventionTrace]:
     """Build a 'get money in' distribution over the strategy's existing keys.
 
@@ -166,7 +169,18 @@ def compute_value_override_strategy(
     summaries. Pathological branches (no raise / no call / no jam — the
     rare leg where the function returns `strategy` unchanged) emit a
     `fired=False` trace because no override actually happened.
+
+    Phase 7.6 (Step 5): when `disable_rules` includes
+    `('strong_hand_override', 'default')`, the function bypasses its
+    spot-classification entirely and emits a `disabled_by_ablation`
+    no-op trace.
     """
+    if is_rule_disabled(disable_rules, 'strong_hand_override', 'default'):
+        return strategy, make_disabled_trace(
+            layer='strong_hand_override', rule_id='default',
+            layer_order=layer_order_for('strong_hand_override'),
+        )
+
     available = list(strategy.action_probabilities.keys())
     has_fold = 'fold' in available
     has_check = 'check' in available
@@ -674,6 +688,7 @@ def compute_bluff_catch_strategy(
     max_total_shift: float,
     legal_actions=None,
     tier_label: str = 'extreme',
+    disable_rules=None,
 ) -> Tuple[StrategyProfile, InterventionTrace]:
     """Build the bluff-catch override distribution and clamp to envelope.
 
@@ -697,7 +712,17 @@ def compute_bluff_catch_strategy(
     controller) supplies `prior_action_source` post-hoc by inspecting
     the prior layer's trace — that's the controller's responsibility,
     not this function's.
+
+    Phase 7.6 (Step 5): when disabled via `disable_rules`, emits a
+    `disabled_by_ablation` no-op trace and returns the strategy
+    unchanged.
     """
+    if is_rule_disabled(disable_rules, 'bluff_catch_override', 'default'):
+        return strategy, make_disabled_trace(
+            layer='bluff_catch_override', rule_id='default',
+            layer_order=layer_order_for('bluff_catch_override'),
+        )
+
     from .phase_7_5_config import CONFIG
 
     bet_ratio = getattr(decision_context, 'bet_size_pot_ratio', 0.0) or 0.0
