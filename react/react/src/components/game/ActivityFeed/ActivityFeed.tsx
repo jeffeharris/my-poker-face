@@ -18,7 +18,10 @@ export function ActivityFeed({
 }: ActivityFeedProps) {
   const [inputValue, setInputValue] = useState('');
   const [isInputExpanded, setIsInputExpanded] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Track whether the user is pinned to the bottom of the scroll container.
+  // Default true so the first render lands at the latest message.
+  const isAtBottomRef = useRef(true);
 
   // Parse action messages (e.g., "Batman chose to raise by $100")
   const parseActionMessage = useCallback((message: string) => {
@@ -62,10 +65,20 @@ export function ActivityFeed({
     [messages, parseActionMessage]
   );
 
-  // Auto-scroll to bottom when new messages arrive
+  // Stick to bottom on new messages, but only if the user is already there.
+  // If they've scrolled up to read history, leave their position alone.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = listRef.current;
+    if (!el || !isAtBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [activityItems.length]);
+
+  const handleListScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    // 24px slack so trivial gaps still count as "at bottom"
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  }, []);
 
   const handleSend = () => {
     if (inputValue.trim()) {
@@ -90,7 +103,7 @@ export function ActivityFeed({
         <h3 className="activity-feed__title">Activity</h3>
       </div>
 
-      <div className="activity-feed__list">
+      <div className="activity-feed__list" ref={listRef} onScroll={handleListScroll}>
         {activityItems.length === 0 ? (
           <div className="activity-feed__empty">
             Waiting for action...
@@ -146,7 +159,6 @@ export function ActivityFeed({
             );
           })
         )}
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Collapsible Chat Input */}
