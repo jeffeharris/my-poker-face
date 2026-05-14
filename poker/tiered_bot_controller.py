@@ -64,6 +64,7 @@ from .strategy.intervention_trace import (
     make_no_op_trace,
 )
 from .strategy.short_stack import apply_short_stack_heuristics
+from .stack_utils import big_blind_of, effective_stack_bb
 from .hand_tiers import is_hand_in_range
 from .strategy.expression_context import ExpressionContext
 from .strategy.expression_generator import ExpressionGenerator
@@ -1202,26 +1203,8 @@ class TieredBotController(AIPlayerController):
         return HandStrengthClass.NOT_STRONG.value
 
     def _compute_effective_stack_bb(self, game_state, player_idx):
-        """Effective stack in big blinds — min(hero stack, max opponent stack).
-
-        Effective stack matters more than hero's raw stack because you
-        can't lose more than the smaller of the two stacks in a heads-up
-        confrontation. In multiway pots this is approximate but still
-        the right depth signal for "raise or jam?" decisions.
-        """
-        big_blind = getattr(game_state, 'big_blind', 100) or 100
-        if big_blind <= 0:
-            big_blind = 100
-        hero = game_state.players[player_idx]
-        hero_stack = getattr(hero, 'stack', 0) or 0
-        opp_stacks = [
-            getattr(p, 'stack', 0) or 0
-            for i, p in enumerate(game_state.players)
-            if i != player_idx and not getattr(p, 'is_folded', False)
-        ]
-        if not opp_stacks:
-            return hero_stack / big_blind
-        return min(hero_stack, max(opp_stacks)) / big_blind
+        """Effective stack in big blinds — delegates to `stack_utils`."""
+        return effective_stack_bb(game_state, game_state.players[player_idx])
 
     def _classify_postflop_hand_strength(self, node):
         """Map PostflopNode → simplified hand class string ('nuts',
@@ -1918,7 +1901,7 @@ class TieredBotController(AIPlayerController):
         is_preflop = phase is not None and phase.name == 'PRE_FLOP'
         is_flop = phase is not None and phase.name == 'FLOP'
 
-        big_blind = getattr(game_state, 'big_blind', 100) or 100
+        big_blind = big_blind_of(game_state)
         call_amount = getattr(game_state, 'call_amount', 0) or 0
 
         pot = getattr(game_state, 'pot', None)

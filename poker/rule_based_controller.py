@@ -42,6 +42,7 @@ from .controllers import (
     card_to_string,
 )
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
+from .stack_utils import effective_stack_chips, effective_stack_bb, spr as compute_spr
 
 logger = logging.getLogger(__name__)
 
@@ -783,13 +784,9 @@ class RuleBasedController:
         opponents = [p for p in game_state.players if not p.is_folded and p.name != player.name]
         num_opponents = len(opponents)
 
-        # Effective stack (min of ours and largest opponent)
-        opponent_stacks = [p.stack for p in opponents]
-        effective_stack = min(player.stack, max(opponent_stacks)) if opponent_stacks else player.stack
-        effective_stack_bb = effective_stack / big_blind if big_blind > 0 else 100
-
-        # Stack-to-pot ratio
-        spr = effective_stack / pot_total if pot_total > 0 else float('inf')
+        effective_stack = effective_stack_chips(game_state, player)
+        effective_stack_bb_val = effective_stack_bb(game_state, player, big_blind=big_blind)
+        spr = compute_spr(game_state, player, pot_total=pot_total)
 
         # Get equity (post-flop) or estimate (pre-flop)
         if community_cards:
@@ -852,7 +849,7 @@ class RuleBasedController:
             'position': position,
             'num_opponents': num_opponents,
             'effective_stack': effective_stack,
-            'effective_stack_bb': effective_stack_bb,
+            'effective_stack_bb': effective_stack_bb_val,
             'spr': spr,
             'valid_actions': game_state.current_player_options,
             # Opponent modeling stats (for adaptive strategies)
