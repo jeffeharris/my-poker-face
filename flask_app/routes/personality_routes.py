@@ -148,12 +148,17 @@ def create_personality():
 
         personality_config = {k: v for k, v in data.items() if k != 'name'}
 
-        if 'personality_traits' not in personality_config:
-            personality_config['personality_traits'] = {
-                "bluff_tendency": 0.5,
-                "aggression": 0.5,
-                "chattiness": 0.5,
-                "emoji_usage": 0.3
+        if 'anchors' not in personality_config:
+            personality_config['anchors'] = {
+                "baseline_aggression": 0.5,
+                "baseline_looseness": 0.3,
+                "ego": 0.5,
+                "poise": 0.7,
+                "expressiveness": 0.5,
+                "risk_identity": 0.5,
+                "adaptation_bias": 0.5,
+                "baseline_energy": 0.5,
+                "recovery_rate": 0.15,
             }
 
         personality_repo.save_personality(

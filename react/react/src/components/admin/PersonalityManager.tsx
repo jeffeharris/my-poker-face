@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { User, Brain, MessageCircle, Image as ImageIcon } from 'lucide-react';
 import { config } from '../../config';
 import { adminFetch } from '../../utils/api';
 import { PageLayout, PageHeader } from '../shared';
@@ -11,16 +12,15 @@ import './PersonalityManager.css';
 // Types
 // ============================================
 
-interface PersonalityTraits {
-  bluff_tendency: number;
-  aggression: number;
-  chattiness: number;
-  emoji_usage: number;
-}
-
-interface ElasticityConfig {
-  trait_elasticity: PersonalityTraits;
-  mood_elasticity: number;
+interface PersonalityAnchors {
+  baseline_aggression: number;
+  baseline_looseness: number;
+  ego: number;
+  poise: number;
+  expressiveness: number;
+  risk_identity: number;
+  adaptation_bias: number;
+  baseline_energy: number;
   recovery_rate: number;
 }
 
@@ -28,8 +28,7 @@ interface PersonalityData {
   play_style?: string;
   default_confidence?: string;
   default_attitude?: string;
-  personality_traits?: PersonalityTraits;
-  elasticity_config?: ElasticityConfig;
+  anchors?: PersonalityAnchors;
   verbal_tics?: string[];
   physical_tics?: string[];
   avatar_description?: string;
@@ -57,7 +56,7 @@ interface ModalState {
 
 interface CollapsibleSectionProps {
   title: string;
-  icon: string;
+  icon: React.ReactNode;
   isOpen: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -1296,8 +1295,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   // Accordion state
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     basic: true,
-    traits: false,
-    elasticity: false,
+    anchors: false,
     tics: false,
     avatar: false
   });
@@ -1360,45 +1358,14 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     setFormData(prev => prev ? { ...prev, ...updates } : null);
   }, []);
 
-  const updateTraits = useCallback((trait: keyof PersonalityTraits, value: number) => {
+  const updateAnchor = useCallback((field: keyof PersonalityAnchors, value: number) => {
     setFormData(prev => {
       if (!prev) return null;
       return {
         ...prev,
-        personality_traits: {
-          ...getDefaultTraits(),
-          ...prev.personality_traits,
-          [trait]: value
-        }
-      };
-    });
-  }, []);
-
-  const updateElasticity = useCallback((trait: keyof PersonalityTraits, value: number) => {
-    setFormData(prev => {
-      if (!prev) return null;
-      const currentConfig = prev.elasticity_config || getDefaultElasticity();
-      return {
-        ...prev,
-        elasticity_config: {
-          ...currentConfig,
-          trait_elasticity: {
-            ...currentConfig.trait_elasticity,
-            [trait]: value
-          }
-        }
-      };
-    });
-  }, []);
-
-  const updateMoodSettings = useCallback((field: 'mood_elasticity' | 'recovery_rate', value: number) => {
-    setFormData(prev => {
-      if (!prev) return null;
-      const currentConfig = prev.elasticity_config || getDefaultElasticity();
-      return {
-        ...prev,
-        elasticity_config: {
-          ...currentConfig,
+        anchors: {
+          ...getDefaultAnchors(),
+          ...prev.anchors,
           [field]: value
         }
       };
@@ -1537,8 +1504,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
       play_style: 'balanced',
       default_confidence: 'confident',
       default_attitude: 'focused',
-      personality_traits: getDefaultTraits(),
-      elasticity_config: getDefaultElasticity(),
+      anchors: getDefaultAnchors(),
       verbal_tics: [],
       physical_tics: []
     };
@@ -1634,21 +1600,12 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   );
 
   // Safely merge API data with defaults to handle missing/partial data
-  const defaultTraits = getDefaultTraits();
-  const traits: PersonalityTraits = {
-    ...defaultTraits,
-    ...(formData?.personality_traits || {})
+  const anchors: PersonalityAnchors = {
+    ...getDefaultAnchors(),
+    ...(formData?.anchors || {})
   };
 
-  const defaultElasticity = getDefaultElasticity();
-  const elasticityConfig: ElasticityConfig = {
-    ...defaultElasticity,
-    ...(formData?.elasticity_config || {}),
-    trait_elasticity: {
-      ...defaultElasticity.trait_elasticity,
-      ...(formData?.elasticity_config?.trait_elasticity || {})
-    }
-  };
+  const archetype = classifyArchetype(anchors.baseline_looseness, anchors.baseline_aggression);
 
   // Editor sections (scrollable content)
   const editorSections = selectedName && formData ? (
@@ -1656,7 +1613,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
         {/* Basic Info */}
         <CollapsibleSection
           title="Basic Info"
-          icon="📋"
+          icon={<User size={20} />}
           isOpen={openSections.basic}
           onToggle={() => toggleSection('basic')}
         >
@@ -1697,80 +1654,116 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
           </div>
         </CollapsibleSection>
 
-        {/* Personality Traits */}
+        {/* Psychology Anchors */}
         <CollapsibleSection
-          title="Personality Traits"
-          icon="🎭"
-          isOpen={openSections.traits}
-          onToggle={() => toggleSection('traits')}
+          title="Psychology Anchors"
+          icon={<Brain size={20} />}
+          isOpen={openSections.anchors}
+          onToggle={() => toggleSection('anchors')}
+          badge={archetype.label}
         >
-          <TraitSlider
-            id="bluff_tendency"
-            label="Bluff Tendency"
-            value={traits.bluff_tendency}
-            elasticity={elasticityConfig.trait_elasticity.bluff_tendency}
-            onChange={(v) => updateTraits('bluff_tendency', v)}
-            onElasticityChange={(v) => updateElasticity('bluff_tendency', v)}
-          />
-          <TraitSlider
-            id="aggression"
-            label="Aggression"
-            value={traits.aggression}
-            elasticity={elasticityConfig.trait_elasticity.aggression}
-            onChange={(v) => updateTraits('aggression', v)}
-            onElasticityChange={(v) => updateElasticity('aggression', v)}
-          />
-          <TraitSlider
-            id="chattiness"
-            label="Chattiness"
-            value={traits.chattiness}
-            elasticity={elasticityConfig.trait_elasticity.chattiness}
-            onChange={(v) => updateTraits('chattiness', v)}
-            onElasticityChange={(v) => updateElasticity('chattiness', v)}
-          />
-          <TraitSlider
-            id="emoji_usage"
-            label="Emoji Usage"
-            value={traits.emoji_usage}
-            elasticity={elasticityConfig.trait_elasticity.emoji_usage}
-            onChange={(v) => updateTraits('emoji_usage', v)}
-            onElasticityChange={(v) => updateElasticity('emoji_usage', v)}
-          />
-        </CollapsibleSection>
+          <p className="admin-help-text" style={{ marginTop: 0, marginBottom: 'var(--space-4)' }}>
+            These anchors control poker behavior and archetype classification.
+          </p>
 
-        {/* Elasticity Settings */}
-        <CollapsibleSection
-          title="Mood & Recovery"
-          icon="🔄"
-          isOpen={openSections.elasticity}
-          onToggle={() => toggleSection('elasticity')}
-        >
+          <h4 className="pm-anchor-group-title">Play Style</h4>
           <TraitSlider
-            id="mood_elasticity"
-            label="Mood Elasticity"
-            value={elasticityConfig.mood_elasticity}
+            id="baseline_looseness"
+            label="Tight → Loose"
+            value={anchors.baseline_looseness}
             elasticity={0}
-            onChange={(v) => updateMoodSettings('mood_elasticity', v)}
+            onChange={(v) => updateAnchor('baseline_looseness', v)}
             onElasticityChange={() => {}}
             showElasticity={false}
           />
-          <p className="admin-help-text">How reactive mood changes are to game events</p>
+          <p className="admin-help-text">Hand range width — how many hands to play</p>
+          <TraitSlider
+            id="baseline_aggression"
+            label="Passive → Aggressive"
+            value={anchors.baseline_aggression}
+            elasticity={0}
+            onChange={(v) => updateAnchor('baseline_aggression', v)}
+            onElasticityChange={() => {}}
+            showElasticity={false}
+          />
+          <p className="admin-help-text">Bet/raise frequency</p>
+
+          <h4 className="pm-anchor-group-title">Psychology</h4>
+          <TraitSlider
+            id="ego"
+            label="Stable → Fragile"
+            value={anchors.ego}
+            elasticity={0}
+            onChange={(v) => updateAnchor('ego', v)}
+            onElasticityChange={() => {}}
+            showElasticity={false}
+          />
+          <p className="admin-help-text">Confidence brittleness after losses</p>
+          <TraitSlider
+            id="poise"
+            label="Volatile → Composed"
+            value={anchors.poise}
+            elasticity={0}
+            onChange={(v) => updateAnchor('poise', v)}
+            onElasticityChange={() => {}}
+            showElasticity={false}
+          />
+          <p className="admin-help-text">Composure resistance to tilt</p>
+          <TraitSlider
+            id="expressiveness"
+            label="Poker Face → Open Book"
+            value={anchors.expressiveness}
+            elasticity={0}
+            onChange={(v) => updateAnchor('expressiveness', v)}
+            onElasticityChange={() => {}}
+            showElasticity={false}
+          />
+          <p className="admin-help-text">Emotional transparency in chat</p>
+
+          <h4 className="pm-anchor-group-title">Behavior</h4>
+          <TraitSlider
+            id="risk_identity"
+            label="Risk-Averse → Risk-Seeking"
+            value={anchors.risk_identity}
+            elasticity={0}
+            onChange={(v) => updateAnchor('risk_identity', v)}
+            onElasticityChange={() => {}}
+            showElasticity={false}
+          />
+          <TraitSlider
+            id="adaptation_bias"
+            label="Static → Adaptive"
+            value={anchors.adaptation_bias}
+            elasticity={0}
+            onChange={(v) => updateAnchor('adaptation_bias', v)}
+            onElasticityChange={() => {}}
+            showElasticity={false}
+          />
+          <TraitSlider
+            id="baseline_energy"
+            label="Reserved → Animated"
+            value={anchors.baseline_energy}
+            elasticity={0}
+            onChange={(v) => updateAnchor('baseline_energy', v)}
+            onElasticityChange={() => {}}
+            showElasticity={false}
+          />
           <TraitSlider
             id="recovery_rate"
-            label="Recovery Rate"
-            value={elasticityConfig.recovery_rate}
+            label="Slow Recovery → Fast Recovery"
+            value={anchors.recovery_rate}
             elasticity={0}
-            onChange={(v) => updateMoodSettings('recovery_rate', v)}
+            onChange={(v) => updateAnchor('recovery_rate', v)}
             onElasticityChange={() => {}}
             showElasticity={false}
           />
-          <p className="admin-help-text">How quickly traits return to baseline</p>
+          <p className="admin-help-text">How quickly mood returns to baseline</p>
         </CollapsibleSection>
 
         {/* Verbal & Physical Tics */}
         <CollapsibleSection
           title="Quirks & Tics"
-          icon="💬"
+          icon={<MessageCircle size={20} />}
           isOpen={openSections.tics}
           onToggle={() => toggleSection('tics')}
           badge={`${(formData.verbal_tics?.length || 0) + (formData.physical_tics?.length || 0)}`}
@@ -1792,7 +1785,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
         {/* Avatar Images */}
         <CollapsibleSection
           title="Avatar Images"
-          icon="🖼️"
+          icon={<ImageIcon size={20} />}
           isOpen={openSections.avatar}
           onToggle={() => toggleSection('avatar')}
         >
@@ -2115,24 +2108,29 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
 // Helpers
 // ============================================
 
-function getDefaultTraits(): PersonalityTraits {
+function getDefaultAnchors(): PersonalityAnchors {
   return {
-    bluff_tendency: 0.5,
-    aggression: 0.5,
-    chattiness: 0.5,
-    emoji_usage: 0.3
+    baseline_aggression: 0.5,
+    baseline_looseness: 0.3,
+    ego: 0.5,
+    poise: 0.7,
+    expressiveness: 0.5,
+    risk_identity: 0.5,
+    adaptation_bias: 0.5,
+    baseline_energy: 0.5,
+    recovery_rate: 0.15,
   };
 }
 
-function getDefaultElasticity(): ElasticityConfig {
-  return {
-    trait_elasticity: {
-      bluff_tendency: 0.3,
-      aggression: 0.3,
-      chattiness: 0.5,
-      emoji_usage: 0.3
-    },
-    mood_elasticity: 0.4,
-    recovery_rate: 0.1
-  };
+function classifyArchetype(looseness: number, aggression: number): { key: string; label: string } {
+  if (looseness < 0.45) {
+    return aggression < 0.50
+      ? { key: 'tight_passive', label: 'Rock' }
+      : { key: 'tight_aggressive', label: 'TAG' };
+  } else if (looseness > 0.65) {
+    return aggression < 0.50
+      ? { key: 'loose_passive', label: 'Fish' }
+      : { key: 'loose_aggressive', label: 'LAG' };
+  }
+  return { key: 'default', label: 'Balanced' };
 }
