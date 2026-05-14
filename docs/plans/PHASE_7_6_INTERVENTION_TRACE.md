@@ -2,12 +2,33 @@
 purpose: Plan for a per-decision intervention-trace framework that unifies attribution and LLM narration
 type: design
 created: 2026-05-13
-last_updated: 2026-05-14T10:00:00
+last_updated: 2026-05-14T11:00:00
 ---
 
 # Phase 7.6: Intervention-trace framework
 
 ## Codex review history
+
+### Round 3 revisions (v4, 2026-05-14)
+
+Codex's round-3 verdict: "v3 is implementation-ready." Five small
+refinements applied as v4 polish before code:
+
+- **clamp vs veto disambiguation** — `veto` = explicit hard
+  prohibition (action removed); `clamp` = bounded reduction (action
+  retained, mass reduced). Invariant added: `operation == 'override'`
+  ⇒ `replaced_prior_action == True`.
+- **`_score_fact_importance` concrete ranking dimensions** —
+  operation severity × action-class change × certainty × street
+  importance × pipeline recency. Overwritten facts down-ranked.
+- **Overwrite-chain tests** added to the test plan (multiple
+  sequential overrides, not just one).
+- **Performance budget target**: per-decision trace overhead must
+  stay under 5% of decision latency. Measured during Step 1.
+- **Trace write-failure policy**: persistence failures degrade
+  gracefully — gameplay continues, the failure is logged, and the
+  in-memory trace is dropped for that decision rather than blocking
+  the engine.
 
 ### Round 2 revisions (v3, 2026-05-14)
 
@@ -235,13 +256,32 @@ class InterventionOperation(str, Enum):
     alone don't distinguish "refined the prior layer's work" from
     "threw it out." `operation` makes the relationship explicit so
     attribution doesn't mistakenly credit a superseded earlier layer.
+
+    v4 (Codex r3) disambiguation: `clamp` and `veto` were overlapping
+    when a clamp reduces an action to zero probability. The
+    distinction is semantic, not just numeric:
+      - `clamp` BOUNDS the prior distribution (action retained in
+        the distribution with possibly reduced mass; the action is
+        still in the legal/considered set)
+      - `veto` REMOVES an action from consideration entirely (the
+        action is treated as illegal/disallowed for this decision)
+    A clamp that incidentally results in 0% mass is still `clamp`;
+    only an explicit hard prohibition is `veto`.
+
+    Invariant: `operation == OVERRIDE` ⇒ `replaced_prior_action == True`
+    (override always replaces the prior layer's chosen action).
+    Asserted in unit tests.
     """
     NO_OP = 'no_op'        # gates failed; strategy unchanged
     SUGGEST = 'suggest'    # produced advice but didn't modify
     ADJUST = 'adjust'      # additive offsets / nudges; prior intent preserved
-    CLAMP = 'clamp'        # bounded the prior distribution
-    OVERRIDE = 'override'  # replaced the strategy distribution entirely
-    VETO = 'veto'          # forced a specific action (math floor, etc.)
+    CLAMP = 'clamp'        # bounded the prior distribution (action
+                           # mass capped; action still in the set)
+    OVERRIDE = 'override'  # replaced the strategy distribution
+                           # entirely; primary action changed
+    VETO = 'veto'          # explicit hard prohibition; action removed
+                           # from consideration (e.g. math floor on
+                           # pot-committed spots)
 
 
 @dataclass(frozen=True)
@@ -965,20 +1005,113 @@ REASON_CODE_TO_OBSERVATION: Dict[str, Tuple[str, str]] = {
 def _score_fact_importance(
     trace: InterventionTrace,
     decision_context,
+    later_layer_overrode_this: bool,
 ) -> float:
     """Rank facts so top-N selection is principled, not first-come.
 
-    Heuristic ordering (highest importance first):
-    - operation == 'override' or 'veto' with action_changed → highest
-    - operation == 'override' without action change → high
-    - operation == 'adjust' with effect_size > 0.3 → medium
-    - operation == 'adjust' with effect_size <= 0.3 → low
-    - operation == 'no_op' → 0 (filtered before ranking anyway)
+    Scoring is a weighted sum of six dimensions (v4, Codex r3):
 
-    Tie-break by layer_order DESC (later layers' effects are more
-    consequential since they had final say).
+    1. Operation severity (weight 0.30):
+       override/veto = 1.0, clamp = 0.7, adjust = 0.5, suggest = 0.2,
+       no_op = 0.0
+    2. Action change (weight 0.25):
+       action-class change (fold→call, call→raise) = 1.0,
+       sizing-only change (raise_small→raise_large) = 0.5,
+       no change = 0.0
+    3. Certainty bucket (weight 0.15):
+       sure = 1.0, confident = 0.7, tentative = 0.3
+    4. Street importance (weight 0.10):
+       river = 1.0, turn = 0.7, flop = 0.5, preflop = 0.3
+       (Later streets typically have higher SPR-adjusted impact;
+       preflop is high-volume but low-per-decision-EV.)
+    5. Layer recency (weight 0.10):
+       Later pipeline layers' decisions are more consequential since
+       they had final say. Score = layer_order / max_layer_order.
+    6. Narrative priority (weight 0.10):
+       Hand-curated per (layer, rule_id):
+         bluff_catch_override = 1.0 (high human interest)
+         strong_hand_override = 1.0
+         exploitation.hyper_aggressive = 0.8
+         exploitation.tight_nit = 0.6
+         exploitation.hyper_passive = 0.5
+         personality = 0.3 (mechanical, less narratable)
+
+    Crucial v4 rule: if `later_layer_overrode_this` is True (a later
+    pipeline layer with operation=OVERRIDE/VETO superseded this one),
+    multiply the final score by 0.3. The primary_factor should align
+    with the final output, not the strongest intermediate
+    intervention. Overwritten facts are kept available (they may
+    still appear in the top-3) but down-weighted so they don't
+    crowd out the layer that actually drove the action.
+
+    Returns float in [0, 1]. The top NARRATION_MAX_FACTS (= 3) by
+    score are surfaced; the highest-scoring one becomes
+    primary_factor (the prompt's lead).
     """
-    ...
+    # Operation severity
+    op_score = {
+        'override': 1.0, 'veto': 1.0,
+        'clamp': 0.7, 'adjust': 0.5,
+        'suggest': 0.2, 'no_op': 0.0,
+    }.get(trace.operation, 0.0)
+
+    # Action change
+    if trace.action_changed:
+        act_score = 1.0
+    elif trace.amount_bucket_before != trace.amount_bucket_after:
+        act_score = 0.5
+    else:
+        act_score = 0.0
+
+    # Certainty (mapped from trace.confidence by the adapter)
+    if trace.confidence >= 0.8:
+        cert_score = 1.0
+    elif trace.confidence >= 0.5:
+        cert_score = 0.7
+    else:
+        cert_score = 0.3
+
+    # Street importance
+    street_score = {
+        'river': 1.0, 'turn': 0.7, 'flop': 0.5, 'preflop': 0.3,
+    }.get(getattr(decision_context, 'street', ''), 0.5)
+
+    # Layer recency (assume max_layer_order known from pipeline)
+    layer_score = trace.layer_order / max(MAX_LAYER_ORDER, 1)
+
+    # Narrative priority (hand-curated dict)
+    narr_score = LAYER_RULE_NARRATIVE_WEIGHT.get(
+        (trace.layer, trace.rule_id), 0.5,
+    )
+
+    score = (
+        0.30 * op_score
+        + 0.25 * act_score
+        + 0.15 * cert_score
+        + 0.10 * street_score
+        + 0.10 * layer_score
+        + 0.10 * narr_score
+    )
+
+    # Critical v4 rule: down-rank if a later layer superseded this one
+    if later_layer_overrode_this:
+        score *= 0.3
+
+    return score
+
+
+LAYER_RULE_NARRATIVE_WEIGHT: Dict[Tuple[str, str], float] = {
+    ('bluff_catch_override',     'default'): 1.0,
+    ('strong_hand_override',     'default'): 1.0,
+    ('exploitation',             'hyper_aggressive'): 0.8,
+    ('exploitation',             'tight_nit'): 0.6,
+    ('exploitation',             'hyper_passive'): 0.5,
+    ('exploitation',             'high_fold_to_cbet'): 0.8,
+    ('exploitation',             'multiway_cbet'): 0.6,
+    ('value_vs_station',         'default'): 0.7,
+    ('steal_pressure',           'default'): 0.7,
+    # personality / short_stack / math_floor not in NARRATION_ALLOWLIST
+}
 ```
 
 The expression generator's prompt template then renders
@@ -1095,6 +1228,32 @@ def test_sweep_results_match_pre_migration():
 def test_full_pipeline_produces_complete_trace():
     """A full postflop decision produces 4-6 trace entries (one per
     pipeline layer that ran), all with valid layer names."""
+
+def test_override_chain_attribution():
+    """v4 (Codex r3): when MULTIPLE layers override sequentially,
+    the trace correctly records each override's prior_action_source.
+
+    Scenario: exploitation.hyper_aggressive adjusts (fold→call), then
+    bluff_catch_override overrides (call→call but distribution
+    replaced), then math_floor vetoes (call→all-in). Verify:
+      - 3 traces emitted with action_changed reflecting the chain
+      - bluff_catch's prior_action_source = 'exploitation.hyper_aggressive'
+      - math_floor's prior_action_source = 'bluff_catch_override.default'
+      - Only math_floor has replaced_prior_action=True at the final
+        action level (override on top of override on top of adjust).
+      - Earlier traces' fact-importance is down-ranked by
+        _score_fact_importance because later layers superseded them.
+    """
+
+def test_trace_write_failure_does_not_block_gameplay():
+    """v4 (Codex r3): persistence failures degrade gracefully.
+
+    Simulate a DB write error during trace persistence:
+      - The controller's action is still returned (gameplay continues)
+      - The error is logged at WARN level (not silent)
+      - The in-memory trace for that decision is dropped, not retried
+      - Subsequent decisions are unaffected
+    """
 ```
 
 ## Validation
@@ -1205,9 +1364,41 @@ template.
     layer (e.g. exploitation offsets), the earlier layer's
     `output_strategy_summary` no longer reflects the final
     distribution. The trace records both layers' before/after
-    correctly, but readers need to understand the overwrite. The
-    `effect` field's `distribution_replaced` value is the
-    explicit marker.
+    correctly, but readers need to understand the overwrite.
+    v3 fix: `operation` enum makes this explicit (override / veto
+    vs adjust / clamp), and `prior_action_source` records the
+    overwritten layer.
+
+11. **Per-decision performance overhead** (v4, Codex r3): trace
+    construction + JSON serialization runs on every decision in
+    the hot path. **Budget target: <5% of decision latency**
+    (typically a few milliseconds per decision today). Measured
+    via:
+    - Microbench: time `_apply_bluff_catch_override` with and
+      without trace emission. Diff is the per-rule overhead.
+    - End-to-end: time `simulate_bb100 --hands 2000` pre- and
+      post-migration. Diff is the cumulative overhead.
+    If the measured overhead exceeds 5%, mitigate by:
+    - Skipping `output_strategy_summary` when `fired=False` (saves
+      the no-op case)
+    - Lazy `config_snapshot` (only emit when the layer fired)
+    - Batched JSON serialization at hand end rather than per-decision
+    These are optimizations, not architectural changes; they don't
+    affect the trace shape.
+
+12. **Trace persistence failure must not block gameplay** (v4,
+    Codex r3): DB write errors, schema mismatch, JSON serialization
+    failures — none of these should propagate to the controller's
+    return path. Policy:
+    - Persistence is wrapped in try/except in the capture step
+    - Errors logged at WARN level with the decision_id for debugging
+    - The in-memory trace for that decision is dropped (no retry,
+      no in-memory queue — those create their own failure modes)
+    - Subsequent decisions are unaffected
+    - The aggregate counters (`manager._exploitation_counters`)
+      keep working as a degraded-mode signal source
+    Test `test_trace_write_failure_does_not_block_gameplay` enforces
+    this contract.
 
 ## Effort estimate
 
@@ -1271,7 +1462,23 @@ Start from any commit at or after Phase 7.5 ships (the Item 1d sweep
 in `/tmp/phase7_5_3seed/`). The trace framework is additive — once
 shipped, all subsequent phases (Phase 8 etc.) automatically participate.
 
-## Resolved by Codex review (v2 + v3)
+## Resolved by Codex review (v2 + v3 + v4)
+
+### v4 (round 3)
+
+- ✅ **clamp vs veto disambiguation** — semantic distinction
+  documented + invariant on `OVERRIDE` ⇒ `replaced_prior_action`.
+- ✅ **`_score_fact_importance` concrete ranking** — six weighted
+  dimensions; overwritten facts down-ranked 0.3×.
+- ✅ **Overwrite-chain tests** — added
+  `test_override_chain_attribution` covering sequential overrides.
+- ✅ **Performance budget target** — < 5% of decision latency,
+  measured during Step 1. Mitigation strategies if exceeded.
+- ✅ **Trace write-failure policy** — gameplay continues; errors
+  logged at WARN; in-memory trace dropped; aggregate counters
+  remain as degraded-mode signal.
+
+### v3 (round 2) + v2 (round 1)
 
 - ✅ **Sub-layer attribution within `exploitation`** (v2) — multiple
   traces per layer with distinct `rule_id`, NOT in `extra`. See
@@ -1346,14 +1553,13 @@ shipped, all subsequent phases (Phase 8 etc.) automatically participate.
    this kind of distinction; can promote to its own field if
    attribution needs the granularity.
 
-6. **Trace volume / performance budget** (v3, Codex r2): the 60MB
-   per long session estimate hasn't been measured against real
-   workloads. Confirm acceptable size on the production DB before
-   committing to per-decision traces in production (vs experiment-
-   only). Also: per-decision JSON serialization cost in the hot
-   decision path is non-zero — measure overhead during Step 1
-   bluff_catch migration and fail-fast if it exceeds ~5% of
-   decision latency.
+6. **Trace volume** (v3, Codex r2): the 60MB per long session
+   estimate hasn't been measured against real workloads. Confirm
+   acceptable size on the production DB before committing to
+   per-decision traces in production (vs experiment-only).
+   Performance budget for the hot-path is now defined (< 5% of
+   decision latency, see Risks #11) but storage budget still
+   needs measurement.
 
 7. **Privacy deletion alignment** (v3, Codex r2): GDPR-style "delete
    my data" — do trace rows delete with hand history, or are they
