@@ -500,12 +500,29 @@ that case.
 
 **Deliverables:**
 
-- Updated exploitation offsets keyed off
-  `classify_opponent_archetype(stats)` (from §1.5).
-- Tests for action-shaping differences per archetype label —
-  hero's bet/raise/check/fold distributions should differ
-  between `pure_station` and `sticky_jammer` in the documented
-  ways above.
+- ~~Updated exploitation offsets keyed off
+  `classify_opponent_archetype(stats)`.~~ **No new strategy code
+  required.** Per the audit done during implementation, every
+  in-scope cell of the behavior table is already satisfied by
+  shipped rules: row 1 (value bet ↑) by Phase 8
+  `value_vs_station` which gates on `_is_hyper_passive` (True
+  for both passive archetypes); row 2 (bluff freq ↓) is §5's
+  work, deferred; row 3 (marginal at large/jam — no widening)
+  is enforced by §2's matrix structure (rows 3-4 require
+  `near_nuts`/strong+/`non_nut_strong`; row 5 requires ≤20%
+  req) — §2 simply doesn't have a row that fires for marginals
+  at large prices; row 4 (strong/nut continues at good prices)
+  by §2 rows 3-4. The "updated offsets" deliverable was
+  predicated on §1.5a migrating `value_vs_station`'s gate to
+  the unified classifier, which was deferred per the §1.5
+  precedence limitation. The migration is parked for §1.5b.
+- Tests for the behavior table per archetype —
+  `tests/test_strategy/test_section_3_passive_archetype_behavior.py`
+  exercises each row of the table with canonical
+  `pure_station` and `sticky_jammer` fixtures and verifies the
+  rules cover the right cells. Includes a regression guard
+  against Phase 8.1b: medium hands at large bets and
+  bluff_catcher-routed hands on dangerous boards do NOT widen.
 
 **Existing-layer interactions:**
 
@@ -516,6 +533,13 @@ that case.
 - The protective behavior for marginal hands vs jams comes from
   the defense floor (§2), which is hand-class-gated. It does
   NOT re-enable the failed fold-mass suppression.
+- `value_vs_station`'s station detection stays on the direct
+  `_is_hyper_passive` detector rather than the unified
+  classifier label, because the §1.5a precedence finding showed
+  the classifier's single-label output drops the `_is_hyper_passive`
+  signal for opponents that *also* satisfy `_is_hyper_aggressive`
+  via the `all_in_frequency > 0.30` disjunction. Migration is
+  parked for §1.5b's richer taxonomy.
 
 ### 4. Bet-size-aware decisions
 
@@ -726,6 +750,8 @@ quality across common poker situations.
    keyed on post-§1 labels.
 4. **Passive profile split application** — uses §1.5a's labels
    to shape strategy per `pure_station` vs `sticky_jammer`.
+   Shipped as audit + regression tests only; no new strategy
+   code (§2 + Phase 8 already cover the in-scope table cells).
 5. **Station exploitation rebalance** — bluff reduction and
    value emphasis keyed off the unified archetype.
 5.5. **Per-rule offset budgets** — lands alongside or
