@@ -48,10 +48,10 @@
       ],
       "player_types": {
         "Abraham Lincoln": {
-          "type": "hybrid"
+          "type": "lean"
         },
         "Mark Twain": {
-          "type": "hybrid"
+          "type": "lean"
         }
       },
       "enable_psychology": true,
