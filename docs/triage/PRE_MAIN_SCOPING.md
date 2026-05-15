@@ -96,17 +96,27 @@ This is the action plan for the 55 findings added 2026-05-15 in the pre-main bat
 
 **Total ready-to-implement work: ~26 hours of direct edits** (most are S-scope mechanical changes).
 
-## Agent assignments (7 running in parallel)
+## Agent assignments — all completed
 
-| Agent | Item | Output doc |
-|---|---|---|
-| psychology-persistence | T1-29 | `docs/triage/PSYCHOLOGY_STATE_NOT_PERSISTED_PLAN.md` |
-| db-retry-rewrite | T1-32 | `docs/triage/BASE_REPO_RETRY_REWRITE_PLAN.md` |
-| recover-race | T1-33 (+ T2-57) | `docs/triage/RECOVER_STUCK_RUNOUT_RACE_PLAN.md` |
-| hu-equity | T1-34 | `docs/triage/HU_EQUITY_OFFSET_PLAN.md` |
-| strategy-min-raise | T2-38 | `docs/triage/STRATEGY_MAPPER_MIN_RAISE_PLAN.md` |
-| zone-gravity | T2-42 (+ T3-67) | `docs/triage/ZONE_GRAVITY_DECISION.md` |
-| personality-regression | T2-54 | `docs/triage/PERSONALITY_DETERMINISM_INVESTIGATION.md` |
+| Agent | Item | Verdict | Output doc |
+|---|---|---|---|
+| psychology-persistence | T1-29 | Add `psychology_json` column, schema migration v83; both callers already pass correct data | `PSYCHOLOGY_STATE_NOT_PERSISTED_PLAN.md` |
+| db-retry-rewrite | T1-32 | 7 callsites (all in `game_repository.py`); 6 idempotent; fix `save_personality_snapshot` first, then apply existing-but-unused `@retry_on_lock` decorator, delete broken CM | `BASE_REPO_RETRY_REWRITE_PLAN.md` |
+| recover-race | T1-33 (+ T2-57) | Acquire `get_game_lock(game_id)` around load+recover+set_game with re-check; release before `progress_game`. Add iteration cap to `run_until_player_action` (max 50) | `RECOVER_STUCK_RUNOUT_RACE_PLAN.md` |
+| hu-equity | T1-34 | Local `eff_equity = raw + HU_offset` after line 601 in `bounded_options.py`; pass via `eff_context` to 3 callees. Zero double-application risk. Only Hybrid/Lean affected | `HU_EQUITY_OFFSET_PLAN.md` |
+| strategy-min-raise | T2-38 | Two callsites in `action_mapper.py` (lines 49, 102); change to `highest_bet + game_state.min_raise_amount`. Sampling distribution unaffected | `STRATEGY_MAPPER_MIN_RAISE_PLAN.md` |
+| zone-gravity | T2-42 (+ T3-67) | **DELETE** — gravity never executed (compute step never landed despite doc claim). Cleanup ~10 lines, 4 files | `ZONE_GRAVITY_DECISION.md` |
+| personality-regression | T2-54 | **Stale test, not a bug.** Scrooge's `baseline_aggression` tuned 0.2→0.45 in psychology refactor; crossed test's hardcoded `< 0.3` fold threshold. New behavior (`call`) is more correct | `PERSONALITY_DETERMINISM_INVESTIGATION.md` |
+
+## Key takeaways from agent investigations
+
+- **T1-29** is purely a repository-layer bug. Callers were always correct; the fix is contained.
+- **T1-32** discovered an idempotency bug in `save_personality_snapshot` that must be fixed first.
+- **T1-33** can use existing lock infrastructure; the fix is mostly structural.
+- **T1-34** has clean architecture — no double-application risk with the range gate.
+- **T2-38** is a 2-line fix at 2 callsites; sampling distribution unaffected.
+- **T2-42** downgraded to **cleanup-only** (delete dead code, no functional implementation needed).
+- **T2-54** downgraded to **test fix only** — game behavior is more correct now.
 
 ## Recommended execution order
 
