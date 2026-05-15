@@ -14,10 +14,12 @@ from ..extensions import tournament_repo, hand_history_repo, auth_manager, limit
 from poker.authorization import get_authorization_service
 from poker.prompt_manager import PromptManager
 from poker.memory.hand_history import RecordedHand
-from poker.hand_narrator import evaluate_hand_label, format_action_phrase
+from flask_app.utils.hand_context import (
+    build_hand_context_from_recorded_hand,
+    format_hand_context_for_prompt,
+)
 from poker.config import is_development_mode
 from typing import Dict, Any
-from collections import defaultdict
 
 # Module-level prompt manager instance (with hot-reload in dev mode)
 _prompt_manager = PromptManager(enable_hot_reload=is_development_mode())
@@ -109,193 +111,6 @@ def format_message_history(messages: list, max_messages: int = 10, text_limit: i
     if chat_lines:
         return "\n".join(chat_lines[-max_messages:])
     return ""
-
-
-def build_hand_context_from_recorded_hand(
-    hand: RecordedHand,
-    player_name: str
-) -> Dict[str, Any]:
-    """
-    Build comprehensive hand context for post-round chat suggestions.
-
-    Returns a dict with:
-        - outcome: 'WON_SHOWDOWN', 'WON_BY_FOLD', 'LOST_SHOWDOWN', or 'FOLDED'
-        - player_cards: player's hole cards (if available)
-        - opponent_name: main opponent's name
-        - opponent_cards: opponent's hole cards (if showdown)
-        - opponent_hand_name: opponent's hand name (if showdown)
-        - player_hand_name: player's hand name (if showdown and available)
-        - timeline: formatted string of actions by street
-        - community_cards: the board
-        - pot_size: final pot
-    """
-    result = {
-        'outcome': None,
-        'player_cards': None,
-        'opponent_name': None,
-        'opponent_cards': None,
-        'opponent_hand_name': None,
-        'player_hand_name': None,
-        'timeline': '',
-        'community_cards': list(hand.community_cards) if hand.community_cards else [],
-        'pot_size': hand.pot_size,
-    }
-
-    # Determine player outcome
-    player_outcome = hand.get_player_outcome(player_name)  # 'won', 'lost', 'folded'
-
-    # Determine full outcome type (4 scenarios)
-    if player_outcome == 'won':
-        if hand.was_showdown:
-            result['outcome'] = 'WON_SHOWDOWN'
-        else:
-            result['outcome'] = 'WON_BY_FOLD'
-    elif player_outcome == 'folded':
-        result['outcome'] = 'FOLDED'
-    else:  # lost
-        result['outcome'] = 'LOST_SHOWDOWN'
-
-    # Get player's cards
-    if player_name in hand.hole_cards:
-        result['player_cards'] = hand.hole_cards[player_name]
-    else:
-        logger.warning(f"[PostRound] Player '{player_name}' not found in hole_cards!")
-
-    # Get opponent info based on outcome.
-    # RecordedAction.amount mixes raise-TO targets (snapshot of total
-    # commitment) with call-cost increments — summing them misranks
-    # multi-way pots with mixed action types and can name the wrong
-    # opponent in post-round chat. Using the largest single committed
-    # amount per opponent is a robust proxy for "who pressured us most".
-    opponent_max_amount = defaultdict(int)
-    for action in hand.actions:
-        if action.player_name == player_name:
-            continue
-        if action.amount > opponent_max_amount[action.player_name]:
-            opponent_max_amount[action.player_name] = action.amount
-
-    if player_outcome == 'won':
-        if opponent_max_amount:
-            result['opponent_name'] = max(opponent_max_amount, key=opponent_max_amount.get)
-    else:
-        # Player lost or folded - opponent is the winner
-        for w in hand.winners:
-            if w.name != player_name:
-                result['opponent_name'] = w.name
-                result['opponent_hand_name'] = w.hand_name
-                break
-
-    # Get opponent cards if showdown
-    if result['opponent_name'] and result['opponent_name'] in hand.hole_cards:
-        result['opponent_cards'] = hand.hole_cards[result['opponent_name']]
-
-    # Get player's hand name if they won at showdown
-    if player_outcome == 'won' and hand.was_showdown:
-        for w in hand.winners:
-            if w.name == player_name:
-                result['player_hand_name'] = w.hand_name
-                break
-
-    # Fill in opponent_hand_name when missing (e.g. player won at
-    # showdown — winners' hand names come from WinnerInfo, but the
-    # opponent is a loser, so evaluate live from their cards.)
-    if (
-        not result['opponent_hand_name']
-        and result['opponent_cards']
-        and hand.was_showdown
-    ):
-        result['opponent_hand_name'] = evaluate_hand_label(
-            result['opponent_cards'], result['community_cards']
-        )
-
-    # Build timeline by phase
-    phases = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER']
-    actions_by_phase = defaultdict(list)
-    for action in hand.actions:
-        actions_by_phase[action.phase].append(action)
-
-    # Map community cards to phases
-    community = list(hand.community_cards) if hand.community_cards else []
-    phase_cards = {
-        'FLOP': community[0:3] if len(community) >= 3 else [],
-        'TURN': [community[3]] if len(community) >= 4 else [],
-        'RIVER': [community[4]] if len(community) >= 5 else [],
-    }
-
-    timeline_parts = []
-    for phase in phases:
-        phase_actions = actions_by_phase.get(phase, [])
-        if not phase_actions:
-            continue
-
-        # Format phase header with cards
-        cards = phase_cards.get(phase, [])
-        if cards:
-            phase_header = f"{phase} [{', '.join(cards)}]"
-        else:
-            phase_header = phase
-
-        # Format actions — one per indented line so the LLM can parse
-        # each event cleanly rather than scanning a comma-joined run.
-        # Action wording (raise-TO semantics, "You" substitution) is
-        # delegated to the shared helper in poker.hand_narrator.
-        action_lines = [
-            format_action_phrase(a, perspective=player_name)
-            for a in phase_actions
-        ]
-        indented = "\n".join(f"  {line}" for line in action_lines)
-        timeline_parts.append(f"{phase_header}:\n{indented}")
-
-    result['timeline'] = '\n'.join(timeline_parts)
-
-    return result
-
-
-def format_hand_context_for_prompt(context: Dict[str, Any], player_name: str) -> str:
-    """Format the hand context dict into a string for the AI prompt."""
-    parts = []
-
-    # Outcome description
-    outcome_descriptions = {
-        'WON_SHOWDOWN': f"You WON this hand at showdown",
-        'WON_BY_FOLD': f"You WON this hand - everyone folded to you",
-        'LOST_SHOWDOWN': f"You LOST this hand at showdown",
-        'FOLDED': f"You FOLDED this hand",
-    }
-    parts.append(f"OUTCOME: {outcome_descriptions.get(context['outcome'], context['outcome'])}")
-
-    # Cards section
-    if context['player_cards']:
-        cards_str = ', '.join(context['player_cards'])
-        if context.get('player_hand_name'):
-            parts.append(f"YOUR CARDS: {cards_str} ({context['player_hand_name']})")
-        else:
-            parts.append(f"YOUR CARDS: {cards_str}")
-
-    if context['opponent_name']:
-        opp_str = f"OPPONENT: {context['opponent_name']}"
-        if context['opponent_cards']:
-            opp_str += f" - {', '.join(context['opponent_cards'])}"
-        if context['opponent_hand_name']:
-            opp_str += f" ({context['opponent_hand_name']})"
-        parts.append(opp_str)
-
-    # Board
-    if context['community_cards']:
-        parts.append(f"BOARD: {', '.join(context['community_cards'])}")
-
-    # Timeline
-    if context['timeline']:
-        parts.append(f"\nHAND TIMELINE:\n{context['timeline']}")
-
-    # Pot
-    parts.append(f"\nFinal pot: ${context['pot_size']}")
-
-    # Drama note
-    if context.get('drama_note'):
-        parts.append(f"\n{context['drama_note']}")
-
-    return '\n'.join(parts)
 
 
 @stats_bp.route('/api/career-stats', methods=['GET'])
@@ -724,7 +539,21 @@ def get_post_round_chat_suggestions(game_id):
 
         if recorded_hand:
             hand_context = build_hand_context_from_recorded_hand(recorded_hand, player_name)
-            hand_context_str = format_hand_context_for_prompt(hand_context, player_name)
+            # Pull big_blind from the live game state when available so amounts
+            # render in BB (matches hybrid-bot decision prompts); the narrator
+            # falls back to dollars when omitted.
+            big_blind = None
+            state_machine = game_data.get('state_machine') if game_data else None
+            if state_machine is not None:
+                live_state = getattr(state_machine, 'game_state', None)
+                if live_state is not None:
+                    big_blind = getattr(live_state, 'current_ante', None)
+            hand_context_str = format_hand_context_for_prompt(
+                hand_context,
+                player_name,
+                recorded_hand=recorded_hand,
+                big_blind=big_blind,
+            )
             outcome = hand_context.get('outcome')
         else:
             logger.warning(f"[PostRound] No recorded hand available for game {game_id}")

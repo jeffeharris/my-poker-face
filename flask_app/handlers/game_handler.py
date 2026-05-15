@@ -1067,13 +1067,18 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             'is_showdown': False,
         }
 
-    # EMIT WINNER ANNOUNCEMENT IMMEDIATELY
-    send_message(game_id, "Table", message_content, "table", 1, win_result=win_result)
-    socketio.emit('winner_announcement', winner_data, to=game_id)
-
-    # Calculate equity history for equity-based pressure events
+    # Record the hand BEFORE emitting the winner announcement.
+    # Order matters: clients can request post-round chat suggestions as soon
+    # as they see the overlay, and the chat handler reads from
+    # memory_manager.hand_recorder.completed_hands. The psychology pipeline
+    # below can take several seconds (LLM-driven emotional narration), so
+    # filing the hand after the emit produces a race where the chat handler
+    # picks hand N-1 instead of hand N. Equity calc needs current_hand (which
+    # on_hand_complete clears), so it runs first; equity persistence needs
+    # hand_history_id from the DB save, so it runs after.
     equity_history = None
     memory_manager = game_data.get('memory_manager')
+    ai_controllers = game_data.get('ai_controllers', {})
     if memory_manager:
         hand_in_progress = memory_manager.hand_recorder.current_hand
         if hand_in_progress and hand_in_progress.hole_cards:
@@ -1087,9 +1092,55 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             except Exception as e:
                 logger.warning(f"[Game {game_id}] Equity calculation failed: {e}")
 
+        ai_players = {name: controller.ai_player for name, controller in ai_controllers.items()}
+        try:
+            memory_manager.on_hand_complete(
+                winner_info=winner_info,
+                game_state=game_state,
+                ai_players=ai_players,
+                skip_commentary=True
+            )
+        except Exception as e:
+            logger.warning(f"Memory manager hand completion failed: {e}")
+
+        # Persist equity history (needs hand_history_id assigned by on_hand_complete's DB save)
+        if equity_history and equity_history.snapshots:
+            try:
+                from poker.repositories.hand_equity_repository import HandEquityRepository
+                from poker.equity_snapshot import HandEquityHistory
+                equity_repo = HandEquityRepository(hand_history_repo.db_path)
+
+                hand_history_id = hand_history_repo.get_hand_history_id(
+                    game_id, equity_history.hand_number
+                )
+
+                if hand_history_id:
+                    equity_history_with_id = HandEquityHistory(
+                        hand_history_id=hand_history_id,
+                        game_id=equity_history.game_id,
+                        hand_number=equity_history.hand_number,
+                        snapshots=equity_history.snapshots,
+                    )
+                    equity_repo.save_equity_history(equity_history_with_id)
+                    logger.debug(
+                        f"[Game {game_id}] Saved {len(equity_history.snapshots)} equity snapshots "
+                        f"with hand_history_id={hand_history_id}"
+                    )
+                else:
+                    equity_repo.save_equity_history(equity_history)
+                    logger.warning(
+                        f"[Game {game_id}] No hand_history_id found for hand {equity_history.hand_number}, "
+                        f"saving equity without ID"
+                    )
+            except Exception as e:
+                logger.warning(f"[Game {game_id}] Failed to save equity history: {e}")
+
+    # EMIT WINNER ANNOUNCEMENT (hand is now safely recorded)
+    send_message(game_id, "Table", message_content, "table", 1, win_result=win_result)
+    socketio.emit('winner_announcement', winner_data, to=game_id)
+
     # === UNIFIED PSYCHOLOGY PIPELINE ===
     # Runs synchronously: detect -> resolve -> persist -> update -> recover -> save
-    ai_controllers = game_data.get('ai_controllers', {})
     hand_number = _get_hand_number(game_data)
 
     if 'pressure_detector' not in game_data:
@@ -1170,51 +1221,6 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             _run_async_commentary,
             game_id, game_data, commentary_complete
         )
-
-    # Complete hand recording in memory manager (fast, local)
-    if memory_manager:
-        ai_players = {name: controller.ai_player for name, controller in ai_controllers.items()}
-        try:
-            memory_manager.on_hand_complete(
-                winner_info=winner_info,
-                game_state=game_state,
-                ai_players=ai_players,
-                skip_commentary=True
-            )
-        except Exception as e:
-            logger.warning(f"Memory manager hand completion failed: {e}")
-
-        # Persist equity history to database (with hand_history_id for joins)
-        if equity_history and equity_history.snapshots:
-            try:
-                from poker.repositories.hand_equity_repository import HandEquityRepository
-                from poker.equity_snapshot import HandEquityHistory
-                equity_repo = HandEquityRepository(hand_history_repo.db_path)
-
-                hand_history_id = hand_history_repo.get_hand_history_id(
-                    game_id, equity_history.hand_number
-                )
-
-                if hand_history_id:
-                    equity_history_with_id = HandEquityHistory(
-                        hand_history_id=hand_history_id,
-                        game_id=equity_history.game_id,
-                        hand_number=equity_history.hand_number,
-                        snapshots=equity_history.snapshots,
-                    )
-                    equity_repo.save_equity_history(equity_history_with_id)
-                    logger.debug(
-                        f"[Game {game_id}] Saved {len(equity_history.snapshots)} equity snapshots "
-                        f"with hand_history_id={hand_history_id}"
-                    )
-                else:
-                    equity_repo.save_equity_history(equity_history)
-                    logger.warning(
-                        f"[Game {game_id}] No hand_history_id found for hand {equity_history.hand_number}, "
-                        f"saving equity without ID"
-                    )
-            except Exception as e:
-                logger.warning(f"[Game {game_id}] Failed to save equity history: {e}")
 
     # Run end-of-hand coach progression checks (gate unlocks, silent downgrades)
     try:

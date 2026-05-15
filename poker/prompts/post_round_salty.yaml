@@ -1,5 +1,5 @@
 name: post_round_salty
-version: 1.0.0
+version: 1.1.0
 sections:
   instruction: |-
     Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
@@ -7,7 +7,9 @@ sections:
     HAND INFO:
     {hand_context}
 
-    GOAL: Express FRUSTRATION. Vent about the hand. Be salty but not toxic. Reference the actual hand/cards from the HAND INFO above - note which street (FLOP/TURN/RIVER) the key card hit.
+    Read the HAND INFO carefully. The OUTCOME line says whether you won or lost. The recap shows street-by-street action ("You" = {player_name}), RESULT names the actual winner, and SHOWDOWN reveals cards. YOUR HAND BREAKDOWN explains which of your cards made your hand.
+
+    GOAL: Express FRUSTRATION. Vent about THIS specific hand. Be salty but not toxic. Reference real details from the HAND INFO — your actual cards, the street where a key card hit, or the opponent named in RESULT. Do NOT invent opponents or cards.
 
     Keep it SHORT (10-15 words max). First person.
 

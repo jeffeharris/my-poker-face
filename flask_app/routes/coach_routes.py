@@ -12,7 +12,10 @@ from ..services import game_state_service
 from ..services.coach_engine import compute_coaching_data_with_progression
 from ..services.coach_assistant import get_or_create_coach_with_mode
 from ..services.coach_progression import CoachProgressionService
-from .stats_routes import build_hand_context_from_recorded_hand, format_hand_context_for_prompt
+from flask_app.utils.hand_context import (
+    build_hand_context_from_recorded_hand,
+    format_hand_context_for_prompt,
+)
 from poker.authorization import require_permission, get_authorization_service
 from ..services.skill_definitions import ALL_SKILLS, ALL_GATES
 
@@ -261,7 +264,17 @@ def coach_hand_review(game_id: str):
 
     # Build context and format for LLM
     context = build_hand_context_from_recorded_hand(hand, player_name)
-    hand_text = format_hand_context_for_prompt(context, player_name)
+    # Use the rich narrator-based format (matches hybrid-bot decision prompts:
+    # street-by-street action with "You" substitution + per-card hand breakdown).
+    big_blind = None
+    state_machine = game_data.get('state_machine')
+    if state_machine is not None:
+        live_state = getattr(state_machine, 'game_state', None)
+        if live_state is not None:
+            big_blind = getattr(live_state, 'current_ante', None)
+    hand_text = format_hand_context_for_prompt(
+        context, player_name, recorded_hand=hand, big_blind=big_blind,
+    )
 
     # Append skill evaluations from SessionMemory (if available)
     session_memory = game_data.get('coach_session_memory')
