@@ -51,7 +51,8 @@ logger = logging.getLogger(__name__)
 # v80: Add community_cards_by_phase_json to hand_history for phase-level card tracking
 # v81: Add intervention_trace_json to player_decision_analysis for Phase 7.6 per-decision attribution
 # v82: Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1 (shadow-eval) replay
-SCHEMA_VERSION = 82
+# v83: Add psychology_json to controller_state for v2.1 unified psychology persistence (T1-29)
+SCHEMA_VERSION = 83
 
 
 
@@ -354,7 +355,8 @@ class SchemaManager:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_emotional_state_game ON emotional_state(game_id, player_name)")
 
-            # 13. Controller state (v3, v40 added prompt_config_json)
+            # 13. Controller state (v3, v40 added prompt_config_json,
+            #     v83 added psychology_json for v2.1 unified PlayerPsychology)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS controller_state (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -363,6 +365,7 @@ class SchemaManager:
                     tilt_state_json TEXT,
                     elastic_personality_json TEXT,
                     prompt_config_json TEXT,
+                    psychology_json TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (game_id) REFERENCES games(game_id),
                     UNIQUE(game_id, player_name)
@@ -1090,6 +1093,7 @@ class SchemaManager:
             80: (self._migrate_v80_add_community_cards_by_phase, "Add community_cards_by_phase_json column to hand_history"),
             81: (self._migrate_v81_add_intervention_trace_json, "Add intervention_trace_json to player_decision_analysis for Phase 7.6"),
             82: (self._migrate_v82_add_strategy_pipeline_snapshot_json, "Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1"),
+            83: (self._migrate_v83_add_psychology_json, "Add psychology_json to controller_state for v2.1 unified psychology persistence"),
         }
 
         with self._get_connection() as conn:
@@ -3504,3 +3508,18 @@ class SchemaManager:
         logger.info(
             "Migration v82 complete: strategy_pipeline_snapshot_json added"
         )
+
+    def _migrate_v83_add_psychology_json(self, conn: sqlite3.Connection) -> None:
+        """Migration v83: Add psychology_json to controller_state.
+
+        Stores the full v2.1 PlayerPsychology snapshot (anchors, axes,
+        composure_state, hand_count, optional emotional + playstyle
+        substates). Replaces the legacy split between tilt_state_json
+        and elastic_personality_json — both columns remain in place so
+        existing rows continue to load, but new writes only populate
+        psychology_json.
+        """
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(controller_state)")}
+        if 'psychology_json' not in existing:
+            conn.execute("ALTER TABLE controller_state ADD COLUMN psychology_json TEXT")
+            logger.info("Added psychology_json column to controller_state")

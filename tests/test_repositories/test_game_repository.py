@@ -248,20 +248,42 @@ def test_delete_emotional_state(repo):
 
 # --- Controller State ---
 
+# v83 PlayerPsychology snapshot shape — anchors + axes + composure_state
+# + book-keeping fields. Mirrors PlayerPsychology.to_dict().
+SAMPLE_PSYCHOLOGY_V2 = {
+    'player_name': 'Batman',
+    'anchors': {
+        'baseline_aggression': 0.7, 'baseline_looseness': 0.4,
+        'ego': 0.8, 'poise': 0.6, 'expressiveness': 0.5,
+        'risk_identity': 0.6, 'adaptation_bias': 0.5,
+        'baseline_energy': 0.6, 'recovery_rate': 0.15,
+    },
+    'axes': {'confidence': 0.65, 'composure': 0.45, 'energy': 0.70},
+    'composure_state': {
+        'pressure_source': 'bad_beat', 'nemesis': 'Joker',
+        'recent_losses': [], 'losing_streak': 2,
+    },
+    'hand_count': 12,
+    'consecutive_folds': 1,
+    'emotional': None,
+    'playstyle_state': None,
+}
+
+
 def test_controller_state_save_load(repo):
-    psychology = {
-        'tilt': {'level': 0.3, 'type': 'frustration'},
-        'elastic': {'aggression_modifier': 1.2},
-    }
     prompt_config = {'temperature': 0.7}
 
-    repo.save_controller_state("game1", "Batman", psychology, prompt_config)
+    repo.save_controller_state("game1", "Batman", SAMPLE_PSYCHOLOGY_V2, prompt_config)
     loaded = repo.load_controller_state("game1", "Batman")
 
     assert loaded is not None
-    assert loaded['tilt_state']['level'] == 0.3
-    assert loaded['elastic_personality']['aggression_modifier'] == 1.2
+    assert loaded['psychology']['axes']['confidence'] == 0.65
+    assert loaded['psychology']['composure_state']['nemesis'] == 'Joker'
+    assert loaded['psychology']['hand_count'] == 12
     assert loaded['prompt_config']['temperature'] == 0.7
+    # Legacy columns are NULL on new writes (kept for backwards-compat).
+    assert loaded['tilt_state'] is None
+    assert loaded['elastic_personality'] is None
 
 
 def test_controller_state_not_found(repo):
@@ -269,19 +291,43 @@ def test_controller_state_not_found(repo):
 
 
 def test_load_all_controller_states(repo):
-    repo.save_controller_state("game1", "Alice", {'tilt': None, 'elastic': None})
-    repo.save_controller_state("game1", "Bob", {'tilt': {'level': 0.5}, 'elastic': None})
+    repo.save_controller_state("game1", "Alice", SAMPLE_PSYCHOLOGY_V2)
+    repo.save_controller_state("game1", "Bob", SAMPLE_PSYCHOLOGY_V2)
 
     states = repo.load_all_controller_states("game1")
     assert len(states) == 2
     assert "Alice" in states
     assert "Bob" in states
+    assert states['Alice']['psychology']['axes']['confidence'] == 0.65
 
 
 def test_delete_controller_state(repo):
-    repo.save_controller_state("game1", "Alice", {'tilt': None, 'elastic': None})
+    repo.save_controller_state("game1", "Alice", SAMPLE_PSYCHOLOGY_V2)
     repo.delete_controller_state_for_game("game1")
     assert repo.load_all_controller_states("game1") == {}
+
+
+def test_controller_state_null_psychology_loads_as_none(repo):
+    """T1-29: pre-v83 rows have NULL psychology_json; restore must return
+    None so the controller falls back to fresh-init rather than crashing."""
+    # Insert directly to simulate a pre-v83 row.
+    with repo._get_connection() as conn:
+        conn.execute(
+            "INSERT INTO controller_state (game_id, player_name, psychology_json) "
+            "VALUES (?, ?, NULL)",
+            ("game1", "Legacy"),
+        )
+    loaded = repo.load_controller_state("game1", "Legacy")
+    assert loaded is not None
+    assert loaded['psychology'] is None
+
+
+def test_controller_state_psychology_round_trip(repo):
+    """T1-29: a saved psychology dict round-trips byte-for-byte through
+    JSON serialization."""
+    repo.save_controller_state("game1", "Batman", SAMPLE_PSYCHOLOGY_V2)
+    loaded = repo.load_controller_state("game1", "Batman")
+    assert loaded['psychology'] == SAMPLE_PSYCHOLOGY_V2
 
 
 # --- Opponent Models ---

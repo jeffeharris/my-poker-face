@@ -481,26 +481,38 @@ class GameRepository(BaseRepository):
             psychology: Dict from PlayerPsychology.to_dict()
             prompt_config: Dict from PromptConfig.to_dict() (optional)
         """
-        # Extract components from unified psychology
-        tilt_state = psychology.get('tilt')
-        elastic_personality = psychology.get('elastic')
-
         with self._get_connection_with_retry() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO controller_state
-                (game_id, player_name, tilt_state_json, elastic_personality_json, prompt_config_json, updated_at)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                (game_id, player_name, psychology_json, prompt_config_json, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 game_id,
                 player_name,
-                json.dumps(tilt_state) if tilt_state else None,
-                json.dumps(elastic_personality) if elastic_personality else None,
-                json.dumps(prompt_config) if prompt_config else None
+                json.dumps(psychology) if psychology else None,
+                json.dumps(prompt_config) if prompt_config else None,
             ))
 
     @staticmethod
     def _build_controller_state_dict(row, player_name: str = '') -> Dict[str, Any]:
-        """Build a controller state dict from a database row."""
+        """Build a controller state dict from a database row.
+
+        Pre-v83 rows lack `psychology_json` (NULL) and may have populated
+        `tilt_state_json` / `elastic_personality_json`. The legacy fields
+        are exposed unchanged so any downstream caller that still consumes
+        them can keep working; new code should read `psychology`.
+        """
+        psychology = None
+        try:
+            if row['psychology_json']:
+                psychology = json.loads(row['psychology_json'])
+        except (KeyError, IndexError):
+            if player_name:
+                logger.debug(
+                    f"psychology_json column not found for {player_name}; "
+                    "fresh-init fallback"
+                )
+
         prompt_config = None
         try:
             if row['prompt_config_json']:
@@ -510,20 +522,23 @@ class GameRepository(BaseRepository):
                 logger.warning(f"prompt_config_json column not found for {player_name}, using defaults")
 
         return {
+            'psychology': psychology,
             'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
             'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None,
-            'prompt_config': prompt_config
+            'prompt_config': prompt_config,
         }
 
     def load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load controller state for a player.
 
         Returns:
-            Dict with 'tilt_state', 'elastic_personality', and 'prompt_config' keys, or None if not found
+            Dict with 'psychology' (v2.1 unified state), legacy
+            'tilt_state' / 'elastic_personality' (NULL on new writes),
+            and 'prompt_config' keys, or None if not found.
         """
         with self._get_connection() as conn:
             cursor = conn.execute("""
-                SELECT tilt_state_json, elastic_personality_json, prompt_config_json
+                SELECT tilt_state_json, elastic_personality_json, prompt_config_json, psychology_json
                 FROM controller_state
                 WHERE game_id = ? AND player_name = ?
             """, (game_id, player_name))
@@ -542,7 +557,7 @@ class GameRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             cursor = conn.execute("""
-                SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json
+                SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json, psychology_json
                 FROM controller_state
                 WHERE game_id = ?
             """, (game_id,))
