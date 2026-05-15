@@ -666,7 +666,8 @@ RESPONSE_FORMAT = {
     "raise_to": "REQUIRED if raising: Total bet amount (the amount you're raising TO, not BY)",
 
     # REACTION (Visible response after deciding)
-    "dramatic_sequence": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment."
+    "dramatic_sequence": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment.",
+    "addressing": "OPTIONAL: List of opponent name(s) you are DIRECTLY addressing in a speech beat this turn (e.g. ['Bob'] when you say 'Your move, Bob.'). Multiple names allowed. Empty list for general table chatter or when not addressing anyone specific."
 }
 
 

@@ -719,16 +719,20 @@ class AIPlayerController:
         return list(self._recent_own_speech_beats)
 
     def find_callouts(self, messages, max_results: int = 3) -> List[str]:
-        """Find recent opponent chat that mentions this player by name.
+        """Find recent opponent chat that DIRECTLY addressed this player.
+
+        Authoritative signal: the speaker LLM declares its targets via an
+        `addressing: List[str]` field, attached to broadcast messages as
+        msg['addressing']. When that key is present we trust it — empty
+        list means "general table talk, no direct callout."
+
+        Legacy fallback (substring scan) only fires when the addressing
+        key is ABSENT from the message — old responses that predate the
+        field. Once the rollout has propagated through stored history,
+        the fallback path is essentially dead.
 
         Returns formatted lines like `Bob said: "Your move, Alice."` for
-        the LAST `max_results` callouts. Only scans actual AI/user chat
-        (not Table/System action messages). Returns [] when nothing
-        relevant.
-
-        This is a prompt suggestion — the LLM may pick up on it or not,
-        but surfacing the direct mention beats burying it in the message
-        log.
+        the LAST `max_results` callouts.
         """
         if not messages or not isinstance(messages, list):
             return []
@@ -746,9 +750,22 @@ class AIPlayerController:
             if msg.get('message_type') not in ('ai', 'user'):
                 continue
             content = msg.get('content', '') or msg.get('message', '') or ''
-            if not content or name_lower not in content.lower():
+            if not content:
                 continue
-            out.append(f'{sender} said: "{content.strip()}"')
+
+            if 'addressing' in msg:
+                # Trust the explicit signal — no substring fallback when
+                # the speaker declared their intent.
+                addressing = msg.get('addressing') or []
+                if not isinstance(addressing, list):
+                    continue
+                if name in addressing:
+                    out.append(f'{sender} said: "{content.strip()}"')
+            else:
+                # Legacy substring fallback for messages that predate
+                # the addressing field.
+                if name_lower in content.lower():
+                    out.append(f'{sender} said: "{content.strip()}"')
         return out[-max_results:]
 
     def _get_cleanup_client(self):

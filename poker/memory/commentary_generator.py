@@ -88,6 +88,7 @@ class HandCommentary:
     decision_plans: List[DecisionPlan] = field(default_factory=list)
     key_insight: Optional[str] = None   # One-liner for session context
     hand_number: Optional[int] = None   # For persistence lookup
+    addressing: List[str] = field(default_factory=list)  # Direct callout targets
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -98,7 +99,8 @@ class HandCommentary:
             'table_comment': self.table_comment,
             'decision_plans': [p.to_dict() for p in self.decision_plans],
             'key_insight': self.key_insight,
-            'hand_number': self.hand_number
+            'hand_number': self.hand_number,
+            'addressing': list(self.addressing),
         }
 
     @classmethod
@@ -114,7 +116,8 @@ class HandCommentary:
             table_comment=data.get('table_comment'),
             decision_plans=decision_plans,
             key_insight=data.get('key_insight'),
-            hand_number=data.get('hand_number')
+            hand_number=data.get('hand_number'),
+            addressing=list(data.get('addressing') or []),
         )
 
 
@@ -501,12 +504,23 @@ class CommentaryGenerator:
 
             table_comment = self._format_beats_for_chat(raw_dramatic_sequence)
 
+            # Direct-callout targets from the LLM. Same field shape used
+            # by the in-hand narration path; downstream find_callouts
+            # treats it as authoritative.
+            addressing_raw = commentary_data.get('addressing', [])
+            addressing = [
+                str(n).strip() for n in addressing_raw
+                if isinstance(addressing_raw, list)
+                and isinstance(n, str) and n.strip()
+            ] if isinstance(addressing_raw, list) else []
+
             return HandCommentary(
                 player_name=player_name,
                 emotional_reaction=commentary_data.get('emotional_reaction', ''),
                 strategic_reflection=commentary_data.get('strategic_reflection', ''),
                 opponent_observations=commentary_data.get('opponent_observations', []),
-                table_comment=table_comment
+                table_comment=table_comment,
+                addressing=addressing,
             )
 
         except (json.JSONDecodeError, Exception) as e:

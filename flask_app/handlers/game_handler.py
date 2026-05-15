@@ -838,7 +838,10 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         # Emit table comment to UI
         if commentary.table_comment:
             logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
-            send_message(game_id, player_name, commentary.table_comment, "ai")
+            send_message(
+                game_id, player_name, commentary.table_comment, "ai",
+                addressing=commentary.addressing,
+            )
 
         # Attach decision plans from controller and set hand number
         if player_name in ai_controllers:
@@ -1620,6 +1623,7 @@ def handle_ai_action(game_id: str) -> None:
     if 'memory_manager' in current_game_data:
         controller.current_hand_number = current_game_data['memory_manager'].hand_count
 
+    response_addressing = []  # Default for fallback / exception paths
     try:
         if config.AI_DECISION_MODE != 'llm':
             # Fallback mode: use random valid action (no LLM call)
@@ -1655,6 +1659,13 @@ def handle_ai_action(game_id: str) -> None:
             else:
                 full_message = ''
 
+            # Direct callout targets — list of opponent names this player
+            # is addressing. Attached to the outgoing AI message so the
+            # next bot's find_callouts has an authoritative signal.
+            response_addressing = player_response_dict.get('addressing', [])
+            if not isinstance(response_addressing, list):
+                response_addressing = []
+
     except Exception as e:
         logger.debug(f"[AI_ACTION] Critical error getting AI decision: {e}")
 
@@ -1686,9 +1697,14 @@ def handle_ai_action(game_id: str) -> None:
     # Send action as Table message (consistent with human actions)
     send_message(game_id, "Table", action_text, "table")
 
-    # Send AI message if player has something to say or show
+    # Send AI message if player has something to say or show. addressing
+    # carries the speaker's declared callout targets so the next bot's
+    # find_callouts has an explicit signal instead of substring scanning.
     if full_message and full_message != '...':
-        send_message(game_id, current_player.name, full_message, "ai", sleep=1)
+        send_message(
+            game_id, current_player.name, full_message, "ai",
+            sleep=1, addressing=response_addressing,
+        )
 
     if action == 'fold':
         detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)

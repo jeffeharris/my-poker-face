@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Empty narration returned on any failure — keeps the game flowing.
 _EMPTY_NARRATION: Dict[str, Any] = {
     'dramatic_sequence': [],
+    'addressing': [],
     'inner_monologue': '',
     'hand_strategy': '',
     'bluff_likelihood': 0,
@@ -34,6 +35,7 @@ def _empty() -> Dict[str, Any]:
     """Fresh copy of the empty narration dict."""
     return {
         'dramatic_sequence': [],
+        'addressing': [],
         'inner_monologue': '',
         'hand_strategy': '',
         'bluff_likelihood': 0,
@@ -407,8 +409,21 @@ class ExpressionGenerator:
         except (ValueError, TypeError):
             bluff = 0
 
+        # addressing: list of opponent names being DIRECTLY addressed in
+        # speech this turn. Drives [CALLED OUT] detection. Defensive —
+        # accept list-of-str only; everything else collapses to [].
+        addressing_raw = data.get('addressing', [])
+        if isinstance(addressing_raw, list):
+            addressing = [
+                str(n).strip() for n in addressing_raw
+                if isinstance(n, str) and n.strip()
+            ]
+        else:
+            addressing = []
+
         return {
             'dramatic_sequence': [str(beat) for beat in sequence],
+            'addressing': addressing,
             'inner_monologue': str(data.get('inner_monologue', '')),
             'hand_strategy': str(data.get('hand_strategy', '')),
             'bluff_likelihood': bluff,

@@ -2331,7 +2331,7 @@ class TieredBotController(AIPlayerController):
                 game_id=getattr(self, 'game_id', None),
                 capture_id_holder=capture_id_holder,
             )
-            for key in ('dramatic_sequence', 'inner_monologue', 'bluff_likelihood'):
+            for key in ('dramatic_sequence', 'addressing', 'inner_monologue', 'bluff_likelihood'):
                 if key in narration:
                     decision[key] = narration[key]
             # Only overwrite hand_strategy if LLM produced one (preserves Layer 1+2 debug string otherwise)

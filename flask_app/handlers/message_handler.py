@@ -84,7 +84,8 @@ def record_action_in_memory(game_data: dict, player_name: str, action: str,
 def send_message(game_id: str, sender: str, content: str, message_type: str,
                  sleep: Optional[int] = None, action: Optional[str] = None,
                  phase: Optional[str] = None, cards: Optional[list] = None,
-                 win_result: Optional[dict] = None) -> None:
+                 win_result: Optional[dict] = None,
+                 addressing: Optional[list] = None) -> None:
     """Send a message to the specified game chat.
 
     Args:
@@ -97,6 +98,8 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
         phase: Optional game phase name for card-deal messages (e.g., "flop").
         cards: Optional list of card strings for card-deal messages (e.g., ["A♠", "K♦"]).
         win_result: Optional structured data for winning hand display.
+        addressing: Optional list of opponent names the speaker is directly
+            addressing. Drives downstream find_callouts detection.
     """
     game_data = game_state_service.get_game(game_id)
     if not game_data:
@@ -124,6 +127,9 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
         new_message["cards"] = cards
     if win_result:
         new_message["win_result"] = win_result
+    if addressing is not None:
+        # Always store as a list (empty list is meaningful: "addressing nobody")
+        new_message["addressing"] = list(addressing) if isinstance(addressing, list) else []
 
     game_messages.append(new_message)
 

@@ -66,6 +66,7 @@ def test_generate_llm_failure_returns_empty(context, prompt_manager):
 
     assert result == {
         'dramatic_sequence': [],
+        'addressing': [],
         'inner_monologue': '',
         'hand_strategy': '',
         'bluff_likelihood': 0,
@@ -300,6 +301,62 @@ def test_optional_sections_render_when_fields_populated(prompt_manager):
     assert '42.0' in prompt        # stack_bb
     assert '9.0' in prompt         # pot_bb
     assert '2.5' in prompt         # cost_to_call_bb
+
+
+def test_addressing_field_passes_through(context, prompt_manager):
+    """LLM-declared addressing names are preserved through parse."""
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = SimpleNamespace(
+        content=json.dumps({
+            'dramatic_sequence': ["Your move, Bob."],
+            'addressing': ["Bob"],
+            'inner_monologue': '',
+            'hand_strategy': '',
+            'bluff_likelihood': 0,
+        })
+    )
+
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    result = gen.generate(context)
+
+    assert result['addressing'] == ["Bob"]
+
+
+def test_addressing_defaults_empty_when_missing(context, prompt_manager):
+    """Responses without an addressing field collapse to []."""
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = SimpleNamespace(
+        content=json.dumps({
+            'dramatic_sequence': [],
+            'inner_monologue': '',
+            'hand_strategy': '',
+            'bluff_likelihood': 0,
+        })
+    )
+
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    result = gen.generate(context)
+
+    assert result['addressing'] == []
+
+
+def test_addressing_rejects_non_list(context, prompt_manager):
+    """Defensive — non-list addressing falls back to []."""
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = SimpleNamespace(
+        content=json.dumps({
+            'dramatic_sequence': [],
+            'addressing': "Bob",  # wrong shape
+            'inner_monologue': '',
+            'hand_strategy': '',
+            'bluff_likelihood': 0,
+        })
+    )
+
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    result = gen.generate(context)
+
+    assert result['addressing'] == []
 
 
 def test_generate_with_empty_tics(prompt_manager):
