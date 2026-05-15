@@ -121,6 +121,10 @@ export interface DecisionAnalysis {
   equity: number | null;
   equity_vs_ranges: number | null;  // Equity vs position-based ranges
   opponent_positions: string | null; // JSON array of opponent positions
+  // JSON object {name -> range[]}. Keys give us opponent names (insertion-
+  // ordered to match opponent_positions) so we can render "BTN (Tesla)"
+  // pairs. Stays a raw string here; the analyzer detail panel parses it.
+  opponent_ranges_json?: string | null;
   required_equity: number | null;
   ev_call: number | null;
   optimal_action: string | null;

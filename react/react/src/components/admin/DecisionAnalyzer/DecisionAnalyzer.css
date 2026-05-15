@@ -1188,6 +1188,12 @@
   gap: 0.25rem;
 }
 
+/* Spans the whole grid row for items that read like a sentence rather
+   than a single value (e.g. the "Players in hand" line). */
+.analysis-item.analysis-item--full {
+  grid-column: 1 / -1;
+}
+
 .analysis-item label {
   font-size: 0.7rem;
   color: rgba(255, 255, 255, 0.6);
