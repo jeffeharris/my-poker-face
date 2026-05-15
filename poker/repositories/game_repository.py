@@ -73,6 +73,17 @@ class GameRepository(BaseRepository):
         state_dict = game_state.to_dict()
         state_dict['current_phase'] = state_machine.current_phase.value
         state_dict['current_hand_seed'] = state_machine.current_hand_seed
+        # Persist state-machine fields that aren't on game_state — losing them
+        # used to reset hand_count to 0 (re-running blind escalation from
+        # scratch) and revert blind_config to its defaults (silently dropping
+        # the user's max_blind cap from custom game settings).
+        state_dict['stats_hand_count'] = state_machine._state.stats.hand_count
+        bc = state_machine._state.blind_config
+        state_dict['blind_config'] = {
+            'growth': bc.growth,
+            'hands_per_level': bc.hands_per_level,
+            'max_blind': bc.max_blind,
+        }
 
         game_json = json.dumps(state_dict)
         llm_configs_json = json.dumps(llm_configs) if llm_configs else None
@@ -132,12 +143,21 @@ class GameRepository(BaseRepository):
                 phase = PokerPhase.INITIALIZING_HAND
 
             # Create state machine with the loaded state and phase
-            sm = PokerStateMachine.from_saved_state(game_state, phase)
+            sm = PokerStateMachine.from_saved_state(
+                game_state, phase,
+                blind_config=state_dict.get('blind_config'),
+                hand_count=state_dict.get('stats_hand_count', 0),
+            )
 
-            # Restore deck seed so in-progress hand can be recorded with its seed
+            # Restore deck seed so the in-progress hand can be recorded with
+            # its seed. Mark provided=False so the seed is treated as already
+            # consumed — without this, the next hand_over_transition would
+            # see hand_seed_provided=True and reuse this seed for a fresh
+            # deal, producing back-to-back hands with the same shuffle but a
+            # rotated dealer (visible as "same hand, shifted hole cards").
             saved_seed = state_dict.get('current_hand_seed')
             if saved_seed is not None:
-                sm.current_hand_seed = saved_seed
+                sm._state = sm._state.with_hand_seed(saved_seed, provided=False)
 
             return sm
 

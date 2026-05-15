@@ -49,6 +49,47 @@ def test_load_game_not_found(repo):
     assert repo.load_game("nonexistent") is None
 
 
+def test_load_game_marks_seed_consumed(repo):
+    """Restored seed must not leak into the next hand's deck.
+
+    Regression: load_game previously set the seed via the public setter,
+    which defaulted hand_seed_provided=True. The next hand_over_transition
+    then re-resolved the seed and reused the saved one, producing back-to-
+    back hands with the same shuffle but a rotated dealer.
+    """
+    sm = _make_state_machine()
+    sm._state = sm._state.with_hand_seed(98765, provided=False)
+    repo.save_game("seed_consumed", sm, owner_id="o", owner_name="N")
+
+    loaded = repo.load_game("seed_consumed")
+    assert loaded.current_hand_seed == 98765
+    assert loaded._state.hand_seed_provided is False
+
+
+def test_load_game_preserves_hand_count_and_blind_config(repo):
+    """hand_count and blind_config must round-trip through save/load.
+
+    Regression: state_machine.stats and blind_config used to be dropped on
+    save, so restored games re-ran blind escalation from hand 0 and lost
+    the user's max_blind cap from custom game settings.
+    """
+    from poker.poker_state_machine import PokerStateMachine, ImmutableStateMachine, StateMachineStats, BlindConfig
+    sm = _make_state_machine()
+    sm._state = ImmutableStateMachine(
+        game_state=sm._state.game_state,
+        phase=sm._state.phase,
+        stats=StateMachineStats(hand_count=17),
+        blind_config=BlindConfig(growth=1.5, hands_per_level=10, max_blind=2000),
+    )
+    repo.save_game("blind_cfg_test", sm, owner_id="o", owner_name="N")
+
+    loaded = repo.load_game("blind_cfg_test")
+    assert loaded._state.stats.hand_count == 17
+    assert loaded._state.blind_config.growth == 1.5
+    assert loaded._state.blind_config.hands_per_level == 10
+    assert loaded._state.blind_config.max_blind == 2000
+
+
 def test_save_game_with_llm_configs(repo):
     sm = _make_state_machine()
     configs = {"default_llm_config": {"provider": "openai", "model": "gpt-4o"}}
