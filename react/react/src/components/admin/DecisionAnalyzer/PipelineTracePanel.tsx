@@ -142,14 +142,17 @@ function TraceRow({ trace }: { trace: InterventionTrace }) {
   );
 }
 
-// Find the strategy distribution the sampler actually saw — i.e. the
-// output of the *last* layer that produced one. Layers that no-op'd
-// return empty summaries, so we scan the sorted trace from the end and
-// fall back to the first non-empty input_strategy_summary if no layer
-// emitted output (rare — happens when the only firing layer ran on a
-// trivial single-action distribution).
+// Find the strategy distribution the sampler actually saw. Priority:
+//   1. The latest non-empty `output_strategy_summary` from the trace
+//      (this is what the LAST layer that modified the strategy produced).
+//   2. The latest non-empty `input_strategy_summary` — fallback when a
+//      layer recorded only an input.
+//   3. `snapshot.base_strategy_probs` — the solver-table baseline,
+//      which is the source the sampler operates on when no layers fire
+//      (the common "all no_op" case).
 function findFinalStrategy(
   sortedTrace: InterventionTrace[],
+  snapshot: StrategyPipelineSnapshot | null,
 ): Record<string, number> | null {
   for (let i = sortedTrace.length - 1; i >= 0; i -= 1) {
     const out = sortedTrace[i].output_strategy_summary;
@@ -158,6 +161,10 @@ function findFinalStrategy(
   for (let i = sortedTrace.length - 1; i >= 0; i -= 1) {
     const inp = sortedTrace[i].input_strategy_summary;
     if (inp && Object.keys(inp).length > 0) return inp;
+  }
+  const base = snapshot?.base_strategy_probs;
+  if (base && typeof base === 'object' && Object.keys(base).length > 0) {
+    return base as Record<string, number>;
   }
   return null;
 }
@@ -250,7 +257,10 @@ export function PipelineTracePanel({ trace, snapshot, actionTaken }: PipelineTra
   );
 
   const firedCount = sorted.filter((t) => t.fired).length;
-  const finalStrategy = useMemo(() => findFinalStrategy(sorted), [sorted]);
+  const finalStrategy = useMemo(
+    () => findFinalStrategy(sorted, snapshot),
+    [sorted, snapshot],
+  );
 
   return (
     <div className="pipeline-trace-panel">
@@ -279,8 +289,8 @@ export function PipelineTracePanel({ trace, snapshot, actionTaken }: PipelineTra
         />
       )}
 
-      <details open className="pipeline-section">
-        <summary>Pipeline trace</summary>
+      <details className="pipeline-section">
+        <summary>Pipeline trace ({firedCount} / {sorted.length} layers fired)</summary>
         <table className="trace-table">
           <thead>
             <tr>
