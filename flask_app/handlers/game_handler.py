@@ -1667,7 +1667,16 @@ def handle_ai_action(game_id: str) -> None:
                 response_addressing = []
 
     except Exception as e:
-        logger.debug(f"[AI_ACTION] Critical error getting AI decision: {e}")
+        # Critical error fell through the decision pipeline — surface it
+        # as a warning with traceback so it's visible in logs. The user
+        # sees a silent AI action (no canned chat) rather than misleading
+        # filler text like "Time to make a move." that doesn't match the
+        # action the bot actually took.
+        logger.warning(
+            f"[AI_ACTION] Critical error getting AI decision for "
+            f"{current_player.name}: {e}",
+            exc_info=True,
+        )
 
         valid_actions = state_machine.game_state.current_player_options
         personality_traits = getattr(controller, 'personality_traits', {})
@@ -1685,11 +1694,10 @@ def handle_ai_action(game_id: str) -> None:
 
         action = fallback_result['action']
         amount = fallback_result['raise_to']
-        player_message = get_fallback_chat_response(current_player.name)
-        player_physical_description = "*pauses momentarily*"
-        full_message = f"{player_message} {player_physical_description}".strip()
-
-        send_message(game_id, "Table", f"[{current_player.name} takes a moment to consider]", "table")
+        # Silent fallback — no AI chat bubble. The Table action message
+        # below still announces what the bot did; we just don't fabricate
+        # in-character commentary the bot didn't actually produce.
+        full_message = ''
 
     highest_bet = state_machine.game_state.highest_bet
     action_text = format_action_message(current_player.name, action, amount, highest_bet)

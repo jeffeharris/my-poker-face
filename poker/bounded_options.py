@@ -1392,14 +1392,22 @@ def format_options_for_prompt(options: List[BoundedOption], equity: float, pot_o
     Args:
         options: List of BoundedOption instances
         equity: Current hand equity (0-1)
-        pot_odds: Current pot odds ratio
+        pot_odds: Current pot odds ratio. None or 0 means the player can
+            act for free (no cost to call) — pot odds are undefined so
+            the line is reworded to avoid emitting a misleading "0.0:1".
 
     Returns:
         Formatted string for prompt inclusion
     """
+    equity_pct = int((equity if equity is not None else 0.5) * 100)
+    if pot_odds is None or pot_odds <= 0:
+        math_line = f"Given the math (equity: {equity_pct}%, free to check),"
+    else:
+        math_line = f"Given the math (equity: {equity_pct}%, pot odds: {pot_odds:.1f}:1),"
+
     lines = [
         "=== YOUR OPTIONS ===",
-        f"Given the math (equity: {int(equity*100)}%, pot odds: {pot_odds:.1f}:1),",
+        math_line,
         "your sensible choices are:",
         ""
     ]
