@@ -178,21 +178,44 @@ def narrate_hand_recap(
             else:
                 lines.append(f"RESULT: {name} won {amount}.")
 
-        # Show showdown cards if available — every non-folded player reveals,
-        # winners first so the recap reads "winner vs. loser(s)".
+        # Show showdown cards for every player who actually reached
+        # showdown — they must have a recorded action AND not have folded.
+        # (Defensive: some hand records have missing fold actions, so we
+        # don't include players who never appear in the action log.)
+        # Each line annotates the player's evaluated hand when possible.
         if hand.was_showdown and hand.hole_cards:
             folded = {a.player_name for a in hand.actions if a.action == "fold"}
+            acted = {a.player_name for a in hand.actions}
             raw_winners = [w.name for w in hand.winners]
-            ordered = list(raw_winners) + [
+            at_showdown = [
                 p.name for p in hand.players
-                if p.name not in raw_winners and p.name not in folded
+                if p.name in acted and p.name not in folded
             ]
-            shown = [
-                f"{_display_name(name, perspective)} showed "
-                f"[{', '.join(hand.hole_cards[name])}]"
-                for name in ordered
-                if name in hand.hole_cards
+            # Winners first, then everyone else who saw the showdown
+            ordered = list(raw_winners) + [
+                n for n in at_showdown if n not in raw_winners
             ]
+
+            # Winners' hand names come from WinnerInfo; for losers we
+            # evaluate live so the recap names every showdown hand.
+            winner_hand_names = {
+                w.name: w.hand_name for w in hand.winners if w.hand_name
+            }
+
+            shown = []
+            for name in ordered:
+                if name not in hand.hole_cards:
+                    continue
+                cards_str = ", ".join(hand.hole_cards[name])
+                hand_label = winner_hand_names.get(name) or _evaluate_hand_label(
+                    hand.hole_cards[name], hand.community_cards
+                )
+                line = (
+                    f"{_display_name(name, perspective)} showed [{cards_str}]"
+                )
+                if hand_label:
+                    line += f" ({hand_label})"
+                shown.append(line)
             if shown:
                 lines.append(f"SHOWDOWN: {'; '.join(shown)}")
 
@@ -821,6 +844,39 @@ def _abbreviate_position(position: Optional[str]) -> str:
 def _display_name(name: str, perspective: Optional[str]) -> str:
     """Render a player's name as 'You' iff they are the perspective player."""
     return "You" if perspective and name == perspective else name
+
+
+def _parse_card_str(s: str) -> Card:
+    """Parse a card string back into a Card.
+
+    Hand records may store cards in unicode-suit form ('A♠', '10♥') or
+    short notation ('As', 'Th'). Both are handled here.
+    """
+    s = s.strip()
+    suit = Card.ASCII_TO_SUIT.get(s[-1])
+    if suit is None:
+        # Fall back to short notation ('As', 'Th', '10c')
+        return Card.from_short(s)
+    return Card(s[:-1], suit)
+
+
+def _evaluate_hand_label(
+    hole_strs, community_strs
+) -> Optional[str]:
+    """Return the hand_name (e.g. 'Two Pair, A's and 3's') or None.
+
+    Needs at least 5 total cards. Used for non-winner hands at showdown
+    so the recap can label every revealed holding, not just the winner.
+    Failures (bad card strings, etc.) degrade silently to no label.
+    """
+    try:
+        cards = [_parse_card_str(s) for s in list(hole_strs) + list(community_strs)]
+        if len(cards) < 5:
+            return None
+        result = HandEvaluator(cards).evaluate_hand()
+        return result.get("hand_name")
+    except Exception:
+        return None
 
 
 def _find_winner(hand, player_name: str):
