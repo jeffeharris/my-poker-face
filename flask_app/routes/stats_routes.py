@@ -161,17 +161,22 @@ def build_hand_context_from_recorded_hand(
     else:
         logger.warning(f"[PostRound] Player '{player_name}' not found in hole_cards!")
 
-    # Get opponent info based on outcome
-    # Build pot contributions for opponent selection
-    pot_contributions = defaultdict(int)
+    # Get opponent info based on outcome.
+    # RecordedAction.amount mixes raise-TO targets (snapshot of total
+    # commitment) with call-cost increments — summing them misranks
+    # multi-way pots with mixed action types and can name the wrong
+    # opponent in post-round chat. Using the largest single committed
+    # amount per opponent is a robust proxy for "who pressured us most".
+    opponent_max_amount = defaultdict(int)
     for action in hand.actions:
-        if action.player_name != player_name:
-            pot_contributions[action.player_name] += action.amount
+        if action.player_name == player_name:
+            continue
+        if action.amount > opponent_max_amount[action.player_name]:
+            opponent_max_amount[action.player_name] = action.amount
 
     if player_outcome == 'won':
-        # Pick opponent who contributed most to pot (showdown or fold win)
-        if pot_contributions:
-            result['opponent_name'] = max(pot_contributions, key=pot_contributions.get)
+        if opponent_max_amount:
+            result['opponent_name'] = max(opponent_max_amount, key=opponent_max_amount.get)
     else:
         # Player lost or folded - opponent is the winner
         for w in hand.winners:

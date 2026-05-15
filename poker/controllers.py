@@ -111,11 +111,10 @@ AGGRESSION_PRIORITY = {
     'check': 1,
 }
 
-# Raise level to action name mapping for preflop
-RAISE_LEVEL_ACTIONS = {
-    0: 'open_raise',
-    1: '3bet',
-}
+# Raise-level helpers live in raise_utils.py so other modules can import
+# them without pulling in the full controllers surface (avoids the lazy
+# absolute import workaround in bounded_options).
+from .raise_utils import RAISE_LEVEL_ACTIONS, _classify_raise_action  # noqa: E402,F401
 
 
 def _parse_game_messages(game_messages) -> Optional[List[str]]:
@@ -166,11 +165,6 @@ def _get_street_lines(lines: List[str], current_phase: str) -> List[str]:
             result.append(line)
 
     return result
-
-
-def _classify_raise_action(raise_count: int) -> str:
-    """Classify a raise/all-in action based on raise count."""
-    return RAISE_LEVEL_ACTIONS.get(raise_count, '4bet+')
 
 
 def _is_raise_action(line_lower: str) -> bool:

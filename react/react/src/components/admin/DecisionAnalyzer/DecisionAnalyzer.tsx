@@ -640,6 +640,14 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
           key={capture.id}
           className={`capture-item ${selectedCapture?.id === capture.id ? 'selected' : ''} ${isSuspiciousFold(capture) ? 'suspicious' : ''}`}
           onClick={() => fetchCaptureDetail(capture.id)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              fetchCaptureDetail(capture.id);
+            }
+          }}
         >
           <div className="capture-header">
             <span className="capture-player">{capture.player_name}</span>

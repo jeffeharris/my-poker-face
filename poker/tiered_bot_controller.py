@@ -122,6 +122,7 @@ _EXPLOITATION_RULE_ORDER: Tuple[Tuple[str, str], ...] = (
     ('exploitation', 'multiway_cbet'),
     ('value_vs_station', 'default'),
     ('steal_pressure', 'default'),
+    ('bluff_reduction', 'default'),
 )
 
 
@@ -2275,7 +2276,11 @@ class TieredBotController(AIPlayerController):
         """
         try:
             player = game_state.players[player_idx]
-            big_blind = getattr(game_state, 'current_ante', 0) or 0
+            # Use shared helper so a missing current_ante falls back to a
+            # sane default (50) instead of zero. With 0, stack_bb becomes
+            # inf and the short-stack rule never fires — inconsistent
+            # with _build_decision_context elsewhere in this class.
+            big_blind = big_blind_of(game_state)
             pot_total = (
                 game_state.pot.get('total', 0)
                 if isinstance(getattr(game_state, 'pot', None), dict) else 0

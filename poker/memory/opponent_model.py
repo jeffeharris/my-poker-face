@@ -575,7 +575,12 @@ class OpponentTendencies:
         - 'loose-passive' (Calling Station)
         - 'unknown'
         """
-        if self.hands_observed < MIN_HANDS_FOR_STYLE_LABEL:
+        # VPIP uses hands_dealt as the denominator after the
+        # opportunity-normalized rework, so gating on hands_observed
+        # would label tight-passive players from a too-small pool of
+        # voluntary entries.
+        sample = self.hands_dealt if self.hands_dealt > 0 else self.hands_observed
+        if sample < MIN_HANDS_FOR_STYLE_LABEL:
             return 'unknown'
 
         is_tight = self.vpip < VPIP_TIGHT_THRESHOLD
@@ -801,14 +806,19 @@ class OpponentModel:
         """Record that the opponent was at the table for one more hand.
 
         Idempotent within a hand: tracks `_last_hand_dealt` so calling
-        twice with the same `hand_number` only increments once. Required
+        twice with the same ``hand_number`` only increments once. Required
         for correct VPIP/PFR/all_in_frequency ratios, since folds before
         action mean the opponent never gets observe_action() called for
         that hand.
+
+        Callers passing ``hand_number=None`` are responsible for ensuring
+        they don't double-call within a logical hand — without an id we
+        can't dedup, and silently swallowing every None call would hide
+        real hands from new tables that don't yet number their hands.
         """
-        if hand_number is not None and hand_number == getattr(self, '_last_hand_dealt', None):
-            return
         if hand_number is not None:
+            if hand_number == getattr(self, '_last_hand_dealt', None):
+                return
             self._last_hand_dealt = hand_number
         self.tendencies.record_hand_dealt()
 

@@ -437,8 +437,9 @@ class TestExtractPreflopAction(unittest.TestCase):
         )
         self.assertEqual(result, '3bet')
 
-    def test_detects_4bet_plus(self):
-        """Third+ raise is classified as 4bet+."""
+    def test_detects_4bet(self):
+        """Third raise is classified as 4bet (T3-73 added the explicit
+        4bet entry; '4bet+' now applies only at >=5 escalations)."""
         from flask_app.services.coach_engine import _extract_preflop_action
 
         messages = [
@@ -449,7 +450,7 @@ class TestExtractPreflopAction(unittest.TestCase):
         result = _extract_preflop_action(
             'Villain', messages, self._make_game_state()
         )
-        self.assertEqual(result, '4bet+')
+        self.assertEqual(result, '4bet')
 
     def test_detects_call(self):
         """Call action is detected."""
@@ -508,13 +509,13 @@ class TestExtractPreflopAction(unittest.TestCase):
             'Hero raises $20',
             'Batman calls $20',
             'Hero raises $60',
-            'Batman raises $180',  # Re-raise after 2 prior raises = 4bet+
+            'Batman raises $180',  # Re-raise after 2 prior raises = 4bet
         ]
         result = _extract_preflop_action(
             'Batman', messages, self._make_game_state()
         )
-        # Should be 4bet+ (raise after 2 prior raises)
-        self.assertEqual(result, '4bet+')
+        # raises_this_round=2 → '4bet' (T3-73). '4bet+' fires only at >=3.
+        self.assertEqual(result, '4bet')
 
     def test_opponent_not_found_returns_none(self):
         """Opponent not in messages returns None (no action detected)."""

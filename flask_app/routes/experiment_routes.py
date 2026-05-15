@@ -449,6 +449,7 @@ def _execute_sql_query(sql: str) -> str:
     try:
         with sqlite3.connect(persistence_db_path) as conn:
             conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=5000")
             # Add LIMIT if SELECT and not present
             if is_select and 'LIMIT' not in normalized:
                 # Strip comments before adding LIMIT to prevent bypass
@@ -488,6 +489,7 @@ def _execute_experiment_tool(name: str, args: Dict[str, Any]) -> str:
         # Query personalities directly from database to get configs
         with sqlite3.connect(persistence_db_path) as conn:
             conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.execute("""
                 SELECT name, config_json
                 FROM personalities
@@ -2441,6 +2443,7 @@ def get_experiment_cost_trends(experiment_id: int):
         bucket_minutes = request.args.get('bucket', 5, type=int)
 
         with sqlite3.connect(persistence_db_path) as conn:
+            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.execute("""
                 SELECT
                     strftime('%Y-%m-%d %H:%M', au.created_at, 'start of minute',
@@ -2943,6 +2946,7 @@ def resume_variant(experiment_id: int, game_id: int):
 
         # Get the experiment game record
         with sqlite3.connect(persistence_db_path) as conn:
+            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.execute("""
                 SELECT game_id, variant, variant_config_json, tournament_number
                 FROM experiment_games WHERE id = ?

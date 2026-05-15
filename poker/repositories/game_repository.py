@@ -267,13 +267,18 @@ class GameRepository(BaseRepository):
     def delete_game(self, game_id: str) -> None:
         """Delete a game's active state (save data, snapshots, AI state, messages).
 
-        Historical data (hand_history, tournament_results, etc.) is intentionally preserved.
+        Historical data (hand_history, tournament_results, etc.) is intentionally
+        preserved. PRAGMA foreign_keys is not set on these connections, so each
+        per-game table is cleared explicitly to avoid orphan rows.
         """
         with self._get_connection() as conn:
-            # Delete all associated data (order matters for foreign keys)
             conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM ai_player_state WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM game_messages WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM tournament_tracker WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM pressure_events WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM emotional_state WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM controller_state WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM games WHERE game_id = ?", (game_id,))
 
     # --- Messages ---

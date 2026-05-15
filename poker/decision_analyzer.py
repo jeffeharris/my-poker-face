@@ -492,10 +492,13 @@ class DecisionAnalyzer:
 
             wins = 0
             iterations = self.iterations
+            # Local Random instance — sibling calculate_equity_vs_ranges
+            # uses the same pattern. Avoids mutating global random state.
+            rng = random.Random()
 
             for _ in range(iterations):
                 # Shuffle remaining deck
-                random.shuffle(deck)
+                rng.shuffle(deck)
                 deck_idx = 0
 
                 # Deal random hands to opponents

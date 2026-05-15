@@ -1958,13 +1958,24 @@ class TestRaiseEscalationAnnotation:
                 f"Raise rationale should start with '3bet:', got: {r.rationale}"
 
     def test_4bet_annotation(self):
-        """When raises_this_round=2, raises should be annotated as 4bet+."""
+        """raises_this_round=2 → annotated as 4bet (T3-73 added the explicit
+        entry; 4bet+ now applies only for ≥3 escalations)."""
         ctx = _base_context(equity=0.65, raises_this_round=2)
         options = generate_bounded_options(ctx)
         raises = [o for o in options if o.action == 'raise']
         assert len(raises) > 0, "Should have raise options"
         for r in raises:
-            assert '4bet+:' in r.rationale, \
+            assert r.rationale.startswith('4bet:'), \
+                f"Raise rationale should start with '4bet:', got: {r.rationale}"
+
+    def test_5bet_plus_annotation(self):
+        """T3-73: raises_this_round >= 3 still produces '4bet+'."""
+        ctx = _base_context(equity=0.65, raises_this_round=3)
+        options = generate_bounded_options(ctx)
+        raises = [o for o in options if o.action == 'raise']
+        assert len(raises) > 0
+        for r in raises:
+            assert r.rationale.startswith('4bet+:'), \
                 f"Raise rationale should start with '4bet+:', got: {r.rationale}"
 
     def test_no_annotation_when_opening(self):

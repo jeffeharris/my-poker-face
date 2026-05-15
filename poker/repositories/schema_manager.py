@@ -67,8 +67,15 @@ class SchemaManager:
         self.db_path = db_path
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Create a database connection."""
-        return sqlite3.connect(self.db_path, timeout=5.0)
+        """Create a database connection.
+
+        Sets busy_timeout to 5s so _init_db and migrations queue behind a
+        WAL writer instead of failing immediately with `database is locked`
+        when a Flask worker is already holding the write lock at startup.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=5.0)
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
 
     def _enable_wal_mode(self):
         """Enable WAL mode for concurrent read/write."""

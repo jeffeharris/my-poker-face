@@ -30,6 +30,7 @@ def get_player_llm_stats(game_id: str, player_name: str) -> Optional[Dict[str, A
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=5000")
 
             cursor = conn.execute("""
                 SELECT
@@ -84,6 +85,7 @@ def get_all_players_llm_stats(game_id: str, player_names: list) -> Dict[str, Dic
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=5000")
 
             # Build placeholder string for IN clause
             placeholders = ','.join('?' * len(player_names))

@@ -32,6 +32,7 @@ from .bounded_options import (
     apply_emotional_window_shift,
     get_emotional_shift,
 )
+from .nudge_phrases import apply_composed_nudges
 from .hand_ranges import (
     calculate_equity_vs_ranges,
     build_opponent_info,
@@ -181,6 +182,13 @@ class HybridAIController(AIPlayerController):
         if not options:
             logger.warning(f"[HYBRID] No options generated for {self.player_name}, using fallback")
             return self._create_fallback_response('check' if 'check' in context.get('valid_actions', []) else 'fold')
+
+        # Step 2a: Composed nudges (replace raw rationale with playstyle phrases).
+        # Mirrors the lean controller's wiring so the standard bot honours
+        # PromptConfig.composed_nudges instead of silently ignoring it.
+        if getattr(self.prompt_config, 'composed_nudges', False):
+            is_heads_up = rule_context.get('num_opponents', 2) <= 1
+            options = apply_composed_nudges(options, profile_key, is_heads_up=is_heads_up)
 
         # Step 2b: Emotional window shift
         emotional_shift = get_emotional_shift(self.psychology)

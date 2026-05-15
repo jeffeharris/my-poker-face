@@ -29,11 +29,19 @@ def _mock_extensions():
 def _make_game_data(owner_id='owner-123', game_started=False, is_human=True):
     """Create mock game data dict matching GameStateService format."""
     state_machine = MagicMock()
-    state_machine.game_state.current_player.is_human = is_human
-    state_machine.game_state.current_player.name = 'Player1'
-    state_machine.game_state.current_player.bet = 0
+    player = state_machine.game_state.current_player
+    player.is_human = is_human
+    player.name = 'Player1'
+    player.bet = 0
+    player.stack = 1000
     state_machine.game_state.current_player_options = ['fold', 'call', 'raise', 'all_in']
     state_machine.game_state.highest_bet = 20
+    # T2-53: handle_player_action computes max(0, min(highest_bet - bet, stack))
+    # against pre_action_state, then compute_coaching_data calls
+    # game_state.get_player_by_name(...) and unpacks `player, player_idx`.
+    # Provide numeric attrs and the (player, idx) tuple so test mocks satisfy
+    # both call sites.
+    state_machine.game_state.get_player_by_name.return_value = (player, 0)
     data = {
         'owner_id': owner_id,
         'game_started': game_started,

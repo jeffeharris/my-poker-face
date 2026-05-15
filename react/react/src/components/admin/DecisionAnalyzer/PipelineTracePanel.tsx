@@ -93,6 +93,14 @@ function TraceRow({ trace }: { trace: InterventionTrace }) {
       <tr
         className={`trace-row tone-${tone} ${dimmed ? 'dimmed' : ''}`}
         onClick={() => setExpanded((v) => !v)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
       >
         <td className="trace-toggle">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}

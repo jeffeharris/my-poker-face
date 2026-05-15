@@ -914,7 +914,14 @@ class PlayerPsychology:
     # === PROMPT BUILDING ===
 
     def get_prompt_section(self) -> str:
-        """Get emotional state section for prompt injection."""
+        """Get emotional state section for prompt injection.
+
+        Severely-tilted players (composure < 0.4) get their explicit
+        narrative suppressed because the zone-effects pathway
+        (apply_zone_effects → _inject_zone_thoughts) replaces it with
+        intrusive thoughts and degraded advice. Both running together
+        would double-voice the same emotional signal.
+        """
         if self.is_severely_tilted or not self.emotional:
             return ""
         return self.emotional.to_prompt_section()
@@ -1020,6 +1027,9 @@ class PlayerPsychology:
         thoughts = []
         penalties = zone_effects.penalties
         manifestation = zone_effects.manifestation
+        # Local Random instance — avoid mutating global random state
+        # (CLAUDE.md FP rule).
+        rng = random.Random()
 
         for zone_name, intensity in penalties.items():
             if not _should_inject_thoughts(intensity):
@@ -1028,14 +1038,14 @@ class PlayerPsychology:
             zone_thoughts = self._get_zone_thoughts(zone_name, manifestation, intensity)
             if zone_thoughts:
                 num_thoughts = 1 if intensity < 0.5 else 2
-                sampled = random.sample(zone_thoughts, min(num_thoughts, len(zone_thoughts)))
+                sampled = rng.sample(zone_thoughts, min(num_thoughts, len(zone_thoughts)))
                 thoughts.extend(sampled)
 
         # Add nemesis thoughts if applicable
         if self.composure_state.nemesis and any(p > 0.3 for p in penalties.values()):
             nemesis_thoughts = INTRUSIVE_THOUGHTS.get('nemesis', [])
             if nemesis_thoughts:
-                thought = random.choice(nemesis_thoughts).format(
+                thought = rng.choice(nemesis_thoughts).format(
                     nemesis=self.composure_state.nemesis
                 )
                 thoughts.append(thought)
@@ -1089,7 +1099,7 @@ class PlayerPsychology:
                 advice = advice.replace('.', '!')
             elif manifestation == 'low_energy':
                 suffixes = [" Whatever.", " Who cares.", " ..."]
-                advice = advice.rstrip('.') + random.choice(suffixes)
+                advice = advice.rstrip('.') + random.Random().choice(suffixes)
 
             return prompt + f"\n[Current mindset: {advice}]\n", advice
         return prompt, None

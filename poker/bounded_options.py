@@ -775,7 +775,7 @@ def generate_bounded_options(
     # === Raise escalation annotation ===
     raises_this_round = context.get('raises_this_round', 0)
     if raises_this_round >= 1:
-        from poker.controllers import _classify_raise_action
+        from .raise_utils import _classify_raise_action
         level = _classify_raise_action(raises_this_round)
         options = [
             replace(o, rationale=f"{level}: {o.rationale}") if o.action == 'raise' else o
@@ -1198,15 +1198,12 @@ def _reapply_math_blocking(options: List[BoundedOption], context: Dict,
     if profile is None:
         profile = OptionProfile()
 
+    # Use the profile-aware threshold rather than the hardcoded 1.7x
+    # ratio that previously also applied here — for tight profiles
+    # (fold_equity_multiplier=2.5) the 1.7x cutoff would silently
+    # remove an emotional fold the profile didn't intend to block.
     block_fold = _should_block_fold(context, profile)
-    # B2 (Crushing): always block fold, regardless of profile multiplier
     cost_to_call = context.get('cost_to_call', 0)
-    if cost_to_call > 0:
-        equity = context.get('equity', 0.5)
-        pot_total = context.get('pot_total', 0)
-        req = calculate_required_equity(pot_total, cost_to_call)
-        if equity >= 0.90 or (req > 0 and equity / req >= 1.7):
-            block_fold = True
     block_call = _should_block_call(context)
     valid_actions = context.get('valid_actions', [])
 

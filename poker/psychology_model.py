@@ -198,7 +198,7 @@ class ComposureState:
                 new_source = 'bad_beat'
             elif was_bluff_called:
                 new_source = 'bluff_called'
-            elif amount < -1000:  # Big loss
+            elif amount < -(10 * big_blind):  # Big loss (10 BB+)
                 new_source = 'big_loss'
             else:
                 new_source = self.pressure_source
