@@ -150,6 +150,9 @@ class TestExploitationDisable:
         nit_stats = AggregatedOpponentStats(
             hands_observed=100,
             vpip=0.08, pfr=0.06,
+            # _is_tight_nit reads vpip_per_voluntary_opportunity (<0.30).
+            vpip_per_voluntary_opportunity=0.12,
+            preflop_voluntary_opportunities=80,
             aggression_factor=2.5,
             all_in_frequency=0.01,
         )

@@ -168,6 +168,7 @@ class PromptCaptureRepository(BaseRepository):
         display_emotion: Optional[str] = None,
         min_tilt_level: Optional[float] = None,
         max_tilt_level: Optional[float] = None,
+        has_decision_analysis: Optional[bool] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
@@ -187,8 +188,14 @@ class PromptCaptureRepository(BaseRepository):
         conditions = []
         params = []
 
-        # Determine if we need the psychology join
-        needs_psychology_join = any([display_emotion, min_tilt_level is not None, max_tilt_level is not None])
+        # Determine if we need the decision-analysis join. Used by both
+        # psychology filters and `has_decision_analysis`.
+        needs_pda_join = any([
+            display_emotion,
+            min_tilt_level is not None,
+            max_tilt_level is not None,
+            has_decision_analysis is not None,
+        ])
 
         if game_id:
             conditions.append("pc.game_id = ?")
@@ -241,8 +248,20 @@ class PromptCaptureRepository(BaseRepository):
             conditions.append("pda.tilt_level <= ?")
             params.append(max_tilt_level)
 
+        # Decision-analysis presence filter. Used to surface "decisions"
+        # (both LLM player_decision captures and TieredBot's trace-bearing
+        # commentary captures) without forcing a specific call_type.
+        if has_decision_analysis is True:
+            conditions.append("pda.id IS NOT NULL")
+        elif has_decision_analysis is False:
+            conditions.append("pda.id IS NULL")
+
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        join_clause = "LEFT JOIN player_decision_analysis pda ON pda.capture_id = pc.id" if needs_psychology_join else ""
+        # Always JOIN player_decision_analysis so the list projection can
+        # COALESCE game-state columns: commentary captures don't carry
+        # pot/hand/stack/etc., that data lives on the linked analysis row.
+        # Cheap because pda.capture_id is indexed.
+        join_clause = "LEFT JOIN player_decision_analysis pda ON pda.capture_id = pc.id"
 
         with self._get_connection() as conn:
 
@@ -253,11 +272,30 @@ class PromptCaptureRepository(BaseRepository):
             )
             total = count_cursor.fetchone()[0]
 
-            # Get captures with pagination
+            # Get captures with pagination. For commentary captures, pc.phase
+            # literally equals 'commentary' rather than the actual hand phase,
+            # so we prefer pda.phase when the capture is a commentary row.
             query = f"""
-                SELECT DISTINCT pc.id, pc.created_at, pc.game_id, pc.player_name, pc.hand_number, pc.phase,
-                       pc.action_taken, pc.pot_total, pc.cost_to_call, pc.pot_odds, pc.player_stack,
-                       pc.community_cards, pc.player_hand, pc.model, pc.provider, pc.latency_ms, pc.tags, pc.notes,
+                SELECT DISTINCT pc.id, pc.created_at, pc.game_id, pc.player_name, pc.hand_number,
+                       CASE WHEN pc.call_type = 'commentary'
+                            THEN COALESCE(pda.phase, pc.phase)
+                            ELSE COALESCE(pc.phase, pda.phase)
+                       END AS phase,
+                       COALESCE(pc.action_taken, pda.action_taken) AS action_taken,
+                       COALESCE(pc.pot_total, pda.pot_total) AS pot_total,
+                       COALESCE(pc.cost_to_call, pda.cost_to_call) AS cost_to_call,
+                       COALESCE(
+                           pc.pot_odds,
+                           CASE WHEN COALESCE(pc.cost_to_call, pda.cost_to_call) > 0
+                                THEN CAST(COALESCE(pc.pot_total, pda.pot_total) AS REAL)
+                                     / COALESCE(pc.cost_to_call, pda.cost_to_call)
+                                ELSE NULL
+                           END
+                       ) AS pot_odds,
+                       COALESCE(pc.player_stack, pda.player_stack) AS player_stack,
+                       COALESCE(pc.community_cards, pda.community_cards) AS community_cards,
+                       COALESCE(pc.player_hand, pda.player_hand) AS player_hand,
+                       pc.model, pc.provider, pc.latency_ms, pc.tags, pc.notes,
                        pc.error_type, pc.error_description, pc.parent_id, pc.correction_attempt
                 FROM prompt_captures pc
                 {join_clause}

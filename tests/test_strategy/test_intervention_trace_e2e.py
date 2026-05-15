@@ -86,7 +86,7 @@ class TestPostflopTraceSurface:
         # by the strategy regression sweep.
         controller._last_intervention_trace = []
 
-        # 1. exploitation (emits 7 traces)
+        # 1. exploitation (emits 8 traces — Plan §5 added bluff_reduction)
         modified, exploitation_traces = controller._apply_exploitation(
             strategy=baseline, game_state=controller.state_machine.game_state,
             player_idx=0, valid_actions=['fold', 'call'],
@@ -94,7 +94,7 @@ class TestPostflopTraceSurface:
             hand_strength=None,
         )
         controller._last_intervention_trace.extend(exploitation_traces)
-        assert len(exploitation_traces) == 7
+        assert len(exploitation_traces) == 8
 
         # 2. value_override
         modified, vo_trace = controller._apply_value_override(
@@ -114,11 +114,13 @@ class TestPostflopTraceSurface:
         )
         controller._last_intervention_trace.append(bc_trace)
 
-        # The trace accumulator now holds 7 + 1 + 1 = 9 entries; the
-        # remaining 3 (personality, short_stack, math_floor) are added
-        # by the _get_postflop_decision orchestration step which we
-        # can't easily simulate piecewise.
-        assert len(controller._last_intervention_trace) == 9
+        # The trace accumulator now holds 8 + 1 + 1 = 10 entries (Plan §5
+        # added bluff_reduction to the exploitation surface, bumping it
+        # from 7 to 8); the remaining traces (personality, defense_floor,
+        # short_stack, math_floor) are added by the
+        # _get_postflop_decision orchestration step which we can't
+        # easily simulate piecewise.
+        assert len(controller._last_intervention_trace) == 10
 
         # Every emitted trace must validate against schema invariants.
         for trace in controller._last_intervention_trace:

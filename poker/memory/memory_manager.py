@@ -276,11 +276,25 @@ class AIMemoryManager:
         # as "not facing a bet" — they were free to act when they bet,
         # and someone re-raising them is what would make them face a
         # bet next.
-        was_facing_bet = (
-            phase in ('FLOP', 'TURN', 'RIVER')
-            and self._recent_aggressor_name is not None
-            and self._recent_aggressor_name != player_name
-        )
+        #
+        # Preflop extension (for opportunity-normalized VPIP/PFR):
+        # facing a bet preflop = a live RAISE above the blind has been
+        # made by someone other than the current player. Forced blind
+        # posts ('sb'/'bb') are not raises and don't count. The
+        # preflop aggressor lives on the cbet detector and is read
+        # BEFORE cbet_detector.record_action updates it below.
+        if phase in ('FLOP', 'TURN', 'RIVER'):
+            was_facing_bet = (
+                self._recent_aggressor_name is not None
+                and self._recent_aggressor_name != player_name
+            )
+        elif phase == 'PRE_FLOP':
+            prior_raiser = self._cbet_detector.preflop_aggressor
+            was_facing_bet = (
+                prior_raiser is not None and prior_raiser != player_name
+            )
+        else:
+            was_facing_bet = False
 
         # Phase 6.7a: postflop live aggressor — last accepted bet/raise/
         # all_in on flop/turn/river. Used by select_primary_aggressor()

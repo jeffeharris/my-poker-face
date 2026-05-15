@@ -591,6 +591,7 @@ class TieredBotController(AIPlayerController):
         self._last_intervention_trace.append(math_floor_trace)
 
         abstract_action = modified_strategy.sample_action(self.rng)
+        self._last_pipeline_snapshot['sampled_abstract_action'] = abstract_action
 
         if self.debug_logging:
             logger.info(
@@ -606,6 +607,9 @@ class TieredBotController(AIPlayerController):
             game_action, raise_to = self._validate_action(
                 game_action, raise_to, valid_actions
             )
+
+        self._last_pipeline_snapshot['resolved_action'] = game_action
+        self._last_pipeline_snapshot['resolved_raise_to'] = raise_to
 
         if self.debug_logging:
             logger.info(
@@ -790,6 +794,10 @@ class TieredBotController(AIPlayerController):
         self._last_pipeline_snapshot['required_equity'] = (
             outer_decision_context.required_equity
         )
+        # Plan §6: opponent_archetype is snapshotted inside
+        # `_tally_exploitation_event` (where `stats` is already
+        # selected) — see that method. Done as a side effect of the
+        # tally call so we don't duplicate _select_exploitation_stats_from_spots.
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
         modified_strategy, exploitation_traces = self._apply_exploitation(
@@ -891,6 +899,7 @@ class TieredBotController(AIPlayerController):
 
         # 7. Sample action
         abstract_action = modified_strategy.sample_action(self.rng)
+        self._last_pipeline_snapshot['sampled_abstract_action'] = abstract_action
 
         if self.debug_logging:
             logger.info(
@@ -909,6 +918,9 @@ class TieredBotController(AIPlayerController):
             game_action, raise_to = self._validate_action(
                 game_action, raise_to, valid_actions
             )
+
+        self._last_pipeline_snapshot['resolved_action'] = game_action
+        self._last_pipeline_snapshot['resolved_raise_to'] = raise_to
 
         if self.debug_logging:
             logger.info(
@@ -1031,6 +1043,29 @@ class TieredBotController(AIPlayerController):
             steal_intensity_raw if is_steal_pressure_enabled(archetype) else 0.0
         )
 
+        # Plan §5: bluff reduction vs stations. Mirrors value_vs_station
+        # but with the inverse hand-strength gate — fires on air-class
+        # hands when a station is in the field. Shares the same station
+        # detection (compute_value_vs_station_intensity returns >0 iff a
+        # qualifying station is present), so reusing it keeps the
+        # "what's a station" definition consistent. Hand-strength gate
+        # below disjoint from vvs's strong+ gate; the two rules cannot
+        # fire on the same decision.
+        bluff_reduction_intensity_raw = 0.0
+        if (
+            hand_strength in {'air_no_draw', 'air_strong_draw'}
+            and has_bet_legal
+        ):
+            bluff_reduction_intensity_raw = (
+                compute_value_vs_station_intensity(spots)
+            )
+        # Re-use the value_vs_station playstyle gate — same archetypes
+        # benefit (nit/rock/tag postflop archetypes that face stations).
+        bluff_reduction_intensity_used = (
+            bluff_reduction_intensity_raw
+            if is_value_vs_station_enabled(archetype) else 0.0
+        )
+
         exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
         offsets, exploitation_traces = compute_exploitation_offsets_with_traces(
             stats=stats,
@@ -1042,6 +1077,7 @@ class TieredBotController(AIPlayerController):
             multiway_cbet_intensity=multiway_cbet_intensity,
             value_vs_station_intensity=vvs_intensity_used,
             steal_pressure_intensity=steal_intensity_used,
+            bluff_reduction_intensity=bluff_reduction_intensity_used,
             disable_rules=getattr(self, "disable_rules", frozenset()),
         )
 
@@ -1657,6 +1693,14 @@ class TieredBotController(AIPlayerController):
         # we mirror its checks here for diagnostic visibility.
         if stats.hands_observed < 15:
             c['cold_start'] += 1
+            # Plan §6: surface cold_start as a distinct archetype value
+            # on the snapshot — analytics need to distinguish
+            # "insufficient sample" from "past sample, no detector fired".
+            # Defensive: tests may construct controllers without going
+            # through __init__ (mocks); snapshot dict may not exist.
+            snap = getattr(self, '_last_pipeline_snapshot', None)
+            if snap is not None:
+                snap['opponent_archetype'] = 'cold_start'
             return
 
         patterns_this_decision = classify_detected_patterns(stats)
@@ -1668,9 +1712,20 @@ class TieredBotController(AIPlayerController):
         # archetype distribution ("hero saw X% pure_station / Y%
         # sticky_jammer / ...") in one place. `None` is bucketed as
         # `unmatched` so cold-start vs. genuinely-balanced opponents
-        # show up rather than getting silently dropped.
+        # show up rather than being silently dropped.
+        #
+        # Plan §6 side effect: also snapshot the archetype on the
+        # pipeline so post-decision analytics (e.g. casebot_breakdown's
+        # enriched fold capture) can correlate the archetype with hand
+        # class / nut_status / bet bucket. The aggregate-cold-start
+        # early return above means cold-start decisions get
+        # 'cold_start' rather than an archetype label — distinct from
+        # 'unmatched' (past min hands but no detector fired).
         archetype = classify_opponent_archetype(stats) or 'unmatched'
         c[f'archetype_classified_{archetype}'] += 1
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if snap is not None:
+            snap['opponent_archetype'] = archetype
 
         # Phase 6.6: c-bet fire detection. The c-bet rule is the only
         # source of bet_*/check offsets when ALL of these hold:
@@ -1803,6 +1858,22 @@ class TieredBotController(AIPlayerController):
                             facing_bet_opportunities=t._facing_bet_opportunities,
                             postflop_jam_open_rate=t.postflop_jam_open_rate,
                             postflop_open_opportunities=t._postflop_open_opportunities,
+                            # Opportunity-normalized preflop fields.
+                            # getattr-with-default so SimpleNamespace test
+                            # mocks built before this field landed still
+                            # work (they fall back to neutral prior / 0).
+                            pfr_per_open_opportunity=getattr(
+                                t, 'pfr_per_open_opportunity', 0.5,
+                            ),
+                            vpip_per_voluntary_opportunity=getattr(
+                                t, 'vpip_per_voluntary_opportunity', 0.5,
+                            ),
+                            preflop_open_opportunities=getattr(
+                                t, '_preflop_open_opportunities', 0,
+                            ),
+                            preflop_voluntary_opportunities=getattr(
+                                t, '_preflop_voluntary_opportunities', 0,
+                            ),
                         )
 
             spots.append(OpponentSpot(
@@ -1848,6 +1919,26 @@ class TieredBotController(AIPlayerController):
                         all_in_frequency=t.all_in_frequency,
                         fold_to_cbet=t.fold_to_cbet,
                         cbet_faced_count=t._cbet_faced_count,
+                        # Opportunity-normalized preflop fields preserve
+                        # the legacy-path behavior of single-aggressor
+                        # facing-bet selection. Postflop Phase 7.5 fields
+                        # are intentionally omitted here (legacy path was
+                        # already incomplete — _select_exploitation_stats_
+                        # from_spots is the canonical route). getattr-
+                        # with-default keeps SimpleNamespace mocks
+                        # backwards compatible.
+                        pfr_per_open_opportunity=getattr(
+                            t, 'pfr_per_open_opportunity', 0.5,
+                        ),
+                        vpip_per_voluntary_opportunity=getattr(
+                            t, 'vpip_per_voluntary_opportunity', 0.5,
+                        ),
+                        preflop_open_opportunities=getattr(
+                            t, '_preflop_open_opportunities', 0,
+                        ),
+                        preflop_voluntary_opportunities=getattr(
+                            t, '_preflop_voluntary_opportunities', 0,
+                        ),
                     )
         return manager.aggregate_active_opponents(
             observer=hero_name,

@@ -562,21 +562,27 @@ def _clamp_to_envelope(
 # ── Phase 7.5 Item 1b: bluff-catch gate + strategy builder ──────────────
 
 # Station heuristic constants — applied to a single opponent's
-# AggregatedOpponentStats. The thresholds match what compute_exploitation_
-# offsets uses for the legacy hyper_passive detection, but we re-encode
-# them here as plain values to keep the bluff-catch path self-contained.
-_STATION_VPIP_THRESHOLD = 0.55
+# AggregatedOpponentStats. Migrated to opportunity-normalized VPIP
+# (`vpip_per_voluntary_opportunity`) for player-count stability:
+# legacy `stats.vpip` is hands-dealt-normalized and scales as 1/N
+# with table size, making the 0.55 legacy threshold unreachable at
+# multiway tables. The 0.65 new threshold sits between station
+# archetypes (CaseBot/GTO-Lite/ABCBot/FoldyBot vpip/vol=1.00 at HU
+# vs TAG) and tight archetypes (Rock=0.57, Nit=0.48). AF ceiling
+# stays on the legacy `aggression_factor` (player-count-stable).
+_STATION_VPIP_PER_VOL_THRESHOLD = 0.65
 _STATION_AF_CEILING = 1.5
 
 
 def _is_station(stats) -> bool:
     """Detect call-station tendencies on a SINGLE opponent's stats.
 
-    A station has high VPIP (sees lots of flops) and low aggression
-    factor (rarely folds to bets). When such an opponent is in the
-    pot behind hero, calling down with a medium- or weak-made hand
-    is much riskier than HU: the station's range has showdown value
-    that dominates our pair.
+    A station has high vpip_per_voluntary_opportunity (puts chips
+    in voluntarily across most of their preflop decisions) and low
+    aggression factor (rarely raises/folds to bets). When such an
+    opponent is in the pot behind hero, calling down with a medium-
+    or weak-made hand is much riskier than HU: the station's range
+    has showdown value that dominates our pair.
 
     Requires hands_observed ≥ MEDIUM_MIN_OPPORTUNITIES (sample gate)
     so noisy reads don't suppress the override unnecessarily.
@@ -584,7 +590,8 @@ def _is_station(stats) -> bool:
     from .phase_7_5_config import CONFIG
     min_sample = CONFIG.sample_thresholds.medium_min_opportunities
     return (
-        stats.vpip > _STATION_VPIP_THRESHOLD
+        stats.vpip_per_voluntary_opportunity
+        > _STATION_VPIP_PER_VOL_THRESHOLD
         and stats.aggression_factor < _STATION_AF_CEILING
         and stats.hands_observed >= min_sample
     )

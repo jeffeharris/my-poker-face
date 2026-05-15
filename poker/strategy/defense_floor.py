@@ -15,6 +15,11 @@ the controller's pipeline snapshot.
 | `req ≤ 35%` AND (strong+ class OR `non_nut_strong`)     | keep call alive         |
 | `req ≤ 20%` AND `hand_class ∈ {medium_made, …, nuts}`   | keep call alive         |
 
+A "jam-price value-call" row for `non_nut_strong + strong_made/nuts`
+at req 35-50% was tested via 1000×5 sim and *rejected* — see the
+ROW_JAM_VALUE_CALL_MAX_REQ comment below for why the empirical
+data argued against it.
+
 ## Pipeline placement
 
 Sits between `_apply_bluff_catch_override` (Phase 7.5) and
@@ -78,6 +83,16 @@ _ROW_STRONG_CLASSES = frozenset({'strong_made', 'nuts'})
 
 # Hand classes that qualify for row 5 ("medium+")
 _ROW_MEDIUM_CLASSES = frozenset({'medium_made', 'strong_made', 'nuts'})
+
+# Sim-validated decision (post-§6 1000×5 sim): a candidate "jam-price
+# value-call" row for `non_nut_strong + strong_made/nuts` hands at
+# req 35-50% was added, tested, and *reverted* when the sim showed
+# the extra calls were net-negative (~-3.5 bb/100 across 5000 hands).
+# The original assumption was that CaseBot's jam range was wide
+# enough for `non_nut_strong` to call profitably; the data disagreed.
+# Those folds are correct against CaseBot's actual (tight) jam
+# range. If a future opponent profile has a demonstrably wider jam
+# range, this row can be reintroduced with archetype gating.
 
 # Board-only danger flags that count for the dampener. Hand-specific
 # flags are already absorbed into nut_status; including them here

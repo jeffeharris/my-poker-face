@@ -2,10 +2,11 @@
 
 import logging
 import uuid
-from typing import Dict
+from typing import Dict, Optional
 from flask import Blueprint, jsonify, request
 
 from core.llm import LLMClient, CallType, Assistant
+from ..decision_analysis_serializer import hydrate_decision_analysis
 from ..extensions import prompt_capture_repo, decision_analysis_repo, capture_label_repo
 from ..route_utils import register_admin_guard
 
@@ -50,18 +51,43 @@ def list_captures():
         tags: Comma-separated tags to filter by
         labels: Comma-separated labels to filter by (uses capture_labels table)
         label_match_all: If 'true', require ALL labels; if 'false' (default), require ANY
-        call_type: Filter by call type (default: 'player_decision', use 'all' for all types)
+        call_type: Filter by call type. If omitted and no other call_type-related
+            filter is set, defaults to "captures with attached decision_analysis"
+            so the list shows decisions from both LLM bots (player_decision
+            captures) and TieredBot (whose trace lives on commentary captures).
+            Pass 'all' to disable any call_type / decision filter.
+        has_decision_analysis: 'true'/'false' to filter by presence of a linked
+            decision_analysis row.
         error_type: Filter by specific error type (e.g., malformed_json, missing_field)
         has_error: Filter to captures with errors ('true') or without ('false')
         is_correction: Filter to correction attempts ('true') or originals only ('false')
         limit: Max results (default 50)
         offset: Pagination offset (default 0)
     """
-    # Default to player_decision to show only game decisions (not debug replays, interrogations, etc.)
-    call_type = request.args.get('call_type', 'player_decision')
-    # Allow 'all' to show all call types (for admin/debug purposes)
-    if call_type == 'all':
+    # Parse decision-analysis presence filter
+    has_decision_analysis_str = request.args.get('has_decision_analysis')
+    has_decision_analysis: Optional[bool]
+    if has_decision_analysis_str == 'true':
+        has_decision_analysis = True
+    elif has_decision_analysis_str == 'false':
+        has_decision_analysis = False
+    else:
+        has_decision_analysis = None
+
+    # call_type filter. New default: when caller doesn't constrain
+    # call_type and doesn't pass has_decision_analysis, show all
+    # captures that have a linked decision_analysis. That surfaces both
+    # LLM-driven `player_decision` captures and TieredBot's
+    # `commentary` captures that anchor an intervention trace.
+    call_type_arg = request.args.get('call_type')
+    if call_type_arg == 'all':
         call_type = None
+    elif call_type_arg is None:
+        call_type = None
+        if has_decision_analysis is None:
+            has_decision_analysis = True
+    else:
+        call_type = call_type_arg
 
     # Parse labels filter
     labels_str = request.args.get('labels', '')
@@ -114,6 +140,7 @@ def list_captures():
         'display_emotion': display_emotion,
         'min_tilt_level': min_tilt_level,
         'max_tilt_level': max_tilt_level,
+        'has_decision_analysis': has_decision_analysis,
         'limit': int(request.args.get('limit', 50)),
         'offset': int(request.args.get('offset', 0)),
     }
@@ -209,6 +236,7 @@ def get_capture(capture_id):
 
     # Get linked decision analysis if it exists
     decision_analysis = decision_analysis_repo.get_decision_analysis_by_capture(capture_id)
+    decision_analysis = hydrate_decision_analysis(decision_analysis)
 
     return jsonify({
         'success': True,
@@ -538,6 +566,8 @@ def list_decision_analyses():
     filters = {k: v for k, v in filters.items() if v is not None}
 
     result = decision_analysis_repo.list_decision_analyses(**filters)
+    for row in result['analyses']:
+        hydrate_decision_analysis(row)
 
     # Also get stats
     stats = decision_analysis_repo.get_decision_analysis_stats(filters.get('game_id'))
@@ -557,6 +587,8 @@ def get_decision_analysis(analysis_id):
 
     if not analysis:
         return jsonify({'success': False, 'error': 'Analysis not found'}), 404
+
+    analysis = hydrate_decision_analysis(analysis)
 
     return jsonify({
         'success': True,

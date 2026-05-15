@@ -48,7 +48,7 @@ from poker.strategy.exploitation import (
     AggregatedOpponentStats,
     DecisionContext,
     OpponentSpot,
-    PFR_LOOSE_THRESHOLD,
+    PFR_LOOSE_PER_OPEN_THRESHOLD,
     STEAL_PRESSURE_PLAYSTYLES,
     VALUE_VS_STATION_PLAYSTYLES,
     VVS_SAFETY_WEIGHT,
@@ -71,7 +71,23 @@ def _stats(
     all_in_frequency: float = 0.0,
     fold_to_cbet: float = 0.5,
     cbet_faced_count: int = 0,
+    vpip_per_voluntary_opportunity: float = None,
+    pfr_per_open_opportunity: float = None,
+    preflop_voluntary_opportunities: int = None,
+    preflop_open_opportunities: int = None,
 ) -> AggregatedOpponentStats:
+    # Mirror legacy vpip/pfr to the opportunity-normalized fields by
+    # default so tests written against legacy semantics still drive the
+    # same detectors. Callers can override for explicit
+    # opportunity-normalized testing.
+    if vpip_per_voluntary_opportunity is None:
+        vpip_per_voluntary_opportunity = vpip
+    if pfr_per_open_opportunity is None:
+        pfr_per_open_opportunity = pfr
+    if preflop_voluntary_opportunities is None:
+        preflop_voluntary_opportunities = max(hands_observed - 5, 0)
+    if preflop_open_opportunities is None:
+        preflop_open_opportunities = max(hands_observed // 2, 0)
     return AggregatedOpponentStats(
         hands_observed=hands_observed,
         vpip=vpip,
@@ -80,6 +96,10 @@ def _stats(
         all_in_frequency=all_in_frequency,
         fold_to_cbet=fold_to_cbet,
         cbet_faced_count=cbet_faced_count,
+        vpip_per_voluntary_opportunity=vpip_per_voluntary_opportunity,
+        pfr_per_open_opportunity=pfr_per_open_opportunity,
+        preflop_voluntary_opportunities=preflop_voluntary_opportunities,
+        preflop_open_opportunities=preflop_open_opportunities,
     )
 
 
@@ -139,32 +159,34 @@ class TestValueVsStationIntensity:
         assert compute_value_vs_station_intensity(spots) == 0.0
 
     def test_single_full_station_returns_one(self):
-        # VPIP 0.90 = top of hyper_passive ramp → intensity 1.0.
-        spots = [_spot('A', stats=_station_stats(vpip=0.90))]
+        # vpip_per_voluntary_opportunity 0.95 = top of hyper_passive ramp
+        # → intensity 1.0. _station_stats sets vpip=0.95 which falls
+        # through to vpip_per_voluntary_opportunity=0.95.
+        spots = [_spot('A', stats=_station_stats(vpip=0.95))]
         assert compute_value_vs_station_intensity(spots) == pytest.approx(1.0)
 
     def test_partial_station_returns_partial(self):
-        # VPIP 0.75 sits midway in the 0.60→0.90 ramp.
-        spots = [_spot('A', stats=_station_stats(vpip=0.75))]
+        # vpip/vol 0.80 sits midway in the 0.70→0.95 ramp.
+        spots = [_spot('A', stats=_station_stats(vpip=0.80))]
         result = compute_value_vs_station_intensity(spots)
         assert 0.0 < result < 1.0
 
     def test_multiple_stations_takes_max(self):
         # Loosest station drives upside — MAX, not MIN.
         spots = [
-            _spot('Loose', stats=_station_stats(vpip=0.85)),
-            _spot('Mild', stats=_station_stats(vpip=0.65)),
+            _spot('Loose', stats=_station_stats(vpip=0.90)),
+            _spot('Mild', stats=_station_stats(vpip=0.75)),
         ]
         result = compute_value_vs_station_intensity(spots)
         loose_only = compute_value_vs_station_intensity(
-            [_spot('Loose', stats=_station_stats(vpip=0.85))]
+            [_spot('Loose', stats=_station_stats(vpip=0.90))]
         )
         assert result == pytest.approx(loose_only)
 
     def test_tight_opponent_dampens_intensity(self):
         # Station + tight nit → safety dampener applied.
         spots = [
-            _spot('Station', stats=_station_stats(vpip=0.90)),
+            _spot('Station', stats=_station_stats(vpip=0.95)),
             _spot('Nit', stats=_tight_nit_stats(vpip=0.05)),
         ]
         result = compute_value_vs_station_intensity(spots)
@@ -175,11 +197,12 @@ class TestValueVsStationIntensity:
         # A second station should NOT trigger the safety dampener even
         # though it's technically "lower VPIP" than the loose one.
         spots = [
-            _spot('Loose', stats=_station_stats(vpip=0.90)),
-            _spot('Mild', stats=_station_stats(vpip=0.62)),
+            _spot('Loose', stats=_station_stats(vpip=0.95)),
+            _spot('Mild', stats=_station_stats(vpip=0.75)),
         ]
-        # Mild station has VPIP > HYPER_PASSIVE_VPIP_THRESHOLD so it's
-        # still a station, never enters the non_stations pool, no safety.
+        # Mild station has vpip/vol > HYPER_PASSIVE_VPIP_PER_VOL_THRESHOLD
+        # so it's still a station, never enters the non_stations pool,
+        # no safety.
         assert compute_value_vs_station_intensity(spots) == pytest.approx(1.0)
 
 
@@ -211,33 +234,43 @@ class TestStealPressureIntensity:
         assert result > 0.0
 
     def test_blind_defender_weighted_heavier(self):
+        # vpip/vol must sit mid-ramp (between 0.30 and 0.10) so the
+        # base intensity is < 1.0 and the blind weight (1.5x) actually
+        # changes the result. vpip=0.20 → base intensity (0.30-0.20)/
+        # (0.30-0.10) = 0.5.
         in_blind = compute_steal_pressure_intensity([
-            _spot('BB', stats=_tight_nit_stats(vpip=0.08),
+            _spot('BB', stats=_tight_nit_stats(vpip=0.20),
                   can_act_behind=True, is_blind=True),
         ])
         non_blind = compute_steal_pressure_intensity([
-            _spot('UTG', stats=_tight_nit_stats(vpip=0.08),
+            _spot('UTG', stats=_tight_nit_stats(vpip=0.20),
                   can_act_behind=True, is_blind=False),
         ])
         assert in_blind > non_blind
 
     def test_high_pfr_player_behind_kills_rule(self):
-        # A LAG-ish defender (PFR clearly above PFR_LOOSE_THRESHOLD)
-        # would 3-bet back rather than fold. False-steal guard returns
-        # 0 even though a nit is also behind and would normally drive
-        # the rule.
+        # A LAG-ish defender (pfr_per_open_opportunity clearly above
+        # PFR_LOOSE_PER_OPEN_THRESHOLD) would 3-bet back rather than
+        # fold. False-steal guard returns 0 even though a nit is also
+        # behind and would normally drive the rule.
         spots = [
             _spot('Nit', stats=_tight_nit_stats(vpip=0.05),
                   can_act_behind=True),
-            _spot('LAG', stats=_stats(vpip=0.35, pfr=0.25),
+            _spot('LAG', stats=_stats(vpip=0.35, pfr=0.55),
                   can_act_behind=True),
         ]
         assert compute_steal_pressure_intensity(spots) == 0.0
 
     def test_pfr_guard_above_threshold(self):
-        # PFR exactly at PFR_LOOSE_THRESHOLD trips the guard.
+        # pfr_per_open_opportunity exactly at PFR_LOOSE_PER_OPEN_THRESHOLD
+        # trips the guard. Setting both `pfr` and the opp-normalized
+        # field — guard now reads the opp-normalized one.
         spots = [
-            _spot('TAG', stats=_stats(vpip=0.18, pfr=PFR_LOOSE_THRESHOLD),
+            _spot('TAG', stats=_stats(
+                vpip=0.18,
+                pfr=PFR_LOOSE_PER_OPEN_THRESHOLD,
+                pfr_per_open_opportunity=PFR_LOOSE_PER_OPEN_THRESHOLD,
+            ),
                   can_act_behind=True),
         ]
         assert compute_steal_pressure_intensity(spots) == 0.0

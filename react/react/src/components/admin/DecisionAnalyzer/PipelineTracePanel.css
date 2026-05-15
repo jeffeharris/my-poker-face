@@ -1,0 +1,358 @@
+/* ========== TieredBot Pipeline Trace Panel ========== */
+
+.pipeline-trace-panel {
+  background: rgba(15, 52, 96, 0.5);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pipeline-trace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.pipeline-trace-header h4 {
+  margin: 0;
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+.pipeline-trace-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.pipeline-source-chip {
+  background: rgba(0, 212, 255, 0.15);
+  color: #00d4ff;
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pipeline-action-chip {
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.pipeline-action-chip.action-fold {
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
+}
+
+.pipeline-action-chip.action-check,
+.pipeline-action-chip.action-call {
+  background: rgba(0, 212, 255, 0.2);
+  color: #00d4ff;
+}
+
+.pipeline-action-chip.action-raise,
+.pipeline-action-chip.action-all_in {
+  background: rgba(255, 217, 61, 0.2);
+  color: #ffd93d;
+}
+
+.pipeline-fire-count {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ---------- Final roll (post-pipeline distribution + sampled action) ---------- */
+
+.pipeline-final-roll {
+  margin-bottom: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(0, 212, 255, 0.06);
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  border-radius: 6px;
+}
+
+.pipeline-final-roll-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.pipeline-final-roll-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.pipeline-final-roll-action {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #00d4ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.pipeline-final-roll-abstract {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.pipeline-final-roll-abstract code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  color: rgba(0, 212, 255, 0.85);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.pipeline-final-roll-prob {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.pipeline-final-dist {
+  width: 100%;
+}
+
+.pipeline-final-dist td,
+.pipeline-final-dist th {
+  padding: 0.18rem 0.6rem 0.18rem 0;
+}
+
+.pipeline-final-dist tbody tr.sampled {
+  color: #00d4ff;
+  font-weight: 600;
+}
+
+.pipeline-final-dist tbody tr.sampled .trace-diff-action::before {
+  content: "→ ";
+  color: #00d4ff;
+}
+
+.pipeline-prob-bar-cell {
+  /* Reserve column space so the bar has room to render even when the
+     percentage rendering above is narrow. */
+  width: 250px;
+  padding-left: 0.4rem !important;
+}
+
+.pipeline-prob-bar {
+  display: inline-block;
+  height: 10px;
+  background: rgba(0, 212, 255, 0.4);
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.pipeline-final-dist tbody tr.sampled .pipeline-prob-bar {
+  background: #00d4ff;
+}
+
+.pipeline-section {
+  margin-top: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.pipeline-section > summary {
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.8rem;
+  user-select: none;
+  padding: 0.2rem 0;
+}
+
+.pipeline-section > summary:hover {
+  color: #fff;
+}
+
+/* ---------- Trace table ---------- */
+
+.trace-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.trace-table thead th {
+  text-align: left;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.trace-row {
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.trace-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.trace-row.dimmed {
+  opacity: 0.5;
+}
+
+.trace-row td {
+  padding: 0.4rem 0.5rem;
+  vertical-align: middle;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.trace-toggle {
+  width: 1.5rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.trace-layer-name {
+  font-weight: 600;
+  color: #fff;
+}
+
+.trace-rule-id {
+  display: block;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.trace-op-chip {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+
+.trace-op-chip.tone-muted {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.trace-op-chip.tone-info {
+  background: rgba(0, 212, 255, 0.15);
+  color: #00d4ff;
+}
+
+.trace-op-chip.tone-warn {
+  background: rgba(255, 217, 61, 0.18);
+  color: #ffd93d;
+}
+
+.trace-op-chip.tone-alert {
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
+}
+
+.trace-action {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.trace-effect {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  width: 4rem;
+}
+
+.trace-reason {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ---------- Expanded detail row ---------- */
+
+.trace-row-detail td {
+  padding: 0.6rem 0.75rem 0.9rem 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.trace-rationale {
+  margin: 0 0 0.6rem 0;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.4;
+}
+
+.trace-diff {
+  width: auto;
+  margin-bottom: 0.6rem;
+  font-size: 0.75rem;
+  border-collapse: collapse;
+}
+
+.trace-diff th,
+.trace-diff td {
+  padding: 0.2rem 0.6rem 0.2rem 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-diff th {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  text-align: left;
+}
+
+.trace-diff-action {
+  color: rgba(255, 255, 255, 0.7);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.trace-diff td.positive {
+  color: #4ecca3;
+}
+
+.trace-diff td.negative {
+  color: #ff6b6b;
+}
+
+.trace-diff td.neutral {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.trace-extra {
+  margin-top: 0.4rem;
+}
+
+.trace-extra summary {
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.trace-extra pre,
+.pipeline-snapshot {
+  margin: 0.4rem 0 0 0;
+  padding: 0.6rem;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-x: auto;
+  max-height: 320px;
+  overflow-y: auto;
+}

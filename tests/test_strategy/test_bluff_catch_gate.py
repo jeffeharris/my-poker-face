@@ -54,6 +54,19 @@ def _stats(**kwargs) -> AggregatedOpponentStats:
         postflop_open_opportunities=80,
     )
     base.update(kwargs)
+    # Mirror legacy vpip/pfr to the opp-normalized fields when caller
+    # didn't set them. value_override._is_station now reads
+    # vpip_per_voluntary_opportunity > 0.65.
+    base.setdefault('vpip_per_voluntary_opportunity', base['vpip'])
+    base.setdefault('pfr_per_open_opportunity', base['pfr'])
+    base.setdefault(
+        'preflop_voluntary_opportunities',
+        max(base['hands_observed'] - 5, 0),
+    )
+    base.setdefault(
+        'preflop_open_opportunities',
+        max(base['hands_observed'] // 2, 0),
+    )
     return AggregatedOpponentStats(**base)
 
 
