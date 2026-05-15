@@ -390,9 +390,13 @@ class CommentaryGenerator:
         should_speak = self._should_speak(hand, player_name, big_blind, chattiness)
 
         try:
-            # Build context for the prompt
-            hand_summary = self._build_hand_summary(hand, hand.was_showdown)
-            winner_info = self._build_winner_info(hand)
+            # Build context for the prompt — render the recap in the
+            # commenting player's perspective (their actions/cards become
+            # "You ..."). Spectators stay third-person.
+            recap_perspective = None if is_eliminated else player_name
+            hand_summary = self._build_hand_summary(
+                hand, hand.was_showdown, perspective=recap_perspective
+            )
 
             # Use override if provided (thread-safe path), otherwise compute from objects
             if session_context_override is not None:
@@ -428,13 +432,14 @@ class CommentaryGenerator:
             tone_modifier = TONE_MODIFIERS.get(drama_tone, '')
             drama_guidance = f"{drama_text}{tone_modifier}" if drama_text else ""
 
-            # Render the prompt with spectator context if applicable
+            # Render the prompt with spectator context if applicable.
+            # The recap already contains a RESULT: line, so we no longer
+            # pass a separate winner_info field — the template dropped it.
             prompt = self.prompt_manager.render_prompt(
                 'end_of_hand_commentary',
                 hand_summary=hand_summary,
                 player_outcome=outcome_display,
                 player_cards=cards_display,
-                winner_info=winner_info,
                 session_context=session_context,
                 opponent_context=opponent_context,
                 player_name=player_name,
@@ -582,7 +587,8 @@ class CommentaryGenerator:
     def _build_hand_summary(
         self,
         hand: RecordedHand,
-        include_showdown_cards: bool = False
+        include_showdown_cards: bool = False,
+        perspective: Optional[str] = None,
     ) -> str:
         """Build a street-by-street summary of the hand for the prompt.
 
@@ -592,12 +598,13 @@ class CommentaryGenerator:
         Args:
             hand: The completed hand record
             include_showdown_cards: If True and was showdown, include shown hole cards
+            perspective: Player name to render in second person ("You")
 
         Returns:
             String summary of the hand
         """
         try:
-            return narrate_hand_recap(hand)
+            return narrate_hand_recap(hand, perspective=perspective)
         except Exception as e:
             logger.warning(f"Hand recap narration failed, using fallback: {e}")
             return self._build_hand_summary_fallback(hand, include_showdown_cards)
@@ -635,20 +642,6 @@ class CommentaryGenerator:
                 parts.append("Showdown: " + "; ".join(shown_cards))
 
         return "\n".join(parts)
-
-    def _build_winner_info(self, hand: RecordedHand) -> str:
-        """Build winner info string."""
-        if not hand.winners:
-            return "No winner"
-
-        winner_parts = []
-        for winner in hand.winners:
-            if winner.hand_name:
-                winner_parts.append(f"{winner.name} won ${winner.amount_won} with {winner.hand_name}")
-            else:
-                winner_parts.append(f"{winner.name} won ${winner.amount_won}")
-
-        return ", ".join(winner_parts)
 
     def _generate_fallback_commentary(self,
                                      player_name: str,

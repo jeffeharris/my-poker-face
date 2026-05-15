@@ -7,7 +7,6 @@ sections:
 
     Your outcome: {player_outcome}
     Your cards: {player_cards}
-    Winner: {winner_info}
 
     Your session so far: {session_context}
     {opponent_context}{spectator_context}

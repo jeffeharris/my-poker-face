@@ -84,41 +84,39 @@ def narrate_hand_breakdown(
 def narrate_hand_recap(
     recorded_hand,
     big_blind: Optional[int] = None,
+    perspective: Optional[str] = None,
 ) -> str:
     """Build a street-by-street play-by-play of a completed hand.
 
     Args:
         recorded_hand: A RecordedHand (from poker.memory.hand_history).
         big_blind: If provided, amounts are shown in BB. Otherwise dollars.
+        perspective: If provided, this player is referred to as "You" in
+            actions, RESULT, and SHOWDOWN — so an AI reading its own
+            commentary prompt sees first-person events.
 
     Returns:
-        Multi-line string, e.g.::
+        Multi-line string with one action per indented line, e.g.::
 
             HAND #12 RECAP
-            Players: Batman (BTN), Joker (SB), Superman (BB)
+            Players: You (BTN), Joker (SB), Superman (BB)
 
             PRE-FLOP:
-              Batman raised to 6 BB. Joker called. Superman folded.
+              You raised to 6 BB.
+              Joker called.
+              Superman folded.
 
-            FLOP [Ah Kd 7s]:
-              Batman bet 10 BB. Joker called.
-
-            TURN [3c]:
-              Both checked.
-
-            RIVER [2h]:
-              Joker bet 20 BB. Batman folded.
-
-            RESULT: Joker won 52 BB.
+            RESULT: You won 52 BB.
     """
     hand = recorded_hand
     lines: List[str] = [f"HAND #{hand.hand_number} RECAP"]
 
-    # Player list with positions
+    # Player list with abbreviated positions
     player_strs = []
     for p in hand.players:
-        pos = p.position if p.position != "Unknown" else ""
-        player_strs.append(f"{p.name} ({pos})" if pos else p.name)
+        pos = _abbreviate_position(p.position)
+        name_display = _display_name(p.name, perspective)
+        player_strs.append(f"{name_display} ({pos})" if pos else name_display)
     lines.append(f"Players: {', '.join(player_strs)}")
     lines.append("")
 
@@ -146,8 +144,8 @@ def narrate_hand_recap(
         header = _format_phase_header(phase, cards)
         if phase_actions:
             lines.append(f"{header}:")
-            action_strs = _format_actions(phase_actions, big_blind)
-            lines.append(f"  {' '.join(action_strs)}")
+            for line in _format_actions(phase_actions, big_blind, perspective):
+                lines.append(f"  {line}")
             lines.append("")
         else:
             lines.append(f"{header} (no betting)")
@@ -155,41 +153,43 @@ def narrate_hand_recap(
     # Result — handle split pots and ties clearly
     if hand.winners:
         is_split = len(hand.winners) > 1
+        display_winners = [_display_name(w.name, perspective) for w in hand.winners]
         if is_split:
-            winner_names = [w.name for w in hand.winners]
             total_pot = _fmt_amount(hand.pot_size, big_blind)
             per_player = _fmt_amount(hand.winners[0].amount_won, big_blind)
             hand_desc = hand.winners[0].hand_name
             if hand_desc:
                 lines.append(
-                    f"RESULT: SPLIT POT — {' and '.join(winner_names)} "
+                    f"RESULT: SPLIT POT — {' and '.join(display_winners)} "
                     f"tied with {hand_desc} and split the {total_pot} pot "
                     f"({per_player} each)."
                 )
             else:
                 lines.append(
-                    f"RESULT: SPLIT POT — {' and '.join(winner_names)} "
+                    f"RESULT: SPLIT POT — {' and '.join(display_winners)} "
                     f"split the {total_pot} pot ({per_player} each)."
                 )
         else:
             w = hand.winners[0]
             amount = _fmt_amount(w.amount_won, big_blind)
+            name = display_winners[0]
             if w.hand_name:
-                lines.append(f"RESULT: {w.name} won {amount} with {w.hand_name}.")
+                lines.append(f"RESULT: {name} won {amount} with {w.hand_name}.")
             else:
-                lines.append(f"RESULT: {w.name} won {amount}.")
+                lines.append(f"RESULT: {name} won {amount}.")
 
         # Show showdown cards if available — every non-folded player reveals,
         # winners first so the recap reads "winner vs. loser(s)".
         if hand.was_showdown and hand.hole_cards:
             folded = {a.player_name for a in hand.actions if a.action == "fold"}
-            winner_names = [w.name for w in hand.winners]
-            ordered = list(winner_names) + [
+            raw_winners = [w.name for w in hand.winners]
+            ordered = list(raw_winners) + [
                 p.name for p in hand.players
-                if p.name not in winner_names and p.name not in folded
+                if p.name not in raw_winners and p.name not in folded
             ]
             shown = [
-                f"{name} showed [{', '.join(hand.hole_cards[name])}]"
+                f"{_display_name(name, perspective)} showed "
+                f"[{', '.join(hand.hole_cards[name])}]"
                 for name in ordered
                 if name in hand.hole_cards
             ]
@@ -742,30 +742,85 @@ def _split_community_by_phase(community: List[str]) -> Dict[str, List[str]]:
     return result
 
 
-def _format_actions(actions: list, big_blind: Optional[int]) -> List[str]:
-    """Format a list of RecordedAction into readable strings."""
+def _format_actions(
+    actions: list,
+    big_blind: Optional[int],
+    perspective: Optional[str] = None,
+) -> List[str]:
+    """Format a list of RecordedAction into readable strings.
+
+    If perspective is supplied, that player's actions are written in
+    second person (You folded / You raised) so the AI reading its own
+    commentary prompt sees first-person events.
+    """
     parts = []
     for a in actions:
-        name = a.player_name
+        is_you = perspective is not None and a.player_name == perspective
+        name = "You" if is_you else a.player_name
         if a.action == "fold":
             parts.append(f"{name} folded.")
         elif a.action == "check":
-            parts.append(f"{name} checked.")
+            verb = "checked"
+            parts.append(f"{name} {verb}.")
         elif a.action == "call":
+            verb = "called"
             if a.amount > 0:
                 amt = _fmt_amount(a.amount, big_blind)
-                parts.append(f"{name} called {amt}.")
+                parts.append(f"{name} {verb} {amt}.")
             else:
-                parts.append(f"{name} called.")
+                parts.append(f"{name} {verb}.")
         elif a.action == "raise":
+            verb = "raised"
             amt = _fmt_amount(a.amount, big_blind)
-            parts.append(f"{name} raised to {amt}.")
+            parts.append(f"{name} {verb} to {amt}.")
         elif a.action == "all_in":
+            verb = "went"
             amt = _fmt_amount(a.amount, big_blind)
-            parts.append(f"{name} went all-in for {amt}.")
+            parts.append(f"{name} {verb} all-in for {amt}.")
         else:
             parts.append(f"{name} {a.action}.")
     return parts
+
+
+# Position abbreviations for display. The hand recorder stores raw
+# strings from PokerGameState.table_positions (e.g. "small_blind_player"),
+# which look noisy in prompts. We collapse to the standard poker shorthand
+# and leave unknowns as a friendly title-cased fallback.
+_POSITION_ABBREV = {
+    "button": "BTN",
+    "btn": "BTN",
+    "dealer": "BTN",
+    "small_blind_player": "SB",
+    "small_blind": "SB",
+    "sb": "SB",
+    "big_blind_player": "BB",
+    "big_blind": "BB",
+    "bb": "BB",
+    "under_the_gun": "UTG",
+    "utg": "UTG",
+    "cutoff": "CO",
+    "co": "CO",
+    "middle": "MP",
+    "mp": "MP",
+    "hijack": "HJ",
+    "hj": "HJ",
+}
+
+
+def _abbreviate_position(position: Optional[str]) -> str:
+    """Return short position label (BTN/SB/BB/UTG/...) or empty for Unknown."""
+    if not position or position == "Unknown":
+        return ""
+    key = position.lower().strip()
+    if key in _POSITION_ABBREV:
+        return _POSITION_ABBREV[key]
+    # Unknown position — keep original but cleaned up
+    return position.replace("_", " ")
+
+
+def _display_name(name: str, perspective: Optional[str]) -> str:
+    """Render a player's name as 'You' iff they are the perspective player."""
+    return "You" if perspective and name == perspective else name
 
 
 def _find_winner(hand, player_name: str):
