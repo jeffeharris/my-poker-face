@@ -6,13 +6,21 @@ from types import SimpleNamespace
 from poker.strategy.action_mapper import resolve_preflop_sizing, resolve_postflop_sizing, _compute_raise_to
 
 
-def _make_game_state(stack, bet, current_ante, highest_bet, player_idx=0):
-    """Build a minimal mock game state for action mapper tests."""
+def _make_game_state(stack, bet, current_ante, highest_bet, player_idx=0,
+                     min_raise_amount=None):
+    """Build a minimal mock game state for action mapper tests.
+
+    `min_raise_amount` defaults to `current_ante` (BB) which matches the
+    engine's reset behaviour at the start of every betting round; tests
+    that exercise re-raise spots can pass a larger value to mirror the
+    last raise size.
+    """
     player = SimpleNamespace(stack=stack, bet=bet)
     gs = SimpleNamespace(
         players=[player],
         current_ante=current_ante,
         highest_bet=highest_bet,
+        min_raise_amount=min_raise_amount if min_raise_amount is not None else current_ante,
     )
     # Support multiple player slots when player_idx > 0
     while len(gs.players) <= player_idx:
@@ -79,6 +87,23 @@ def test_raise_2_2x_vs_3bet():
     action, amount = resolve_preflop_sizing('raise_2.2x', gs, 0)
     assert action == 'raise'
     assert amount == 1650
+
+
+def test_raise_min_clamps_to_prior_raise_size():
+    """T2-38 regression: in a 3-bet spot the minimum legal raise must
+    use the prior raise size, not the big blind. Without the fix, a
+    sub-minimum sample is clamped to BB+highest_bet and the engine
+    silently sanitizes upward, over-committing chips."""
+    # Villain raised to 300, prior open was 100, so last_raise_amount=200
+    gs = _make_game_state(
+        stack=10000, bet=0, current_ante=100, highest_bet=300,
+        min_raise_amount=200,
+    )
+    # raise_2.5bb wants raise_to=250 — below legal min — so clamps to min
+    action, amount = resolve_preflop_sizing('raise_2.5bb', gs, 0)
+    assert action == 'raise'
+    # Correct min = 300 + 200 = 500 (NOT 300 + 100 = 400)
+    assert amount == 500
 
 
 # --- Jam ---
@@ -165,8 +190,13 @@ def test_unknown_action_raises_error():
 # =====================================================================
 
 def _make_postflop_state(stack, bet, current_ante, highest_bet, pot_total,
-                         other_players=None, player_idx=0):
-    """Build a minimal mock game state for postflop action mapper tests."""
+                         other_players=None, player_idx=0,
+                         min_raise_amount=None):
+    """Build a minimal mock game state for postflop action mapper tests.
+
+    `min_raise_amount` defaults to `current_ante` (BB) which mirrors the
+    engine's reset at the start of every betting round.
+    """
     player = SimpleNamespace(stack=stack, bet=bet)
     players = [player]
     if other_players:
@@ -176,6 +206,7 @@ def _make_postflop_state(stack, bet, current_ante, highest_bet, pot_total,
         players=players,
         current_ante=current_ante,
         highest_bet=highest_bet,
+        min_raise_amount=min_raise_amount if min_raise_amount is not None else current_ante,
         pot={'total': pot_total},
     )
     while len(gs.players) <= player_idx:

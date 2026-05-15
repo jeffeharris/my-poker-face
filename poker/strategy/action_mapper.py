@@ -44,9 +44,14 @@ def resolve_preflop_sizing(abstract_action: str, game_state, player_idx: int) ->
     if action == 'jam':
         return ('all_in', player_total)
 
-    # Raise actions: determine multiplier and base amount
+    # Raise actions: determine multiplier and base amount.
+    # NL hold'em rule: re-raise increment must be >= the size of the
+    # previous raise. Using big_blind here would understate the legal
+    # minimum after any raise; the engine would silently sanitize the
+    # bot's amount upward, over-committing chips relative to the
+    # sampled strategy.
     highest_bet = game_state.highest_bet
-    min_raise = highest_bet + big_blind
+    min_raise = highest_bet + game_state.min_raise_amount
 
     if action.endswith('bb'):
         # BB-relative sizing: raise_2.5bb, raise_3bb
@@ -99,7 +104,8 @@ def resolve_postflop_sizing(abstract_action: str, game_state, player_idx: int) -
 
     big_blind = game_state.current_ante
     highest_bet = game_state.highest_bet
-    min_raise = highest_bet + big_blind
+    # See preflop comment: re-raise increment must >= prior raise size.
+    min_raise = highest_bet + game_state.min_raise_amount
 
     # Total money in play: committed pot + current round bets
     pot_total = game_state.pot.get('total', 0) + sum(p.bet for p in game_state.players)
