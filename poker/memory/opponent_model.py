@@ -940,7 +940,12 @@ class OpponentModel:
             'opponent': self.opponent,
             'tendencies': self.tendencies.to_dict(),
             'memorable_hands': [h.to_dict() for h in self.memorable_hands],
-            'narrative_observations': self.narrative_observations
+            'narrative_observations': self.narrative_observations,
+            # Idempotency cursors (T1-31): without these, restoring a
+            # snapshot mid-session would double-count the next action's
+            # hand_dealt / hands_observed and deflate VPIP/PFR.
+            'last_hand_dealt': getattr(self, '_last_hand_dealt', None),
+            'last_hand_counted': self._last_hand_counted,
         }
 
     @classmethod
@@ -951,6 +956,8 @@ class OpponentModel:
             MemorableHand.from_dict(h) for h in data.get('memorable_hands', [])
         ]
         model.narrative_observations = data.get('narrative_observations', [])
+        model._last_hand_dealt = data.get('last_hand_dealt')
+        model._last_hand_counted = data.get('last_hand_counted')
         return model
 
 

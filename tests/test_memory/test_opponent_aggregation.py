@@ -290,6 +290,32 @@ class TestHandsDealt(unittest.TestCase):
         restored = OpponentTendencies.from_dict(d)
         self.assertEqual(restored.hands_dealt, 10)
 
+    def test_opponent_model_serializes_last_hand_cursors(self):
+        """T1-31 regression: snapshot must round-trip the idempotency
+        cursors so a restored model doesn't double-count the next hand.
+        """
+        from poker.memory.opponent_model import OpponentModel
+
+        model = OpponentModel(observer='Hero', opponent='Villain')
+        for h in range(5):
+            model.record_hand_dealt(hand_number=h)
+            model.observe_action(action='call', phase='PRE_FLOP', hand_number=h)
+
+        snapshot = model.to_dict()
+        self.assertEqual(snapshot['last_hand_dealt'], 4)
+        self.assertEqual(snapshot['last_hand_counted'], 4)
+
+        restored = OpponentModel.from_dict(snapshot)
+        self.assertEqual(restored._last_hand_dealt, 4)
+        self.assertEqual(restored._last_hand_counted, 4)
+
+        # Replaying the same hand on the restored model must be a no-op
+        # for both counters.
+        restored.record_hand_dealt(hand_number=4)
+        restored.observe_action(action='call', phase='PRE_FLOP', hand_number=4)
+        self.assertEqual(restored.tendencies.hands_dealt, model.tendencies.hands_dealt)
+        self.assertEqual(restored.tendencies.hands_observed, model.tendencies.hands_observed)
+
 
 class TestCbetFieldsInAggregation(unittest.TestCase):
     """Phase 6.6: c-bet stats survive aggregate_active_opponents().
