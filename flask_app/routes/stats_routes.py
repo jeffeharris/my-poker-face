@@ -656,9 +656,12 @@ def get_post_round_chat_suggestions(game_id):
             if memory_manager:
                 hand_count = memory_manager.hand_count
                 if hand_count > 0:
-                    loaded_hand = hand_history_repo.load_hand_history(game_id, hand_count)
-                    if loaded_hand:
-                        recorded_hand = loaded_hand
+                    # load_single_hand returns Optional[Dict] for exactly this hand;
+                    # wrap with RecordedHand.from_dict so downstream code (which
+                    # accesses .community_cards etc.) gets the right object.
+                    loaded_dict = hand_history_repo.load_single_hand(game_id, hand_count)
+                    if loaded_dict:
+                        recorded_hand = RecordedHand.from_dict(loaded_dict)
                         logger.info(f"[PostRound] Loaded hand #{hand_count} from database")
 
         if recorded_hand:
