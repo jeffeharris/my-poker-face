@@ -2,7 +2,7 @@
 purpose: Reference for the TieredBot postflop decision-quality system (hand classifier, archetype classifier, defense floor, bluff reduction, offset budgets, diagnostics)
 type: reference
 created: 2026-05-14
-last_updated: 2026-05-14
+last_updated: 2026-05-15
 ---
 
 # TieredBot Decision Quality
@@ -94,10 +94,20 @@ detectors:
 
 | Label | Composition |
 |---|---|
-| `'hyper_aggressive'` | `_is_hyper_aggressive` (AF > 5.0 OR all_in_freq > 0.30) |
+| `'hyper_aggressive'` | `_is_hyper_aggressive` (AF > 3.5 OR all_in_freq > 0.30) |
 | `'sticky_jammer'` | `_is_passive_with_jams` (hyper_passive + all_in > 0.05) |
-| `'pure_station'` | `_is_hyper_passive` without `passive_with_jams` |
+| `'pure_station'` | `_is_hyper_passive` (`vpip_per_voluntary_opportunity > 0.70` AND AF < 0.80) without `passive_with_jams` |
 | `None` | cold-start (hands < `MIN_HANDS_DEFAULT = 15`) OR no detector matches |
+
+**AF threshold note**: lowered from 5.0 to 3.5 after sim
+diagnostics showed AF caps at 4.0 for opponents who never call
+(see `_call_count == 0` branch in `opponent_model.py` — caps at
+`medium_af_postflop = 4.0` to suppress noise on zero-call
+samples). The legacy 5.0 was unreachable in HU sim where hero
+folds preflop and never sees opponent calls. The cap is correct
+for small samples but pins legitimate maniacs at MEDIUM tier
+even with large samples; the 3.5 threshold treats the cap level
+as the "confirmed aggression" signal.
 
 Precedence is documented in the function: `hyper_aggressive`
 first, then `sticky_jammer`, then `pure_station`. The §1.5b
@@ -124,6 +134,51 @@ Diagnostic counter: `archetype_classified_<label>` in the
 `_tally_exploitation_event` path. Past-min-hands opponents that
 match no detector get bucketed as `'unmatched'`; cold-start
 decisions get `'cold_start'`.
+
+## Opportunity-normalized VPIP/PFR
+
+`poker/memory/opponent_model.py` — `OpponentTendencies`
+
+The legacy `stats.vpip` and `stats.pfr` are divided by total
+hands dealt, which produces **player-count-scaled values** that
+break detection thresholds across HU / 3-player / 6-max. A
+100%-raising opponent gets measured PFR=0.50 in HU and PFR=0.17
+in 6-max — same behavior, different number, same threshold
+miscalibrated for both.
+
+Two opportunity-normalized fields fix this:
+
+| Field | Numerator / Denominator |
+|---|---|
+| `pfr_per_open_opportunity` | preflop raises / hands where opponent had a chance to open (action reached them before anyone else raised) |
+| `vpip_per_voluntary_opportunity` | voluntary preflop actions / hands where opponent had a chance to voluntarily put chips in (not blind-posted, not folded around to them) |
+
+These are stable across player counts: a 100%-raising opponent
+shows `pfr_per_open_opportunity = 1.0` at HU and 6-max alike.
+Neutral prior 0.5 until the first observed opportunity.
+
+The plain `vpip` / `pfr` / `_count` fields are kept for
+backwards compatibility and serialization, but new detection
+logic should read the opportunity-normalized fields.
+
+Wiring: `AIMemoryManager.on_action` computes `was_facing_bet`
+for preflop (reads `cbet_detector.preflop_aggressor` before
+each cbet update); sim paths (`casebot_breakdown`,
+`simulate_bb100`) mirror that snapshot.
+
+Migrated detection sites (post-`e8982eff`):
+
+| Site | Now reads | Threshold |
+|---|---|---|
+| `_is_hyper_passive` | `vpip_per_voluntary_opportunity` | > 0.70 |
+| `_is_tight_nit` | `vpip_per_voluntary_opportunity` | < 0.30 |
+| `compute_pattern_intensity` (hyper_passive + tight_nit ramps) | `vpip_per_voluntary_opportunity` | (ramp endpoints in `exploitation.py`) |
+| `aggregate_from_spots` | both opp-normalized fields | (averages) |
+| `compute_steal_pressure_intensity` | both opp-normalized fields | per `PFR_LOOSE_THRESHOLD` etc. |
+| `value_override._is_station_for_value` | `vpip_per_voluntary_opportunity` | > 0.65 |
+
+`_is_hyper_aggressive` was **not** migrated (AF is already
+player-count-stable via the `medium_af_postflop` cap).
 
 ## §4 bet-size classification
 
@@ -198,6 +253,45 @@ tighter than the assumed "wide jam range", so folding
 A future archetype-gated variant (only fire for `pure_station` /
 `lag` / `maniac`) could plausibly revive this when those
 opponents enter the benchmark set.
+
+## Preflop defense vs hyper_aggressive
+
+`poker/strategy/exploitation.py` — branch inside the
+`('exploitation', 'hyper_aggressive')` rule
+
+Closes the preflop defense leak vs maniacs surfaced by HU
+rotation sim (TAG vs ManiacBot was losing -204 bb/100 with 75%
+of hands ending in preflop folds before this branch landed).
+ManiacBot opens ~100% of hands; hero's table-baseline TAG
+defense range is far too tight against that opening range.
+
+The rule has four spot-conditional branches, distinguished by
+the new `is_preflop_open_spot` / `is_preflop_defend_spot`
+predicates and the existing `facing_all_in` / `facing_big_bet`
+flags:
+
+| Spot | Action offsets |
+|---|---|
+| `is_preflop_open_spot` (hero opening, no call to face) | `raise_like` −0.20 (tighten — maniac is behind us) |
+| `is_preflop_defend_spot` (hero in BB/SB facing a normal raise) | `call` +0.20, `fold` −0.10, `raise_like` +0.05 |
+| `facing_all_in` | `call` +0.5, `fold` −0.5 (widen big) |
+| `facing_big_bet` | `call` +0.3, `fold` −0.2 |
+
+The defend branch fires for the common case of facing a normal
+preflop raise (not all-in, not big-bet) — exactly the spot that
+had no adjustment before. Magnitudes are intentionally smaller
+than the all-in/big-bet branches because the price to defend
+is smaller, but fire on every preflop facing-raise spot so
+cumulative effect is meaningful. The +0.05 raise nudge slightly
+widens 3-bet range without going overboard (3-betting too wide
+vs maniacs gets you 4-bet jammed).
+
+`is_preflop_open_spot` was renamed from the legacy `is_open_spot`
+which was buggy: it had no `call_amount == 0` gate, so the
+open-tightening branch fired in BB-defend spots too. Both the
+hyper_aggressive open-tightening and the `tight_nit` steal rule
+(also at line ~1098) now correctly gate on
+`is_preflop_open_spot`.
 
 ## §5 bluff reduction vs stations
 
@@ -329,18 +423,28 @@ are now in `print_value_and_bluff_freq_breakdown`.
 
 ## Sim baseline + key findings
 
-TAG vs CaseBot HU, 1000 hands × 5 seeds:
+Latest HU sims (TAG hero, 500 hands × 3-8 seeds depending on run):
 
-- **Aggregate**: -71.3 bb/100 (improvement of ~25 bb/100 from the
-  -96.8 baseline before this work)
-- **Value-bet rate** (`strong_made`/`nuts` vs `pure_station`):
-  ~53% — consistent
-- **Bluff rate** (`air_no_draw` vs `pure_station`): 18.4% (§5
-  working — well below the typical 25-30% baseline)
-- **Showdown wins**: +171.4 bb/100 contribution
-- **Showdown losses**: -104.8 bb/100 contribution
+| Opponent | bb/100 | vs original baseline |
+|---|---|---|
+| **CaseBot** | -78.6 | -96.8 → -78.6 (+18 bb/100) |
+| **ManiacBot** | -131.6 | (no prior baseline; -204 before preflop-fix landed) |
+| FoldyBot | +50.4 | c-bet exploit working |
+| ABCBot | -2.6 | near break-even |
+| GTO-Lite | -22.4 | (small leak) |
 
-Largest remaining fold buckets (multi-axis report):
+ManiacBot trajectory across the recent fixes:
+- Pre-`fe3a79e8`: -203.8 bb/100, archetype 97.9% `unmatched`
+- Post-`fe3a79e8` (AF threshold 5.0 → 3.5 + preflop defend branch): -130.3 bb/100, archetype 96.1% `hyper_aggressive`
+- Post-`e8982eff` (opportunity-normalized VPIP/PFR + threshold remap): -131.6 bb/100 (preserved within variance, CaseBot improved)
+
+The two major HU leaks (CaseBot postflop, ManiacBot preflop) are
+now addressed. Remaining negative bb/100 vs ManiacBot reflects
+hero still folding most preflop hands — defending wider is one
+ceiling, but the deeper improvement lives in postflop play vs
+aggression (separate problem from this plan).
+
+Largest remaining fold buckets vs CaseBot (multi-axis report):
 
 | Bucket | bb/100 | Real leak? |
 |---|---|---|
@@ -381,8 +485,10 @@ Largest remaining fold buckets (multi-axis report):
 | Archetype classifier | `poker/strategy/exploitation.py` |
 | Bet-size classifier | `poker/strategy/bet_size_classification.py` |
 | Defense floor | `poker/strategy/defense_floor.py` |
+| Preflop defend branch + AF threshold | `poker/strategy/exploitation.py` (within `('exploitation', 'hyper_aggressive')` rule) |
 | Bluff reduction | `poker/strategy/exploitation.py` (rule in `compute_exploitation_offsets_with_traces`) |
 | Offset budgets | `poker/strategy/exploitation.py::MAX_L1_SHIFT_BY_RULE` |
+| Opportunity-normalized VPIP/PFR | `poker/memory/opponent_model.py` (counters + ratios on `OpponentTendencies`) |
 | Pipeline orchestration | `poker/tiered_bot_controller.py::_get_postflop_decision` |
 | Layer order / trace canonical names | `poker/strategy/intervention_trace.py` |
 | Diagnostics report | `experiments/casebot_breakdown.py` |
