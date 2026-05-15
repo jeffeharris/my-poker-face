@@ -472,20 +472,6 @@ class PsychologyPipeline:
                                 'energy_delta': recovery_info['recovery_energy'],
                             },
                         )
-                    # Zone gravity force
-                    gravity_conf = recovery_info.get('gravity_conf', 0)
-                    gravity_comp = recovery_info.get('gravity_comp', 0)
-                    if abs(gravity_conf) > 0.001 or abs(gravity_comp) > 0.001:
-                        self.pressure_event_repo.save_event(
-                            game_id=ctx.game_id,
-                            player_name=player_name,
-                            event_type='_gravity',
-                            hand_number=ctx.hand_number,
-                            details={
-                                'conf_delta': gravity_conf,
-                                'comp_delta': gravity_comp,
-                            },
-                        )
                 except Exception as e:
                     logger.warning(
                         f"Failed to persist recovery events for {player_name}: {e}",
