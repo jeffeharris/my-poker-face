@@ -840,7 +840,12 @@ def generate_bounded_options(
                     action=best.action,
                     raise_to=best.raise_to,
                     rationale=promoted_rationale,
-                    ev_estimate="+EV" if block_fold else best.ev_estimate,
+                    # T1-35: this branch only runs when no option already has
+                    # "+EV" AND we've decided to promote one — always tag the
+                    # promoted option as "+EV" so the guarantee actually
+                    # holds (previously moderate-equity hands without
+                    # block_fold kept their neutral/-EV label).
+                    ev_estimate="+EV",
                     style_tag=best.style_tag
                 )
                 # Replace in-place to preserve original position

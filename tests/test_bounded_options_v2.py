@@ -209,6 +209,27 @@ class TestCaseF3DecentFreeToAct:
         assert _has_action(options, 'raise')
 
 
+class TestPlusEVGuarantee:
+    """T1-35 regression: when no option is naturally +EV but equity is
+    above 0.40 (or block_fold fires), the generator must promote one and
+    actually tag it as +EV. Previous bug kept best.ev_estimate when
+    block_fold was False, so moderate-equity hands violated the
+    guarantee in the code comment."""
+
+    def test_moderate_equity_free_to_act_has_plus_ev(self):
+        ctx = _free_context(equity=0.42)
+        options = generate_bounded_options(ctx)
+        ev_labels = [o.ev_estimate for o in options]
+        assert '+EV' in ev_labels, f"+EV guarantee violated: labels={ev_labels}"
+
+    def test_moderate_equity_facing_bet_has_plus_ev(self):
+        # Equity 0.42 facing 100 into 300 (required ~25%). 1.7x required → not block_fold yet.
+        ctx = _base_context(equity=0.42, pot_total=300, cost_to_call=100)
+        options = generate_bounded_options(ctx)
+        ev_labels = [o.ev_estimate for o in options]
+        assert '+EV' in ev_labels, f"+EV guarantee violated: labels={ev_labels}"
+
+
 class TestCaseF4WeakFreeToAct:
     """F4: Weak hand (<40%), free to act. Take the free card."""
 

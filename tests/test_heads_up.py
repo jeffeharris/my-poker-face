@@ -174,7 +174,10 @@ class TestHeadsUpBoundedOptions:
         hu_raise = _raise_options(generate_bounded_options(hu_ctx, profile=profile))[0]
         mw_raise = _raise_options(generate_bounded_options(mw_ctx, profile=profile))[0]
 
-        assert hu_raise.ev_estimate == 'neutral'
+        # HU thresholds elevate the raise above -EV; the +EV guarantee
+        # (T1-35) may further promote a neutral raise to +EV when no other
+        # option is naturally +EV. MW keeps the stricter thresholds.
+        assert hu_raise.ev_estimate in ('+EV', 'neutral')
         assert mw_raise.ev_estimate == '-EV'
 
 
