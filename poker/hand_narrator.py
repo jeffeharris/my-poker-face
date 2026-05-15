@@ -207,7 +207,7 @@ def narrate_hand_recap(
                 if name not in hand.hole_cards:
                     continue
                 cards_str = ", ".join(hand.hole_cards[name])
-                hand_label = winner_hand_names.get(name) or _evaluate_hand_label(
+                hand_label = winner_hand_names.get(name) or evaluate_hand_label(
                     hand.hole_cards[name], hand.community_cards
                 )
                 line = (
@@ -860,7 +860,7 @@ def _parse_card_str(s: str) -> Card:
     return Card(s[:-1], suit)
 
 
-def _evaluate_hand_label(
+def evaluate_hand_label(
     hole_strs, community_strs
 ) -> Optional[str]:
     """Return the hand_name (e.g. 'Two Pair, A's and 3's') or None.
