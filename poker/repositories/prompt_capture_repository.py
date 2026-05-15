@@ -263,48 +263,142 @@ class PromptCaptureRepository(BaseRepository):
         # Cheap because pda.capture_id is indexed.
         join_clause = "LEFT JOIN player_decision_analysis pda ON pda.capture_id = pc.id"
 
+        # When showing "decisions" (has_decision_analysis=True) and no
+        # capture-only filter would exclude them, also surface orphan
+        # decision_analysis rows — produced by sharp/tiered bots that skip
+        # the LLM entirely. They appear with synthetic id = -pda.id so the
+        # detail route can disambiguate them from real captures.
+        pc_only_filters_set = any([
+            call_type, error_type, has_error is not None,
+            is_correction is not None, tags,
+        ])
+        include_orphan_pdas = (
+            has_decision_analysis is True and not pc_only_filters_set
+        )
+
+        # Orphan PDAs: rows with no linked capture. Skip those that have a
+        # twin (same game/player/hand/phase/action) already linked to a
+        # capture — the analyzer writes a post-action PDA for every decision,
+        # which would otherwise double-list every LLM-bot action. Sharp/tiered
+        # bot decisions have no twin and so still surface here.
+        orphan_conditions = [
+            "pda.capture_id IS NULL",
+            """NOT EXISTS (
+                SELECT 1 FROM player_decision_analysis pda2
+                WHERE pda2.capture_id IS NOT NULL
+                  AND pda2.game_id IS pda.game_id
+                  AND pda2.player_name IS pda.player_name
+                  AND pda2.hand_number IS pda.hand_number
+                  AND pda2.phase IS pda.phase
+                  AND pda2.action_taken IS pda.action_taken
+            )""",
+        ]
+        orphan_params: List[Any] = []
+        if game_id:
+            orphan_conditions.append("pda.game_id = ?")
+            orphan_params.append(game_id)
+        if player_name:
+            orphan_conditions.append("pda.player_name = ?")
+            orphan_params.append(player_name)
+        if action:
+            orphan_conditions.append("pda.action_taken = ?")
+            orphan_params.append(action)
+        if phase:
+            orphan_conditions.append("pda.phase = ?")
+            orphan_params.append(phase)
+        if min_pot_odds is not None:
+            orphan_conditions.append(
+                "(pda.cost_to_call > 0 AND CAST(pda.pot_total AS REAL)/pda.cost_to_call >= ?)"
+            )
+            orphan_params.append(min_pot_odds)
+        if max_pot_odds is not None:
+            orphan_conditions.append(
+                "(pda.cost_to_call > 0 AND CAST(pda.pot_total AS REAL)/pda.cost_to_call <= ?)"
+            )
+            orphan_params.append(max_pot_odds)
+        if display_emotion:
+            orphan_conditions.append("pda.display_emotion = ?")
+            orphan_params.append(display_emotion)
+        if min_tilt_level is not None:
+            orphan_conditions.append("pda.tilt_level >= ?")
+            orphan_params.append(min_tilt_level)
+        if max_tilt_level is not None:
+            orphan_conditions.append("pda.tilt_level <= ?")
+            orphan_params.append(max_tilt_level)
+        orphan_where = " AND ".join(orphan_conditions)
+
+        # SELECT projection that the captures path produces — kept identical
+        # on the orphan side so the UNION's column shape matches.
+        captures_select = f"""
+            SELECT pc.id, pc.created_at, pc.game_id, pc.player_name, pc.hand_number,
+                   CASE WHEN pc.call_type = 'commentary'
+                        THEN COALESCE(pda.phase, pc.phase)
+                        ELSE COALESCE(pc.phase, pda.phase)
+                   END AS phase,
+                   COALESCE(pc.action_taken, pda.action_taken) AS action_taken,
+                   COALESCE(pc.pot_total, pda.pot_total) AS pot_total,
+                   COALESCE(pc.cost_to_call, pda.cost_to_call) AS cost_to_call,
+                   COALESCE(
+                       pc.pot_odds,
+                       CASE WHEN COALESCE(pc.cost_to_call, pda.cost_to_call) > 0
+                            THEN CAST(COALESCE(pc.pot_total, pda.pot_total) AS REAL)
+                                 / COALESCE(pc.cost_to_call, pda.cost_to_call)
+                            ELSE NULL
+                       END
+                   ) AS pot_odds,
+                   COALESCE(pc.player_stack, pda.player_stack) AS player_stack,
+                   COALESCE(pc.community_cards, pda.community_cards) AS community_cards,
+                   COALESCE(pc.player_hand, pda.player_hand) AS player_hand,
+                   pc.model, pc.provider, pc.latency_ms, pc.tags, pc.notes,
+                   pc.error_type, pc.error_description, pc.parent_id, pc.correction_attempt
+            FROM prompt_captures pc
+            {join_clause}
+            {where_clause}
+            GROUP BY pc.id
+        """
+        orphan_select = f"""
+            SELECT -pda.id AS id, pda.created_at, pda.game_id, pda.player_name, pda.hand_number,
+                   pda.phase AS phase,
+                   pda.action_taken AS action_taken,
+                   pda.pot_total AS pot_total,
+                   pda.cost_to_call AS cost_to_call,
+                   CASE WHEN pda.cost_to_call > 0
+                        THEN CAST(pda.pot_total AS REAL) / pda.cost_to_call
+                        ELSE NULL
+                   END AS pot_odds,
+                   pda.player_stack AS player_stack,
+                   pda.community_cards AS community_cards,
+                   pda.player_hand AS player_hand,
+                   NULL AS model, NULL AS provider, NULL AS latency_ms,
+                   NULL AS tags, NULL AS notes,
+                   NULL AS error_type, NULL AS error_description,
+                   NULL AS parent_id, NULL AS correction_attempt
+            FROM player_decision_analysis pda
+            WHERE {orphan_where}
+        """
+
+        if include_orphan_pdas:
+            unified = f"{captures_select} UNION ALL {orphan_select}"
+            unified_params = list(params) + orphan_params
+        else:
+            unified = captures_select
+            unified_params = list(params)
+
         with self._get_connection() as conn:
 
-            # Get total count
+            # Total across both arms of the union.
             count_cursor = conn.execute(
-                f"SELECT COUNT(DISTINCT pc.id) FROM prompt_captures pc {join_clause} {where_clause}",
-                params
+                f"SELECT COUNT(*) FROM ({unified})",
+                unified_params,
             )
             total = count_cursor.fetchone()[0]
 
-            # Get captures with pagination. For commentary captures, pc.phase
-            # literally equals 'commentary' rather than the actual hand phase,
-            # so we prefer pda.phase when the capture is a commentary row.
             query = f"""
-                SELECT DISTINCT pc.id, pc.created_at, pc.game_id, pc.player_name, pc.hand_number,
-                       CASE WHEN pc.call_type = 'commentary'
-                            THEN COALESCE(pda.phase, pc.phase)
-                            ELSE COALESCE(pc.phase, pda.phase)
-                       END AS phase,
-                       COALESCE(pc.action_taken, pda.action_taken) AS action_taken,
-                       COALESCE(pc.pot_total, pda.pot_total) AS pot_total,
-                       COALESCE(pc.cost_to_call, pda.cost_to_call) AS cost_to_call,
-                       COALESCE(
-                           pc.pot_odds,
-                           CASE WHEN COALESCE(pc.cost_to_call, pda.cost_to_call) > 0
-                                THEN CAST(COALESCE(pc.pot_total, pda.pot_total) AS REAL)
-                                     / COALESCE(pc.cost_to_call, pda.cost_to_call)
-                                ELSE NULL
-                           END
-                       ) AS pot_odds,
-                       COALESCE(pc.player_stack, pda.player_stack) AS player_stack,
-                       COALESCE(pc.community_cards, pda.community_cards) AS community_cards,
-                       COALESCE(pc.player_hand, pda.player_hand) AS player_hand,
-                       pc.model, pc.provider, pc.latency_ms, pc.tags, pc.notes,
-                       pc.error_type, pc.error_description, pc.parent_id, pc.correction_attempt
-                FROM prompt_captures pc
-                {join_clause}
-                {where_clause}
-                ORDER BY pc.created_at DESC
+                SELECT * FROM ({unified})
+                ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
             """
-            params.extend([limit, offset])
-            cursor = conn.execute(query, params)
+            cursor = conn.execute(query, unified_params + [limit, offset])
 
             captures = []
             for row in cursor.fetchall():

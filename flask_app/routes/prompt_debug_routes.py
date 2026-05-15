@@ -226,9 +226,28 @@ def get_label_stats():
     })
 
 
-@prompt_debug_bp.route('/api/prompt-debug/captures/<int:capture_id>', methods=['GET'])
+@prompt_debug_bp.route('/api/prompt-debug/captures/<int(signed=true):capture_id>', methods=['GET'])
 def get_capture(capture_id):
-    """Get a single prompt capture with full details and linked decision analysis."""
+    """Get a single prompt capture with full details and linked decision analysis.
+
+    A negative `capture_id` is the synthetic id used by the listing endpoint
+    for orphan player_decision_analysis rows (sharp/tiered bots that skip the
+    LLM entirely). For those we fetch the PDA directly and synthesize a stub
+    capture so the detail panel still renders — the meaningful data lives on
+    the analysis side anyway.
+    """
+    if capture_id < 0:
+        analysis = decision_analysis_repo.get_decision_analysis(-capture_id)
+        if not analysis:
+            return jsonify({'success': False, 'error': 'Analysis not found'}), 404
+        capture = _stub_capture_from_analysis(analysis, capture_id)
+        decision_analysis = hydrate_decision_analysis(analysis)
+        return jsonify({
+            'success': True,
+            'capture': capture,
+            'decision_analysis': decision_analysis,
+        })
+
     capture = prompt_capture_repo.get_prompt_capture(capture_id)
 
     if not capture:
@@ -243,6 +262,62 @@ def get_capture(capture_id):
         'capture': capture,
         'decision_analysis': decision_analysis
     })
+
+
+def _stub_capture_from_analysis(analysis: dict, synthetic_id: int) -> dict:
+    """Build a capture-shaped dict from a decision_analysis row.
+
+    Used when the underlying decision skipped the LLM (no prompt capture
+    exists). All prompt/response fields are empty — the detail UI degrades
+    gracefully and the rich pipeline data is shown via the analysis panel.
+    """
+    import json as _json
+
+    def _maybe_parse(value):
+        if isinstance(value, str):
+            try:
+                return _json.loads(value)
+            except (ValueError, TypeError):
+                return None
+        return value
+
+    return {
+        'id': synthetic_id,
+        'created_at': analysis.get('created_at'),
+        'game_id': analysis.get('game_id'),
+        'player_name': analysis.get('player_name'),
+        'hand_number': analysis.get('hand_number'),
+        'phase': analysis.get('phase'),
+        'action_taken': analysis.get('action_taken'),
+        'system_prompt': '',
+        'user_message': '',
+        'ai_response': '',
+        'conversation_history': None,
+        'pot_total': analysis.get('pot_total'),
+        'cost_to_call': analysis.get('cost_to_call'),
+        'pot_odds': None,
+        'player_stack': analysis.get('player_stack'),
+        'community_cards': _maybe_parse(analysis.get('community_cards')),
+        'player_hand': _maybe_parse(analysis.get('player_hand')),
+        'valid_actions': None,
+        'raise_amount': analysis.get('raise_amount'),
+        'provider': None,
+        'model': None,
+        'reasoning_effort': None,
+        'latency_ms': None,
+        'input_tokens': None,
+        'output_tokens': None,
+        'cached_tokens': None,
+        'reasoning_tokens': None,
+        'estimated_cost': None,
+        'tags': [],
+        'notes': None,
+        'error_type': None,
+        'error_description': None,
+        'parent_id': None,
+        'correction_attempt': None,
+        'call_type': None,
+    }
 
 
 @prompt_debug_bp.route('/api/prompt-debug/captures/<int:capture_id>/replay', methods=['POST'])

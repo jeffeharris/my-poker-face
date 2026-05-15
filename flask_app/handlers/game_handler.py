@@ -1817,7 +1817,11 @@ def handle_ai_action(game_id: str) -> None:
     from flask_app.routes.game_routes import analyze_player_decision
     memory_manager = current_game_data.get('memory_manager')
     hand_number = memory_manager.hand_count if memory_manager else None
-    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
+    analyze_player_decision(
+        game_id, current_player.name, action, amount, state_machine,
+        pre_action_state, hand_number, memory_manager,
+        ai_controllers=current_game_data.get('ai_controllers'),
+    )
 
     # Normalize the recorded amount for calls: the LLM/UI passes raise_to=0 for
     # calls since they're not raising, but downstream consumers (opponent model,

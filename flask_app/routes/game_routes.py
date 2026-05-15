@@ -163,11 +163,18 @@ def analyze_player_decision(
     state_machine,
     game_state,
     hand_number: int = None,
-    memory_manager=None
+    memory_manager=None,
+    ai_controllers=None,
 ) -> None:
     """Analyze a player decision (human or AI) and save to database.
 
     This tracks decision quality for ALL players, not just AI.
+
+    `ai_controllers`: optional dict {player_name -> controller}. When the
+    acting player is a sharp/tiered bot whose narration was skipped, the
+    controller-side analysis hook never fires, so this function is the only
+    chance to capture the intervention trace and pipeline snapshot. Pulled
+    here from the controller's `_last_*` accumulators if available.
     """
     try:
         from poker.decision_analyzer import get_analyzer
@@ -244,6 +251,26 @@ def analyze_player_decision(
             opponent_positions=opponent_positions,
             opponent_infos=opponent_infos,
         )
+
+        # Tiered/sharp bots stash their decision pipeline state on the
+        # controller. Persist it on the analysis row so the Pipeline panel
+        # has data to render — without this, sharp-bot decisions whose
+        # narration was skipped show up in the analyzer with an empty trace.
+        if ai_controllers:
+            controller = ai_controllers.get(player_name)
+            if controller is not None:
+                from poker.controllers import (
+                    _serialize_intervention_trace,
+                    _serialize_pipeline_snapshot,
+                )
+                analysis.intervention_trace_json = _serialize_intervention_trace(
+                    getattr(controller, '_last_intervention_trace', None),
+                    player_name=player_name,
+                )
+                analysis.strategy_pipeline_snapshot_json = _serialize_pipeline_snapshot(
+                    getattr(controller, '_last_pipeline_snapshot', None),
+                    player_name=player_name,
+                )
 
         decision_analysis_repo.save_decision_analysis(analysis)
         equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
@@ -1253,7 +1280,11 @@ def api_player_action(game_id):
         # Analyze decision quality (works for both human and AI)
         memory_manager = current_game_data.get('memory_manager')
         hand_number = memory_manager.hand_count if memory_manager else None
-        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
+        analyze_player_decision(
+            game_id, current_player.name, action, amount, state_machine,
+            pre_action_state, hand_number, memory_manager,
+            ai_controllers=current_game_data.get('ai_controllers'),
+        )
 
         # Coach progression: evaluate human player actions against skill targets
         if current_player.is_human:
@@ -1575,7 +1606,11 @@ def register_socket_events(sio):
         # Analyze decision quality (works for both human and AI)
         memory_manager = current_game_data.get('memory_manager')
         hand_number = memory_manager.hand_count if memory_manager else None
-        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
+        analyze_player_decision(
+            game_id, current_player.name, action, amount, state_machine,
+            pre_action_state, hand_number, memory_manager,
+            ai_controllers=current_game_data.get('ai_controllers'),
+        )
 
         # Coach progression: evaluate human player actions against skill targets
         if current_player.is_human:
