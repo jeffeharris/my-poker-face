@@ -56,6 +56,20 @@ class TestImmutableStateMachine(unittest.TestCase):
         result = sm.run_until_player_action()
         self.assertIs(result, sm)  # Returns same instance
         self.assertTrue(sm.awaiting_action)
+
+    def test_run_until_player_action_iteration_cap(self):
+        """T2-57: bound the loop so a stuck pipeline can't pin the worker."""
+        from unittest.mock import MagicMock, PropertyMock, patch
+
+        game_state = initialize_game_state(['Alice', 'Bob'])
+        sm = PokerStateMachine(game_state)
+
+        with patch.object(PokerStateMachine, 'awaiting_action',
+                          new_callable=PropertyMock, return_value=False):
+            sm.advance_state = MagicMock()
+            sm.run_until_player_action(max_iterations=10)
+
+        self.assertEqual(sm.advance_state.call_count, 10)
     
     def test_chaining_operations(self):
         """Test that we can chain operations."""

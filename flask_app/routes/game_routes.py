@@ -481,150 +481,171 @@ def api_game_state(game_id):
             current_game_data['game_started'] = True
             progress_game(game_id)
 
+    # Cold-load path. Concurrent GETs for the same game_id (tab reloads,
+    # React Strict-Mode double effects, socket reconnect storms, two open
+    # tabs) can each observe `get_game() → None` and race to load,
+    # rebuild controllers, run recovery on a separate state machine, and
+    # clobber each other in `set_game`. Acquire the per-game lock and
+    # re-check the cache so only one thread does the load. The lock is
+    # released before `progress_game` is called because progress_game
+    # acquires the same lock with blocking=False.
+    _post_load_should_advance = False
+    _post_load_advance_reason = ''
     if not current_game_data:
-        # Try to load from database
-        try:
-            owner_info = game_repo.get_game_owner_info(game_id) or {}
-            owner_id = owner_info.get('owner_id')
-            owner_name = owner_info.get('owner_name')
+        load_lock = game_state_service.get_game_lock(game_id)
+        with load_lock:
+            current_game_data = game_state_service.get_game(game_id)
+            if current_game_data is None:
+                try:
+                    owner_info = game_repo.get_game_owner_info(game_id) or {}
+                    owner_id = owner_info.get('owner_id')
+                    owner_name = owner_info.get('owner_name')
 
-            base_state_machine = game_repo.load_game(game_id)
-            if base_state_machine:
-                state_machine = StateMachineAdapter(base_state_machine)
-                # Load per-player LLM configs for proper provider restoration
-                llm_configs = game_repo.load_llm_configs(game_id) or {}
-                ai_controllers = restore_ai_controllers(
-                    game_id, state_machine, game_repo,
-                    owner_id=owner_id,
-                    player_llm_configs=llm_configs.get('player_llm_configs'),
-                    default_llm_config=llm_configs.get('default_llm_config'),
-                    capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo,
-                    bot_types=llm_configs.get('bot_types')
-                )
-                db_messages = game_repo.load_messages(game_id)
+                    base_state_machine = game_repo.load_game(game_id)
+                    if base_state_machine:
+                        state_machine = StateMachineAdapter(base_state_machine)
+                        # Load per-player LLM configs for proper provider restoration
+                        llm_configs = game_repo.load_llm_configs(game_id) or {}
+                        ai_controllers = restore_ai_controllers(
+                            game_id, state_machine, game_repo,
+                            owner_id=owner_id,
+                            player_llm_configs=llm_configs.get('player_llm_configs'),
+                            default_llm_config=llm_configs.get('default_llm_config'),
+                            capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo,
+                            bot_types=llm_configs.get('bot_types')
+                        )
+                        db_messages = game_repo.load_messages(game_id)
 
-                # Wire pressure_stats to the DB so past events are loaded and
-                # new events persist — matches the new-game route. Without
-                # game_id + event_repository, restored games silently lose
-                # both: past stats start empty and new events no-op.
-                from poker.repositories.sqlite_repositories import PressureEventRepository
-                event_repository = PressureEventRepository(config.DB_PATH)
-                pressure_detector = PressureEventDetector()
-                pressure_stats = PressureStatsTracker(game_id, event_repository)
+                        # Wire pressure_stats to the DB so past events are loaded and
+                        # new events persist — matches the new-game route. Without
+                        # game_id + event_repository, restored games silently lose
+                        # both: past stats start empty and new events no-op.
+                        from poker.repositories.sqlite_repositories import PressureEventRepository
+                        event_repository = PressureEventRepository(config.DB_PATH)
+                        pressure_detector = PressureEventDetector()
+                        pressure_stats = PressureStatsTracker(game_id, event_repository)
 
-                memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
-                memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
+                        memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
+                        memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
 
-                # Restore hand count from database
-                restored_hand_count = hand_history_repo.get_hand_count(game_id)
-                if restored_hand_count > 0:
-                    memory_manager.hand_count = restored_hand_count
-                    logger.info(f"[LOAD] Restored hand count: {restored_hand_count} for game {game_id}")
+                        # Restore hand count from database
+                        restored_hand_count = hand_history_repo.get_hand_count(game_id)
+                        if restored_hand_count > 0:
+                            memory_manager.hand_count = restored_hand_count
+                            logger.info(f"[LOAD] Restored hand count: {restored_hand_count} for game {game_id}")
 
-                # Restore opponent models from database
-                saved_opponent_models = game_repo.load_opponent_models(game_id)
-                if saved_opponent_models:
-                    memory_manager.opponent_model_manager = OpponentModelManager.from_dict(saved_opponent_models)
-                    logger.info(f"[LOAD] Restored opponent models for game {game_id}")
+                        # Restore opponent models from database
+                        saved_opponent_models = game_repo.load_opponent_models(game_id)
+                        if saved_opponent_models:
+                            memory_manager.opponent_model_manager = OpponentModelManager.from_dict(saved_opponent_models)
+                            logger.info(f"[LOAD] Restored opponent models for game {game_id}")
 
-                for player in state_machine.game_state.players:
-                    if not player.is_human and player.name in ai_controllers:
-                        memory_manager.initialize_for_player(player.name)
-                        controller = ai_controllers[player.name]
-                        controller.session_memory = memory_manager.get_session_memory(player.name)
-                        controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
-                        controller.memory_manager = memory_manager
-                    elif player.is_human:
-                        # Initialize human player for opponent observation tracking
-                        memory_manager.initialize_human_observer(player.name)
+                        for player in state_machine.game_state.players:
+                            if not player.is_human and player.name in ai_controllers:
+                                memory_manager.initialize_for_player(player.name)
+                                controller = ai_controllers[player.name]
+                                controller.session_memory = memory_manager.get_session_memory(player.name)
+                                controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+                                controller.memory_manager = memory_manager
+                            elif player.is_human:
+                                # Initialize human player for opponent observation tracking
+                                memory_manager.initialize_human_observer(player.name)
 
-                memory_manager.on_hand_start(
-                    state_machine.game_state,
-                    hand_number=memory_manager.hand_count + 1,
-                    deck_seed=state_machine.current_hand_seed
-                )
+                        memory_manager.on_hand_start(
+                            state_machine.game_state,
+                            hand_number=memory_manager.hand_count + 1,
+                            deck_seed=state_machine.current_hand_seed
+                        )
 
-                # Try to load tournament tracker from database, or create new one
-                tracker_data = game_repo.load_tournament_tracker(game_id)
-                if tracker_data:
-                    tournament_tracker = TournamentTracker.from_dict(tracker_data)
-                    logger.info(f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations")
-                else:
-                    # Fallback: create new tracker with current players
-                    starting_players = [
-                        {'name': p.name, 'is_human': p.is_human}
-                        for p in state_machine.game_state.players
-                    ]
-                    tournament_tracker = TournamentTracker(
-                        game_id=game_id,
-                        starting_players=starting_players
-                    )
-                    tournament_tracker.hand_count = memory_manager.hand_count
+                        # Try to load tournament tracker from database, or create new one
+                        tracker_data = game_repo.load_tournament_tracker(game_id)
+                        if tracker_data:
+                            tournament_tracker = TournamentTracker.from_dict(tracker_data)
+                            logger.info(f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations")
+                        else:
+                            # Fallback: create new tracker with current players
+                            starting_players = [
+                                {'name': p.name, 'is_human': p.is_human}
+                                for p in state_machine.game_state.players
+                            ]
+                            tournament_tracker = TournamentTracker(
+                                game_id=game_id,
+                                starting_players=starting_players
+                            )
+                            tournament_tracker.hand_count = memory_manager.hand_count
 
-                # Seed hand_start_stacks / short_stack_players from current
-                # stacks. On mid-hand restore we don't know the real hand-start
-                # baseline, so we use the current snapshot — pressure deltas
-                # against this resolve to 0 for the in-progress hand (no false
-                # double_up/crippled fires) and the next on_hand_start will
-                # overwrite both with fresh values.
-                big_blind = state_machine.game_state.current_ante or 100
-                hand_start_stacks = {
-                    p.name: p.stack for p in state_machine.game_state.players
-                }
-                short_stack_players = {
-                    p.name for p in state_machine.game_state.players
-                    if 0 < p.stack < 10 * big_blind
-                }
+                        # Seed hand_start_stacks / short_stack_players from current
+                        # stacks. On mid-hand restore we don't know the real hand-start
+                        # baseline, so we use the current snapshot — pressure deltas
+                        # against this resolve to 0 for the in-progress hand (no false
+                        # double_up/crippled fires) and the next on_hand_start will
+                        # overwrite both with fresh values.
+                        big_blind = state_machine.game_state.current_ante or 100
+                        hand_start_stacks = {
+                            p.name: p.stack for p in state_machine.game_state.players
+                        }
+                        short_stack_players = {
+                            p.name for p in state_machine.game_state.players
+                            if 0 < p.stack < 10 * big_blind
+                        }
 
-                current_game_data = {
-                    'state_machine': state_machine,
-                    'ai_controllers': ai_controllers,
-                    'pressure_detector': pressure_detector,
-                    'pressure_stats': pressure_stats,
-                    'memory_manager': memory_manager,
-                    'tournament_tracker': tournament_tracker,
-                    'owner_id': owner_id,
-                    'owner_name': owner_name,
-                    'messages': db_messages,
-                    'last_announced_phase': None,  # Reset on game load
-                    'game_started': True,
-                    'guest_tracking_id': current_user.get('tracking_id') if current_user else None,
-                    'hand_start_stacks': hand_start_stacks,
-                    'short_stack_players': short_stack_players,
-                }
-                # Recover from games persisted mid-all-in-runout (server
-                # crash while run_it_out=True). Without this, the player
-                # sees a stuck state with no action buttons (the UI
-                # clears options whenever run_it_out is set). Fast-
-                # forwards through the run-out to the next stable point
-                # — usually the showdown completes and a new hand
-                # begins. Re-saves so the recovered state is durable.
-                if recover_stuck_runout(state_machine):
-                    game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+                        current_game_data = {
+                            'state_machine': state_machine,
+                            'ai_controllers': ai_controllers,
+                            'pressure_detector': pressure_detector,
+                            'pressure_stats': pressure_stats,
+                            'memory_manager': memory_manager,
+                            'tournament_tracker': tournament_tracker,
+                            'owner_id': owner_id,
+                            'owner_name': owner_name,
+                            'messages': db_messages,
+                            'last_announced_phase': None,  # Reset on game load
+                            'game_started': True,
+                            'guest_tracking_id': current_user.get('tracking_id') if current_user else None,
+                            'hand_start_stacks': hand_start_stacks,
+                            'short_stack_players': short_stack_players,
+                        }
+                        # Recover from games persisted mid-all-in-runout (server
+                        # crash while run_it_out=True). Without this, the player
+                        # sees a stuck state with no action buttons (the UI
+                        # clears options whenever run_it_out is set). Fast-
+                        # forwards through the run-out to the next stable point
+                        # — usually the showdown completes and a new hand
+                        # begins. Re-saves so the recovered state is durable.
+                        if recover_stuck_runout(state_machine):
+                            game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
-                game_state_service.set_game(game_id, current_game_data)
+                        game_state_service.set_game(game_id, current_game_data)
 
-                game_state = state_machine.game_state
-                current_player = game_state.current_player
-                logger.debug(f"[LOAD] Game {game_id} loaded. Phase: {state_machine.current_phase}, "
-                      f"awaiting_action: {game_state.awaiting_action}, "
-                      f"current_player: {current_player.name} (human: {current_player.is_human})")
+                        game_state = state_machine.game_state
+                        current_player = game_state.current_player
+                        logger.debug(f"[LOAD] Game {game_id} loaded. Phase: {state_machine.current_phase}, "
+                              f"awaiting_action: {game_state.awaiting_action}, "
+                              f"current_player: {current_player.name} (human: {current_player.is_human})")
 
-                if not game_state.awaiting_action:
-                    logger.debug(f"[LOAD] Auto-advancing game {game_id} (not awaiting action)")
-                    progress_game(game_id)
-                elif game_state.awaiting_action and not current_player.is_human:
-                    logger.debug(f"[LOAD] Resuming AI turn for {current_player.name} in game {game_id}")
-                    progress_game(game_id)
-            else:
-                return jsonify({'error': 'Game not found'}), 404
-        except Exception as e:
-            logger.error(f"[LOAD] Error loading game {game_id}: {str(e)}", exc_info=True)
-            return jsonify({
-                'error': 'Failed to load game from database',
-                'message': 'An error occurred while loading the game. Please try again or start a new game.',
-                'players': []
-            }), 500
+                        # Defer the progress_game calls until after the
+                        # load lock is released — progress_game acquires
+                        # the same lock with blocking=False and would
+                        # otherwise silently no-op.
+                        if not game_state.awaiting_action:
+                            _post_load_should_advance = True
+                            _post_load_advance_reason = "not awaiting action"
+                        elif game_state.awaiting_action and not current_player.is_human:
+                            _post_load_should_advance = True
+                            _post_load_advance_reason = f"AI turn: {current_player.name}"
+                    else:
+                        return jsonify({'error': 'Game not found'}), 404
+                except Exception as e:
+                    logger.error(f"[LOAD] Error loading game {game_id}: {str(e)}", exc_info=True)
+                    return jsonify({
+                        'error': 'Failed to load game from database',
+                        'message': 'An error occurred while loading the game. Please try again or start a new game.',
+                        'players': []
+                    }), 500
+
+    if _post_load_should_advance:
+        logger.debug(f"[LOAD] Auto-advancing game {game_id} ({_post_load_advance_reason})")
+        progress_game(game_id)
 
     state_machine = current_game_data['state_machine']
     game_state = state_machine.game_state

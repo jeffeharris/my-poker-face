@@ -525,13 +525,26 @@ class PokerStateMachine:
         """
         self._state = self._state.with_phase(new_phase)
 
-    def run_until_player_action(self) -> 'PokerStateMachine':
+    def run_until_player_action(self, max_iterations: int = 50) -> 'PokerStateMachine':
         """
         Run until player action needed (mutable-style).
         Mutates internal state and returns self for chaining.
+
+        ``max_iterations`` bounds the loop so a stuck pipeline (e.g. a
+        recovered all-in run-out that never reaches a settle point) can't
+        pin the worker thread. ~15 advances is the worst-case path from
+        INITIALIZING_HAND to first action; 50 is generous headroom.
         """
+        iterations = 0
         while not self.awaiting_action:
             self.advance_state()
+            iterations += 1
+            if iterations >= max_iterations:
+                logger.error(
+                    f"[RUNOUT] run_until_player_action hit cap ({max_iterations}) "
+                    f"at phase={self.current_phase.name}. State may be stuck."
+                )
+                break
         return self
     
     def run_until(self, phases: List[PokerPhase]) -> 'PokerStateMachine':
