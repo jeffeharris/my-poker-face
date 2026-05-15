@@ -24,6 +24,23 @@ _FORMAT_PLACEHOLDER_RE = re.compile(r'\{([^}:!]+)(?:[!:][^}]*)?\}')
 # Regex to validate safe variable names (no private/dunder access)
 _SAFE_VARIABLE_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]*$')
 
+def _safe_pot_odds(value, default: float = 0.0) -> float:
+    """Coerce a possibly-None ``pot_odds`` value to a numeric default.
+
+    ``pot_odds`` is ``Optional[float]`` across the codebase — None means
+    "free to act, math undefined" (see hybrid_ai_controller.py:314). The
+    decision YAML templates only render these sections when there *is* a
+    call to face, so the default is just a paranoia rail to keep the
+    `{pot_odds:.1f}` format call from blowing up if upstream regresses.
+    """
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 # Drama context messages for response intensity calibration
 DRAMA_CONTEXTS = {
     'routine': "RESPONSE STYLE: Minimal. Skip dramatic_sequence or one brief beat max.",
@@ -490,7 +507,7 @@ class PromptManager:
         # Include pot-committed warning if applicable (high priority - insert before other guidance)
         if pot_committed_info and 'pot_committed' in template.sections:
             sections_to_render.append(template.sections['pot_committed'].format(
-                pot_odds=pot_committed_info.get('pot_odds', 0),
+                pot_odds=_safe_pot_odds(pot_committed_info.get('pot_odds')),
                 required_equity=pot_committed_info.get('required_equity', 0),
                 already_bet_bb=pot_committed_info.get('already_bet_bb', 0),
                 stack_bb=pot_committed_info.get('stack_bb', 0),
@@ -531,7 +548,7 @@ class PromptManager:
                     equity_random=equity_random,
                     equity_ranges=equity_ranges,
                     required_equity=equity_verdict_info.get('required_equity', 0),
-                    pot_odds=equity_verdict_info.get('pot_odds', 0),
+                    pot_odds=_safe_pot_odds(equity_verdict_info.get('pot_odds')),
                     verdict=equity_verdict_info.get('verdict', ''),
                     opponent_stats=opponent_stats,
                 ))
@@ -540,7 +557,7 @@ class PromptManager:
                     equity_random=equity_random,
                     equity_ranges=equity_ranges,
                     required_equity=equity_verdict_info.get('required_equity', 0),
-                    pot_odds=equity_verdict_info.get('pot_odds', 0),
+                    pot_odds=_safe_pot_odds(equity_verdict_info.get('pot_odds')),
                     opponent_stats=opponent_stats,
                 ))
 
@@ -549,8 +566,12 @@ class PromptManager:
             if pot_odds_info.get('free') and 'pot_odds_free' in template.sections:
                 sections_to_render.append(template.sections['pot_odds_free'])
             elif not pot_odds_info.get('free') and 'pot_odds_guidance' in template.sections:
+                # `pot_odds_guidance` template uses `{pot_odds:.1f}` — a stray
+                # None here would explode. Defensive coercion keeps the prompt
+                # rendering even if upstream regresses; the `free` branch is
+                # the correct path when math is undefined.
                 sections_to_render.append(template.sections['pot_odds_guidance'].format(
-                    pot_odds=pot_odds_info.get('pot_odds', 0),
+                    pot_odds=_safe_pot_odds(pot_odds_info.get('pot_odds')),
                     equity_needed=pot_odds_info.get('equity_needed', 0),
                     pot_fmt=pot_odds_info.get('pot_fmt', ''),
                     call_fmt=pot_odds_info.get('call_fmt', ''),

@@ -255,8 +255,14 @@ def _format_stats_for_prompt(data: Dict) -> str:
         lines.append(f"Equity: {equity * 100:.1f}%")
 
     pot_odds = data.get('pot_odds')
-    if pot_odds is not None:
-        lines.append(f"Pot odds: {pot_odds}:1")
+    # `pot_odds` is Optional[float] — None means free to act (math undefined).
+    # The `is not None` gate keeps the `{:.1f}` format from blowing up; we
+    # still surface the "free check" wording so the LLM coach knows the call
+    # was zero-cost rather than just absent.
+    if pot_odds is not None and pot_odds > 0:
+        lines.append(f"Pot odds: {pot_odds:.1f}:1")
+    elif pot_odds is None and data.get('cost_to_call', 0) == 0:
+        lines.append("Pot odds: n/a (free to check)")
 
     req = data.get('required_equity')
     if req is not None:

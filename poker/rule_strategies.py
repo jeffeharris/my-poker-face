@@ -115,8 +115,12 @@ def _strategy_abc(context: Dict) -> Dict:
             return {'action': 'raise', 'raise_to': context['min_raise']}
         return {'action': 'call', 'raise_to': 0}
 
-    # Good hands - call with odds
-    pot_odds = context.get('pot_odds', 1)
+    # Good hands - call with odds.
+    # `pot_odds` may be explicitly None when free to act; default to 1
+    # in that case so required_equity falls back to a neutral 0.5.
+    pot_odds = context.get('pot_odds')
+    if pot_odds is None or pot_odds <= 0:
+        pot_odds = 1
     required_equity = 1 / (pot_odds + 1)
 
     if canonical in TOP_20_HANDS or equity >= required_equity:
@@ -561,11 +565,18 @@ def _evaluate_condition(condition: str, context: Dict) -> bool:
     if condition == 'default':
         return True
 
-    # Build evaluation namespace
+    # Build evaluation namespace.
+    # `pot_odds` may legitimately be None when free to act (cost_to_call=0).
+    # Coerce to a large value so conditions like `pot_odds >= 3` evaluate
+    # truthfully — getting "infinite" pot odds when nothing is owed is
+    # the mathematically sensible reading.
     canonical = context.get('canonical_hand', '')
+    raw_pot_odds = context.get('pot_odds')
+    if raw_pot_odds is None:
+        raw_pot_odds = float('inf')
     namespace = {
         'equity': context.get('equity', 0.5),
-        'pot_odds': context.get('pot_odds', 1.0),
+        'pot_odds': raw_pot_odds,
         'cost_to_call': context.get('cost_to_call', 0),
         'pot_total': context.get('pot_total', 0),
         'player_stack': context.get('player_stack', 0),
