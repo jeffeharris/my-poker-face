@@ -277,6 +277,17 @@ def _format_stats_for_prompt(data: Dict) -> str:
     if is_pos is not None:
         lines.append(f"Positive EV: {'Yes' if is_pos else 'No'}")
 
+    # Surface the literal hole cards and board even when hand_strength
+    # gives a description — the coach often wants to reference specific
+    # cards (e.g. "your Kd plays well on this board").
+    hole = data.get('hand_hole_cards') or []
+    if hole:
+        lines.append(f"Your cards: {' '.join(hole)}")
+
+    board = data.get('hand_community_cards') or []
+    if board:
+        lines.append(f"Board: {' '.join(board)}")
+
     hs = data.get('hand_strength')
     if hs:
         lines.append(f"Hand: {hs}")
@@ -343,6 +354,7 @@ def _format_stats_for_prompt(data: Dict) -> str:
     timeline = _format_hand_timeline(
         data.get('hand_actions', []),
         data.get('hand_community_cards', []),
+        player_name=data.get('player_name'),
     )
     if timeline:
         lines.append(f"\nHand timeline:\n{timeline}")
@@ -350,12 +362,20 @@ def _format_stats_for_prompt(data: Dict) -> str:
     return '\n'.join(lines)
 
 
-def _format_hand_timeline(actions: List[Dict], community_cards: List[str]) -> str:
+def _format_hand_timeline(
+    actions: List[Dict],
+    community_cards: List[str],
+    player_name: Optional[str] = None,
+) -> str:
     """Format in-progress hand actions into a readable timeline.
 
     Args:
         actions: List of action dicts (from RecordedAction.to_dict()).
         community_cards: Community card strings dealt so far.
+        player_name: Human player's name; their actions render as "You".
+
+    One action per indented line — easier for the LLM to parse than a
+    comma-joined run, and consistent with the post-hand recap format.
     """
     if not actions:
         return ''
@@ -380,23 +400,29 @@ def _format_hand_timeline(actions: List[Dict], community_cards: List[str]) -> st
         cards = phase_cards.get(phase, [])
         header = f"{phase} [{' '.join(cards)}]" if cards else phase
 
-        action_strs = []
+        action_lines = []
         for a in phase_actions:
-            name = a['player_name']
+            raw_name = a['player_name']
+            name = "You" if player_name and raw_name == player_name else raw_name
             act = a['action']
             amount = a['amount']
-            if act in ('fold', 'check'):
-                action_strs.append(f"{name} {'folded' if act == 'fold' else 'checked'}")
+            if act == 'fold':
+                action_lines.append(f"{name} folded")
+            elif act == 'check':
+                action_lines.append(f"{name} checked")
             elif act == 'call':
-                action_strs.append(f"{name} called" + (f" ${amount}" if amount > 0 else ""))
+                amt = f" ${amount}" if amount > 0 else ""
+                action_lines.append(f"{name} called{amt}")
             elif act in ('raise', 'bet'):
-                action_strs.append(f"{name} {'raised' if act == 'raise' else 'bet'} ${amount}")
+                verb = 'raised' if act == 'raise' else 'bet'
+                action_lines.append(f"{name} {verb} ${amount}")
             elif act == 'all_in':
-                action_strs.append(f"{name} went all-in (${amount})")
+                action_lines.append(f"{name} went all-in (${amount})")
             else:
-                action_strs.append(f"{name} {act}")
+                action_lines.append(f"{name} {act}")
 
-        parts.append(f"  {header}: {', '.join(action_strs)}")
+        indented = "\n".join(f"    {line}" for line in action_lines)
+        parts.append(f"  {header}:\n{indented}")
 
     return '\n'.join(parts)
 
