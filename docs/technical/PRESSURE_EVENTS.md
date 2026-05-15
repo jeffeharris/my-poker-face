@@ -2,7 +2,7 @@
 purpose: Catalog of pressure events, their detection rules, axis impacts, and resolution logic
 type: reference
 created: 2025-06-15
-last_updated: 2026-02-07
+last_updated: 2026-05-15
 ---
 
 # Pressure Events System
@@ -226,7 +226,7 @@ detect → resolve → persist → callback → update_composure → recover →
 | **Persist** | Events saved to `pressure_events` table with per-event deltas |
 | **Callback** | `on_events_resolved` fires (UI updates, socket emissions) |
 | **Update composure** | Either LLM narration (`on_hand_complete`) or lightweight (`composure_state.update_from_hand`) |
-| **Recover** | Baseline drift + zone gravity applied |
+| **Recover** | Baseline drift applied (zone gravity was scaffolded but never compute-wired; removed 2026-05-15 — see `docs/triage/ZONE_GRAVITY_DECISION.md`) |
 | **Save** | Controller + emotional state persisted (if `persist_controller_state=True`) |
 
 ### Persistence Format
@@ -237,7 +237,9 @@ Each resolved event is saved with:
 - `opponent` — the opponent involved (both winners and losers get an opponent)
 - `resolved_from` — list of all raw events that fed into resolution
 
-Recovery and gravity are persisted as separate pseudo-events (`_recovery`, `_gravity`).
+Recovery is persisted as the `_recovery` pseudo-event. (The `_gravity`
+pseudo-event was scaffolded alongside but never actually emitted; the
+save block was removed in 2026-05-15.)
 
 ---
 
@@ -246,7 +248,7 @@ Recovery and gravity are persisted as separate pseudo-events (`_recovery`, `_gra
 | File | Purpose |
 |------|---------|
 | `poker/pressure_detector.py` | Pure event detection logic |
-| `poker/player_psychology.py` | Axes, sensitivity, resolution, recovery, gravity |
+| `poker/player_psychology.py` | Axes, sensitivity, resolution, recovery |
 | `poker/psychology_pipeline.py` | Unified pipeline orchestrating detect → save cycle |
 | `poker/pressure_stats.py` | Stats tracking for UI display (separate from psychology) |
 | `poker/equity_tracker.py` | Equity calculation for shock detection |

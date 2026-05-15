@@ -2,7 +2,7 @@
 purpose: Single reference for the psychology system architecture, axes, zones, and effects
 type: architecture
 created: 2025-10-15
-last_updated: 2026-02-07
+last_updated: 2026-05-15
 ---
 
 # Poker AI Psychology System Overview
@@ -257,23 +257,17 @@ above_modifier = 0.8
 
 Recovery pulls toward **personality baselines**, not toward the poker face zone.
 
-### Zone Gravity
+### Zone Gravity (design reference only)
 
-Zones exert weak gravitational pull (default strength 0.03, tunable 0.02-0.05):
+> **Not active in the codebase.** Zone gravity was originally designed
+> as a third movement force (a weak pull toward sweet-spot centers and
+> away from penalty-zone edges), but only the detection scaffolding
+> ever shipped. The compute step that turns zones into per-axis
+> deltas in `recover()` was never written, and the dead config /
+> persistence wiring were removed in 2026-05-15. See
+> `docs/triage/ZONE_GRAVITY_DECISION.md` if revisiting.
 
-- **Sweet spot gravity**: Pulls toward zone center (stabilizing)
-- **Penalty zone gravity**: Pulls toward zone extreme (trap effect)
-
-| Penalty Zone | Gravity Direction |
-|--------------|-------------------|
-| Tilted | Down toward composure = 0 |
-| Shaken | Toward (0, 0) corner |
-| Overheated | Toward (1, 0) corner |
-| Overconfident | Right toward confidence = 1 |
-| Timid | Left toward confidence = 0 |
-| Detached | Toward (0, 1) corner |
-
-Combined movement per tick: `event_force + recovery_force + gravity_force`.
+Combined movement per tick is currently: `event_force + recovery_force`.
 
 ---
 
@@ -296,7 +290,7 @@ Combined movement per tick: `event_force + recovery_force + gravity_force`.
 |----------|------------|
 | Penalty Thresholds | `PENALTY_TILTED_THRESHOLD` (0.35), `PENALTY_OVERCONFIDENT_THRESHOLD` (0.90), `PENALTY_TIMID_THRESHOLD` (0.10), etc. |
 | Zone Radii | `ZONE_POKER_FACE_RADIUS` (0.16), `ZONE_GUARDED_RADIUS` (0.15), etc. |
-| Recovery Constants | `RECOVERY_BELOW_BASELINE_FLOOR` (0.60), `RECOVERY_ABOVE_BASELINE` (0.80), `GRAVITY_STRENGTH` (0.03) |
+| Recovery Constants | `RECOVERY_BELOW_BASELINE_FLOOR` (0.60), `RECOVERY_ABOVE_BASELINE` (0.80) |
 
 Override at runtime:
 ```python
@@ -323,7 +317,7 @@ python experiments/run_from_config.py experiments/configs/zone_validation.json
 
 | File | Purpose |
 |------|---------|
-| `poker/player_psychology.py` | Core system: anchors, axes, zones, zone effects, recovery, gravity |
+| `poker/player_psychology.py` | Core system: anchors, axes, zones, zone effects, recovery |
 | `poker/psychology_pipeline.py` | Unified pipeline: detect → resolve → persist → recover → save |
 | `poker/expression_filter.py` | Visibility calculation, emotion dampening |
 | `poker/range_guidance.py` | Looseness-to-range mapping, position clamps |
