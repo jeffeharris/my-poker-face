@@ -10,7 +10,8 @@ from openai import OpenAI
 
 from core.llm import LLMClient, CallType
 
-from ..extensions import tournament_repo, hand_history_repo, auth_manager, limiter, personality_generator
+from ..extensions import tournament_repo, hand_history_repo, auth_manager, limiter, personality_generator, game_repo
+from poker.authorization import get_authorization_service
 from poker.prompt_manager import PromptManager
 from poker.memory.hand_history import RecordedHand
 from poker.hand_narrator import evaluate_hand_label, format_action_phrase
@@ -26,6 +27,37 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 stats_bp = Blueprint('stats', __name__)
+
+
+def _is_admin(user_id: str) -> bool:
+    """Check whether a user has admin tools permission."""
+    auth_service = get_authorization_service()
+    return bool(auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools'))
+
+
+def _require_game_owner(game_id: str, game_data: dict):
+    """Reject if caller doesn't own ``game_id`` and isn't an admin.
+
+    Returns a Flask response tuple on rejection, or ``None`` to continue.
+    """
+    user = auth_manager.get_current_user() if auth_manager else None
+    user_id = user.get('id') if user else ''
+    if not user_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    owner_id = (game_data or {}).get('owner_id')
+    if owner_id is None:
+        owner_info = game_repo.get_game_owner_info(game_id)
+        if owner_info is not None:
+            owner_id = owner_info.get('owner_id')
+            if game_data is not None and owner_id is not None:
+                game_data['owner_id'] = owner_id
+                game_data.setdefault('owner_name', owner_info.get('owner_name'))
+
+    if owner_id and owner_id != user_id and not _is_admin(user_id):
+        return jsonify({'error': 'Permission denied'}), 403
+    return None
+
 
 # Module-level constants for prompt guidance
 LENGTH_GUIDANCE = {
@@ -323,8 +355,13 @@ def settings(game_id):
 @limiter.limit(config.RATE_LIMIT_CHAT_SUGGESTIONS)
 def get_chat_suggestions(game_id):
     """Generate smart chat suggestions based on game context."""
-    if not game_state_service.get_game(game_id):
+    game_data = game_state_service.get_game(game_id)
+    if not game_data:
         return jsonify({"error": "Game not found"}), 404
+
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
 
     # Get owner_id for tracking
     current_user = auth_manager.get_current_user()
@@ -429,8 +466,13 @@ Return as JSON with this format:
 @limiter.limit(config.RATE_LIMIT_CHAT_SUGGESTIONS)
 def get_targeted_chat_suggestions(game_id):
     """Generate targeted chat suggestions to engage specific AI players."""
-    if not game_state_service.get_game(game_id):
+    game_data = game_state_service.get_game(game_id)
+    if not game_data:
         return jsonify({"error": "Game not found"}), 404
+
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
 
     # Get owner_id for tracking
     current_user = auth_manager.get_current_user()
@@ -618,8 +660,13 @@ def get_post_round_chat_suggestions(game_id):
     - playerName: human player's name
     - tone: 'gloat', 'humble', 'salty', or 'gracious'
     """
-    if not game_state_service.get_game(game_id):
+    game_data = game_state_service.get_game(game_id)
+    if not game_data:
         return jsonify({"error": "Game not found"}), 404
+
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
 
     # Get owner_id for tracking
     current_user = auth_manager.get_current_user()

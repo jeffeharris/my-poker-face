@@ -130,12 +130,15 @@ class PromptPresetRepository(BaseRepository):
         with self._get_connection() as conn:
 
             if owner_id:
-                # Include system presets for all users, plus user's own presets
+                # Include system presets for all users, plus user's own presets.
+                # `is_system = TRUE` already covers seeded presets; the prior
+                # `OR owner_id IS NULL` clause leaked admin-created or
+                # manually-seeded non-system presets to every authenticated user.
                 cursor = conn.execute("""
                     SELECT id, name, description, prompt_config, guidance_injection,
                            owner_id, is_system, created_at, updated_at
                     FROM prompt_presets
-                    WHERE owner_id = ? OR owner_id IS NULL OR is_system = TRUE
+                    WHERE owner_id = ? OR is_system = TRUE
                     ORDER BY is_system DESC, updated_at DESC
                     LIMIT ?
                 """, (owner_id, limit))
