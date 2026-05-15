@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
-from poker.repositories.base_repository import BaseRepository
+from poker.repositories.base_repository import BaseRepository, retry_on_lock
 from poker.repositories.serialization import restore_state_from_dict
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,7 @@ class GameRepository(BaseRepository):
 
     # --- Game CRUD ---
 
+    @retry_on_lock()
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -76,7 +77,7 @@ class GameRepository(BaseRepository):
         game_json = json.dumps(state_dict)
         llm_configs_json = json.dumps(llm_configs) if llm_configs else None
 
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             # Use ON CONFLICT DO UPDATE to preserve columns not being updated
             # (like debug_capture_enabled) instead of INSERT OR REPLACE which
             # deletes and re-inserts, resetting unspecified columns to defaults
@@ -185,6 +186,7 @@ class GameRepository(BaseRepository):
                 'owner_name': row['owner_name'],
             }
 
+    @retry_on_lock()
     def save_tournament_tracker(self, game_id: str, tracker) -> None:
         """Save tournament tracker state to the database.
 
@@ -199,7 +201,7 @@ class GameRepository(BaseRepository):
 
         tracker_json = json.dumps(tracker_dict)
 
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO tournament_tracker (game_id, tracker_json, updated_at)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -316,11 +318,12 @@ class GameRepository(BaseRepository):
 
     # --- AI Player State ---
 
+    @retry_on_lock()
     def save_ai_player_state(self, game_id: str, player_name: str,
                             messages: List[Dict[str, str]],
                             personality_state: Dict[str, Any]) -> None:
         """Save AI player conversation history and personality state."""
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             conversation_history = json.dumps(messages)
             personality_json = json.dumps(personality_state)
 
@@ -349,13 +352,20 @@ class GameRepository(BaseRepository):
 
             return ai_states
 
+    @retry_on_lock()
     def save_personality_snapshot(self, game_id: str, player_name: str,
                                  hand_number: int, traits: Dict[str, Any],
                                  pressure_levels: Optional[Dict[str, float]] = None) -> None:
-        """Save a snapshot of personality state for elasticity tracking."""
-        with self._get_connection_with_retry() as conn:
+        """Save a snapshot of personality state for elasticity tracking.
+
+        Uses INSERT OR IGNORE so a retry after a successful-but-uncommitted
+        write doesn't insert a duplicate snapshot row (the table has no
+        UNIQUE constraint on (game_id, player_name, hand_number) and an
+        autoincrement PK).
+        """
+        with self._get_connection() as conn:
             conn.execute("""
-                INSERT INTO personality_snapshots
+                INSERT OR IGNORE INTO personality_snapshots
                 (player_name, game_id, hand_number, personality_traits, pressure_levels)
                 VALUES (?, ?, ?, ?, ?)
             """, (
@@ -368,6 +378,7 @@ class GameRepository(BaseRepository):
 
     # --- Emotional State ---
 
+    @retry_on_lock()
     def save_emotional_state(self, game_id: str, player_name: str,
                              emotional_state) -> None:
         """Save emotional state for a player.
@@ -382,7 +393,7 @@ class GameRepository(BaseRepository):
         else:
             state_dict = emotional_state
 
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO emotional_state
                 (game_id, player_name, valence, arousal, control, focus,
@@ -470,6 +481,7 @@ class GameRepository(BaseRepository):
 
     # --- Controller State ---
 
+    @retry_on_lock()
     def save_controller_state(self, game_id: str, player_name: str,
                               psychology: Dict[str, Any],
                               prompt_config: Optional[Dict[str, Any]] = None) -> None:
@@ -481,7 +493,7 @@ class GameRepository(BaseRepository):
             psychology: Dict from PlayerPsychology.to_dict()
             prompt_config: Dict from PromptConfig.to_dict() (optional)
         """
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO controller_state
                 (game_id, player_name, psychology_json, prompt_config_json, updated_at)
@@ -569,6 +581,7 @@ class GameRepository(BaseRepository):
 
     # --- Opponent Models ---
 
+    @retry_on_lock()
     def save_opponent_models(self, game_id: str, opponent_model_manager) -> None:
         """Save opponent models for a game.
 
@@ -584,7 +597,7 @@ class GameRepository(BaseRepository):
         if not models_dict:
             return
 
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             # Clear existing models for this game
             conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM memorable_hands WHERE game_id = ?", (game_id,))

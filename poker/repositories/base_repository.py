@@ -108,40 +108,6 @@ class BaseRepository:
         self._local.connection = conn
         return conn
 
-    @contextmanager
-    def _get_connection_with_retry(self, max_retries: int = 3, base_delay: float = 0.1):
-        """Get a database connection with retry logic for lock contention.
-
-        Same as _get_connection but retries on lock/busy errors with
-        exponential backoff.
-
-        Args:
-            max_retries: Maximum retry attempts (default 3)
-            base_delay: Initial delay in seconds (default 0.1)
-        """
-        last_exception = None
-        for attempt in range(max_retries + 1):
-            try:
-                with self._get_connection() as conn:
-                    yield conn
-                    return  # Success - exit retry loop
-            except sqlite3.OperationalError as e:
-                error_msg = str(e).lower()
-                if 'locked' in error_msg or 'busy' in error_msg:
-                    last_exception = e
-                    if attempt < max_retries:
-                        delay = base_delay * (2 ** attempt)
-                        logger.warning(
-                            f"Database lock in {self.__class__.__name__}, "
-                            f"retry {attempt + 1}/{max_retries} after {delay:.2f}s"
-                        )
-                        time.sleep(delay)
-                        continue
-                raise
-        # Exhausted retries
-        logger.error(f"Database lock persisted after {max_retries} retries")
-        raise last_exception
-
     def close(self):
         """Close the thread-local connection if open.
 
