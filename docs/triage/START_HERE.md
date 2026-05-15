@@ -7,6 +7,15 @@ last_updated: 2026-05-15
 
 # Start here — pre-main implementation
 
+> **STATUS (2026-05-15): COMPLETE.** All 50+ scoped items shipped in
+> commits c450a359..9f585182. Test suite 3714 passed / 0 failed.
+> TypeScript clean. T1-34 demoted + gated behind
+> `PromptConfig.hu_equity_offset` (default off). Codex F1/F2/F3
+> follow-ups on T1-28/T2-36, T1-32, T2-47 also landed. Deferred
+> post-release: T3-70..T3-72, T3-74. See `docs/TRIAGE.md` for the
+> per-item status column. This doc is preserved for historical
+> context — pick up `docs/TRIAGE.md` for the live punch list.
+
 If you're picking up the work that needs to land before merging `development` → `main`, this is the entry point. Read this first, then `PRE_MAIN_SCOPING.md` for the full list.
 
 ## Branch state
