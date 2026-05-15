@@ -1368,6 +1368,59 @@ def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 
+def recover_stuck_runout(state_machine) -> bool:
+    """Fast-forward a game persisted mid-all-in-runout to a stable state.
+
+    When a game is saved while `game_state.run_it_out` is True (e.g.
+    the server crashed during a multi-street all-in run-out), restoring
+    from the DB lands in a stuck state: the state machine sets
+    awaiting_action=True and waits for the live progress_game loop to
+    consume run_it_out — but that loop is only re-entered when an event
+    fires, and the UI also clears action options whenever run_it_out is
+    True, so the player sees no buttons and the game freezes.
+
+    This helper drives the state machine forward without replaying the
+    live-play animations (which would be confusing on restore — the
+    cards were already dealt, the player just didn't see them). For
+    each iteration of the stuck run_it_out flag it forces the next
+    phase (DEALING_CARDS for non-river, SHOWDOWN for river), clears
+    awaiting/run_it_out, and lets the state machine settle via
+    run_until_player_action.
+
+    Returns True when recovery was applied, False if the state was
+    already stable. Safe to call on any loaded game.
+    """
+    if not getattr(state_machine.game_state, 'run_it_out', False):
+        return False
+
+    from poker.poker_state_machine import PokerPhase
+
+    safety = 20  # Defensive — should converge in 2-3 iterations
+    while getattr(state_machine.game_state, 'run_it_out', False) and safety > 0:
+        safety -= 1
+        current_phase = state_machine.current_phase
+        if current_phase == PokerPhase.RIVER:
+            next_phase = PokerPhase.SHOWDOWN
+        else:
+            next_phase = PokerPhase.DEALING_CARDS
+        cleared = state_machine._state_machine.game_state.update(
+            awaiting_action=False, run_it_out=False,
+        )
+        state_machine._state_machine = (
+            state_machine._state_machine
+            .with_game_state(cleared)
+            .with_phase(next_phase)
+        )
+
+    state_machine.run_until_player_action()
+    logger.warning(
+        f"[RECOVER] Recovered stuck run_it_out — settled at "
+        f"phase={state_machine.current_phase.name}, "
+        f"awaiting={state_machine.game_state.awaiting_action}"
+    )
+    return True
+
+
 def progress_game(game_id: str) -> None:
     """Main game progression loop.
 

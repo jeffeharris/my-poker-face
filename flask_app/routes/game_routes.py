@@ -32,7 +32,8 @@ from ..socket_rate_limit import socket_rate_limit
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..handlers.game_handler import (
-    progress_game, update_and_emit_game_state, restore_ai_controllers
+    progress_game, update_and_emit_game_state, restore_ai_controllers,
+    recover_stuck_runout
 )
 from ..handlers.message_handler import (
     send_message, format_action_message, record_action_in_memory, format_messages_for_api
@@ -564,6 +565,16 @@ def api_game_state(game_id):
                     'hand_start_stacks': hand_start_stacks,
                     'short_stack_players': short_stack_players,
                 }
+                # Recover from games persisted mid-all-in-runout (server
+                # crash while run_it_out=True). Without this, the player
+                # sees a stuck state with no action buttons (the UI
+                # clears options whenever run_it_out is set). Fast-
+                # forwards through the run-out to the next stable point
+                # — usually the showdown completes and a new hand
+                # begins. Re-saves so the recovered state is durable.
+                if recover_stuck_runout(state_machine):
+                    game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+
                 game_state_service.set_game(game_id, current_game_data)
 
                 game_state = state_machine.game_state
