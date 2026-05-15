@@ -139,10 +139,12 @@ class CbetDetector:
             self._flop_bet_made = True
 
         # 3. Detect the c-bet itself. Only the first qualifying flop
-        #    bet/raise from the preflop raiser counts.
+        #    bet/raise from the preflop raiser counts. Includes 'all_in'
+        #    so low-SPR shoves register and opponent fold-to-cbet stats
+        #    stay accurate.
         if (
             phase == 'FLOP'
-            and action in ('bet', 'raise')
+            and action in ('bet', 'raise', 'all_in')
             and player_name == self._preflop_raiser
             and not self._cbet_made
         ):
