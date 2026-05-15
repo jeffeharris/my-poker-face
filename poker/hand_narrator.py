@@ -114,7 +114,7 @@ def narrate_hand_recap(
     # Player list with abbreviated positions
     player_strs = []
     for p in hand.players:
-        pos = _abbreviate_position(p.position)
+        pos = abbreviate_position(p.position)
         name_display = _display_name(p.name, perspective)
         player_strs.append(f"{name_display} ({pos})" if pos else name_display)
     lines.append(f"Players: {', '.join(player_strs)}")
@@ -858,7 +858,7 @@ _POSITION_ABBREV = {
 }
 
 
-def _abbreviate_position(position: Optional[str]) -> str:
+def abbreviate_position(position: Optional[str]) -> str:
     """Return short position label (BTN/SB/BB/UTG/...) or empty for Unknown."""
     if not position or position == "Unknown":
         return ""

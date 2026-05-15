@@ -424,6 +424,13 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
     if memory_manager:
         omm = getattr(memory_manager, 'opponent_model_manager', None)
 
+    # Reverse map: player name -> raw table position string. Used to
+    # annotate each opponent with their seat so the coach can reason
+    # about relative position (UTG opens vs BTN opens read very
+    # differently).
+    table_positions = getattr(game_state, 'table_positions', {}) or {}
+    position_by_name = {name: pos for pos, name in table_positions.items()}
+
     try:
         for player in game_state.players:
             if player.name == human_name or player.is_folded:
@@ -434,6 +441,7 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
 
             opp_data = {
                 'name': player.name,
+                'position': position_by_name.get(player.name),
                 'stack': player.stack,
                 'bet': player.bet,
                 'is_all_in': is_all_in,

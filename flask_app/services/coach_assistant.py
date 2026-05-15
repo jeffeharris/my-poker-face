@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, TypedDict
 from core.llm.assistant import Assistant
 from core.llm.tracking import CallType
 from core.llm.settings import get_default_provider, get_default_model
-from poker.hand_narrator import format_action_phrase
+from poker.hand_narrator import format_action_phrase, abbreviate_position
 from .skill_definitions import get_skill_by_id
 
 logger = logging.getLogger(__name__)
@@ -216,9 +216,23 @@ class CoachAssistant:
         return _parse_coach_response(response, coaching_data)
 
     def review_hand(self, hand_context_text: str) -> str:
-        """Generate a post-hand review."""
+        """Generate a post-hand review.
+
+        The shared system prompt mandates a JSON envelope, so we parse and
+        return just the advice text — the review UI renders this verbatim.
+        """
         message = f"Completed hand:\n{hand_context_text}\n\n{HAND_REVIEW_PROMPT}"
-        return self._assistant.chat(message)
+        response = self._assistant.chat(message, json_format=True)
+        try:
+            data = json.loads(response)
+            advice = data.get('advice')
+            if advice:
+                return advice
+            logger.warning(f"Coach review missing 'advice' field, raw: {response[:200]}")
+            return response.strip()
+        except json.JSONDecodeError as e:
+            logger.warning(f"Coach review JSON parse failed: {e}, raw: {response[:200]}")
+            return response.strip()
 
 
 def _format_stats_for_prompt(data: Dict) -> str:
@@ -351,23 +365,64 @@ def _format_stats_for_prompt(data: Dict) -> str:
     if opponents:
         lines.append("Opponents:")
         for opp in opponents:
-            parts = [opp['name']]
+            # Header: name with position (e.g. "Yoda (BTN)")
+            name = opp['name']
+            pos = abbreviate_position(opp.get('position'))
+            header = f"{name} ({pos})" if pos else name
+            parts = [header]
 
-            # Stack and all-in status (critical for valid recommendations)
+            # Stack / all-in (critical for valid recommendations) — show
+            # in BB too when we know the blinds so depth is comparable.
             stack = opp.get('stack')
             is_all_in = opp.get('is_all_in', False)
             if is_all_in:
                 parts.append("ALL-IN")
             elif stack is not None:
-                parts.append(f"${stack}")
+                if big_blind > 0:
+                    parts.append(f"${stack} ({stack // big_blind} BB)")
+                else:
+                    parts.append(f"${stack}")
 
             if opp.get('style') and opp['style'] != 'unknown':
                 parts.append(opp['style'])
-            if opp.get('vpip') is not None:
-                parts.append(f"VPIP={opp['vpip']:.0%}")
-            if opp.get('hands_observed', 0) > 0:
-                parts.append(f"{opp['hands_observed']} hands")
+
+            # Compact VPIP/PFR/AF triple — the standard read-trio.
+            # Skip the full triple when we don't have enough samples
+            # to make it meaningful (< ~10 hands).
+            vpip = opp.get('vpip')
+            pfr = opp.get('pfr')
+            af = opp.get('aggression')
+            hands = opp.get('hands_observed', 0) or 0
+            if vpip is not None and pfr is not None and af is not None and hands >= 10:
+                parts.append(f"VPIP/PFR/AF: {vpip:.0%}/{pfr:.0%}/{af:.1f}")
+            elif vpip is not None:
+                parts.append(f"VPIP={vpip:.0%}")
+
+            if hands > 0:
+                parts.append(f"{hands} hands")
             lines.append(f"  - {', '.join(parts)}")
+
+            # Cross-session history — surface only when present so the
+            # line stays compact in fresh games. Notes are the player's
+            # own observations from prior sessions, useful continuity.
+            hist = opp.get('historical') or {}
+            if hist:
+                hist_parts = []
+                sessions = hist.get('session_count')
+                total = hist.get('total_hands')
+                if sessions and total:
+                    hist_parts.append(f"{sessions} prior session(s), {total} hands total")
+                hv = hist.get('vpip')
+                hp = hist.get('pfr')
+                ha = hist.get('aggression')
+                if hv is not None and hp is not None and ha is not None:
+                    hist_parts.append(f"VPIP/PFR/AF: {hv:.0%}/{hp:.0%}/{ha:.1f}")
+                notes = hist.get('notes') or []
+                if notes:
+                    note_str = ' | '.join(str(n) for n in notes[-2:])
+                    hist_parts.append(f"notes: {note_str}")
+                if hist_parts:
+                    lines.append(f"      history: {'; '.join(hist_parts)}")
 
     # Progression context — skill focus for coaching
     progression = data.get('progression', {})
