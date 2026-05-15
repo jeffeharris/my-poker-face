@@ -72,6 +72,29 @@ class OpponentTendencies:
     all_in_per_facing_bet: float = 0.0        # response-aggression axis
     postflop_jam_open_rate: float = 0.0       # open-aggression axis
 
+    # Opportunity-normalized preflop stats. The legacy `vpip` and `pfr`
+    # use hands_dealt as denominator, which causes 1/N scaling with
+    # player count: a ManiacBot raising 100% of preflop opportunities
+    # accumulates vpip=0.50 in HU, 0.33 in 3-player, 0.17 in 6-max
+    # because the opener seat rotates. Detection thresholds calibrated
+    # against vpip don't transfer across table sizes.
+    #
+    # These per-opportunity variants normalize against the situations
+    # the opponent actually faced:
+    #   - pfr_per_open_opportunity: numerator = preflop raises;
+    #     denominator = hands the opponent had a chance to be the
+    #     preflop opener (action came to them without a live raise).
+    #   - vpip_per_voluntary_opportunity: numerator = voluntary preflop
+    #     pot entries (call/raise/bet/all-in); denominator = hands the
+    #     opponent had any voluntary preflop decision (any non-blind
+    #     preflop action by them).
+    #
+    # Stay at neutral prior 0.5 until at least one observed
+    # opportunity (mirrors fold_to_cbet / cbet_attempt_rate's
+    # "no sample = neutral" stance).
+    pfr_per_open_opportunity: float = 0.5
+    vpip_per_voluntary_opportunity: float = 0.5
+
     # Trend tracking
     recent_trend: str = 'stable'    # 'tightening', 'loosening', 'stable'
 
@@ -105,6 +128,38 @@ class OpponentTendencies:
     _postflop_open_opportunities: int = 0  # postflop decisions with no live bet (legal bet/all-in available)
     _postflop_jam_opens: int = 0           # subset: opponent went all-in into no-bet pot
 
+    # Opportunity-normalized preflop counters. Counted ONCE per hand
+    # (same as _vpip_count / _pfr_count) so the resulting ratios stay
+    # bounded by 1.0 for a 100%-action opponent regardless of how
+    # many decisions they faced inside the hand.
+    # _preflop_voluntary_opportunities: hand had any voluntary preflop
+    #   decision by this opponent.
+    # _preflop_open_opportunities: hand had any voluntary preflop
+    #   decision where there was no live raise above the blind (open
+    #   opportunity).
+    # _preflop_open_raise_count: numerator for pfr_per_open_opportunity.
+    #   Counts hands where opponent took an open RAISE (first voluntary
+    #   raise of the hand with no prior raise above the blind).
+    #   Different from _pfr_count, which includes 3-bets/4-bets — a
+    #   ratio of _pfr_count / open_opportunities can exceed 1.0 because
+    #   3-bets happen when there's no open opportunity.
+    # _preflop_voluntary_action_count: numerator for vpip_per_voluntary_
+    #   opportunity. Counts hands where the opponent took any voluntary
+    #   chip-commit action (call/raise/bet/all-in) given they had a
+    #   voluntary decision.  Mirrors _vpip_count but with a per-hand
+    #   gate that fires only when an opportunity was registered.
+    _preflop_voluntary_opportunities: int = 0
+    _preflop_open_opportunities: int = 0
+    _preflop_open_raise_count: int = 0
+    _preflop_voluntary_action_count: int = 0
+
+    # Per-hand opportunity flags (reset on new hand, mirror _vpip_this_hand /
+    # _pfr_this_hand).
+    _preflop_voluntary_opp_this_hand: bool = False
+    _preflop_open_opp_this_hand: bool = False
+    _preflop_open_raised_this_hand: bool = False
+    _preflop_vol_action_this_hand: bool = False
+
     # Phase 7.5 Item 2b: sliding window of recent postflop events for
     # tier decay. Each entry is (action, was_facing_bet). Push on each
     # postflop update_from_action call; deque auto-pops oldest when
@@ -134,6 +189,10 @@ class OpponentTendencies:
         self.hands_dealt += 1
         self._vpip_this_hand = False
         self._pfr_this_hand = False
+        self._preflop_voluntary_opp_this_hand = False
+        self._preflop_open_opp_this_hand = False
+        self._preflop_open_raised_this_hand = False
+        self._preflop_vol_action_this_hand = False
         self._recalculate_stats()
 
     def update_from_action(
@@ -152,13 +211,21 @@ class OpponentTendencies:
                 set). False if no live bet (check/bet/all-in into no-bet pot).
                 None when caller can't determine — postflop counters skipped.
                 Required for postflop_open_opportunities vs
-                facing_bet_opportunities accounting.
+                facing_bet_opportunities accounting. Preflop opportunity
+                counters (open / voluntary) also key off this flag —
+                "facing a bet" preflop = a live RAISE above the blind has
+                been made by another player (i.e. opponent's decision is
+                call/3-bet/fold rather than open/check-BB-option).
         """
         if count_hand:
             self.hands_observed += 1
             # Reset per-hand flags for new hand
             self._vpip_this_hand = False
             self._pfr_this_hand = False
+            self._preflop_voluntary_opp_this_hand = False
+            self._preflop_open_opp_this_hand = False
+            self._preflop_open_raised_this_hand = False
+            self._preflop_vol_action_this_hand = False
 
         # Track VPIP (voluntary pot entry) - only count ONCE per hand.
         # all_in is voluntary chip commitment and counts as VPIP.
@@ -188,8 +255,74 @@ class OpponentTendencies:
         if phase in ('FLOP', 'TURN', 'RIVER') and was_facing_bet is not None:
             self._apply_postflop_counters(action, was_facing_bet)
 
+        # Opportunity-normalized preflop counters. Bumped on every
+        # voluntary preflop action where the caller supplied facing-bet
+        # context. Forced blind posts ('sb'/'bb', is_voluntary=False)
+        # are not opportunities — the chips are auto-posted, not a
+        # decision. When was_facing_bet is None the caller couldn't
+        # determine context, so skip rather than guess wrong.
+        if (
+            phase == 'PRE_FLOP'
+            and is_voluntary
+            and was_facing_bet is not None
+        ):
+            self._apply_preflop_opportunity_counters(action, was_facing_bet)
+
         # Recalculate stats
         self._recalculate_stats()
+
+    def _apply_preflop_opportunity_counters(
+        self, action: str, was_facing_bet: bool,
+    ) -> None:
+        """Update preflop opportunity counters from one voluntary action.
+
+        Counted ONCE per hand on both sides so the resulting ratios
+        stay bounded by 1.0 for a 100%-action opponent regardless of
+        how many decisions they faced inside the hand.
+
+        Denominator counters (the "opportunities"):
+        - `_preflop_voluntary_opportunities` ticks once when the
+          opponent first acts voluntarily preflop.
+        - `_preflop_open_opportunities` ticks once when the opponent
+          first acts voluntarily preflop AND there's no live raise
+          above the blind (was_facing_bet=False — they could have
+          been the preflop opener).
+
+        Numerator counters (the "took the action"):
+        - `_preflop_voluntary_action_count` ticks once when the
+          opponent first voluntarily puts chips in the pot (call /
+          raise / bet / all-in). Counted only against
+          _preflop_voluntary_opportunities for `vpip_per_voluntary_
+          opportunity`.
+        - `_preflop_open_raise_count` ticks once when the opponent
+          OPENS preflop with a raise/all-in (raise as the first
+          voluntary raiser — i.e. while not facing a raise). This is
+          the numerator for `pfr_per_open_opportunity`. NOT the same
+          as `_pfr_count`, which counts ANY preflop raise (3-bet,
+          4-bet, etc.) and can exceed open opportunities.
+        """
+        # Denominators
+        if not self._preflop_voluntary_opp_this_hand:
+            self._preflop_voluntary_opportunities += 1
+            self._preflop_voluntary_opp_this_hand = True
+        if not was_facing_bet and not self._preflop_open_opp_this_hand:
+            self._preflop_open_opportunities += 1
+            self._preflop_open_opp_this_hand = True
+
+        # Numerators
+        if (
+            action in ('call', 'raise', 'bet', 'all_in')
+            and not self._preflop_vol_action_this_hand
+        ):
+            self._preflop_voluntary_action_count += 1
+            self._preflop_vol_action_this_hand = True
+        if (
+            action in ('raise', 'all_in')
+            and not was_facing_bet
+            and not self._preflop_open_raised_this_hand
+        ):
+            self._preflop_open_raise_count += 1
+            self._preflop_open_raised_this_hand = True
 
     def _apply_postflop_counters(self, action: str, was_facing_bet: bool) -> None:
         """Update Phase 7.5 postflop-only counters from an action.
@@ -370,6 +503,26 @@ class OpponentTendencies:
         if self._showdowns > 0:
             self.showdown_win_rate = self._showdowns_won / self._showdowns
 
+        # Opportunity-normalized preflop stats. Stay at neutral prior
+        # 0.5 until at least one opportunity is observed (mirrors
+        # fold_to_cbet / cbet_attempt_rate's "no sample = neutral" stance).
+        # Numerators use dedicated _preflop_open_raise_count /
+        # _preflop_voluntary_action_count rather than _pfr_count /
+        # _vpip_count to keep the ratios bounded by 1.0 — the legacy
+        # counters tick for 3-bets too, which happen in non-open spots
+        # and would drive pfr_per_open_opportunity > 1.0 for an
+        # always-raising opponent.
+        if self._preflop_open_opportunities > 0:
+            self.pfr_per_open_opportunity = (
+                self._preflop_open_raise_count
+                / self._preflop_open_opportunities
+            )
+        if self._preflop_voluntary_opportunities > 0:
+            self.vpip_per_voluntary_opportunity = (
+                self._preflop_voluntary_action_count
+                / self._preflop_voluntary_opportunities
+            )
+
         # Phase 7.5 Step 0: postflop opportunity-normalized stats.
         # Has the AF raw-count cap from day one — this field is new, no
         # legacy consumer to protect, so the cap lands here in Step 0.
@@ -483,6 +636,9 @@ class OpponentTendencies:
             'aggression_factor_postflop': self.aggression_factor_postflop,
             'all_in_per_facing_bet': self.all_in_per_facing_bet,
             'postflop_jam_open_rate': self.postflop_jam_open_rate,
+            # Opportunity-normalized preflop stats
+            'pfr_per_open_opportunity': self.pfr_per_open_opportunity,
+            'vpip_per_voluntary_opportunity': self.vpip_per_voluntary_opportunity,
             'recent_trend': self.recent_trend,
             '_vpip_count': self._vpip_count,
             '_pfr_count': self._pfr_count,
@@ -503,6 +659,11 @@ class OpponentTendencies:
             '_all_ins_facing_bet': self._all_ins_facing_bet,
             '_postflop_open_opportunities': self._postflop_open_opportunities,
             '_postflop_jam_opens': self._postflop_jam_opens,
+            # Opportunity-normalized preflop counters
+            '_preflop_voluntary_opportunities': self._preflop_voluntary_opportunities,
+            '_preflop_open_opportunities': self._preflop_open_opportunities,
+            '_preflop_open_raise_count': self._preflop_open_raise_count,
+            '_preflop_voluntary_action_count': self._preflop_voluntary_action_count,
             # Phase 7.5 Item 2b: sliding-window events (list-serialized)
             '_recent_postflop_events': list(self._recent_postflop_events),
         }
@@ -528,6 +689,11 @@ class OpponentTendencies:
             aggression_factor_postflop=data.get('aggression_factor_postflop', 1.0),
             all_in_per_facing_bet=data.get('all_in_per_facing_bet', 0.0),
             postflop_jam_open_rate=data.get('postflop_jam_open_rate', 0.0),
+            # Opportunity-normalized preflop stats (neutral prior 0.5).
+            pfr_per_open_opportunity=data.get('pfr_per_open_opportunity', 0.5),
+            vpip_per_voluntary_opportunity=data.get(
+                'vpip_per_voluntary_opportunity', 0.5,
+            ),
             recent_trend=data.get('recent_trend', 'stable')
         )
         tendencies._vpip_count = data.get('_vpip_count', 0)
@@ -549,6 +715,19 @@ class OpponentTendencies:
         tendencies._all_ins_facing_bet = data.get('_all_ins_facing_bet', 0)
         tendencies._postflop_open_opportunities = data.get('_postflop_open_opportunities', 0)
         tendencies._postflop_jam_opens = data.get('_postflop_jam_opens', 0)
+        # Opportunity-normalized preflop counter defaults (missing-field tolerance).
+        tendencies._preflop_voluntary_opportunities = data.get(
+            '_preflop_voluntary_opportunities', 0,
+        )
+        tendencies._preflop_open_opportunities = data.get(
+            '_preflop_open_opportunities', 0,
+        )
+        tendencies._preflop_open_raise_count = data.get(
+            '_preflop_open_raise_count', 0,
+        )
+        tendencies._preflop_voluntary_action_count = data.get(
+            '_preflop_voluntary_action_count', 0,
+        )
         # Phase 7.5 Item 2b: restore sliding-window events. Old records
         # without this field get an empty window — the tier-decay logic
         # treats sub-threshold windows as "no recent data," falling back
@@ -797,6 +976,11 @@ def _build_aggregate_from_single(t: OpponentTendencies):
         facing_bet_opportunities=t._facing_bet_opportunities,
         postflop_jam_open_rate=t.postflop_jam_open_rate,
         postflop_open_opportunities=t._postflop_open_opportunities,
+        # Opportunity-normalized preflop fields
+        pfr_per_open_opportunity=t.pfr_per_open_opportunity,
+        vpip_per_voluntary_opportunity=t.vpip_per_voluntary_opportunity,
+        preflop_open_opportunities=t._preflop_open_opportunities,
+        preflop_voluntary_opportunities=t._preflop_voluntary_opportunities,
     )
 
 
@@ -830,6 +1014,21 @@ def _build_aggregate_from_multi(tendencies_list):
     min_facing_bet_opps = min(t._facing_bet_opportunities for t in tendencies_list)
     min_open_opps = min(t._postflop_open_opportunities for t in tendencies_list)
 
+    # Opportunity-normalized preflop fields — same policy as Phase 7.5:
+    # rates average, counters MIN (limiting factor for confidence).
+    avg_pfr_per_open = sum(
+        t.pfr_per_open_opportunity for t in tendencies_list
+    ) / n
+    avg_vpip_per_vol = sum(
+        t.vpip_per_voluntary_opportunity for t in tendencies_list
+    ) / n
+    min_pre_open_opps = min(
+        t._preflop_open_opportunities for t in tendencies_list
+    )
+    min_pre_vol_opps = min(
+        t._preflop_voluntary_opportunities for t in tendencies_list
+    )
+
     return AggregatedOpponentStats(
         hands_observed=min_hands,
         vpip=avg_vpip,
@@ -843,6 +1042,10 @@ def _build_aggregate_from_multi(tendencies_list):
         facing_bet_opportunities=min_facing_bet_opps,
         postflop_jam_open_rate=avg_jam_open,
         postflop_open_opportunities=min_open_opps,
+        pfr_per_open_opportunity=avg_pfr_per_open,
+        vpip_per_voluntary_opportunity=avg_vpip_per_vol,
+        preflop_open_opportunities=min_pre_open_opps,
+        preflop_voluntary_opportunities=min_pre_vol_opps,
     )
 
 

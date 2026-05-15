@@ -38,6 +38,13 @@ from poker.strategy.exploitation import (
 
 def _stats(*, hands_observed=50, vpip=0.85, aggression_factor=0.4,
             all_in_frequency=0.0, **kwargs) -> AggregatedOpponentStats:
+    # Mirror legacy vpip into the opp-normalized field by default so
+    # tests written against legacy semantics keep firing the rate-
+    # based detectors (now reading vpip_per_voluntary_opportunity).
+    kwargs.setdefault('vpip_per_voluntary_opportunity', vpip)
+    kwargs.setdefault(
+        'preflop_voluntary_opportunities', max(hands_observed - 5, 0),
+    )
     return AggregatedOpponentStats(
         hands_observed=hands_observed,
         vpip=vpip,

@@ -54,10 +54,15 @@ def _pure_station_stats(hands: int = 100) -> AggregatedOpponentStats:
     """Stats that classify_opponent_archetype labels 'pure_station':
     high VPIP, low AF, low all_in_frequency (below the
     PASSIVE_WITH_JAMS threshold of 0.05).
+
+    Migrated to opportunity-normalized vpip_per_voluntary_opportunity
+    so _is_hyper_passive fires under the new threshold (0.70).
     """
     return AggregatedOpponentStats(
         hands_observed=hands,
         vpip=0.75, pfr=0.05,
+        vpip_per_voluntary_opportunity=0.85,
+        preflop_voluntary_opportunities=hands - 5,
         aggression_factor=0.3,
         all_in_frequency=0.0,
     )
@@ -73,6 +78,8 @@ def _sticky_jammer_stats(hands: int = 100) -> AggregatedOpponentStats:
     return AggregatedOpponentStats(
         hands_observed=hands,
         vpip=0.65, pfr=0.03,
+        vpip_per_voluntary_opportunity=0.80,
+        preflop_voluntary_opportunities=hands - 5,
         aggression_factor=0.5,
         all_in_frequency=0.12,
     )
@@ -83,6 +90,8 @@ def _balanced_stats(hands: int = 100) -> AggregatedOpponentStats:
     return AggregatedOpponentStats(
         hands_observed=hands,
         vpip=0.25, pfr=0.20,
+        vpip_per_voluntary_opportunity=0.40,
+        preflop_voluntary_opportunities=hands - 5,
         aggression_factor=2.5,
         all_in_frequency=0.02,
     )

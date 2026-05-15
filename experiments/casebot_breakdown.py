@@ -199,11 +199,34 @@ def _run_hand_instrumented(
             p.name for p in gs.players if not getattr(p, 'is_folded', False)
         ]
 
+        # Compute was_facing_bet snapshot BEFORE cbet_detector / aggregator
+        # updates. Mirrors AIMemoryManager.on_action's preflop+postflop
+        # capture so the opportunity-normalized VPIP/PFR counters track
+        # correctly in the simulator path.
+        if phase_name in ('FLOP', 'TURN', 'RIVER'):
+            recent_postflop = getattr(
+                hero_controller, '_sim_recent_aggressor', None,
+            ) if hero_controller is not None else None
+            was_facing_bet_snapshot = (
+                recent_postflop is not None
+                and recent_postflop != current_player.name
+                and sim_current_street == phase_name
+            )
+        elif phase_name == 'PRE_FLOP':
+            prior_raiser = cbet_detector.preflop_aggressor
+            was_facing_bet_snapshot = (
+                prior_raiser is not None
+                and prior_raiser != current_player.name
+            )
+        else:
+            was_facing_bet_snapshot = None
+
         if opponent_manager is not None and current_player.name != hero_name:
             opponent_manager.observe_action(
                 observer=hero_name, opponent=current_player.name,
                 action=action, phase=phase_name,
                 is_voluntary=True, hand_number=hand_number,
+                was_facing_bet=was_facing_bet_snapshot,
             )
 
         cbet_responses = cbet_detector.record_action(

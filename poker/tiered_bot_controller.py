@@ -1817,6 +1817,22 @@ class TieredBotController(AIPlayerController):
                             facing_bet_opportunities=t._facing_bet_opportunities,
                             postflop_jam_open_rate=t.postflop_jam_open_rate,
                             postflop_open_opportunities=t._postflop_open_opportunities,
+                            # Opportunity-normalized preflop fields.
+                            # getattr-with-default so SimpleNamespace test
+                            # mocks built before this field landed still
+                            # work (they fall back to neutral prior / 0).
+                            pfr_per_open_opportunity=getattr(
+                                t, 'pfr_per_open_opportunity', 0.5,
+                            ),
+                            vpip_per_voluntary_opportunity=getattr(
+                                t, 'vpip_per_voluntary_opportunity', 0.5,
+                            ),
+                            preflop_open_opportunities=getattr(
+                                t, '_preflop_open_opportunities', 0,
+                            ),
+                            preflop_voluntary_opportunities=getattr(
+                                t, '_preflop_voluntary_opportunities', 0,
+                            ),
                         )
 
             spots.append(OpponentSpot(
@@ -1862,6 +1878,26 @@ class TieredBotController(AIPlayerController):
                         all_in_frequency=t.all_in_frequency,
                         fold_to_cbet=t.fold_to_cbet,
                         cbet_faced_count=t._cbet_faced_count,
+                        # Opportunity-normalized preflop fields preserve
+                        # the legacy-path behavior of single-aggressor
+                        # facing-bet selection. Postflop Phase 7.5 fields
+                        # are intentionally omitted here (legacy path was
+                        # already incomplete — _select_exploitation_stats_
+                        # from_spots is the canonical route). getattr-
+                        # with-default keeps SimpleNamespace mocks
+                        # backwards compatible.
+                        pfr_per_open_opportunity=getattr(
+                            t, 'pfr_per_open_opportunity', 0.5,
+                        ),
+                        vpip_per_voluntary_opportunity=getattr(
+                            t, 'vpip_per_voluntary_opportunity', 0.5,
+                        ),
+                        preflop_open_opportunities=getattr(
+                            t, '_preflop_open_opportunities', 0,
+                        ),
+                        preflop_voluntary_opportunities=getattr(
+                            t, '_preflop_voluntary_opportunities', 0,
+                        ),
                     )
         return manager.aggregate_active_opponents(
             observer=hero_name,

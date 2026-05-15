@@ -478,6 +478,27 @@ def run_hand(
             p.name for p in gs.players if not getattr(p, 'is_folded', False)
         ]
 
+        # Compute was_facing_bet BEFORE cbet_detector updates (mirror
+        # AIMemoryManager.on_action). Required for opportunity-normalized
+        # VPIP/PFR counters preflop and AF-postflop axes postflop.
+        if phase_name in ('FLOP', 'TURN', 'RIVER'):
+            recent_postflop = getattr(
+                hero_controller, '_sim_recent_aggressor', None,
+            ) if hero_controller is not None else None
+            was_facing_bet_snapshot = (
+                recent_postflop is not None
+                and recent_postflop != current_player.name
+                and sim_current_street == phase_name
+            )
+        elif phase_name == 'PRE_FLOP':
+            prior_raiser = cbet_detector.preflop_aggressor
+            was_facing_bet_snapshot = (
+                prior_raiser is not None
+                and prior_raiser != current_player.name
+            )
+        else:
+            was_facing_bet_snapshot = None
+
         # Phase 6: feed non-hero actions into hero's opponent model so the
         # tiered bot can detect tendencies (VPIP/PFR/AF/all-in freq) and
         # adapt across hands. Hero's own actions are skipped.
@@ -493,6 +514,7 @@ def run_hand(
                 phase=phase_name,
                 is_voluntary=True,
                 hand_number=hand_number,
+                was_facing_bet=was_facing_bet_snapshot,
             )
 
         # play_turn expects raise_to as absolute amount for 'raise' action
