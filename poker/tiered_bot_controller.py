@@ -114,16 +114,10 @@ def _coarse_strength_tier(hand_name: str) -> str:
 # with_traces. Kept in one place so the controller-level early-out (when
 # manager / anchors unavailable) emits the same rule_id surface as a
 # normal-path evaluation that gated each rule out individually.
-_EXPLOITATION_RULE_ORDER: Tuple[Tuple[str, str], ...] = (
-    ('exploitation', 'hyper_aggressive'),
-    ('exploitation', 'hyper_passive'),
-    ('exploitation', 'tight_nit'),
-    ('exploitation', 'high_fold_to_cbet'),
-    ('exploitation', 'multiway_cbet'),
-    ('value_vs_station', 'default'),
-    ('steal_pressure', 'default'),
-    ('bluff_reduction', 'default'),
-)
+# Re-export from strategy.exploitation so the early-out path emits the
+# same trace surface as the hot path. T3-62 — was previously duplicated
+# locally and the two definitions had already drifted.
+from .strategy.exploitation import RULE_ORDER as _EXPLOITATION_RULE_ORDER  # noqa: E402
 
 
 def _exploitation_no_op_traces(

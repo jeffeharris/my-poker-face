@@ -1560,10 +1560,12 @@ def register_socket_events(sio):
         if not game_data:
             return
 
-        # Verify the current user is the game owner
+        # Verify the current user is the game owner (or an admin —
+        # matches the bypass already in send_message and progress_game).
         user = auth_manager.get_current_user() if auth_manager else None
         owner_id = game_data.get('owner_id')
-        if not user or user.get('id') != owner_id:
+        user_id = user.get('id') if user else None
+        if not user_id or (user_id != owner_id and not _is_admin(user_id)):
             emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
 

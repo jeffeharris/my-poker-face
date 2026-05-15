@@ -582,9 +582,9 @@ class CommentaryGenerator:
                     "Ouch.",
                 ])
 
-        # Simple random selection (avoid importing random just for this)
+        # Local Random instance — avoids mutating the global state.
         import random
-        return random.choice(reactions) if reactions else None
+        return random.Random().choice(reactions) if reactions else None
 
     def _build_hand_summary(
         self,

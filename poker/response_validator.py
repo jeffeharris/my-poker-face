@@ -53,6 +53,11 @@ def needs_llm_normalization(beats: List[str]) -> bool:
             if text[0] in '"\'' and len(text) >= 2 and text[-1] in '"\'':
                 return True  # quote-wrapped speech/action
             continue
+        # Lone single-asterisk strings ('*' on its own) aren't real
+        # action beats — skip them rather than spending a fast-tier LLM
+        # call on a single character.
+        if len(text) < 3:
+            continue
         return True  # has asterisks but isn't a single pure action
     return False
 

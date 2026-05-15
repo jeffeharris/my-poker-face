@@ -115,6 +115,8 @@ def _make_game_state(num_players: int, num_folded: int = 0, position_key: str = 
         current_ante=100,
         highest_bet=100,
         last_raise_amount=100,
+        # Engine property — kept consistent with last_raise_amount.
+        min_raise_amount=100,
         raises_this_round=0,
         community_cards=(),
         pot={'total': 150},

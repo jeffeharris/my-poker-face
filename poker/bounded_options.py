@@ -1005,9 +1005,11 @@ def _option_spectrum_position(option: BoundedOption) -> int:
     if option.action == 'call':
         return 2
     if option.action == 'raise':
-        return 3 + option.raise_to  # bigger raises are more aggressive
+        # Cap raise position so deep-stack sizes can't approach the all-in
+        # sentinel and break ordering.
+        return 3 + min(option.raise_to, 99_000)
     if option.action == 'all_in':
-        return 100000  # most aggressive
+        return 1_000_000  # most aggressive — well above any capped raise
     return 2  # fallback
 
 
@@ -1304,8 +1306,9 @@ def apply_emotional_window_shift(
         new_opt = _make_passive_option(modified, context, emotional_shift.state)
 
     if new_opt:
-        # For moderate+ severity: if at cap, remove from opposite end to make room
-        # For mild: allow expansion (add without removing)
+        # Only `extreme` severity removes the opposite-end option to make
+        # room when the menu is already at cap (4 options). `mild` and
+        # `moderate` always expand the menu instead.
         if severity == 'extreme' and len(modified) >= 4:
             sorted_opts = sorted(modified, key=_option_spectrum_position)
             if direction == 'aggressive':

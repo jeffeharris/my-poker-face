@@ -504,7 +504,6 @@ CRITICAL RULES:
 
         # Capture emotional shift state at enricher creation time
         emotional_shift = get_emotional_shift(self.psychology)
-        rd = range_data or {}
 
         def enrich_capture(capture_data: Dict) -> Dict:
             # Core hybrid data
