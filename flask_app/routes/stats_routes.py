@@ -40,7 +40,10 @@ def _is_admin(user_id: str) -> bool:
 def _require_game_owner(game_id: str, game_data: dict):
     """Reject if caller doesn't own ``game_id`` and isn't an admin.
 
-    Returns a Flask response tuple on rejection, or ``None`` to continue.
+    Mirrors the deny semantics of game_routes._authorize_game_access:
+    a NULL ``owner_id`` is treated as "not owned by this user" and
+    rejected with 403 unless the caller is an admin. Returns a Flask
+    response tuple on rejection, or ``None`` to continue.
     """
     user = auth_manager.get_current_user() if auth_manager else None
     user_id = user.get('id') if user else ''
@@ -56,7 +59,7 @@ def _require_game_owner(game_id: str, game_data: dict):
                 game_data['owner_id'] = owner_id
                 game_data.setdefault('owner_name', owner_info.get('owner_name'))
 
-    if owner_id and owner_id != user_id and not _is_admin(user_id):
+    if owner_id != user_id and not _is_admin(user_id):
         return jsonify({'error': 'Permission denied'}), 403
     return None
 

@@ -166,6 +166,33 @@ class TestCoachRouteAuth(unittest.TestCase):
         finally:
             self._exit(patchers)
 
+    def test_null_owner_denied_for_non_admin(self):
+        """A game with NULL owner (legacy / orphaned row) must not be
+        usable by an arbitrary authenticated coach-tier user — mirrors
+        the deny semantics of game_routes._authorize_game_access.
+        """
+        game_id = 'coach-null-owner-1'
+        # Seed a row with owner_id=None directly via game_repo.
+        from poker.poker_game import initialize_game_state
+        from poker.poker_state_machine import PokerStateMachine
+        sm = PokerStateMachine(initialize_game_state(['AI Opponent'], human_name='Player'))
+        self.game_repo.save_game(game_id, sm, owner_id=None, owner_name=None)
+        game_state_service.set_game(game_id, {
+            'state_machine': sm,
+            'owner_id': None,
+            'owner_name': None,
+            'messages': [],
+            'game_started': True,
+        })
+
+        intruder = {'id': 'intruder-2', 'name': 'Intruder Two'}
+        patchers = self._enter(self._patch_user(intruder, admin=False))
+        try:
+            response = self.client.get(f'/api/coach/{game_id}/config')
+            self.assertEqual(response.status_code, 403, response.get_data(as_text=True))
+        finally:
+            self._exit(patchers)
+
 
 if __name__ == '__main__':
     unittest.main()
