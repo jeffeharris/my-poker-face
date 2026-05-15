@@ -52,7 +52,9 @@ logger = logging.getLogger(__name__)
 # v81: Add intervention_trace_json to player_decision_analysis for Phase 7.6 per-decision attribution
 # v82: Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1 (shadow-eval) replay
 # v83: Add psychology_json to controller_state for v2.1 unified psychology persistence (T1-29)
-SCHEMA_VERSION = 83
+# v84: Add UNIQUE(game_id, player_name, hand_number) on personality_snapshots so the
+#      INSERT OR IGNORE in save_personality_snapshot can actually deduplicate retried writes (T1-32 follow-up)
+SCHEMA_VERSION = 84
 
 
 
@@ -184,7 +186,8 @@ class SchemaManager:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_player_game ON ai_player_state(game_id, player_name)")
 
-            # 5. Personality snapshots
+            # 5. Personality snapshots (v84 added UNIQUE constraint so retried
+            #    save_personality_snapshot writes can be deduplicated by INSERT OR IGNORE)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS personality_snapshots (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,7 +197,8 @@ class SchemaManager:
                     personality_traits TEXT,
                     pressure_levels TEXT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (game_id) REFERENCES games(game_id)
+                    FOREIGN KEY (game_id) REFERENCES games(game_id),
+                    UNIQUE (game_id, player_name, hand_number)
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_personality_snapshots ON personality_snapshots(game_id, hand_number)")
@@ -1101,6 +1105,7 @@ class SchemaManager:
             81: (self._migrate_v81_add_intervention_trace_json, "Add intervention_trace_json to player_decision_analysis for Phase 7.6"),
             82: (self._migrate_v82_add_strategy_pipeline_snapshot_json, "Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1"),
             83: (self._migrate_v83_add_psychology_json, "Add psychology_json to controller_state for v2.1 unified psychology persistence"),
+            84: (self._migrate_v84_add_personality_snapshots_unique, "Add UNIQUE(game_id, player_name, hand_number) to personality_snapshots so INSERT OR IGNORE deduplicates retries"),
         }
 
         with self._get_connection() as conn:
@@ -3530,3 +3535,63 @@ class SchemaManager:
         if 'psychology_json' not in existing:
             conn.execute("ALTER TABLE controller_state ADD COLUMN psychology_json TEXT")
             logger.info("Added psychology_json column to controller_state")
+
+    def _migrate_v84_add_personality_snapshots_unique(self, conn: sqlite3.Connection) -> None:
+        """Migration v84: enforce uniqueness on personality_snapshots.
+
+        ``save_personality_snapshot`` uses INSERT OR IGNORE so retried
+        writes after a database-locked failure don't duplicate the
+        elasticity snapshot timeline. SQLite needs an actual UNIQUE
+        constraint to enforce IGNORE semantics; without it the OR IGNORE
+        clause is a no-op.
+
+        SQLite can't add a UNIQUE constraint via ALTER TABLE. Use the
+        documented table-rebuild dance: drop pre-existing duplicates,
+        then rebuild via temp table + rename. Only one duplicate per
+        ``(game_id, player_name, hand_number)`` is preserved (the row
+        with the lowest id, i.e. the first write).
+        """
+        # Pre-deduplicate so the rebuild can apply UNIQUE without conflict.
+        conn.execute(
+            """
+            DELETE FROM personality_snapshots
+            WHERE id NOT IN (
+                SELECT MIN(id) FROM personality_snapshots
+                GROUP BY game_id, player_name, hand_number
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE personality_snapshots_v84 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_name TEXT NOT NULL,
+                game_id TEXT NOT NULL,
+                hand_number INTEGER,
+                personality_traits TEXT,
+                pressure_levels TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(game_id),
+                UNIQUE (game_id, player_name, hand_number)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO personality_snapshots_v84
+                (id, player_name, game_id, hand_number, personality_traits, pressure_levels, timestamp)
+            SELECT id, player_name, game_id, hand_number, personality_traits, pressure_levels, timestamp
+            FROM personality_snapshots
+            """
+        )
+        conn.execute("DROP TABLE personality_snapshots")
+        conn.execute("ALTER TABLE personality_snapshots_v84 RENAME TO personality_snapshots")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_personality_snapshots "
+            "ON personality_snapshots(game_id, hand_number)"
+        )
+        logger.info(
+            "Migration v84 complete: personality_snapshots now has "
+            "UNIQUE(game_id, player_name, hand_number)"
+        )

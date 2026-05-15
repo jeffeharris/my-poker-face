@@ -241,6 +241,29 @@ def test_personality_snapshot(repo):
     assert json.loads(row["pressure_levels"]) == pressure
 
 
+def test_save_personality_snapshot_idempotent(repo):
+    """T1-32 follow-up: schema v84 added UNIQUE(game_id, player_name,
+    hand_number) so retried INSERTs (after a database-locked failure)
+    produce exactly one row instead of duplicating the elasticity
+    snapshot timeline."""
+    traits = {"aggression": 0.7}
+    pressure = {"stack_pressure": 0.3}
+
+    repo.save_personality_snapshot("game1", "Batman", 5, traits, pressure)
+    repo.save_personality_snapshot("game1", "Batman", 5, traits, pressure)
+    repo.save_personality_snapshot("game1", "Batman", 5, traits, pressure)
+
+    import sqlite3
+    conn = sqlite3.connect(repo.db_path)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM personality_snapshots "
+        "WHERE game_id = ? AND player_name = ? AND hand_number = ?",
+        ("game1", "Batman", 5),
+    ).fetchone()[0]
+    conn.close()
+    assert count == 1, f"expected exactly 1 row, got {count}"
+
+
 # --- Emotional State ---
 
 def test_emotional_state_save_load(repo):
