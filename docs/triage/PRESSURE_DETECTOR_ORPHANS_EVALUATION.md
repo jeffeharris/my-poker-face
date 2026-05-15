@@ -70,44 +70,40 @@ Wiring is correct but all three impact layers are missing registrations:
 
 A human can trash-talk AI opponents all session with zero behavioral consequence.
 
-### Recommendation — FIX IN PLACE
+### Recommendation — DELETE (revised 2026-05-15)
 
-The feature is architecturally sound and already wired. Two small additions complete it:
+**Original recommendation was "fix in place" (add the two missing registrations).** User overrode after reviewing the design:
 
-**1. Add to `_get_pressure_impacts()` in `poker/player_psychology.py` (line ~384, end of `pressure_events` dict):**
+> "remove it, lets clean up the dead code. i don't think the idea was going to work which is why it was abandoned"
 
+The keyword-match approach has too many false positives to be useful (e.g. "good draw" → friendly_chat, "weak hand" → rivalry_trigger when said as neutral poker commentary). The feature was scaffolded but never finished, and the registrations are missing across three layers — strong signal that it was abandoned rather than overlooked. Delete it cleanly.
+
+### Cleanup steps
+
+**1. Delete `detect_chat_events` method** — `poker/pressure_detector.py:244-260`
+
+**2. Delete the caller** — `flask_app/routes/game_routes.py:1638-1652`, the entire post-`send_message` block:
 ```python
-# Chat events (applied real-time via apply_pressure_event)
-'rivalry_trigger': {'composure': -0.05, 'energy': 0.03},
-'friendly_chat':   {'composure':  0.03, 'energy': 0.01},
+# Remove these lines:
+if game_data and content:
+    if 'pressure_detector' in game_data and 'ai_controllers' in game_data:
+        pressure_detector = game_data['pressure_detector']
+        ai_controllers = game_data['ai_controllers']
+        ai_player_names = list(ai_controllers.keys())
+        chat_events = pressure_detector.detect_chat_events(sender, content, ai_player_names)
+        for event_name, affected_players in chat_events:
+            for player_name in affected_players:
+                if player_name in ai_controllers:
+                    controller = ai_controllers[player_name]
+                    if controller.psychology is not None:
+                        controller.psychology.apply_pressure_event(event_name, sender)
 ```
 
-Rationale: a taunt rattles composure and spikes alertness (energy); warmth has a minor calming effect. Both weaker than `fold_under_pressure` (`composure: 0.05`). Poise anchor scales composure impact via `_calculate_sensitivity`.
+**3. Verify no other call sites** — `grep -r 'detect_chat_events\|friendly_chat\|rivalry_trigger' poker/ flask_app/ tests/` should return only test files and the deletion targets.
 
-**2. Add to `EVENT_SEVERITY` in `poker/zone_config.py` (line ~192, end of dict):**
+**4. Remove any tests** that exercise `detect_chat_events` directly or assert on `friendly_chat`/`rivalry_trigger` event names.
 
-```python
-'rivalry_trigger': 'minor',
-'friendly_chat':   'minor',
-```
-
-No change to `ComposureState.update_from_event()` is needed — neither event warrants pressure-source tracking.
-
-### Optional — intrusive thoughts for rivalry_trigger
-
-Add to `INTRUSIVE_THOUGHTS` in `poker/zone_effects.py` so TILTED-zone players see taunt-specific thoughts:
-
-```python
-'rivalry_trigger': [
-    "They're trying to get in your head.",
-    "Prove them wrong. Make them pay.",
-    "Don't let their words change your game.",
-],
-```
-
-### Known limitation
-
-Keyword matching is naive — "nice hand" fires `friendly_chat`; "weak draw" fires `rivalry_trigger` as neutral commentary. Given the small impact magnitudes, false positives are acceptable noise. A higher-quality version would use `CallType.CATEGORIZATION` (fast LLM) but is out of scope.
+If the chat-tilts-AI idea is ever revisited, it should use a cheap LLM categorization (`CallType.CATEGORIZATION`) rather than keyword matching, and the impact registrations need to be designed alongside the detection.
 
 ## Test plan
 
@@ -119,44 +115,23 @@ Keyword matching is naive — "nice hand" fires `friendly_chat`; "weak draw" fir
   - `winner_info` with no `hand_rank` key, all others folded, big pot → expects `("successful_bluff", [winner])` in events
   - Self-reported `get_hand_bluff_likelihood() >= 50` also fires `successful_bluff`
 
-### `detect_chat_events` fix
+### `detect_chat_events` removal
 
-```python
-def test_rivalry_trigger_reduces_composure():
-    psych = PlayerPsychology.from_personality(name="Test", ...)
-    comp_before = psych.axes.composure
-    psych.apply_pressure_event('rivalry_trigger', 'Alice')
-    assert psych.axes.composure < comp_before
-
-def test_friendly_chat_raises_composure():
-    psych = PlayerPsychology.from_personality(name="Test", ...)
-    comp_before = psych.axes.composure
-    psych.apply_pressure_event('friendly_chat', 'Alice')
-    assert psych.axes.composure > comp_before
-
-def test_detect_chat_events_rivalry_keyword():
-    detector = PressureEventDetector()
-    events = detector.detect_chat_events('Alice', "you're scared aren't you", ['Bob'])
-    assert ('rivalry_trigger', ['Bob']) in events
-
-def test_detect_chat_events_friendly_keyword():
-    detector = PressureEventDetector()
-    events = detector.detect_chat_events('Alice', "nice hand!", ['Bob'])
-    assert ('friendly_chat', ['Bob']) in events
-```
+- Delete method at `poker/pressure_detector.py:244-260`
+- Delete caller block at `flask_app/routes/game_routes.py:1638-1652`
+- Remove any tests in `tests/test_pressure_system.py` that exercise `detect_chat_events`, `friendly_chat`, or `rivalry_trigger`
+- `grep -r 'detect_chat_events\|friendly_chat\|rivalry_trigger' poker/ flask_app/ tests/` should return zero hits in production code after cleanup
 
 ## Disposition summary
 
 | Method | Production status | Recommendation |
 |---|---|---|
 | `detect_fold_events` | Uncalled; dead fallback; superseded by `detect_showdown_events` | **DELETE** (lines 197-228) |
-| `detect_chat_events` | Called but silent no-op due to missing impact registration | **FIX IN PLACE** — 2 impact entries + 2 severity entries |
+| `detect_chat_events` | Called but silent no-op; design abandoned | **DELETE** (lines 244-260 + caller at `game_routes.py:1638-1652`) |
 
 ## Key files
 
-- `poker/pressure_detector.py` (lines 197-228 to delete; lines 244-260 correct as-is)
-- `poker/player_psychology.py:349-386` `_get_pressure_impacts` — add 2 entries
-- `poker/zone_config.py:160-192` `EVENT_SEVERITY` — add 2 entries
-- `flask_app/routes/game_routes.py:1640-1653` — existing wiring is correct, no change needed
-- `poker/psychology_pipeline.py:243-251` — shows how bluff_likelihoods flow into `detect_showdown_events`
-- `poker/psychology_model.py:164-177` `update_from_event` — no change needed for chat fix
+- `poker/pressure_detector.py` — delete lines 197-228 (`detect_fold_events`) and lines 244-260 (`detect_chat_events`)
+- `flask_app/routes/game_routes.py:1638-1652` — delete the chat-event detection block inside `send_message` socket handler
+- `poker/psychology_pipeline.py:243-251` — shows how `bluff_likelihoods` flow into `detect_showdown_events` (the surviving successor for fold-bluff detection)
+- `tests/test_pressure_system.py` — remove direct tests for `detect_fold_events` and `detect_chat_events`
