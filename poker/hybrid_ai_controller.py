@@ -175,6 +175,7 @@ class HybridAIController(AIPlayerController):
             in_range=range_data.get('in_range', True),
             range_pct=range_data.get('range_pct'),
             position_display=range_data.get('position_display'),
+            apply_hu_equity_offset=getattr(self.prompt_config, 'hu_equity_offset', False),
         )
 
         if not options:
@@ -341,7 +342,9 @@ class HybridAIController(AIPlayerController):
         equity = context.get('equity', 0.5)
         pot_odds = context.get('pot_odds', 0)
 
-        options_text = format_options_for_prompt(options, equity, pot_odds)
+        options_text = format_options_for_prompt(
+            options, equity, pot_odds, big_blind=context.get('big_blind'),
+        )
 
         choice_template = """
 {base_message}

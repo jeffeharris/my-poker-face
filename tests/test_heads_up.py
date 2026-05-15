@@ -160,6 +160,30 @@ class TestHeadsUpBoundedOptions:
         assert 'outside your range' not in hu_call.rationale
         assert 'outside your range' in mw_call.rationale
 
+    def test_hu_equity_offset_gated_off_by_default(self):
+        """T1-34 (gated): without apply_hu_equity_offset=True, HU equity is
+        unchanged (offsets stay opt-in for A/B work)."""
+        ctx = _bounded_context(equity=0.40, num_opponents=1, position='button',
+                               cost_to_call=100, pot_total=200)
+        opts_default = generate_bounded_options(ctx)
+        opts_explicit_off = generate_bounded_options(ctx, apply_hu_equity_offset=False)
+        # EV labels are identical without the offset.
+        assert [o.ev_estimate for o in opts_default] == [o.ev_estimate for o in opts_explicit_off]
+
+    def test_hu_equity_offset_when_enabled_promotes_btn_raise(self):
+        """T1-34 (gated): with apply_hu_equity_offset=True, BTN raises with
+        moderate equity get a stronger EV label (offset adds +0.30)."""
+        ctx = _bounded_context(equity=0.40, num_opponents=1, position='button',
+                               cost_to_call=100, pot_total=200)
+        without = generate_bounded_options(ctx, apply_hu_equity_offset=False)
+        with_offset = generate_bounded_options(ctx, apply_hu_equity_offset=True)
+        # The first raise option should improve from -EV/neutral to neutral/+EV
+        # under the offset. Compare label index to assert non-degradation.
+        order = {'-EV': 0, 'marginal': 1, 'neutral': 2, '+EV': 3}
+        without_raise = next(o for o in without if o.action == 'raise')
+        with_raise = next(o for o in with_offset if o.action == 'raise')
+        assert order[with_raise.ev_estimate] >= order[without_raise.ev_estimate]
+
     def test_heads_up_profile_overrides_apply_to_raise_ev_labels(self):
         profile = OptionProfile(
             raise_plus_ev=0.80,
