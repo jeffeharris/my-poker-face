@@ -47,6 +47,10 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             self.app = create_app()
         self.app.testing = True
+        # The shared limiter accumulates state across tests in the suite;
+        # disable it here so the duplicate-name validation actually runs
+        # rather than 429-ing on the third invocation in a row.
+        self.app.config['RATELIMIT_ENABLED'] = False
         self.client = self.app.test_client()
 
         # Patch game_routes module-level repo globals to this test's fresh repos.
@@ -83,10 +87,16 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
     def test_duplicate_player_name_returns_400(self):
         """POST /api/new-game with player name matching an AI personality returns 400."""
         with self._mock_auth():
-            response = self.client.post('/api/new-game', json={
-                'playerName': 'Batman',
-                'personalities': ['Batman', 'Yoda'],
-            })
+            response = self.client.post(
+                '/api/new-game',
+                json={
+                    'playerName': 'Batman',
+                    'personalities': ['Batman', 'Yoda'],
+                },
+                # Unique REMOTE_ADDR avoids the shared limiter bucket that
+                # other suites in the run have already exhausted.
+                environ_overrides={'REMOTE_ADDR': '10.99.0.1'},
+            )
         self.assertEqual(response.status_code, 400)
         data = response.get_json()
         self.assertEqual(data['code'], 'DUPLICATE_PLAYER_NAME')
@@ -94,10 +104,14 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
     def test_duplicate_player_name_case_insensitive(self):
         """Duplicate name check is case-insensitive."""
         with self._mock_auth():
-            response = self.client.post('/api/new-game', json={
-                'playerName': 'batman',
-                'personalities': ['Batman', 'Yoda'],
-            })
+            response = self.client.post(
+                '/api/new-game',
+                json={
+                    'playerName': 'batman',
+                    'personalities': ['Batman', 'Yoda'],
+                },
+                environ_overrides={'REMOTE_ADDR': '10.99.0.2'},
+            )
         self.assertEqual(response.status_code, 400)
         data = response.get_json()
         self.assertEqual(data['code'], 'DUPLICATE_PLAYER_NAME')
