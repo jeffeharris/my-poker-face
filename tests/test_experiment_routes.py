@@ -65,17 +65,31 @@ class TestExperimentRoutes(unittest.TestCase):
         self.client = self.app.test_client()
 
         # Experiment routes are admin-only; default this suite to an admin user.
+        admin_user = {'id': 'admin-user-1', 'name': 'Admin'}
         self._authz_patcher = patch(
             'poker.authorization.authorization_service',
             _mock_authorization_service(
-                user={'id': 'admin-user-1', 'name': 'Admin'},
+                user=admin_user,
                 has_admin_permission=True,
             ),
         )
         self._authz_patcher.start()
 
+        # T1-39: chat endpoints call auth_manager.get_current_user() directly
+        # via _get_chat_owner_id() (independent of the require_permission
+        # gate). Patch the route module's bound auth_manager so chat endpoints
+        # see the same admin user.
+        auth_mock = MagicMock()
+        auth_mock.get_current_user.return_value = admin_user
+        self._auth_patcher = patch(
+            'flask_app.routes.experiment_routes.auth_manager',
+            auth_mock,
+        )
+        self._auth_patcher.start()
+
     def tearDown(self):
         """Clean up temporary database."""
+        self._auth_patcher.stop()
         self._authz_patcher.stop()
         os.unlink(self.test_db.name)
 
