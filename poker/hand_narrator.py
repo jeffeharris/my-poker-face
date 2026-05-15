@@ -135,17 +135,22 @@ def narrate_hand_recap(
 
     for phase in phases:
         phase_actions = actions_by_phase[phase]
-        if not phase_actions:
+        cards = phase_cards.get(phase, [])
+
+        # Skip phase only when neither betting nor board cards exist
+        # (e.g. PRE_FLOP without actions). All-in cooler streets still
+        # render so the LLM can see the run-out.
+        if not phase_actions and not cards:
             continue
 
-        # Phase header with cards
-        header = _format_phase_header(phase, phase_cards.get(phase, []))
-        lines.append(f"{header}:")
-
-        # Format actions
-        action_strs = _format_actions(phase_actions, big_blind)
-        lines.append(f"  {' '.join(action_strs)}")
-        lines.append("")
+        header = _format_phase_header(phase, cards)
+        if phase_actions:
+            lines.append(f"{header}:")
+            action_strs = _format_actions(phase_actions, big_blind)
+            lines.append(f"  {' '.join(action_strs)}")
+            lines.append("")
+        else:
+            lines.append(f"{header} (no betting)")
 
     # Result — handle split pots and ties clearly
     if hand.winners:
@@ -174,13 +179,20 @@ def narrate_hand_recap(
             else:
                 lines.append(f"RESULT: {w.name} won {amount}.")
 
-        # Show showdown cards if available
+        # Show showdown cards if available — every non-folded player reveals,
+        # winners first so the recap reads "winner vs. loser(s)".
         if hand.was_showdown and hand.hole_cards:
-            shown = []
-            for w in hand.winners:
-                if w.name in hand.hole_cards:
-                    cards_str = ", ".join(hand.hole_cards[w.name])
-                    shown.append(f"{w.name} showed [{cards_str}]")
+            folded = {a.player_name for a in hand.actions if a.action == "fold"}
+            winner_names = [w.name for w in hand.winners]
+            ordered = list(winner_names) + [
+                p.name for p in hand.players
+                if p.name not in winner_names and p.name not in folded
+            ]
+            shown = [
+                f"{name} showed [{', '.join(hand.hole_cards[name])}]"
+                for name in ordered
+                if name in hand.hole_cards
+            ]
             if shown:
                 lines.append(f"SHOWDOWN: {'; '.join(shown)}")
 
