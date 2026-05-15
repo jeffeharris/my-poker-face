@@ -161,6 +161,51 @@ class RecordedHand:
         """Get all actions for a specific player."""
         return [a for a in self.actions if a.player_name == player_name]
 
+    def get_player_contributions(self) -> Dict[str, int]:
+        """Total chips committed to the pot per player across the hand.
+
+        ``RecordedAction.amount`` mixes two units depending on action:
+        ``raise`` stores the new bet level (raise-TO snapshot, not an
+        increment), while ``call`` / ``all_in`` / ``post_blind`` already
+        hold the chip increment. Naively summing ``amount`` overstates
+        raises by the prior committed bet. This helper normalizes by
+        tracking per-phase committed bets and emitting the actual delta
+        for raise actions.
+        """
+        contributions: Dict[str, int] = {}
+        # Per-(player, phase) committed bet within the current betting
+        # round. Resets implicitly when a new phase starts because
+        # downstream code never reads cross-phase deltas.
+        committed_in_phase: Dict[tuple, int] = {}
+
+        for action in self.actions:
+            name = action.player_name
+            phase = action.phase
+            key = (name, phase)
+            prior = committed_in_phase.get(key, 0)
+
+            if action.action in ('raise', 'bet'):
+                # amount is the new bet level — increment is the delta.
+                delta = max(0, action.amount - prior)
+                committed_in_phase[key] = action.amount
+            elif action.action in ('call', 'post_blind'):
+                # amount already represents the chip increment.
+                delta = max(0, action.amount)
+                committed_in_phase[key] = prior + delta
+            elif action.action == 'all_in':
+                # all_in amount is the player's remaining stack at the
+                # time of the shove — the chip increment, regardless of
+                # whether it functions as a raise or a call.
+                delta = max(0, action.amount)
+                committed_in_phase[key] = prior + delta
+            else:
+                # fold / check / anything else — no chips committed.
+                delta = 0
+
+            contributions[name] = contributions.get(name, 0) + delta
+
+        return contributions
+
     def get_summary(self) -> str:
         """Generate a brief summary of the hand."""
         winner_names = [w.name for w in self.winners]

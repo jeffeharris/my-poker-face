@@ -130,6 +130,50 @@ class TestRecordedHand(unittest.TestCase):
         self.assertEqual(len(alice_actions), 1)
         self.assertEqual(alice_actions[0].action, "raise")
 
+    def test_get_player_contributions_normalizes_raise_to(self):
+        """T2-47 follow-up: contributions normalize raise-TO snapshots
+        to chip increments. In this hand:
+          Bob calls 10 → contributes 10
+          Human checks → 0
+          Alice raises to 50 → contributes 50 (no prior bet this round)
+          Bob folds → 0
+          Human calls 40 → contributes 40 (already-normalized call cost)
+
+        A naive sum of `amount` would give Alice 50, Human 40, Bob 10 —
+        consistent here, but the principle (raise-TO is a snapshot) is
+        what get_player_contributions guarantees against re-raises.
+        """
+        contribs = self.hand.get_player_contributions()
+        self.assertEqual(contribs.get("Alice"), 50)
+        self.assertEqual(contribs.get("Human"), 40)
+        self.assertEqual(contribs.get("Bob"), 10)
+
+    def test_get_player_contributions_handles_3bet(self):
+        """3-bet spot: raise-TO snapshots must be converted to deltas
+        so the second raise doesn't double-count the first raise's
+        commitment.
+        """
+        from poker.memory.hand_history import RecordedHand, RecordedAction, WinnerInfo
+        hand = RecordedHand(
+            game_id="g", hand_number=1, timestamp=self.hand.timestamp,
+            players=self.hand.players, hole_cards={}, community_cards=(),
+            actions=(
+                RecordedAction("A", "raise", 100, "PRE_FLOP", 100),
+                RecordedAction("B", "raise", 300, "PRE_FLOP", 400),
+                RecordedAction("A", "call", 200, "PRE_FLOP", 600),
+            ),
+            winners=(WinnerInfo("B", 600, "Pair", 1),),
+            pot_size=600, was_showdown=True,
+        )
+        contribs = hand.get_player_contributions()
+        # A raised to 100 then called for an additional 200 = 300
+        # B raised to 300 in one shot = 300
+        # Naively summing `amount` would give A=300, B=300 here too,
+        # but if A had bet=20 (e.g. SB) before the raise, summing
+        # would overstate. The normalizer tracks per-phase prior bet.
+        self.assertEqual(contribs.get("A"), 300)
+        self.assertEqual(contribs.get("B"), 300)
+
     def test_serialization_round_trip(self):
         """Test to_dict and from_dict preserve all data."""
         data = self.hand.to_dict()

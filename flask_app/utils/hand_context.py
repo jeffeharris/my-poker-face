@@ -57,8 +57,10 @@ def build_hand_context_from_recorded_hand(
       - community_cards / pot_size
 
     Opponent selection:
-      * Player won: opponent is whoever committed the largest single amount
-        against them — robust to multi-way pots with mixed action types.
+      * Player won: opponent is whoever contributed the most chips to the
+        pot, computed via ``hand.get_player_contributions()`` so raise-TO
+        snapshots and call-cost increments are normalized to the same
+        unit before being compared.
       * Player lost or folded: opponent is the first winner that isn't the
         player. (Note: with side pots this can still be wrong if the side
         pot is listed before the main pot in ``hand.winners``; the rich
@@ -90,19 +92,20 @@ def build_hand_context_from_recorded_hand(
     else:
         logger.warning(f"[HandContext] Player '{player_name}' not found in hole_cards!")
 
-    # RecordedAction.amount mixes raise-TO targets with call-cost increments,
-    # so the largest single committed amount is a more robust "who pressured
-    # us most" proxy than summing.
-    opponent_max_amount: Dict[str, int] = defaultdict(int)
-    for action in hand.actions:
-        if action.player_name == player_name:
-            continue
-        if action.amount > opponent_max_amount[action.player_name]:
-            opponent_max_amount[action.player_name] = action.amount
+    # Use the per-action contribution normalizer so raise-TO snapshots
+    # and call-cost increments are summed in the same unit. Without this
+    # multi-way pots with mixed action types misrank the opponent.
+    contributions = hand.get_player_contributions()
+    opponent_contributions = {
+        name: chips for name, chips in contributions.items()
+        if name != player_name
+    }
 
     if player_outcome == 'won':
-        if opponent_max_amount:
-            result['opponent_name'] = max(opponent_max_amount, key=opponent_max_amount.get)
+        if opponent_contributions:
+            result['opponent_name'] = max(
+                opponent_contributions, key=opponent_contributions.get
+            )
     else:
         for w in hand.winners:
             if w.name != player_name:
