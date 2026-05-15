@@ -5,6 +5,9 @@ created: 2026-05-15
 last_updated: 2026-05-15
 ---
 
+> **✅ VALIDATED BY `RETRY_DECORATOR_DEEP_DIVE.md`.**
+> Round-2 investigation (triggered by codex's concern about non-DB side effects in caller bodies) audited all 7 callers and confirmed they are pure persistence boundaries. Codex's concern does not apply. The plan below is correct; the deep-dive doc adds confirmation and emphasizes the `INSERT OR IGNORE` prerequisite for `save_personality_snapshot`. Read both docs before implementing.
+
 # `_get_connection_with_retry` rewrite plan
 
 Companion to `BASE_REPO_RETRY_BROKEN.md`. Full caller audit, bug reproducer, recommended approach, migration steps, and test plan for T1-32.

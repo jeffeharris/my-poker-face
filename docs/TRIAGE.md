@@ -64,7 +64,7 @@ Issues that could cause incorrect behavior, crashes, or embarrassing UX for real
 | T1-31 | OpponentModel last-hand counters not serialized | `poker/memory/opponent_model.py:937-954` | `OpponentModel.to_dict()` omits `_last_hand_dealt` and `_last_hand_counted`. After restore, both reset to `None`, so the first action of the next hand double-counts `hands_dealt` and `hands_observed`, deflating VPIP/PFR. Cumulative across restarts. | |
 | T1-32 | `_get_connection_with_retry` is structurally broken | `poker/repositories/base_repository.py:111-143` | The `@contextmanager` generator yields to caller; lock errors raised in caller's body propagate back into the already-yielded generator, which cannot yield again. Lock errors are NEVER retried for any caller. Affects all write paths (`save_game`, `save_ai_player_state`, etc.). See [`docs/triage/BASE_REPO_RETRY_BROKEN.md`](/docs/triage/BASE_REPO_RETRY_BROKEN.md). | |
 | T1-33 | `recover_stuck_runout` races without game lock | `flask_app/routes/game_routes.py:568-591`, `flask_app/handlers/game_handler.py:1371` | `recover_stuck_runout` mutates state machine on every `api_game_state` GET when `run_it_out=True`. Runs without acquiring `get_game_lock(game_id)`. Two concurrent GETs for the same stuck game race to mutate, set_game, and save — in-memory and DB states diverge. | |
-| T1-34 | HU positional equity offsets not applied in bounded options | `poker/bounded_options.py` (HU block ~lines 596-602) | Spec documents `HEADS_UP_POSITION_OFFSETS` (`button +0.30`, `big_blind +0.20`) and they're applied in `range_guidance.py`, but never to the equity value in `generate_bounded_options()`. HU button play systematically under-aggressive. | |
+| ~~T1-34~~ → T2-65 | HU positional equity offsets — **DEMOTED to T2, gate behind flag** | `poker/bounded_options.py` (HU block ~lines 596-602) | Round-2 investigation found the offsets are **range-percentage offsets**, not equity values (inline comment in `range_guidance.py:32` says "play 30pp wider"). Reusing as equity is a category error; magnitudes 3-7x larger than actual positional equity advantage; BB +0.20 directionally backwards postflop. Gate behind `PromptConfig.hu_equity_offset: bool = False`. See [`HU_EQUITY_OFFSET_CALIBRATION_CHECK.md`](/docs/triage/HU_EQUITY_OFFSET_CALIBRATION_CHECK.md). | **DEMOTED** (2026-05-15) |
 | T1-35 | "+EV guarantee" broken for moderate-equity hands | `poker/bounded_options.py:843` | The "Ensure at least one +EV option" block uses `ev_estimate="+EV" if block_fold else best.ev_estimate` — for moderate-equity hands (0.40 to fold-block threshold) where `block_fold=False`, the promoted option keeps neutral/marginal EV. The guarantee stated in the code comment is violated. | |
 | T1-36 | `detect_fold_events` references deleted `elastic_personality` attribute | `poker/pressure_detector.py:223-226` | The bluff-detection fallback at line 224 calls `winner.elastic_personality.get_trait_value('aggression')`. `elastic_personality` was deleted in the psychology refactor. `hasattr` always returns `False`; the branch is permanently dead. Lost bluff-detection coverage. | |
 | T1-37 | Frontend: bare `JSON.parse` in JSX render crashes detail panel | `react/react/src/components/admin/DecisionAnalyzer/DecisionAnalyzer.tsx:1070, 1252, 1535, 1721` | Four unguarded `JSON.parse()` calls on `opponent_positions` and `raw_api_response` inside render paths (duplicated mobile/desktop). Any malformed stored value throws synchronously, unmounting the entire DecisionAnalyzer to a white screen. | |
@@ -292,10 +292,12 @@ Issues to address once live, during ongoing development.
 
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
-| **Tier 1: Must-Fix** | 33 | 15 | 6 | 12 |
-| **Tier 2: Should-Fix** | 56 | 20 | 6 | 30 |
+| **Tier 1: Must-Fix** | 32 | 15 | 6 | 11 |
+| **Tier 2: Should-Fix** | 57 | 20 | 6 | 31 |
 | **Tier 3: Post-Release** | 74 | 27 | 1 | 46 |
 | **Total** | **163** | **62** | **13** | **88** |
+
+*Note: T1-34 demoted to T2 on 2026-05-15 after round-2 calibration check. Counts reflect post-demotion.*
 
 ## Pre-main review batch (2026-05-15)
 

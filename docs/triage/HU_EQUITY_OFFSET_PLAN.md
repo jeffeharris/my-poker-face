@@ -5,6 +5,11 @@ created: 2026-05-15
 last_updated: 2026-05-15
 ---
 
+> **⚠️ SUPERSEDED BY `HU_EQUITY_OFFSET_CALIBRATION_CHECK.md`.**
+> Round-2 investigation revealed the offsets are **range-percentage offsets, not equity values** — reusing them as equity is a category error. T1-34 has been **demoted to T2** and the fix should be **gated behind a `PromptConfig.hu_equity_offset: bool = False` flag**, not applied as the default. Read the calibration check before implementing anything from this doc.
+>
+> This plan is preserved for reference. The insertion-point analysis, double-application check, and code sketch are still correct *if* the offset is ever applied — but only behind the flag.
+
 # T1-34 — HU positional equity offset implementation plan
 
 ## Summary

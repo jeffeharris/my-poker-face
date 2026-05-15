@@ -5,6 +5,9 @@ created: 2026-05-15
 last_updated: 2026-05-15
 ---
 
+> **✅ VALIDATED BY `PERSONALITY_REGRESSION_EMPIRICAL_CHECK.md`.**
+> Round-2 investigation confirmed this verdict empirically by comparing pre/post anchor data across 12 characters and tracing the deterministic mock decision tree. Only Scrooge changed among the 4 archetypes; broader sample is bidirectional (Buddha went DOWN -0.15); relative ordering preserved and more differentiated post-merge. Implementation should follow the empirical-check doc, which also adds an anchor-zone guard test to prevent recurrence.
+
 # T2-54 — Personality determinism regression investigation
 
 **Verdict:** Stale test assertion, not a bug in game logic.
