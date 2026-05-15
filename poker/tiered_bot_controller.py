@@ -550,6 +550,7 @@ class TieredBotController(AIPlayerController):
         self._last_intervention_trace.append(math_floor_trace)
 
         abstract_action = modified_strategy.sample_action(self.rng)
+        self._last_pipeline_snapshot['sampled_abstract_action'] = abstract_action
 
         if self.debug_logging:
             logger.info(
@@ -565,6 +566,9 @@ class TieredBotController(AIPlayerController):
             game_action, raise_to = self._validate_action(
                 game_action, raise_to, valid_actions
             )
+
+        self._last_pipeline_snapshot['resolved_action'] = game_action
+        self._last_pipeline_snapshot['resolved_raise_to'] = raise_to
 
         if self.debug_logging:
             logger.info(
@@ -854,6 +858,7 @@ class TieredBotController(AIPlayerController):
 
         # 7. Sample action
         abstract_action = modified_strategy.sample_action(self.rng)
+        self._last_pipeline_snapshot['sampled_abstract_action'] = abstract_action
 
         if self.debug_logging:
             logger.info(
@@ -872,6 +877,9 @@ class TieredBotController(AIPlayerController):
             game_action, raise_to = self._validate_action(
                 game_action, raise_to, valid_actions
             )
+
+        self._last_pipeline_snapshot['resolved_action'] = game_action
+        self._last_pipeline_snapshot['resolved_raise_to'] = raise_to
 
         if self.debug_logging:
             logger.info(

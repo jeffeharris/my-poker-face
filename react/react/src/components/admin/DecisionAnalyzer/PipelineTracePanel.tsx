@@ -165,9 +165,15 @@ function findFinalStrategy(
 function FinalRollPanel({
   finalStrategy,
   actionTaken,
+  sampledAbstract,
+  resolvedAction,
+  resolvedRaiseTo,
 }: {
   finalStrategy: Record<string, number>;
   actionTaken: string | null;
+  sampledAbstract: string | null;
+  resolvedAction: string | null;
+  resolvedRaiseTo: number | null;
 }) {
   const entries = useMemo(
     () =>
@@ -175,15 +181,29 @@ function FinalRollPanel({
         .sort(([, a], [, b]) => b - a),
     [finalStrategy],
   );
-  const sampledProb = actionTaken ? finalStrategy[actionTaken] : undefined;
+
+  // Strategy keys use abstract names (`check`, `bet_67`, `raise_2.5bb`).
+  // Prefer `sampledAbstract` for highlighting; fall back to `actionTaken`
+  // for older rows that didn't capture the abstract name.
+  const matchKey = sampledAbstract ?? actionTaken;
+  const sampledProb = matchKey ? finalStrategy[matchKey] : undefined;
+
+  const headlineAction = resolvedAction
+    ? resolvedAction.toUpperCase() + (resolvedRaiseTo ? ` $${resolvedRaiseTo}` : '')
+    : actionTaken
+      ? actionTaken.toUpperCase()
+      : '—';
 
   return (
     <div className="pipeline-final-roll">
       <div className="pipeline-final-roll-header">
         <span className="pipeline-final-roll-label">Sampled</span>
-        <span className="pipeline-final-roll-action">
-          {actionTaken ? actionTaken.toUpperCase() : '—'}
-        </span>
+        <span className="pipeline-final-roll-action">{headlineAction}</span>
+        {sampledAbstract && sampledAbstract !== resolvedAction && (
+          <span className="pipeline-final-roll-abstract">
+            (from <code>{sampledAbstract}</code>)
+          </span>
+        )}
         {sampledProb != null && (
           <span className="pipeline-final-roll-prob">
             {(sampledProb * 100).toFixed(1)}% of the final distribution
@@ -200,7 +220,7 @@ function FinalRollPanel({
         </thead>
         <tbody>
           {entries.map(([action, prob]) => {
-            const isSampled = action === actionTaken;
+            const isSampled = action === matchKey;
             const pct = prob * 100;
             // 2.4px per 1% → 100% = 240px max bar width.
             const barPx = Math.max(3, pct * 2.4);
@@ -250,7 +270,13 @@ export function PipelineTracePanel({ trace, snapshot, actionTaken }: PipelineTra
       </div>
 
       {finalStrategy && (
-        <FinalRollPanel finalStrategy={finalStrategy} actionTaken={actionTaken} />
+        <FinalRollPanel
+          finalStrategy={finalStrategy}
+          actionTaken={actionTaken}
+          sampledAbstract={(snapshot?.sampled_abstract_action as string | undefined) ?? null}
+          resolvedAction={(snapshot?.resolved_action as string | undefined) ?? null}
+          resolvedRaiseTo={(snapshot?.resolved_raise_to as number | undefined) ?? null}
+        />
       )}
 
       <details open className="pipeline-section">

@@ -102,6 +102,19 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.pipeline-final-roll-abstract {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.pipeline-final-roll-abstract code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  color: rgba(0, 212, 255, 0.85);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .pipeline-final-roll-prob {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.65);
