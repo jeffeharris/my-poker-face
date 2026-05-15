@@ -36,6 +36,7 @@ export interface PromptCapture {
   notes: string | null;
   raw_api_response: string | null;
   prompt_config_json: string | null;
+  call_type?: string | null;
   labels?: Array<{ label: string; label_type: string; created_at: string }>;
   // Error/correction resilience fields
   error_type?: string | null;
@@ -142,7 +143,61 @@ export interface DecisionAnalysis {
   elastic_confidence: number | null;
   elastic_composure: number | null;
   elastic_table_talk: number | null;
+  // TieredBot pipeline trace + snapshot (hydrated server-side).
+  // Non-null only for TieredBot decisions; LLM decisions leave both null.
+  intervention_trace?: InterventionTrace[] | null;
+  strategy_pipeline_snapshot?: StrategyPipelineSnapshot | null;
 }
+
+// Operation taxonomy from poker/strategy/intervention_trace.py:InterventionOperation.
+export type InterventionOperation =
+  | 'no_op'
+  | 'suggest'
+  | 'adjust'
+  | 'clamp'
+  | 'override'
+  | 'veto';
+
+// Mirror of poker/strategy/intervention_trace.py:InterventionTrace.
+// One entry per pipeline layer/rule on every TieredBot decision.
+export interface InterventionTrace {
+  layer: string;
+  rule_id: string;
+  layer_order: number;
+  decision_id: string | null;
+  schema_version: number;
+
+  fired: boolean;
+  operation: InterventionOperation;
+  effect: string;
+  effect_size: number;
+
+  action_changed: boolean;
+  primary_action_before: string;
+  primary_action_after: string;
+  amount_bucket_before: string;
+  amount_bucket_after: string;
+
+  replaced_prior_action: boolean;
+  prior_action_source: string;
+  preserved_prior_intent: boolean;
+
+  reason_code: string;
+  rationale: string;
+  confidence: number;
+
+  inputs: Record<string, unknown>;
+  input_strategy_summary: Record<string, number>;
+  output_strategy_summary: Record<string, number>;
+  config_snapshot: Record<string, unknown>;
+  extra: Record<string, unknown>;
+}
+
+// Free-form snapshot of pipeline state captured for shadow-eval / replay.
+// Keys vary by pipeline step (e.g. `effective_stack_bb`, `nut_status`,
+// `bet_bucket`, `required_equity`, classifier nodes). Treated as
+// opaque key/value at the type level — rendered as a JSON tree.
+export type StrategyPipelineSnapshot = Record<string, unknown>;
 
 export interface DecisionAnalysisStats {
   total: number;

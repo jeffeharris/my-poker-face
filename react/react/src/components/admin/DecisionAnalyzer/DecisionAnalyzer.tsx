@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
@@ -11,7 +11,37 @@ import { FilterSheetContent } from '../shared/FilterSheetContent';
 import { FilterGroup } from '../shared/FilterGroup';
 import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage, LabelStats } from './types';
 import { InterrogationChat } from './InterrogationChat';
+import { PipelineTracePanel } from './PipelineTracePanel';
 import './DecisionAnalyzer.css';
+
+// Normalize a card string to the canonical engine format ("Ts", "Qh", "5d",
+// "Ac"). Captures stored prior to the unified format use mixed conventions —
+// LLM-bot captures persist e.g. "10♠" (decimal-T + Unicode suit), while the
+// strategy pipeline persists "Ts" (single-char rank + letter suit). This
+// helper makes the list/detail views render both the same way without
+// mutating stored data.
+const SUIT_UNICODE_TO_LETTER: Record<string, string> = {
+  '♠': 's',
+  '♥': 'h',
+  '♦': 'd',
+  '♣': 'c',
+};
+
+function formatCardCanonical(card: string): string {
+  if (!card) return card;
+  let s = card;
+  // "10" → "T" (only at the start, so "10s" → "Ts" but "Q10" — not a card — is left alone)
+  if (s.startsWith('10')) s = 'T' + s.slice(2);
+  for (const [u, letter] of Object.entries(SUIT_UNICODE_TO_LETTER)) {
+    s = s.replace(u, letter);
+  }
+  return s;
+}
+
+function formatCardsCanonical(cards: string[] | null | undefined): string {
+  if (!cards || cards.length === 0) return '';
+  return cards.map(formatCardCanonical).join(' ');
+}
 
 interface DecisionAnalyzerProps {
   onBack?: () => void;
@@ -57,6 +87,50 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
     limit: 50,
     offset: 0,
   });
+
+  // Game context falls back capture-first → analysis-second.
+  // Commentary captures (both LLM and TieredBot) don't carry pot/stack/hand
+  // state on the capture row — that state lives on the linked decision_analysis.
+  // For player_decision captures the capture columns are populated, so the
+  // capture wins. For commentary captures `phase` literally equals 'commentary',
+  // so we explicitly prefer analysis.phase in that case.
+  const ctx = useMemo(() => {
+    const c = selectedCapture;
+    const a = selectedAnalysis;
+    const isCommentaryCapture = c?.call_type === 'commentary';
+
+    const parseJsonArray = (s: string | null | undefined): string[] | null => {
+      if (!s) return null;
+      try {
+        const v = JSON.parse(s);
+        return Array.isArray(v) ? v : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const phase = isCommentaryCapture
+      ? (a?.phase ?? c?.phase ?? null)
+      : (c?.phase ?? a?.phase ?? null);
+    const pot_total = c?.pot_total ?? a?.pot_total ?? null;
+    const cost_to_call = c?.cost_to_call ?? a?.cost_to_call ?? null;
+    const pot_odds =
+      c?.pot_odds ??
+      (a?.pot_total != null && a?.cost_to_call && a.cost_to_call > 0
+        ? a.pot_total / a.cost_to_call
+        : null);
+    return {
+      phase,
+      pot_total,
+      cost_to_call,
+      pot_odds,
+      player_stack: c?.player_stack ?? a?.player_stack ?? null,
+      player_hand: c?.player_hand ?? parseJsonArray(a?.player_hand),
+      community_cards: c?.community_cards ?? parseJsonArray(a?.community_cards),
+      action_taken: c?.action_taken ?? a?.action_taken ?? null,
+      raise_amount: c?.raise_amount ?? a?.raise_amount ?? null,
+    };
+  }, [selectedCapture, selectedAnalysis]);
 
   // Mode state (view, replay, interrogate)
   const [mode, setMode] = useState<DebugMode>('view');
@@ -568,9 +642,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               {formatPotOdds(capture.pot_odds)} odds
             </span>
           </div>
-          {capture.player_hand && (
+          {capture.player_hand && capture.player_hand.length > 0 && (
             <div className="capture-hand">
-              {capture.player_hand.join(' ')}
+              {formatCardsCanonical(capture.player_hand)}
             </div>
           )}
           {/* Display error info */}
@@ -631,8 +705,8 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
         <div className="decision-analyzer__detail-bar">
           <div className="decision-analyzer__detail-info">
             <span className="decision-analyzer__detail-player">{selectedCapture.player_name}</span>
-            <span className={`decision-analyzer__detail-action ${getActionColor(selectedCapture.action_taken)}`}>
-              {selectedCapture.action_taken?.toUpperCase()}
+            <span className={`decision-analyzer__detail-action ${getActionColor(ctx.action_taken)}`}>
+              {ctx.action_taken?.toUpperCase()}
             </span>
           </div>
           <div className="decision-analyzer__detail-nav">
@@ -915,27 +989,27 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 <div className="detail-context">
                   <div className="context-item">
                     <label>Hand:</label>
-                    <span>{selectedCapture.player_hand?.join(' ') || '-'}</span>
+                    <span>{formatCardsCanonical(ctx.player_hand) || '-'}</span>
                   </div>
                   <div className="context-item">
                     <label>Board:</label>
-                    <span>{selectedCapture.community_cards?.join(' ') || '-'}</span>
+                    <span>{formatCardsCanonical(ctx.community_cards) || '-'}</span>
                   </div>
                   <div className="context-item">
                     <label>Pot:</label>
-                    <span>${selectedCapture.pot_total}</span>
+                    <span>{ctx.pot_total != null ? `$${ctx.pot_total}` : '-'}</span>
                   </div>
                   <div className="context-item">
                     <label>Cost to Call:</label>
-                    <span>${selectedCapture.cost_to_call}</span>
+                    <span>{ctx.cost_to_call != null ? `$${ctx.cost_to_call}` : '-'}</span>
                   </div>
                   <div className="context-item highlight">
                     <label>Pot Odds:</label>
-                    <span>{formatPotOdds(selectedCapture.pot_odds)}</span>
+                    <span>{formatPotOdds(ctx.pot_odds)}</span>
                   </div>
                   <div className="context-item">
                     <label>Stack:</label>
-                    <span>${selectedCapture.player_stack}</span>
+                    <span>{ctx.player_stack != null ? `$${ctx.player_stack}` : '-'}</span>
                   </div>
                 </div>
 
@@ -975,7 +1049,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                   </div>
                 )}
 
-                {/* Decision Analysis */}
+                {/* Decision Analysis — equity/EV always, plus pipeline panel for TieredBot */}
                 {selectedAnalysis && (
                   <div className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}>
                     <h4>Decision Analysis</h4>
@@ -1037,6 +1111,15 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                       )}
                     </div>
                   </div>
+                )}
+
+                {/* TieredBot pipeline trace — additive to the equity view above */}
+                {selectedAnalysis && selectedAnalysis.intervention_trace && selectedAnalysis.intervention_trace.length > 0 && (
+                  <PipelineTracePanel
+                    trace={selectedAnalysis.intervention_trace}
+                    snapshot={selectedAnalysis.strategy_pipeline_snapshot ?? null}
+                    actionTaken={selectedAnalysis.action_taken}
+                  />
                 )}
 
                 {/* Psychology */}
@@ -1361,37 +1444,37 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
           {selectedCapture ? (
             <>
               <div className="detail-header">
-                <h3>{selectedCapture.player_name} - {selectedCapture.phase}</h3>
-                <span className={`detail-action ${getActionColor(selectedCapture.action_taken)}`}>
-                  {selectedCapture.action_taken?.toUpperCase()}
-                  {selectedCapture.raise_amount && ` $${selectedCapture.raise_amount}`}
+                <h3>{selectedCapture.player_name} - {ctx.phase || '-'}</h3>
+                <span className={`detail-action ${getActionColor(ctx.action_taken)}`}>
+                  {ctx.action_taken?.toUpperCase()}
+                  {ctx.raise_amount ? ` $${ctx.raise_amount}` : ''}
                 </span>
               </div>
 
               <div className="detail-context">
                 <div className="context-item">
                   <label>Hand:</label>
-                  <span>{selectedCapture.player_hand?.join(' ') || '-'}</span>
+                  <span>{formatCardsCanonical(ctx.player_hand) || '-'}</span>
                 </div>
                 <div className="context-item">
                   <label>Board:</label>
-                  <span>{selectedCapture.community_cards?.join(' ') || '-'}</span>
+                  <span>{formatCardsCanonical(ctx.community_cards) || '-'}</span>
                 </div>
                 <div className="context-item">
                   <label>Pot:</label>
-                  <span>${selectedCapture.pot_total}</span>
+                  <span>{ctx.pot_total != null ? `$${ctx.pot_total}` : '-'}</span>
                 </div>
                 <div className="context-item">
                   <label>Cost to Call:</label>
-                  <span>${selectedCapture.cost_to_call}</span>
+                  <span>{ctx.cost_to_call != null ? `$${ctx.cost_to_call}` : '-'}</span>
                 </div>
                 <div className="context-item highlight">
                   <label>Pot Odds:</label>
-                  <span>{formatPotOdds(selectedCapture.pot_odds)}</span>
+                  <span>{formatPotOdds(ctx.pot_odds)}</span>
                 </div>
                 <div className="context-item">
                   <label>Stack:</label>
-                  <span>${selectedCapture.player_stack}</span>
+                  <span>{ctx.player_stack != null ? `$${ctx.player_stack}` : '-'}</span>
                 </div>
               </div>
 
@@ -1431,7 +1514,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 </div>
               )}
 
-              {/* Decision Analysis */}
+              {/* Decision Analysis — equity/EV always, plus pipeline panel for TieredBot */}
               {selectedAnalysis && (
                 <div className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}>
                   <h4>Decision Analysis</h4>
@@ -1493,6 +1576,15 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                     )}
                   </div>
                 </div>
+              )}
+
+              {/* TieredBot pipeline trace — additive to the equity view above */}
+              {selectedAnalysis && selectedAnalysis.intervention_trace && selectedAnalysis.intervention_trace.length > 0 && (
+                <PipelineTracePanel
+                  trace={selectedAnalysis.intervention_trace}
+                  snapshot={selectedAnalysis.strategy_pipeline_snapshot ?? null}
+                  actionTaken={selectedAnalysis.action_taken}
+                />
               )}
 
               {/* Psychology */}

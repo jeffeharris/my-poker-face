@@ -102,7 +102,57 @@ export interface DecisionAnalysis {
   ev_lost: number | null;
   analyzer_version: string | null;
   processing_time_ms: number | null;
+  // TieredBot pipeline trace + snapshot (hydrated server-side).
+  // Non-null only for TieredBot decisions; LLM decisions leave both null.
+  intervention_trace?: InterventionTrace[] | null;
+  strategy_pipeline_snapshot?: StrategyPipelineSnapshot | null;
 }
+
+// Operation taxonomy from poker/strategy/intervention_trace.py:InterventionOperation.
+export type InterventionOperation =
+  | 'no_op'
+  | 'suggest'
+  | 'adjust'
+  | 'clamp'
+  | 'override'
+  | 'veto';
+
+// Mirror of poker/strategy/intervention_trace.py:InterventionTrace.
+// One entry per pipeline layer/rule on every TieredBot decision.
+export interface InterventionTrace {
+  layer: string;
+  rule_id: string;
+  layer_order: number;
+  decision_id: string | null;
+  schema_version: number;
+
+  fired: boolean;
+  operation: InterventionOperation;
+  effect: string;
+  effect_size: number;
+
+  action_changed: boolean;
+  primary_action_before: string;
+  primary_action_after: string;
+  amount_bucket_before: string;
+  amount_bucket_after: string;
+
+  replaced_prior_action: boolean;
+  prior_action_source: string;
+  preserved_prior_intent: boolean;
+
+  reason_code: string;
+  rationale: string;
+  confidence: number;
+
+  inputs: Record<string, unknown>;
+  input_strategy_summary: Record<string, number>;
+  output_strategy_summary: Record<string, number>;
+  config_snapshot: Record<string, unknown>;
+  extra: Record<string, unknown>;
+}
+
+export type StrategyPipelineSnapshot = Record<string, unknown>;
 
 export interface DecisionAnalysisStats {
   total: number;
