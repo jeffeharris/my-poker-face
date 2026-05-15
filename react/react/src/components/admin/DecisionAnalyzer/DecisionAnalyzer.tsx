@@ -43,6 +43,18 @@ function formatCardsCanonical(cards: string[] | null | undefined): string {
   return cards.map(formatCardCanonical).join(' ');
 }
 
+// Safe JSON parser for stored fields rendered inside JSX. Bare JSON.parse()
+// in a render path crashes the entire panel to a white screen on malformed
+// or legacy data — this returns a fallback instead.
+function safeJsonParse<T>(s: string | null | undefined, fallback: T): T {
+  if (!s) return fallback;
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 interface DecisionAnalyzerProps {
   onBack?: () => void;
   embedded?: boolean;
@@ -1067,7 +1079,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                             {(selectedAnalysis.equity_vs_ranges * 100).toFixed(1)}%
                             {selectedAnalysis.opponent_positions && (
                               <span className="opponent-positions">
-                                {' '}(vs {JSON.parse(selectedAnalysis.opponent_positions).join(', ')})
+                                {' '}(vs {safeJsonParse<string[]>(selectedAnalysis.opponent_positions, []).join(', ')})
                               </span>
                             )}
                           </span>
@@ -1249,7 +1261,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                         <summary>
                           <h4>Raw API Response (click to expand)</h4>
                         </summary>
-                        <pre>{JSON.stringify(JSON.parse(selectedCapture.raw_api_response), null, 2)}</pre>
+                        <pre>{JSON.stringify(safeJsonParse<unknown>(selectedCapture.raw_api_response, selectedCapture.raw_api_response), null, 2)}</pre>
                       </details>
                     )}
                   </div>
@@ -1532,7 +1544,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                           {(selectedAnalysis.equity_vs_ranges * 100).toFixed(1)}%
                           {selectedAnalysis.opponent_positions && (
                             <span className="opponent-positions">
-                              {' '}(vs {JSON.parse(selectedAnalysis.opponent_positions).join(', ')})
+                              {' '}(vs {safeJsonParse<string[]>(selectedAnalysis.opponent_positions, []).join(', ')})
                             </span>
                           )}
                         </span>
@@ -1718,7 +1730,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                       <summary>
                         <h4>Raw API Response (click to expand)</h4>
                       </summary>
-                      <pre>{JSON.stringify(JSON.parse(selectedCapture.raw_api_response), null, 2)}</pre>
+                      <pre>{JSON.stringify(safeJsonParse<unknown>(selectedCapture.raw_api_response, selectedCapture.raw_api_response), null, 2)}</pre>
                     </details>
                   )}
                 </div>
