@@ -118,6 +118,29 @@ This is the action plan for the 55 findings added 2026-05-15 in the pre-main bat
 - **T2-42** downgraded to **cleanup-only** (delete dead code, no functional implementation needed).
 - **T2-54** downgraded to **test fix only** — game behavior is more correct now.
 
+## Round 2 — codex pushback + follow-up investigations (2026-05-15)
+
+Codex review of the plans (`CODEX_REVIEW_OF_PLANS.md`) raised concerns on T1-29, T1-32, T1-34, T2-54. User asked for follow-up investigations. 4 more agents spawned; verdicts:
+
+| Investigation | Verdict | Output |
+|---|---|---|
+| **T1-32** retry decorator deep dive | **APPLY AS PLANNED.** Decorator was dead from day one (never applied, never removed). Codex's concern about non-DB side effects doesn't apply — per-caller audit shows all 7 callers are pure persistence boundaries. `save_personality_snapshot` is the one non-idempotent caller and needs `INSERT OR IGNORE` prerequisite. | `RETRY_DECORATOR_DEEP_DIVE.md` |
+| **T1-34** HU equity calibration | **CODEX WAS RIGHT — DEMOTE TO T2.** The offsets are **range-percentage offsets**, not equity values. Inline code comment in `range_guidance.py:32` literally says "play 30pp wider". Reusing as equity is a category error. Magnitudes are 3-7x larger than actual positional equity advantage. BB +0.20 is directionally backwards postflop. Gate behind `hu_equity_offset: bool = False` flag. Existing `heads_up_raise_plus_ev` profile overrides are the correct immediate lever. | `HU_EQUITY_OFFSET_CALIBRATION_CHECK.md` |
+| **T1-36 / T3-66** detect_fold_events / detect_chat_events | **MIXED.** `detect_fold_events`: DELETE — uncalled, dead fallback, fully superseded by `detect_showdown_events`. `detect_chat_events`: **FIX IN PLACE** — actually called in production at `game_routes.py:1645` but produces zero effect because `_get_pressure_impacts()`, `EVENT_SEVERITY`, and `update_from_event()` all lack registrations. Two-line fix completes a real feature. | `PRESSURE_DETECTOR_ORPHANS_EVALUATION.md` |
+| **T2-54** personality empirical check | **CONFIRMED STALE TEST.** Only Scrooge's aggression changed (+0.25) among the 4 archetypes. Broader 8-character sample is bidirectional (Buddha went DOWN -0.15). Tight characters did not uniformly shift. Relative ordering preserved and more differentiated post-merge. Apply Option A + guard test. | `PERSONALITY_REGRESSION_EMPIRICAL_CHECK.md` |
+
+## Net changes vs round 1 plan
+
+| Item | Round 1 status | Round 2 update |
+|---|---|---|
+| T1-29 | New psychology_json column | Confirmed (user approved) |
+| T1-32 | Apply `@retry_on_lock` decorator | Confirmed; `INSERT OR IGNORE` prerequisite verified |
+| T1-34 | Apply HU equity offsets (T1) | **Demoted to T2, gated behind config flag** |
+| T1-36 | Delete `detect_fold_events` | Confirmed delete (one method); **FIX `detect_chat_events` in place** (the other) |
+| T2-42 | Delete zone gravity | Confirmed (user approved) |
+| T2-54 | Fix test (Option A) | Confirmed; add guard test for anchor-zone drift |
+| All others | Plan stands | Plan stands |
+
 ## Recommended execution order
 
 1. **Quick T1 batch** (~3 hours): T1-28, T1-30, T1-31, T1-35, T1-36, T1-37, T1-38, T1-39 — all S-scope, no dependencies.
