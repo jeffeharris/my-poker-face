@@ -641,6 +641,15 @@ def compute_coaching_data(game_id: str, player_name: str,
     hand_strs = [card_to_string(c) for c in player_hand]
     community_strs = [card_to_string(c) for c in community_cards]
 
+    # Stack-depth signals — effective stack and SPR are what bots and
+    # serious players actually reason from postflop. The coach was
+    # missing them; surface them so advice can reference depth properly.
+    from poker.stack_utils import effective_stack_chips, effective_stack_bb, spr as compute_spr
+    bb = game_state.current_ante or 0
+    eff_stack = effective_stack_chips(game_state, player)
+    eff_stack_bb = effective_stack_bb(game_state, player, big_blind=bb if bb > 0 else None)
+    spr_value = compute_spr(game_state, player, pot_total=pot_total)
+
     result: Dict[str, Any] = {
         'phase': phase,
         'position': position,
@@ -648,6 +657,9 @@ def compute_coaching_data(game_id: str, player_name: str,
         'cost_to_call': cost_to_call,
         'big_blind': game_state.current_ante,
         'stack': player.stack,
+        'effective_stack': eff_stack,
+        'effective_stack_bb': eff_stack_bb,
+        'spr': spr_value,
         'equity': None,
         'equity_vs_random': None,
         'pot_odds': None,

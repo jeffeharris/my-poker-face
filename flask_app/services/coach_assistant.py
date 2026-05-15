@@ -243,8 +243,25 @@ def _format_stats_for_prompt(data: Dict) -> str:
         lines.append(f"Stack: ${stack} ({stack // big_blind} BB)")
     else:
         lines.append(f"Stack: ${stack}")
+
+    # Effective stack — what you can actually win or lose this hand.
+    # Mirrors the depth signal the hybrid/rule bots reason from.
+    eff_stack = data.get('effective_stack')
+    eff_stack_bb = data.get('effective_stack_bb')
+    if eff_stack is not None and eff_stack != stack:
+        if eff_stack_bb is not None and big_blind > 0:
+            lines.append(f"Effective stack: ${eff_stack} ({eff_stack_bb:.0f} BB)")
+        else:
+            lines.append(f"Effective stack: ${eff_stack}")
+
     lines.append(f"Pot: ${data.get('pot_total', 0)}")
     lines.append(f"Cost to call: ${data.get('cost_to_call', 0)}")
+
+    # SPR (stack-to-pot ratio) — the primary lens for postflop strategy.
+    # Skip when undefined (empty pot — preflop before any betting).
+    spr = data.get('spr')
+    if spr is not None and spr != float('inf') and data.get('pot_total', 0) > 0:
+        lines.append(f"SPR: {spr:.1f}")
 
     # Available actions - critical for valid recommendations
     available = data.get('available_actions', [])
@@ -283,11 +300,40 @@ def _format_stats_for_prompt(data: Dict) -> str:
     # cards (e.g. "your Kd plays well on this board").
     hole = data.get('hand_hole_cards') or []
     if hole:
-        lines.append(f"Your cards: {' '.join(hole)}")
+        # Annotate preflop hand with tier + range-fit when available.
+        range_analysis = data.get('player_range_analysis') or {}
+        suffix = ''
+        canonical = range_analysis.get('canonical_hand')
+        tier = range_analysis.get('hand_tier')
+        in_range = range_analysis.get('in_range')
+        if canonical and tier:
+            range_note = 'in standard range' if in_range else 'outside standard range'
+            suffix = f" — {canonical} ({tier}, {range_note})"
+        lines.append(f"Your cards: {' '.join(hole)}{suffix}")
 
     board = data.get('hand_community_cards') or []
     if board:
         lines.append(f"Board: {' '.join(board)}")
+
+        # Board texture — compact wet/dry summary with the salient flags
+        # (paired, monotone, connected, etc.) so the coach can talk about
+        # draws and protection without re-deriving it from the cards.
+        texture = data.get('board_texture') or {}
+        category = texture.get('texture_category')
+        if category:
+            flags = []
+            if texture.get('paired'):
+                flags.append('paired')
+            if texture.get('trips_on_board'):
+                flags.append('trips on board')
+            if texture.get('monotone'):
+                flags.append('monotone')
+            elif texture.get('two_tone'):
+                flags.append('two-tone')
+            if texture.get('connected'):
+                flags.append('connected')
+            flag_str = f" ({', '.join(flags)})" if flags else ''
+            lines.append(f"Board texture: {category}{flag_str}")
 
     hs = data.get('hand_strength')
     if hs:
