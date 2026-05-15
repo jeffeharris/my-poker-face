@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, TypedDict
 from core.llm.assistant import Assistant
 from core.llm.tracking import CallType
 from core.llm.settings import get_default_provider, get_default_model
+from poker.hand_narrator import format_action_phrase
 from .skill_definitions import get_skill_by_id
 
 logger = logging.getLogger(__name__)
@@ -400,27 +401,13 @@ def _format_hand_timeline(
         cards = phase_cards.get(phase, [])
         header = f"{phase} [{' '.join(cards)}]" if cards else phase
 
-        action_lines = []
-        for a in phase_actions:
-            raw_name = a['player_name']
-            name = "You" if player_name and raw_name == player_name else raw_name
-            act = a['action']
-            amount = a['amount']
-            if act == 'fold':
-                action_lines.append(f"{name} folded")
-            elif act == 'check':
-                action_lines.append(f"{name} checked")
-            elif act == 'call':
-                amt = f" ${amount}" if amount > 0 else ""
-                action_lines.append(f"{name} called{amt}")
-            elif act in ('raise', 'bet'):
-                verb = 'raised' if act == 'raise' else 'bet'
-                action_lines.append(f"{name} {verb} ${amount}")
-            elif act == 'all_in':
-                action_lines.append(f"{name} went all-in (${amount})")
-            else:
-                action_lines.append(f"{name} {act}")
-
+        # Action wording (raise-TO semantics, "You" substitution) is
+        # delegated to the shared helper in poker.hand_narrator so the
+        # coach, post-round chat, and post-hand recap all agree.
+        action_lines = [
+            format_action_phrase(a, perspective=player_name)
+            for a in phase_actions
+        ]
         indented = "\n".join(f"    {line}" for line in action_lines)
         parts.append(f"  {header}:\n{indented}")
 

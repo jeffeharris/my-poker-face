@@ -765,44 +765,72 @@ def _split_community_by_phase(community: List[str]) -> Dict[str, List[str]]:
     return result
 
 
+def format_action_phrase(
+    action,
+    perspective: Optional[str] = None,
+    big_blind: Optional[int] = None,
+    period: bool = False,
+) -> str:
+    """Render one player action as a single readable line.
+
+    Single source of truth for action wording across the post-hand
+    recap, post-round chat-suggestion context, and live coach timeline.
+
+    Accepts either a :class:`RecordedAction` or a dict with the same
+    fields (e.g. from ``RecordedAction.to_dict()`` or the coach engine).
+    The perspective player's name is rewritten to "You". Amounts may
+    be expressed in BB when ``big_blind`` is supplied; otherwise dollar
+    amounts. A trailing period is appended when ``period=True``.
+
+    Amount semantics by action type (matches the recorder in
+    ``flask_app/handlers/game_handler.py``):
+
+    * ``raise`` / ``all_in`` — target total bet (raise-TO)
+    * ``call`` — call cost
+    * ``check`` / ``fold`` — ignored
+    """
+    if isinstance(action, dict):
+        player = action["player_name"]
+        kind = action["action"]
+        amt_raw = action.get("amount", 0) or 0
+    else:
+        player = action.player_name
+        kind = action.action
+        amt_raw = getattr(action, "amount", 0) or 0
+
+    name = "You" if perspective and player == perspective else player
+
+    if kind == "fold":
+        body = f"{name} folded"
+    elif kind == "check":
+        body = f"{name} checked"
+    elif kind == "call":
+        if amt_raw > 0:
+            body = f"{name} called {_fmt_amount(amt_raw, big_blind)}"
+        else:
+            body = f"{name} called"
+    elif kind == "raise":
+        body = f"{name} raised to {_fmt_amount(amt_raw, big_blind)}"
+    elif kind == "bet":
+        body = f"{name} bet {_fmt_amount(amt_raw, big_blind)}"
+    elif kind == "all_in":
+        body = f"{name} went all-in for {_fmt_amount(amt_raw, big_blind)}"
+    else:
+        body = f"{name} {kind}"
+
+    return f"{body}." if period else body
+
+
 def _format_actions(
     actions: list,
     big_blind: Optional[int],
     perspective: Optional[str] = None,
 ) -> List[str]:
-    """Format a list of RecordedAction into readable strings.
-
-    If perspective is supplied, that player's actions are written in
-    second person (You folded / You raised) so the AI reading its own
-    commentary prompt sees first-person events.
-    """
-    parts = []
-    for a in actions:
-        is_you = perspective is not None and a.player_name == perspective
-        name = "You" if is_you else a.player_name
-        if a.action == "fold":
-            parts.append(f"{name} folded.")
-        elif a.action == "check":
-            verb = "checked"
-            parts.append(f"{name} {verb}.")
-        elif a.action == "call":
-            verb = "called"
-            if a.amount > 0:
-                amt = _fmt_amount(a.amount, big_blind)
-                parts.append(f"{name} {verb} {amt}.")
-            else:
-                parts.append(f"{name} {verb}.")
-        elif a.action == "raise":
-            verb = "raised"
-            amt = _fmt_amount(a.amount, big_blind)
-            parts.append(f"{name} {verb} to {amt}.")
-        elif a.action == "all_in":
-            verb = "went"
-            amt = _fmt_amount(a.amount, big_blind)
-            parts.append(f"{name} {verb} all-in for {amt}.")
-        else:
-            parts.append(f"{name} {a.action}.")
-    return parts
+    """Format a list of RecordedAction into readable strings."""
+    return [
+        format_action_phrase(a, perspective=perspective, big_blind=big_blind, period=True)
+        for a in actions
+    ]
 
 
 # Position abbreviations for display. The hand recorder stores raw

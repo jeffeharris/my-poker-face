@@ -13,7 +13,7 @@ from core.llm import LLMClient, CallType
 from ..extensions import tournament_repo, hand_history_repo, auth_manager, limiter, personality_generator
 from poker.prompt_manager import PromptManager
 from poker.memory.hand_history import RecordedHand
-from poker.hand_narrator import evaluate_hand_label
+from poker.hand_narrator import evaluate_hand_label, format_action_phrase
 from poker.config import is_development_mode
 from typing import Dict, Any
 from collections import defaultdict
@@ -200,24 +200,12 @@ def build_hand_context_from_recorded_hand(
 
         # Format actions — one per indented line so the LLM can parse
         # each event cleanly rather than scanning a comma-joined run.
-        action_lines = []
-        for a in phase_actions:
-            actor = "You" if a.player_name == player_name else a.player_name
-            if a.action == 'fold':
-                action_lines.append(f"{actor} folded")
-            elif a.action == 'check':
-                action_lines.append(f"{actor} checked")
-            elif a.action == 'call':
-                amt = f" ${a.amount}" if a.amount > 0 else ""
-                action_lines.append(f"{actor} called{amt}")
-            elif a.action in ('raise', 'bet'):
-                verb = 'raised' if a.action == 'raise' else 'bet'
-                action_lines.append(f"{actor} {verb} ${a.amount}")
-            elif a.action == 'all_in':
-                action_lines.append(f"{actor} went all-in (${a.amount})")
-            else:
-                action_lines.append(f"{actor} {a.action}")
-
+        # Action wording (raise-TO semantics, "You" substitution) is
+        # delegated to the shared helper in poker.hand_narrator.
+        action_lines = [
+            format_action_phrase(a, perspective=player_name)
+            for a in phase_actions
+        ]
         indented = "\n".join(f"  {line}" for line in action_lines)
         timeline_parts.append(f"{phase_header}:\n{indented}")
 
