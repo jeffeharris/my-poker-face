@@ -193,40 +193,7 @@ class PressureEventDetector:
                     events.append(("bluff_called", bluff_called_players))
 
         return events
-    
-    def detect_fold_events(self, game_state: PokerGameState,
-                          folding_player: Player,
-                          remaining_players: List[Player],
-                          winner_bluff_likelihood: int = 0) -> List[Tuple[str, List[str]]]:
-        """Detect pressure events from a fold action.
 
-        Args:
-            winner_bluff_likelihood: Self-reported bluff_likelihood (0-100) from the
-                winner's LLM responses this hand. Used alongside aggression heuristic.
-        """
-        events = []
-
-        # If only one player remains after fold, check for bluff
-        if len(remaining_players) == 1:
-            winner = remaining_players[0]
-            pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
-            avg_stack = sum(p.stack for p in game_state.players if p.stack > 0) / len(
-                [p for p in game_state.players if p.stack > 0]
-            )
-
-            # Only count as potential bluff if pot is significant
-            if pot_total > avg_stack * 0.5:
-                # Self-reported bluff likelihood is the strongest signal (no cards shown)
-                if winner_bluff_likelihood >= self.BLUFF_LIKELIHOOD_THRESHOLD:
-                    events.append(("successful_bluff", [winner.name]))
-                # Fallback: high aggression trait suggests possible bluff
-                elif hasattr(winner, 'elastic_personality'):
-                    aggression = winner.elastic_personality.get_trait_value('aggression')
-                    if aggression > 0.7:
-                        events.append(("successful_bluff", [winner.name]))
-
-        return events
-    
     def detect_elimination_events(self, game_state: PokerGameState,
                                 eliminated_players: List[str]) -> List[Tuple[str, List[str]]]:
         """Detect pressure events from player eliminations."""
@@ -239,24 +206,6 @@ class PressureEventDetector:
             for eliminated in eliminated_players:
                 events.append(("eliminated_opponent", survivors))
         
-        return events
-    
-    def detect_chat_events(self, sender: str, message: str, 
-                          recipients: List[str]) -> List[Tuple[str, List[str]]]:
-        """Detect pressure events from chat interactions."""
-        events = []
-        
-        # Simple sentiment detection
-        friendly_words = ['nice', 'good', 'great', 'love', 'thanks', 'appreciate']
-        aggressive_words = ['scared', 'weak', 'donkey', 'fool', 'terrible', 'stupid']
-        
-        message_lower = message.lower()
-        
-        if any(word in message_lower for word in friendly_words):
-            events.append(("friendly_chat", recipients))
-        elif any(word in message_lower for word in aggressive_words):
-            events.append(("rivalry_trigger", recipients))
-
         return events
 
     # Weighted-delta equity shock detection thresholds

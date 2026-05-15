@@ -1636,20 +1636,6 @@ def register_socket_events(sio):
             return
 
         send_message(game_id, sender, content, message_type)
-        if game_data and content:
-            if 'pressure_detector' in game_data and 'ai_controllers' in game_data:
-                pressure_detector = game_data['pressure_detector']
-                ai_controllers = game_data['ai_controllers']
-                ai_player_names = list(ai_controllers.keys())
-
-                chat_events = pressure_detector.detect_chat_events(sender, content, ai_player_names)
-
-                for event_name, affected_players in chat_events:
-                    for player_name in affected_players:
-                        if player_name in ai_controllers:
-                            controller = ai_controllers[player_name]
-                            if controller.psychology is not None:
-                                controller.psychology.apply_pressure_event(event_name, sender)
 
     @sio.on('progress_game')
     @socket_rate_limit(max_calls=5, window_seconds=10)
