@@ -807,6 +807,22 @@ class TieredBotController(AIPlayerController):
         )
         self._last_intervention_trace.extend(exploitation_traces)
 
+        # 6a.45 Phase A induce_override: smooth-call vs detected
+        # multi-street barrelers with nuts IP on dry boards. Sits
+        # IMMEDIATELY BEFORE value_override; when induce fires, value
+        # override defers via its `prior_layer_fired` check. The two
+        # rules' gates overlap on hyper_aggressive+nuts spots — induce
+        # has the narrower gate (IP, dry board, ≥40 BB, sample floor)
+        # and wins when both match.
+        modified_strategy, induce_override_trace = self._apply_induce_override(
+            modified_strategy, game_state, player_idx, valid_actions,
+            anchors, emotional_state,
+            node=node,
+            hand_strength=hand_strength,
+            active_opponent_count=active_count - 1,
+        )
+        self._last_intervention_trace.append(induce_override_trace)
+
         # 6a.5 Phase 6.5: strong-hand value override.
         # Replaces strategy when hero has a strong made hand vs a detected
         # hyper-aggressive opponent. Sits after exploitation so it takes
@@ -815,6 +831,7 @@ class TieredBotController(AIPlayerController):
             modified_strategy, game_state, player_idx, valid_actions,
             anchors, emotional_state,
             hand_strength=hand_strength,
+            prior_layer_fired=induce_override_trace.fired,
         )
         self._last_intervention_trace.append(value_override_trace)
 
@@ -853,7 +870,9 @@ class TieredBotController(AIPlayerController):
         # required_equity + facing_bet from DecisionContext.
         from .strategy.defense_floor import apply_defense_floor
         prior_layer_fired = (
-            value_override_trace.fired or bluff_catch_trace.fired
+            induce_override_trace.fired
+            or value_override_trace.fired
+            or bluff_catch_trace.fired
         )
         defense_floor_facing_bet = (
             outer_decision_context.bet_bucket is not None
@@ -1188,9 +1207,84 @@ class TieredBotController(AIPlayerController):
             bettor_archetype=archetype,
         )
 
+    def _apply_induce_override(
+        self, strategy, game_state, player_idx, valid_actions,
+        anchors, emotional_state, *,
+        node, hand_strength, active_opponent_count: int,
+    ) -> Tuple['StrategyProfile', InterventionTrace]:
+        """Phase A: induce override (smooth-call vs barrelers).
+
+        Sits immediately before `_apply_value_override` in the postflop
+        pipeline. When this rule fires, value_override defers via its
+        `prior_layer_fired` check. See poker/strategy/induce_override.py
+        for the full design + docs/plans/INDUCE_OVERRIDE_PHASE_A.md.
+
+        Mirrors `_apply_value_override`'s shape: ablation check first,
+        then manager + anchors gate, then spot-based stat selection,
+        then delegate to the rule module's apply function. The rule
+        module owns the actual gate logic; this method handles
+        controller-side plumbing.
+        """
+        from .strategy.induce_override import apply_induce_override
+        from .strategy.intervention_trace import (
+            is_rule_disabled, make_disabled_trace,
+        )
+
+        if is_rule_disabled(
+            getattr(self, "disable_rules", frozenset()),
+            'induce_override', 'default',
+        ):
+            return strategy, make_disabled_trace(
+                layer='induce_override', rule_id='default',
+                layer_order=layer_order_for('induce_override'),
+            )
+
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None or anchors is None:
+            return strategy, make_no_op_trace(
+                layer='induce_override', rule_id='default',
+                layer_order=layer_order_for('induce_override'),
+                reason_code='manager_unavailable',
+            )
+
+        tilt_factor = self._zone_to_tilt_factor(emotional_state)
+
+        # Reuse value_override's stat selection so both layers see the
+        # same aggressor when both gates evaluate the same decision.
+        spots = self._build_opponent_spots(game_state, manager)
+        stats, primary_spot, _ambiguous = (
+            self._select_exploitation_stats_from_spots(spots, game_state)
+        )
+
+        decision_context = self._build_decision_context(
+            game_state, player_idx,
+            primary_aggressor_spot=primary_spot,
+        )
+
+        effective_stack_bb = self._compute_effective_stack_bb(
+            game_state, player_idx,
+        )
+
+        return apply_induce_override(
+            strategy,
+            stats=stats,
+            hand_strength=hand_strength,
+            nut_status=node.nut_status,
+            street=node.street,
+            position=node.position,
+            danger_flag_count=len(node.danger_flags),
+            effective_stack_bb=effective_stack_bb,
+            active_opponent_count=active_opponent_count,
+            decision_context=decision_context,
+            adaptation_bias=anchors.adaptation_bias,
+            tilt_factor=tilt_factor,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
+        )
+
     def _apply_value_override(
         self, strategy, game_state, player_idx, valid_actions,
         anchors, emotional_state, hand_strength,
+        prior_layer_fired: bool = False,
     ) -> Tuple['StrategyProfile', InterventionTrace]:
         """Phase 6.5: strong-hand value override.
 
@@ -1215,6 +1309,17 @@ class TieredBotController(AIPlayerController):
         # Default for the Phase-8 tally — set unconditionally so the
         # postflop caller never reads a stale flag from a prior decision.
         self._last_value_override_fired = False
+
+        # Phase A induce_override: defer when induce already replaced
+        # the strategy this decision. Without this, value_override
+        # would overwrite induce's 100%-call distribution back to
+        # 50/50 call/raise and the trap mechanic is lost.
+        if prior_layer_fired:
+            return strategy, make_no_op_trace(
+                layer='strong_hand_override', rule_id='default',
+                layer_order=layer_order_for('strong_hand_override'),
+                reason_code='deferred_to_induce_override',
+            )
 
         # Phase 7.6 Step 5: ablation short-circuit.
         from .strategy.intervention_trace import is_rule_disabled, make_disabled_trace
