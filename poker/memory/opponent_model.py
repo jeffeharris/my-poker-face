@@ -970,6 +970,8 @@ def _build_aggregate_from_single(t: OpponentTendencies):
         all_in_frequency=t.all_in_frequency,
         fold_to_cbet=t.fold_to_cbet,
         cbet_faced_count=t._cbet_faced_count,
+        cbet_attempt_rate=t.cbet_attempt_rate,
+        postflop_seen_as_pfr_count=t._postflop_seen_as_pfr_count,
         # Phase 7.5 Step 0 fields
         aggression_factor_postflop=t.aggression_factor_postflop,
         all_in_per_facing_bet=t.all_in_per_facing_bet,
@@ -1007,6 +1009,14 @@ def _build_aggregate_from_multi(tendencies_list):
     min_hands = min(t.hands_observed for t in tendencies_list)
     min_cbet_faced = min(t._cbet_faced_count for t in tendencies_list)
 
+    # Phase 8.1a c-bet attempt fields — rates average, counter MIN.
+    avg_cbet_attempt_rate = sum(
+        t.cbet_attempt_rate for t in tendencies_list
+    ) / n
+    min_pfr_seen = min(
+        t._postflop_seen_as_pfr_count for t in tendencies_list
+    )
+
     # Phase 7.5 Step 0 fields
     avg_af_postflop = sum(t.aggression_factor_postflop for t in tendencies_list) / n
     avg_all_in_pfb = sum(t.all_in_per_facing_bet for t in tendencies_list) / n
@@ -1037,6 +1047,8 @@ def _build_aggregate_from_multi(tendencies_list):
         all_in_frequency=avg_all_in,
         fold_to_cbet=avg_fold_to_cbet,
         cbet_faced_count=min_cbet_faced,
+        cbet_attempt_rate=avg_cbet_attempt_rate,
+        postflop_seen_as_pfr_count=min_pfr_seen,
         aggression_factor_postflop=avg_af_postflop,
         all_in_per_facing_bet=avg_all_in_pfb,
         facing_bet_opportunities=min_facing_bet_opps,

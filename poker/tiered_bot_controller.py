@@ -1850,6 +1850,14 @@ class TieredBotController(AIPlayerController):
                             all_in_frequency=t.all_in_frequency,
                             fold_to_cbet=t.fold_to_cbet,
                             cbet_faced_count=t._cbet_faced_count,
+                            # Phase 8.1a c-bet attempt fields. getattr-with-
+                            # default keeps SimpleNamespace mocks happy.
+                            cbet_attempt_rate=getattr(
+                                t, 'cbet_attempt_rate', 0.5,
+                            ),
+                            postflop_seen_as_pfr_count=getattr(
+                                t, '_postflop_seen_as_pfr_count', 0,
+                            ),
                             # Phase 7.5 Step 0 fields — populated for
                             # diagnostic visibility. Item 2 consumes them
                             # for tier classification.
