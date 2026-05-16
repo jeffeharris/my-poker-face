@@ -983,6 +983,19 @@ class AITournamentRunner:
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
             controller.memory_manager = memory_manager
 
+            # Ablation hook: let configs disable specific TieredBot rules
+            # by listing (layer, rule_id) pairs under player_type_config.
+            # Example config fragment:
+            #   "disable_rules": [["induce_override", "default"]]
+            # Used by the Phase A ablation matrix to run rule-OFF arms
+            # without re-instantiating with different code. Silently
+            # ignored for non-tiered controllers (no disable_rules attr).
+            disable_rules_cfg = player_type_config.get('disable_rules')
+            if disable_rules_cfg and hasattr(controller, 'disable_rules'):
+                controller.disable_rules = frozenset(
+                    tuple(pair) for pair in disable_rules_cfg
+                )
+
         return state_machine, controllers, memory_manager
 
     def _process_psychology(
