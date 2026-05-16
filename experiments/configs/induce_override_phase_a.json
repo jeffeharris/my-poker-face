@@ -4,8 +4,8 @@
   "hypothesis": "(H1) +5 bb/100 lift vs ManiacBot when rule is ON. (H2) <=-2 bb/100 leak vs each non-barreler. (H3) <1% fire rate vs ABCBot/TAG. All three must hold; any miss kills Phase A.",
   "tags": ["tiered", "induce_override", "phase-a", "exploitation", "heads-up"],
 
-  "num_tournaments": 4,
-  "hands_per_tournament": 500,
+  "num_tournaments": 8,
+  "hands_per_tournament": 1000,
   "num_players": 2,
   "starting_stack": 20000,
   "big_blind": 100,
@@ -17,7 +17,7 @@
   "personalities": ["TieredHero", "Villain"],
   "capture_prompts": false,
 
-  "_note_starting_stack": "200 BB starting stack ensures the 20 BB effective-stack gate is satisfied for the great majority of hands. 500 hands x 4 seeds = 2000 hands per arm.",
+  "_note_starting_stack": "200 BB starting stack ensures the 40 BB effective-stack gate is satisfied for the great majority of hands. 1000 hands x 8 seeds = 8000 hands per arm (bumped from 2000 — HU pot variance at n=2000 was ~5-10 bb/100 stderr, inside the +5 bb/100 H1 threshold).",
   "_note_seeding": "random_seed=1001 is the experiment-level base seed. Each tournament uses base + tournament_index so seed variance across the 4 tournaments produces independent samples.",
   "_note_wiring": "This config depends on TieredBotController accepting a disable_rules key from player_type_config (currently set programmatically only). Wiring this through run_ai_tournament.py:944 is part of the Phase A implementation work — see docs/plans/INDUCE_OVERRIDE_PHASE_A.md 'Pipeline integration'.",
 

@@ -2,7 +2,7 @@
 purpose: Phase A — add an induce/slowplay override to TieredBot's postflop pipeline, gated on existing stats, to exploit multi-street barrelers on the facing-bet path
 type: design
 created: 2026-05-15
-last_updated: 2026-05-15
+last_updated: 2026-05-16
 ---
 
 # Induce Override — Phase A
@@ -42,24 +42,53 @@ scoped to the facing-bet IP path. Phase B extends to OOP
 (check-raise), adds a proper `barrel_frequency` stat, and introduces
 confidence-scaled mixing.
 
+### Empirical baseline (2026-05-16 dry-run)
+
+Before drafting was finalized, a 60-hand HU dry-run of TieredBot vs
+ManiacBot confirmed the gate components are populated as expected once
+two prerequisite plumbing fixes shipped (see [Prerequisites](#prerequisites)
+below):
+
+```
+Final ManiacBot stats observed by TieredHero (22 hands):
+  aggression_factor_postflop:    4.000  (saturated at medium_af_postflop cap)
+  cbet_attempt_rate:             0.800  (4 attempts / 5 opportunities)
+  postflop_seen_as_pfr_count:    5
+  pfr:                           0.767
+```
+
+Two takeaways:
+
+1. **AF_pf saturates at the cap (4.0)** rather than being deflated by
+   defensive calling — ManiacBot never calls postflop in HU at 200 BB
+   stacks because raise is always legal in its strategy. The Phase A
+   gate threshold of `AF_pf ≥ 3.0` clears comfortably.
+
+2. **`postflop_seen_as_pfr_count` rate is ~1 per 4-5 hands in HU.**
+   The 22-hand sample produced 5 PFR-seen-on-flop events. Scaled to
+   the Phase A experiment matrix (1000 hands × 8 seeds = 8000 hands
+   per arm), expect ~1800 events per arm — easily clearing the
+   sample-floor gate. But for shorter validation runs (e.g., a quick
+   smoke test under 100 hands), the sample threshold may bottleneck.
+
 ## Testable Hypothesis
 
 > Inserting an `induce_override` layer that, on flop/turn IP
 > facing-bet spots with `hand_class == 'nuts'` (and `nut_status ==
 > 'nuts'`) vs an opponent with `aggression_factor_postflop >= 3.0`
 > AND `cbet_attempt_rate >= 0.70` AND ≥ 10 hands observed AND ≥ 10
-> cbet_attempt observations, redistributes facing-bet probability
-> mass to **0.85 call / 0.15 raise-like** (instead of `value_override`'s
-> 0.50/0.50) at ≥ 20 BB effective stack and dry boards (≤ 1 danger
-> flag), will produce:
+> `postflop_seen_as_pfr_count` observations, redistributes facing-bet
+> probability mass to **1.00 call / 0.00 raise** during Phase A
+> validation (instead of `value_override`'s 0.50/0.50) at ≥ 40 BB
+> effective stack and dry boards (≤ 1 danger flag), will produce:
 >
 > - **(H1) ≥ +5 bb/100 improvement** for TieredBot vs ManiacBot,
->   measured across 500 hands × 4 seeds (n = 2000 hands per arm).
+>   measured across **1000 hands × 8 seeds (n = 8000 hands per arm)**.
 > - **(H2) ≤ −2 bb/100 leak** vs each of: CaseBot, GTO-Lite, baseline
->   TAG. (Same sample size per matchup.)
-> - **(H3)** Rule fires on **< 1% of decisions** vs nit/TAG opponents
->   (gate selectivity check — non-barrelers should not trip the
->   AF_postflop × cbet_attempt gate).
+>   ABCBot (TAG-equivalent). (Same sample size per matchup.)
+> - **(H3)** Rule fires on **< 1% of decisions** vs ABCBot/nit
+>   opponents (gate selectivity check — non-barrelers should not trip
+>   the AF_postflop × cbet_attempt gate).
 
 All three must hold. **Falsifier**: any single (H1) miss, (H2) breach,
 or (H3) > 2% fire rate vs non-barrelers kills Phase A and triggers a
@@ -67,19 +96,57 @@ gate review before any Phase B work.
 
 The numbers above are committed pre-run:
 - **+5 bb/100 is deliberately conservative** for the facing-bet
-  scope. Order-of-magnitude estimate: with `nuts` + dry-board gates,
-  the rule fires perhaps 15–25 times per 500-hand HU match vs
-  ManiacBot. Per firing, smooth-call instead of raise captures an
-  expected 2–4 extra BB (one extra barrel street, often two). That's
-  30–100 extra BB per match, or 6–20 bb/100. +5 is the low end —
-  large enough to be visible above noise, small enough that a
-  half-broken implementation could still clear.
-- **−2 bb/100 leak** is below the noise floor of the existing
-  ablation matrix at n = 2000 (~1.5 bb/100 stderr on HU sims per
-  Phase 8 v1 readouts), so we can detect breaches cleanly.
-- **<1% fire rate vs TAG/nit** follows from the gate construction —
+  scope. Per-firing EV correction (the original estimate of 2–4 BB
+  understated the multi-street geometry): at 75% pot bets across
+  flop, turn, and river, smooth-calling captures the flop bet +
+  turn barrel (~5.6 BB extra) + river barrel (~14 BB extra) where
+  raising flop captures only the called flop bet. Realistic
+  per-firing delta vs ManiacBot is **6–15 BB**, not 2–4 BB. Firing
+  rate is correspondingly lower: the dry-run measured ~1 cbet
+  opportunity per 4-5 hands. Of those, the nuts + dry-board + IP
+  filter probably keeps **5–15 fired-induce decisions per 1000-hand
+  match**. Net EV upside: 30–225 BB per match → 3–22 bb/100. +5 is
+  the conservative end, large enough to detect.
+- **−2 bb/100 leak** is below the n=8000 noise floor (~1 bb/100
+  stderr based on Phase 8 readouts scaled by √n). At the prior
+  n=2000 design point, stderr was ~5–10 bb/100 and the test would
+  have been inconclusive — the bumped sample size is required.
+- **<1% fire rate vs TAG/ABCBot** follows from the gate construction —
   `aggression_factor_postflop ≥ 3.0` excludes TAGs (typical AF_pf ~
-  1.5–2.0) and nits (typical AF_pf < 1.0).
+  1.5–2.0) and `cbet_attempt_rate ≥ 0.70` excludes ABCBot's
+  conservative postflop play.
+
+## Prerequisites
+
+Two plumbing fixes were required for the gate to fire correctly on
+ManiacBot in HU. **Both shipped on 2026-05-16** as part of the
+empirical-baseline dry-run; this section documents the fixes so the
+plan's dependency graph is explicit.
+
+1. **`cbet_attempt_rate` / `postflop_seen_as_pfr_count` surfaced to
+   `AggregatedOpponentStats`** (`poker/strategy/exploitation.py:454`).
+   Previously these fields existed on `OpponentTendencies` (per Phase
+   8.1a) but were never propagated through the four aggregator
+   construction sites. The induce_override gate reads from
+   `AggregatedOpponentStats`, so without the surface fix it would
+   have read the dataclass defaults (`0.5` / `0`) regardless of
+   observed behavior.
+
+   Touched sites:
+   - `_build_aggregate_from_single` (`opponent_model.py:957`)
+   - `_build_aggregate_from_multi` (`opponent_model.py:987`)
+   - `aggregate_from_spots` (`exploitation.py:1564`)
+   - `_copy_stats` (`exploitation.py:1665`)
+   - `TieredBotController._build_opponent_spots` (`tiered_bot_controller.py:1845`)
+
+   Test coverage: `tests/test_strategy/test_aggregate_cbet_attempt_surface.py`.
+
+2. **(False alarm — no fix needed)** An earlier review flagged that
+   the tiered-controller construction at `run_ai_tournament.py:933`
+   doesn't pass `opponent_model_manager` to the constructor. This is
+   benign because `controller.opponent_model_manager = ...` is set
+   for every controller post-construction at
+   `run_ai_tournament.py:983`.
 
 ## Scope
 
@@ -87,19 +154,25 @@ The numbers above are committed pre-run:
 
 - New module: `poker/strategy/induce_override.py`
 - New controller method: `TieredBotController._apply_induce_override`
-- Insertion point: **after** `_apply_bluff_catch_override` (mirrors
-  `_apply_bluff_catch_override`'s pattern of chaining with
-  `prior_layer_fired` deference). When `value_override` already fired
-  on the same decision, induce supersedes by checking the trace.
+- Insertion point: **before** `_apply_value_override` (mirrors
+  `defense_floor`'s pattern). When induce fires, value_override
+  defers via its own `prior_layer_fired` check. Earlier draft put
+  induce after value_override with the latter being overridden —
+  that creates two OVERRIDE-class trace entries on the same
+  decision and complicates attribution. Note: `_apply_bluff_catch_override`
+  operates on disjoint hand classes (nuts vs marginal/weak), so
+  there's no overlap to worry about there.
 - Trace plumbing: `InterventionTrace` emit, `_fill_prior_action_source`
   pass-through, snapshot fields under `induce_*` keys
 - Ablation key: `('induce_override', 'default')` in `disable_rules`
 - Experiment config: `experiments/configs/induce_override_phase_a.json`
   running the four-matchup ablation matrix (ManiacBot, CaseBot,
   GTO-Lite, TAG) with rule-on vs rule-off arms
-- **Mixing strategy**: fixed 0.85 call / 0.15 raise. Not
-  confidence-scaled. See [Mixing Strategy](#mixing-strategy) for the
-  rationale.
+- **Mixing strategy during Phase A validation**: fixed 1.00 call /
+  0.00 raise. Maximizes signal during ablation testing where
+  villains are static. The unexploitability mix (0.85/0.15) is
+  Phase B work once adaptive opponents enter the matrix. See
+  [Mixing Strategy](#mixing-strategy) for the rationale.
 
 **Out (Phase B and later):**
 
@@ -135,41 +208,40 @@ widens incrementally with the same testable-hypothesis framing.
 | Street is flop or turn | `node.street in {'flop', 'turn'}` | True |
 | Hand is the nuts | `hand_class == 'nuts'` AND `node.nut_status == 'nuts'` | True |
 | Board is dry | `len(node.danger_flags) <= 1` | True |
-| Effective stack ≥ 20 BB | `_compute_effective_stack_bb(...) >= 20` | True |
+| Effective stack ≥ 40 BB | `_compute_effective_stack_bb(...) >= 40` | True |
 | Opponent is a barreler proxy | `stats.aggression_factor_postflop >= 3.0` AND `stats.cbet_attempt_rate >= 0.70` | True |
-| Sample sufficient | `stats.hands_observed >= 10` AND `stats.cbet_attempt_count >= 10` | True |
+| Sample sufficient | `stats.hands_observed >= 10` AND `stats.postflop_seen_as_pfr_count >= 10` | True |
 | Opponent is NOT a station | `not _is_passive_with_jams(stats)` AND `not _is_hyper_passive(stats)` | True |
 | Not facing an all-in | `not decision_context.facing_all_in` (no future streets to extract on) | True |
 | Standard psychology gate | `adaptation_bias * tilt_factor > GATING_FLOOR` (same as value_override) | True |
 | Ablation hook | `('induce_override', 'default') not in disable_rules` | True |
 | Multiway gate | `active_opponent_count == 1` (HU only for Phase A) | True |
 
-`prior_layer_fired` is *not* a blocker — induce explicitly supersedes
-`value_override` on this gate when value_override has already replaced
-the strategy to 50/50 call/raise. Set `prior_action_source` in the
-trace to record which layer it overrode.
+`prior_layer_fired` IS a blocker (by design — induce inserts before
+value_override, so the only "prior layer" would be one that fired
+earlier in the pipeline, e.g. exploitation offsets). When induce
+fires, value_override checks the trace and defers — same pattern
+defense_floor uses.
 
 ### Effect
 
 Redistribute the existing `modified_strategy.action_probabilities`,
 preserving the action keys (same invariant as value_override):
 
-- **`has_call` and `has_raise`**: `call = 0.85`, `raise_like = 0.15`
-  split evenly across available raise actions.
-- **`has_call` only (no raise option — pathological)**: leave 100%
-  call. Emit `fired=True` trace with `reason_code='facing_bet_call_only'`
-  to mirror value_override's vocabulary.
-- **`has_raise` only (no call — also pathological, shouldn't happen
+- **`has_call`**: `call = 1.00`, all other actions to 0. Phase A
+  validation runs with a pure smooth-call line — none of the
+  matchup villains adapt, so any non-zero raise frequency would
+  just dilute the per-firing EV signal we're trying to measure.
+- **`has_raise` only (no call — pathological, shouldn't happen
   facing a bet)**: leave alone, `fired=False`,
   `reason_code='facing_bet_no_call_action'`.
 
-The 0.85/0.15 ratio is calibrated as:
-- High enough call frequency that smooth-calling is the dominant
-  action when the gate fires (the trap actually triggers).
-- High enough raise frequency that the line stays unexploitable —
-  even a perfectly observant opponent would still face a raise 15%
-  of the time after hero calls flop, so they cannot fold turn on
-  pure read of "called flop = stronger than raise."
+Phase B switches the redistribution to **0.85/0.15** (or
+confidence-scaled — see Phase B Item 2) once adaptive opponents are
+in the matrix. The 0.15 raise frequency is the unexploitability
+tax: a perfectly observant opponent can't pure-fold turn after our
+call because we still raise 15% of the time. Testing this property
+in Phase A would require an adapting villain, which we don't have.
 
 ### Pipeline integration
 
@@ -315,14 +387,18 @@ instead of retuning blindly.
 
 | Arm | Hero | Villain | Rule | Hands | Seeds |
 |---|---|---|---|---|---|
-| A1 | TieredBot | ManiacBot | OFF (ablated) | 500 | 4 |
-| A2 | TieredBot | ManiacBot | ON | 500 | 4 |
-| B1 | TieredBot | CaseBot | OFF | 500 | 4 |
-| B2 | TieredBot | CaseBot | ON | 500 | 4 |
-| C1 | TieredBot | GTO-Lite | OFF | 500 | 4 |
-| C2 | TieredBot | GTO-Lite | ON | 500 | 4 |
-| D1 | TieredBot | TAG (rule_bot baseline) | OFF | 500 | 4 |
-| D2 | TieredBot | TAG (rule_bot baseline) | ON | 500 | 4 |
+| A1 | TieredBot | ManiacBot | OFF (ablated) | 1000 | 8 |
+| A2 | TieredBot | ManiacBot | ON | 1000 | 8 |
+| B1 | TieredBot | CaseBot | OFF | 1000 | 8 |
+| B2 | TieredBot | CaseBot | ON | 1000 | 8 |
+| C1 | TieredBot | GTO-Lite | OFF | 1000 | 8 |
+| C2 | TieredBot | GTO-Lite | ON | 1000 | 8 |
+| D1 | TieredBot | ABCBot (TAG baseline) | OFF | 1000 | 8 |
+| D2 | TieredBot | ABCBot (TAG baseline) | ON | 1000 | 8 |
+
+Total: **n = 8000 hands per arm**, 4x the earlier draft (n=2000 was
+inside the HU pot-variance noise floor — see Risk #6 in the prior
+draft, now upgraded to a baseline requirement).
 
 Use `disable_rules = frozenset({('induce_override', 'default')})` for
 the OFF arms — same ablation mechanism the Phase 7.6 matrix uses, no
