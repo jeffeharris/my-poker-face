@@ -2424,13 +2424,40 @@ class TieredBotController(AIPlayerController):
     def _attach_expression(
         self, decision: Dict, game_state, player_idx: int, phase: str,
     ) -> None:
-        """Populate narration fields on a committed decision dict.
+        """Populate narration fields on a committed decision AND persist
+        the decision-analysis row.
 
-        No-op when no expression_generator is configured. All failures are
-        contained: the decision dict is unchanged and the game proceeds.
+        Two responsibilities — character expression (Layer 3, optional)
+        and analytics persistence (always wanted). Originally these were
+        coupled: persistence was gated on the LLM capture_id, which meant
+        a silent turn (or a sim with `expression: false`) silently
+        dropped the per-decision intervention_trace + snapshot. This
+        broke analytics for ablation matrices that rely on
+        trace counters.
+
+        Now: expression runs if configured and the gate passes;
+        persistence runs unconditionally with whatever capture_id the
+        expression layer produced (or None if it didn't fire).
+        """
+        capture_id = self._run_expression_layer(
+            decision, game_state, player_idx, phase,
+        )
+        self._persist_decision_analysis(
+            decision, game_state, player_idx, capture_id=capture_id,
+        )
+
+    def _run_expression_layer(
+        self, decision: Dict, game_state, player_idx: int, phase: str,
+    ) -> Optional[int]:
+        """Run the Layer 3 character expression (LLM narration).
+
+        Returns the prompt capture_id when the LLM fired, or None when
+        expression is disabled, fully silent, or errored. The capture_id
+        is passed through to the analytics persistence step so the
+        decision_analysis row can link to its narration capture.
         """
         if getattr(self, 'expression_generator', None) is None:
-            return
+            return None
 
         try:
             from .moment_analyzer import MomentAnalyzer
@@ -2481,7 +2508,7 @@ class TieredBotController(AIPlayerController):
             should_speak = gate.should_speak
             should_gesture = gate.should_gesture
             if gate.fully_silent:
-                return
+                return None
 
             # Phase 7.6 Step 5: build NarrationFacts from the per-decision
             # intervention trace. Best-effort — failure here logs WARN and
@@ -2549,30 +2576,46 @@ class TieredBotController(AIPlayerController):
                 f"[TIERED_BOT] {self.player_name}: "
                 f"expression failed safely: {e}"
             )
-            return
+            return None
 
-        # Link the decision-analysis row to the narration capture so the
-        # analyzer pipeline can join them (matches the hybrid path's behavior).
-        if capture_id_holder[0] is not None and getattr(
-            self, '_decision_analysis_repo', None
-        ) is not None:
-            try:
-                cost_to_call = getattr(game_state, 'call_amount', 0) or 0
-                player_obj = game_state.players[player_idx]
-                self._analyze_decision(
-                    decision,
-                    {'call_amount': cost_to_call},
-                    capture_id=capture_id_holder[0],
-                    player_bet=getattr(player_obj, 'bet', 0),
-                    all_players_bets=[
-                        (p.bet, p.is_folded) for p in game_state.players
-                    ],
-                )
-            except Exception as e:
-                logger.warning(
-                    f"[TIERED_BOT] {self.player_name}: "
-                    f"capture_id linkage failed: {e}"
-                )
+        return capture_id_holder[0]
+
+    def _persist_decision_analysis(
+        self, decision: Dict, game_state, player_idx: int,
+        *, capture_id: Optional[int] = None,
+    ) -> None:
+        """Persist the per-decision intervention_trace + pipeline snapshot.
+
+        Always called after `_attach_expression` regardless of whether
+        the LLM expression layer fired. When the LLM did fire,
+        `capture_id` links the analysis row to the narration capture.
+        When the LLM didn't (silent turn, expression disabled, sim
+        with `expression: false`), `capture_id` is None and the row is
+        saved without the narration linkage — analytics still get the
+        trace + snapshot, which is what they need.
+
+        No-op when no decision_analysis repo is attached (sim path or
+        test without the repo wired).
+        """
+        if getattr(self, '_decision_analysis_repo', None) is None:
+            return
+        try:
+            cost_to_call = getattr(game_state, 'call_amount', 0) or 0
+            player_obj = game_state.players[player_idx]
+            self._analyze_decision(
+                decision,
+                {'call_amount': cost_to_call},
+                capture_id=capture_id,
+                player_bet=getattr(player_obj, 'bet', 0),
+                all_players_bets=[
+                    (p.bet, p.is_folded) for p in game_state.players
+                ],
+            )
+        except Exception as e:
+            logger.warning(
+                f"[TIERED_BOT] {self.player_name}: "
+                f"decision_analysis persistence failed: {e}"
+            )
 
     def _build_expression_extras(
         self, game_state, player, hand_cards: List[str], community_cards: List[str],
