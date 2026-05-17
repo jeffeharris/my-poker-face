@@ -3,7 +3,7 @@ purpose: Prioritized roadmap for the next phase — competitive bot quality, cas
 type: vision
 created: 2026-05-17
 last_updated: 2026-05-17
-revision: 2 — incorporates SOW clarification answers (zero production users, loose phase boundaries, async-trigger cadence, regression-test bottleneck)
+revision: 3 — folds in completed personality_id foundation, incorporates consultancy review (Gate 1 framing, equity-bias correction, cash mode estimate range, merge-point hardening, backout plan exception, LAG split possibility, cloud cost line, play-test rigor, "done" definition, calendar column relabel)
 ---
 
 # Next Phase Vision
@@ -22,13 +22,28 @@ This section establishes where things stand so the roadmap reads as a "from here
 
 The pre-main triage batch shipped 50+ correctness and UX fixes. The TieredBot decision pipeline has board-aware hand classification, price-sensitive defense floors, unified opponent archetype detection, bluff reduction vs stations, bet-bucket awareness, and a diagnostics harness (`experiments/casebot_breakdown.py`). Full specification in `docs/plans/TIEREDBOT_DECISION_QUALITY.md`.
 
-Three patches shipped in the most recent session:
+Three exploitation patches shipped in the pre-roadmap session:
 
-1. Stake-weighted aggregation in `poker/strategy/exploitation.py` — `aggregate_from_spots` now uses `committed_this_hand` as weight rather than equal-weight average (lines 1619–1668).
-2. All-in station gate — `non_all_in_station_continuing` kwarg on `compute_exploitation_offsets` / `compute_exploitation_offsets_with_traces`. When the station's aggression is entirely all-in, hyper_passive fold-reduction no-ops with reason_code `station_all_in_only`.
-3. Regression tests in `tests/test_strategy/test_opponent_spots.py` (single-station-dominates case) and `tests/test_strategy/test_exploitation.py` (suppression and default-behavior). 1007 strategy tests and 110 memory tests passing.
+1. Stake-weighted aggregation in `poker/strategy/exploitation.py` — `aggregate_from_spots` now uses `committed_this_hand` as weight rather than equal-weight average (commit `11dd7d7a`).
+2. All-in station gate — `non_all_in_station_continuing` kwarg on `compute_exploitation_offsets` / `compute_exploitation_offsets_with_traces`. When the station's aggression is entirely all-in, hyper_passive fold-reduction no-ops with reason_code `station_all_in_only` (commit `2c09c686`).
+3. Regression tests in `tests/test_strategy/test_opponent_spots.py` (single-station-dominates) and `tests/test_strategy/test_exploitation.py` (suppression + default-behavior). 1007 strategy tests and 110 memory tests passing.
 
 `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` is a complete, implementation-ready design for the relationship layer and cash mode v1. No design work remains for those features.
+
+### What has shipped on `phase-1` since this doc was written (revision 3)
+
+Personality ID migration foundation — Track B step 1 is partially shipped:
+
+| Commit | Layer | Tests added |
+|---|---|---|
+| `92293f5b` | JSON seed source: stable `id` per personality (slug rule, collision suffix) | 20 |
+| `fcbfa6f5` | Force-add `scripts/backfill_personality_ids.py` past gitignore | — |
+| `d738ddb2` | Schema v85 — `personality_id TEXT UNIQUE` on `personalities` table + backfill | 10 |
+| `607da181` | `PersonalityRepository` carries `personality_id` (save/load/by-id/resolve, JSON-seed alignment) | 15 |
+| `50734a45` | `PersonalityGenerator` factory + `POST /api/personality` route surface the id | 5 |
+| `2ebb7a19` | Schema v86 — `observer_id` + `opponent_id` columns on `opponent_models` | (in fork) |
+
+50 new tests across the migration foundation; all green. The remaining work for Track B step 1 — the in-memory keying flip on `OpponentModelManager.models`, name→id resolution at game startup, and the one-time backfill pass for existing saved games — is in progress on a forked work stream and lands on this same branch.
 
 ### Measured leaks (pre-patch HU baselines vs CaseBot, 2000 hands per matchup)
 
@@ -87,7 +102,11 @@ The game has **zero production users today**. Cash mode v1 will sit alongside th
 
 Two inconsistencies worth naming rather than silently picking one:
 
-**`GAME_VISION.md` phase numbering is superseded.** That document defines a Phase 1–5 structure from an earlier planning era, predating both the TieredBot pipeline work and the cash mode design. For roadmap purposes, this document supersedes that structure. The vision statement and design philosophy in `GAME_VISION.md` ("drama over mathematics," "emergent personalities," "living world") remain valid and are echoed here.
+**`GAME_VISION.md` phase numbering is superseded** by this document for roadmap purposes. That document defines a Phase 1–5 structure from an earlier planning era, predating both the TieredBot pipeline work and the cash mode design. Its three guiding principles — **drama over mathematics**, **emergent personalities**, **living world** — are load-bearing in this roadmap's specific buckets:
+
+- *Drama over mathematics* shapes Bucket 2 (Competitive Feel): creative play injection and visible adaptation are deliberately not pure-EV optimizations.
+- *Emergent personalities* shapes Bucket 4 (Relationship Layer): per-pair affinity that mutates from real play is what makes characters persistent rather than scripted.
+- *Living world* shapes Bucket 5 (Cash Mode): persistent AI bankrolls with regen, sit/leave/bust dynamics, and (v2+) AI-vs-AI background simulation make the table feel like one corner of a continuous ecosystem.
 
 **Quick win estimates in `QUICK_WINS.md` are superseded for the relationship/rivalry system.** That document estimated the rivalry tracker at 4–5 hours as a "simple counter system." The full design is now in `CASH_MODE_AND_RELATIONSHIPS.md` — a proper persistence layer, cross-session affinity axes, and TieredBot modifier seam. The counter-system estimate is no longer the right reference.
 
@@ -121,11 +140,24 @@ aggression_polarization = equity_when_raising_postflop - equity_when_calling_pos
 
 A pure-value station has high `aggression_polarization` (raises 0.82 equity, calls 0.30). A noisy caller has low polarization — raises and calls are similarly marginal.
 
+**Sample bias to correct in Phase A** (consultancy critique):
+`equity_when_calling_postflop` only updates at showdown — but most calls don't reach showdown (people fold marginal hands by river). The showdown sample skews toward strong calls and would *under-estimate* polarization (calling appears stronger than it is). Phase A must split this signal into two:
+
+- `equity_when_calling_postflop` (showdown sample) — current spec
+- `equity_when_calling_postflop_at_decision` (decision-time equity, available from `player_decision_analysis.equity` for every call regardless of whether the hand reaches showdown)
+
+Calibrate the polarization threshold against both samples and pick the one that holds up under the bias.
+
 **Phased rollout**
 
-Phase A (instrument, no rule changes): Add the six fields, populate at showdown, emit to diagnostics. Run 2000-hand sims per archetype. Calibrate what realistic polarization values look like per type. Write a standalone polarization spec doc before Phase B coding begins.
+Phase A (instrument + calibrate, no rule changes):
+- Add the six showdown-equity fields + decision-time call equity field, populate at showdown / at-decision respectively
+- Emit to diagnostics
+- Run 2000-hand sims per archetype (Rock, TAG, LAG, plus CaseBot as opponent)
+- **Per consultancy critique #7**: also categorize the leak structure per archetype. If LAG's −129 bb/100 leak does NOT have the same structure as TAG's (e.g., LAG is over-defending too wide rather than calling polarized bets), Phase B may need to split into two rule changes rather than one. The Phase A report should explicitly answer "does one rule change help all archetypes?" before Phase B coding starts.
+- Write a standalone polarization spec doc, including the calibrated threshold and any per-archetype split. User reviews and approves before Phase B coding.
 
-Phase B (gate hyper_passive): Condition hyper_passive fold-reduction on `aggression_polarization < threshold`. High-polarization opponents no longer get fold-reduction applied — only the raise-push half fires. Re-measure bb/100. This measurement feeds Gate 1.
+Phase B (gate hyper_passive): Condition hyper_passive fold-reduction on `aggression_polarization < threshold` (threshold calibrated in Phase A). High-polarization opponents no longer get fold-reduction applied — only the raise-push half fires. Re-measure bb/100. This measurement feeds Gate 1.
 
 Phase C (new rule — `polarized_value_caller`): When polarization exceeds a high threshold, add an affirmative rule that increases fold probability against the opponent's aggression rather than just suppressing fold-reduction. The flip from "don't discourage folds" to "actively encourage folds vs this player's bets." New rule in `_EXPLOITATION_RULE_ORDER`, gated on archetype == `pure_station` AND `aggression_polarization > high_threshold`.
 
@@ -184,7 +216,9 @@ Existing strategy tables cover 100bb. WTA SNG tournament play runs to 15–30bb 
 
 **Two components**
 
-Push/fold tables for <15bb: Published Nash push/fold solutions (WizardOfOdds, HRC output) are directly applicable to WTA SNG because chip EV = $ EV throughout (no ICM adjustments needed). Engineering: add a stack-depth gate — when effective stack < ~15bb, bypass the postflop strategy tables and route to push/fold lookup keyed on (hero stack in bb, position, hole cards, active opponent count). Source selection and vetting is a separate small task before ingestion. Small engineering effort.
+Push/fold tables for <15bb: Published Nash push/fold solutions (WizardOfOdds, HRC output, Sklansky-Chubukov) are directly applicable to WTA SNG because chip EV = $ EV throughout (no ICM adjustments needed). Engineering: add a stack-depth gate — when effective stack < ~15bb, bypass the postflop strategy tables and route to push/fold lookup keyed on (hero stack in bb, position, hole cards, active opponent count). Small engineering effort once a source is chosen.
+
+**Vet license terms before embedding.** Sklansky-Chubukov originates from a 2008 book; raw computational outputs typically aren't copyrightable but presentation may be. WizardOfOdds publishes free reference tables but redistribution terms should be confirmed. HoldemResources sells access and may have known terms. The "source selection and vetting" task is a real upstream gate, not a side note — write it down as a deliverable before any code references the chosen table.
 
 15–30bb interpolation heuristic: Between 15bb and 100bb, the tables are calibrated for 100bb. At 20bb, correct strategy tightens significantly (SPR is low, implied odds evaporate). A heuristic approach scales raise sizes and opening ranges as a function of effective stack depth. Medium. A full multi-depth table set (25bb/40bb/100bb solved separately) requires either the solver path (Bucket 6) or significant manual authoring — defer unless the heuristic proves insufficient.
 
@@ -230,7 +264,9 @@ Relationship Phase 3 (live population from hands):
 
 After Phase 3, the relationship layer is fully live from hand outcomes. Chat inputs (Relationship Phase 5 in the design doc) are additive and Phase 2 work on this roadmap.
 
-**Merge-risk coordination point**: Relationship Phase 2 and Polarization Phase B both modify `_apply_exploitation` in `poker/tiered_bot_controller.py` and the offset logic in `poker/strategy/exploitation.py`. Sequence them if both are in-flight: merge Relationship Phase 2 before Polarization Phase B coding begins, or rebase one on the other. Document the intended application order in `_apply_exploitation`'s docstring: pattern detection → relationship modifier scaling → polarization gating → existing clamp/gating.
+**Merge-risk coordination point** (revised per consultancy critique #3): Relationship Phase 2 and Polarization Phase B both modify `_apply_exploitation` in `poker/tiered_bot_controller.py` and the offset logic in `poker/strategy/exploitation.py`. **Track B Relationship Phase 2 hard-blocks Track A Polarization Phase B coding.** Track A items 1–5 and 7–11 proceed in parallel during the block; only step 6 waits. Once Phase 2 lands, Phase B rebases on top and the intended application order is documented in `_apply_exploitation`'s docstring: pattern detection → relationship modifier scaling → polarization gating → existing clamp/gating.
+
+**Backout plan** (revised per consultancy critique #5): the modifier seam is the load-bearing change to `_apply_exploitation` and a regression here is slow to debug under sim runtime pressure. **Exception to the no-feature-flag rule for this one seam**: ship with an `apply_relationship_modifier: bool = True` controller-level flag so the modifier can be toggled off at runtime if a regression surfaces. Sim runs A/B with flag on/off, and any production-feel issue is one boolean away from quarantine. This is the only feature flag justified in Phase 1 given zero-production-users posture.
 
 **Dependencies**: Personality ID migration is a prerequisite for all persistence work. Run it first. Relationship Phases 1→2→3 are sequential.
 
@@ -266,9 +302,11 @@ A new game mode alongside the existing SNG flow. Single-table cash game with per
 
 **v1 explicitly does not ship**: multi-table lobby, AI table selection priorities (rivalry-seek seating, upward drift, comfort zone), stop-loss/stop-win per-personality knobs, chat inputs to the relationship system.
 
+**Known v1 UX limitation** (per consultancy critique #8): cash mode v1 ships with relationship state that only moves on **hand outcomes**, not chat. Chat-driven affinity (Relationship Phase 5 in the design doc) is Phase 2 on this roadmap. The player can play their way into rivalries but can't *signal* anything to characters — "you got lucky" / "good fold" type lines don't move the needle. Rivalries will feel one-sided in playtest until chat lands. Plan for this in the playtest framing, not as a discovery.
+
 **Dependencies**: Relationship Phases 1–3 must complete first. Personality ID migration is the shared prerequisite. The `cash_mode/` package is a new directory sharing the hand engine without requiring engine modifications.
 
-**Effort**: Large (~2–3 weeks coding). Spec is complete but scope is substantial: new package, new persistence tables, new orchestration layer, bankroll accounting, sit/leave/top-up with exact accounting order from the design doc, bust semantics, disconnect grace window, side-pot accounting tests.
+**Effort** (revised per consultancy critique #2): Large, **3–4 weeks coding, 5 if migration surprises surface**. The original "2–3 weeks" estimate was optimistic. Honest scope: new package; new persistence tables; new orchestration layer; bankroll accounting (8 documented edge cases in the design doc); sit/leave/top-up with exact accounting order; side-pot accounting tests; mid-hand quit semantics; 60s disconnect grace window; `cumulative_pnl` chip-flow allocation; bankroll-knob loading from `PersonalityRecord`. Plus the personality_id migration's collision blast on every game-load path (Track B step 1 must be fully landed first).
 
 ---
 
@@ -299,6 +337,8 @@ WTA SNG format simplifies significantly: chip EV = $ EV throughout, removing 1�
 
 **Effort**: Phase 1 validation only: small-medium engineering, zero compute. Full solver: large engineering + weeks of compute. Compute and calendar time are the binding constraints, not coding speed.
 
+**Cloud cost estimate** (added per consultancy critique #13): If the full 6-max WTA SNG solve is greenlit at Gate 2 and parallelized on cloud rather than serial workstation, realistic budget is **~$5K at modest abstraction, ~$50K at fine abstraction**. The wide range reflects how aggressively the abstraction is tuned: more buckets per street → bigger memory footprint → bigger instance type → higher per-hour rate, and more iterations to converge. My confidence on the specific dollar figures is medium-low — neither has been measured against a representative job. The signal is that this is a **decision input at Gate 2, not a footnote** — cloud cost is comparable to a year of MonkerSolver licenses, so the build-vs-buy calculus shifts depending on abstraction target.
+
 ---
 
 ### Bucket 7: Strategy Provenance and Diagnostics
@@ -325,25 +365,25 @@ Once Polarization Phase A ships, extend `casebot_breakdown.py` with an equity di
 
 ### Phase 1 (two parallel tracks, both launch immediately)
 
-The tracks run in parallel. They touch mostly different files. The one coordination point (both eventually modify `_apply_exploitation`) is explicitly managed below.
+The tracks run in parallel. They touch mostly different files. The one coordination point (both eventually modify `_apply_exploitation`) is explicitly managed: **Track B Phase 2 hard-blocks Track A Phase B coding**; everything else in Track A proceeds without waiting.
 
 ---
 
 **Track A — Bot Quality and Competitive Feel**
 
-Sequential within the track.
+Steps 1–5 and 7–11 proceed in parallel (only step 6 is blocked on Track B Phase 2). Within Track A, the natural order is:
 
 1. Post-patch bb/100 measurement (Rock/TAG/LAG vs CaseBot, 2000 hands × 3–5 seeds). Establishes the new baseline after shipped patches. First task; everything else builds on this. Small (sim run time).
 
 2. §5.5 per-rule offset budgets. Ship before adding new rules. Small.
 
-3. Polarization Phase A — instrument equity-tracking fields, populate at showdown, emit to diagnostics, calibrate via sim, write standalone polarization spec doc. Small-medium.
+3. Polarization Phase A — instrument equity-tracking fields (both showdown-equity and decision-time-equity per the bias correction above), populate at showdown / at decision, emit to diagnostics, calibrate via sim, **categorize leak structure per archetype to decide whether Phase B is one rule change or split per archetype**, write standalone polarization spec doc, user approves. Small-medium.
 
 4. Competitive feel items 1 and 2 (sizing randomization, action ties). Independent, zero EV cost. Can ship in parallel with any other Track A step. Small.
 
-5. Push/fold tables for <15bb. Independent. Small.
+5. Push/fold tables for <15bb. **License-vet upstream task lands first** (Sklansky-Chubukov / WizardOfOdds / HRC terms). Independent thereafter. Small.
 
-6. Polarization Phase B — gate hyper_passive fold-reduction, re-measure bb/100. This measurement feeds Gate 1. Small-medium.
+6. **(Blocked on Track B Relationship Phase 2 merging)** Polarization Phase B — gate hyper_passive fold-reduction on calibrated `aggression_polarization` threshold, re-measure bb/100. This measurement feeds Gate 1. Small-medium.
 
 7. Competitive feel items 3, 4, 6 (creative play injection, cold-start replacement, per-session drift). Sequence after Phase B measurement to keep the baseline clean. Medium each.
 
@@ -361,11 +401,11 @@ Sequential within the track.
 
 Sequential within the track.
 
-1. Personality ID migration — backfill `personality_id` to `personalities.json`, add column to `opponent_models`, run name→id backfill for active games. Prerequisite for all persistence work. Small-medium.
+1. **Personality ID migration** — prerequisite for all persistence work. Higher risk than LOC implies (consultancy critique #6): the in-memory keying flip on `OpponentModelManager.models` from display name to `personality_id` touches every game-load path. If the backfill misses a row, opponent observations get unkeyed mid-session. Mitigations: keep `opponent_name` column permanently (never drop); UNIQUE index allows NULLs so partial-backfill states are recoverable; migration is idempotent and tested for partial-state recovery. **Required additional safeguard**: dry-run the migration against a snapshot of the production DB before flipping the in-memory dict-keying. **Status: foundation shipped on phase-1** (commits `92293f5b`, `fcbfa6f5`, `d738ddb2`, `607da181`, `50734a45`, `2ebb7a19`). Remaining: in-memory keying flip, name→id resolution at game startup, one-time backfill for saved games. Medium total.
 
-2. Relationship Phases 1–3 — vocabulary, identity migration, state, persistence, `record_event()`, pairwise reader, wire modifier seam into `_apply_exploitation`, `HandOutcomeDetector`. The modifier seam commit (Phase 2) is the merge-risk coordination point with Track A step 6: merge it before Polarization Phase B coding begins. Medium (~1 week).
+2. Relationship Phases 1–3 — vocabulary, identity migration, state, persistence, `record_event()`, pairwise reader, wire modifier seam into `_apply_exploitation`, `HandOutcomeDetector`. The modifier seam commit (Phase 2) is the merge-risk coordination point: **hard-blocks Track A Polarization Phase B coding**. Ships with `apply_relationship_modifier: bool = True` runtime flag for backout (see Bucket 4 backout plan note). Medium (~1 week).
 
-3. Cash mode v1 — `cash_mode/` package: tables, bankrolls, regen, orchestrator, sit/leave/top-up accounting, bust handling, disconnect grace window, side-pot tests, `cumulative_pnl` updates. Large (~2–3 weeks).
+3. Cash mode v1 — `cash_mode/` package: tables, bankrolls, regen, orchestrator, sit/leave/top-up accounting, bust handling, disconnect grace window, side-pot tests, `cumulative_pnl` updates. **Estimate revised to 3–4 weeks (5 if migration surprises surface)** per Bucket 5 effort note.
 
 ---
 
@@ -451,15 +491,15 @@ Both MERGE POINT commits touch `_apply_exploitation` in `poker/tiered_bot_contro
 
 **When**: After Polarization Phase B ships and a 2000-hand sim runs. Several weeks into Phase 1.
 
-**Measurement**: bb/100 for TAG (and optionally Rock and LAG) vs CaseBot-class opponents, 2000 hands × 3–5 seeds. Paired-delta comparison against the post-patch baseline established at Track A step 1.
+**Measurement**: bb/100 for TAG (and Rock + LAG) vs CaseBot-class opponents, 2000 hands × 3–5 seeds. Paired-delta comparison against the post-patch baseline established at Track A step 1.
 
-**Success threshold**: TAG bb/100 improves by ≥ 20 bb/100 vs the post-patch baseline, with a CI on the paired delta that does not cross zero. The subjective experience — "does the bot feel genuinely competitive now?" — is equally valid input.
+**Starting target** (revised per consultancy critique #1): TAG bb/100 improves by **≥ 20 bb/100** vs the post-patch baseline, with a CI on the paired delta that does not cross zero. **This is a starting target, not a hard cutoff.** The actual threshold must be **calibrated from Phase A's distribution data** before Gate 1 fires — if Phase A reveals the polarization signal isn't powerful enough to drive a 20 bb/100 swing, the target moves to a delta that's realistic given the signal's actual strength. Locking the threshold to 20 ahead of measurement risks either (a) declaring success on a barely-better bot or (b) declaring failure on a meaningful improvement that just isn't 20.
 
 **Paths**:
-- Gap closes substantially: continue Polarization Phases C and D; defer solver indefinitely.
+- Gap closes substantially (delta exceeds calibrated target): continue Polarization Phases C and D; defer solver indefinitely.
 - Gap does not close meaningfully, or user can still consistently beat the bot: trigger Gate 2. Continue Polarization Phases C and D regardless — they are not dependent on the solver decision.
 
-**Calibration note**: The bb/100 target is a guideline, not a hard cutoff. A bot at −20 bb/100 in simulation that genuinely surprises the player may be good enough. A bot at −10 bb/100 that still feels mechanical is not. Both data points feed this gate.
+**Calibration note**: A bot at −20 bb/100 in simulation that genuinely surprises the player may be good enough. A bot at −10 bb/100 that still feels mechanical is not. Both data points feed this gate, but the **sim signal is the rigorous one** — see play-testing source below.
 
 ---
 
@@ -494,18 +534,20 @@ Both MERGE POINT commits touch `_apply_exploitation` in `poker/tiered_bot_contro
 
 ## Effort Sizing Summary
 
-| Bucket | Engineering effort | Calendar/compute time | Phase |
+Column note (per consultancy critique #10): "External compute" means *rented compute or solver runtime* — not test-suite drag, which is real wall-clock time tracked separately in the "Bottlenecks that are not engineering" section below. Every bucket pays test-suite drag at merge time.
+
+| Bucket | Engineering effort | External compute | Phase |
 |---|---|---|---|
-| 1: Polarization Phase A + B + §5.5 | Small-medium total | None | Phase 1 Track A |
-| 1: Polarization Phase C + D | Medium each | None | Phase 2 |
+| 1: Polarization Phase A + B + §5.5 | Small-medium total | Sim runtime (~hours per 2000-hand sweep) | Phase 1 Track A |
+| 1: Polarization Phase C + D | Medium each | Sim runtime | Phase 2 |
 | 2: Competitive feel (quick items) | Small | None | Phase 1 Track A (any time) |
 | 2: Competitive feel (medium items) | Medium each | None | Phase 1 Track A (after Phase B) |
-| 3: Push/fold tables <15bb | Small | None | Phase 1 Track A |
+| 3: Push/fold tables <15bb | Small (after license vet) | None | Phase 1 Track A |
 | 3: Stack-depth interpolation heuristic | Medium | None | Phase 2 |
 | 4: Relationship layer (Phases 1–3) | Medium (~1 week) | None | Phase 1 Track B |
-| 5: Cash mode v1 | Large (~2–3 weeks) | None | Phase 1 Track B |
-| 6: Solver Phase 1 (validation only) | Small-medium | Hours | Phase 2 (gate-dependent) |
-| 6: Solver full solve | Large | 15–30 days compute | Phase 3+ (gate-dependent) |
+| 5: Cash mode v1 | Large (3–4 weeks, 5 if migration surprises) | None | Phase 1 Track B |
+| 6: Solver Phase 1 (validation only) | Small-medium | Hours of CFR runtime | Phase 2 (gate-dependent) |
+| 6: Solver full solve | Large | 15–30 days serial OR ~$5K–$50K cloud | Phase 3+ (gate-dependent) |
 | 7: Provenance READMEs + diagnostics | Small | None | Phase 1 Track A (any time) |
 
 **Bottlenecks that are not engineering**
@@ -566,9 +608,14 @@ Otherwise, Claude ships work in batches and surfaces a summary at natural milest
 
 ### Play-testing source
 
-- **Mechanical signal**: bb/100 sim measurements at each gate. Claude runs these.
-- **Subjective signal**: user playtesting first. If sim and user perspective both look promising, a couple of friends do a play session to broaden the signal before deciding on solver Phase 1.
+Revised per consultancy critique #14:
+
+- **Rigorous signal: sim measurements.** bb/100 over 2000+ hands × 3–5 seeds against CaseBot and varied opponents. Claude runs these. This is the gate input.
+- **User playtesting**: confirms the bot doesn't feel obviously broken to a fresh perspective. Good for "I notice it doing X" qualitative observations that sim doesn't surface. Not the gate.
+- **Friends playtesting**: low-rigor sanity check only. They'll either go easy (confirmation theater) or play casually for 50 hands and get bored before bb/100 stabilizes. Useful for "did anyone find it weird?" but not for go/no-go decisions.
 - No open beta in Phase 1. Defer to whenever the project is ready for it.
+
+Order of evidence weight at gate time: **sim >> user playtest >> friend playtest**. If sim says go but the user says "still feels weak," investigate (likely an unmeasured leak the sim doesn't catch). If sim says go and friends say "still feels weak," friends might just be playing differently than the sim opponents.
 
 ### Polarization spec doc workflow
 
@@ -587,7 +634,16 @@ M3 work runs in a separate Claude session against `docs/plans/M3_PLAN.md`. The o
 
 ### What "done" means for this phase
 
-The user clarified that phase boundaries are advisory, not contractual. The doc treats Phase 1 as "both tracks have shipped their bullet items to main and Gate 1 has been evaluated" — but that's a shape, not a contract. We iterate, ship in batches, and reach decision gates when the data is in.
+Phase boundaries are advisory in the sense that we don't ship a release on a date — we iterate and reach gates when the data is in. But the gate triggers need a concrete "phase done" definition so we know when Gate 1 fires (revised per consultancy critique #12):
+
+**Phase 1 done = all of:**
+- Track A items **1–6** shipped to main (post-patch baseline → §5.5 budgets → Polarization Phase A instrumented + spec approved → competitive feel quick items → push/fold tables → Polarization Phase B gating)
+- Track B items **1–2** shipped to main (personality_id migration complete end-to-end → relationship layer Phases 1–3 wired + apply_relationship_modifier flag in place)
+- **Gate 1 evaluated**: post-Phase B bb/100 measured against post-patch baseline; user reviews and either triggers Gate 2 or defers solver indefinitely
+
+**Track A items 7–11 (competitive feel medium items + provenance READMEs + security fixes) and Track B item 3 (cash mode v1)** may be partial at the end of Phase 1 — they continue into Phase 2 without blocking Gate 1.
+
+Phase 2 then either kicks off solver Phase 1 validation (if Gate 2 was triggered at the Gate 1 review) or focuses on Polarization Phases C+D + chat-driven affinity + the carryover Phase 1 items.
 
 ---
 
