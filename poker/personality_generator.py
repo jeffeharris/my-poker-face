@@ -162,12 +162,21 @@ Respond with ONLY a JSON object in this exact format:
         logger.info(f"[PERSONALITY] Generating new personality for {name}")
         generated = self._generate_personality(name, description)
 
-        # Save to database (private to owner if owner_id provided)
+        # Save to database (private to owner if owner_id provided). The
+        # repository computes a stable personality_id from the name when
+        # one isn't supplied; capture the returned id so downstream
+        # callers (relationships, bankrolls, opponent_models) can key on
+        # it instead of the display name.
         visibility = 'private' if owner_id else 'public'
-        self.personality_repo.save_personality(
+        personality_id = self.personality_repo.save_personality(
             name, generated, source='ai_generated',
             owner_id=owner_id, visibility=visibility,
         )
+        if personality_id:
+            generated['id'] = personality_id
+            logger.info(
+                f"[PERSONALITY] Assigned personality_id={personality_id!r} to {name}"
+            )
 
         # Cache it
         self._cache[name] = generated

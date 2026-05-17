@@ -161,14 +161,19 @@ def create_personality():
                 "recovery_rate": 0.15,
             }
 
-        personality_repo.save_personality(
+        # save_personality assigns a stable personality_id (slug of name,
+        # collision-suffixed if needed) and returns it. Surface it in the
+        # response so clients can persist relationship state, bankrolls,
+        # etc. keyed on the stable id rather than the display name.
+        personality_id = personality_repo.save_personality(
             name, personality_config, source='user_created',
             owner_id=current_user['id'], visibility='private',
         )
 
         return jsonify({
             'success': True,
-            'message': f'Personality {name} created successfully'
+            'message': f'Personality {name} created successfully',
+            'personality_id': personality_id or None,
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
