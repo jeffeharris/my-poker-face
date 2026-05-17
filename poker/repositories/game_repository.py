@@ -622,7 +622,41 @@ class GameRepository(BaseRepository):
         if not models_dict:
             return
 
+        # The manager's to_dict() injects a __name_to_id__ sidecar key
+        # at the top level for round-trip preservation. Extract it
+        # before iterating observer entries so we have a name→id map
+        # to fall back on for rows where the model row itself doesn't
+        # carry an id (legacy snapshots written before commit 5e74854b).
+        name_to_id = models_dict.pop('__name_to_id__', None) if isinstance(
+            models_dict, dict
+        ) else None
+
+        def _resolve_id(model_data, name):
+            # Prefer per-row id (set when register_player_id ran) and
+            # fall back to the manager-level registry when present.
+            row_id = None
+            if isinstance(model_data, dict):
+                # For opponent_id: model_data['opponent_id'] is the row's opp id
+                # We use this helper for both observer + opponent slots, so
+                # the caller passes the explicit per-row field.
+                row_id = model_data
+            if row_id:
+                return row_id
+            if name_to_id:
+                return name_to_id.get(name)
+            return None
+
         with self._get_connection() as conn:
+            # Detect whether the v86 id columns are present so this save
+            # path stays compatible with pre-v86 schemas during a rolling
+            # migration window.
+            opp_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(opponent_models)")
+            }
+            has_id_cols = (
+                'observer_id' in opp_cols and 'opponent_id' in opp_cols
+            )
+
             # Clear existing models for this game
             conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM memorable_hands WHERE game_id = ?", (game_id,))
@@ -636,28 +670,66 @@ class GameRepository(BaseRepository):
                     narrative_obs = model_data.get('narrative_observations', [])
                     notes = json.dumps(narrative_obs) if narrative_obs else None
 
-                    conn.execute("""
-                        INSERT OR REPLACE INTO opponent_models
-                        (game_id, observer_name, opponent_name, hands_observed,
-                         vpip, pfr, aggression_factor, fold_to_cbet,
-                         bluff_frequency, showdown_win_rate, recent_trend, notes,
-                         tendencies_json, last_updated)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    """, (
-                        game_id,
-                        observer_name,
-                        opponent_name,
-                        tendencies.get('hands_observed', 0),
-                        tendencies.get('vpip', 0.5),
-                        tendencies.get('pfr', 0.5),
-                        tendencies.get('aggression_factor', 1.0),
-                        tendencies.get('fold_to_cbet', 0.5),
-                        tendencies.get('bluff_frequency', 0.3),
-                        tendencies.get('showdown_win_rate', 0.5),
-                        tendencies.get('recent_trend', 'stable'),
-                        notes,
-                        json.dumps(tendencies)
-                    ))
+                    # Resolve ids: prefer values written on the model dict
+                    # (set when OpponentModel was created with personality
+                    # ids known), fall back to the manager-level registry.
+                    observer_id = model_data.get('observer_id')
+                    opponent_id = model_data.get('opponent_id')
+                    if observer_id is None and name_to_id:
+                        observer_id = name_to_id.get(observer_name)
+                    if opponent_id is None and name_to_id:
+                        opponent_id = name_to_id.get(opponent_name)
+
+                    if has_id_cols:
+                        conn.execute("""
+                            INSERT OR REPLACE INTO opponent_models
+                            (game_id, observer_name, opponent_name,
+                             observer_id, opponent_id,
+                             hands_observed,
+                             vpip, pfr, aggression_factor, fold_to_cbet,
+                             bluff_frequency, showdown_win_rate, recent_trend, notes,
+                             tendencies_json, last_updated)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """, (
+                            game_id,
+                            observer_name,
+                            opponent_name,
+                            observer_id,
+                            opponent_id,
+                            tendencies.get('hands_observed', 0),
+                            tendencies.get('vpip', 0.5),
+                            tendencies.get('pfr', 0.5),
+                            tendencies.get('aggression_factor', 1.0),
+                            tendencies.get('fold_to_cbet', 0.5),
+                            tendencies.get('bluff_frequency', 0.3),
+                            tendencies.get('showdown_win_rate', 0.5),
+                            tendencies.get('recent_trend', 'stable'),
+                            notes,
+                            json.dumps(tendencies)
+                        ))
+                    else:
+                        conn.execute("""
+                            INSERT OR REPLACE INTO opponent_models
+                            (game_id, observer_name, opponent_name, hands_observed,
+                             vpip, pfr, aggression_factor, fold_to_cbet,
+                             bluff_frequency, showdown_win_rate, recent_trend, notes,
+                             tendencies_json, last_updated)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """, (
+                            game_id,
+                            observer_name,
+                            opponent_name,
+                            tendencies.get('hands_observed', 0),
+                            tendencies.get('vpip', 0.5),
+                            tendencies.get('pfr', 0.5),
+                            tendencies.get('aggression_factor', 1.0),
+                            tendencies.get('fold_to_cbet', 0.5),
+                            tendencies.get('bluff_frequency', 0.3),
+                            tendencies.get('showdown_win_rate', 0.5),
+                            tendencies.get('recent_trend', 'stable'),
+                            notes,
+                            json.dumps(tendencies)
+                        ))
 
                     # Save memorable hands
                     memorable_hands = model_data.get('memorable_hands', [])
@@ -748,9 +820,20 @@ class GameRepository(BaseRepository):
                         # Legacy format: plain text note
                         narrative_observations = [notes_json]
 
+                # Pull v86 id columns if present (None on pre-v86 rows).
+                row_keys = row.keys()
+                observer_id = (
+                    row['observer_id'] if 'observer_id' in row_keys else None
+                )
+                opponent_id = (
+                    row['opponent_id'] if 'opponent_id' in row_keys else None
+                )
+
                 models_dict[observer_name][opponent_name] = {
                     'observer': observer_name,
                     'opponent': opponent_name,
+                    'observer_id': observer_id,
+                    'opponent_id': opponent_id,
                     'tendencies': tendencies,
                     'memorable_hands': [],
                     'narrative_observations': narrative_observations
@@ -778,6 +861,24 @@ class GameRepository(BaseRepository):
 
         if models_dict:
             logger.debug(f"Loaded opponent models for game {game_id}: {len(models_dict)} observers")
+
+            # Rebuild the OpponentModelManager.__name_to_id__ sidecar
+            # from the per-row ids we just loaded. This lets the
+            # manager's registry pick up populated rows after a load
+            # without requiring the column shape to round-trip a
+            # separate table. Any name that appears with a non-None id
+            # in any row contributes to the registry.
+            name_to_id: Dict[str, Optional[str]] = {}
+            for observer_name, opponents in models_dict.items():
+                for opponent_name, model_data in opponents.items():
+                    obs_id = model_data.get('observer_id')
+                    opp_id = model_data.get('opponent_id')
+                    if obs_id and observer_name not in name_to_id:
+                        name_to_id[observer_name] = obs_id
+                    if opp_id and opponent_name not in name_to_id:
+                        name_to_id[opponent_name] = opp_id
+            if name_to_id:
+                models_dict['__name_to_id__'] = name_to_id
 
         return models_dict
 
