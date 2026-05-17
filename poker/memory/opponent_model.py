@@ -9,7 +9,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Deque, List, Dict, Optional, Any, Tuple
 
-from .relationship_events import RelationshipEvent
+from .relationship_events import (
+    RelationshipEvent,
+    actor_shift,
+    mirror_shift,
+)
 from ..archetypes import (
     VPIP_TIGHT as VPIP_TIGHT_THRESHOLD,
     VPIP_LOOSE as VPIP_LOOSE_THRESHOLD,
@@ -1358,11 +1362,26 @@ class OpponentModelManager:
     annotate new OpponentModel instances with the registered ids.
     """
 
-    def __init__(self):
+    def __init__(self, relationship_repo=None):
+        """Construct the manager.
+
+        Args:
+            relationship_repo: Optional RelationshipRepository for the
+                cross-session axis state (heat / respect / likability).
+                Required by `record_event`; not required for in-memory
+                tendency tracking. Pass None in unit tests that don't
+                exercise record_event.
+        """
         # observer_name -> opponent_name -> OpponentModel
         self.models: Dict[str, Dict[str, OpponentModel]] = {}
         # display_name -> personality_id (None for players without one)
         self._name_to_id: Dict[str, Optional[str]] = {}
+        # Repository for cross-session relationship state. Optional at
+        # construction (in-memory unit tests don't need it); required
+        # when record_event is invoked. A clear error fires at call
+        # time if it's missing rather than at __init__ — keeps test
+        # ergonomics light.
+        self._relationship_repo = relationship_repo
 
     def register_player_id(self, name: str, personality_id: Optional[str]) -> None:
         """Register the stable personality_id for a display name.
@@ -1565,3 +1584,183 @@ class OpponentModelManager:
                 for opponent, model_data in opponents.items()
             }
         return manager
+
+    # --- Relationship layer (Track B step 2) ---
+
+    def record_event(
+        self,
+        actor_id: str,
+        target_id: str,
+        event: RelationshipEvent,
+        *,
+        impact_score: float = 1.0,
+        context_multiplier: float = 1.0,
+        narrative: str = "",
+        hand_summary: str = "",
+        hand_id: Optional[int] = None,
+        now: Optional[datetime] = None,
+    ) -> None:
+        """Single entry point for all RelationshipState axis mutations.
+
+        IDs only — never display names. This invariant lives at one
+        location (this method); every consumer that mutates affinity
+        state goes through here, so the projection-on-read pattern
+        and bilateral-update guarantee can't be bypassed by reading
+        and writing column-level state elsewhere.
+
+        Project-first-then-apply ordering (load-bearing — a refresh
+        event 30 days after a peak must not reset stale heat back to
+        its day-zero value):
+
+          1. Resolve `now` (defaults to datetime.utcnow()).
+          2. For each pair entry to update:
+             a. Load or default-construct the state from the repo.
+             b. Project the stored `heat` through decay to `now` —
+                state.heat is now the live value, not the snapshot.
+             c. Apply the event-table shift (× context_multiplier).
+             d. Clamp each axis to its valid range [0,1].
+             e. Set last_decay_tick = last_seen = now.
+             f. Persist via repository.
+          3. Apply actor's-POV shifts to relationship[actor_id][target_id].
+          4. Apply mirror shifts to relationship[target_id][actor_id].
+          5. If impact_score >= MEMORABLE_HAND_THRESHOLD, also append a
+             MemorableHand on the actor's in-memory PlayerModel (when
+             one exists) — the memorable hand persists via the
+             existing opponent_models save path the next time
+             save_opponent_models runs. If no PlayerModel exists for
+             the actor (e.g. the actor isn't currently seated), the
+             relationship axis update still persists; the memorable
+             hand entry is skipped silently. The relationship state is
+             the load-bearing surface here.
+
+        Does NOT mutate anything outside RelationshipState and (best-
+        effort) MemorableHand. Decay reads, cash-session state,
+        cash_pair_stats, and economy events use their own APIs.
+
+        Raises:
+            RuntimeError: if `relationship_repo` was not provided at
+                construction. Tests that exercise record_event must
+                pass a repository (see RelationshipRepository).
+        """
+        if self._relationship_repo is None:
+            raise RuntimeError(
+                "OpponentModelManager.record_event requires a "
+                "relationship_repo at construction"
+            )
+        if event is RelationshipEvent.UNKNOWN:
+            # Documented no-op: quarantined events from legacy strings
+            # never move axes. Return silently rather than walking the
+            # full apply path with all-zero shifts.
+            return
+
+        if now is None:
+            now = datetime.utcnow()
+
+        # Bilateral pair updates. Each side has its own state row,
+        # its own shift lookup, and its own clamp / persist. Both
+        # writes go through the same repo so the views can't drift.
+        self._apply_one_side(
+            observer_id=actor_id,
+            other_id=target_id,
+            shift=actor_shift(event),
+            context_multiplier=context_multiplier,
+            now=now,
+        )
+        self._apply_one_side(
+            observer_id=target_id,
+            other_id=actor_id,
+            shift=mirror_shift(event),
+            context_multiplier=context_multiplier,
+            now=now,
+        )
+
+        # Best-effort MemorableHand on the actor's in-memory model.
+        # We look up the actor's display name from the reverse map;
+        # if no PlayerModel exists for the actor (or no display name
+        # resolves to this id), skip silently — relationship axis
+        # state is the load-bearing surface.
+        if hand_id is None or impact_score < MEMORABLE_HAND_THRESHOLD:
+            return
+        actor_name = self._resolve_id_to_name(actor_id)
+        target_name = self._resolve_id_to_name(target_id)
+        if actor_name is None or target_name is None:
+            return
+        opponent_map = self.models.get(actor_name)
+        if opponent_map is None:
+            return
+        player_model = opponent_map.get(target_name)
+        if player_model is None:
+            return
+        player_model.add_memorable_hand(
+            hand_id=hand_id,
+            event=event,
+            impact_score=impact_score,
+            narrative=narrative,
+            hand_summary=hand_summary,
+        )
+
+    def _apply_one_side(
+        self,
+        observer_id: str,
+        other_id: str,
+        shift,  # AxisShift
+        context_multiplier: float,
+        now: datetime,
+    ) -> None:
+        """Apply one side of a bilateral relationship update.
+
+        Internal helper for record_event. Loads → projects → applies
+        shift → clamps → persists, all in one place so the ordering
+        invariant holds even when one side comes from the mirror
+        table.
+        """
+        # Step 2a: load or default. Use load_raw so we get the stored
+        # snapshot — step 2b explicitly projects it.
+        state = self._relationship_repo.load_raw_relationship_state(
+            observer_id, other_id
+        )
+        if state is None:
+            state = RelationshipState()
+
+        # Step 2b: project stored heat through decay to `now`. Stale
+        # heat from 30+ days ago is decayed BEFORE the event shift
+        # applies — a refresh event won't reset stale heat back to
+        # its day-zero peak.
+        state.heat = project_heat(state, now)
+
+        # Step 2c: apply event-table shifts, scaled by context.
+        state.heat += shift.heat * context_multiplier
+        state.respect += shift.respect * context_multiplier
+        state.likability += shift.likability * context_multiplier
+
+        # Step 2d: clamp to [0, 1]. heat and likability and respect
+        # all use this range; design doc treats heat as one-sided
+        # (0 = neutral, 1 = nemesis) and respect/likability as
+        # 0.5-default neutrality with [0, 1] bounds.
+        state.heat = max(0.0, min(1.0, state.heat))
+        state.respect = max(0.0, min(1.0, state.respect))
+        state.likability = max(0.0, min(1.0, state.likability))
+
+        # Step 2e: presence timestamps. last_seen and last_decay_tick
+        # both anchor to `now` after a write — the next decay window
+        # restarts from this point.
+        state.last_seen = now
+        state.last_decay_tick = now
+
+        # Step 2f: persist.
+        self._relationship_repo.save_relationship_state(
+            observer_id, other_id, state
+        )
+
+    def _resolve_id_to_name(self, personality_id: str) -> Optional[str]:
+        """Reverse lookup from personality_id → display name.
+
+        Used by the MemorableHand best-effort path in record_event.
+        Returns None if no registered name resolves to this id — that
+        case is silent (relationship state still persists; only the
+        memorable-hand sidecar is skipped).
+        """
+        for name, pid in self._name_to_id.items():
+            if pid == personality_id:
+                return name
+        return None
