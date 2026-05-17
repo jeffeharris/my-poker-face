@@ -234,6 +234,23 @@ class TieredBotController(AIPlayerController):
         # Zero EV cost (band is symmetric around the table's intent),
         # but breaks sizing tells like "always bets 67% on the flop."
         self.sizing_jitter: float = 0.0
+        # Relationship layer (Track B Phase 2): when True (default),
+        # _apply_exploitation reads get_relationship_modifier() for the
+        # selected target opponent and scales pattern-derived offsets
+        # accordingly. Set to False to back the modifier seam out at
+        # runtime without redeploying — the only feature flag justified
+        # in Phase 1 per the consultancy review, given the seam touches
+        # the load-bearing exploitation path and a regression there is
+        # slow to debug under sim runtime pressure. Sim A/B runs can
+        # compare flag-on vs flag-off to isolate any modifier-driven
+        # regression to this one boolean.
+        self.apply_relationship_modifier: bool = True
+        # Stashed at the end of each _apply_exploitation call for
+        # diagnostics / Mode 1 replay. None when the modifier seam
+        # didn't fire (flag off, no observer_id, no target, identity
+        # modifier).
+        self._last_relationship_modifier = None
+        self._last_relationship_target_id: Optional[str] = None
         self._deviation_profile: Optional[DeviationProfile] = None
         self.skip_personality_distortion = skip_personality_distortion
         self.expression_generator = expression_generator
@@ -1147,6 +1164,22 @@ class TieredBotController(AIPlayerController):
             multiway_cbet_intensity=multiway_cbet_intensity,
         )
 
+        # Track B Phase 2: relationship-modifier scaling. Composes with
+        # the pattern-derived offsets above; runs before clamp/gating
+        # so the existing safety rails still bound the final shift.
+        # Behind self.apply_relationship_modifier so the seam can be
+        # backed out at runtime if a regression surfaces — see the
+        # constructor docstring on that flag.
+        self._last_relationship_modifier = None
+        self._last_relationship_target_id = None
+        if offsets and self.apply_relationship_modifier:
+            offsets = self._apply_relationship_modifier_to_offsets(
+                offsets=offsets,
+                manager=manager,
+                spots=spots,
+                primary_spot=primary_spot,
+            )
+
         if not offsets:
             return strategy, exploitation_traces
 
@@ -1192,6 +1225,209 @@ class TieredBotController(AIPlayerController):
             max_total_shift=clamp_value,
         )
         return updated_strategy, exploitation_traces
+
+    def _apply_relationship_modifier_to_offsets(
+        self,
+        offsets: Dict[str, float],
+        manager,
+        spots,
+        primary_spot,
+    ) -> Dict[str, float]:
+        """Scale pattern-derived exploitation offsets by the relationship
+        modifier for the selected target opponent.
+
+        Composition (per the design doc's Phase 2 spec):
+          1. Pattern detection produced the `offsets` dict above
+             (unchanged).
+          2. Resolve hero observer_id and the target opponent_id —
+             aggressor when there is one, heat-max fallback otherwise.
+          3. Read get_relationship_modifier(observer, target, now).
+          4. Scale: bluff_freq_mult multiplies positive offsets on
+             aggressive actions (bet_*, raise_*, all_in);
+             fold_to_pressure_mult scales negative `fold` offsets.
+          5. (call_threshold_offset is stashed on the controller for
+             diagnostics — wiring it into the value-vs-station
+             threshold path is a follow-up refinement.)
+          6. Return the scaled offsets so existing clamp/gating runs
+             unchanged.
+
+        Returns the offsets dict (possibly mutated). Stashes the
+        applied modifier + target id on the controller for replay
+        diagnostics. Early-outs gracefully when:
+          - No relationship_repo is attached to the manager
+          - Hero has no resolved personality_id (display name not
+            registered)
+          - No suitable target can be picked
+          - The computed modifier is the identity (no behavior change)
+
+        In all early-out paths, returns the offsets dict verbatim.
+        """
+        from datetime import datetime
+        from poker.memory.relationship_modifier import get_relationship_modifier
+
+        # Manager must carry a relationship_repo for this to do anything.
+        if getattr(manager, '_relationship_repo', None) is None:
+            return offsets
+
+        # Hero's stable personality_id. The opponent_model_manager
+        # tracks display_name → personality_id via register_player_id;
+        # if the hero hasn't been registered (e.g. sim runs without
+        # full personality wiring), the modifier seam no-ops.
+        name_to_id = getattr(manager, '_name_to_id', {})
+        observer_id = name_to_id.get(self.player_name)
+        if observer_id is None:
+            return offsets
+
+        # Target selection. Prefer the primary aggressor when one
+        # exists (reuses _select_exploitation_stats_from_spots' work).
+        # Fall back to heat-max for open / checked-around spots.
+        target_id = self._select_relationship_target_id(
+            manager=manager,
+            spots=spots,
+            primary_spot=primary_spot,
+            observer_id=observer_id,
+        )
+        if target_id is None:
+            return offsets
+
+        modifier = get_relationship_modifier(
+            manager=manager,
+            observer_id=observer_id,
+            target_opponent_id=target_id,
+            now=datetime.utcnow(),
+        )
+        if modifier.is_identity:
+            # Stash for diagnostics even though it doesn't change offsets —
+            # makes "we considered the modifier and it was a no-op" visible
+            # in replay traces.
+            self._last_relationship_modifier = modifier
+            self._last_relationship_target_id = target_id
+            return offsets
+
+        # Apply the multipliers. Composition is per-action:
+        #   bluff_freq_mult     scales aggressive-action positive offsets
+        #   fold_to_pressure_mult scales `fold`'s negative offset magnitude
+        scaled = dict(offsets)
+        for action, delta in offsets.items():
+            if delta > 0 and self._is_aggressive_action_label(action):
+                scaled[action] = delta * modifier.bluff_freq_mult
+            elif action == 'fold' and delta < 0:
+                # Scale the magnitude. modifier.fold_to_pressure_mult < 1
+                # means "don't fold as much vs respected opponents" — i.e.
+                # the original `fold -=` reduction gets dampened. So we
+                # multiply the negative delta by the modifier.
+                scaled[action] = delta * modifier.fold_to_pressure_mult
+
+        self._last_relationship_modifier = modifier
+        self._last_relationship_target_id = target_id
+
+        if self.debug_logging:
+            logger.info(
+                f"[TIERED_BOT] {self.player_name}: relationship modifier "
+                f"target={target_id} mod={modifier} offsets={scaled}"
+            )
+
+        return scaled
+
+    @staticmethod
+    def _is_aggressive_action_label(label: str) -> bool:
+        """True for action labels that represent aggressive moves
+        (bet, raise, all_in). The exploitation rules emit these with
+        named suffixes (bet_67, raise_3x, etc.) so we match by prefix."""
+        return (
+            label == 'bet'
+            or label.startswith('bet_')
+            or label == 'raise'
+            or label.startswith('raise_')
+            or label == 'jam'
+            or label == 'all_in'
+        )
+
+    def _select_relationship_target_id(
+        self,
+        manager,
+        spots,
+        primary_spot,
+        observer_id: str,
+    ) -> Optional[str]:
+        """Pick the (observer, target) pair for the relationship read.
+
+        Rules (from design doc):
+          - Eligible opponents = active, not all-in, in the hand.
+          - If primary_spot is set (clear aggressor on this street),
+            use it. Reuses _select_exploitation_stats_from_spots'
+            existing aggressor selection — no parallel implementation.
+          - Else, heat-max fallback: among eligible spots, pick the
+            one with the highest projected heat from observer's POV.
+            Ties: max respect, then alphabetical opponent_id.
+          - If no eligible opponents have any relationship state, or
+            no spot's name resolves to a personality_id, returns None
+            and the modifier seam no-ops.
+
+        All-in opponents are excluded because the bluff-frequency
+        and fold-to-pressure multipliers have no meaningful effect
+        against opponents who can't call further bets or apply more
+        pressure. (Same rationale as compute_value_vs_station_intensity.)
+        """
+        name_to_id = getattr(manager, '_name_to_id', {})
+
+        # Primary aggressor path
+        if primary_spot is not None:
+            target_id = name_to_id.get(primary_spot.name)
+            return target_id  # may be None if name wasn't registered
+
+        # Heat-max fallback. Only fires when there's no clear aggressor.
+        eligible = [
+            s for s in spots
+            if s.is_active and not s.is_all_in
+        ]
+        if not eligible:
+            return None
+
+        repo = getattr(manager, '_relationship_repo', None)
+        if repo is None:
+            return None
+
+        from datetime import datetime
+        now = datetime.utcnow()
+        best: Optional[Tuple[float, float, str]] = None  # (heat, respect, opp_id)
+        for spot in eligible:
+            opp_id = name_to_id.get(spot.name)
+            if opp_id is None:
+                continue
+            state = repo.load_relationship_state(observer_id, opp_id, now=now)
+            if state is None:
+                continue
+            key = (state.heat, state.respect, opp_id)
+            if best is None or key > best:
+                # Sort key: heat desc → respect desc → opp_id asc
+                # (we negate by using tuple comparison; since we want
+                # max-heat, max-respect, and alphabetical opp_id tie-
+                # break, we compare on (heat, respect, -ord_of_opp_id)
+                # equivalent via reverse-sort or via picking the max).
+                # Simpler: just pick the lex-greatest tuple where
+                # heat/respect are positively valued and opp_id is
+                # tiebreaker — but we want SMALLEST opp_id for ties.
+                # Use a normalized key.
+                best = key
+        if best is None:
+            return None
+
+        # Adjust tiebreaker: among all eligible with state, find
+        # max (heat, respect); among those tied, the smallest opp_id.
+        max_heat_respect = (best[0], best[1])
+        # Collect all eligible matching max (heat, respect)
+        candidates = []
+        for spot in eligible:
+            opp_id = name_to_id.get(spot.name)
+            if opp_id is None:
+                continue
+            state = repo.load_relationship_state(observer_id, opp_id, now=now)
+            if state is None:
+                continue
+            if (state.heat, state.respect) == max_heat_respect:
+                candidates.append(opp_id)
+        return min(candidates) if candidates else None
 
     def _compute_clamp(
         self, stats, manager, primary_spot,
