@@ -62,7 +62,11 @@ logger = logging.getLogger(__name__)
 # v85: Add personality_id TEXT UNIQUE to personalities for stable cross-session identity.
 #      Backfills existing rows with slugified names. Display name becomes UI-only; personality_id
 #      is the persistence key the relationship layer and cash-mode bankrolls key on.
-SCHEMA_VERSION = 85
+# v86: Add observer_id + opponent_id TEXT columns to opponent_models. Backfills via name lookup
+#      against personalities.personality_id. Display names stay (still UNIQUE lookup key for now)
+#      so the migration is non-destructive; future work can transition the lookup constraint to
+#      key on ids once all writers populate them.
+SCHEMA_VERSION = 86
 
 
 
@@ -296,6 +300,8 @@ class SchemaManager:
                     game_id TEXT,
                     observer_name TEXT NOT NULL,
                     opponent_name TEXT NOT NULL,
+                    observer_id TEXT,
+                    opponent_id TEXT,
                     hands_observed INTEGER DEFAULT 0,
                     vpip REAL DEFAULT 0.5,
                     pfr REAL DEFAULT 0.5,
@@ -312,6 +318,8 @@ class SchemaManager:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_observer ON opponent_models(observer_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_game ON opponent_models(game_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_observer_id ON opponent_models(observer_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_opponent_id ON opponent_models(opponent_id)")
 
             # 10. Memorable hands (v21 added game_id)
             conn.execute("""
@@ -1116,6 +1124,7 @@ class SchemaManager:
             83: (self._migrate_v83_add_psychology_json, "Add psychology_json to controller_state for v2.1 unified psychology persistence"),
             84: (self._migrate_v84_add_personality_snapshots_unique, "Add UNIQUE(game_id, player_name, hand_number) to personality_snapshots so INSERT OR IGNORE deduplicates retries"),
             85: (self._migrate_v85_add_personality_id, "Add personality_id TEXT UNIQUE to personalities and backfill with slugified names"),
+            86: (self._migrate_v86_add_opponent_model_ids, "Add observer_id + opponent_id to opponent_models and backfill via personality name lookup"),
         }
 
         with self._get_connection() as conn:
@@ -3679,3 +3688,76 @@ class SchemaManager:
             "ON personalities(personality_id)"
         )
         logger.info("v85: UNIQUE index on personalities.personality_id ensured")
+
+    def _migrate_v86_add_opponent_model_ids(self, conn: sqlite3.Connection) -> None:
+        """Migration v86: Add observer_id + opponent_id to opponent_models.
+
+        Adds stable personality_id surfaces to the in-game-relative
+        opponent model rows. Each row already has observer_name +
+        opponent_name (display names); v86 adds observer_id +
+        opponent_id (stable slugs from the personalities table).
+
+        Backfill strategy: for every existing row, try to look up the
+        opponent's personality_id by matching opponent_name to
+        personalities.name. Same for observer_name. Rows whose names
+        don't map to any personality (e.g. ad-hoc names, deleted
+        personalities, human-player names like guests) stay with NULL
+        ids; the join is opportunistic, not enforced. The UNIQUE
+        constraint on (game_id, observer_name, opponent_name) stays as
+        the authoritative lookup key for now — adding a NOT NULL or
+        UNIQUE on the new columns would block live games that have
+        names without DB-side personalities.
+
+        Idempotent: re-running the migration is a no-op (existing ids
+        preserved; NULL rows attempt backfill again, harmless if the
+        name lookup still fails).
+
+        Indexes: separate non-unique indexes on observer_id and
+        opponent_id support future relationship/cash-mode queries
+        without forcing data shape changes here.
+        """
+        # 1. Add the columns if missing.
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(opponent_models)")}
+        for col in ("observer_id", "opponent_id"):
+            if col not in existing:
+                conn.execute(f"ALTER TABLE opponent_models ADD COLUMN {col} TEXT")
+                logger.info(f"v86: added {col} column to opponent_models")
+
+        # 2. Backfill via name lookup against personalities.personality_id.
+        #    Only updates rows where the new id column is currently NULL.
+        backfilled = conn.execute(
+            """
+            UPDATE opponent_models
+            SET opponent_id = (
+                SELECT personality_id FROM personalities
+                WHERE personalities.name = opponent_models.opponent_name
+                  AND personalities.personality_id IS NOT NULL
+            )
+            WHERE opponent_id IS NULL
+            """
+        ).rowcount
+        logger.info(f"v86: backfilled opponent_id for {backfilled} rows via name lookup")
+
+        backfilled_obs = conn.execute(
+            """
+            UPDATE opponent_models
+            SET observer_id = (
+                SELECT personality_id FROM personalities
+                WHERE personalities.name = opponent_models.observer_name
+                  AND personalities.personality_id IS NOT NULL
+            )
+            WHERE observer_id IS NULL
+            """
+        ).rowcount
+        logger.info(f"v86: backfilled observer_id for {backfilled_obs} rows via name lookup")
+
+        # 3. Indexes (idempotent).
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_opponent_models_observer_id "
+            "ON opponent_models(observer_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_opponent_models_opponent_id "
+            "ON opponent_models(opponent_id)"
+        )
+        logger.info("v86: opponent_models id indexes ensured")
