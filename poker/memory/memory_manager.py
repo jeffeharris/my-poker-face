@@ -134,11 +134,16 @@ class AIMemoryManager:
             self._recent_aggressor_name = player_name
             self._current_street = phase
 
-    def initialize_for_player(self, player_name: str) -> None:
+    def initialize_for_player(self, player_name: str, personality_id: Optional[str] = None) -> None:
         """Set up memory systems for an AI player.
 
         Args:
             player_name: Name of the AI player
+            personality_id: Stable personality_id (slug) for this player.
+                Passed through to the opponent_model_manager so cross-session
+                callers (relationship layer, AI bankrolls) can key on the
+                id rather than the display name. None for AI players whose
+                personality predates v85 or wasn't resolved at startup.
         """
         if player_name in self.initialized_players:
             return
@@ -149,10 +154,20 @@ class AIMemoryManager:
             session_memory.set_hand_history_repo(self._persistence, self.game_id)
         self.session_memories[player_name] = session_memory
 
-        self.initialized_players.add(player_name)
-        logger.info(f"Initialized memory systems for {player_name}")
+        # Register the player's stable personality_id with the opponent
+        # model manager so newly-created OpponentModels carry it and
+        # save_opponent_models persists it. Always call even when None,
+        # so the registry distinguishes "known no id" (human guests,
+        # pre-v85 personalities) from "never registered."
+        self.opponent_model_manager.register_player_id(player_name, personality_id)
 
-    def initialize_human_observer(self, player_name: str) -> None:
+        self.initialized_players.add(player_name)
+        logger.info(
+            f"Initialized memory systems for {player_name} "
+            f"(personality_id={personality_id!r})"
+        )
+
+    def initialize_human_observer(self, player_name: str, personality_id: Optional[str] = None) -> None:
         """Add human player as an observer for opponent modeling.
 
         Unlike AI players, humans don't need session memory or other AI systems,
@@ -160,12 +175,23 @@ class AIMemoryManager:
 
         Args:
             player_name: Name of the human player
+            personality_id: Almost always None for humans (they aren't
+                personalities). Plumbed through anyway so callers can
+                use a single uniform path for both player types.
         """
         if player_name in self.initialized_players:
             return
 
+        # Register with the opponent model manager. Most human players
+        # have personality_id=None; explicitly recording that prevents
+        # repeated name-lookup attempts.
+        self.opponent_model_manager.register_player_id(player_name, personality_id)
+
         self.initialized_players.add(player_name)
-        logger.info(f"Initialized human observer: {player_name}")
+        logger.info(
+            f"Initialized human observer: {player_name} "
+            f"(personality_id={personality_id!r})"
+        )
 
     def on_hand_start(self, game_state: Any, hand_number: int, deck_seed: Optional[int] = None) -> None:
         """Called when a new hand begins.

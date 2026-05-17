@@ -27,7 +27,7 @@ from poker.tournament_tracker import TournamentTracker
 from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
 
 from ..game_adapter import StateMachineAdapter
-from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, prompt_preset_repo, decision_analysis_repo, capture_label_repo, coach_repo, persistence_db_path
+from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, prompt_preset_repo, decision_analysis_repo, capture_label_repo, coach_repo, persistence_db_path, personality_repo
 from ..socket_rate_limit import socket_rate_limit
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
@@ -541,15 +541,24 @@ def api_game_state(game_id):
                             logger.info(f"[LOAD] Restored opponent models for game {game_id}")
 
                         for player in state_machine.game_state.players:
+                            # Resolve each player's stable personality_id at
+                            # startup so the opponent_model_manager carries
+                            # ids on every model it creates. AI seats with
+                            # personalities in the DB get a real id; humans
+                            # and ad-hoc names get None.
+                            try:
+                                pid = personality_repo.resolve_name_to_personality_id(player.name)
+                            except Exception:
+                                pid = None
                             if not player.is_human and player.name in ai_controllers:
-                                memory_manager.initialize_for_player(player.name)
+                                memory_manager.initialize_for_player(player.name, personality_id=pid)
                                 controller = ai_controllers[player.name]
                                 controller.session_memory = memory_manager.get_session_memory(player.name)
                                 controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
                                 controller.memory_manager = memory_manager
                             elif player.is_human:
                                 # Initialize human player for opponent observation tracking
-                                memory_manager.initialize_human_observer(player.name)
+                                memory_manager.initialize_human_observer(player.name, personality_id=pid)
 
                         memory_manager.on_hand_start(
                             state_machine.game_state,
@@ -1172,15 +1181,20 @@ def api_new_game():
     memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
     memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
     for player in state_machine.game_state.players:
+        # Resolve each player's stable personality_id (None for humans)
+        try:
+            pid = personality_repo.resolve_name_to_personality_id(player.name)
+        except Exception:
+            pid = None
         if not player.is_human:
-            memory_manager.initialize_for_player(player.name)
+            memory_manager.initialize_for_player(player.name, personality_id=pid)
             controller = ai_controllers[player.name]
             controller.session_memory = memory_manager.get_session_memory(player.name)
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
             controller.memory_manager = memory_manager
         else:
             # Initialize human player for opponent observation tracking
-            memory_manager.initialize_human_observer(player.name)
+            memory_manager.initialize_human_observer(player.name, personality_id=pid)
 
     # Advance state machine to deal cards and post blinds before recording hand start,
     # so that hole cards are available when on_hand_start records them.
