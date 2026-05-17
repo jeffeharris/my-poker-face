@@ -332,6 +332,25 @@ class AIMemoryManager:
                     model = self.opponent_model_manager.get_model(observer, pfr_name)
                     model.tendencies.update_cbet_attempt(attempted)
 
+        # Phase B Item 1: drain barrel-attempt and third-barrel-attempt
+        # events. Same shape as the PFR-attempt drain above.
+        for pfr_name, attempted in self._cbet_detector.consume_barrel_attempt_events():
+            logger.debug(
+                f"{pfr_name} {'fired' if attempted else 'declined'} turn barrel"
+            )
+            for observer in self.initialized_players:
+                if observer != pfr_name:
+                    model = self.opponent_model_manager.get_model(observer, pfr_name)
+                    model.tendencies.update_barrel_attempt(attempted)
+        for pfr_name, attempted in self._cbet_detector.consume_third_barrel_attempt_events():
+            logger.debug(
+                f"{pfr_name} {'fired' if attempted else 'declined'} third barrel"
+            )
+            for observer in self.initialized_players:
+                if observer != pfr_name:
+                    model = self.opponent_model_manager.get_model(observer, pfr_name)
+                    model.tendencies.update_third_barrel_attempt(attempted)
+
         # Update opponent models for all observers (including self-observation
         # for coaching stats like VPIP/PFR)
         for observer in self.initialized_players:

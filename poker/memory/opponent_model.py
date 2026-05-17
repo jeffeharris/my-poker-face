@@ -58,6 +58,12 @@ class OpponentTendencies:
     aggression_factor: float = 1.0  # (bet+raise+all-in) / call ratio
     fold_to_cbet: float = 0.5   # Fold to continuation bet %
     cbet_attempt_rate: float = 0.5  # Phase 8.1a: PFR's c-bet attempt rate
+    # Phase B Item 1: street-resolved barrel rates. The exploit
+    # induce_override targets is "PFR fires multiple streets after
+    # being called" — barrel_frequency measures it directly instead
+    # of relying on AF_pf×cbet_attempt as a proxy.
+    barrel_frequency: float = 0.5         # turn bet rate after cbet+call
+    third_barrel_frequency: float = 0.5   # river bet rate after barrel+call
     bluff_frequency: float = 0.3    # Estimated bluff rate
     showdown_win_rate: float = 0.5  # Win rate at showdown
     all_in_frequency: float = 0.0   # All-in actions per hand dealt
@@ -115,6 +121,16 @@ class OpponentTendencies:
     # very differently from a LAG with 0.85 at the same VPIP).
     _cbet_attempt_count: int = 0
     _postflop_seen_as_pfr_count: int = 0
+    # Phase B Item 1: barrel tracking. The direct signal that
+    # induce_override's Phase B gate will read (replacing the
+    # AF_postflop × cbet_attempt_rate proxy). Denominator is
+    # opportunities — hands where this player cbet flop AND got
+    # called AND had a clean turn decision. Numerator is barrels
+    # actually fired. Same for third_barrel (turn→river).
+    _barrel_count: int = 0
+    _barrel_opportunity_count: int = 0
+    _third_barrel_count: int = 0
+    _third_barrel_opportunity_count: int = 0
     _showdowns: int = 0
     _showdowns_won: int = 0
 
@@ -454,6 +470,31 @@ class OpponentTendencies:
             self._cbet_attempt_count += 1
         self._recalculate_stats()
 
+    def update_barrel_attempt(self, attempted: bool):
+        """Phase B Item 1: record one turn-barrel-opportunity event.
+
+        Increments the denominator on every call and the numerator
+        only when `attempted=True`. Caller (MemoryManager via
+        CbetDetector.consume_barrel_attempt_events) should only invoke
+        this when the PFR had a clean barrel decision — they cbet
+        flop, got called, and have a turn action with no donk ahead.
+        """
+        self._barrel_opportunity_count += 1
+        if attempted:
+            self._barrel_count += 1
+        self._recalculate_stats()
+
+    def update_third_barrel_attempt(self, attempted: bool):
+        """Phase B Item 1: record one river-third-barrel-opportunity event.
+
+        Same shape as update_barrel_attempt but for turn→river. Caller
+        ensures the PFR barreled turn and got called.
+        """
+        self._third_barrel_opportunity_count += 1
+        if attempted:
+            self._third_barrel_count += 1
+        self._recalculate_stats()
+
     def _recalculate_stats(self):
         """Recalculate derived statistics.
 
@@ -498,6 +539,18 @@ class OpponentTendencies:
         if self._postflop_seen_as_pfr_count > 0:
             self.cbet_attempt_rate = (
                 self._cbet_attempt_count / self._postflop_seen_as_pfr_count
+            )
+
+        # Phase B Item 1: barrel rates. Same "neutral prior 0.5 until
+        # observed" stance. These are the proper signal that Phase B
+        # Item 2's induce_override gate will read.
+        if self._barrel_opportunity_count > 0:
+            self.barrel_frequency = (
+                self._barrel_count / self._barrel_opportunity_count
+            )
+        if self._third_barrel_opportunity_count > 0:
+            self.third_barrel_frequency = (
+                self._third_barrel_count / self._third_barrel_opportunity_count
             )
 
         if self._showdowns > 0:
@@ -629,6 +682,8 @@ class OpponentTendencies:
             'aggression_factor': self.aggression_factor,
             'fold_to_cbet': self.fold_to_cbet,
             'cbet_attempt_rate': self.cbet_attempt_rate,
+            'barrel_frequency': self.barrel_frequency,
+            'third_barrel_frequency': self.third_barrel_frequency,
             'bluff_frequency': self.bluff_frequency,
             'showdown_win_rate': self.showdown_win_rate,
             'all_in_frequency': self.all_in_frequency,
@@ -650,6 +705,11 @@ class OpponentTendencies:
             # Phase 8.1a counters
             '_cbet_attempt_count': self._cbet_attempt_count,
             '_postflop_seen_as_pfr_count': self._postflop_seen_as_pfr_count,
+            # Phase B Item 1 counters
+            '_barrel_count': self._barrel_count,
+            '_barrel_opportunity_count': self._barrel_opportunity_count,
+            '_third_barrel_count': self._third_barrel_count,
+            '_third_barrel_opportunity_count': self._third_barrel_opportunity_count,
             '_showdowns': self._showdowns,
             '_showdowns_won': self._showdowns_won,
             # Phase 7.5 counters
@@ -682,6 +742,8 @@ class OpponentTendencies:
             aggression_factor=data.get('aggression_factor', 1.0),
             fold_to_cbet=data.get('fold_to_cbet', 0.5),
             cbet_attempt_rate=data.get('cbet_attempt_rate', 0.5),
+            barrel_frequency=data.get('barrel_frequency', 0.5),
+            third_barrel_frequency=data.get('third_barrel_frequency', 0.5),
             bluff_frequency=data.get('bluff_frequency', 0.3),
             showdown_win_rate=data.get('showdown_win_rate', 0.5),
             all_in_frequency=data.get('all_in_frequency', 0.0),
@@ -706,6 +768,13 @@ class OpponentTendencies:
         # Phase 8.1a counters — default 0 for migration tolerance.
         tendencies._cbet_attempt_count = data.get('_cbet_attempt_count', 0)
         tendencies._postflop_seen_as_pfr_count = data.get('_postflop_seen_as_pfr_count', 0)
+        # Phase B Item 1 counters — default 0 for migration tolerance.
+        tendencies._barrel_count = data.get('_barrel_count', 0)
+        tendencies._barrel_opportunity_count = data.get('_barrel_opportunity_count', 0)
+        tendencies._third_barrel_count = data.get('_third_barrel_count', 0)
+        tendencies._third_barrel_opportunity_count = data.get(
+            '_third_barrel_opportunity_count', 0,
+        )
         tendencies._showdowns = data.get('_showdowns', 0)
         tendencies._showdowns_won = data.get('_showdowns_won', 0)
         # Phase 7.5 counter defaults (0 — missing-field tolerance)
@@ -972,6 +1041,10 @@ def _build_aggregate_from_single(t: OpponentTendencies):
         cbet_faced_count=t._cbet_faced_count,
         cbet_attempt_rate=t.cbet_attempt_rate,
         postflop_seen_as_pfr_count=t._postflop_seen_as_pfr_count,
+        barrel_frequency=t.barrel_frequency,
+        barrel_opportunities=t._barrel_opportunity_count,
+        third_barrel_frequency=t.third_barrel_frequency,
+        third_barrel_opportunities=t._third_barrel_opportunity_count,
         # Phase 7.5 Step 0 fields
         aggression_factor_postflop=t.aggression_factor_postflop,
         all_in_per_facing_bet=t.all_in_per_facing_bet,
@@ -1016,6 +1089,17 @@ def _build_aggregate_from_multi(tendencies_list):
     min_pfr_seen = min(
         t._postflop_seen_as_pfr_count for t in tendencies_list
     )
+    # Phase B Item 1 barrel fields — same policy.
+    avg_barrel_freq = sum(t.barrel_frequency for t in tendencies_list) / n
+    min_barrel_opps = min(
+        t._barrel_opportunity_count for t in tendencies_list
+    )
+    avg_third_barrel_freq = sum(
+        t.third_barrel_frequency for t in tendencies_list
+    ) / n
+    min_third_barrel_opps = min(
+        t._third_barrel_opportunity_count for t in tendencies_list
+    )
 
     # Phase 7.5 Step 0 fields
     avg_af_postflop = sum(t.aggression_factor_postflop for t in tendencies_list) / n
@@ -1049,6 +1133,10 @@ def _build_aggregate_from_multi(tendencies_list):
         cbet_faced_count=min_cbet_faced,
         cbet_attempt_rate=avg_cbet_attempt_rate,
         postflop_seen_as_pfr_count=min_pfr_seen,
+        barrel_frequency=avg_barrel_freq,
+        barrel_opportunities=min_barrel_opps,
+        third_barrel_frequency=avg_third_barrel_freq,
+        third_barrel_opportunities=min_third_barrel_opps,
         aggression_factor_postflop=avg_af_postflop,
         all_in_per_facing_bet=avg_all_in_pfb,
         facing_bet_opportunities=min_facing_bet_opps,

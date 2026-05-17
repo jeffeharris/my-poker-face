@@ -1972,6 +1972,19 @@ class TieredBotController(AIPlayerController):
                             postflop_seen_as_pfr_count=getattr(
                                 t, '_postflop_seen_as_pfr_count', 0,
                             ),
+                            # Phase B Item 1 barrel fields.
+                            barrel_frequency=getattr(
+                                t, 'barrel_frequency', 0.5,
+                            ),
+                            barrel_opportunities=getattr(
+                                t, '_barrel_opportunity_count', 0,
+                            ),
+                            third_barrel_frequency=getattr(
+                                t, 'third_barrel_frequency', 0.5,
+                            ),
+                            third_barrel_opportunities=getattr(
+                                t, '_third_barrel_opportunity_count', 0,
+                            ),
                             # Phase 7.5 Step 0 fields — populated for
                             # diagnostic visibility. Item 2 consumes them
                             # for tier classification.
