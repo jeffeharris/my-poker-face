@@ -1062,6 +1062,16 @@ class TieredBotController(AIPlayerController):
         )
 
         exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
+        # Phase 8.1c: pass through whether at least one continuing
+        # non-all-in opponent is station-like. Gates the base
+        # hyper_passive rule against misfiring when the stake-weighted
+        # aggregate looks station-y purely because an all-in station
+        # dominated the weight. Reuses compute_value_vs_station_intensity
+        # — it returns >0 iff a continuing non-all-in opponent passes
+        # _is_hyper_passive with adequate sample.
+        non_all_in_station_continuing = (
+            compute_value_vs_station_intensity(spots) > 0.0
+        )
         offsets, exploitation_traces = compute_exploitation_offsets_with_traces(
             stats=stats,
             adaptation_bias=anchors.adaptation_bias,
@@ -1073,6 +1083,7 @@ class TieredBotController(AIPlayerController):
             value_vs_station_intensity=vvs_intensity_used,
             steal_pressure_intensity=steal_intensity_used,
             bluff_reduction_intensity=bluff_reduction_intensity_used,
+            non_all_in_station_continuing=non_all_in_station_continuing,
             disable_rules=getattr(self, "disable_rules", frozenset()),
         )
 
