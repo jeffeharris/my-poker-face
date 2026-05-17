@@ -7,6 +7,10 @@ import logging
 from typing import Optional, List, Dict, Any
 
 from poker.repositories.base_repository import BaseRepository
+from poker.personality_id import (
+    slugify_personality_name,
+    assign_unique_personality_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +21,33 @@ class PersonalityRepository(BaseRepository):
     # --- Personality CRUD ---
 
     def save_personality(self, name: str, config: Dict[str, Any], source: str = 'ai_generated',
-                         owner_id: Optional[str] = None, visibility: str = 'public') -> None:
-        """Save a personality configuration to the database."""
+                         owner_id: Optional[str] = None, visibility: str = 'public',
+                         personality_id: Optional[str] = None) -> str:
+        """Save a personality configuration to the database.
+
+        Args:
+            name: Display name (human-facing, may be edited later)
+            config: Personality config dict (may include 'id' as a hint;
+                explicit personality_id parameter wins if both provided)
+            source: Provenance label (ai_generated, user_created, etc.)
+            owner_id: Owning user, when applicable
+            visibility: 'public' | 'private' | 'disabled'
+            personality_id: Stable identifier (slug-style). If omitted,
+                generated from name via slugify_personality_name. The
+                method preserves an existing row's personality_id when
+                INSERT OR REPLACE fires on the name UNIQUE constraint.
+
+        Returns:
+            The personality_id assigned to the row (newly generated or
+            preserved from existing). Callers persisting cross-session
+            state (relationships, bankrolls, opponent_models) should use
+            this returned id, not the display name.
+        """
         elasticity_config = config.get('elasticity_config', {})
-        config_without_elasticity = {k: v for k, v in config.items() if k != 'elasticity_config'}
+        config_without_elasticity = {
+            k: v for k, v in config.items()
+            if k not in ('elasticity_config', 'id')
+        }
 
         with self._get_connection() as conn:
             cursor = conn.execute("PRAGMA table_info(personalities)")
@@ -28,8 +55,47 @@ class PersonalityRepository(BaseRepository):
 
             has_elasticity = 'elasticity_config' in columns
             has_ownership = 'owner_id' in columns
+            has_personality_id = 'personality_id' in columns
 
-            if has_elasticity and has_ownership:
+            # Resolve the personality_id to write. Priority:
+            #   1. Explicit parameter
+            #   2. `id` hint inside config dict (from JSON seed source)
+            #   3. Existing row's personality_id (preserve across re-saves)
+            #   4. Freshly slugified from name, with collision resolution
+            resolved_id = personality_id or config.get('id')
+            if has_personality_id and not resolved_id:
+                existing = conn.execute(
+                    "SELECT personality_id FROM personalities WHERE name = ?",
+                    (name,),
+                ).fetchone()
+                if existing and existing['personality_id']:
+                    resolved_id = existing['personality_id']
+            if has_personality_id and not resolved_id:
+                base_slug = slugify_personality_name(name)
+                if base_slug:
+                    taken = {
+                        row['personality_id'] for row in conn.execute(
+                            "SELECT personality_id FROM personalities "
+                            "WHERE personality_id IS NOT NULL AND name != ?",
+                            (name,),
+                        )
+                    }
+                    resolved_id = assign_unique_personality_id(base_slug, taken)
+                else:
+                    logger.warning(
+                        "save_personality: name=%r slugifies to empty; "
+                        "writing row without personality_id", name,
+                    )
+
+            if has_personality_id and has_elasticity and has_ownership:
+                conn.execute("""
+                    INSERT OR REPLACE INTO personalities
+                    (name, config_json, elasticity_config, source, owner_id,
+                     visibility, personality_id, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (name, json.dumps(config_without_elasticity), json.dumps(elasticity_config),
+                      source, owner_id, visibility, resolved_id))
+            elif has_elasticity and has_ownership:
                 conn.execute("""
                     INSERT OR REPLACE INTO personalities
                     (name, config_json, elasticity_config, source, owner_id, visibility, updated_at)
@@ -49,23 +115,30 @@ class PersonalityRepository(BaseRepository):
                     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                 """, (name, json.dumps(config), source))
 
+        return resolved_id or ""
+
     def load_personality(self, name: str) -> Optional[Dict[str, Any]]:
-        """Load a personality configuration from the database."""
+        """Load a personality configuration from the database.
+
+        Returns the config dict augmented with `id` (the stable
+        personality_id) when the column is available. Display name is
+        still the lookup key here for back-compat; new callers should
+        prefer `load_personality_by_id` for cross-session identity.
+        """
         with self._get_connection() as conn:
             cursor = conn.execute("PRAGMA table_info(personalities)")
             columns = [row[1] for row in cursor.fetchall()]
 
+            select_cols = ["config_json"]
             if 'elasticity_config' in columns:
-                cursor = conn.execute("""
-                    SELECT config_json, elasticity_config FROM personalities
-                    WHERE name = ?
-                """, (name,))
-            else:
-                cursor = conn.execute("""
-                    SELECT config_json FROM personalities
-                    WHERE name = ?
-                """, (name,))
+                select_cols.append("elasticity_config")
+            if 'personality_id' in columns:
+                select_cols.append("personality_id")
 
+            cursor = conn.execute(
+                f"SELECT {', '.join(select_cols)} FROM personalities WHERE name = ?",
+                (name,),
+            )
             row = cursor.fetchone()
             if row:
                 conn.execute("""
@@ -79,9 +152,73 @@ class PersonalityRepository(BaseRepository):
                 if 'elasticity_config' in columns and row['elasticity_config']:
                     config['elasticity_config'] = json.loads(row['elasticity_config'])
 
+                if 'personality_id' in columns and row['personality_id']:
+                    config['id'] = row['personality_id']
+
                 return config
 
             return None
+
+    def load_personality_by_id(self, personality_id: str) -> Optional[Dict[str, Any]]:
+        """Load a personality by its stable id.
+
+        Preferred for cross-session state (relationship layer, AI
+        bankrolls, opponent_models) where identity must survive display-
+        name edits. Returns the config dict with `id` and `name`
+        populated so callers can render the display name without a
+        second query.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("PRAGMA table_info(personalities)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'personality_id' not in columns:
+                # Schema predates v85; can't satisfy by-id lookups.
+                return None
+
+            select_cols = ["name", "config_json"]
+            if 'elasticity_config' in columns:
+                select_cols.append("elasticity_config")
+
+            cursor = conn.execute(
+                f"SELECT {', '.join(select_cols)} FROM personalities "
+                "WHERE personality_id = ?",
+                (personality_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            conn.execute(
+                "UPDATE personalities SET times_used = times_used + 1 "
+                "WHERE personality_id = ?",
+                (personality_id,),
+            )
+
+            config = json.loads(row['config_json'])
+            config['id'] = personality_id
+            config['name'] = row['name']
+            if 'elasticity_config' in columns and row['elasticity_config']:
+                config['elasticity_config'] = json.loads(row['elasticity_config'])
+            return config
+
+    def resolve_name_to_personality_id(self, name: str) -> Optional[str]:
+        """Look up the stable personality_id for a display name.
+
+        Returns None if the personality isn't in the DB or the column
+        doesn't exist (pre-v85 schema).
+        """
+        with self._get_connection() as conn:
+            columns = [
+                row[1] for row in conn.execute("PRAGMA table_info(personalities)")
+            ]
+            if 'personality_id' not in columns:
+                return None
+            row = conn.execute(
+                "SELECT personality_id FROM personalities WHERE name = ?",
+                (name,),
+            ).fetchone()
+            return row['personality_id'] if row and row['personality_id'] else None
 
     def list_personalities(self, limit: int = 50, user_id: Optional[str] = None,
                            include_disabled: bool = False) -> List[Dict[str, Any]]:
@@ -160,24 +297,70 @@ class PersonalityRepository(BaseRepository):
         """Update only the config for an existing personality, preserving ownership fields.
 
         Unlike save_personality (which uses INSERT OR REPLACE and can wipe owner_id/visibility),
-        this method uses UPDATE to modify only config_json, elasticity_config, and source.
+        this method uses UPDATE to modify only config_json, elasticity_config, source, and
+        (if missing) personality_id.
+
+        Personality_id semantics: never overwrites an existing non-NULL
+        personality_id, even if the incoming config dict carries a
+        different `id` field. The id is supposed to be stable across
+        renames, so an established row's id wins. If the row is still
+        NULL on personality_id (e.g., partial backfill state), and the
+        config carries an `id`, the config's id is written. Otherwise
+        slugify(name) is used.
 
         Returns:
             True if the personality was found and updated, False otherwise.
         """
         elasticity_config = config.get('elasticity_config', {})
-        config_without_elasticity = {k: v for k, v in config.items() if k != 'elasticity_config'}
+        config_without_elasticity = {
+            k: v for k, v in config.items() if k not in ('elasticity_config', 'id')
+        }
 
         with self._get_connection() as conn:
             columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
             has_elasticity = 'elasticity_config' in columns
+            has_personality_id = 'personality_id' in columns
 
-            if has_elasticity:
+            # Decide whether we need to set personality_id as part of
+            # this update. Only fill it in when the existing row is
+            # missing one — never overwrite an established id.
+            id_to_set: Optional[str] = None
+            if has_personality_id:
+                existing_row = conn.execute(
+                    "SELECT personality_id FROM personalities WHERE name = ?",
+                    (name,),
+                ).fetchone()
+                existing_id = existing_row['personality_id'] if existing_row else None
+                if not existing_id:
+                    candidate = config.get('id')
+                    if not candidate:
+                        candidate = slugify_personality_name(name)
+                    if candidate:
+                        taken = {
+                            row['personality_id'] for row in conn.execute(
+                                "SELECT personality_id FROM personalities "
+                                "WHERE personality_id IS NOT NULL AND name != ?",
+                                (name,),
+                            )
+                        }
+                        id_to_set = assign_unique_personality_id(candidate, taken)
+
+            if has_personality_id and has_elasticity and id_to_set:
                 cursor = conn.execute("""
                     UPDATE personalities
-                    SET config_json = ?, elasticity_config = ?, source = ?, updated_at = CURRENT_TIMESTAMP
+                    SET config_json = ?, elasticity_config = ?, source = ?,
+                        personality_id = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE name = ?
-                """, (json.dumps(config_without_elasticity), json.dumps(elasticity_config), source, name))
+                """, (json.dumps(config_without_elasticity), json.dumps(elasticity_config),
+                      source, id_to_set, name))
+            elif has_elasticity:
+                cursor = conn.execute("""
+                    UPDATE personalities
+                    SET config_json = ?, elasticity_config = ?, source = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE name = ?
+                """, (json.dumps(config_without_elasticity), json.dumps(elasticity_config),
+                      source, name))
             else:
                 cursor = conn.execute("""
                     UPDATE personalities
@@ -268,6 +451,12 @@ class PersonalityRepository(BaseRepository):
                 skipped += 1
                 continue
 
+            # The JSON entries carry an `id` field that
+            # save_personality / update_personality_config will pick up
+            # and write to the personality_id column. That keeps the
+            # JSON seed source and DB-stored ids aligned, so a fresh
+            # DB rebuilt via this seed path lands at the same identity
+            # state as the original.
             if existing:
                 # Use config-only update to preserve ownership fields
                 self.update_personality_config(name, config, source='personalities.json')
