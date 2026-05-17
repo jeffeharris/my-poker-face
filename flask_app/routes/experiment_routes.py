@@ -1416,8 +1416,12 @@ def chat_experiment_design():
                 'experiment_type': experiment_type,
             }
         elif session_id not in _chat_sessions:
-            # Session exists but not in memory - try to restore from database
-            db_session = experiment_repo.get_chat_session(session_id)
+            # Session exists but not in memory - try to restore from database.
+            # T1-27: scope the lookup to the current owner so an attacker
+            # can't load someone else's chat by guessing the session_id.
+            db_session = experiment_repo.get_chat_session(
+                session_id, expected_owner_id=_get_chat_owner_id(),
+            )
             if db_session:
                 # Convert UI messages back to history format
                 # Preserve reasoning_content for DeepSeek API compatibility
@@ -1729,6 +1733,9 @@ def archive_chat_session():
     """Archive a chat session so it won't be returned as the latest session.
 
     Called when the user chooses to start fresh instead of resuming.
+
+    T1-27: gated on owner match so any authenticated user can only
+    archive their own sessions, not someone else's by guessing the id.
     """
     try:
         data = request.get_json()
@@ -1737,13 +1744,23 @@ def archive_chat_session():
         if not session_id:
             return jsonify({'error': 'session_id is required'}), 400
 
-        experiment_repo.archive_chat_session(session_id)
+        owner_id = _get_chat_owner_id()
+        archived = experiment_repo.archive_chat_session(
+            session_id, expected_owner_id=owner_id,
+        )
+
+        if not archived:
+            # Either session doesn't exist or doesn't belong to caller.
+            # Return 404 either way — don't leak the distinction.
+            return jsonify({'error': 'session not found'}), 404
 
         return jsonify({
             'success': True,
             'archived': True,
         })
 
+    except PermissionError:
+        return jsonify({'error': 'Authentication required'}), 401
     except Exception as e:
         logger.error(f"Error archiving chat session: {e}")
         return jsonify({'error': str(e)}), 500
@@ -2281,8 +2298,16 @@ def create_experiment():
                     'content': clean_response_text(msg.get('content', '')),
                 })
             experiment_repo.save_experiment_design_chat(experiment_id, design_chat)
-            # Archive the design session so it won't be returned as latest
-            experiment_repo.archive_chat_session(design_session_id)
+            # Archive the design session so it won't be returned as latest.
+            # T1-27: scope to caller's owner_id for defense in depth even
+            # though _chat_sessions presence implies the user was
+            # authenticated when the session was created.
+            try:
+                experiment_repo.archive_chat_session(
+                    design_session_id, expected_owner_id=_get_chat_owner_id(),
+                )
+            except PermissionError:
+                pass  # Best effort; the experiment launch already succeeded.
 
         # Launch in background
         thread = threading.Thread(

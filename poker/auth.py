@@ -15,11 +15,29 @@ from typing import Optional, Dict, Any
 
 from flask import session, request, jsonify, redirect, url_for
 import jwt
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 logger = logging.getLogger(__name__)
 
 # JWT configuration
 JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', secrets.token_hex(32))
+
+# Signed-cookie support for guest_id (T1-26).
+# The raw guest_id cookie was previously format-checked only — anyone
+# who knew or guessed a valid-format guest_id could set their own
+# cookie to that value and impersonate the target. Signing with the
+# app SECRET_KEY makes the cookie value unforgeable: an attacker who
+# doesn't have the secret can't produce a valid signature for an
+# arbitrary guest_id.
+#
+# The signed cookie value is `<guest_id>.<signature>`. Verification
+# happens via `_unsign_guest_id`; if signature is missing or invalid,
+# the cookie is rejected and a fresh guest session is created. This
+# is acceptable because:
+#   - Zero production users today, so no migration burden
+#   - The guest session is recreatable (it's a guest!) — worst case
+#     a returning user loses their guest_id and gets a new one
+_GUEST_ID_SIGNER_SALT = 'guest-id-v1'
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DELTA = timedelta(days=7)
 
@@ -75,7 +93,12 @@ class AuthManager:
                 guest_name = data.get('name', 'Guest')
                 guest_name = re.sub(r'[\x00-\x1f\x7f]', '', str(guest_name)).strip()[:50] or 'Guest'
 
-                existing_guest_id = request.cookies.get('guest_id')
+                # Read and verify the existing guest_id cookie (signed since T1-26 fix).
+                # Unsigning returns None for forged / expired / unsigned values;
+                # callers fall through to create_guest_user generating a fresh ID.
+                existing_guest_id = self._unsign_guest_id(
+                    request.cookies.get('guest_id')
+                )
                 guest_id = existing_guest_id if self._is_valid_guest_id(existing_guest_id) else None
                 user_data = self.create_guest_user(guest_name, guest_id=guest_id)
 
@@ -91,11 +114,13 @@ class AuthManager:
                     'token': self.generate_token(user_data)
                 })
 
-                # Set a long-lived cookie for guest ID (30 days)
+                # Set a long-lived cookie for guest ID (30 days), signed
+                # with the app SECRET_KEY so the value can't be forged by
+                # an attacker who knows the format (T1-26 fix).
                 is_prod = os.environ.get('FLASK_ENV') == 'production'
                 response.set_cookie(
                     'guest_id',
-                    user_data['id'],
+                    self._sign_guest_id(user_data['id']),
                     max_age=30*24*60*60,  # 30 days
                     httponly=True,
                     secure=is_prod,
@@ -343,6 +368,64 @@ class AuthManager:
             return bool(re.match(r'^guest_[a-z0-9]+$', guest_id))
         return False
 
+    def _get_guest_id_signer(self) -> URLSafeTimedSerializer:
+        """Build a signer keyed on the app SECRET_KEY at call time.
+
+        Read at call time (not class-init) so the app's SECRET_KEY is
+        whatever the active Flask app is configured with — keeps the
+        helper compatible with test fixtures that rotate SECRET_KEY.
+        """
+        secret_key = self.app.config.get('SECRET_KEY') if self.app else None
+        if not secret_key:
+            # Fall back to JWT_SECRET_KEY if SECRET_KEY isn't set.
+            secret_key = JWT_SECRET_KEY
+        return URLSafeTimedSerializer(secret_key, salt=_GUEST_ID_SIGNER_SALT)
+
+    def _sign_guest_id(self, guest_id: str) -> str:
+        """Produce a signed cookie value for a guest_id.
+
+        The signed payload is `<guest_id>.<timestamp>.<signature>`; the
+        signature commits to all three components plus the app
+        SECRET_KEY, so an attacker who doesn't have the secret can't
+        forge a valid cookie for an arbitrary guest_id.
+        """
+        return self._get_guest_id_signer().dumps(guest_id)
+
+    def _unsign_guest_id(
+        self, signed_value: Optional[str], max_age_seconds: int = 30 * 24 * 60 * 60,
+    ) -> Optional[str]:
+        """Verify a signed guest_id cookie and return the raw id.
+
+        Returns None when the signature is missing or invalid, or when
+        the cookie is older than `max_age_seconds`. Callers should treat
+        None as "no valid guest session" and fall through to creating
+        a fresh guest.
+
+        Backwards compatibility: in dev mode, accepts unsigned cookies
+        that match the legacy format. This lets local development
+        workflows that pre-date the signing change continue working
+        without forcing a re-login. In production, only signed cookies
+        are accepted.
+        """
+        if not signed_value:
+            return None
+        try:
+            return self._get_guest_id_signer().loads(
+                signed_value, max_age=max_age_seconds,
+            )
+        except SignatureExpired:
+            logger.debug("Guest ID cookie expired")
+            return None
+        except BadSignature:
+            # In dev, fall through to legacy format check below — old
+            # cookies from before this change are unsigned and would
+            # never pass the signature check.
+            if os.environ.get('FLASK_ENV') != 'production':
+                if self._is_valid_guest_id(signed_value):
+                    return signed_value
+            logger.debug("Guest ID cookie has invalid signature")
+            return None
+
     def create_guest_user(self, name: str, guest_id: Optional[str] = None) -> Dict[str, Any]:
         """Create a guest user session based on name."""
         is_prod = os.environ.get('FLASK_ENV') == 'production'
@@ -384,9 +467,13 @@ class AuthManager:
                 except jwt.InvalidTokenError as e:
                     logger.debug(f"Invalid JWT token: {e}")
 
-                # Check for guest_id cookie and restore session if valid
+                # Check for guest_id cookie and restore session if valid.
+                # The cookie is signed (T1-26); _unsign_guest_id returns
+                # None for forged / expired / unsigned values, and the
+                # is_valid_guest_id check still runs as a defense-in-depth
+                # format check after unsigning.
             if not user:
-                guest_id = request.cookies.get('guest_id')
+                guest_id = self._unsign_guest_id(request.cookies.get('guest_id'))
                 if self._is_valid_guest_id(guest_id):
                     display_name = request.cookies.get('guest_name', 'Guest')
                     display_name = re.sub(r'[\x00-\x1f\x7f]', '', str(display_name)).strip()[:50] or 'Guest'
