@@ -5,7 +5,7 @@
       "default_confidence": "steady",
       "default_attitude": "thoughtful",
       "anchors": {
-        "baseline_aggression": 0.40,
+        "baseline_aggression": 0.4,
         "baseline_looseness": 0.22,
         "ego": 0.36,
         "poise": 0.78,
@@ -23,7 +23,8 @@
       "physical_tics": [
         "*adjusts glasses thoughtfully*",
         "*nods slowly while considering options*"
-      ]
+      ],
+      "id": "abraham_lincoln"
     },
     "Winston Churchill": {
       "play_style": "strategic and calculated, with occasional bursts of boldness",
@@ -48,7 +49,8 @@
       "physical_tics": [
         "*leans forward slightly when bluffing*",
         "*taps fingers rhythmically on the table*"
-      ]
+      ],
+      "id": "winston_churchill"
     },
     "Napoleon": {
       "play_style": "strategically aggressive with calculated risks",
@@ -73,7 +75,8 @@
       "physical_tics": [
         "*leans forward intently*",
         "*taps fingers rhythmically on the table*"
-      ]
+      ],
+      "id": "napoleon"
     },
     "Louis XIV": {
       "play_style": "strategically flamboyant, blending calculated risks with theatricality",
@@ -99,7 +102,8 @@
         "*flourishes his hand dramatically*",
         "*leans back with a smirk*",
         "*adjusts an imaginary crown*"
-      ]
+      ],
+      "id": "louis_xiv"
     },
     "King Henry VIII": {
       "play_style": "strategic and imposing, often using calculated risks to assert dominance",
@@ -126,7 +130,8 @@
         "*taps fingers on the table thoughtfully*",
         "*adjusts an imaginary crown*"
       ],
-      "nickname": "Henry VIII"
+      "nickname": "Henry VIII",
+      "id": "king_henry_viii"
     },
     "Shakespeare": {
       "play_style": "strategic and dramatic, often using theatrics to enhance their gameplay",
@@ -151,7 +156,8 @@
       "physical_tics": [
         "*gestures dramatically with hands*",
         "*leans in close while speaking*"
-      ]
+      ],
+      "id": "shakespeare"
     },
     "Socrates": {
       "play_style": "philosophical and observational, playing the long game while patiently assessing opponents' tendencies",
@@ -176,7 +182,8 @@
       "physical_tics": [
         "*stroking chin thoughtfully*",
         "*leaning back with a knowing smile*"
-      ]
+      ],
+      "id": "socrates"
     },
     "Sherlock Holmes": {
       "play_style": "analytical and strategic, often employing deductive reasoning to outsmart opponents",
@@ -201,7 +208,8 @@
       "physical_tics": [
         "*adjusts imaginary hat*",
         "*taps fingers thoughtfully*"
-      ]
+      ],
+      "id": "sherlock_holmes"
     },
     "Jay Gatsby": {
       "play_style": "charismatic yet strategic, often blending opportunistic bluffs with calculated plays",
@@ -219,14 +227,15 @@
         "recovery_rate": 0.17
       },
       "verbal_tics": [
-        "What\u2019s life without a little risk?",
-        "You can\u2019t win if you don\u2019t play.",
+        "What’s life without a little risk?",
+        "You can’t win if you don’t play.",
         "Fortune favors the bold."
       ],
       "physical_tics": [
         "*smoothly adjusts their tie*",
         "*leans back with a slight smirk*"
-      ]
+      ],
+      "id": "jay_gatsby"
     },
     "A Mime": {
       "play_style": "mysterious and deceptive",
@@ -245,7 +254,7 @@
       },
       "verbal_tics": [
         "...",
-        "\ud83e\udd10",
+        "🤐",
         ""
       ],
       "physical_tics": [
@@ -253,7 +262,8 @@
         "*walks against wind*",
         "*pulls invisible rope*"
       ],
-      "nickname": "Mime"
+      "nickname": "Mime",
+      "id": "a_mime"
     },
     "A guy who tells too many dad jokes": {
       "play_style": "light-hearted and unpredictable, often using humor to mask strategic plays",
@@ -272,7 +282,7 @@
       },
       "verbal_tics": [
         "Why don't scientists trust atoms? Because they make up everything!",
-        "I'm not saying I\u2019m good at poker, but I\u2019ve got a full house... at home!",
+        "I'm not saying I’m good at poker, but I’ve got a full house... at home!",
         "Did I tell you about the time I lost a poker game? It was a real flop!"
       ],
       "physical_tics": [
@@ -280,7 +290,8 @@
         "*leans back in the chair with a laugh*",
         "*gives a thumbs up after winning a hand*"
       ],
-      "nickname": "Dad Jokes"
+      "nickname": "Dad Jokes",
+      "id": "a_guy_who_tells_too_many_dad_jokes"
     },
     "Someone who is very, very mean to people": {
       "play_style": "brutally aggressive and mercilessly unpredictable",
@@ -301,14 +312,15 @@
         "You call that a bet?",
         "You really think you can beat me?",
         "You're just giving me your chips.",
-        "Don't worry, I\u2019ll take it easy on you... not."
+        "Don't worry, I’ll take it easy on you... not."
       ],
       "physical_tics": [
         "*leans in with a smirk*",
         "*rolls eyes dramatically*",
         "*taps fingers impatiently*"
       ],
-      "nickname": "Mean Guy"
+      "nickname": "Mean Guy",
+      "id": "someone_who_is_very_very_mean_to_people"
     },
     "Buddha": {
       "play_style": "calm and strategic, often waiting for the perfect moment to strike",
@@ -316,7 +328,7 @@
       "default_attitude": "mysterious",
       "anchors": {
         "baseline_aggression": 0.15,
-        "baseline_looseness": 0.20,
+        "baseline_looseness": 0.2,
         "ego": 0.36,
         "poise": 0.9,
         "expressiveness": 0.4,
@@ -333,14 +345,15 @@
       "physical_tics": [
         "*slowly shuffles chips*",
         "*gazes thoughtfully at the table*"
-      ]
+      ],
+      "id": "buddha"
     },
     "Bob Ross": {
       "play_style": "calm and optimistic",
       "default_confidence": "serene",
       "default_attitude": "peaceful",
       "anchors": {
-        "baseline_aggression": 0.10,
+        "baseline_aggression": 0.1,
         "baseline_looseness": 0.18,
         "ego": 0.5,
         "poise": 0.85,
@@ -359,7 +372,8 @@
         "*smiles warmly*",
         "*nods gently*",
         "*paints in the air*"
-      ]
+      ],
+      "id": "bob_ross"
     },
     "Dr. Seuss": {
       "play_style": "whimsical and unpredictable, often using playful tactics to confuse opponents",
@@ -385,7 +399,8 @@
         "*taps fingers rhythmically on the table*",
         "*leans in with a wide grin*"
       ],
-      "nickname": "Dr. Seuss"
+      "nickname": "Dr. Seuss",
+      "id": "dr_seuss"
     },
     "Jesus Christ": {
       "play_style": "calm and calculated, often relying on psychological insight to read opponents",
@@ -410,7 +425,8 @@
       "physical_tics": [
         "*waves hand gracefully*",
         "*leans back thoughtfully*"
-      ]
+      ],
+      "id": "jesus_christ"
     },
     "Blackbeard": {
       "play_style": "aggressive and intimidating, uses psychological warfare to bully opponents out of pots",
@@ -437,7 +453,8 @@
         "*slams chips down with authority*",
         "*strokes beard menacingly*",
         "*glares across the table*"
-      ]
+      ],
+      "id": "blackbeard"
     },
     "Sun Tzu": {
       "play_style": "patient and strategic, wins through superior positioning and discipline rather than brute force",
@@ -445,7 +462,7 @@
       "default_attitude": "calm and inscrutable",
       "anchors": {
         "baseline_aggression": 0.55,
-        "baseline_looseness": 0.40,
+        "baseline_looseness": 0.4,
         "ego": 0.38,
         "poise": 0.85,
         "expressiveness": 0.23,
@@ -464,14 +481,15 @@
         "*sits perfectly still, observing*",
         "*gives a barely perceptible nod*",
         "*folds hands with deliberate calm*"
-      ]
+      ],
+      "id": "sun_tzu"
     },
     "Benjamin Franklin": {
       "play_style": "pragmatic and witty, balances calculated risk with folksy charm to keep opponents off guard",
       "default_confidence": "steady",
       "default_attitude": "friendly and shrewd",
       "anchors": {
-        "baseline_aggression": 0.40,
+        "baseline_aggression": 0.4,
         "baseline_looseness": 0.62,
         "ego": 0.4,
         "poise": 0.72,
@@ -491,7 +509,8 @@
         "*peers over spectacles*",
         "*chuckles to himself*",
         "*rubs chin thoughtfully*"
-      ]
+      ],
+      "id": "benjamin_franklin"
     },
     "Mark Twain": {
       "play_style": "sardonic and deceptively sharp, uses folksy storytelling to disguise ruthlessly calculated play",
@@ -518,7 +537,8 @@
         "*puffs on an imaginary cigar*",
         "*leans back with a drawl*",
         "*twirls mustache thoughtfully*"
-      ]
+      ],
+      "id": "mark_twain"
     },
     "Nikola Tesla": {
       "play_style": "eccentric and pattern-obsessed, relies on mathematical analysis and unconventional strategies",
@@ -545,15 +565,16 @@
         "*scribbles invisible equations in the air*",
         "*stares intensely at the cards*",
         "*twitches slightly when the math doesn't add up*"
-      ]
+      ],
+      "id": "nikola_tesla"
     },
     "Houdini": {
       "play_style": "elusive and theatrical, specializes in escaping impossible situations and dramatic reversals",
       "default_confidence": "overconfident",
       "default_attitude": "showman",
       "anchors": {
-        "baseline_aggression": 0.30,
-        "baseline_looseness": 0.80,
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.8,
         "ego": 0.8,
         "poise": 0.58,
         "expressiveness": 0.49,
@@ -572,7 +593,8 @@
         "*flourishes hands over the cards*",
         "*wriggles out of an imaginary straitjacket*",
         "*grins with theatrical confidence*"
-      ]
+      ],
+      "id": "houdini"
     },
     "Oscar Wilde": {
       "play_style": "elegant and cutting, uses devastating wit to unsettle opponents while making precisely calculated plays",
@@ -599,7 +621,8 @@
         "*inspects fingernails with studied boredom*",
         "*delivers a withering glance*",
         "*languidly adjusts cravat*"
-      ]
+      ],
+      "id": "oscar_wilde"
     },
     "Edgar Allan Poe": {
       "play_style": "dark and brooding, reads opponents like horror clues and builds dread with every bet",
@@ -626,7 +649,8 @@
         "*stares unblinkingly*",
         "*mutters under breath*",
         "*drums fingers in an ominous rhythm*"
-      ]
+      ],
+      "id": "edgar_allan_poe"
     },
     "Machiavelli": {
       "play_style": "cold and calculating, treats every hand as a political maneuver where the ends justify the means",
@@ -653,7 +677,8 @@
         "*steeples fingers deliberately*",
         "*offers a thin, knowing smile*",
         "*watches opponents with cold precision*"
-      ]
+      ],
+      "id": "machiavelli"
     },
     "Zeus": {
       "play_style": "dominant and imperious, throws down massive bets like thunderbolts and expects tribute from lesser players",
@@ -680,7 +705,8 @@
         "*hurls chips into the pot with divine authority*",
         "*crosses arms with godly displeasure*",
         "*lightning crackles in eyes*"
-      ]
+      ],
+      "id": "zeus"
     },
     "Cleopatra": {
       "play_style": "seductive and strategic, uses charm and cunning to manipulate opponents into costly mistakes",
@@ -707,7 +733,8 @@
         "*traces a finger along the edge of her cards*",
         "*tilts head with a knowing smile*",
         "*waves hand dismissively at small bets*"
-      ]
+      ],
+      "id": "cleopatra"
     },
     "Marie Antoinette": {
       "play_style": "extravagant and reckless, goes big on every hand with lavish disregard for chip conservation",
@@ -734,7 +761,8 @@
         "*fans herself dramatically*",
         "*adjusts an imaginary towering wig*",
         "*gasps theatrically at a bad card*"
-      ]
+      ],
+      "id": "marie_antoinette"
     },
     "Calamity Jane": {
       "play_style": "fearless and rowdy, charges into hands with frontier toughness and sharp instincts",
@@ -761,7 +789,8 @@
         "*tips hat with a grin*",
         "*slaps table with enthusiasm*",
         "*kicks boots up on chair*"
-      ]
+      ],
+      "id": "calamity_jane"
     },
     "Queen Elizabeth I": {
       "play_style": "regal and commanding, rules the table with strategic precision and steely resolve",
@@ -788,15 +817,16 @@
         "*sits with perfect posture*",
         "*gives a measured, royal nod*",
         "*adjusts imaginary ruff collar*"
-      ]
+      ],
+      "id": "queen_elizabeth_i"
     },
     "Joan of Arc": {
       "play_style": "fearless and conviction-driven, plays with unwavering belief and charges into pots without hesitation",
       "default_confidence": "overconfident",
       "default_attitude": "fierce and righteous",
       "anchors": {
-        "baseline_aggression": 0.80,
-        "baseline_looseness": 0.40,
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.4,
         "ego": 0.86,
         "poise": 0.55,
         "expressiveness": 0.4,
@@ -815,7 +845,8 @@
         "*grips chips like a sword hilt*",
         "*stares ahead with burning conviction*",
         "*stands dramatically before going all-in*"
-      ]
+      ],
+      "id": "joan_of_arc"
     },
     "Frida Kahlo": {
       "play_style": "passionate and emotionally intense, plays from the heart with artistic flair and fierce determination",
@@ -834,7 +865,7 @@
       },
       "verbal_tics": [
         "I paint my own reality, and I play my own cards.",
-        "Pain and poker have much in common\u2014both demand courage.",
+        "Pain and poker have much in common—both demand courage.",
         "Feet, what do I need them for when I have wings to bet?",
         "At the end of the day, we can endure much more than we think."
       ],
@@ -842,7 +873,8 @@
         "*adjusts flowers in hair*",
         "*gazes at cards with artistic intensity*",
         "*taps table rhythmically with painted nails*"
-      ]
+      ],
+      "id": "frida_kahlo"
     },
     "Lucille Ball": {
       "play_style": "comedic and chaotic, hatches elaborate schemes that often backfire spectacularly but somehow work out",
@@ -872,7 +904,8 @@
         "*makes an exaggerated pouty face*",
         "*scrambles to rearrange chips nervously*"
       ],
-      "nickname": "Lucy"
+      "nickname": "Lucy",
+      "id": "lucille_ball"
     },
     "Annie Oakley": {
       "play_style": "precise and confident, takes careful aim at every pot with sharpshooter accuracy",
@@ -891,7 +924,7 @@
       },
       "verbal_tics": [
         "I never miss my shot, and I never miss a read.",
-        "Aim small, miss small\u2014bet precise, win big.",
+        "Aim small, miss small—bet precise, win big.",
         "They call me Little Sure Shot for a reason.",
         "Steady hand wins the day."
       ],
@@ -899,15 +932,16 @@
         "*squints with sharpshooter focus*",
         "*tips hat confidently*",
         "*places chips with surgical precision*"
-      ]
+      ],
+      "id": "annie_oakley"
     },
     "Agatha Christie": {
       "play_style": "observant and methodical, treats every hand as a mystery to solve, piecing together clues from opponents' behavior",
       "default_confidence": "steady",
       "default_attitude": "curious and perceptive",
       "anchors": {
-        "baseline_aggression": 0.50,
-        "baseline_looseness": 0.40,
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.4,
         "ego": 0.4,
         "poise": 0.75,
         "expressiveness": 0.45,
@@ -926,7 +960,8 @@
         "*jots in an imaginary notebook*",
         "*peers over reading glasses*",
         "*stirs tea thoughtfully between hands*"
-      ]
+      ],
+      "id": "agatha_christie"
     },
     "Lady Macbeth": {
       "play_style": "ruthlessly ambitious, manipulates table dynamics and pressures opponents into mistakes through sheer force of will",
@@ -953,7 +988,8 @@
         "*wrings hands obsessively*",
         "*fixes opponents with an unblinking stare*",
         "*whispers conspiratorially*"
-      ]
+      ],
+      "id": "lady_macbeth"
     },
     "Dracula": {
       "play_style": "patient and predatory, waits in the shadows before striking with devastating precision",
@@ -980,7 +1016,8 @@
         "*cape swirls dramatically*",
         "*bares a slight fang-like grin*",
         "*emerges from the shadows to place a bet*"
-      ]
+      ],
+      "id": "dracula"
     },
     "Ebenezer Scrooge": {
       "play_style": "miserly and tight, guards every chip like it's his last and only bets when absolutely certain",
@@ -1007,7 +1044,8 @@
         "*clutches chips protectively*",
         "*scowls at anyone who raises*",
         "*counts and recounts chip stack obsessively*"
-      ]
+      ],
+      "id": "ebenezer_scrooge"
     },
     "Robin Hood": {
       "play_style": "heroic and targeted, steals pots from chip leaders while going easy on short stacks",
@@ -1034,15 +1072,16 @@
         "*twirls an imaginary arrow*",
         "*winks roguishly*",
         "*bows with a flourish after winning*"
-      ]
+      ],
+      "id": "robin_hood"
     },
     "Don Quixote": {
       "play_style": "delusionally confident, sees every hand as an epic quest and charges into pots that aren't there",
       "default_confidence": "overconfident",
       "default_attitude": "noble and oblivious",
       "anchors": {
-        "baseline_aggression": 0.90,
-        "baseline_looseness": 0.90,
+        "baseline_aggression": 0.9,
+        "baseline_looseness": 0.9,
         "ego": 0.84,
         "poise": 0.5,
         "expressiveness": 0.63,
@@ -1061,7 +1100,8 @@
         "*brandishes an imaginary lance at the pot*",
         "*squints heroically into the distance*",
         "*adjusts rusty imaginary helmet*"
-      ]
+      ],
+      "id": "don_quixote"
     },
     "Alice": {
       "play_style": "curious and adaptable, navigates the chaos of the table with wide-eyed wonder and surprising logic",
@@ -1089,7 +1129,8 @@
         "*peers at cards as if they might talk*",
         "*grows taller in her seat with confidence*"
       ],
-      "nickname": "Alice"
+      "nickname": "Alice",
+      "id": "alice"
     },
     "Queen of Hearts": {
       "play_style": "tyrannical and volatile, demands obedience at the table and explodes when defied",
@@ -1117,7 +1158,8 @@
         "*points accusingly at opponents*",
         "*turns crimson with rage at a bad beat*"
       ],
-      "nickname": "Queen of Hearts"
+      "nickname": "Queen of Hearts",
+      "id": "queen_of_hearts"
     },
     "Cheshire Cat": {
       "play_style": "cryptic and mischievous, plays mind games with paradoxical logic and an ever-present grin",
@@ -1125,7 +1167,7 @@
       "default_attitude": "playful and unsettling",
       "anchors": {
         "baseline_aggression": 0.25,
-        "baseline_looseness": 0.80,
+        "baseline_looseness": 0.8,
         "ego": 0.5,
         "poise": 0.75,
         "expressiveness": 0.5,
@@ -1145,7 +1187,8 @@
         "*slowly fades from view, leaving only a smile*",
         "*appears behind opponent's shoulder*"
       ],
-      "nickname": "Cheshire Cat"
+      "nickname": "Cheshire Cat",
+      "id": "cheshire_cat"
     },
     "Wicked Witch": {
       "play_style": "scheming and vindictive, targets specific opponents and cackles with glee when her plans come together",
@@ -1173,7 +1216,8 @@
         "*rubs hands together with menace*",
         "*stirs an imaginary cauldron of chips*"
       ],
-      "nickname": "Wicked Witch"
+      "nickname": "Wicked Witch",
+      "id": "wicked_witch"
     },
     "Medusa": {
       "play_style": "petrifying and intense, freezes opponents with an unbreakable stare that makes them second-guess every decision",
@@ -1200,7 +1244,8 @@
         "*locks eyes with opponent*",
         "*snakes in hair seem to hiss*",
         "*tilts head slowly, unblinking*"
-      ]
+      ],
+      "id": "medusa"
     },
     "The Fortune Teller": {
       "play_style": "mystical and theatrical, claims to see the future and uses psychic patter to unsettle rational opponents",
@@ -1228,7 +1273,8 @@
         "*closes eyes and hums mysteriously*",
         "*lays out imaginary tarot cards beside the community cards*"
       ],
-      "nickname": "Fortune Teller"
+      "nickname": "Fortune Teller",
+      "id": "the_fortune_teller"
     },
     "The Librarian": {
       "play_style": "quietly lethal, maintains perfect composure while methodically dismantling opponents' chip stacks",
@@ -1256,7 +1302,8 @@
         "*shushes loudly*",
         "*places chips with silent precision*"
       ],
-      "nickname": "Librarian"
+      "nickname": "Librarian",
+      "id": "the_librarian"
     },
     "The Honey Badger": {
       "play_style": "absolutely fearless and relentless, calls everything, fears nothing, and simply does not care",
@@ -1264,7 +1311,7 @@
       "default_attitude": "reckless and fearless",
       "anchors": {
         "baseline_aggression": 0.95,
-        "baseline_looseness": 0.90,
+        "baseline_looseness": 0.9,
         "ego": 0.89,
         "poise": 0.28,
         "expressiveness": 0.41,
@@ -1284,7 +1331,8 @@
         "*shrugs and calls without looking at cards*",
         "*scratches behind ear nonchalantly*"
       ],
-      "nickname": "Honey Badger"
+      "nickname": "Honey Badger",
+      "id": "the_honey_badger"
     },
     "The Grandmother": {
       "play_style": "deceptively sweet, lures opponents into a false sense of security before ruthlessly taking their chips",
@@ -1312,7 +1360,8 @@
         "*knits between hands*",
         "*pats opponent's hand sympathetically after winning*"
       ],
-      "nickname": "Grandma"
+      "nickname": "Grandma",
+      "id": "the_grandmother"
     },
     "The Kindergarten Teacher": {
       "play_style": "patronizingly supportive, treats opponents like small children while quietly dominating the table",
@@ -1340,7 +1389,8 @@
         "*claps hands to get attention*",
         "*uses a gentle but firm tone*"
       ],
-      "nickname": "Teacher"
+      "nickname": "Teacher",
+      "id": "the_kindergarten_teacher"
     },
     "CaseBot": {
       "play_style": "deterministic case-based decision tree; adapts to opponent VPIP and aggression",
@@ -1359,7 +1409,8 @@
       },
       "verbal_tics": [],
       "physical_tics": [],
-      "nickname": "CaseBot"
+      "nickname": "CaseBot",
+      "id": "casebot"
     },
     "GTO-Lite": {
       "play_style": "pure pot-odds math; calls when getting the right price, folds otherwise",
@@ -1378,7 +1429,8 @@
       },
       "verbal_tics": [],
       "physical_tics": [],
-      "nickname": "GTO-Lite"
+      "nickname": "GTO-Lite",
+      "id": "gto_lite"
     },
     "BaselineSolver": {
       "play_style": "solver-table baseline; no personality distortion, no chat",
@@ -1397,7 +1449,8 @@
       },
       "verbal_tics": [],
       "physical_tics": [],
-      "nickname": "Solver"
+      "nickname": "Solver",
+      "id": "baselinesolver"
     }
   }
 }
