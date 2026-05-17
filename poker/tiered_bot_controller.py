@@ -223,6 +223,15 @@ class TieredBotController(AIPlayerController):
         self.hu_strategy_table = hu_strategy_table
         self.debug_logging = debug_logging
         self.rng = random.Random(rng_seed)
+        # Competitive feel: bet sizing jitter band. When > 0, the action
+        # mapper samples the raise-to amount uniformly from
+        # [target * (1 - sizing_jitter), target * (1 + sizing_jitter)]
+        # instead of always emitting the exact table-derived value.
+        # Default 0.0 preserves deterministic sizing — controllers /
+        # experiment configs that want the variance enable it explicitly.
+        # Zero EV cost (band is symmetric around the table's intent),
+        # but breaks sizing tells like "always bets 67% on the flop."
+        self.sizing_jitter: float = 0.0
         self._deviation_profile: Optional[DeviationProfile] = None
         self.skip_personality_distortion = skip_personality_distortion
         self.expression_generator = expression_generator
@@ -595,7 +604,9 @@ class TieredBotController(AIPlayerController):
             )
 
         game_action, raise_to = resolve_preflop_sizing(
-            abstract_action, game_state, player_idx
+            abstract_action, game_state, player_idx,
+            rng=self.rng,
+            sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
         )
 
         if game_action not in valid_actions:
@@ -905,7 +916,9 @@ class TieredBotController(AIPlayerController):
 
         # 8. Resolve sizing
         game_action, raise_to = resolve_postflop_sizing(
-            abstract_action, game_state, player_idx
+            abstract_action, game_state, player_idx,
+            rng=self.rng,
+            sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
         )
 
         # 9. Validate action is legal
