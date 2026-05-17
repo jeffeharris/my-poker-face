@@ -165,13 +165,13 @@ Phase D (bluffer detection): Symmetric to Phase C. Low `equity_when_raising_post
 
 **Remaining from `TIEREDBOT_DECISION_QUALITY.md`**
 
-§5.5 per-rule offset budgets are specified but not clearly shipped. These declare per-rule maximum L1 shift constants and a sequential accumulator. They should land before Phase B — the safety net when the polarization rule fires alongside existing hyper_passive and value_vs_station rules on the same decision.
+~~§5.5 per-rule offset budgets~~ — already shipped. `MAX_L1_SHIFT_BY_RULE` constants live at module scope in `poker/strategy/exploitation.py:164`, with post-rule scaling in `compute_exploitation_offsets_with_traces` and dedicated test coverage in `tests/test_strategy/test_section_5_5_offset_budgets.py` (8 passing). The safety net is in place ahead of Phase B.
 
 §1.5b extended archetype taxonomy (`maniac`, `lag`, `tag`, `nit`, `rock`, `balanced`) remains explicitly deferred. Do not ship these labels speculatively — they accumulate calibration debt as dead code until a consuming rule needs them.
 
-**Dependencies**: Showdown hole-card reveal path must expose all-player cards (verify in the hand engine before Phase A coding). §5.5 per-rule budgets should land before Phase B.
+**Dependencies**: Showdown hole-card reveal path must expose all-player cards (verify in the hand engine before Phase A coding).
 
-**Effort**: Phase A small; Phase B small-medium; Phase C medium; Phase D medium. §5.5 budgets: small.
+**Effort**: Phase A small; Phase B small-medium; Phase C medium; Phase D medium.
 
 ---
 
@@ -375,7 +375,7 @@ Steps 1–5 and 7–11 proceed in parallel (only step 6 is blocked on Track B Ph
 
 1. Post-patch bb/100 measurement (Rock/TAG/LAG vs CaseBot, 2000 hands × 3–5 seeds). Establishes the new baseline after shipped patches. First task; everything else builds on this. Small (sim run time).
 
-2. §5.5 per-rule offset budgets. Ship before adding new rules. Small.
+2. ~~§5.5 per-rule offset budgets~~ — verified already shipped (commit 8511414a). Safety net in place; no work needed for Phase B prerequisite.
 
 3. Polarization Phase A — instrument equity-tracking fields (both showdown-equity and decision-time-equity per the bias correction above), populate at showdown / at decision, emit to diagnostics, calibrate via sim, **categorize leak structure per archetype to decide whether Phase B is one rule change or split per archetype**, write standalone polarization spec doc, user approves. Small-medium.
 
