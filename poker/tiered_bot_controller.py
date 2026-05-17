@@ -26,6 +26,8 @@ from .strategy.postflop_classifier import build_postflop_node
 from .strategy.personality_modifier import modify_strategy, apply_river_bluff_guardrail
 from .strategy.deviation_profiles import select_deviation_profile, DeviationProfile
 from .strategy.action_mapper import resolve_preflop_sizing, resolve_postflop_sizing
+from .strategy.push_fold import lookup_push_fold_action, PUSH_FOLD_THRESHOLD_BB
+from .strategy.strategy_profile import StrategyProfile
 from .strategy.hand_classification import simplify_hand_class
 from .strategy.multiway import apply_multiway_adjustment
 from .strategy.math_floor import apply_pot_odds_floor
@@ -495,8 +497,27 @@ class TieredBotController(AIPlayerController):
                 f"chart={'HU' if preflop_table is self.hu_strategy_table else '6max'}"
             )
 
-        # Layer 1: Lookup base strategy
-        base_strategy = preflop_table.lookup_with_fallback(node, valid_actions)
+        # Layer 1: Lookup base strategy. Short-stack HU spots bypass the
+        # deep-stack table and use the dedicated push/fold chart instead;
+        # the deep-stack ranges are mis-calibrated below ~15 BB because
+        # standard raise sizes commit too much of the stack to be coherent
+        # short of jamming.
+        push_fold_action = self._try_push_fold_lookup(
+            canonical_hand, game_state, player_idx, num_seated,
+        )
+        if push_fold_action is not None:
+            base_strategy = StrategyProfile(
+                action_probabilities={push_fold_action: 1.0}
+            )
+            if self.debug_logging:
+                logger.info(
+                    f"[TIERED_BOT] {self.player_name}: "
+                    f"push_fold={push_fold_action} hand={canonical_hand}"
+                )
+            self._last_pipeline_snapshot['push_fold_routed'] = True
+        else:
+            base_strategy = preflop_table.lookup_with_fallback(node, valid_actions)
+            self._last_pipeline_snapshot['push_fold_routed'] = False
 
         if self.debug_logging:
             logger.info(
@@ -2246,6 +2267,85 @@ class TieredBotController(AIPlayerController):
             is_paired_board=is_paired_board,
             bet_bucket=bet_class.bucket,
             required_equity=bet_class.required_equity,
+        )
+
+    def _try_push_fold_lookup(
+        self,
+        canonical_hand: str,
+        game_state,
+        player_idx: int,
+        num_seated: int,
+    ) -> Optional[str]:
+        """Try to resolve this preflop decision via the short-stack
+        push/fold chart instead of the deep-stack table.
+
+        Returns the abstract action ('jam', 'fold', or 'call') when the
+        situation is in scope for push/fold; None when the deep-stack
+        table should handle it (deep stacks, multi-way, not HU, etc.).
+
+        v1 scope: HU only (num_seated == 2), stack <= 15 BB effective.
+        Multi-way short-stack falls through to the existing short_stack.py
+        heuristic which suppresses medium raises rather than enforcing
+        a strict push/fold.
+        """
+        # HU-only for v1
+        if num_seated != 2:
+            return None
+
+        # Compute effective stack in big blinds
+        try:
+            big_blind = game_state.current_ante or 0
+            if big_blind <= 0:
+                return None
+            player = game_state.players[player_idx]
+            hero_stack = player.stack + player.bet
+            # Effective stack: smaller of hero and the single opponent
+            opp_stacks = [
+                p.stack + p.bet
+                for i, p in enumerate(game_state.players)
+                if i != player_idx and not getattr(p, 'is_folded', False)
+            ]
+            if not opp_stacks:
+                return None
+            effective_stack = min(hero_stack, max(opp_stacks))
+            effective_stack_bb = effective_stack / big_blind
+        except (AttributeError, ZeroDivisionError, TypeError):
+            return None
+
+        if effective_stack_bb > PUSH_FOLD_THRESHOLD_BB:
+            return None
+
+        # Determine hero position (SB or BB only for HU)
+        try:
+            if player_idx == game_state.small_blind_idx:
+                position = 'SB'
+            elif player_idx == game_state.big_blind_idx:
+                position = 'BB'
+            else:
+                return None
+        except AttributeError:
+            return None
+
+        # Is hero facing a jam? BB facing an SB all-in is the only
+        # situation where the push/fold chart's bb_vs_jam scenario fires.
+        facing_jam = False
+        if position == 'BB':
+            # Check if SB has gone all-in on this street
+            sb_idx = game_state.small_blind_idx
+            sb_player = game_state.players[sb_idx]
+            sb_stack_remaining = getattr(sb_player, 'stack', 1)
+            if sb_stack_remaining == 0 and getattr(sb_player, 'bet', 0) > big_blind:
+                facing_jam = True
+            else:
+                # BB with no jam to face → no push/fold decision yet
+                return None
+
+        return lookup_push_fold_action(
+            hand=canonical_hand,
+            position=position,
+            effective_stack_bb=effective_stack_bb,
+            num_opponents=1,
+            facing_jam=facing_jam,
         )
 
     def _zone_to_tilt_factor(self, emotional_state) -> float:
