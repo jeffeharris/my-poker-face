@@ -893,6 +893,35 @@ class RelationshipState:
     last_decay_tick: Optional[datetime] = None
 
 
+@dataclass
+class CashPairStats:
+    """Cumulative cash-mode statistics for a (observer, opponent) pair.
+
+    Distinct from `RelationshipState` because PnL is meaningless in
+    tournaments (chips reset) — cash-mode-specific concepts don't
+    pollute the affinity layer. Persisted in its own
+    `cash_pair_stats` table (schema v87).
+
+    `cumulative_pnl` is **observer-POV**: chips this observer has won
+    net from this opponent across every cash-mode hand they've shared.
+    The mirror pair (`stats[opponent][observer]`) gets the negation.
+    Write transactions update both rows so the views can't drift.
+
+    Side-pot allocation rule (cash-mode hand resolution):
+      For each (winner, loser) pair the winner's net gain is split
+      proportionally to each loser's chip contribution to the pots
+      the winner collected. Side pots resolve independently — each
+      side pot has its own (winner, loser) PnL pairs. Spec at
+      `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 1 §"Cash pair
+      stats".
+    """
+
+    observer_id: str
+    opponent_id: str
+    cumulative_pnl: int = 0     # chips, observer's lifetime net vs opponent
+    hands_played_cash: int = 0
+
+
 def project_heat(
     state: RelationshipState,
     now: datetime,

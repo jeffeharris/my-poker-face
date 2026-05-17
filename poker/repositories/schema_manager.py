@@ -66,7 +66,11 @@ logger = logging.getLogger(__name__)
 #      against personalities.personality_id. Display names stay (still UNIQUE lookup key for now)
 #      so the migration is non-destructive; future work can transition the lookup constraint to
 #      key on ids once all writers populate them.
-SCHEMA_VERSION = 86
+# v87: Add relationship_states + cash_pair_stats tables. Cross-session/cross-game affinity axes
+#      (heat/respect/likability) and cash-mode-specific PnL pair stats, both keyed on
+#      (observer_id, opponent_id). Foundation for Relationship layer (Track B step 2) and Cash
+#      mode v1 (Track B step 3). Pure additions — no changes to existing tables.
+SCHEMA_VERSION = 87
 
 
 
@@ -346,6 +350,39 @@ class SchemaManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_observer ON memorable_hands(observer_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_opponent ON memorable_hands(opponent_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_hands_game ON memorable_hands(game_id)")
+
+            # 10b. Relationship states (v87) — cross-session, cross-game affinity axes.
+            #      Keyed on (observer_id, opponent_id) which come from
+            #      personalities.personality_id (or, for human players, the user-id
+            #      surface). Read-paths apply project_heat on the `heat` column;
+            #      respect and likability don't decay.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS relationship_states (
+                    observer_id TEXT NOT NULL,
+                    opponent_id TEXT NOT NULL,
+                    heat REAL NOT NULL DEFAULT 0.0,
+                    respect REAL NOT NULL DEFAULT 0.5,
+                    likability REAL NOT NULL DEFAULT 0.5,
+                    last_seen TIMESTAMP,
+                    last_decay_tick TIMESTAMP,
+                    PRIMARY KEY (observer_id, opponent_id)
+                )
+            """)
+
+            # 10c. Cash pair stats (v87) — cumulative cash-mode PnL between two
+            #      personalities. Distinct from relationship_states because PnL
+            #      is cash-mode-specific (resets in tournaments). Observer-POV
+            #      cumulative_pnl; the mirror pair gets the negation in a single
+            #      write transaction so views can't drift.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS cash_pair_stats (
+                    observer_id TEXT NOT NULL,
+                    opponent_id TEXT NOT NULL,
+                    cumulative_pnl INTEGER NOT NULL DEFAULT 0,
+                    hands_played_cash INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (observer_id, opponent_id)
+                )
+            """)
 
             # 11. Hand commentary (v41)
             conn.execute("""
@@ -1132,6 +1169,7 @@ class SchemaManager:
             84: (self._migrate_v84_add_personality_snapshots_unique, "Add UNIQUE(game_id, player_name, hand_number) to personality_snapshots so INSERT OR IGNORE deduplicates retries"),
             85: (self._migrate_v85_add_personality_id, "Add personality_id TEXT UNIQUE to personalities and backfill with slugified names"),
             86: (self._migrate_v86_add_opponent_model_ids, "Add observer_id + opponent_id to opponent_models and backfill via personality name lookup"),
+            87: (self._migrate_v87_add_relationship_tables, "Add relationship_states + cash_pair_stats tables for cross-session affinity and cash-mode PnL"),
         }
 
         with self._get_connection() as conn:
@@ -3768,3 +3806,54 @@ class SchemaManager:
             "ON opponent_models(opponent_id)"
         )
         logger.info("v86: opponent_models id indexes ensured")
+
+    def _migrate_v87_add_relationship_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v87: Add relationship_states + cash_pair_stats tables.
+
+        Foundation tables for the relationship layer (Track B step 2)
+        and cash mode v1 (Track B step 3). Both tables key on
+        (observer_id, opponent_id) — stable personality_ids from v85
+        — and persist cross-session / cross-game state that doesn't
+        belong on `opponent_models` (which is per-game-id).
+
+        relationship_states
+          Per-pair affinity axes. `heat` decays per `project_heat`
+          on read; `respect` and `likability` are earned state and
+          don't decay. `last_decay_tick` anchors the decay schedule;
+          set to the timestamp of the most recent record_event apply.
+
+        cash_pair_stats
+          Cumulative cash-mode PnL between two personalities.
+          Observer-POV `cumulative_pnl` — chips this observer has won
+          net from this opponent over every cash-mode hand. Distinct
+          from relationship_states because PnL is meaningless in
+          tournaments where chips reset; the split keeps tournament-
+          mode reads clean.
+
+        Pure additions — no existing tables touched. Idempotent.
+        CREATE TABLE IF NOT EXISTS is the standard pattern for new
+        tables; running this migration on a DB that already has them
+        (fresh install path) is a no-op.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS relationship_states (
+                observer_id TEXT NOT NULL,
+                opponent_id TEXT NOT NULL,
+                heat REAL NOT NULL DEFAULT 0.0,
+                respect REAL NOT NULL DEFAULT 0.5,
+                likability REAL NOT NULL DEFAULT 0.5,
+                last_seen TIMESTAMP,
+                last_decay_tick TIMESTAMP,
+                PRIMARY KEY (observer_id, opponent_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_pair_stats (
+                observer_id TEXT NOT NULL,
+                opponent_id TEXT NOT NULL,
+                cumulative_pnl INTEGER NOT NULL DEFAULT 0,
+                hands_played_cash INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (observer_id, opponent_id)
+            )
+        """)
+        logger.info("v87: created relationship_states + cash_pair_stats tables")
