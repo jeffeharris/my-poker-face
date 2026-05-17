@@ -2,10 +2,105 @@
 purpose: Phase A — add an induce/slowplay override to TieredBot's postflop pipeline, gated on existing stats, to exploit multi-street barrelers on the facing-bet path
 type: design
 created: 2026-05-15
-last_updated: 2026-05-16
+last_updated: 2026-05-17
+status: shipped — premise validated via followup-barrel rate (78%); bb/100 indeterminate at this scale; see "Validation Outcome" below
 ---
 
 # Induce Override — Phase A
+
+## Validation Outcome (2026-05-17)
+
+**Status: shipped.** The rule lives in
+`poker/strategy/induce_override.py` and is wired into
+`TieredBotController._get_postflop_decision` between exploitation
+offsets and value_override. The Phase A ablation matrix
+(experiment 60: 8 variants × 8 tournaments × 1000 hands =
+72,000 hands) ran to completion.
+
+**Headline result — followup-barrel rate: 7 of 9 fires (78%).**
+Per this plan's [Decision Points](#decision-points) table, ≥70%
+followup-barrel rate is the "premise correct, ship as-is" outcome.
+
+**Per-event detail:**
+
+| Hand | Fire street | Next street | Maniac action |
+|---|---|---|---|
+| 687 | FLOP | TURN | raise ✓ |
+| 343 | TURN | RIVER | raise ✓ |
+| 366 | TURN | RIVER | check ✗ |
+| 881 | FLOP | TURN | raise ✓ |
+| 881 | TURN | RIVER | check ✗ |
+| 828 | FLOP | TURN | raise ✓ |
+| 828 | TURN | RIVER | raise ✓ |
+| 708 | TURN | RIVER | raise ✓ |
+| 951 | TURN | RIVER | raise ✓ |
+
+- Flop fires (3 events): **100% barrel rate** — every flop
+  smooth-call extracted a turn bet
+- Turn fires (6 events): **67% barrel rate** — the 2 checks were
+  on turn-to-river transitions, consistent with Maniac slowing
+  down when the pot got large enough to be all-in-pressure
+
+**Selectivity check (H3): cleanly passes.** Fire rates per arm:
+
+| Arm | Evals | Fires | Rate |
+|---|---|---|---|
+| A2 Maniac ON | 5,838 | 9 | 0.15% |
+| B2 CaseBot ON | 18,505 | 0 | 0.00% |
+| C2 GTO-Lite ON | 17,985 | 0 | 0.00% |
+| D2 ABCBot ON | 18,504 | 0 | 0.00% |
+
+The gate correctly identifies ManiacBot as the only barreler in
+the matchup matrix. No leakage against non-barrelers.
+
+**bb/100 (H1): indeterminate at this scale.** A2 won 7/8
+tournaments vs A1's 3/8 (rule ON arm beat rule OFF arm by 4
+tournament wins), but with only 9 firings the rule cannot account
+for the bulk of that gap — 9 × ~20 BB per firing ≈ ~180 BB =
+~2 bb/100 signal, well below the n=8 stderr (~5–10 bb/100). The
+4-win gap is largely variance: control arm (separate Maniac
+rule-OFF run) won 4/8, matching A1+control combined to 7/16 (44%)
+vs A2's 7/8 (88%). C2 (GTO-Lite rule ON) also showed +2 wins
+despite 0 induce fires — pure variance.
+
+**Net assessment.** The rule's *correctness* is empirically
+validated. Its *EV magnitude* is too small to measure at
+natural-occurrence sampling rates without a much bigger sample
+(probably 90+ tournaments per arm) or a contrived-state harness.
+That's a Phase B+ investment.
+
+### Plumbing fixes shipped alongside
+
+The validation run surfaced several pre-existing issues:
+
+1. **Per-variant `player_types` weren't propagated**
+   (`experiments/run_ai_tournament.py:get_variant_configs`). Fixed
+   to forward `player_types` from variants and control, falling
+   back to control's setup when a variant doesn't override.
+2. **`disable_rules` wasn't read from config.** Wired
+   `controller.disable_rules = frozenset(...)` from
+   `player_type_config['disable_rules']` for every controller that
+   exposes the attribute.
+3. **`reset_on_elimination` needed to be `true`** so tournaments
+   run the full configured 1000 hands instead of busting at
+   ~100–400. Added to the Phase A config.
+4. **Decision-analysis equity computation was dominating runtime**
+   (~200–500ms per decision after the persistence decoupling fix).
+   Added `skip_equity_in_analysis` flag on TieredBotController
+   (default off; runner sets true for sim runs). Cut matrix
+   runtime from ~8 hours to ~64 minutes for the same data
+   without changing the action distribution.
+
+These are general improvements; they benefit any future ablation
+matrix, not just induce_override.
+
+### Decision: move to Phase B
+
+Per the [Phase B plan](INDUCE_OVERRIDE_PHASE_B.md), Item 1
+(`barrel_frequency` stat) is unblocked and starts next. Phase B's
+broader gate (proper barrel signal instead of AF_pf×cbet proxy,
+plus `near_nuts` inclusion) is expected to fire ~5–10× more often,
+making bb/100 validation actually feasible.
 
 ## Context
 
