@@ -32,18 +32,24 @@ Three exploitation patches shipped in the pre-roadmap session:
 
 ### What has shipped on `phase-1` since this doc was written (revision 3)
 
-Personality ID migration foundation — Track B step 1 is partially shipped:
+**Track B step 1 (Personality ID migration) is fully complete.** 10 commits land the end-to-end surface:
 
-| Commit | Layer | Tests added |
-|---|---|---|
-| `92293f5b` | JSON seed source: stable `id` per personality (slug rule, collision suffix) | 20 |
-| `fcbfa6f5` | Force-add `scripts/backfill_personality_ids.py` past gitignore | — |
-| `d738ddb2` | Schema v85 — `personality_id TEXT UNIQUE` on `personalities` table + backfill | 10 |
-| `607da181` | `PersonalityRepository` carries `personality_id` (save/load/by-id/resolve, JSON-seed alignment) | 15 |
-| `50734a45` | `PersonalityGenerator` factory + `POST /api/personality` route surface the id | 5 |
-| `2ebb7a19` | Schema v86 — `observer_id` + `opponent_id` columns on `opponent_models` | (in fork) |
+| Commit | Layer |
+|---|---|
+| `92293f5b` | JSON seed source: stable `id` per personality (slug rule, collision suffix) |
+| `fcbfa6f5` | Force-add `scripts/backfill_personality_ids.py` past gitignore |
+| `d738ddb2` | Schema v85 — `personality_id TEXT UNIQUE` on `personalities` table + backfill |
+| `607da181` | `PersonalityRepository` carries `personality_id` (save/load/by-id/resolve, JSON-seed alignment) |
+| `50734a45` | `PersonalityGenerator` factory + `POST /api/personality` route surface the id |
+| `2ebb7a19` | Schema v86 — `observer_id` + `opponent_id` columns on `opponent_models` |
+| `5e74854b` | `OpponentModel` + `OpponentModelManager` carry `personality_id` surface |
+| `ddbc90c6` | `save_opponent_models` / `load_opponent_models` round-trip personality_ids |
+| `e17b3b21` | Game startup resolves and registers personality_ids |
+| `140c49ba` | Bugfix: don't create v86 indexes in `_init_db` (runs before migrations) |
 
-50 new tests across the migration foundation; all green. The remaining work for Track B step 1 — the in-memory keying flip on `OpponentModelManager.models`, name→id resolution at game startup, and the one-time backfill pass for existing saved games — is in progress on a forked work stream and lands on this same branch.
+**82 tests green across the migration surface.** Backend boots cleanly with the new schema. Personality identity is now stable end-to-end: every personality has a slug-based id at creation (factory + create route + JSON seed paths all populate it); every opponent model save/load round-trips both display name and stable id; game startup resolves name→id and registers both surfaces on the manager. The remaining theoretical item — one-time backfill pass for existing saved games — is a no-op given the zero-production-users posture; the v86 migration's name-lookup backfill correctly populates ids for any rows that do exist.
+
+Track B step 1 is **unblocked for step 2 (Relationship Phases 1–3)**.
 
 ### Measured leaks (pre-patch HU baselines vs CaseBot, 2000 hands per matchup)
 
