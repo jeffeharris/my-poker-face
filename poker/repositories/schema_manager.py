@@ -7,6 +7,11 @@ import json
 import random
 import logging
 
+from poker.personality_id import (
+    slugify_personality_name as _slugify_personality_name,
+    assign_unique_personality_id as _assign_unique_personality_id,
+)
+
 logger = logging.getLogger(__name__)
 
 # v42: Schema consolidation - all tables now created in _init_db(), migrations are no-ops
@@ -54,7 +59,10 @@ logger = logging.getLogger(__name__)
 # v83: Add psychology_json to controller_state for v2.1 unified psychology persistence (T1-29)
 # v84: Add UNIQUE(game_id, player_name, hand_number) on personality_snapshots so the
 #      INSERT OR IGNORE in save_personality_snapshot can actually deduplicate retried writes (T1-32 follow-up)
-SCHEMA_VERSION = 84
+# v85: Add personality_id TEXT UNIQUE to personalities for stable cross-session identity.
+#      Backfills existing rows with slugified names. Display name becomes UI-only; personality_id
+#      is the persistence key the relationship layer and cash-mode bankrolls key on.
+SCHEMA_VERSION = 85
 
 
 
@@ -230,7 +238,8 @@ class SchemaManager:
                     is_generated BOOLEAN DEFAULT 1,
                     source TEXT DEFAULT 'ai_generated',
                     times_used INTEGER DEFAULT 0,
-                    elasticity_config TEXT
+                    elasticity_config TEXT,
+                    personality_id TEXT UNIQUE
                 )
             """)
 
@@ -1106,6 +1115,7 @@ class SchemaManager:
             82: (self._migrate_v82_add_strategy_pipeline_snapshot_json, "Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1"),
             83: (self._migrate_v83_add_psychology_json, "Add psychology_json to controller_state for v2.1 unified psychology persistence"),
             84: (self._migrate_v84_add_personality_snapshots_unique, "Add UNIQUE(game_id, player_name, hand_number) to personality_snapshots so INSERT OR IGNORE deduplicates retries"),
+            85: (self._migrate_v85_add_personality_id, "Add personality_id TEXT UNIQUE to personalities and backfill with slugified names"),
         }
 
         with self._get_connection() as conn:
@@ -3595,3 +3605,77 @@ class SchemaManager:
             "Migration v84 complete: personality_snapshots now has "
             "UNIQUE(game_id, player_name, hand_number)"
         )
+
+    def _migrate_v85_add_personality_id(self, conn: sqlite3.Connection) -> None:
+        """Migration v85: Add personality_id TEXT UNIQUE to personalities.
+
+        Display names are human-facing, can be edited, and have historically
+        been used as persistence keys. That's brittle for cross-session
+        state (the relationship layer's heat/respect/likability axes, cash
+        mode's per-personality AI bankrolls). A separate `personality_id`
+        column gives each personality a stable, immutable identifier that
+        survives renames.
+
+        Identifier scheme: slugified display name at the time of backfill.
+        Collisions resolve via `_v2`, `_v3` suffix. Once assigned to a row,
+        the `personality_id` never changes — even if `name` is later edited.
+
+        Future inserts (AI-generated personalities, user-created via the
+        create_personality endpoint) populate this column at row creation
+        time via PersonalityRepository.save_personality. The
+        seed_personalities_from_json bridge reads `id` from the JSON
+        entries (set by scripts/backfill_personality_ids.py) so the seed
+        path stays consistent with the DB.
+
+        Schema change: adds nullable `personality_id` column then backfills
+        the existing rows. Adds a UNIQUE index on personality_id once
+        backfill completes. The column is added as nullable rather than
+        NOT NULL so the migration is robust against partial states; the
+        UNIQUE index enforces uniqueness without forbidding NULL (SQLite
+        treats NULLs as distinct in UNIQUE indexes).
+        """
+        # 1. Add the column if missing.
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(personalities)")}
+        if 'personality_id' not in existing:
+            conn.execute("ALTER TABLE personalities ADD COLUMN personality_id TEXT")
+            logger.info("v85: added personality_id column to personalities")
+
+        # 2. Backfill rows where personality_id IS NULL.
+        #    Uses the same slugify rule as scripts/backfill_personality_ids.py
+        #    so the JSON seed source and DB-stored IDs stay aligned.
+        rows = conn.execute(
+            "SELECT id, name FROM personalities WHERE personality_id IS NULL"
+        ).fetchall()
+        if rows:
+            taken = {
+                row[0] for row in conn.execute(
+                    "SELECT personality_id FROM personalities "
+                    "WHERE personality_id IS NOT NULL"
+                ).fetchall()
+            }
+            assigned = 0
+            for row in rows:
+                row_id, name = row[0], row[1]
+                base_slug = _slugify_personality_name(name)
+                if not base_slug:
+                    logger.warning(
+                        "v85: personality id=%s name=%r slugifies to empty; "
+                        "leaving personality_id NULL — needs manual fix",
+                        row_id, name,
+                    )
+                    continue
+                new_id = _assign_unique_personality_id(base_slug, taken)
+                taken.add(new_id)
+                conn.execute(
+                    "UPDATE personalities SET personality_id = ? WHERE id = ?",
+                    (new_id, row_id),
+                )
+                assigned += 1
+            logger.info(f"v85: backfilled personality_id for {assigned} rows")
+
+        # 3. Create a UNIQUE index (idempotent — IF NOT EXISTS).
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_personalities_personality_id "
+            "ON personalities(personality_id)"
+        )
+        logger.info("v85: UNIQUE index on personalities.personality_id ensured")

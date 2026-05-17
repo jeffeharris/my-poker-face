@@ -148,6 +148,61 @@ class TestRosterInvariants:
             )
 
 
+class TestConsistencyWithSharedModule:
+    """The script and the in-codebase shared module
+    (`poker/personality_id.py`) duplicate the slugify + collision rules.
+    The duplication is intentional (script runs standalone from host,
+    can't pay for `poker/__init__.py` import chain), but the two copies
+    must agree byte-for-byte. These tests catch any drift."""
+
+    @pytest.fixture(scope="class")
+    def shared_module(self):
+        from poker.personality_id import (
+            slugify_personality_name,
+            assign_unique_personality_id,
+        )
+        return slugify_personality_name, assign_unique_personality_id
+
+    def test_slugify_matches_shared_module(self, backfill, shared_module):
+        shared_slugify, _ = shared_module
+        cases = [
+            "Abraham Lincoln",
+            "Louis XIV",
+            "King Henry VIII",
+            "A Mime",
+            "A guy who tells too many dad jokes",
+            "Someone who is very, very mean to people",
+            "GTO-Lite",
+            "Dr. Seuss",
+            "Bob Ross",
+            "Renée Zellweger",
+            "Núñez",
+            "...Lincoln...",
+            "  Abraham  ",
+            "",
+            "---",
+            "MixedCASE Name 42",
+        ]
+        for case in cases:
+            assert backfill.slugify(case) == shared_slugify(case), (
+                f"Script slugify and shared module diverge on {case!r}"
+            )
+
+    def test_assign_unique_id_matches_shared_module(self, backfill, shared_module):
+        _, shared_assign = shared_module
+        cases = [
+            ("abraham", set()),
+            ("abraham", {"abraham"}),
+            ("abraham", {"abraham", "abraham_v2"}),
+            ("abraham", {"abraham", "abraham_v3"}),  # gap
+            ("test_hero", {"other_id"}),
+        ]
+        for base, taken in cases:
+            assert backfill.assign_unique_id(base, set(taken)) == shared_assign(
+                base, set(taken)
+            ), f"Script and shared module diverge on assign_unique_id({base!r}, {taken!r})"
+
+
 class TestBackfillIdempotence:
     def test_running_backfill_again_makes_no_changes(self, personalities_data, backfill):
         # Deep copy so we don't mutate the module-level fixture

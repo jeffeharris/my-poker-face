@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 import unicodedata
@@ -33,22 +32,20 @@ from typing import Dict, Set
 PERSONALITIES_PATH = Path(__file__).resolve().parent.parent / "poker" / "personalities.json"
 
 
+# NOTE: these helpers are intentionally duplicated from
+# `poker/personality_id.py` so this script can run as a standalone
+# command-line tool from the host (without paying for the heavy
+# `poker/__init__.py` import chain that brings in openai etc.).
+# `tests/test_personality_id_backfill.py` includes a consistency test
+# that asserts both copies produce identical output across a range of
+# inputs — so any future edit to the rule must update both places.
+
+
 def slugify(name: str) -> str:
     """Map a display name to a stable slug ID.
 
-    Rules:
-      - Strip diacritics via NFKD normalization
-      - ASCII only
-      - Lowercase
-      - Any non-alphanumeric run collapses to a single underscore
-      - Strip leading/trailing underscores
-
-    Examples:
-      "Abraham Lincoln"         -> "abraham_lincoln"
-      "Louis XIV"               -> "louis_xiv"
-      "A guy who tells dad..."  -> "a_guy_who_tells_dad___"  (collapsed)
-      "GTO-Lite"                -> "gto_lite"
-      "Dr. Seuss"               -> "dr_seuss"
+    Mirrors `poker.personality_id.slugify_personality_name`. See that
+    module's docstring for the canonical specification.
     """
     n = unicodedata.normalize("NFKD", name)
     n = n.encode("ascii", "ignore").decode("ascii")
@@ -60,7 +57,10 @@ def slugify(name: str) -> str:
 
 def assign_unique_id(base_slug: str, taken: Set[str]) -> str:
     """Pick the first unused id of the form `base_slug`, `base_slug_v2`,
-    `base_slug_v3`, ..."""
+    `base_slug_v3`, ...
+
+    Mirrors `poker.personality_id.assign_unique_personality_id`.
+    """
     if base_slug not in taken:
         return base_slug
     suffix = 2
