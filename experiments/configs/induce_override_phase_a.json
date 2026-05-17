@@ -10,6 +10,7 @@
   "starting_stack": 20000,
   "big_blind": 100,
   "random_seed": 1001,
+  "reset_on_elimination": true,
 
   "model": "gpt-5-nano",
   "provider": "openai",
@@ -17,9 +18,23 @@
   "personalities": ["TieredHero", "Villain"],
   "capture_prompts": false,
 
-  "_note_starting_stack": "200 BB starting stack ensures the 40 BB effective-stack gate is satisfied for the great majority of hands. 1000 hands x 8 seeds = 8000 hands per arm (bumped from 2000 — HU pot variance at n=2000 was ~5-10 bb/100 stderr, inside the +5 bb/100 H1 threshold).",
-  "_note_seeding": "random_seed=1001 is the experiment-level base seed. Each tournament uses base + tournament_index so seed variance across the 4 tournaments produces independent samples.",
-  "_note_wiring": "This config depends on TieredBotController accepting a disable_rules key from player_type_config (currently set programmatically only). Wiring this through run_ai_tournament.py:944 is part of the Phase A implementation work — see docs/plans/INDUCE_OVERRIDE_PHASE_A.md 'Pipeline integration'.",
+  "control": {
+    "label": "control_maniac_rule_OFF_extra",
+    "player_types": {
+      "TieredHero": {
+        "type": "tiered",
+        "expression": false,
+        "disable_rules": [["induce_override", "default"]]
+      },
+      "Villain": {
+        "type": "rule_bot",
+        "strategy": "maniac"
+      }
+    },
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  },
 
   "variants": [
     {
@@ -154,24 +169,5 @@
       "enable_telemetry": true,
       "enable_commentary": false
     }
-  ],
-
-  "_kpi_computation": {
-    "primary": "bb_per_100 = (final_stack - starting_stack) / big_blind / hands * 100, aggregated mean +/- stderr across the 4 tournaments per variant",
-    "pass_conditions": {
-      "H1": "bb100(A2) - bb100(A1) >= +5",
-      "H2": "bb100(B2)-bb100(B1) >= -2 AND bb100(C2)-bb100(C1) >= -2 AND bb100(D2)-bb100(D1) >= -2",
-      "H3": "induce_fire_rate < 0.01 in arms C2 and D2 (from snapshot counters)"
-    },
-    "diagnostic_counters_to_collect": [
-      "induce_eligible_count",
-      "induce_fired_count",
-      "induce_superseded_value_override_count",
-      "induce_action_flip_count",
-      "induce_followup_barrel_count",
-      "induce_followup_check_back_count",
-      "induce_followup_barrel_rate"
-    ],
-    "key_diagnostic": "induce_followup_barrel_rate vs ManiacBot is the empirical check on the poker premise. If <0.4 with H1 missing, the proxy signal is wrong (jump to Phase B). If >0.6 with H1 missing, the redistribution ratio is wrong (one retune allowed, then kill)."
-  }
+  ]
 }

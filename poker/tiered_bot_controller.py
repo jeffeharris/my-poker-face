@@ -247,6 +247,15 @@ class TieredBotController(AIPlayerController):
         # counterfactual per-decision evaluation.
         self.disable_rules: frozenset = frozenset()
 
+        # Sim-mode performance flag. When True, decision_analyzer
+        # skips Monte Carlo equity computation (~200-500ms per
+        # decision — dominant cost in long sim runs) but still
+        # persists trace + snapshot. Production / UI paths leave
+        # this False so coaching and decision-quality scoring keep
+        # their equity field. Set by the experiment runner; default
+        # off so non-sim callers see no behavior change.
+        self.skip_equity_in_analysis: bool = False
+
     def _snapshot_personality_inputs(self, anchors, emotional_state) -> None:
         """Phase 7.6 Step 6: record the inputs `modify_strategy` consumed
         so the replay function can re-invoke the personality layer.
