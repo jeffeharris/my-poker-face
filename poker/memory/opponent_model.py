@@ -794,9 +794,25 @@ class OpponentModel:
     for richer opponent modeling.
     """
 
-    def __init__(self, observer: str, opponent: str):
+    def __init__(self, observer: str, opponent: str,
+                 observer_id: Optional[str] = None,
+                 opponent_id: Optional[str] = None):
+        """Args:
+            observer: Display name of the observing player
+            opponent: Display name of the observed player
+            observer_id: Stable personality_id of the observer (slug),
+                None for human-player observers or pre-v85 restore.
+            opponent_id: Stable personality_id of the opponent (slug),
+                None for human-player opponents or pre-v85 restore.
+
+        Both ids are display-name-independent and survive renames. The
+        relationship layer, AI bankrolls, and any cross-session callers
+        should key on the ids. Display names remain for UI rendering.
+        """
         self.observer = observer
         self.opponent = opponent
+        self.observer_id = observer_id
+        self.opponent_id = opponent_id
         self.tendencies = OpponentTendencies()
         self.memorable_hands: List[MemorableHand] = []
         self.narrative_observations: List[str] = []  # AI-generated insights about this opponent
@@ -948,6 +964,8 @@ class OpponentModel:
         return {
             'observer': self.observer,
             'opponent': self.opponent,
+            'observer_id': self.observer_id,
+            'opponent_id': self.opponent_id,
             'tendencies': self.tendencies.to_dict(),
             'memorable_hands': [h.to_dict() for h in self.memorable_hands],
             'narrative_observations': self.narrative_observations,
@@ -960,7 +978,12 @@ class OpponentModel:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'OpponentModel':
-        model = cls(observer=data['observer'], opponent=data['opponent'])
+        model = cls(
+            observer=data['observer'],
+            opponent=data['opponent'],
+            observer_id=data.get('observer_id'),
+            opponent_id=data.get('opponent_id'),
+        )
         model.tendencies = OpponentTendencies.from_dict(data.get('tendencies', {}))
         model.memorable_hands = [
             MemorableHand.from_dict(h) for h in data.get('memorable_hands', [])
@@ -1067,11 +1090,54 @@ def _build_aggregate_from_multi(tendencies_list):
 
 
 class OpponentModelManager:
-    """Manages opponent models for all AI players."""
+    """Manages opponent models for all AI players.
+
+    Models are keyed in-memory by display name (observer name → opponent
+    name → OpponentModel) for back-compat with the historical lookup
+    surface. Each OpponentModel additionally carries observer_id +
+    opponent_id (stable personality_ids, populated when the manager
+    can resolve them); cross-session callers (relationship layer, cash
+    mode bankrolls, repository persistence) consume the ids, not the
+    keys.
+
+    Use `register_player_id` at game startup to associate display names
+    with their stable personality_ids; subsequent get_model calls will
+    annotate new OpponentModel instances with the registered ids.
+    """
 
     def __init__(self):
         # observer_name -> opponent_name -> OpponentModel
         self.models: Dict[str, Dict[str, OpponentModel]] = {}
+        # display_name -> personality_id (None for players without one)
+        self._name_to_id: Dict[str, Optional[str]] = {}
+
+    def register_player_id(self, name: str, personality_id: Optional[str]) -> None:
+        """Register the stable personality_id for a display name.
+
+        Called at game startup (and on personality changes) so that
+        OpponentModel rows get their observer_id / opponent_id populated
+        at creation time. Existing models for this name are back-filled
+        too — both in their observer slot and as an opponent slot
+        across every other observer's mapping.
+
+        Passing None is meaningful: it explicitly registers a name as
+        "known not to have a personality_id" (human guests, etc.).
+        Future get_model calls won't re-attempt resolution.
+        """
+        self._name_to_id[name] = personality_id
+
+        # Back-fill existing models. Observer slot:
+        if name in self.models:
+            for model in self.models[name].values():
+                if model.observer_id is None and personality_id is not None:
+                    model.observer_id = personality_id
+
+        # Opponent slot across all observers:
+        for observer_name, opp_map in self.models.items():
+            if name in opp_map:
+                model = opp_map[name]
+                if model.opponent_id is None and personality_id is not None:
+                    model.opponent_id = personality_id
 
     def get_model(self, observer: str, opponent: str) -> OpponentModel:
         """Get or create an opponent model."""
@@ -1079,7 +1145,11 @@ class OpponentModelManager:
             self.models[observer] = {}
 
         if opponent not in self.models[observer]:
-            self.models[observer][opponent] = OpponentModel(observer, opponent)
+            self.models[observer][opponent] = OpponentModel(
+                observer, opponent,
+                observer_id=self._name_to_id.get(observer),
+                opponent_id=self._name_to_id.get(opponent),
+            )
 
         return self.models[observer][opponent]
 
@@ -1216,18 +1286,27 @@ class OpponentModelManager:
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        result = {}
+        # Back-compat shape: top-level keys are observer names. Add an
+        # underscored sidecar entry for the name→id map so existing
+        # consumers that index by observer name continue working,
+        # while the round-trip preserves the id registry.
+        result: Dict[str, Any] = {}
         for observer, opponents in self.models.items():
             result[observer] = {
                 opponent: model.to_dict()
                 for opponent, model in opponents.items()
             }
+        if self._name_to_id:
+            result['__name_to_id__'] = dict(self._name_to_id)
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'OpponentModelManager':
         manager = cls()
         for observer, opponents in data.items():
+            if observer == '__name_to_id__':
+                manager._name_to_id = dict(opponents) if opponents else {}
+                continue
             manager.models[observer] = {
                 opponent: OpponentModel.from_dict(model_data)
                 for opponent, model_data in opponents.items()
