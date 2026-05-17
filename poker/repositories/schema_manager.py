@@ -318,8 +318,15 @@ class SchemaManager:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_observer ON opponent_models(observer_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_game ON opponent_models(game_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_observer_id ON opponent_models(observer_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_opponent_id ON opponent_models(opponent_id)")
+            # The observer_id / opponent_id indexes are created by the
+            # v86 migration. We deliberately do NOT create them here:
+            # _init_db() runs before migrations, so on a pre-v86 database
+            # the columns don't exist yet — and creating indexes on
+            # missing columns fails. The v86 migration (a) is idempotent,
+            # (b) checks column existence via PRAGMA table_info before
+            # ALTER, and (c) creates the indexes with CREATE INDEX IF
+            # NOT EXISTS, so it correctly handles both fresh installs
+            # (columns present from CREATE TABLE above) and upgrades.
 
             # 10. Memorable hands (v21 added game_id)
             conn.execute("""
