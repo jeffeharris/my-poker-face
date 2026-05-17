@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Deque, List, Dict, Optional, Any, Tuple
 
+from .relationship_events import RelationshipEvent
 from ..archetypes import (
     VPIP_TIGHT as VPIP_TIGHT_THRESHOLD,
     VPIP_LOOSE as VPIP_LOOSE_THRESHOLD,
@@ -152,6 +153,28 @@ class OpponentTendencies:
     _preflop_open_opportunities: int = 0
     _preflop_open_raise_count: int = 0
     _preflop_voluntary_action_count: int = 0
+
+    # Polarization Phase A: equity-at-action tracking. Populated at
+    # showdown when hole cards are revealed; the showdown caller walks
+    # the player's postflop actions and records the equity-they-had-at-
+    # that-decision into the matching action bucket. The derived means
+    # let downstream rules distinguish polarized opponents (raise with
+    # nuts) from noisy callers (raise with anything).
+    #
+    # Per-action means start at neutral 0.5 prior and only become
+    # meaningful once their corresponding _count exceeds a minimum
+    # sample threshold (defined in the polarization detection spec).
+    # Sums are running totals to support incremental mean update without
+    # storing the full sample history.
+    equity_when_betting_postflop: float = 0.5    # mean equity on bets
+    equity_when_raising_postflop: float = 0.5    # mean equity on raises
+    equity_when_calling_postflop: float = 0.5    # mean equity on calls
+    _equity_betting_sum: float = 0.0
+    _equity_raising_sum: float = 0.0
+    _equity_calling_sum: float = 0.0
+    _equity_betting_count: int = 0
+    _equity_raising_count: int = 0
+    _equity_calling_count: int = 0
 
     # Per-hand opportunity flags (reset on new hand, mirror _vpip_this_hand /
     # _pfr_this_hand).
@@ -454,6 +477,51 @@ class OpponentTendencies:
             self._cbet_attempt_count += 1
         self._recalculate_stats()
 
+    def update_equity_at_action(self, action: str, equity: float) -> None:
+        """Polarization Phase A: record observed equity at the moment of a
+        postflop action by this opponent.
+
+        Args:
+            action: The action taken at the moment of the observation.
+                One of 'bet', 'raise', 'call'. Other actions (fold,
+                check, all_in) are no-ops here — fold/check don't reveal
+                strength, and all_in is bucketed into raise by the
+                caller when it's a raising shove (and ignored when it's
+                a call-shove). Caller is responsible for the bucket choice.
+            equity: Estimated win probability vs. uniform random / vs.
+                live opponent at the moment of the action, in [0, 1].
+                Same definition as `player_decision_analysis.equity`.
+
+        Updates the running sum + count for the matching action bucket
+        and refreshes the per-action mean. No-op for action types that
+        don't map to a tracked bucket so the caller can pass through
+        without filtering.
+        """
+        if not (0.0 <= equity <= 1.0):
+            # Silently skip nonsense values — better than corrupting
+            # the running average with a guard rail at the seam.
+            return
+
+        if action == 'bet':
+            self._equity_betting_sum += equity
+            self._equity_betting_count += 1
+            self.equity_when_betting_postflop = (
+                self._equity_betting_sum / self._equity_betting_count
+            )
+        elif action == 'raise':
+            self._equity_raising_sum += equity
+            self._equity_raising_count += 1
+            self.equity_when_raising_postflop = (
+                self._equity_raising_sum / self._equity_raising_count
+            )
+        elif action == 'call':
+            self._equity_calling_sum += equity
+            self._equity_calling_count += 1
+            self.equity_when_calling_postflop = (
+                self._equity_calling_sum / self._equity_calling_count
+            )
+        # action types outside {bet, raise, call} intentionally ignored
+
     def _recalculate_stats(self):
         """Recalculate derived statistics.
 
@@ -669,6 +737,16 @@ class OpponentTendencies:
             '_preflop_open_opportunities': self._preflop_open_opportunities,
             '_preflop_open_raise_count': self._preflop_open_raise_count,
             '_preflop_voluntary_action_count': self._preflop_voluntary_action_count,
+            # Polarization Phase A: equity-at-action fields
+            'equity_when_betting_postflop': self.equity_when_betting_postflop,
+            'equity_when_raising_postflop': self.equity_when_raising_postflop,
+            'equity_when_calling_postflop': self.equity_when_calling_postflop,
+            '_equity_betting_sum': self._equity_betting_sum,
+            '_equity_raising_sum': self._equity_raising_sum,
+            '_equity_calling_sum': self._equity_calling_sum,
+            '_equity_betting_count': self._equity_betting_count,
+            '_equity_raising_count': self._equity_raising_count,
+            '_equity_calling_count': self._equity_calling_count,
             # Phase 7.5 Item 2b: sliding-window events (list-serialized)
             '_recent_postflop_events': list(self._recent_postflop_events),
         }
@@ -733,6 +811,24 @@ class OpponentTendencies:
         tendencies._preflop_voluntary_action_count = data.get(
             '_preflop_voluntary_action_count', 0,
         )
+        # Polarization Phase A: equity-at-action fields. Default to
+        # neutral 0.5 mean and 0 count/sum so legacy records pre-Phase A
+        # restore cleanly with no observed equity history.
+        tendencies.equity_when_betting_postflop = data.get(
+            'equity_when_betting_postflop', 0.5,
+        )
+        tendencies.equity_when_raising_postflop = data.get(
+            'equity_when_raising_postflop', 0.5,
+        )
+        tendencies.equity_when_calling_postflop = data.get(
+            'equity_when_calling_postflop', 0.5,
+        )
+        tendencies._equity_betting_sum = data.get('_equity_betting_sum', 0.0)
+        tendencies._equity_raising_sum = data.get('_equity_raising_sum', 0.0)
+        tendencies._equity_calling_sum = data.get('_equity_calling_sum', 0.0)
+        tendencies._equity_betting_count = data.get('_equity_betting_count', 0)
+        tendencies._equity_raising_count = data.get('_equity_raising_count', 0)
+        tendencies._equity_calling_count = data.get('_equity_calling_count', 0)
         # Phase 7.5 Item 2b: restore sliding-window events. Old records
         # without this field get an empty window — the tier-decay logic
         # treats sub-threshold windows as "no recent data," falling back
@@ -754,9 +850,27 @@ class OpponentTendencies:
 
 @dataclass
 class MemorableHand:
-    """A specific hand worth remembering."""
+    """A specific hand worth remembering.
+
+    The `event` field is the canonical typed surface — it's a
+    `RelationshipEvent` enum member that downstream consumers
+    (relationship-axis dispatch tables, future chat categorizer,
+    diagnostics replays) can branch on without string-matching.
+
+    DB compatibility: the persistence layer's column is still named
+    `memory_type` (existing schema at
+    `poker/repositories/schema_manager.py`). `to_dict` writes the
+    enum's `.value` string to a `"memory_type"` key for that column;
+    `from_dict` reads that key and parses it back via
+    `RelationshipEvent.from_string`, which coerces unrecognized
+    legacy strings to `RelationshipEvent.UNKNOWN` rather than
+    raising. Old `memorable_hands` rows load cleanly with the
+    quarantine sentinel; a one-shot offline migration script can
+    enumerate the corpus and map unknowns to known events
+    out-of-band.
+    """
     hand_id: int
-    memory_type: str          # 'bluff_caught', 'hero_call', 'big_loss', 'bad_beat', etc.
+    event: RelationshipEvent  # was `memory_type: str` before Phase 1
     opponent_name: str
     impact_score: float       # 0-1, how memorable
     narrative: str            # AI-generated or template description
@@ -766,7 +880,9 @@ class MemorableHand:
     def to_dict(self) -> Dict[str, Any]:
         return {
             'hand_id': self.hand_id,
-            'memory_type': self.memory_type,
+            # DB column name stays `memory_type` — value is now the
+            # enum's `.value` string, not an ad-hoc raw label.
+            'memory_type': self.event.value,
             'opponent_name': self.opponent_name,
             'impact_score': self.impact_score,
             'narrative': self.narrative,
@@ -776,9 +892,17 @@ class MemorableHand:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'MemorableHand':
+        # Legacy rows may carry strings not in the current enum;
+        # `from_string` returns UNKNOWN for those rather than raising,
+        # so the load path stays robust without sweeping the DB first.
+        raw_type = data['memory_type']
+        if isinstance(raw_type, RelationshipEvent):
+            event = raw_type
+        else:
+            event = RelationshipEvent.from_string(raw_type)
         return cls(
             hand_id=data['hand_id'],
-            memory_type=data['memory_type'],
+            event=event,
             opponent_name=data['opponent_name'],
             impact_score=data['impact_score'],
             narrative=data['narrative'],
@@ -908,13 +1032,30 @@ class OpponentModel:
         # Return most recent observation for prompt efficiency
         return self.narrative_observations[-1]
 
-    def add_memorable_hand(self, hand_id: int, memory_type: str,
-                          impact_score: float, narrative: str, hand_summary: str):
-        """Add a memorable hand if impact is high enough."""
+    def add_memorable_hand(
+        self,
+        hand_id: int,
+        event,  # RelationshipEvent | str — see below
+        impact_score: float,
+        narrative: str,
+        hand_summary: str,
+    ):
+        """Add a memorable hand if impact is high enough.
+
+        `event` accepts either a `RelationshipEvent` enum member (the
+        canonical form for new callers) or a legacy string. Strings
+        coerce via `RelationshipEvent.from_string` so older call sites
+        that haven't been migrated yet still work, with unrecognized
+        strings landing in `RelationshipEvent.UNKNOWN` — the same
+        quarantine path the load layer uses. (When everything's been
+        migrated to enum, the `str` branch can be removed.)
+        """
         if impact_score >= MEMORABLE_HAND_THRESHOLD:
+            if isinstance(event, str):
+                event = RelationshipEvent.from_string(event)
             self.memorable_hands.append(MemorableHand(
                 hand_id=hand_id,
-                memory_type=memory_type,
+                event=event,
                 opponent_name=self.opponent,
                 impact_score=impact_score,
                 narrative=narrative,

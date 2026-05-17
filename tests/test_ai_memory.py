@@ -464,24 +464,33 @@ class TestOpponentModel(unittest.TestCase):
 
     def test_add_memorable_hand(self):
         """Test adding memorable hands with threshold."""
+        from poker.memory.relationship_events import RelationshipEvent
+
         model = OpponentModel("Observer", "Target")
 
-        # Below threshold - shouldn't be added
+        # Below threshold - shouldn't be added. "bluff_caught" is a
+        # legacy string that's no longer in the enum; the load-path
+        # quarantine coerces it to UNKNOWN so this test exercises
+        # backward compatibility with old strings as well.
         model.add_memorable_hand(1, "bluff_caught", 0.5, "Small bluff", "Hand 1")
         self.assertEqual(len(model.memorable_hands), 0)
 
-        # Above threshold - should be added
-        model.add_memorable_hand(2, "big_loss", 0.8, "Lost big pot", "Hand 2")
+        # Above threshold - should be added. Uses the canonical enum.
+        model.add_memorable_hand(2, RelationshipEvent.BIG_LOSS, 0.8, "Lost big pot", "Hand 2")
         self.assertEqual(len(model.memorable_hands), 1)
+        # And the stored event is the typed value, not a string.
+        self.assertEqual(model.memorable_hands[0].event, RelationshipEvent.BIG_LOSS)
 
     def test_memorable_hands_limit(self):
         """Test that memorable hands are limited and sorted by impact."""
+        from poker.memory.relationship_events import RelationshipEvent
+
         model = OpponentModel("Observer", "Target")
 
         # Add 7 memorable hands
         for i in range(7):
             model.add_memorable_hand(
-                i, "event", 0.7 + (i * 0.02), f"Event {i}", f"Hand {i}"
+                i, RelationshipEvent.BIG_WIN, 0.7 + (i * 0.02), f"Event {i}", f"Hand {i}"
             )
 
         # Should only keep top 5
