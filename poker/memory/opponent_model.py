@@ -848,6 +848,89 @@ class OpponentTendencies:
         return tendencies
 
 
+# --- Relationship state ---
+
+
+# Decay tuning constants. Match the design doc starting calibration
+# in `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 1 §"Decay". They
+# live in code so tests can lock them in; future tuning passes update
+# both the constants here and the tests that assert on them.
+HEAT_DECAY_PLATEAU_DAYS = 7
+HEAT_DECAY_HALF_LIFE_DAYS = 14
+HEAT_DECAY_SNAP_THRESHOLD = 0.05
+
+
+@dataclass
+class RelationshipState:
+    """Cross-session, per-(observer, opponent) affinity axes.
+
+    Three durable axes plus two presence timestamps. Stored in a
+    separate `relationship_states` table (cross-session, cross-game)
+    rather than on `opponent_models` (which is per-game-id). Read
+    paths apply projection on `heat` via `project_heat` — the stored
+    `heat` is the "heat as of last_decay_tick" snapshot; the live
+    value is computed on demand from elapsed time. Respect and
+    likability are earned state and don't decay.
+
+    NOT on this object (intentionally):
+      - session_pnl — lives in CashSessionState per (player, table_id)
+      - cumulative_pnl — lives in cash_pair_stats table (cash-mode
+        specific, meaningless in tournaments where chips reset)
+      - sessions_together — derivable from tendencies.hands_observed
+      - familiarity — derived on demand, never stored
+
+    Persistence (Phase 1 commit 4): the schema migration adds the
+    `relationship_states` table; this commit only defines the
+    dataclass and the projection helper. No repository wiring yet.
+    """
+
+    respect: float = 0.5
+    heat: float = 0.0           # one-sided: 0 = neutral, 1 = nemesis
+    likability: float = 0.5
+
+    # Cross-session presence
+    last_seen: Optional[datetime] = None
+    last_decay_tick: Optional[datetime] = None
+
+
+def project_heat(
+    state: RelationshipState,
+    now: datetime,
+    *,
+    plateau_days: int = HEAT_DECAY_PLATEAU_DAYS,
+    half_life_days: int = HEAT_DECAY_HALF_LIFE_DAYS,
+    snap_threshold: float = HEAT_DECAY_SNAP_THRESHOLD,
+) -> float:
+    """Project the heat axis through plateau-then-exponential decay.
+
+    Pure function. Reads `state.heat` and `state.last_decay_tick`;
+    returns the value `heat` would currently have given elapsed time
+    since the last mutation. Does NOT mutate the state.
+
+    Schedule:
+      - Plateau at the stored value for `plateau_days` after the last
+        event (heat peaks and stays there briefly — fresh rivalries
+        feel hot for about a week).
+      - Exponential decay with `half_life_days` half-life afterward.
+      - Snap to 0.0 below `snap_threshold` to keep tiny residuals
+        from polluting reads (and to let `> 0` predicates stay
+        meaningful).
+
+    `last_decay_tick == None` means no event has ever been recorded
+    — returns the stored heat verbatim (which is 0 for new states).
+
+    Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 1 §"Decay".
+    """
+    if state.last_decay_tick is None:
+        return state.heat
+    days = (now - state.last_decay_tick).total_seconds() / 86400.0
+    if days <= plateau_days:
+        return state.heat
+    decay_days = days - plateau_days
+    projected = state.heat * (0.5 ** (decay_days / half_life_days))
+    return 0.0 if projected < snap_threshold else projected
+
+
 @dataclass
 class MemorableHand:
     """A specific hand worth remembering.

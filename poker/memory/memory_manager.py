@@ -430,6 +430,26 @@ class AIMemoryManager:
                         model = self.opponent_model_manager.get_model(observer, player.name)
                         model.observe_showdown(won=(outcome == 'won'))
 
+            # Polarization Phase A: record equity-at-action for each
+            # postflop bet/raise/call by every showdown player. Walks
+            # each player's postflop action history; for each action,
+            # computes the equity they had at that moment (their hole
+            # cards vs the board snapshot for that street) and records
+            # it into the matching action bucket on every observer's
+            # model of them.
+            #
+            # Wrapped in a broad try/except: the equity calculation is
+            # an enrichment, not a hard requirement for showdown bookkeeping.
+            # If eval7 is unavailable or the cards/board can't be parsed
+            # for any reason, fall through silently so the rest of the
+            # showdown path stays unaffected.
+            try:
+                self._record_showdown_equity_at_actions(recorded_hand)
+            except Exception as e:
+                logger.warning(
+                    f"Polarization Phase A equity recording failed: {e}"
+                )
+
         # Update session memories
         for player_name, session_memory in self.session_memories.items():
             # Determine player's outcome
@@ -658,6 +678,138 @@ class AIMemoryManager:
             parts.append(f"=== Opponent Intel ===\n{opponent_ctx}")
 
         return "\n\n".join(parts)
+
+    def _record_showdown_equity_at_actions(self, recorded_hand) -> None:
+        """Polarization Phase A: walk every showdown player's postflop
+        actions and credit the equity-they-had-at-that-decision into
+        the matching bet / raise / call bucket on every observer's
+        OpponentModel of them.
+
+        Equity is computed using EquityCalculator vs uniform random for
+        each player's hole cards at the board snapshot for that street.
+        Same equity definition as `player_decision_analysis.equity` so
+        downstream consumers see consistent numbers across the codebase.
+
+        Only fires for postflop actions (PRE_FLOP actions are skipped).
+        Only bet / raise / call bucket; check / fold / all_in are no-ops
+        in the per-action tracker (fold/check don't reveal strength,
+        all_in is bucketed by the existing aggression_factor signal —
+        adding it to the equity tracker would double-count when an
+        all-in is also a raise, and miscount when it's a call-shove).
+
+        Best effort: any failure to compute equity for a particular
+        action (cards unparseable, board missing for that phase, etc.)
+        silently skips that action without affecting the rest.
+        """
+        from poker.decision_analyzer import DecisionAnalyzer
+        # Lower iteration count: this runs N times per showdown, the
+        # result feeds a running mean, and we don't need solver-grade
+        # precision for archetype classification.
+        analyzer = DecisionAnalyzer(iterations=400)
+
+        # Count active (non-folded) opponents per phase. Equity vs N
+        # uniform random opponents is what `player_decision_analysis.equity`
+        # uses, so the per-action stat ends up comparable to the live
+        # decision-time equity field.
+        non_folded_at_phase = self._count_non_folded_per_phase(recorded_hand)
+
+        # Showdown players whose cards we know
+        revealed_players = {
+            p.name for p in recorded_hand.players
+            if recorded_hand.get_player_outcome(p.name) != 'folded'
+        }
+        if not revealed_players:
+            return
+
+        # Phase → board snapshot. The recorder may store these either
+        # as community_cards_by_phase (preferred) or we reconstruct
+        # from the running community_cards list (fallback). Phase
+        # naming follows the engine: 'FLOP' = first 3 cards, 'TURN'
+        # = +1, 'RIVER' = +1.
+        phase_boards = dict(recorded_hand.community_cards_by_phase or {})
+        if not phase_boards:
+            # Reconstruct from full community_cards if per-phase data
+            # is missing. Use whatever cards are visible — better an
+            # approximation than nothing.
+            community = list(recorded_hand.community_cards or [])
+            if len(community) >= 3:
+                phase_boards['FLOP'] = community[:3]
+            if len(community) >= 4:
+                phase_boards['TURN'] = community[:4]
+            if len(community) >= 5:
+                phase_boards['RIVER'] = community[:5]
+
+        # Walk each revealed player's postflop actions
+        for player_name in revealed_players:
+            hole_cards = recorded_hand.hole_cards.get(player_name)
+            if not hole_cards:
+                continue
+            player_actions = recorded_hand.get_player_actions(player_name)
+
+            for action in player_actions:
+                phase = action.phase
+                if phase == 'PRE_FLOP':
+                    continue
+                if action.action not in ('bet', 'raise', 'call'):
+                    continue
+
+                board = phase_boards.get(phase)
+                if not board:
+                    continue
+
+                # Estimate opponent count at the moment of this action.
+                # Use the count of non-folded other players at the start
+                # of this phase as a proxy. Default to 1 if we can't
+                # determine — equity vs 1 random opponent is the standard
+                # Phase A definition.
+                num_opp = max(1, non_folded_at_phase.get(phase, 1) - 1)
+
+                try:
+                    equity = analyzer.calculate_equity_vs_random(
+                        player_hand=hole_cards,
+                        community_cards=board,
+                        num_opponents=num_opp,
+                    )
+                except Exception:
+                    continue
+                if equity is None:
+                    continue
+
+                # Credit the equity into every observer's model of this player
+                for observer in self.initialized_players:
+                    if observer == player_name:
+                        continue
+                    model = self.opponent_model_manager.get_model(observer, player_name)
+                    model.tendencies.update_equity_at_action(action.action, equity)
+
+    def _count_non_folded_per_phase(self, recorded_hand) -> Dict[str, int]:
+        """For each postflop phase, count players who hadn't folded yet
+        at the START of that phase. Used by the equity-at-action recorder
+        to estimate how many random-opponent equity slots to simulate.
+
+        Returns a dict like {'FLOP': 3, 'TURN': 2, 'RIVER': 2}. Missing
+        phases default to 0; callers should treat 0 as 'unknown' and
+        fall back to a sensible default (probably 1).
+        """
+        # Track who has folded by walking actions in order. A player who
+        # folds preflop doesn't see the flop; one who folds on the flop
+        # doesn't see the turn; etc.
+        folded_before: Dict[str, bool] = {p.name: False for p in recorded_hand.players}
+        # Phase ordering: count is captured at start of each phase.
+        result: Dict[str, int] = {}
+
+        # Total seated players minus pre-existing folders gives the
+        # count at the start of preflop. For postflop phases, decrement
+        # as folds happen during prior phases.
+        phase_order = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER']
+        for phase in phase_order:
+            non_folded = sum(1 for v in folded_before.values() if not v)
+            result[phase] = non_folded
+            # Apply this phase's folds for the next iteration
+            for action in recorded_hand.actions:
+                if action.phase == phase and action.action == 'fold':
+                    folded_before[action.player_name] = True
+        return result
 
     def get_session_memory(self, player_name: str) -> Optional[SessionMemory]:
         """Get session memory for a player."""
