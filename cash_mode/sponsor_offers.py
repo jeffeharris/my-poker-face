@@ -25,9 +25,15 @@ Spec: `docs/plans/CASH_MODE_SPONSORSHIP_HANDOFF.md`.
 
 from __future__ import annotations
 
+import logging
 import random
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable, List, Optional
+
+from cash_mode.lender_profile import LenderProfile
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -196,3 +202,231 @@ def offer_for_archetype(
     if arch is None:
         return None
     return _materialize(arch, min_buy_in, max_buy_in)
+
+
+# --- Path B: AI-personality sponsorship --------------------------------
+
+
+@dataclass(frozen=True)
+class PersonalitySponsorOffer:
+    """One concrete loan offer from a named AI personality.
+
+    Distinct from `SponsorOffer` (anonymous archetypes) — this carries
+    the lender's `personality_id` so the route can wire
+    `active_loan_lender_id` on the bankroll, and so the modal can
+    render avatar + name + relationship hint.
+
+    Same `amount`/`floor`/`rate` shape as `SponsorOffer` — the rest of
+    the system (leave-time math, lender-credit) is agnostic to whether
+    the loan came from an archetype or a personality. `flavor` is the
+    per-personality blurb shown on the offer card (may be generated
+    on-the-fly or stored on the personality config in v2).
+    """
+
+    lender_id: str
+    lender_name: str
+    amount: int
+    floor: float
+    rate: float
+    flavor: str
+    relationship_hint: str
+    capacity: int  # the lender's available bankroll at offer time,
+                   # used for sorting and for capacity-disclosure UX in v2.
+
+
+def _adjusted_terms(
+    profile: LenderProfile,
+    *,
+    likability: float,
+    heat: float,
+    respect: float,
+) -> tuple[float, float]:
+    """Trim floor/rate by relationship axes (handoff §B.2 "Term adjustment").
+
+    Returns `(floor, rate)` clamped to `[1.00, 1.50]` / `[0.00, 0.55]`.
+
+    Adjustments are additive deltas off the profile's anchors:
+      - High likability (>0.5): "friend tax" — floor and rate trim by
+        0.05 each. Friends lend on softer terms.
+      - High heat (>0.4): "I'll lend, but you'll pay" — floor and rate
+        each bump up 0.10. Heat overrides likability when both fire.
+      - High respect (>0.5): "I think you'll win, fair terms" — floor
+        and rate trim by 0.03 each.
+
+    Clamps prevent edge-case profiles from generating predatory or
+    impossibly-generous offers via stacked modifiers.
+    """
+    floor = profile.floor_anchor
+    rate = profile.rate_anchor
+    if likability > 0.5:
+        floor -= 0.05
+        rate -= 0.05
+    if heat > 0.4:
+        floor += 0.10
+        rate += 0.10
+    if respect > 0.5:
+        floor -= 0.03
+        rate -= 0.03
+    floor = max(1.00, min(1.50, floor))
+    rate = max(0.00, min(0.55, rate))
+    return floor, rate
+
+
+def _relationship_hint(
+    *,
+    likability: float,
+    heat: float,
+    respect: float,
+) -> str:
+    """Generate a short relationship hint string for the offer card.
+
+    Surfaces the underlying axes without exposing raw numbers. Most
+    severe condition wins — heat dominates if present, then high
+    respect, then likability, finally a neutral default. Empty
+    string means "no special relationship vibe" — modal can omit the
+    hint chip entirely.
+    """
+    if heat > 0.4:
+        return "wants their money back"
+    if heat > 0.2:
+        return "watching you"
+    if respect > 0.6 and likability > 0.5:
+        return "trusts you"
+    if respect > 0.5:
+        return "respects your game"
+    if likability > 0.5:
+        return "friendly"
+    return ""
+
+
+def _capacity_for_lender(
+    profile: LenderProfile,
+    projected_bankroll: int,
+    *,
+    min_buy_in: int,
+    max_buy_in: int,
+) -> int:
+    """Loan amount this lender will extend at this table.
+
+    `pct × projected_bankroll`, clamped to the table's
+    `[min_buy_in, max_buy_in]` window. The caller still checks
+    capacity >= min_buy_in (eligibility gate 2 in the handoff) — a
+    lender too poor to lend at the table's minimum is filtered out.
+    """
+    raw = int(profile.max_loan_pct_of_bankroll * projected_bankroll)
+    return max(min_buy_in, min(max_buy_in, raw)) if raw >= min_buy_in else raw
+
+
+def compute_personality_offers(
+    *,
+    player_owner_id: str,
+    min_buy_in: int,
+    max_buy_in: int,
+    candidate_personalities: List[dict],
+    bankroll_repo,
+    relationship_repo,
+    now: Optional[datetime] = None,
+    count: int = 3,
+) -> List[PersonalitySponsorOffer]:
+    """Generate up to `count` AI-personality sponsor offers.
+
+    Each candidate is a dict with at least `{"personality_id": str,
+    "name": str}` — same shape `_build_cash_game` already builds for
+    seated AIs (matches `cash_personality_ids` mapping).
+
+    Eligibility gates per candidate (all must pass):
+      1. `profile.willing == True`
+      2. Loan capacity (`pct × projected_bankroll`, table-clamped) is
+         at least the table's `min_buy_in`. A lender too poor to fund
+         a min buy-in is filtered.
+      3. `relationship.respect >= profile.respect_floor`
+      4. `relationship.projected_heat <= profile.heat_ceiling`
+
+    For each qualifying candidate, terms are trimmed by relationship
+    axes (see `_adjusted_terms`).
+
+    No-relationship-row case: `relationship_repo.load_relationship_state`
+    returns None → treated as default neutral state (respect=0.5,
+    heat=0.0, likability=0.5). This means a stranger lender extends
+    their anchor terms unmodified.
+
+    "No outstanding loan from THIS lender" gate (eligibility 5 in the
+    handoff): the caller filters this — `compute_personality_offers`
+    is pure and doesn't know the player's bankroll state. The route
+    skips this gate when the player has no active loan (the common
+    case for the sponsor screen, which fires at bankroll < min
+    buy-in).
+
+    Returns offers sorted by capacity descending — bigger-stake
+    lenders surface first.
+
+    `now` defaults to `datetime.utcnow()`; explicit `now` lets tests
+    pin the projection point for stable results.
+    """
+    if now is None:
+        now = datetime.utcnow()
+
+    qualifying: List[PersonalitySponsorOffer] = []
+
+    for entry in candidate_personalities:
+        pid = entry.get("personality_id")
+        name = entry.get("name") or pid
+        if not pid:
+            continue
+
+        profile = bankroll_repo.load_lender_profile(pid)
+        if not profile.willing:
+            continue
+
+        # Projected bankroll via projection-on-read.
+        projected = bankroll_repo.load_ai_bankroll_current(pid, now=now)
+        if projected is None:
+            # No bankroll row yet — can't lend out of nothing. Skip.
+            continue
+
+        capacity = _capacity_for_lender(
+            profile, projected,
+            min_buy_in=min_buy_in, max_buy_in=max_buy_in,
+        )
+        if capacity < min_buy_in:
+            continue
+
+        # Relationship state — lender's POV of the player. None → default neutral.
+        rel = relationship_repo.load_relationship_state(
+            observer_id=pid, opponent_id=player_owner_id, now=now,
+        )
+        if rel is None:
+            respect, heat, likability = 0.5, 0.0, 0.5
+        else:
+            respect = rel.respect
+            heat = rel.heat
+            likability = rel.likability
+
+        if respect < profile.respect_floor:
+            continue
+        if heat > profile.heat_ceiling:
+            continue
+
+        floor, rate = _adjusted_terms(
+            profile,
+            likability=likability,
+            heat=heat,
+            respect=respect,
+        )
+        hint = _relationship_hint(
+            likability=likability, heat=heat, respect=respect,
+        )
+
+        qualifying.append(PersonalitySponsorOffer(
+            lender_id=pid,
+            lender_name=name,
+            amount=capacity,
+            floor=floor,
+            rate=rate,
+            flavor=f"{name} offers you a loan.",
+            relationship_hint=hint,
+            capacity=capacity,
+        ))
+
+    qualifying.sort(key=lambda o: o.capacity, reverse=True)
+    return qualifying[:count]
