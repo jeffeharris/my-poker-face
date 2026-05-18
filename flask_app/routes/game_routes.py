@@ -530,13 +530,23 @@ def api_game_state(game_id):
                         pressure_detector = PressureEventDetector()
                         pressure_stats = PressureStatsTracker(game_id, event_repository)
 
+                        # Cash games are tagged with a `cash-` game_id
+                        # prefix in /api/cash/start. The cold-load path
+                        # has to set cash_mode flags by hand — without
+                        # them, the cash HUD won't render, _refill_cash_seats
+                        # never fires, and /api/cash/{leave,topup,rebuy}
+                        # can't locate the session. (The metadata isn't
+                        # stored in the saved JSON; we reconstruct it
+                        # from the game_id prefix + current_ante.)
+                        is_cash_game = game_id.startswith("cash-")
+
                         memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
                         memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
                         # Phase 3: relationship state populates from hand
-                        # outcomes. Tournament mode (the only mode today)
-                        # → cash_mode=False; cash_pair_stats stays empty.
+                        # outcomes. Cash sessions write cash_pair_stats;
+                        # tournament sessions skip it.
                         memory_manager.set_relationship_repo(
-                            relationship_repo, cash_mode=False,
+                            relationship_repo, cash_mode=is_cash_game,
                         )
 
                         # Restore hand count from database
@@ -625,6 +635,34 @@ def api_game_state(game_id):
                             'hand_start_stacks': hand_start_stacks,
                             'short_stack_players': short_stack_players,
                         }
+
+                        # Cash-mode metadata. STAKES_LADDER is the
+                        # source of truth for stake_label ↔ big_blind;
+                        # cash_personality_ids feeds _refill_cash_seats
+                        # so busted AI seats can be reseated with the
+                        # right archetype after a hand.
+                        if is_cash_game:
+                            from flask_app.routes.cash_routes import STAKES_LADDER
+                            stake_label = next(
+                                (
+                                    label for label, cfg in STAKES_LADDER.items()
+                                    if cfg["big_blind"] == big_blind
+                                ),
+                                None,
+                            )
+                            cash_personality_ids: Dict[str, str] = {}
+                            for player in state_machine.game_state.players:
+                                if player.is_human:
+                                    continue
+                                try:
+                                    pid = personality_repo.resolve_name_to_personality_id(player.name)
+                                except Exception:
+                                    pid = None
+                                if pid:
+                                    cash_personality_ids[player.name] = pid
+                            current_game_data['cash_mode'] = True
+                            current_game_data['cash_stake_label'] = stake_label
+                            current_game_data['cash_personality_ids'] = cash_personality_ids
                         # Recover from games persisted mid-all-in-runout (server
                         # crash while run_it_out=True). Without this, the player
                         # sees a stuck state with no action buttons (the UI
