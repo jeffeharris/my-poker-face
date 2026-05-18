@@ -34,7 +34,9 @@ from cash_mode.bankroll import (
     project_bankroll,
 )
 from cash_mode.sponsor_offers import (
+    PersonalitySponsorOffer,
     compute_offers_for_table,
+    compute_personality_offers,
     offer_for_archetype,
 )
 from cash_mode.stakes import (
@@ -590,7 +592,17 @@ def start_cash_session():
 def sponsor_offers_for_stake():
     """GET /api/cash/sponsor-offers?stake_label=$10
 
-    Returns up to 3 sampled sponsor offers for the requested stake.
+    Returns up to 3 sponsor offers for the requested stake — Path B
+    mixes named AI personalities with anonymous "house" archetypes.
+
+    Personality offers come first (sorted by lender capacity desc),
+    filtered through `compute_personality_offers`' four eligibility
+    gates (willing / capacity / respect_floor / heat_ceiling). The
+    candidate pool is the cash-eligible personality roster — the
+    same set `_build_cash_game` draws seats from. If fewer than 3
+    personalities qualify, anonymous house archetypes fill the rest;
+    they're always available as a fallback when no AI will lend.
+
     Validates that the player is sponsor-eligible at this tier; if
     not, returns a structured rejection the frontend can render
     ("locked tier — earn $X to unlock").
@@ -622,38 +634,125 @@ def sponsor_offers_for_stake():
         }), 200
 
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
-    offers = compute_offers_for_table(min_buy_in, max_buy_in)
+
+    # Path B: assemble personality offers first.
+    from flask_app.extensions import (
+        bankroll_repo, personality_repo, relationship_repo,
+    )
+    candidates = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
+    personality_offers = compute_personality_offers(
+        player_owner_id=owner_id,
+        min_buy_in=min_buy_in,
+        max_buy_in=max_buy_in,
+        candidate_personalities=candidates,
+        bankroll_repo=bankroll_repo,
+        relationship_repo=relationship_repo,
+        count=3,
+    )
+
+    # House fallback: fill the remainder up to 3 with anonymous archetypes.
+    house_slots = max(0, 3 - len(personality_offers))
+    house_offers = (
+        compute_offers_for_table(min_buy_in, max_buy_in, count=house_slots)
+        if house_slots > 0 else []
+    )
+
+    response_offers = []
+    for po in personality_offers:
+        response_offers.append({
+            "kind": "personality",
+            "lender_id": po.lender_id,
+            "name": po.lender_name,
+            "amount": po.amount,
+            "floor": po.floor,
+            "rate": po.rate,
+            "flavor": po.flavor,
+            "relationship_hint": po.relationship_hint,
+        })
+    for ho in house_offers:
+        response_offers.append({
+            "kind": "house",
+            "archetype_id": ho.archetype_id,
+            "name": ho.name,
+            "amount": ho.amount,
+            "floor": ho.floor,
+            "rate": ho.rate,
+            "flavor": ho.flavor,
+        })
+
     return jsonify({
         "eligible": True,
         "stake_label": stake_label,
-        "offers": [
-            {
-                "archetype_id": o.archetype_id,
-                "name": o.name,
-                "amount": o.amount,
-                "floor": o.floor,
-                "rate": o.rate,
-                "flavor": o.flavor,
-            }
-            for o in offers
-        ],
+        "offers": response_offers,
     })
+
+
+def _materialize_personality_offer(
+    *,
+    lender_id: str,
+    player_owner_id: str,
+    min_buy_in: int,
+    max_buy_in: int,
+    bankroll_repo,
+    personality_repo,
+    relationship_repo,
+) -> Optional[PersonalitySponsorOffer]:
+    """Server-side: re-derive a personality offer fresh for sponsor-and-sit.
+
+    Mirrors `offer_for_archetype` — the client only sends an id, and
+    the server recomputes the concrete terms from authoritative state
+    (lender's projected bankroll, relationship axes). A tampered
+    client can't grift better terms than the lender's profile +
+    relationship permits.
+
+    Returns None if the named lender doesn't qualify (unwilling, broke,
+    respect floor / heat ceiling violations, missing personality).
+    The caller treats None as a tampering or stale-offer condition.
+    """
+    # Locate the candidate in the eligible pool — same pool the
+    # sponsor-offers route surfaces, so we can't sit with a lender
+    # who wasn't actually offered.
+    candidates = personality_repo.list_eligible_for_cash_mode(user_id=player_owner_id)
+    match = next((c for c in candidates if c.get("personality_id") == lender_id), None)
+    if match is None:
+        return None
+
+    offers = compute_personality_offers(
+        player_owner_id=player_owner_id,
+        min_buy_in=min_buy_in,
+        max_buy_in=max_buy_in,
+        candidate_personalities=[match],
+        bankroll_repo=bankroll_repo,
+        relationship_repo=relationship_repo,
+        count=1,
+    )
+    return offers[0] if offers else None
 
 
 @cash_bp.route("/api/cash/sponsor-and-sit", methods=["POST"])
 def sponsor_and_sit():
-    """POST /api/cash/sponsor-and-sit body: {stake_label, archetype_id, opponents?}
+    """POST /api/cash/sponsor-and-sit
+       body: {stake_label, archetype_id | lender_id, opponents?}
 
-    Atomic: validate sponsor eligibility, look up archetype, build
-    the cash game with `loan.amount` as the player's starting stack,
-    record the loan terms on `player_bankroll_state`. The loan never
-    lands in bankroll — it goes directly to the table stack, closing
-    the "pocket the spare loan" exploit by construction.
+    Atomic: validate sponsor eligibility, look up archetype OR
+    personality lender, build the cash game with `loan.amount` as the
+    player's starting stack, record the loan terms on
+    `player_bankroll_state`. The loan never lands in bankroll — it
+    goes directly to the table stack, closing the "pocket the spare
+    loan" exploit by construction.
 
-    The client only sends `archetype_id`; the server recomputes the
-    concrete amount/floor/rate from the archetype + table window,
-    so a tampered client can't grift better terms than the archetype
-    defines.
+    Two paths:
+      - `archetype_id` (string) → anonymous house archetype (v1
+        sponsorship). `active_loan_lender_id` stays NULL.
+      - `lender_id` (string) → Path B personality sponsorship. The
+        offer is re-materialized server-side from the lender's
+        projected bankroll + the relationship axes — clients can't
+        tamper. `active_loan_lender_id` is set to `lender_id`, so
+        leave-time settlement routes sponsor_total back to the AI
+        lender's bankroll (commit 5).
+
+    Either field can be present; exactly one is required. Sending
+    both is rejected to make the source-of-truth unambiguous.
     """
     try:
         owner_id = _resolve_owner_id()
@@ -663,6 +762,7 @@ def sponsor_and_sit():
     payload = request.get_json(silent=True) or {}
     stake_label = payload.get("stake_label")
     archetype_id = payload.get("archetype_id")
+    lender_id = payload.get("lender_id")
     opponent_count = int(payload.get("opponents", 5))
 
     if stake_label not in STAKES_LADDER:
@@ -670,8 +770,18 @@ def sponsor_and_sit():
             "error": "Invalid stake_label",
             "valid_stakes": list(STAKES_LADDER.keys()),
         }), 400
-    if not isinstance(archetype_id, str) or not archetype_id:
-        return jsonify({"error": "archetype_id is required"}), 400
+    if archetype_id and lender_id:
+        return jsonify({
+            "error": "Send either archetype_id (house) or lender_id (personality), not both",
+        }), 400
+    if not archetype_id and not lender_id:
+        return jsonify({
+            "error": "archetype_id or lender_id is required",
+        }), 400
+    if archetype_id is not None and not isinstance(archetype_id, str):
+        return jsonify({"error": "archetype_id must be a string"}), 400
+    if lender_id is not None and not isinstance(lender_id, str):
+        return jsonify({"error": "lender_id must be a string"}), 400
 
     existing = _find_active_cash_game_id(owner_id)
     if existing is not None:
@@ -680,7 +790,9 @@ def sponsor_and_sit():
             "game_id": existing,
         }), 409
 
-    from flask_app.extensions import bankroll_repo
+    from flask_app.extensions import (
+        bankroll_repo, personality_repo, relationship_repo,
+    )
     bankroll = _load_or_seed_player_bankroll(owner_id)
 
     if not is_sponsor_eligible(bankroll.chips, stake_label):
@@ -690,18 +802,50 @@ def sponsor_and_sit():
         }), 400
 
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
-    offer = offer_for_archetype(archetype_id, min_buy_in, max_buy_in)
-    if offer is None:
-        return jsonify({"error": f"Unknown sponsor archetype {archetype_id!r}"}), 400
+
+    # Resolve to a concrete offer — server-side, fresh from authoritative
+    # state, no client trust.
+    if lender_id:
+        personality_offer = _materialize_personality_offer(
+            lender_id=lender_id,
+            player_owner_id=owner_id,
+            min_buy_in=min_buy_in,
+            max_buy_in=max_buy_in,
+            bankroll_repo=bankroll_repo,
+            personality_repo=personality_repo,
+            relationship_repo=relationship_repo,
+        )
+        if personality_offer is None:
+            return jsonify({
+                "error": (
+                    f"Lender {lender_id!r} doesn't qualify for a loan right now"
+                ),
+            }), 400
+        offer_amount = personality_offer.amount
+        offer_floor = personality_offer.floor
+        offer_rate = personality_offer.rate
+        welcome_lender_label = personality_offer.lender_name
+        offer_lender_id = lender_id
+    else:
+        house_offer = offer_for_archetype(archetype_id, min_buy_in, max_buy_in)
+        if house_offer is None:
+            return jsonify({
+                "error": f"Unknown sponsor archetype {archetype_id!r}",
+            }), 400
+        offer_amount = house_offer.amount
+        offer_floor = house_offer.floor
+        offer_rate = house_offer.rate
+        welcome_lender_label = house_offer.name
+        offer_lender_id = None
 
     # Build + register the game with loan.amount as the starting stack.
     game_id, err = _build_cash_game(
         owner_id=owner_id,
         stake_label=stake_label,
-        player_starting_stack=offer.amount,
+        player_starting_stack=offer_amount,
         welcome_message=(
             f"*** Cash table {stake_label} — sponsored sit-down "
-            f"({offer.name}: ${offer.amount}) ***"
+            f"({welcome_lender_label}: ${offer_amount}) ***"
         ),
         opponent_count=opponent_count,
     )
@@ -714,28 +858,46 @@ def sponsor_and_sit():
         player_id=bankroll.player_id,
         chips=bankroll.chips,
         starting_bankroll=bankroll.starting_bankroll,
-        active_loan_amount=offer.amount,
-        active_loan_floor=offer.floor,
-        active_loan_rate=offer.rate,
+        active_loan_amount=offer_amount,
+        active_loan_floor=offer_floor,
+        active_loan_rate=offer_rate,
+        active_loan_lender_id=offer_lender_id,
     ))
 
-    logger.info(
-        "[CASH] Sponsored sit %r owner=%r stake=%r archetype=%r "
-        "amount=%d floor=%.2f rate=%.2f",
-        game_id, owner_id, stake_label, archetype_id,
-        offer.amount, offer.floor, offer.rate,
-    )
+    if lender_id:
+        logger.info(
+            "[CASH] Sponsored sit %r owner=%r stake=%r lender=%r "
+            "amount=%d floor=%.2f rate=%.2f",
+            game_id, owner_id, stake_label, lender_id,
+            offer_amount, offer_floor, offer_rate,
+        )
+    else:
+        logger.info(
+            "[CASH] Sponsored sit %r owner=%r stake=%r archetype=%r "
+            "amount=%d floor=%.2f rate=%.2f",
+            game_id, owner_id, stake_label, archetype_id,
+            offer_amount, offer_floor, offer_rate,
+        )
+
+    response_offer = {
+        "name": welcome_lender_label,
+        "amount": offer_amount,
+        "floor": offer_floor,
+        "rate": offer_rate,
+    }
+    if lender_id:
+        response_offer["kind"] = "personality"
+        response_offer["lender_id"] = lender_id
+        response_offer["flavor"] = personality_offer.flavor
+        response_offer["relationship_hint"] = personality_offer.relationship_hint
+    else:
+        response_offer["kind"] = "house"
+        response_offer["archetype_id"] = archetype_id
+        response_offer["flavor"] = house_offer.flavor
 
     return jsonify({
         "game_id": game_id,
-        "offer": {
-            "archetype_id": offer.archetype_id,
-            "name": offer.name,
-            "amount": offer.amount,
-            "floor": offer.floor,
-            "rate": offer.rate,
-            "flavor": offer.flavor,
-        },
+        "offer": response_offer,
     })
 
 
