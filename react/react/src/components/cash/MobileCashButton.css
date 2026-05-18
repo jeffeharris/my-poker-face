@@ -1,38 +1,42 @@
-/* Floating cash button — bottom-left corner.
- *
- * Sized to read at a glance but not crowd the action buttons or
- * floating chat. Sits above the mobile action area; sibling-ish
- * to CoachButton positioning.
- */
+/* MobileCashButton — gold pill in the upper-left, below the menu
+ * bar. Styled like .hero-bet (the bet pill) so it reads as a
+ * first-class table chip rather than a floating dev widget. */
 
 .mobile-cash-button {
   position: fixed;
+  top: max(env(safe-area-inset-top), 56px); /* below the menu bar */
   left: 12px;
-  bottom: 96px; /* above the action buttons row */
   z-index: 30;
 
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.5rem 0.75rem;
+  padding: clamp(4px, 0.8dvh, 8px) clamp(10px, 1.6dvh, 14px);
 
-  background: rgba(18, 20, 28, 0.92);
-  border: 1px solid rgba(212, 165, 116, 0.30);
-  border-radius: 999px;
-  color: #fbeac9;
-  font-weight: 600;
-  font-size: 0.875rem;
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1.8dvh, 14px);
+  font-weight: var(--font-weight-bold);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+
+  color: var(--color-bg-void);
+  background: var(--gradient-gold);
+  border: none;
+  border-radius: var(--radius-full);
   cursor: pointer;
 
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
-  transition: transform 0.15s ease-out, background 0.15s;
+  box-shadow:
+    0 0 16px rgba(212, 165, 116, 0.45),
+    0 4px 12px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: transform 0.15s ease-out, box-shadow 0.15s;
 }
 
 .mobile-cash-button:hover {
-  background: rgba(28, 30, 40, 0.95);
+  box-shadow:
+    0 0 20px rgba(212, 165, 116, 0.6),
+    0 4px 14px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .mobile-cash-button:active {
@@ -40,7 +44,8 @@
 }
 
 .mobile-cash-button__icon {
-  color: #d4a574;
+  color: var(--color-bg-void);
+  opacity: 0.85;
 }
 
 .mobile-cash-button__amount {
