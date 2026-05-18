@@ -7,6 +7,12 @@ last_updated: 2026-05-18
 
 # Cash Mode v1 — Wiring Plan (commit 3)
 
+**Status: implemented, shipped on `phase-1` branch.** Commit 3 (split
+into 3a/3b/3c: `004b15e8`, `02daf1c8`, `3375696f`) implemented the
+session orchestrator per this plan. Commits 4-7 follow with quit/
+disconnect, Flask routes, React UI, and the sanity script. v1 closed
+out on 2026-05-18.
+
 This is the integration design for the cash-mode hand orchestration
 commit. It's a proposal — open to redirection before code lands.
 

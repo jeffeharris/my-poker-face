@@ -2,7 +2,7 @@
 purpose: Prioritized roadmap for the next phase — competitive bot quality, cash mode with relationships, and a conditional decision on solver build
 type: vision
 created: 2026-05-17
-last_updated: 2026-05-17
+last_updated: 2026-05-18
 revision: 3 — folds in completed personality_id foundation, incorporates consultancy review (Gate 1 framing, equity-bias correction, cash mode estimate range, merge-point hardening, backout plan exception, LAG split possibility, cloud cost line, play-test rigor, "done" definition, calendar column relabel)
 ---
 
@@ -280,11 +280,13 @@ After Phase 3, the relationship layer is fully live from hand outcomes. Chat inp
 
 ---
 
-### Bucket 5: Cash Mode v1
+### Bucket 5: Cash Mode v1 ✅ SHIPPED
 
 **What it is**
 
 A new game mode alongside the existing SNG flow. Single-table cash game with persistent bankrolls, sit/leave/top-up between hands, AI bankrolls that regen over real time (pure projection on read), and bust handling with mid-hand quit and disconnect grace window. Fully specified in `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 2.
+
+**Status: shipped on `phase-1` branch (commits `613c0e9b` → `bcfe4a69`).** Eleven commits land schema v88 + cash_mode/ package + Flask routes + React UI + sanity script. Per-personality bankroll knobs tuned for all 53 seeded personalities. 116 tests passing across the cash-mode surface. See `docs/plans/CASH_MODE_V1_HANDOFF.md` (post-mortem updated) and `docs/plans/CASH_MODE_V1_WIRING_PLAN.md` (codex-vetted design).
 
 **v1 scope**
 
@@ -313,6 +315,8 @@ A new game mode alongside the existing SNG flow. Single-table cash game with per
 **Dependencies**: Relationship Phases 1–3 must complete first. Personality ID migration is the shared prerequisite. The `cash_mode/` package is a new directory sharing the hand engine without requiring engine modifications.
 
 **Effort** (revised per consultancy critique #2): Large, **3–4 weeks coding, 5 if migration surprises surface**. The original "2–3 weeks" estimate was optimistic. Honest scope: new package; new persistence tables; new orchestration layer; bankroll accounting (8 documented edge cases in the design doc); sit/leave/top-up with exact accounting order; side-pot accounting tests; mid-hand quit semantics; 60s disconnect grace window; `cumulative_pnl` chip-flow allocation; bankroll-knob loading from `PersonalityRecord`. Plus the personality_id migration's collision blast on every game-load path (Track B step 1 must be fully landed first).
+
+**Actual: shipped in ~11 commits across one session.** Two design pivots during implementation: (1) bankroll knobs moved from columns to a `config_json` sub-dict (matches existing pattern), (2) AI bankroll shim → dedicated `sit_down_ai` sibling function (codex flagged that the synthetic-wrapper approach buried `last_regen_tick` invariants). The codex-vetted wiring plan (`CASH_MODE_V1_WIRING_PLAN.md`) caught 10 concerns before code landed — biggest reversals were settlement-delta-arithmetic (replaced with direct `Player.stack` sync) and double-settlement-guard (state machine must not advance past `EVALUATING_HAND`).
 
 ---
 

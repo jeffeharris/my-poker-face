@@ -7,6 +7,13 @@ last_updated: 2026-05-18
 
 # Cash Mode v1 — Handoff
 
+**Status: SHIPPED on `phase-1` (commits `613c0e9b` → `bcfe4a69`).**
+116 tests passing across the cash-mode surface. v2 unblocked.
+This handoff is kept as the historical record of the implementation
+plan + post-mortem; the canonical spec
+`CASH_MODE_AND_RELATIONSHIPS.md` Part 2 marks v1 as shipped and is
+the source of truth for v2/v3 work.
+
 This doc gets a fresh context up to speed on what's done, what's
 next, and the smallest set of files to read before touching code.
 Treat the canonical design doc (`CASH_MODE_AND_RELATIONSHIPS.md`

@@ -2,7 +2,7 @@
 purpose: Design for the relationship/affinity layer and a multi-table cash-game mode that consumes it
 type: design
 created: 2026-05-16
-last_updated: 2026-05-16
+last_updated: 2026-05-18
 ---
 
 # Cash Mode and Relationships
@@ -413,7 +413,9 @@ Cash mode is a **new mode**, not a tweak. The current state machine assumes one-
 
 Lives in a new `cash_mode/` package alongside existing orchestration. **Shares the hand engine.**
 
-### v1 scope (single-table foundation)
+### v1 scope (single-table foundation) — SHIPPED
+
+**Status**: Shipped on the `phase-1` branch (commits `613c0e9b` → `bcfe4a69`, May 2026). Per-personality bankroll knobs tuned for all 53 seeded personalities; 116 tests passing. v2 unblocked. See `CASH_MODE_V1_WIRING_PLAN.md` for the codex-vetted implementation design.
 
 **Per codex review, v1 cash mode is a single cash table with persistent bankroll.** This proves bankroll/stack accounting, persistence semantics, and the integration with the relationship layer's tier-modifier seam before adding the multi-table lobby complexity.
 
