@@ -50,19 +50,38 @@ class AIBankrollState:
 class PlayerBankrollState:
     """Per-player persistent bankroll.
 
-    Player bankrolls do **not** regen in v1 — the player gets a
-    fresh-grant on full bust (Part 2 §"Bust semantics") and no passive
-    refill. The dataclass shape matches `AIBankrollState` for
-    symmetry but the projection function isn't called for players.
+    Player bankrolls do **not** regen in v1 — the player picks a
+    sponsor at `/cash` entry when bankroll falls below the cheapest
+    table's min buy-in, and no passive refill happens. The dataclass
+    shape matches `AIBankrollState` for symmetry but the projection
+    function isn't called for players.
 
-    `starting_bankroll` is the fresh-grant value reset to on full
-    bust. Per-player to keep the door open for staking / character
-    progression to alter this in the future without a migration.
+    `starting_bankroll` is the seed grant for first-time entry. Kept
+    per-row so future staking / character progression can alter it
+    without a schema migration.
+
+    `active_loan_amount`, `active_loan_floor`, `active_loan_rate`
+    encode the session-scoped sponsor loan when one is active (v89).
+    Reset to 0/0.0/0.0 on `/api/cash/leave` after settlement.
+
+      - `active_loan_amount`: principal in chips (0 = no loan)
+      - `active_loan_floor`: repayment multiplier on the principal
+        (e.g., 1.30 = player must repay 130% of principal from
+        chips-at-table before any split kicks in)
+      - `active_loan_rate`: sponsor's cut of post-floor remaining
+        chips (e.g., 0.40 = 40% to sponsor, 60% to player)
+
+    See `docs/plans/CASH_MODE_SPONSORSHIP_HANDOFF.md` for the
+    leave-time math and the sponsor archetype pool that produces
+    these triples.
     """
 
     player_id: str
     chips: int
     starting_bankroll: int
+    active_loan_amount: int = 0
+    active_loan_floor: float = 0.0
+    active_loan_rate: float = 0.0
 
 
 @dataclass

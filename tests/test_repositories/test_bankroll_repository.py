@@ -132,6 +132,7 @@ class TestSchemaMigrationV88:
             conn.execute("DROP TABLE IF EXISTS ai_bankroll_state")
             conn.execute("DROP TABLE IF EXISTS player_bankroll_state")
             conn.execute("DELETE FROM schema_version WHERE version = 88")
+            conn.execute("DELETE FROM schema_version WHERE version = 89")
             conn.commit()
         # Re-run ensure_schema → should re-apply v88
         SchemaManager(path).ensure_schema()
@@ -147,6 +148,67 @@ class TestSchemaMigrationV88:
                 "SELECT description FROM schema_version WHERE version = 88"
             ).fetchone()
             assert v88_row is not None
+
+
+class TestSchemaMigrationV89:
+    def test_player_bankroll_state_has_loan_columns(self, db_path):
+        with sqlite3.connect(db_path) as conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(player_bankroll_state)")}
+            assert "active_loan_amount" in cols
+            assert "active_loan_floor" in cols
+            assert "active_loan_rate" in cols
+
+    def test_legacy_rows_default_to_no_loan(self, db_path):
+        # Insert a row using the pre-v89 column set; the new columns
+        # should default to 0/0.0/0.0 from the schema definition.
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO player_bankroll_state "
+                "(player_id, chips, starting_bankroll) VALUES (?, ?, ?)",
+                ("legacy_player", 1_500, 1_500),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT active_loan_amount, active_loan_floor, active_loan_rate "
+                "FROM player_bankroll_state WHERE player_id = ?",
+                ("legacy_player",),
+            ).fetchone()
+            assert row == (0, 0.0, 0.0)
+
+    def test_idempotent_on_rerun(self, db_path):
+        # Running v89 twice must be a no-op — the ALTERs are PRAGMA-guarded.
+        sm = SchemaManager.__new__(SchemaManager)
+        with sqlite3.connect(db_path) as conn:
+            sm._migrate_v89_add_loan_fields_to_player_bankroll(conn)
+            sm._migrate_v89_add_loan_fields_to_player_bankroll(conn)
+
+    def test_migrates_from_pre_v89_db(self, tmp_path):
+        """A DB at v88 should migrate up to v89 when ensure_schema runs."""
+        path = str(tmp_path / "v88.db")
+        SchemaManager(path).ensure_schema()
+        # Simulate pre-v89: drop the three loan columns by rebuilding the
+        # table with the v88 shape, then strip the v89 row.
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TABLE player_bankroll_state")
+            conn.execute(
+                "CREATE TABLE player_bankroll_state ("
+                "player_id TEXT PRIMARY KEY, "
+                "chips INTEGER NOT NULL DEFAULT 0, "
+                "starting_bankroll INTEGER NOT NULL DEFAULT 0)"
+            )
+            conn.execute("DELETE FROM schema_version WHERE version = 89")
+            conn.commit()
+        # Re-run ensure_schema → should re-apply v89.
+        SchemaManager(path).ensure_schema()
+        with sqlite3.connect(path) as conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(player_bankroll_state)")}
+            assert "active_loan_amount" in cols
+            assert "active_loan_floor" in cols
+            assert "active_loan_rate" in cols
+            v89_row = conn.execute(
+                "SELECT description FROM schema_version WHERE version = 89"
+            ).fetchone()
+            assert v89_row is not None
 
 
 # --- AI bankroll round-trip ---
@@ -208,6 +270,48 @@ class TestPlayerBankrollRoundTrip:
         repo.save_player_bankroll(PlayerBankrollState("p1", 500, 2_000))
         loaded = repo.load_player_bankroll("p1")
         assert loaded.chips == 500
+
+    def test_default_state_has_no_active_loan(self, repo):
+        # New PlayerBankrollState defaults the v89 loan fields to
+        # 0/0.0/0.0 — i.e., "no active loan."
+        repo.save_player_bankroll(PlayerBankrollState("p_default", 1_000, 1_000))
+        loaded = repo.load_player_bankroll("p_default")
+        assert loaded.active_loan_amount == 0
+        assert loaded.active_loan_floor == 0.0
+        assert loaded.active_loan_rate == 0.0
+
+    def test_round_trip_with_active_loan(self, repo):
+        # Loan-Shark archetype shape: $1000 loan, 1.30 floor, 40% cut.
+        state = PlayerBankrollState(
+            player_id="p_borrower",
+            chips=0,
+            starting_bankroll=200,
+            active_loan_amount=1_000,
+            active_loan_floor=1.30,
+            active_loan_rate=0.40,
+        )
+        repo.save_player_bankroll(state)
+        loaded = repo.load_player_bankroll("p_borrower")
+        assert loaded.active_loan_amount == 1_000
+        assert loaded.active_loan_floor == 1.30
+        assert loaded.active_loan_rate == 0.40
+
+    def test_save_clears_loan_on_settlement(self, repo):
+        # Take a loan, then settle it on leave — fields zero out.
+        repo.save_player_bankroll(PlayerBankrollState(
+            "p_settled", 0, 200, active_loan_amount=500,
+            active_loan_floor=1.10, active_loan_rate=0.25,
+        ))
+        # Simulate leave-time math clearing the loan.
+        repo.save_player_bankroll(PlayerBankrollState(
+            "p_settled", 300, 200,
+            active_loan_amount=0, active_loan_floor=0.0, active_loan_rate=0.0,
+        ))
+        loaded = repo.load_player_bankroll("p_settled")
+        assert loaded.chips == 300
+        assert loaded.active_loan_amount == 0
+        assert loaded.active_loan_floor == 0.0
+        assert loaded.active_loan_rate == 0.0
 
 
 # --- Personality knob loading ---

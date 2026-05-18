@@ -76,7 +76,7 @@ logger = logging.getLogger(__name__)
 #      stake_comfort_zone) live inside config_json as a `bankroll_knobs` sub-dict — same
 #      convention as `anchors`. The BankrollRepository falls back to BANKROLL_KNOB_DEFAULTS
 #      per-field, so personalities without bankroll_knobs in their JSON land at sane defaults.
-SCHEMA_VERSION = 88
+SCHEMA_VERSION = 89
 
 
 
@@ -406,16 +406,21 @@ class SchemaManager:
                 )
             """)
 
-            # 10e. Player bankroll state (v88) — per-player persistent bankroll.
-            #      `starting_bankroll` is the fresh-grant reset value on full
-            #      bust (Part 2 §"Bust semantics"). Player bankrolls do not
-            #      regen in v1 — the column is shaped for future symmetry
-            #      with AI but `project_bankroll` is not called for players.
+            # 10e. Player bankroll state (v88, loan fields added v89) —
+            #      per-player persistent bankroll. `starting_bankroll` is
+            #      the seed grant on first entry. The `active_loan_*`
+            #      columns (v89) encode a session-scoped sponsor loan;
+            #      all three reset to 0/0.0/0.0 on `/api/cash/leave` after
+            #      the leave-time math settles the loan. Loans do NOT
+            #      persist across sessions in v1.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS player_bankroll_state (
                     player_id TEXT PRIMARY KEY,
                     chips INTEGER NOT NULL DEFAULT 0,
-                    starting_bankroll INTEGER NOT NULL DEFAULT 0
+                    starting_bankroll INTEGER NOT NULL DEFAULT 0,
+                    active_loan_amount INTEGER NOT NULL DEFAULT 0,
+                    active_loan_floor REAL NOT NULL DEFAULT 0.0,
+                    active_loan_rate REAL NOT NULL DEFAULT 0.0
                 )
             """)
 
@@ -1206,6 +1211,7 @@ class SchemaManager:
             86: (self._migrate_v86_add_opponent_model_ids, "Add observer_id + opponent_id to opponent_models and backfill via personality name lookup"),
             87: (self._migrate_v87_add_relationship_tables, "Add relationship_states + cash_pair_stats tables for cross-session affinity and cash-mode PnL"),
             88: (self._migrate_v88_add_bankroll_tables, "Add ai_bankroll_state + player_bankroll_state tables and bankroll knob columns on personalities for cash mode v1"),
+            89: (self._migrate_v89_add_loan_fields_to_player_bankroll, "Add active_loan_amount, active_loan_floor, active_loan_rate to player_bankroll_state for cash mode sponsorship"),
         }
 
         with self._get_connection() as conn:
@@ -3938,3 +3944,36 @@ class SchemaManager:
             )
         """)
         logger.info("v88: created ai_bankroll_state + player_bankroll_state")
+
+    def _migrate_v89_add_loan_fields_to_player_bankroll(self, conn: sqlite3.Connection) -> None:
+        """Migration v89: Add sponsor-loan columns to player_bankroll_state.
+
+        Three columns added for the cash-mode sponsorship mechanic:
+          - active_loan_amount: principal in chips (0 = no active loan)
+          - active_loan_floor:  repayment multiplier on principal
+                                (e.g., 1.30 = repay 130% before split)
+          - active_loan_rate:   sponsor's cut of post-floor remaining
+
+        All session-scoped; reset to defaults on `/api/cash/leave`.
+        Legacy rows default cleanly (0 amount → no loan flow triggers).
+
+        Idempotent: each ALTER is PRAGMA-guarded so re-running is safe.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_bankroll_state)")
+        cols = {row[1] for row in cursor}
+        if "active_loan_amount" not in cols:
+            conn.execute(
+                "ALTER TABLE player_bankroll_state "
+                "ADD COLUMN active_loan_amount INTEGER NOT NULL DEFAULT 0"
+            )
+        if "active_loan_floor" not in cols:
+            conn.execute(
+                "ALTER TABLE player_bankroll_state "
+                "ADD COLUMN active_loan_floor REAL NOT NULL DEFAULT 0.0"
+            )
+        if "active_loan_rate" not in cols:
+            conn.execute(
+                "ALTER TABLE player_bankroll_state "
+                "ADD COLUMN active_loan_rate REAL NOT NULL DEFAULT 0.0"
+            )
+        logger.info("v89: added active_loan_* columns to player_bankroll_state")

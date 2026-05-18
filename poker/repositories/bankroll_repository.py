@@ -154,15 +154,29 @@ class BankrollRepository(BaseRepository):
     # --- Player bankroll ---
 
     def save_player_bankroll(self, state: PlayerBankrollState) -> None:
-        """Upsert the player bankroll row."""
+        """Upsert the player bankroll row.
+
+        Writes the full state including v89 loan fields. Callers
+        clearing a settled loan must set `active_loan_amount=0`,
+        `active_loan_floor=0.0`, `active_loan_rate=0.0` on the state
+        before saving — no implicit reset here.
+        """
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO player_bankroll_state
-                    (player_id, chips, starting_bankroll)
-                VALUES (?, ?, ?)
+                    (player_id, chips, starting_bankroll,
+                     active_loan_amount, active_loan_floor, active_loan_rate)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (state.player_id, state.chips, state.starting_bankroll),
+                (
+                    state.player_id,
+                    state.chips,
+                    state.starting_bankroll,
+                    state.active_loan_amount,
+                    state.active_loan_floor,
+                    state.active_loan_rate,
+                ),
             )
 
     def load_player_bankroll(self, player_id: str) -> Optional[PlayerBankrollState]:
@@ -171,11 +185,15 @@ class BankrollRepository(BaseRepository):
         Returns None when no row exists; the caller decides whether
         to grant a starting bankroll (first-time entry into cash
         mode) or refuse the operation.
+
+        Legacy pre-v89 rows return with loan fields at their column
+        defaults (0/0.0/0.0) — i.e., "no active loan."
         """
         with self._get_connection() as conn:
             row = conn.execute(
                 """
-                SELECT chips, starting_bankroll
+                SELECT chips, starting_bankroll,
+                       active_loan_amount, active_loan_floor, active_loan_rate
                 FROM player_bankroll_state
                 WHERE player_id = ?
                 """,
@@ -187,6 +205,9 @@ class BankrollRepository(BaseRepository):
                 player_id=player_id,
                 chips=row["chips"],
                 starting_bankroll=row["starting_bankroll"],
+                active_loan_amount=row["active_loan_amount"],
+                active_loan_floor=row["active_loan_floor"],
+                active_loan_rate=row["active_loan_rate"],
             )
 
     # --- Personality bankroll knobs ---
