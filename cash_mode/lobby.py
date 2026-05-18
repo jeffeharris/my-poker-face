@@ -26,9 +26,17 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
+import random
+from typing import Callable, Tuple
+
 from cash_mode.bankroll import (
     AIBankrollState,
     project_bankroll,
+)
+from cash_mode.movement import (
+    DEFAULT_LIVE_FILL_PROB,
+    RosterRefreshResult,
+    refresh_table_roster,
 )
 from cash_mode.stakes import (
     STAKES_LADDER,
@@ -38,6 +46,7 @@ from cash_mode.stakes import (
 from cash_mode.tables import (
     BASELINE_AI_SEATS,
     CashTableState,
+    IdlePoolEntry,
     TABLE_SEAT_COUNT,
     ai_slot,
     open_slot,
@@ -173,6 +182,123 @@ def ensure_lobby_seeded(
         )
 
     return out_tables
+
+
+def _global_seated_set(tables: List[CashTableState]) -> Set[str]:
+    """Return personality_ids currently in any table's AI slot."""
+    out: Set[str] = set()
+    for t in tables:
+        for slot in t.seats:
+            if slot["kind"] == "ai":
+                out.add(slot["personality_id"])
+    return out
+
+
+def refresh_unseated_tables(
+    *,
+    cash_table_repo,
+    personality_repo,
+    bankroll_repo,
+    rng: Optional[random.Random] = None,
+    now: Optional[datetime] = None,
+    user_id: Optional[str] = None,
+    live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
+) -> Dict[str, RosterRefreshResult]:
+    """Run a movement+live-fill refresh on every table without a human.
+
+    Called from `GET /api/cash/lobby` (lazy cadence — see handoff
+    §"Cadence"). For each table whose seats don't include a `"human"`
+    slot, evaluates AI movement and rolls live-fill probability on
+    open seats. Persists table + idle-pool changes through the repos.
+
+    Tables with a human seated are skipped here: the hand-boundary
+    refresh hook in commit 7 covers those. Two separate cadences keep
+    the rolls cheap and avoid running movement twice per hand.
+
+    Returns `{table_id: RosterRefreshResult}` for the refreshed tables
+    so callers can log/inspect. Empty dict means nothing was refreshed.
+    """
+    if rng is None:
+        rng = random.Random()
+    if now is None:
+        now = datetime.utcnow()
+
+    tables = cash_table_repo.list_all_tables()
+    idle_pool = cash_table_repo.list_idle()
+    seated_globally = _global_seated_set(tables)
+    eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
+
+    def _bankroll_lookup(pid: str) -> Optional[int]:
+        return bankroll_repo.load_ai_bankroll_current(pid, now=now)
+
+    def _buy_in_lookup(pid: str) -> int:
+        # Map back to a table buy-in: needs the stake_label of the
+        # destination table. We close over the current iteration's
+        # `table.stake_label` via the outer scope.
+        return _current_table_buy_in[pid]
+
+    out: Dict[str, RosterRefreshResult] = {}
+    for table in tables:
+        if table.human_seat_index() is not None:
+            # Active session table; the hand-boundary hook handles it.
+            continue
+
+        big_blind, table_min_buy_in, table_max_buy_in = table_buy_in_window(table.stake_label)
+        try:
+            stake_idx = STAKES_ORDER.index(table.stake_label)
+        except ValueError:
+            continue
+        next_tier_min_buy_in: Optional[int] = None
+        if stake_idx + 1 < len(STAKES_ORDER):
+            _, nxt_min, _ = table_buy_in_window(STAKES_ORDER[stake_idx + 1])
+            next_tier_min_buy_in = nxt_min
+
+        # Build a per-table buy-in lookup that honors per-personality
+        # `buy_in_multiplier`. Computed once per table; passed into the
+        # pure helper.
+        _current_table_buy_in: Dict[str, int] = {}
+
+        def _buy_in_for(pid: str) -> int:
+            if pid in _current_table_buy_in:
+                return _current_table_buy_in[pid]
+            knobs = bankroll_repo.load_personality_knobs(pid)
+            threshold = round(table_min_buy_in * knobs.buy_in_multiplier)
+            value = min(threshold, table_max_buy_in)
+            _current_table_buy_in[pid] = value
+            return value
+
+        result = refresh_table_roster(
+            table,
+            idle_pool=idle_pool,
+            eligible_candidates=eligible,
+            seated_globally=seated_globally,
+            bankroll_lookup=_bankroll_lookup,
+            buy_in_lookup=_buy_in_for,
+            rng=rng,
+            now=now,
+            stake_idx=stake_idx,
+            table_min_buy_in=table_min_buy_in,
+            table_max_buy_in=table_max_buy_in,
+            next_tier_min_buy_in=next_tier_min_buy_in,
+            live_fill_prob=live_fill_prob,
+        )
+
+        # Persist the table (always — last_activity_at bumps) and idle
+        # pool changes.
+        cash_table_repo.save_table(result.new_table, now=now)
+        for change in result.idle_changes:
+            if change.kind == "add" and change.entry is not None:
+                cash_table_repo.save_idle(change.entry)
+            elif change.kind == "remove":
+                cash_table_repo.delete_idle(change.personality_id)
+
+        # Refresh idle_pool snapshot so the next iteration sees the
+        # updated state (we may have added or removed entries).
+        idle_pool = cash_table_repo.list_idle()
+
+        out[table.table_id] = result
+
+    return out
 
 
 def kill_all_cash_sessions(

@@ -1281,6 +1281,137 @@ def top_up():
     })
 
 
+@cash_bp.route("/api/cash/lobby", methods=["GET"])
+def get_lobby():
+    """GET /api/cash/lobby — multi-table lobby snapshot.
+
+    Returns the player's bankroll + a list of all persistent tables
+    with their seat rosters. Each AI seat carries a `relationship_hint`
+    derived from the lender's POV of the player (same surface
+    SponsorModal uses).
+
+    Side-effect: runs `refresh_unseated_tables` on every table without
+    a `"human"` slot before serializing. This is how the lobby stays
+    cycling without a background daemon — movement + live-fill happen
+    lazily on every read. Tables with a human seated are skipped here
+    (the hand-boundary hook covers them in commit 7).
+
+    Response shape:
+
+      {
+        "bankroll": int,
+        "tables": [
+          {
+            "table_id": str,
+            "stake_label": str,
+            "big_blind": int,
+            "min_buy_in": int,
+            "max_buy_in": int,
+            "affordability": "affordable" | "sponsor_eligible" | "locked",
+            "seats": [
+              {"kind": "open", "index": int}                        |
+              {"kind": "ai", "index": int, "personality_id": str,
+               "name": str, "avatar_url": str|null, "chips": int,
+               "relationship_hint": str}                            |
+              {"kind": "human", "index": int, "personality_id": str,
+               "chips": int}
+            ]
+          },
+          ...
+        ]
+      }
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    from flask_app.extensions import (
+        bankroll_repo, cash_table_repo, personality_repo,
+        relationship_repo,
+    )
+    from cash_mode.lobby import refresh_unseated_tables
+
+    bankroll = _load_or_seed_player_bankroll(owner_id)
+
+    # Read-side movement refresh on unseated tables. The handoff
+    # documents this as intentional: lazy cadence vs. background ticker.
+    try:
+        refresh_unseated_tables(
+            cash_table_repo=cash_table_repo,
+            personality_repo=personality_repo,
+            bankroll_repo=bankroll_repo,
+            user_id=owner_id,
+        )
+    except Exception as e:
+        logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)
+
+    tables = cash_table_repo.list_all_tables()
+
+    response_tables = []
+    for table in tables:
+        big_blind, min_buy_in, max_buy_in = table_buy_in_window(table.stake_label)
+
+        # Affordability tri-state mirrors CashModeEntry's `stakeAvailability`
+        # client logic and `is_sponsor_eligible` server rule.
+        if bankroll.chips >= min_buy_in:
+            affordability = "affordable"
+        elif is_sponsor_eligible(bankroll.chips, table.stake_label):
+            affordability = "sponsor_eligible"
+        else:
+            affordability = "locked"
+
+        serialized_seats = []
+        for idx, slot in enumerate(table.seats):
+            entry = {"index": idx, "kind": slot["kind"]}
+            if slot["kind"] == "ai":
+                pid = slot["personality_id"]
+                personality = None
+                try:
+                    personality = personality_repo.load_personality_by_id(pid)
+                except Exception:
+                    personality = None
+                entry["personality_id"] = pid
+                entry["name"] = (personality or {}).get("name") if personality else pid
+                entry["chips"] = int(slot.get("chips", 0))
+                entry["avatar_url"] = None  # avatars are served separately
+                # Relationship hint: lender's POV of the player.
+                hint = ""
+                try:
+                    rel = relationship_repo.load_relationship_state(
+                        observer_id=pid, opponent_id=owner_id,
+                    )
+                    if rel is not None:
+                        from cash_mode.sponsor_offers import _relationship_hint
+                        hint = _relationship_hint(
+                            likability=rel.likability,
+                            heat=rel.heat,
+                            respect=rel.respect,
+                        )
+                except Exception:
+                    hint = ""
+                entry["relationship_hint"] = hint
+            elif slot["kind"] == "human":
+                entry["personality_id"] = slot.get("personality_id")
+                entry["chips"] = int(slot.get("chips", 0))
+            serialized_seats.append(entry)
+
+        response_tables.append({
+            "table_id": table.table_id,
+            "stake_label": table.stake_label,
+            "big_blind": big_blind,
+            "min_buy_in": min_buy_in,
+            "max_buy_in": max_buy_in,
+            "affordability": affordability,
+            "seats": serialized_seats,
+        })
+
+    return jsonify({
+        "bankroll": bankroll.chips,
+        "tables": response_tables,
+    })
+
+
 @cash_bp.route("/api/cash/state", methods=["GET"])
 def get_state():
     """GET /api/cash/state — entry-screen snapshot.
