@@ -28,7 +28,6 @@ from typing import Any, Dict, Optional
 from flask import Blueprint, jsonify, request
 
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState, project_bankroll
-from cash_mode.seating import full_bankroll_bust
 from cash_mode.sponsor_offers import (
     compute_offers_for_table,
     offer_for_archetype,
@@ -81,15 +80,31 @@ def _resolve_player_name() -> str:
 
 
 def _find_active_cash_game_id(owner_id: str) -> Optional[str]:
-    """Locate the owner's active cash game in game_state_service.
+    """Locate the owner's active cash game.
 
-    Cash games are keyed on the standard `game_id` and tagged with
-    `cash_mode=True`. v1 invariant: one active cash game per owner.
+    First checks `game_state_service.games` (hot, in-memory). On a
+    miss, falls back to the persisted `games` table — `progress_game`
+    auto-saves cash sessions, so a backend reload that wiped the
+    in-memory copy still leaves the row behind under the `cash-`
+    prefix. Returning the id lets `/api/game-state/<id>` cold-load
+    the game back into memory with cash-mode flags restored. v1
+    invariant: one active cash game per owner; if the DB has
+    multiples (e.g., from prior unclean shutdowns) we pick the most
+    recently updated one.
     """
     from flask_app.services import game_state_service
     for gid, gdata in list(game_state_service.games.items()):
         if gdata.get("cash_mode") and gdata.get("owner_id") == owner_id:
             return gid
+
+    from flask_app.extensions import game_repo
+    try:
+        rows = game_repo.list_games(owner_id=owner_id, limit=50, offset=0)
+    except Exception:
+        return None
+    for row in rows:
+        if row.game_id.startswith("cash-"):
+            return row.game_id
     return None
 
 
@@ -656,16 +671,19 @@ def rebuy():
 
 @cash_bp.route("/api/cash/leave", methods=["POST"])
 def leave_table():
-    """POST /api/cash/leave — player stands up.
+    """POST /api/cash/leave — player stands up; sponsor loan settles.
 
-    Between hands: player's stack returns to bankroll. Mid-hand:
-    forfeit (spec §"Bust semantics"). v1 simplification: always
-    return current stack to bankroll regardless — multi-table v2 can
-    refine to the spec's mid-hand-quit forfeit. The tournament-mode
-    flow doesn't have a forfeit concept either, so the simpler v1
-    behavior aligns with what the engine supports out of the box.
+    Pulls the human's current `Player.stack` and applies the
+    leave-time loan math via `settle_loan_on_leave`:
+      - With an active loan: chips_at_table satisfies the floor
+        first, then the sponsor takes their rate of what remains;
+        whatever's left lands back in bankroll. Loan fields reset.
+      - Without an active loan: chips_at_table returns to bankroll
+        verbatim.
 
-    Player bankroll = 0 + table stack = 0 → fresh-grant fires.
+    The old "auto-$5k fresh grant on full bust" branch is gone —
+    a fully busted player walks away with $0 and picks a sponsor
+    at /cash entry to keep playing.
 
     Tears down the game from `game_state_service`.
     """
@@ -678,35 +696,36 @@ def leave_table():
     if game_id is None:
         return jsonify({"error": "No active cash session"}), 404
 
+    from cash_mode.loan_settlement import settle_loan_on_leave
     from flask_app.extensions import bankroll_repo
     from flask_app.services import game_state_service
 
+    # `_find_active_cash_game_id` may have returned a DB-only id
+    # (in-memory cache lost to a backend restart). Fall back to the
+    # persisted state machine so the player can still cash out the
+    # last-saved stack without having to navigate to /game/:id
+    # first to trigger a cold-load.
+    from flask_app.extensions import game_repo
     game_data = game_state_service.get_game(game_id)
-    state_machine = game_data["state_machine"]
-    human_player = next(
-        (p for p in state_machine.game_state.players if p.is_human), None,
-    )
-    returned_chips = human_player.stack if human_player else 0
-
-    bankroll = bankroll_repo.load_player_bankroll(owner_id)
-    if bankroll is None:
-        from cash_mode.bankroll import PlayerBankrollState
-        bankroll = PlayerBankrollState(
-            player_id=owner_id,
-            chips=DEFAULT_PLAYER_STARTING_BANKROLL,
-            starting_bankroll=DEFAULT_PLAYER_STARTING_BANKROLL,
+    if game_data is not None:
+        state_machine = game_data["state_machine"]
+        human_player = next(
+            (p for p in state_machine.game_state.players if p.is_human), None,
         )
-
-    new_chips = bankroll.chips + returned_chips
-    if new_chips == 0:
-        bankroll = full_bankroll_bust(bankroll)
+        chips_at_table = human_player.stack if human_player else 0
     else:
-        bankroll = type(bankroll)(
-            player_id=bankroll.player_id,
-            chips=new_chips,
-            starting_bankroll=bankroll.starting_bankroll,
+        base_state_machine = game_repo.load_game(game_id)
+        if base_state_machine is None:
+            return jsonify({"error": "No active cash session"}), 404
+        human_player = next(
+            (p for p in base_state_machine.game_state.players if p.is_human),
+            None,
         )
-    bankroll_repo.save_player_bankroll(bankroll)
+        chips_at_table = human_player.stack if human_player else 0
+
+    bankroll = _load_or_seed_player_bankroll(owner_id)
+    settlement = settle_loan_on_leave(bankroll, chips_at_table)
+    bankroll_repo.save_player_bankroll(settlement.new_bankroll)
 
     game_state_service.delete_game(game_id)
     # Best-effort: drop the persisted row too so the cash game doesn't
@@ -714,19 +733,27 @@ def leave_table():
     # (spec §"v1 architectural invariants" — CashTable in-memory
     # only), but progress_game's auto-save can write rows; this
     # cleans them up on leave. Missing row is fine.
-    from flask_app.extensions import game_repo
     try:
         game_repo.delete_game(game_id)
     except Exception as e:
         logger.warning("[CASH] delete_game failed for %r: %s", game_id, e)
 
-    logger.info("[CASH] Left game_id=%r owner=%r returned=%d bankroll_now=%d",
-                game_id, owner_id, returned_chips, bankroll.chips)
+    had_loan = bankroll.active_loan_amount > 0
+    logger.info(
+        "[CASH] Left game_id=%r owner=%r chips_at_table=%d had_loan=%s "
+        "sponsor_repaid=%d returned=%d bankroll_now=%d",
+        game_id, owner_id, chips_at_table, had_loan,
+        settlement.sponsor_total, settlement.returned_chips,
+        settlement.new_bankroll.chips,
+    )
 
     return jsonify({
         "session_ended": True,
-        "returned_chips": returned_chips,
-        "bankroll": bankroll.chips,
+        "chips_at_table": chips_at_table,
+        "had_active_loan": had_loan,
+        "sponsor_repaid": settlement.sponsor_total,
+        "returned_chips": settlement.returned_chips,
+        "bankroll": settlement.new_bankroll.chips,
     })
 
 
@@ -773,6 +800,13 @@ def top_up():
     bankroll = bankroll_repo.load_player_bankroll(owner_id)
     if bankroll is None or bankroll.chips < amount:
         return jsonify({"error": "Insufficient bankroll"}), 400
+    if bankroll.active_loan_amount > 0:
+        # Mingling bankroll chips with loan chips would corrupt the
+        # leave-time math (your top-up money would be taxed by the
+        # sponsor's cut). Force the player to settle first.
+        return jsonify({
+            "error": "Top-up disabled while a sponsor loan is active. Leave the table to settle.",
+        }), 400
 
     human_idx = next(
         (i for i, p in enumerate(state_machine.game_state.players) if p.is_human),
@@ -786,10 +820,11 @@ def top_up():
         human_idx, stack=new_stack,
     )
 
-    new_bankroll = type(bankroll)(
+    new_bankroll = PlayerBankrollState(
         player_id=bankroll.player_id,
         chips=bankroll.chips - amount,
         starting_bankroll=bankroll.starting_bankroll,
+        # Loan fields are 0 by virtue of the guard above; no need to copy.
     )
     bankroll_repo.save_player_bankroll(new_bankroll)
 
@@ -822,12 +857,18 @@ def get_state():
     from flask_app.extensions import bankroll_repo
     from flask_app.services import game_state_service
 
+    # `_find_active_cash_game_id` may return a DB-only id (after a
+    # backend restart that wiped the in-memory cache). The /game/:id
+    # cold-load path will rehydrate it on the next request — here we
+    # just publish what the entry screen needs: a game_id to redirect
+    # to and the current bankroll. `stake_label` is optional and
+    # unused by the redirect, so we tolerate it being absent.
     game_data = game_state_service.get_game(game_id)
     bankroll = bankroll_repo.load_player_bankroll(owner_id)
     return jsonify({
         "state": {
             "game_id": game_id,
             "bankroll": bankroll.chips if bankroll else 0,
-            "stake_label": game_data.get("cash_stake_label"),
+            "stake_label": game_data.get("cash_stake_label") if game_data else None,
         },
     })
