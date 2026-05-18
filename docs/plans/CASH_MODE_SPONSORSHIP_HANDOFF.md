@@ -24,8 +24,8 @@ v2 lets specific AI personalities sponsor you.
 
 **Cash mode v1 is shipped on `phase-1` branch** as a flavor of
 the tournament game flow (commits in range
-`613c0e9b`..`08b50900`). It is **playable end-to-end in the
-browser** — player picks stake, sits at the table, plays hands
+`613c0e9b`..`2444337e`). It is **playable end-to-end on desktop
+and mobile** — player picks stake, sits at the table, plays hands
 against the existing AI controllers through the existing
 tournament UI (cards, pot, animations, action buttons, chat,
 psychology panels — all reused).
@@ -47,10 +47,26 @@ What's already in place:
   fires between hands when a non-human seat hits stack=0, swaps in
   a fresh personality from the eligible pool, debits its bankroll,
   rebuilds the controller.
-- Frontend: cash-entry page at `/cash` with stake picker. Sit-down
-  navigates to `/game/<game_id>` which is the existing tournament
-  UI. Back arrow in the game header detects `cash-` prefix and
-  calls `/api/cash/leave` before navigating away.
+- Frontend: cash-entry page at `/cash` with stake picker
+  (affordability filter hides stakes the player can't fully buy
+  into). Sit-down navigates to `/game/<game_id>` — the existing
+  tournament UI.
+- **Cash HUD surfaces** for bankroll display + top-up + leave:
+  - **Desktop**: `CashControls` component renders in PokerTable's
+    left side panel above StatsPanel. Always visible.
+  - **Mobile**: tappable gold pill in the upper-left of the hero
+    panel (styled like `.hero-bet`); tap → `MobileCashSheet`
+    slides up from bottom with bankroll, stake, top-up button,
+    leave-table button.
+- **Back arrow** = "pause" — navigates to /menu, cash session
+  stays alive in `game_state_service` (2hr TTL). Player can
+  return via /cash entry page which auto-redirects to
+  `/game/<id>` when an active session exists.
+- **"Leave table"** button (in CashControls / MobileCashSheet) =
+  explicit cash-out. Two-tap confirm pattern: first tap flips to
+  red "Confirm — return $X to bankroll", second tap actually
+  leaves. The sponsorship/rebuy modal should adopt the same
+  pattern for destructive choices.
 - Cash games are filtered out of `/api/games` (continue list) via
   the `cash-` game_id prefix.
 
@@ -238,26 +254,32 @@ In rough priority order:
 - Tests: pay-back-fully, partial-repayment-forgiven, no-loan
   fallthrough.
 
-**Commit 4: Frontend bust modal**
-- New `BustModal.tsx` in `react/react/src/components/cash/`.
-- Polled from `PokerTable.tsx`: detect `player.is_human &&
-  player.stack === 0 && !gameState.hand_in_progress`.
-- Reads bankroll via `/api/cash/state` (already returns bankroll).
-- Three view states keyed on bankroll vs `min_buy_in`:
-  - Has enough → rebuy + topup buttons
-  - Has some but not enough → "leave to lower stake" CTA
-  - Has zero → sponsor offers (3 buttons)
+**Commit 4: Frontend bust UI**
+- Bust state detected from `gameState.players[human].stack === 0`
+  AND `cashMode` present AND `gameState.phase` ∈ {HAND_OVER,
+  INITIALIZING_HAND, EVALUATING_HAND} (between-hands gate).
+- **Mobile**: extend `MobileCashSheet` with a "Bust" mode that
+  shows up when bust state is true. Auto-open the sheet (set
+  `showCashSheet=true`) when bust is detected so the player can't
+  miss it. Replace the standard top-up/leave layout with the
+  three-state rebuy/sponsor/leave layout from the design above.
+- **Desktop**: extend `CashControls` similarly. The bankroll +
+  stake rows stay; replace the top-up button section with the
+  rebuy/sponsor/leave choices when bust.
+- Sponsor offers (3 buttons) use the same "two-tap confirm"
+  pattern as the existing Leave Table button — first tap shows
+  the terms in detail ("Take loan: $200 now, repay 100% + 20% of
+  winnings on leave"), second tap accepts. Reduces "oh shit"
+  acceptances.
 - Clicking sponsor offer calls `/api/cash/sponsor` then
   `/api/cash/rebuy` with the appropriate amount.
-- Clicking "Leave table" calls `/api/cash/leave` and navigates to
-  `/cash`.
+- Reuse existing CSS variables (`.cash-controls__topup` /
+  `.mobile-cash-sheet__topup` for primary CTA color, the
+  `.is-confirming` red treatment for destructive confirm).
 
-**Commit 5: Stake-entry affordability filter (optional)**
-- In `CashModeEntry.tsx`, fetch bankroll on mount.
-- For each stake in the picker, disable + grey out if
-  `bankroll < bigBlind × 40` (min_buy_in for that stake).
-- Show a tooltip on disabled stakes: "Bankroll too small for this
-  stake ($X needed)".
+**Commit 5: ~~Stake-entry affordability filter~~ — DONE already**
+- Shipped in commit `34fcd230`. The cash-entry page now disables
+  + greys stakes below the player's bankroll's min_buy_in.
 
 **Commit 6: Docs sweep**
 - Update `CASH_MODE_AND_RELATIONSHIPS.md` §"Bust semantics" with
