@@ -1,12 +1,13 @@
-/* MobileCashButton — gold pill in the upper-left, below the menu
- * bar. Styled like .hero-bet (the bet pill) so it reads as a
- * first-class table chip rather than a floating dev widget. */
+/* MobileCashButton — gold pill in the upper-left corner of the
+ * hero panel. Styled like .hero-bet (the bet pill) so it reads as
+ * a first-class table chip. Positioned absolutely within the
+ * .mobile-hero relative container. */
 
 .mobile-cash-button {
-  position: fixed;
-  top: max(env(safe-area-inset-top), 56px); /* below the menu bar */
-  left: 12px;
-  z-index: 30;
+  position: absolute;
+  top: clamp(4px, 0.8dvh, 8px);
+  left: clamp(8px, 1.6dvh, 12px);
+  z-index: 10;
 
   display: flex;
   align-items: center;

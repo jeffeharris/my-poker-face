@@ -426,27 +426,20 @@ export function MobilePokerTable({
       {/* Spacer for fixed MenuBar */}
       <div className="menu-bar-spacer" />
 
-      {/* Cash mode: floating button (bottom-left) + slide-up sheet.
-       *  Replaces the always-visible top HUD which ate screen
-       *  real estate. Renders nothing for tournament games. */}
+      {/* Cash mode: slide-up sheet — opens from the button inside
+       *  the hero panel. Renders nothing for tournament games. */}
       {cashMode && humanPlayer && (
-        <>
-          <MobileCashButton
-            bankroll={cashMode.bankroll}
-            onClick={openCashSheet}
-          />
-          <MobileCashSheet
-            isOpen={showCashSheet}
-            onClose={closeCashSheet}
-            cashMode={cashMode}
-            playerStack={humanPlayer.stack}
-            handInProgress={
-              phase !== 'INITIALIZING_HAND'
-              && phase !== 'HAND_OVER'
-              && phase !== 'EVALUATING_HAND'
-            }
-          />
-        </>
+        <MobileCashSheet
+          isOpen={showCashSheet}
+          onClose={closeCashSheet}
+          cashMode={cashMode}
+          playerStack={humanPlayer.stack}
+          handInProgress={
+            phase !== 'INITIALIZING_HAND'
+            && phase !== 'HAND_OVER'
+            && phase !== 'EVALUATING_HAND'
+          }
+        />
       )}
 
       {/* Opponents Section */}
@@ -666,6 +659,13 @@ export function MobilePokerTable({
         currentPlayer?.is_human && 'active-turn',
         humanPlayer?.is_folded && 'folded',
       ].filter(Boolean).join(' ')} data-testid="mobile-hero">
+        {/* Cash button - positioned in upper left of hero panel */}
+        {cashMode && (
+          <MobileCashButton
+            bankroll={cashMode.bankroll}
+            onClick={openCashSheet}
+          />
+        )}
         {/* Dealer chip - positioned in upper right */}
         {storePlayers?.findIndex(p => p.is_human) === dealerIdx && (
           <span className="dealer-chip">D</span>
