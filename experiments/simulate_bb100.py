@@ -390,6 +390,88 @@ def _persist_hero_decision(
         )
 
 
+def _record_sim_equity_at_actions(
+    game_state,
+    action_log: List[Tuple[str, str, str, Tuple[str, ...]]],
+    opponent_manager: OpponentModelManager,
+    hero_name: str,
+) -> None:
+    """Sim-side equivalent of MemoryManager._record_showdown_equity_at_actions.
+
+    `simulate_bb100.run_hand` bypasses `MemoryManager.complete_hand`, so the
+    Phase A equity-at-action recorder never fires in sims. Without this
+    helper the Phase B polarization signal stays at neutral 0.0 for every
+    decision and the gate stays in 'insufficient_sample' mode — Phase B
+    becomes a behavioral no-op in sims and the measurement gate (Rock
+    recovery vs CaseBot) can't be honestly evaluated.
+
+    Walks the per-action log built during `run_hand`. For each postflop
+    bet/raise/call action taken by a non-folded player at hand end (the
+    showdown set), computes equity-vs-random using the cards visible at
+    action time and credits it into hero's `OpponentModel` of that
+    player via `update_equity_at_action`.
+
+    Best-effort: any per-action equity computation failure (cards
+    unparseable, board snapshot missing, eval7 unavailable) silently
+    skips that action without affecting the rest of the recording or
+    the surrounding sim.
+    """
+    from poker.decision_analyzer import DecisionAnalyzer
+    from poker.card_utils import card_to_string
+
+    revealed = [
+        p for p in game_state.players
+        if not getattr(p, 'is_folded', False)
+    ]
+    if not revealed:
+        return
+
+    # Hero never observes themselves — but the showdown set may include
+    # hero. The credit-loop below skips hero as the "opponent" target,
+    # so observer-as-target is naturally a no-op.
+    n_revealed = len(revealed)
+
+    analyzer = DecisionAnalyzer(iterations=400)
+
+    for p in revealed:
+        if p.name == hero_name:
+            continue
+        hand_cards = getattr(p, 'hand', None) or ()
+        if len(hand_cards) != 2:
+            continue
+        try:
+            hole_strs = [card_to_string(c) for c in hand_cards]
+        except Exception:
+            continue
+
+        model = opponent_manager.get_model(hero_name, p.name)
+
+        for actor, action, phase, board_strs in action_log:
+            if actor != p.name:
+                continue
+            if phase not in ('FLOP', 'TURN', 'RIVER'):
+                continue
+            if action not in ('bet', 'raise', 'call'):
+                continue
+            if not board_strs:
+                continue
+            # Equity-vs-random with one opponent slot per other
+            # non-folded showdown player matches the production
+            # _record_showdown_equity_at_actions convention.
+            num_opp = max(1, n_revealed - 1)
+            try:
+                equity = analyzer.calculate_equity_vs_random(
+                    player_hand=hole_strs,
+                    community_cards=list(board_strs),
+                    num_opponents=num_opp,
+                )
+            except Exception:
+                continue
+            if equity is None:
+                continue
+            model.tendencies.update_equity_at_action(action, equity)
+
+
 def run_hand(
     sm: PokerStateMachine,
     controllers: List[TieredBotController],
@@ -425,6 +507,12 @@ def run_hand(
     # the sim never feeds fold_to_cbet observations into opponent
     # models, leaving the c-bet exploit silently inert.
     cbet_detector = CbetDetector()
+
+    # Polarization Phase A: per-action log for end-of-hand equity-at-action
+    # recording. Each entry is (player_name, action, phase, board_snapshot).
+    # Board snapshot is captured at action time so the equity computation
+    # sees the same board the actor saw. See `_record_sim_equity_at_actions`.
+    action_log: List[Tuple[str, str, str, Tuple[str, ...]]] = []
 
     while sm.phase not in TERMINAL_PHASES:
         sm.run_until(list(TERMINAL_PHASES))
@@ -480,6 +568,26 @@ def run_hand(
             logger.info(
                 f"  {current_player.name}: {action}"
                 f"{f' to {raise_to}' if raise_to else ''}"
+            )
+
+        # Polarization Phase A: capture board snapshot at action time
+        # for end-of-hand equity-at-action recording. Skip preflop
+        # actions (the recorder is postflop-only); skip if community
+        # cards can't be stringified.
+        if (
+            opponent_manager is not None
+            and hero_name is not None
+            and phase_name in ('FLOP', 'TURN', 'RIVER')
+        ):
+            try:
+                from poker.card_utils import card_to_string
+                board_snapshot = tuple(
+                    card_to_string(c) for c in gs.community_cards
+                )
+            except Exception:
+                board_snapshot = ()
+            action_log.append(
+                (current_player.name, action, phase_name, board_snapshot)
             )
 
         # Snapshot active players BEFORE play_turn — CbetDetector needs
@@ -574,6 +682,21 @@ def run_hand(
         if action_count >= MAX_ACTIONS_PER_HAND:
             logger.warning("Max actions reached — terminating hand")
             break
+
+    # Polarization Phase A: end-of-hand equity-at-action recording.
+    # Walks the per-action log and credits equity into hero's models of
+    # the non-folded (showdown) opponents. Wrapped broadly — equity
+    # recording is enrichment, not a hard requirement, and a failure
+    # mid-recording shouldn't affect the rest of the sim.
+    if opponent_manager is not None and hero_name is not None and action_log:
+        try:
+            _record_sim_equity_at_actions(
+                sm.game_state, action_log, opponent_manager, hero_name,
+            )
+        except Exception as e:
+            logger.warning(
+                f"Phase A sim equity recording failed: {e}"
+            )
 
     return {p.name: p.stack for p in sm.game_state.players}
 
