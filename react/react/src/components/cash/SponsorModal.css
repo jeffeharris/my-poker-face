@@ -188,3 +188,45 @@
 .sponsor-modal__accept.is-confirming:hover:not(:disabled) {
   background: #ec6e6e;
 }
+
+/* Path B: personality-lender card variant. Adds avatar + relationship
+   hint chip. Personality cards have a subtle gold ring to set them
+   apart from anonymous house archetypes at a glance. */
+.sponsor-modal__offer--personality {
+  border-color: rgba(220, 180, 80, 0.22);
+}
+
+.sponsor-modal__offer-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sponsor-modal__offer-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ffd87d 0%, #c79a3f 100%);
+  color: #1a1a1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.sponsor-modal__offer-name-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sponsor-modal__offer-hint {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-secondary, #aaa);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}

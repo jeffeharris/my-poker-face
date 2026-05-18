@@ -67,19 +67,39 @@ export type CashAction = 'fold' | 'check' | 'call' | 'raise' | 'all_in';
 
 /**
  * One concrete sponsor offer materialized for a specific stake table.
- * Mirrors `cash_mode.sponsor_offers.SponsorOffer`. The server always
- * recomputes `amount`, `floor`, `rate` from `archetype_id` + the
- * stake's buy-in window, so the client only needs to round-trip the
- * archetype id when accepting an offer.
+ *
+ * Two flavors share the shape (handoff §B.6 / §B.7 "mixed pool"):
+ *   - `kind: 'house'`: anonymous archetype loan (v1 sponsorship).
+ *     Carries `archetype_id`; lender fields are absent.
+ *   - `kind: 'personality'`: AI-personality lender (Path B). Carries
+ *     `lender_id`, `name` from the personality, optional
+ *     `relationship_hint` surfaced from the lender's view of the
+ *     player ("trusts you", "wants their money back", ...).
+ *
+ * The server recomputes `amount`/`floor`/`rate` from authoritative
+ * state when the client commits the offer — clients can't tamper with
+ * terms.
  */
-export interface SponsorOffer {
-  archetype_id: string;
-  name: string;
-  amount: number;
-  floor: number;
-  rate: number;
-  flavor: string;
-}
+export type SponsorOffer =
+  | {
+      kind: 'house';
+      archetype_id: string;
+      name: string;
+      amount: number;
+      floor: number;
+      rate: number;
+      flavor: string;
+    }
+  | {
+      kind: 'personality';
+      lender_id: string;
+      name: string;
+      amount: number;
+      floor: number;
+      rate: number;
+      flavor: string;
+      relationship_hint: string;
+    };
 
 /** Response from GET /api/cash/sponsor-offers. */
 export type SponsorOffersResponse =

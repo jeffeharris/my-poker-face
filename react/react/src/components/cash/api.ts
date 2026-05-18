@@ -87,11 +87,13 @@ export async function getSponsorOffers(
 
 export async function sponsorAndSit(
   stakeLabel: StakeLabel,
-  archetypeId: string,
+  acceptor:
+    | { archetype_id: string }
+    | { lender_id: string },
 ): Promise<{ game_id: string; offer: SponsorOffer }> {
   return postJson('/sponsor-and-sit', {
     stake_label: stakeLabel,
-    archetype_id: archetypeId,
+    ...acceptor,
   });
 }
 
