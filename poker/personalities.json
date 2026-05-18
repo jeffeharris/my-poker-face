@@ -24,6 +24,14 @@
         "*adjusts glasses thoughtfully*",
         "*nods slowly while considering options*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 12000,
+        "bankroll_rate": 350,
+        "buy_in_multiplier": 1.1,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 3,
+        "stake_comfort_zone": "$10"
+      },
       "id": "abraham_lincoln"
     },
     "Winston Churchill": {
@@ -50,6 +58,14 @@
         "*leans forward slightly when bluffing*",
         "*taps fingers rhythmically on the table*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 45000,
+        "bankroll_rate": 700,
+        "buy_in_multiplier": 1.5,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 6,
+        "stake_comfort_zone": "$200"
+      },
       "id": "winston_churchill"
     },
     "Napoleon": {
@@ -76,6 +92,14 @@
         "*leans forward intently*",
         "*taps fingers rhythmically on the table*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 80000,
+        "bankroll_rate": 2200,
+        "buy_in_multiplier": 2.3,
+        "stop_loss_buy_ins": 8,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
       "id": "napoleon"
     },
     "Louis XIV": {
@@ -103,6 +127,14 @@
         "*leans back with a smirk*",
         "*adjusts an imaginary crown*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 150000,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 2.4,
+        "stop_loss_buy_ins": 7,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$1000"
+      },
       "id": "louis_xiv"
     },
     "King Henry VIII": {
@@ -131,6 +163,14 @@
         "*adjusts an imaginary crown*"
       ],
       "nickname": "Henry VIII",
+      "bankroll_knobs": {
+        "bankroll_cap": 120000,
+        "bankroll_rate": 2500,
+        "buy_in_multiplier": 2.4,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$1000"
+      },
       "id": "king_henry_viii"
     },
     "Shakespeare": {
@@ -157,6 +197,14 @@
         "*gestures dramatically with hands*",
         "*leans in close while speaking*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 18000,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$50"
+      },
       "id": "shakespeare"
     },
     "Socrates": {
@@ -183,6 +231,14 @@
         "*stroking chin thoughtfully*",
         "*leaning back with a knowing smile*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 8000,
+        "bankroll_rate": 300,
+        "buy_in_multiplier": 1.2,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$10"
+      },
       "id": "socrates"
     },
     "Sherlock Holmes": {
@@ -209,6 +265,14 @@
         "*adjusts imaginary hat*",
         "*taps fingers thoughtfully*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 30000,
+        "bankroll_rate": 550,
+        "buy_in_multiplier": 1.4,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$50"
+      },
       "id": "sherlock_holmes"
     },
     "Jay Gatsby": {
@@ -235,6 +299,14 @@
         "*smoothly adjusts their tie*",
         "*leans back with a slight smirk*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 100000,
+        "bankroll_rate": 1500,
+        "buy_in_multiplier": 2.0,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
       "id": "jay_gatsby"
     },
     "A Mime": {
@@ -263,6 +335,14 @@
         "*pulls invisible rope*"
       ],
       "nickname": "Mime",
+      "bankroll_knobs": {
+        "bankroll_cap": 4000,
+        "bankroll_rate": 1500,
+        "buy_in_multiplier": 1.4,
+        "stop_loss_buy_ins": 6,
+        "stop_win_buy_ins": 8,
+        "stake_comfort_zone": "$2"
+      },
       "id": "a_mime"
     },
     "A guy who tells too many dad jokes": {
@@ -291,6 +371,14 @@
         "*gives a thumbs up after winning a hand*"
       ],
       "nickname": "Dad Jokes",
+      "bankroll_knobs": {
+        "bankroll_cap": 5000,
+        "bankroll_rate": 400,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$10"
+      },
       "id": "a_guy_who_tells_too_many_dad_jokes"
     },
     "Someone who is very, very mean to people": {
@@ -320,6 +408,14 @@
         "*taps fingers impatiently*"
       ],
       "nickname": "Mean Guy",
+      "bankroll_knobs": {
+        "bankroll_cap": 25000,
+        "bankroll_rate": 2800,
+        "buy_in_multiplier": 2.3,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$50"
+      },
       "id": "someone_who_is_very_very_mean_to_people"
     },
     "Buddha": {
@@ -346,6 +442,14 @@
         "*slowly shuffles chips*",
         "*gazes thoughtfully at the table*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 6000,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 1,
+        "stop_win_buy_ins": 2,
+        "stake_comfort_zone": "$2"
+      },
       "id": "buddha"
     },
     "Bob Ross": {
@@ -373,6 +477,14 @@
         "*nods gently*",
         "*paints in the air*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 7000,
+        "bankroll_rate": 250,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 3,
+        "stake_comfort_zone": "$10"
+      },
       "id": "bob_ross"
     },
     "Dr. Seuss": {
@@ -400,6 +512,14 @@
         "*leans in with a wide grin*"
       ],
       "nickname": "Dr. Seuss",
+      "bankroll_knobs": {
+        "bankroll_cap": 22000,
+        "bankroll_rate": 1100,
+        "buy_in_multiplier": 1.6,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 8,
+        "stake_comfort_zone": "$50"
+      },
       "id": "dr_seuss"
     },
     "Jesus Christ": {
@@ -426,6 +546,14 @@
         "*waves hand gracefully*",
         "*leans back thoughtfully*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 5000,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 3,
+        "stake_comfort_zone": "$2"
+      },
       "id": "jesus_christ"
     },
     "Blackbeard": {
@@ -454,6 +582,14 @@
         "*strokes beard menacingly*",
         "*glares across the table*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 60000,
+        "bankroll_rate": 3000,
+        "buy_in_multiplier": 2.5,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
       "id": "blackbeard"
     },
     "Sun Tzu": {
@@ -482,6 +618,14 @@
         "*gives a barely perceptible nod*",
         "*folds hands with deliberate calm*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 40000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.5,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$50"
+      },
       "id": "sun_tzu"
     },
     "Benjamin Franklin": {
@@ -510,6 +654,14 @@
         "*chuckles to himself*",
         "*rubs chin thoughtfully*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 30000,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.4,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 6,
+        "stake_comfort_zone": "$50"
+      },
       "id": "benjamin_franklin"
     },
     "Mark Twain": {
@@ -538,6 +690,14 @@
         "*leans back with a drawl*",
         "*twirls mustache thoughtfully*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 20000,
+        "bankroll_rate": 700,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 4,
+        "stop_win_buy_ins": 6,
+        "stake_comfort_zone": "$50"
+      },
       "id": "mark_twain"
     },
     "Nikola Tesla": {
@@ -566,6 +726,14 @@
         "*stares intensely at the cards*",
         "*twitches slightly when the math doesn't add up*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 15000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$50"
+      },
       "id": "nikola_tesla"
     },
     "Houdini": {
@@ -594,6 +762,14 @@
         "*wriggles out of an imaginary straitjacket*",
         "*grins with theatrical confidence*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 35000,
+        "bankroll_rate": 1400,
+        "buy_in_multiplier": 1.8,
+        "stop_loss_buy_ins": 6,
+        "stop_win_buy_ins": 10,
+        "stake_comfort_zone": "$200"
+      },
       "id": "houdini"
     },
     "Oscar Wilde": {
@@ -622,6 +798,14 @@
         "*delivers a withering glance*",
         "*languidly adjusts cravat*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 50000,
+        "bankroll_rate": 1300,
+        "buy_in_multiplier": 1.8,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 10,
+        "stake_comfort_zone": "$200"
+      },
       "id": "oscar_wilde"
     },
     "Edgar Allan Poe": {
@@ -650,6 +834,14 @@
         "*mutters under breath*",
         "*drums fingers in an ominous rhythm*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 6000,
+        "bankroll_rate": 800,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 6,
+        "stake_comfort_zone": "$10"
+      },
       "id": "edgar_allan_poe"
     },
     "Machiavelli": {
@@ -678,6 +870,14 @@
         "*offers a thin, knowing smile*",
         "*watches opponents with cold precision*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 55000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.5,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$200"
+      },
       "id": "machiavelli"
     },
     "Zeus": {
@@ -706,6 +906,14 @@
         "*crosses arms with godly displeasure*",
         "*lightning crackles in eyes*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 200000,
+        "bankroll_rate": 3500,
+        "buy_in_multiplier": 2.5,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$1000"
+      },
       "id": "zeus"
     },
     "Cleopatra": {
@@ -734,6 +942,14 @@
         "*tilts head with a knowing smile*",
         "*waves hand dismissively at small bets*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 120000,
+        "bankroll_rate": 1800,
+        "buy_in_multiplier": 2.0,
+        "stop_loss_buy_ins": 4,
+        "stop_win_buy_ins": 10,
+        "stake_comfort_zone": "$1000"
+      },
       "id": "cleopatra"
     },
     "Marie Antoinette": {
@@ -762,6 +978,14 @@
         "*adjusts an imaginary towering wig*",
         "*gasps theatrically at a bad card*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 90000,
+        "bankroll_rate": 2500,
+        "buy_in_multiplier": 2.4,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$1000"
+      },
       "id": "marie_antoinette"
     },
     "Calamity Jane": {
@@ -790,6 +1014,14 @@
         "*slaps table with enthusiasm*",
         "*kicks boots up on chair*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 12000,
+        "bankroll_rate": 2200,
+        "buy_in_multiplier": 2.0,
+        "stop_loss_buy_ins": 8,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$50"
+      },
       "id": "calamity_jane"
     },
     "Queen Elizabeth I": {
@@ -818,6 +1050,14 @@
         "*gives a measured, royal nod*",
         "*adjusts imaginary ruff collar*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 100000,
+        "bankroll_rate": 900,
+        "buy_in_multiplier": 1.6,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 6,
+        "stake_comfort_zone": "$1000"
+      },
       "id": "queen_elizabeth_i"
     },
     "Joan of Arc": {
@@ -846,6 +1086,14 @@
         "*stares ahead with burning conviction*",
         "*stands dramatically before going all-in*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 15000,
+        "bankroll_rate": 1800,
+        "buy_in_multiplier": 2.2,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$50"
+      },
       "id": "joan_of_arc"
     },
     "Frida Kahlo": {
@@ -874,6 +1122,14 @@
         "*gazes at cards with artistic intensity*",
         "*taps table rhythmically with painted nails*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 14000,
+        "bankroll_rate": 1000,
+        "buy_in_multiplier": 1.5,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 8,
+        "stake_comfort_zone": "$50"
+      },
       "id": "frida_kahlo"
     },
     "Lucille Ball": {
@@ -905,6 +1161,14 @@
         "*scrambles to rearrange chips nervously*"
       ],
       "nickname": "Lucy",
+      "bankroll_knobs": {
+        "bankroll_cap": 9000,
+        "bankroll_rate": 1500,
+        "buy_in_multiplier": 1.6,
+        "stop_loss_buy_ins": 7,
+        "stop_win_buy_ins": 12,
+        "stake_comfort_zone": "$10"
+      },
       "id": "lucille_ball"
     },
     "Annie Oakley": {
@@ -933,6 +1197,14 @@
         "*tips hat confidently*",
         "*places chips with surgical precision*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 18000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$50"
+      },
       "id": "annie_oakley"
     },
     "Agatha Christie": {
@@ -961,6 +1233,14 @@
         "*peers over reading glasses*",
         "*stirs tea thoughtfully between hands*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 22000,
+        "bankroll_rate": 450,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$50"
+      },
       "id": "agatha_christie"
     },
     "Lady Macbeth": {
@@ -989,6 +1269,14 @@
         "*fixes opponents with an unblinking stare*",
         "*whispers conspiratorially*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 70000,
+        "bankroll_rate": 2200,
+        "buy_in_multiplier": 2.3,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
       "id": "lady_macbeth"
     },
     "Dracula": {
@@ -1017,6 +1305,14 @@
         "*bares a slight fang-like grin*",
         "*emerges from the shadows to place a bet*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 100000,
+        "bankroll_rate": 1200,
+        "buy_in_multiplier": 1.8,
+        "stop_loss_buy_ins": 4,
+        "stop_win_buy_ins": 8,
+        "stake_comfort_zone": "$1000"
+      },
       "id": "dracula"
     },
     "Ebenezer Scrooge": {
@@ -1045,6 +1341,14 @@
         "*scowls at anyone who raises*",
         "*counts and recounts chip stack obsessively*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 250000,
+        "bankroll_rate": 100,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 1,
+        "stop_win_buy_ins": 2,
+        "stake_comfort_zone": "$2"
+      },
       "id": "ebenezer_scrooge"
     },
     "Robin Hood": {
@@ -1073,6 +1377,14 @@
         "*winks roguishly*",
         "*bows with a flourish after winning*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 12000,
+        "bankroll_rate": 1600,
+        "buy_in_multiplier": 1.7,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 8,
+        "stake_comfort_zone": "$50"
+      },
       "id": "robin_hood"
     },
     "Don Quixote": {
@@ -1101,6 +1413,14 @@
         "*squints heroically into the distance*",
         "*adjusts rusty imaginary helmet*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 8000,
+        "bankroll_rate": 2500,
+        "buy_in_multiplier": 2.2,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$10"
+      },
       "id": "don_quixote"
     },
     "Alice": {
@@ -1130,6 +1450,14 @@
         "*grows taller in her seat with confidence*"
       ],
       "nickname": "Alice",
+      "bankroll_knobs": {
+        "bankroll_cap": 5000,
+        "bankroll_rate": 800,
+        "buy_in_multiplier": 1.1,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$2"
+      },
       "id": "alice"
     },
     "Queen of Hearts": {
@@ -1159,6 +1487,14 @@
         "*turns crimson with rage at a bad beat*"
       ],
       "nickname": "Queen of Hearts",
+      "bankroll_knobs": {
+        "bankroll_cap": 130000,
+        "bankroll_rate": 3500,
+        "buy_in_multiplier": 2.5,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$1000"
+      },
       "id": "queen_of_hearts"
     },
     "Cheshire Cat": {
@@ -1188,6 +1524,14 @@
         "*appears behind opponent's shoulder*"
       ],
       "nickname": "Cheshire Cat",
+      "bankroll_knobs": {
+        "bankroll_cap": 20000,
+        "bankroll_rate": 1100,
+        "buy_in_multiplier": 1.5,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 10,
+        "stake_comfort_zone": "$50"
+      },
       "id": "cheshire_cat"
     },
     "Wicked Witch": {
@@ -1217,6 +1561,14 @@
         "*stirs an imaginary cauldron of chips*"
       ],
       "nickname": "Wicked Witch",
+      "bankroll_knobs": {
+        "bankroll_cap": 40000,
+        "bankroll_rate": 2400,
+        "buy_in_multiplier": 2.2,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
       "id": "wicked_witch"
     },
     "Medusa": {
@@ -1245,6 +1597,14 @@
         "*snakes in hair seem to hiss*",
         "*tilts head slowly, unblinking*"
       ],
+      "bankroll_knobs": {
+        "bankroll_cap": 35000,
+        "bankroll_rate": 1100,
+        "buy_in_multiplier": 1.7,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 7,
+        "stake_comfort_zone": "$200"
+      },
       "id": "medusa"
     },
     "The Fortune Teller": {
@@ -1274,6 +1634,14 @@
         "*lays out imaginary tarot cards beside the community cards*"
       ],
       "nickname": "Fortune Teller",
+      "bankroll_knobs": {
+        "bankroll_cap": 8000,
+        "bankroll_rate": 900,
+        "buy_in_multiplier": 1.4,
+        "stop_loss_buy_ins": 6,
+        "stop_win_buy_ins": 10,
+        "stake_comfort_zone": "$10"
+      },
       "id": "the_fortune_teller"
     },
     "The Librarian": {
@@ -1303,6 +1671,14 @@
         "*places chips with silent precision*"
       ],
       "nickname": "Librarian",
+      "bankroll_knobs": {
+        "bankroll_cap": 10000,
+        "bankroll_rate": 250,
+        "buy_in_multiplier": 1.2,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 3,
+        "stake_comfort_zone": "$10"
+      },
       "id": "the_librarian"
     },
     "The Honey Badger": {
@@ -1332,6 +1708,14 @@
         "*scratches behind ear nonchalantly*"
       ],
       "nickname": "Honey Badger",
+      "bankroll_knobs": {
+        "bankroll_cap": 30000,
+        "bankroll_rate": 3500,
+        "buy_in_multiplier": 2.5,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
       "id": "the_honey_badger"
     },
     "The Grandmother": {
@@ -1361,6 +1745,14 @@
         "*pats opponent's hand sympathetically after winning*"
       ],
       "nickname": "Grandma",
+      "bankroll_knobs": {
+        "bankroll_cap": 25000,
+        "bankroll_rate": 400,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$10"
+      },
       "id": "the_grandmother"
     },
     "The Kindergarten Teacher": {
@@ -1390,6 +1782,14 @@
         "*uses a gentle but firm tone*"
       ],
       "nickname": "Teacher",
+      "bankroll_knobs": {
+        "bankroll_cap": 8000,
+        "bankroll_rate": 700,
+        "buy_in_multiplier": 1.2,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$10"
+      },
       "id": "the_kindergarten_teacher"
     },
     "CaseBot": {
@@ -1410,6 +1810,14 @@
       "verbal_tics": [],
       "physical_tics": [],
       "nickname": "CaseBot",
+      "bankroll_knobs": {
+        "bankroll_cap": 10000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$10"
+      },
       "id": "casebot"
     },
     "GTO-Lite": {
@@ -1430,6 +1838,14 @@
       "verbal_tics": [],
       "physical_tics": [],
       "nickname": "GTO-Lite",
+      "bankroll_knobs": {
+        "bankroll_cap": 10000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$10"
+      },
       "id": "gto_lite"
     },
     "BaselineSolver": {
@@ -1450,6 +1866,14 @@
       "verbal_tics": [],
       "physical_tics": [],
       "nickname": "Solver",
+      "bankroll_knobs": {
+        "bankroll_cap": 10000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$10"
+      },
       "id": "baselinesolver"
     }
   }
