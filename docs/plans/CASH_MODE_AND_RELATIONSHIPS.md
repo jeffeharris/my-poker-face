@@ -567,8 +567,15 @@ main menu
 
 ### Bust semantics
 
+> **Shipped, v1 (sponsorship model).** The original "auto fresh-grant on full bust" rule was retired during playtest — too generous, no stakes texture. Replaced by the **sponsorship loan flow** (see `CASH_MODE_SPONSORSHIP_HANDOFF.md` for the full design). Summary below.
+
 - **Hard bust (AI):** AI loses entire bankroll, leaves the table, ineligible to play until `project_bankroll` brings them above some stake's `min_buy_in × buy_in_multiplier`. Real-time gated.
-- **Hard bust (player):** player loses entire bankroll → fresh starting bankroll granted → no cooldown. v1 simplicity. Player passive regen explicitly deferred.
+- **Hard bust (player) — in-table:** between hands, when player's `Player.stack == 0`, the server emits a `cash_rebuy_needed` or `cash_bust` SocketIO event.
+  - **`cash_rebuy_needed`** (bankroll ≥ this table's `min_buy_in` and no active loan): modal offers Rebuy / Rebuy max / Leave. Player chooses to keep playing here or stand up.
+  - **`cash_bust`** (bankroll too low for this table's min, OR active loan): modal forces Leave — must return to `/cash` to pick a lower stake or take a sponsor at a higher one.
+- **Player sponsor loan (replaces auto fresh-grant):** when `bankroll < this tier's min_buy_in` AND `bankroll ≥ prev tier's min_buy_in`, the stake picker at `/cash` shows the tier as "Sponsor required." Tapping opens the **SponsorModal** with 3 sampled offers from the archetype pool (`cash_mode/sponsor_offers.py`). Each offer carries `(amount, repayment_floor, sponsor_rate)`. The loan lands directly on the table stack — never in bankroll — closing the "pocket the spare loan" exploit.
+- **Leave-time loan settlement:** see `cash_mode/loan_settlement.py:settle_loan_on_leave`. Player's `chips_at_table` first pays the floor (`int(amount × repayment_floor)`); whatever's left has the sponsor's cut applied (`int(remaining × rate)`); the residue returns to bankroll. Edge cases: chips < floor → all to sponsor, balance forgiven (v1, no reputation hit yet); no active loan → existing chips return to bankroll verbatim. Loan fields always reset on leave (session-scoped).
+- **Tier-climbing rule:** sponsor-eligible iff `bankroll < this tier's min` AND (`tier is lowest` OR `bankroll ≥ prev tier's min`). Step-by-step; can't jump $2 → $1000 with one Whale Backer. Volatile (current bankroll only); no persistent unlock tracking in v1.
 - **Mid-hand quit (deliberate stand-up):** forfeit **entire table stack** to the pot, split among players who finish the hand. Bankroll back home is untouched.
 - **Disconnect:** **60-second reconnect grace window** (starting value, tunable). The hand auto-checks/auto-folds on the player's turn during the window. Reconnect within window → resume seated with current stack. Window expires → treated as mid-hand quit, table stack forfeit. The grace window prevents punishing transient network failures while still preventing reconnect-as-fold-equity-saving over multiple hands.
 
@@ -582,7 +589,7 @@ Chips move between `PlayerBankrollState.chips` (bankroll) and the player's seat 
 | Top up (between hands) | debit top-up amount | credit top-up amount | Capped so resulting stack ≤ `max_buy_in` |
 | Leave table (between hands) | credit current stack | set to 0 | Stack returns home in full |
 | Bust at table (lost final chips in hand) | unchanged | set to 0 | Bankroll was already debited at buy-in/top-up; nothing returns |
-| Full bankroll bust | reset to `starting_bankroll` (fresh grant) | n/a | Player is between sessions when this fires |
+| Full bankroll bust | **see Bust semantics §** — sponsor loan flow replaces the old auto fresh-grant | n/a | Player is between tables when this fires; `/cash` entry shows sponsor offers for the next-tier-up stake |
 | Mid-hand quit | unchanged | forfeit to pot (set 0) | Stack lost to opponents in the hand |
 | Disconnect timeout | unchanged | forfeit to pot (set 0) | Identical to mid-hand quit after grace window expires |
 | Hand settlement (winnings) | unchanged | credit winnings (or debit losses) | Settlement happens before next sit/leave/top-up can fire |

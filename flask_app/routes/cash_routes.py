@@ -49,10 +49,13 @@ cash_bp = Blueprint("cash", __name__)
 
 # --- Stakes ladder (matches spec §"Stakes ladder") ---
 
-DEFAULT_PLAYER_STARTING_BANKROLL = 5_000
-"""Seed bankroll for first-time entry to cash mode. v1 tuning sets
-this to a deliberately tight value — see commit 6 for the move to
-200 chips (one min buy-in at $2, plus a hair of cushion)."""
+DEFAULT_PLAYER_STARTING_BANKROLL = 200
+"""Seed bankroll for first-time entry to cash mode. Tight by design:
+200 chips covers ~2.5 min buy-ins at the $2 table (80 chips each)
+and nothing else, so the player gets a brief warm-up before busting
+into the sponsor flow. Existing players keep whatever bankroll
+they've already accrued — this value only applies on first /api/cash/*
+hit when no player_bankroll_state row exists yet."""
 
 
 def _resolve_owner_id() -> str:

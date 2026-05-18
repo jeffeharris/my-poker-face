@@ -7,6 +7,36 @@ last_updated: 2026-05-18
 
 # Cash Mode — Sponsorship + Rebuy Flow Handoff
 
+> **Status: shipped on `phase-1`** (2026-05-18). Commit range
+> `33a17ac4`..HEAD covers schema v89, sponsor archetype pool,
+> `/api/cash/sponsor-offers` + `/api/cash/sponsor-and-sit` +
+> `/api/cash/rebuy`, leave-time loan math, top-up blocking with
+> active loan, server-driven `cash_bust`/`cash_rebuy_needed`
+> SocketIO events, frontend SponsorModal + BustModal + sponsor-eligible
+> tier UX in the stake picker, and the starting-bankroll move to
+> 200 chips.
+>
+> Differences from the original plan:
+> - Loan now has **three** fields (amount/floor/rate), not two —
+>   `repayment_floor` knob added during design discussion to give
+>   Loan Shark genuine predatory texture (130% floor instead of
+>   1.00).
+> - Stake picker affordability filter is now a **tri-state** (affordable
+>   / sponsor_eligible / locked) — not just affordable/unaffordable.
+>   "Sponsor required" tier shows an amber badge and opens the modal
+>   directly on tap.
+> - Server-driven bust events (Socket emit) shipped instead of the
+>   frontend poll listed as the simpler v1 path in this doc.
+> - `_find_active_cash_game_id` now falls back to the persisted
+>   `games` table when the in-memory copy is missing, so a backend
+>   restart doesn't strand cash sessions.
+>
+> v2 work (AI-opponent sponsorship, cross-session loan persistence,
+> reputation damage on forgiveness) is unchanged — see the v2
+> section below.
+
+# Cash Mode — Sponsorship + Rebuy Flow Handoff (Original Plan)
+
 This doc gets a fresh context up to speed on the next chunk of work
 for cash mode: the player-bust rebuy modal and the session-scoped
 sponsorship-loan mechanic. The canonical cash spec
