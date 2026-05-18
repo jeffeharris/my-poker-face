@@ -98,7 +98,11 @@ class AIMemoryManager:
         """
         self._persistence = hand_history_repo
 
-    def _process_relationship_events(self, recorded_hand: RecordedHand) -> None:
+    def _process_relationship_events(
+        self,
+        recorded_hand: RecordedHand,
+        equity_history=None,
+    ) -> None:
         """Run the hand-outcome detector and dispatch its events.
 
         Silent no-op when no relationship_repo is wired
@@ -108,6 +112,13 @@ class AIMemoryManager:
         in cash mode, through `apply_cash_pair_pnl` (cumulative_pnl
         + hands_played_cash bilateral writes).
 
+        `equity_history` (optional `HandEquityHistory`): when
+        supplied, BAD_BEAT detection runs. Built by `EquityTracker`
+        in the experiment-runner path before this method is called;
+        the Flask game path doesn't compute equity today and passes
+        None, so BAD_BEAT is experiment-only until equity wiring
+        lands on the Flask side.
+
         Wrapped in a broad try/except: a detector or dispatch
         failure must not block the downstream session_memory and
         commentary paths. Errors are logged and swallowed; the
@@ -116,7 +127,9 @@ class AIMemoryManager:
         if self._relationship_repo is None:
             return
         try:
-            events = self.hand_outcome_detector.detect_events(recorded_hand)
+            events = self.hand_outcome_detector.detect_events(
+                recorded_hand, equity_history=equity_history,
+            )
             if not events:
                 return
             dispatch_events(
@@ -456,7 +469,8 @@ class AIMemoryManager:
     def on_hand_complete(self, winner_info: Dict[str, Any],
                         game_state: Any,
                         ai_players: Dict[str, Any] = None,
-                        skip_commentary: bool = False) -> Dict[str, HandCommentary]:
+                        skip_commentary: bool = False,
+                        equity_history=None) -> Dict[str, HandCommentary]:
         """Process end of hand - record history, update models, optionally generate commentary.
 
         Args:
@@ -464,6 +478,11 @@ class AIMemoryManager:
             game_state: Current game state
             ai_players: Dict mapping player names to their AIPokerPlayer objects
             skip_commentary: If True, skip commentary generation (for async flow)
+            equity_history: Optional HandEquityHistory built by the
+                caller before this method runs. Forwarded to the
+                relationship detector to enable BAD_BEAT detection.
+                Experiment runner passes this when telemetry /
+                psychology is enabled; Flask game path passes None.
 
         Returns:
             Dict mapping player names to their HandCommentary (or None if skip_commentary)
@@ -528,7 +547,9 @@ class AIMemoryManager:
         # without persistence stay detector-silent. Wrapped in
         # try/except so detector failures (e.g., transient DB lock)
         # don't block commentary / session_memory updates downstream.
-        self._process_relationship_events(recorded_hand)
+        self._process_relationship_events(
+            recorded_hand, equity_history=equity_history,
+        )
 
         # Update session memories
         for player_name, session_memory in self.session_memories.items():

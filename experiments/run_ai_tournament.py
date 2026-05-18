@@ -1381,12 +1381,17 @@ class AITournamentRunner:
                         hand_in_progress.hole_cards = original_hole_cards
 
             # Record hand history to database (always, for outcome metrics)
-            # This persists to hand_history table via memory_manager's persistence layer
+            # This persists to hand_history table via memory_manager's persistence layer.
+            # equity_history (computed just above) is forwarded so the
+            # Phase 3 relationship detector can fire BAD_BEAT events
+            # — needs pre-river equity data to identify favorites
+            # who lost.
             memory_manager.on_hand_complete(
                 winner_info=winner_info,
                 game_state=game_state,
                 ai_players={},  # No AI player context needed for hand recording
-                skip_commentary=True  # Commentary handled separately below if enabled
+                skip_commentary=True,  # Commentary handled separately below if enabled
+                equity_history=equity_history,
             )
 
             # Save equity history to database for telemetry/analytics

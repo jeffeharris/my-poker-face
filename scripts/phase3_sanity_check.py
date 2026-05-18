@@ -16,6 +16,7 @@ import os
 import tempfile
 from datetime import datetime
 
+from poker.equity_snapshot import EquitySnapshot, HandEquityHistory
 from poker.memory.hand_history import (
     PlayerHandInfo,
     RecordedAction,
@@ -49,6 +50,59 @@ def _build_big_hand(hand_number: int) -> RecordedHand:
         winners=(WinnerInfo(name="alice", amount_won=800, hand_name="Pair", hand_rank=8),),
         pot_size=800,
         was_showdown=True,
+    )
+
+
+# -- BAD_BEAT hand: heads-up favorite lost to a river suckout ------------
+
+
+def _build_bad_beat_hand(hand_number: int) -> RecordedHand:
+    """alice is 82% on the turn with AA on a dry board; bob hits a
+    running flush with 76s by the river. The classic bad beat.
+    """
+    return RecordedHand(
+        game_id="sanity",
+        hand_number=hand_number,
+        timestamp=datetime(2026, 5, 18, 14, hand_number, 0),
+        players=(
+            PlayerHandInfo(name="alice", starting_stack=1000, position="BTN", is_human=False),
+            PlayerHandInfo(name="bob", starting_stack=1000, position="BB", is_human=False),
+        ),
+        hole_cards={"alice": ["Ah", "Ad"], "bob": ["7s", "6s"]},
+        community_cards=("2c", "5s", "8s", "Tc", "Js"),
+        actions=(
+            RecordedAction(player_name="alice", action="raise", amount=300, phase="PRE_FLOP", pot_after=300),
+            RecordedAction(player_name="bob", action="call", amount=300, phase="PRE_FLOP", pot_after=600),
+            RecordedAction(player_name="alice", action="bet", amount=200, phase="FLOP", pot_after=800),
+            RecordedAction(player_name="bob", action="call", amount=200, phase="FLOP", pot_after=1000),
+        ),
+        winners=(WinnerInfo(name="bob", amount_won=1000, hand_name="Flush", hand_rank=4),),
+        pot_size=1000,
+        was_showdown=True,
+    )
+
+
+def _build_bad_beat_equity_history(hand_number: int) -> HandEquityHistory:
+    """Equity arc for the bad-beat hand: alice ahead all the way until
+    the river bricks her aces."""
+    def snap(player, street, equity):
+        return EquitySnapshot(
+            player_name=player, street=street, equity=equity,
+            hole_cards=(), board_cards=(), was_active=True,
+        )
+    return HandEquityHistory(
+        hand_history_id=None, game_id="sanity",
+        hand_number=hand_number,
+        snapshots=(
+            snap("alice", "PRE_FLOP", 0.82),
+            snap("bob", "PRE_FLOP", 0.18),
+            snap("alice", "FLOP", 0.78),
+            snap("bob", "FLOP", 0.22),
+            snap("alice", "TURN", 0.82),
+            snap("bob", "TURN", 0.18),
+            snap("alice", "RIVER", 0.0),
+            snap("bob", "RIVER", 1.0),
+        ),
     )
 
 
@@ -133,20 +187,22 @@ def main() -> None:
             mgr.initialize_for_player(name, personality_id=f"{name}_v1")
         mgr.set_relationship_repo(repo, cash_mode=True)
 
-        # Capture detector output for the dramatic hand so we can
-        # print which events fired (the dispatch path also runs them
-        # through record_event; we duplicate the detect call to log
-        # the events, then process_relationship_events for the real
-        # state mutation).
-        drama_hand = _build_threway_drama_hand(hand_number=2)
-        preview = mgr.hand_outcome_detector
-        # detect_events has dedup state — call once via _process for
-        # real, then inspect after via the manager's reset detector.
+        # Diagnostic detector: separate instance so we can inspect the
+        # events that the real detector emits without disturbing its
+        # dedup state. Shares the same name→id registry by reference.
         from poker.memory.hand_outcome_detector import HandOutcomeDetector
         diagnostic_detector = HandOutcomeDetector(
             name_to_id=mgr.opponent_model_manager._name_to_id,
         )
-        diagnostic_events = diagnostic_detector.detect_events(drama_hand)
+
+        drama_hand = _build_threway_drama_hand(hand_number=2)
+        drama_events = diagnostic_detector.detect_events(drama_hand)
+
+        bad_beat_hand = _build_bad_beat_hand(hand_number=5)
+        bad_beat_history = _build_bad_beat_equity_history(hand_number=5)
+        bad_beat_events = diagnostic_detector.detect_events(
+            bad_beat_hand, equity_history=bad_beat_history,
+        )
 
         # Hand 1: three heads-up big pots (BIG_WIN/BIG_LOSS only)
         for hand_number in (1, 3, 4):
@@ -156,16 +212,28 @@ def main() -> None:
         # Hand 2 (drama): the multiway BLUFFED_OFF + HERO_CALL hand
         mgr._process_relationship_events(drama_hand)
 
+        # Hand 5 (bad beat): heads-up favorite loses to a runner-runner
+        # flush. Equity history is the load-bearing input that turns
+        # BAD_BEAT detection on.
+        mgr._process_relationship_events(
+            bad_beat_hand, equity_history=bad_beat_history,
+        )
+
         # -- Diagnostic output ----------------------------------------
 
-        print("=== Events emitted by the multiway drama hand ===")
-        for e in diagnostic_events:
-            print(
-                f"  {e.event.value:14s}  actor={e.actor_id:9s} "
-                f"target={e.target_id:9s} chips={e.chips_won:+5d}"
-            )
-            if e.narrative:
-                print(f"      {e.narrative}")
+        def _print_events(label, events):
+            print(f"=== Events emitted: {label} ===")
+            for e in events:
+                print(
+                    f"  {e.event.value:14s}  actor={e.actor_id:9s} "
+                    f"target={e.target_id:9s} chips={e.chips_won:+5d}"
+                )
+                if e.narrative:
+                    print(f"      {e.narrative}")
+
+        _print_events("multiway drama hand", drama_events)
+        print()
+        _print_events("bad-beat hand", bad_beat_events)
 
         print("\n=== Final relationship_states ===")
         for (obs, opp) in [
@@ -197,12 +265,20 @@ def main() -> None:
 
         # -- Hard assertions on event types --------------------------
 
-        emitted_kinds = {e.event.value for e in diagnostic_events}
+        drama_kinds = {e.event.value for e in drama_events}
         for required in ("big_win", "big_loss", "hero_call", "bluffed_off"):
-            assert required in emitted_kinds, (
+            assert required in drama_kinds, (
                 f"{required} did not fire on the multiway drama hand; "
-                f"emitted: {sorted(emitted_kinds)}"
+                f"emitted: {sorted(drama_kinds)}"
             )
+
+        bad_beat_kinds = {e.event.value for e in bad_beat_events}
+        assert "bad_beat" in bad_beat_kinds, (
+            f"bad_beat did not fire on the favorite-lost hand; "
+            f"emitted: {sorted(bad_beat_kinds)}"
+        )
+        bb = next(e for e in bad_beat_events if e.event.value == "bad_beat")
+        assert bb.actor_id == "alice_v1" and bb.target_id == "bob_v1", bb
 
         # -- Semantic sanity on key axes -----------------------------
         #
@@ -227,42 +303,48 @@ def main() -> None:
             f"see revealed; got {bob_carol.heat}"
         )
 
-        # bob → alice: BIG_LOSS actor + HERO_CALL mirror + (three
-        # prior BIG_LOSSes from hands 1, 3, 4 with heat clamped via
-        # the bilateral mirror update). bob just got hero-called and
-        # lost three big pots — heat toward alice should be
-        # substantial.
+        # bob → alice: BIG_LOSS actor + HERO_CALL mirror + 3 prior
+        # BIG_LOSSes — then the bad-beat hand softens the picture
+        # slightly (bob WON that one, so BIG_WIN actor: heat -0.10,
+        # plus BAD_BEAT mirror: respect +0.05). Net: still very
+        # heated, even more respect.
         bob_alice = repo.load_raw_relationship_state("bob_v1", "alice_v1")
         assert bob_alice.heat > 0.4, (
-            f"bob should be very heated at alice; got {bob_alice.heat}"
+            f"bob should still be heated at alice; got {bob_alice.heat}"
         )
-        # HERO_CALL mirror is respect +0.05 — bob respects alice for
-        # making the call (and BIG_LOSS actor adds +0.08 per loss).
         assert bob_alice.respect > 0.5, (
             f"bob should respect alice; got {bob_alice.respect}"
         )
 
-        # alice → bob: catching a bluff and winning three pots —
-        # alice's view should be the opposite: low heat, lower
-        # respect (HERO_CALL actor: respect -0.10 reads as "your
-        # bluff was bad enough to be call-worthy"), higher liking.
+        # alice → bob: previously low heat (clamped at 0), low
+        # respect, high liking. The bad-beat hand swings it
+        # sharply: BAD_BEAT actor shift is heat +0.30, respect
+        # -0.15, likability -0.10 — the strongest single-event
+        # axis movement in the vocabulary. Plus BIG_LOSS actor and
+        # BIG_WIN mirror add more heat. So alice's heat at bob
+        # should now be SUBSTANTIAL, not zero. This is the
+        # behavioral signal that proves BAD_BEAT is wired in: the
+        # relationship layer reacts emotionally to a suckout in a
+        # way that pure chip-flow accounting wouldn't.
         alice_bob = repo.load_raw_relationship_state("alice_v1", "bob_v1")
-        assert alice_bob.heat == 0.0, (
-            f"alice's heat at bob should stay clamped at 0; "
+        assert alice_bob.heat > 0.4, (
+            f"alice should be heated at bob after the bad beat; "
             f"got {alice_bob.heat}"
         )
-        assert alice_bob.respect < 0.5, (
-            f"alice should respect bob less after catching his bluff; "
+        assert alice_bob.respect < 0.3, (
+            f"alice's respect for bob should crater after the bad "
+            f"beat (he sucked out with 7-6 vs aces); "
             f"got {alice_bob.respect}"
         )
 
-        # cash_pair_stats: across 3 heads-up + 1 multiway big pot,
-        # alice's PnL vs bob = 3 × 400 + 450 (drama hand chip flow)
-        # = 1650. vs carol = 100 (drama hand only).
+        # cash_pair_stats: 3 heads-up wins + multiway big pot give
+        # alice +1650 vs bob and +100 vs carol. Then the bad-beat
+        # hand REVERSES 500 chips (bob wins net 500 from alice):
+        # alice vs bob = 1650 - 500 = 1150. hands = 5.
         alice_bob_stats = repo.load_cash_pair_stats("alice_v1", "bob_v1")
         alice_carol_stats = repo.load_cash_pair_stats("alice_v1", "carol_v1")
-        assert alice_bob_stats.cumulative_pnl == 1650, alice_bob_stats
-        assert alice_bob_stats.hands_played_cash == 4, alice_bob_stats
+        assert alice_bob_stats.cumulative_pnl == 1150, alice_bob_stats
+        assert alice_bob_stats.hands_played_cash == 5, alice_bob_stats
         assert alice_carol_stats.cumulative_pnl == 100, alice_carol_stats
         assert alice_carol_stats.hands_played_cash == 1, alice_carol_stats
 

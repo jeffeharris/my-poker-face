@@ -37,7 +37,16 @@ from ..moment_analyzer import MomentAnalyzer
 
 if TYPE_CHECKING:
     from .opponent_model import OpponentModelManager
+    from ..equity_snapshot import HandEquityHistory
     from ..repositories.relationship_repository import RelationshipRepository
+
+
+# BAD_BEAT detection threshold: loser was favorite at some pre-river
+# point with at least this much equity. Tuned conservatively so the
+# event reads as a genuine bad beat rather than a marginal favorite
+# losing — the dispatch-table calibration (heat +0.30, the strongest
+# axis movement in the whole event vocabulary) assumes this.
+BAD_BEAT_EQUITY_MIN = 0.70
 
 
 @dataclass(frozen=True)
@@ -99,7 +108,12 @@ class HandOutcomeDetector:
             Tuple[int, str, str, RelationshipEvent]
         ] = set()
 
-    def detect_events(self, recorded_hand: RecordedHand) -> List[DetectedEvent]:
+    def detect_events(
+        self,
+        recorded_hand: RecordedHand,
+        *,
+        equity_history: "Optional[HandEquityHistory]" = None,
+    ) -> List[DetectedEvent]:
         """Inspect a completed hand and return the events it triggered.
 
         Returns an empty list when the hand triggers no relationship
@@ -107,11 +121,21 @@ class HandOutcomeDetector:
         this method, dedup also filters out duplicates: a second call
         on the same `RecordedHand` instance will return [] because
         every event key was added to `self._emitted` on the first pass.
+
+        `equity_history` is optional. When supplied, BAD_BEAT
+        detection runs (favorite-loser-with-bad-runout pattern);
+        without it, BAD_BEAT is silently skipped. The equity history
+        is built by `EquityTracker` during the experiment-runner
+        path; the Flask game path doesn't compute equity today, so
+        BAD_BEAT only fires in experiments where psychology or
+        telemetry is enabled.
         """
         events: List[DetectedEvent] = []
         events.extend(self._detect_big_pot_events(recorded_hand))
         events.extend(self._detect_hero_calls(recorded_hand))
         events.extend(self._detect_bluffed_off(recorded_hand))
+        if equity_history is not None:
+            events.extend(self._detect_bad_beats(recorded_hand, equity_history))
         # Apply dedup AFTER detection so detection logic stays a
         # pure mapping. Each surviving event marks its key as
         # emitted; re-running the same hand returns no events.
@@ -510,6 +534,94 @@ class HandOutcomeDetector:
                 narrative=(
                     f"{folder} folded a winner to {prior_bettor}'s "
                     f"{fold_action.phase.lower()} bet"
+                ),
+                hand_summary=summary,
+            ))
+
+        return events
+
+    def _detect_bad_beats(
+        self,
+        hand: RecordedHand,
+        equity_history: "HandEquityHistory",
+    ) -> List[DetectedEvent]:
+        """Emit BAD_BEAT when a favorite at the final betting round loses.
+
+        **Semantic**: actor was the favorite at some pre-river street
+        (equity ≥ `BAD_BEAT_EQUITY_MIN`, default 0.70) AND lost the
+        hand. Attributed to the (single) winner.
+
+        Uses pre-river snapshots only (`PRE_FLOP` / `FLOP` / `TURN`)
+        rather than `RIVER` — by the time the river card is dealt,
+        equity collapses to a deterministic outcome (1.0 or 0.0), so
+        a RIVER snapshot doesn't tell you about "favoriteness" at any
+        meaningful decision point. The pre-river MAX across streets
+        captures both classic shapes:
+          - All-in preflop with the best hand → PRE_FLOP equity.
+          - Bet on the flop/turn with a made hand → FLOP/TURN equity.
+
+        Multi-winner pots (chopped) are skipped — attribution to "the
+        winner who bad-beat me" is ambiguous when there are multiple.
+
+        **Data dependency**: requires `equity_history` to be supplied
+        by the caller. The experiment runner builds it when
+        `enable_psychology` or `enable_telemetry` is true; the Flask
+        game path doesn't compute equity today. So BAD_BEAT fires in
+        experiment paths only until equity computation gets wired
+        into the Flask game flow.
+
+        **Why the highest axis weights**: BAD_BEAT actor shift is
+        heat +0.30, respect -0.15, likability -0.10 — the most
+        emotionally-loaded event in the vocabulary. The threshold
+        is intentionally conservative so it doesn't over-fire on
+        marginal favorites losing flips.
+        """
+        if not hand.was_showdown:
+            return []
+        if len(hand.winners) != 1:
+            # Split pots — "who bad-beat me" is ambiguous.
+            return []
+
+        winner_name = hand.winners[0].name
+        fold_actors = {
+            a.player_name for a in hand.actions if a.action == 'fold'
+        }
+        losers = [
+            p.name for p in hand.players
+            if p.name != winner_name and p.name not in fold_actors
+        ]
+        if not losers:
+            return []
+
+        summary = hand.get_summary()
+        events: List[DetectedEvent] = []
+
+        for loser_name in losers:
+            # Max equity across pre-river streets. RIVER excluded
+            # because river-snapshot equity is the deterministic
+            # outcome (1.0 winner, 0.0 loser), which doesn't tell us
+            # whether the loser was a favorite going INTO the river.
+            max_pre_river = 0.0
+            for street in ('PRE_FLOP', 'FLOP', 'TURN'):
+                eq = equity_history.get_player_equity(loser_name, street)
+                if eq is not None and eq > max_pre_river:
+                    max_pre_river = eq
+
+            if max_pre_river < BAD_BEAT_EQUITY_MIN:
+                continue
+
+            winner_id = self._resolve_id(winner_name)
+            loser_id = self._resolve_id(loser_name)
+            if winner_id is None or loser_id is None:
+                continue
+
+            events.append(DetectedEvent(
+                actor_id=loser_id,
+                target_id=winner_id,
+                event=RelationshipEvent.BAD_BEAT,
+                narrative=(
+                    f"{loser_name} had {int(max_pre_river * 100)}% equity "
+                    f"pre-river but lost to {winner_name}"
                 ),
                 hand_summary=summary,
             ))
