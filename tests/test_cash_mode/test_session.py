@@ -179,8 +179,15 @@ def _build_session(
     controller_factory=None,
     seat_count: int = 6,
     player_chips: int = 5_000,
+    player_controller=None,
 ) -> CashSession:
-    """Helper: build a CashSession with the test repos."""
+    """Helper: build a CashSession with the test repos.
+
+    By default registers an AlwaysFoldController for PLAYER_SEAT_ID so
+    run_hand can play through synchronously (no yield for human input).
+    Pass `player_controller=None` explicitly to opt out and exercise the
+    awaiting_human yield path.
+    """
     table = new_table(
         table_id="cash-test",
         stake_label="$10",
@@ -204,7 +211,7 @@ def _build_session(
         # Default: every seat folds. Hands resolve via fold-out.
         controller_factory = lambda pid, name, mm: AlwaysFoldController(name)
 
-    return CashSession(
+    session = CashSession(
         table=table,
         player_bankroll=player_bankroll,
         bankroll_repo=repos["bankroll"],
@@ -216,6 +223,14 @@ def _build_session(
         big_blind=big_blind,
         now_fn=lambda: fixed_now,
     )
+
+    # Register player controller (so run_hand doesn't yield for human input).
+    # Tests that want to exercise awaiting_human yield pass player_controller=None
+    # and rely on the surrounding test logic.
+    if player_controller is None:
+        player_controller = AlwaysFoldController("you")
+    session.controllers[PLAYER_SEAT_ID] = player_controller
+    return session
 
 
 # --- Smoke + construction ---

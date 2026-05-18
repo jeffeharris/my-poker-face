@@ -99,6 +99,10 @@ class HandResult:
 
     `status`:
       - "continue" — hand ran, ready for the next one.
+      - "awaiting_human" — paused mid-hand, waiting for the human seat
+        to call `apply_human_action`. The session retains internal
+        state until then. Routes should NOT call run_hand again until
+        the human acts.
       - "not_enough_players" — fewer than 2 seats filled; can't run a hand.
         The session loop should refill or wait for the human.
       - "error" — unrecoverable hand-engine failure; details in `error`.
@@ -106,12 +110,18 @@ class HandResult:
     `hand_number` is the hand index that ran (or attempted to run).
     `bust_seats` is the list of seat-ids whose stack went to 0; the
     session has already cleared them from the table.
+
+    `awaiting_player_name` is set when status="awaiting_human" — the
+    Player.name (display string from the hand engine, e.g. "you") of
+    whoever the engine is asking next. Routes use this to emit the
+    legal-actions surface to the UI.
     """
 
     status: str
     hand_number: int
     bust_seats: List[str] = field(default_factory=list)
     error: Optional[str] = None
+    awaiting_player_name: Optional[str] = None
 
 
 DISCONNECT_GRACE_SECONDS = 60
@@ -182,6 +192,13 @@ class CashSession:
         # window, the entry is promoted to _pending_quit.
         self._pending_quit: Set[str] = set()
         self._disconnect_times: Dict[str, datetime] = {}
+
+        # Held mid-hand state for human-input awaiting. When run_hand
+        # returns status="awaiting_human", the partially-played state
+        # machine and action log live here until apply_human_action
+        # resumes them.
+        self._in_progress_state_machine: Optional[PokerStateMachine] = None
+        self._in_progress_action_log: Optional[List[str]] = None
 
         # THE WIRING POINT: cash_mode=True enables cash_pair_stats writes
         # from the Phase 3 dispatch. Everything else flows through the
@@ -269,58 +286,99 @@ class CashSession:
     def is_player_disconnected(self) -> bool:
         return PLAYER_SEAT_ID in self._disconnect_times
 
+    def apply_human_action(self, action: str, amount: int = 0) -> HandResult:
+        """Apply the player's action to the held mid-hand state, then
+        continue the hand loop.
+
+        Requires `run_hand` to have previously returned
+        status="awaiting_human" (which stashes the state machine and
+        action log on the session). If called without an in-progress
+        hand, returns status="error".
+
+        After applying, this method re-enters the loop: if another
+        human turn comes up (rare in v1 one-human, possible in v2),
+        yields again; if the hand finishes, settles and returns
+        status="continue".
+        """
+        if self._in_progress_state_machine is None:
+            return HandResult(
+                status="error",
+                hand_number=self.hand_number,
+                error="apply_human_action called with no in-progress hand",
+            )
+        state_machine = self._in_progress_state_machine
+        hand_action_log = self._in_progress_action_log
+        game_state = state_machine.game_state
+        current_player = game_state.current_player
+        if current_player is None or not current_player.is_human:
+            return HandResult(
+                status="error",
+                hand_number=self.hand_number,
+                error=(
+                    f"apply_human_action called when current_player is "
+                    f"{current_player.name if current_player else 'None'}"
+                ),
+            )
+
+        self._apply_action(
+            state_machine, current_player.name, action, amount,
+            hand_action_log,
+        )
+        # Re-enter run_hand to keep driving (it'll detect _in_progress_state_machine).
+        return self.run_hand()
+
     # --- Hand loop ---
 
     def run_hand(self) -> HandResult:
-        """Run one hand to completion. Returns when settlement is done.
+        """Start a new hand OR resume an in-progress one.
 
-        Sequence:
-          1. Refill open AI seats via `fill_seats`.
-          2. If fewer than 2 seats, return "not_enough_players".
-          3. Block sit/leave/topup via `hand_in_progress=True`.
-          4. Build fresh PokerStateMachine from CashTable.stacks.
-          5. Update controllers' hand_number.
-          6. Memory: on_hand_start + record_blinds (after first deal).
-          7. Run the action loop until phase == EVALUATING_HAND.
-             DOES NOT call advance_state() past EVALUATING_HAND — the
-             state machine's evaluating_hand_transition would auto-
-             settle (double-settlement). Settlement is manual.
-          8. Manual settlement: determine_winner + award_pot_winnings.
-          9. Sync CashTable.stacks from post-hand Player.stack (codex
-             concern #1: no delta arithmetic, just take the final stack).
-         10. Memory: on_hand_complete (Phase 3 dispatch — cash_pair_stats
-             writes fire automatically because cash_mode=True is set).
-         11. Bust handling (codex concern #5: AI bankroll doesn't move
-             at settlement; the chips were lost at the table).
-         12. Unblock sit/leave/topup.
+        If `_in_progress_state_machine` is set, this resumes (caller
+        just applied a human action via apply_human_action and is now
+        re-driving the loop). Otherwise starts a fresh hand: fill
+        seats, build state machine, increment hand_number.
+
+        See module docstring for the full sequence. Status surface:
+          - "continue" — hand completed; ready for the next.
+          - "awaiting_human" — player's turn, no controller registered;
+            session retains state, caller must invoke apply_human_action.
+          - "not_enough_players" — fewer than 2 seated.
+          - "error" — hand-engine failure mid-loop.
         """
-        now = self._now_fn()
+        # Resume path: state machine already exists from a previous
+        # awaiting_human yield.
+        if self._in_progress_state_machine is not None:
+            state_machine = self._in_progress_state_machine
+            hand_action_log = self._in_progress_action_log
+        else:
+            now = self._now_fn()
+            self._refill_seats(now)
 
-        # 1. Refill
-        self._refill_seats(now)
+            if self._seated_count() < 2:
+                return HandResult(
+                    status="not_enough_players",
+                    hand_number=self.hand_number,
+                )
 
-        # 2. Player count check
-        if self._seated_count() < 2:
-            return HandResult(
-                status="not_enough_players",
-                hand_number=self.hand_number,
-            )
-
-        # 3. Block
-        self.table = self.table.with_hand_in_progress(True)
-        self.hand_number += 1
-
-        try:
-            # 4. Build state machine
+            self.table = self.table.with_hand_in_progress(True)
+            self.hand_number += 1
             state_machine = self._build_state_machine()
-
-            # 5. Controllers
             for ctrl in self.controllers.values():
                 ctrl.current_hand_number = self.hand_number
+            hand_action_log = []
+            # Stash so a yield mid-loop preserves state.
+            self._in_progress_state_machine = state_machine
+            self._in_progress_action_log = hand_action_log
 
-            # 6 + 7. Action loop + memory lifecycle
-            hand_action_log: List[str] = []
-            self._run_action_loop(state_machine, hand_action_log)
+        try:
+            yielded = self._run_action_loop(state_machine, hand_action_log)
+            if yielded is not None:
+                # _run_action_loop saw a human turn with no controller.
+                # Preserve state for apply_human_action; do not settle.
+                return HandResult(
+                    status="awaiting_human",
+                    hand_number=self.hand_number,
+                    awaiting_player_name=yielded,
+                )
 
             # 8. Manual settlement (must happen even if loop ended on safety break)
             game_state = state_machine.game_state
@@ -375,9 +433,12 @@ class CashSession:
             bust_seats = self._handle_busts()
 
         finally:
-            # 12. Unblock + clear pending_quit/disconnect for seats that
-            # are no longer at the table (busted or quit).
+            # 12. Unblock + clear in-progress state + filter
+            # pending_quit/disconnect to keep only entries for seats
+            # still at the table (busted or quit ones fall out).
             self.table = self.table.with_hand_in_progress(False)
+            self._in_progress_state_machine = None
+            self._in_progress_action_log = None
             self._pending_quit = {
                 seat_id for seat_id in self._pending_quit
                 if self.table.is_seated(seat_id)
@@ -449,8 +510,13 @@ class CashSession:
         self,
         state_machine: PokerStateMachine,
         hand_action_log: List[str],
-    ) -> None:
+    ) -> Optional[str]:
         """Drive the hand engine through one hand's action sequence.
+
+        Returns `None` when the hand reaches EVALUATING_HAND (caller
+        should settle). Returns the awaiting player's name when a
+        human seat is up and has no controller (caller should yield
+        with status="awaiting_human").
 
         Mirrors the experiment runner's run_hand inner loop minus
         the enterprise concerns (heartbeats, per-action saves,
@@ -482,7 +548,7 @@ class CashSession:
 
             # Done?
             if state_machine.current_phase == PokerPhase.EVALUATING_HAND:
-                return
+                return None
 
             # run-it-out: all-ins + 1 player who can act; engine auto-advances streets
             if game_state.run_it_out:
@@ -513,7 +579,7 @@ class CashSession:
                         "Stuck loop: %s asked %d times, forcing hand end",
                         current_player.name, same_player_count,
                     )
-                    return
+                    return None
             else:
                 same_player_count = 0
                 last_player_name = current_player.name
@@ -558,12 +624,19 @@ class CashSession:
                 action_count += 1
                 continue
 
-            # Resolve controller. For commit 3 every seat has one; commit 5
-            # will detect is_human and yield instead.
+            # Player seat without a controller → yield for human input.
+            # Tests can register a mock controller for PLAYER_SEAT_ID to
+            # bypass this path (which is what the commit-3 + commit-4
+            # tests do). Production Flask routes leave it unregistered
+            # so run_hand returns awaiting_human and apply_human_action
+            # resumes the loop.
             controller = self.controllers.get(seat_id) if seat_id else None
+            if controller is None and current_player.is_human:
+                return current_player.name
+
             if controller is None:
                 logger.warning(
-                    "No controller for seat %r (player %s); folding",
+                    "No controller for non-human seat %r (player %s); folding",
                     seat_id, current_player.name,
                 )
                 self._apply_action(

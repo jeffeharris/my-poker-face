@@ -13,6 +13,7 @@ from .capture_label_routes import capture_label_bp
 from .replay_experiment_routes import replay_experiment_bp
 from .user_routes import user_bp
 from .coach_routes import coach_bp
+from .cash_routes import cash_bp
 
 __all__ = [
     'game_bp',
@@ -28,5 +29,6 @@ __all__ = [
     'replay_experiment_bp',
     'user_bp',
     'coach_bp',
+    'cash_bp',
     'register_socket_events',
 ]

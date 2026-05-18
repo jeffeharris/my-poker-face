@@ -135,7 +135,7 @@ def _build_session(repos, clock, player_chips: int = 5_000) -> CashSession:
     )
     mm.set_hand_history_repo(repos["hand_history"])
 
-    return CashSession(
+    session = CashSession(
         table=table,
         player_bankroll=player_bankroll,
         bankroll_repo=repos["bankroll"],
@@ -147,6 +147,11 @@ def _build_session(repos, clock, player_chips: int = 5_000) -> CashSession:
         big_blind=10,
         now_fn=lambda: clock.now,
     )
+    # Player controller so run_hand doesn't yield for awaiting_human;
+    # the quit/disconnect tests drive auto-fold/check via session methods,
+    # not by exercising the human-input yield.
+    session.controllers[PLAYER_SEAT_ID] = AlwaysFoldController("you")
+    return session
 
 
 def _total_chips(session, repos, ai_ids=("alpha_bot", "beta_bot")) -> int:

@@ -25,6 +25,7 @@ from .tournament_repository import TournamentRepository
 from .llm_repository import LLMRepository
 from .coach_repository import CoachRepository
 from .relationship_repository import RelationshipRepository
+from .bankroll_repository import BankrollRepository
 
 
 def create_repos(db_path: str) -> dict:
@@ -57,11 +58,13 @@ def create_repos(db_path: str) -> dict:
         'coach_repo': CoachRepository(db_path),
         'pressure_event_repo': PressureEventRepository(db_path),
         'relationship_repo': RelationshipRepository(db_path),
+        'bankroll_repo': BankrollRepository(db_path),
         'db_path': db_path,
     }
 
 
 __all__ = [
+    'BankrollRepository',
     'BaseRepository',
     'CaptureLabelRepository',
     'CoachRepository',
