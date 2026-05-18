@@ -13,16 +13,18 @@ Three persistence surfaces, all introduced in schema v88:
 
   - Personality bankroll knobs (`bankroll_cap`, `bankroll_rate`,
     `buy_in_multiplier`, `stop_loss_buy_ins`, `stop_win_buy_ins`,
-    `stake_comfort_zone`) live as columns on `personalities`.
-    Reads fall back to `BANKROLL_KNOB_DEFAULTS` when columns are
-    NULL, so personalities seeded before per-row tuning land at sane
-    defaults without a re-migration.
+    `stake_comfort_zone`) live inside the existing `config_json`
+    column as a `bankroll_knobs` sub-dict. Same nesting convention
+    as `anchors`. Reads fall back to `BANKROLL_KNOB_DEFAULTS`
+    per-field when the sub-dict (or individual keys) is absent, so
+    personalities without explicit JSON knobs land at sane defaults.
 
 Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 2.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from typing import Optional
@@ -185,53 +187,52 @@ class BankrollRepository(BaseRepository):
     # --- Personality bankroll knobs ---
 
     def load_personality_knobs(self, personality_id: str) -> BankrollKnobs:
-        """Read the six bankroll knob columns for one personality.
+        """Read the bankroll knobs from `config_json.bankroll_knobs`.
 
-        Columns are nullable; NULLs fall back to
-        `BANKROLL_KNOB_DEFAULTS` per-field. A personality with no
-        row at all (unknown personality_id) also returns the full
-        defaults — the alternative would force every cash-mode call
-        site to handle "no knobs" specially, when defaults are
-        already the right answer.
+        Knobs nest inside `config_json` as a `bankroll_knobs` sub-dict
+        (same convention as `anchors`). Per-field fallback to
+        `BANKROLL_KNOB_DEFAULTS` covers three cases:
+          - personality_id not in the table (unknown personality)
+          - config_json has no `bankroll_knobs` sub-dict (untuned)
+          - sub-dict is partial (only some keys set)
+
+        Returning defaults for unknown ids lets every cash-mode call
+        site assume knobs are always available — defaults are the
+        right answer for "no specific tuning."
         """
         with self._get_connection() as conn:
             row = conn.execute(
-                """
-                SELECT bankroll_cap, bankroll_rate, buy_in_multiplier,
-                       stop_loss_buy_ins, stop_win_buy_ins, stake_comfort_zone
-                FROM personalities
-                WHERE personality_id = ?
-                """,
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
                 (personality_id,),
             ).fetchone()
         if not row:
             return BANKROLL_KNOB_DEFAULTS
+
+        try:
+            config = json.loads(row["config_json"])
+        except (TypeError, ValueError):
+            logger.warning(
+                "Personality %r has malformed config_json; using bankroll knob defaults",
+                personality_id,
+            )
+            return BANKROLL_KNOB_DEFAULTS
+
+        sub = config.get("bankroll_knobs") or {}
+        if not isinstance(sub, dict):
+            logger.warning(
+                "Personality %r has non-dict bankroll_knobs; using defaults",
+                personality_id,
+            )
+            return BANKROLL_KNOB_DEFAULTS
+
         defaults = BANKROLL_KNOB_DEFAULTS
         return BankrollKnobs(
-            bankroll_cap=(
-                row["bankroll_cap"] if row["bankroll_cap"] is not None
-                else defaults.bankroll_cap
-            ),
-            bankroll_rate=(
-                row["bankroll_rate"] if row["bankroll_rate"] is not None
-                else defaults.bankroll_rate
-            ),
-            buy_in_multiplier=(
-                row["buy_in_multiplier"] if row["buy_in_multiplier"] is not None
-                else defaults.buy_in_multiplier
-            ),
-            stop_loss_buy_ins=(
-                row["stop_loss_buy_ins"] if row["stop_loss_buy_ins"] is not None
-                else defaults.stop_loss_buy_ins
-            ),
-            stop_win_buy_ins=(
-                row["stop_win_buy_ins"] if row["stop_win_buy_ins"] is not None
-                else defaults.stop_win_buy_ins
-            ),
-            stake_comfort_zone=(
-                row["stake_comfort_zone"] if row["stake_comfort_zone"] is not None
-                else defaults.stake_comfort_zone
-            ),
+            bankroll_cap=sub.get("bankroll_cap", defaults.bankroll_cap),
+            bankroll_rate=sub.get("bankroll_rate", defaults.bankroll_rate),
+            buy_in_multiplier=sub.get("buy_in_multiplier", defaults.buy_in_multiplier),
+            stop_loss_buy_ins=sub.get("stop_loss_buy_ins", defaults.stop_loss_buy_ins),
+            stop_win_buy_ins=sub.get("stop_win_buy_ins", defaults.stop_win_buy_ins),
+            stake_comfort_zone=sub.get("stake_comfort_zone", defaults.stake_comfort_zone),
         )
 
     def save_personality_knobs(
@@ -239,34 +240,47 @@ class BankrollRepository(BaseRepository):
         personality_id: str,
         knobs: BankrollKnobs,
     ) -> bool:
-        """Write the six bankroll knob columns for one personality.
+        """Merge knob values into `config_json.bankroll_knobs`.
+
+        Reads the existing config, replaces the `bankroll_knobs`
+        sub-dict, writes back. Preserves every other config key
+        (anchors, verbal_tics, etc.) — this is a merge, not an
+        overwrite of the whole row.
 
         Returns True if a row was updated, False if no row matches the
-        personality_id. Used by the personality-seed bridge when JSON
-        carries explicit per-personality knobs; v1 doesn't call this
-        on the gameplay path.
+        personality_id. Used by personality-tuning tools / migrations;
+        v1 doesn't call this on the gameplay path (knobs are read from
+        the JSON seed source, not written from gameplay).
         """
         with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                (personality_id,),
+            ).fetchone()
+            if not row:
+                return False
+            try:
+                config = json.loads(row["config_json"])
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Personality %r config_json is malformed; refusing to merge knobs",
+                    personality_id,
+                )
+                return False
+            config["bankroll_knobs"] = {
+                "bankroll_cap": knobs.bankroll_cap,
+                "bankroll_rate": knobs.bankroll_rate,
+                "buy_in_multiplier": knobs.buy_in_multiplier,
+                "stop_loss_buy_ins": knobs.stop_loss_buy_ins,
+                "stop_win_buy_ins": knobs.stop_win_buy_ins,
+                "stake_comfort_zone": knobs.stake_comfort_zone,
+            }
             cursor = conn.execute(
                 """
                 UPDATE personalities
-                SET bankroll_cap = ?,
-                    bankroll_rate = ?,
-                    buy_in_multiplier = ?,
-                    stop_loss_buy_ins = ?,
-                    stop_win_buy_ins = ?,
-                    stake_comfort_zone = ?,
-                    updated_at = CURRENT_TIMESTAMP
+                SET config_json = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE personality_id = ?
                 """,
-                (
-                    knobs.bankroll_cap,
-                    knobs.bankroll_rate,
-                    knobs.buy_in_multiplier,
-                    knobs.stop_loss_buy_ins,
-                    knobs.stop_win_buy_ins,
-                    knobs.stake_comfort_zone,
-                    personality_id,
-                ),
+                (json.dumps(config), personality_id),
             )
             return cursor.rowcount > 0

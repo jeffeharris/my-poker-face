@@ -2,15 +2,17 @@
 
 Covers:
   - Migration v88 lands cleanly on existing pre-v88 databases (idempotent)
-  - Tables and personality bankroll knob columns have the right shape
+  - ai_bankroll_state + player_bankroll_state tables have the right shape
   - save / load round-trips for AI and player bankroll
-  - load_personality_knobs falls back to defaults when columns are NULL
+  - load_personality_knobs falls back to defaults when config_json lacks
+    the bankroll_knobs sub-dict (or it's missing keys)
   - load_ai_bankroll_projected applies projection (clamped to cap)
   - load_* returns None when no row exists
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -27,6 +29,26 @@ from cash_mode.bankroll import (
 )
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.schema_manager import SchemaManager
+
+
+def _insert_personality(
+    db_path: str,
+    personality_id: str,
+    *,
+    name: str = None,
+    bankroll_knobs: dict = None,
+) -> None:
+    """Helper: insert a personality row with optional bankroll_knobs in config_json."""
+    config = {}
+    if bankroll_knobs is not None:
+        config["bankroll_knobs"] = bankroll_knobs
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO personalities (name, config_json, personality_id) "
+            "VALUES (?, ?, ?)",
+            (name or f"Personality {personality_id}", json.dumps(config), personality_id),
+        )
+        conn.commit()
 
 
 @pytest.fixture
@@ -62,15 +84,19 @@ class TestSchemaMigrationV88:
             assert "chips" in cols
             assert "starting_bankroll" in cols
 
-    def test_personality_knob_columns_added(self, db_path):
+    def test_personalities_table_unchanged_by_v88(self, db_path):
+        # v88 stores knobs inside config_json; it must NOT add knob columns
+        # to the personalities table. If a future migration re-adds them
+        # this test should fail and prompt a design discussion.
         with sqlite3.connect(db_path) as conn:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(personalities)")}
-            assert "bankroll_cap" in cols
-            assert "bankroll_rate" in cols
-            assert "buy_in_multiplier" in cols
-            assert "stop_loss_buy_ins" in cols
-            assert "stop_win_buy_ins" in cols
-            assert "stake_comfort_zone" in cols
+            for forbidden in (
+                "bankroll_cap", "bankroll_rate", "buy_in_multiplier",
+                "stop_loss_buy_ins", "stop_win_buy_ins", "stake_comfort_zone",
+            ):
+                assert forbidden not in cols, (
+                    f"v88 should not add {forbidden} column — knobs live in config_json"
+                )
 
     def test_ai_bankroll_pk_enforced(self, db_path):
         with sqlite3.connect(db_path) as conn:
@@ -98,46 +124,15 @@ class TestSchemaMigrationV88:
         """A DB at v87 should migrate cleanly up to v88 when ensure_schema runs."""
         path = str(tmp_path / "old.db")
         SchemaManager(path).ensure_schema()
-        # Simulate pre-v88 state: drop the v88 tables, drop the knob
-        # columns from personalities, remove the v88 row from
-        # schema_version.
+        # Simulate pre-v88 state: drop the two bankroll tables and
+        # remove the v88 row from schema_version. The personalities
+        # table is untouched — v88 doesn't alter its shape.
         with sqlite3.connect(path) as conn:
             conn.execute("DROP TABLE IF EXISTS ai_bankroll_state")
             conn.execute("DROP TABLE IF EXISTS player_bankroll_state")
-            # SQLite supports DROP COLUMN since 3.35; the test runner
-            # uses a recent SQLite, but be defensive — recreate the
-            # personalities table without the knob columns via a copy.
-            conn.execute("ALTER TABLE personalities RENAME TO personalities_old")
-            conn.execute(
-                """
-                CREATE TABLE personalities (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE NOT NULL,
-                    config_json TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    is_generated BOOLEAN DEFAULT 1,
-                    source TEXT DEFAULT 'ai_generated',
-                    times_used INTEGER DEFAULT 0,
-                    elasticity_config TEXT,
-                    personality_id TEXT UNIQUE
-                )
-                """
-            )
-            conn.execute(
-                """
-                INSERT INTO personalities
-                    (id, name, config_json, created_at, updated_at, is_generated,
-                     source, times_used, elasticity_config, personality_id)
-                SELECT id, name, config_json, created_at, updated_at, is_generated,
-                       source, times_used, elasticity_config, personality_id
-                FROM personalities_old
-                """
-            )
-            conn.execute("DROP TABLE personalities_old")
             conn.execute("DELETE FROM schema_version WHERE version = 88")
             conn.commit()
-        # Re-run ensure_schema → should re-apply v88 only
+        # Re-run ensure_schema → should re-apply v88
         SchemaManager(path).ensure_schema()
         with sqlite3.connect(path) as conn:
             tables = {
@@ -147,9 +142,6 @@ class TestSchemaMigrationV88:
             }
             assert "ai_bankroll_state" in tables
             assert "player_bankroll_state" in tables
-            cols = {row[1] for row in conn.execute("PRAGMA table_info(personalities)")}
-            assert "bankroll_cap" in cols
-            assert "stake_comfort_zone" in cols
             v88_row = conn.execute(
                 "SELECT description FROM schema_version WHERE version = 88"
             ).fetchone()
@@ -225,26 +217,14 @@ class TestPersonalityKnobs:
         knobs = repo.load_personality_knobs("nonexistent_id")
         assert knobs == BANKROLL_KNOB_DEFAULTS
 
-    def test_load_returns_defaults_when_columns_null(self, db_path, repo):
-        # Insert a personality row with NULL knob columns.
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
-                ("Test Personality", "{}", "test_personality"),
-            )
-            conn.commit()
+    def test_load_returns_defaults_when_config_lacks_bankroll_knobs(self, db_path, repo):
+        # Personality row exists but config_json has no bankroll_knobs sub-dict.
+        _insert_personality(db_path, "test_personality")
         knobs = repo.load_personality_knobs("test_personality")
         assert knobs == BANKROLL_KNOB_DEFAULTS
 
     def test_save_then_load_round_trip(self, db_path, repo):
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
-                ("Big Stack Bob", "{}", "big_stack_bob"),
-            )
-            conn.commit()
+        _insert_personality(db_path, "big_stack_bob", name="Big Stack Bob")
         custom = BankrollKnobs(
             bankroll_cap=50_000,
             bankroll_rate=1_000,
@@ -265,26 +245,75 @@ class TestPersonalityKnobs:
             "no_such_personality", BANKROLL_KNOB_DEFAULTS
         ) is False
 
-    def test_partial_null_uses_defaults_per_field(self, db_path, repo):
-        # Mix: set bankroll_cap and stake_comfort_zone; leave the rest NULL.
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO personalities
-                    (name, config_json, personality_id, bankroll_cap, stake_comfort_zone)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                ("Partial Knobs", "{}", "partial_knobs", 25_000, "$50"),
-            )
-            conn.commit()
+    def test_partial_sub_dict_uses_defaults_per_field(self, db_path, repo):
+        # bankroll_knobs has only two keys — the rest fall back to defaults.
+        _insert_personality(
+            db_path,
+            "partial_knobs",
+            bankroll_knobs={"bankroll_cap": 25_000, "stake_comfort_zone": "$50"},
+        )
         knobs = repo.load_personality_knobs("partial_knobs")
         assert knobs.bankroll_cap == 25_000
         assert knobs.stake_comfort_zone == "$50"
-        # NULL columns fall back to defaults
+        # Missing keys fall back to defaults
         assert knobs.bankroll_rate == BANKROLL_KNOB_DEFAULTS.bankroll_rate
         assert knobs.buy_in_multiplier == BANKROLL_KNOB_DEFAULTS.buy_in_multiplier
         assert knobs.stop_loss_buy_ins == BANKROLL_KNOB_DEFAULTS.stop_loss_buy_ins
         assert knobs.stop_win_buy_ins == BANKROLL_KNOB_DEFAULTS.stop_win_buy_ins
+
+    def test_save_preserves_other_config_keys(self, db_path, repo):
+        # Inserting a personality with anchors etc. and then writing knobs
+        # must not wipe the rest of config_json — this is the bug we'd
+        # have hit with the columns + INSERT OR REPLACE approach.
+        original_config = {
+            "play_style": "tight aggressive",
+            "anchors": {"baseline_aggression": 0.7, "poise": 0.8},
+            "verbal_tics": ["'Show me the chips.'"],
+        }
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO personalities (name, config_json, personality_id) "
+                "VALUES (?, ?, ?)",
+                ("Preserved Pete", json.dumps(original_config), "preserved_pete"),
+            )
+            conn.commit()
+        custom = BankrollKnobs(50_000, 1_000, 1.5, 2, 10, "$200")
+        repo.save_personality_knobs("preserved_pete", custom)
+        # Read raw config_json back; every original key must still be present.
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                ("preserved_pete",),
+            ).fetchone()
+        config = json.loads(row[0])
+        assert config["play_style"] == "tight aggressive"
+        assert config["anchors"] == {"baseline_aggression": 0.7, "poise": 0.8}
+        assert config["verbal_tics"] == ["'Show me the chips.'"]
+        assert config["bankroll_knobs"]["bankroll_cap"] == 50_000
+
+    def test_load_handles_malformed_config_json(self, db_path, repo):
+        # If config_json is unparseable, return defaults rather than crashing.
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO personalities (name, config_json, personality_id) "
+                "VALUES (?, ?, ?)",
+                ("Broken Bob", "{not valid json", "broken_bob"),
+            )
+            conn.commit()
+        knobs = repo.load_personality_knobs("broken_bob")
+        assert knobs == BANKROLL_KNOB_DEFAULTS
+
+    def test_load_handles_non_dict_bankroll_knobs(self, db_path, repo):
+        # `bankroll_knobs: "oops"` (string instead of dict) → defaults.
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO personalities (name, config_json, personality_id) "
+                "VALUES (?, ?, ?)",
+                ("Wrong Type", json.dumps({"bankroll_knobs": "oops"}), "wrong_type"),
+            )
+            conn.commit()
+        knobs = repo.load_personality_knobs("wrong_type")
+        assert knobs == BANKROLL_KNOB_DEFAULTS
 
 
 # --- Projection on read ---
@@ -340,14 +369,8 @@ class TestProjectBankrollPure:
 class TestAIBankrollProjectedReads:
     def test_load_projected_applies_regen(self, db_path, repo):
         # Seed: 1000 chips, last_regen_tick = 4 days ago, rate=500/day → 3000.
-        # Personality row carries default knobs (NULL → defaults: rate 500, cap 10_000).
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
-                ("Hungry Hippo", "{}", "hungry_hippo"),
-            )
-            conn.commit()
+        # Personality row has no bankroll_knobs → defaults (rate 500, cap 10_000).
+        _insert_personality(db_path, "hungry_hippo", name="Hungry Hippo")
         tick = datetime(2026, 5, 13, 12, 0, 0)
         now = datetime(2026, 5, 17, 12, 0, 0)
         repo.save_ai_bankroll(AIBankrollState("hungry_hippo", chips=1_000, last_regen_tick=tick))
@@ -359,16 +382,12 @@ class TestAIBankrollProjectedReads:
 
     def test_load_projected_uses_personality_specific_cap(self, db_path, repo):
         # Personality with bankroll_cap=2000 — should clamp tighter than default.
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO personalities
-                    (name, config_json, personality_id, bankroll_cap, bankroll_rate)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                ("Capped Cat", "{}", "capped_cat", 2_000, 500),
-            )
-            conn.commit()
+        _insert_personality(
+            db_path,
+            "capped_cat",
+            name="Capped Cat",
+            bankroll_knobs={"bankroll_cap": 2_000, "bankroll_rate": 500},
+        )
         tick = datetime(2026, 5, 10, 12, 0, 0)
         now = datetime(2026, 5, 17, 12, 0, 0)  # 7 days, would add 3500
         repo.save_ai_bankroll(AIBankrollState("capped_cat", chips=500, last_regen_tick=tick))
