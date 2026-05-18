@@ -1,47 +1,52 @@
-/* MobileCashButton — gold pill in the upper-left corner of the
- * hero panel. Styled like .hero-bet (the bet pill) so it reads as
- * a first-class table chip. Positioned absolutely within the
- * .mobile-hero relative container. */
+/* MobileCashButton — gold pill in the upper-left of the hero
+ * panel, mirroring .hero-bet (top-center) styling and offset.
+ *
+ * The hero-bet pattern is `top: 0` + `transform: translate(...)`
+ * so the pill sits half ABOVE the panel's top edge, reading as a
+ * chip dropped onto the rim. Same here, anchored to the left.
+ */
 
 .mobile-cash-button {
   position: absolute;
-  top: clamp(4px, 0.8dvh, 8px);
-  left: clamp(8px, 1.6dvh, 12px);
+  top: 0;
+  left: clamp(12px, 2dvh, 20px);
+  transform: translateY(-50%);
   z-index: 10;
 
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: clamp(4px, 0.8dvh, 8px) clamp(10px, 1.6dvh, 14px);
 
   font-family: var(--font-mono);
-  font-size: clamp(11px, 1.8dvh, 14px);
+  font-size: clamp(12px, 2dvh, 16px);
   font-weight: var(--font-weight-bold);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 
   color: var(--color-bg-void);
   background: var(--gradient-gold);
-  border: none;
+  padding: clamp(4px, 0.8dvh, 8px) clamp(12px, 2dvh, 20px);
+  border: 2px solid var(--color-gold-bright);
   border-radius: var(--radius-full);
   cursor: pointer;
 
   box-shadow:
-    0 0 16px rgba(212, 165, 116, 0.45),
-    0 4px 12px rgba(0, 0, 0, 0.35),
+    0 0 16px rgba(212, 165, 116, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
   transition: transform 0.15s ease-out, box-shadow 0.15s;
 }
 
 .mobile-cash-button:hover {
   box-shadow:
-    0 0 20px rgba(212, 165, 116, 0.6),
+    0 0 20px rgba(212, 165, 116, 0.65),
     0 4px 14px rgba(0, 0, 0, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .mobile-cash-button:active {
-  transform: scale(0.96);
+  /* Keep the half-above offset while pressing in */
+  transform: translateY(-50%) scale(0.96);
 }
 
 .mobile-cash-button__icon {
