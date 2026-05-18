@@ -80,7 +80,7 @@ logger = logging.getLogger(__name__)
 #      (AI-personality sponsorship). NULL = anonymous house loan (v1 sponsorship);
 #      non-NULL = personality_id of the named AI lender. Used by leave-time settlement to
 #      credit sponsor_total back to the lender's persistent bankroll.
-SCHEMA_VERSION = 90
+SCHEMA_VERSION = 91
 
 
 
@@ -1223,6 +1223,7 @@ class SchemaManager:
             88: (self._migrate_v88_add_bankroll_tables, "Add ai_bankroll_state + player_bankroll_state tables and bankroll knob columns on personalities for cash mode v1"),
             89: (self._migrate_v89_add_loan_fields_to_player_bankroll, "Add active_loan_amount, active_loan_floor, active_loan_rate to player_bankroll_state for cash mode sponsorship"),
             90: (self._migrate_v90_add_lender_id_to_player_bankroll, "Add active_loan_lender_id to player_bankroll_state for cash mode Path B (AI sponsorship)"),
+            91: (self._migrate_v91_add_cash_tables, "Add cash_tables table for persistent multi-table lobby (cash mode v1.5)"),
         }
 
         with self._get_connection() as conn:
@@ -4015,3 +4016,36 @@ class SchemaManager:
                 "ADD COLUMN active_loan_lender_id TEXT DEFAULT NULL"
             )
         logger.info("v90: added active_loan_lender_id column to player_bankroll_state")
+
+    def _migrate_v91_add_cash_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v91: Add `cash_tables` for the persistent lobby (v1.5).
+
+        One row per "named" cash table. v1.5 ships one table per stake
+        (5 rows total — `$2`, `$10`, `$50`, `$200`, `$1000`); the schema
+        admits more without redesign so future "two $10 tables when the
+        lobby looks quiet" growth doesn't need a migration step.
+
+          - `table_id`: stable id, e.g., `cash-table-2-001`. Slug-safe
+            (no dollar sign).
+          - `stake_label`: matches `cash_mode.stakes.STAKES_LADDER` keys.
+          - `seats_json`: JSON array of 6 slot dicts. Slot kinds are
+            `open` (empty), `ai` (`{personality_id, chips}`), or
+            `human` (set transiently while the player is seated).
+          - `created_at` / `last_activity_at`: bumped by the lobby
+            refresh hook so stale-table admin views work.
+
+        No rows are seeded here — `cash_mode.lobby.ensure_lobby_seeded`
+        creates them at app boot.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS. Safe to re-run.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_tables (
+                table_id TEXT PRIMARY KEY,
+                stake_label TEXT NOT NULL,
+                seats_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        logger.info("v91: created cash_tables for persistent multi-table lobby")

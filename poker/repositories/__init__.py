@@ -26,6 +26,7 @@ from .llm_repository import LLMRepository
 from .coach_repository import CoachRepository
 from .relationship_repository import RelationshipRepository
 from .bankroll_repository import BankrollRepository
+from .cash_table_repository import CashTableRepository
 
 
 def create_repos(db_path: str) -> dict:
@@ -59,6 +60,7 @@ def create_repos(db_path: str) -> dict:
         'pressure_event_repo': PressureEventRepository(db_path),
         'relationship_repo': RelationshipRepository(db_path),
         'bankroll_repo': BankrollRepository(db_path),
+        'cash_table_repo': CashTableRepository(db_path),
         'db_path': db_path,
     }
 
@@ -67,6 +69,7 @@ __all__ = [
     'BankrollRepository',
     'BaseRepository',
     'CaptureLabelRepository',
+    'CashTableRepository',
     'CoachRepository',
     'DecisionAnalysisRepository',
     'ExperimentRepository',
