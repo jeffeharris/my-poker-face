@@ -11,7 +11,7 @@ import { config } from '../../config';
 import type {
   CashAction,
   CashApiResponse,
-  CashSessionState,
+  CashStateResponse,
   SponsorOffer,
   SponsorOffersResponse,
   StakeLabel,
@@ -67,7 +67,7 @@ export async function submitAction(
   return postJson('/action', { action, raise_to: raiseTo });
 }
 
-export async function topUp(amount: number): Promise<{ state: CashSessionState }> {
+export async function topUp(amount: number): Promise<{ stack: number; bankroll: number }> {
   return postJson('/topup', { amount });
 }
 
@@ -75,7 +75,7 @@ export async function leaveTable(): Promise<CashApiResponse> {
   return postJson('/leave');
 }
 
-export async function getState(): Promise<{ state: CashSessionState | null }> {
+export async function getState(): Promise<CashStateResponse> {
   return getJson('/state');
 }
 

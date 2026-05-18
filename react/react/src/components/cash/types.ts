@@ -28,12 +28,19 @@ export interface PlayerBankrollState {
   starting_bankroll: number;
 }
 
-/** Returned by /api/cash/state — minimal session summary for the
- *  cash entry page (refresh-recovery + affordability filter). */
+/** The session-summary half of /api/cash/state's response — set when
+ *  the user has an active cash game to redirect to. `null` otherwise. */
 export interface CashSessionState {
   game_id: string;
+  stake_label: string | null;
+}
+
+/** Top-level /api/cash/state response. `bankroll` is always present
+ *  so the stake picker can render affordability + locked tiers even
+ *  when no session is active. */
+export interface CashStateResponse {
+  state: CashSessionState | null;
   bankroll: number;
-  stake_label: string;
 }
 
 export type HandStatus =

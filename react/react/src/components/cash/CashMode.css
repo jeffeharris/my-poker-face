@@ -10,10 +10,33 @@
 }
 
 .cash-entry__bankroll {
-  padding: 0.75rem 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(180deg,
+    rgba(255, 216, 125, 0.10),
+    rgba(255, 216, 125, 0.04));
+  border: 1px solid rgba(255, 216, 125, 0.22);
+  border-radius: 10px;
   text-align: center;
+  font-size: 1rem;
+}
+
+.cash-entry__bankroll-label {
+  color: var(--text-secondary, #aaa);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.75rem;
+}
+
+.cash-entry__bankroll-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #ffd87d;
+  font-variant-numeric: tabular-nums;
 }
 
 .cash-entry__stakes h2,
@@ -55,9 +78,15 @@
 }
 
 .cash-entry__stake-button.is-disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
-  filter: grayscale(60%);
+  filter: grayscale(100%);
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+}
+
+.cash-entry__stake-button.is-disabled:hover {
+  background: rgba(0, 0, 0, 0.18);
 }
 
 .cash-entry__stake-locked {

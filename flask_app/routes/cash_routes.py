@@ -83,32 +83,66 @@ def _resolve_player_name() -> str:
 
 
 def _find_active_cash_game_id(owner_id: str) -> Optional[str]:
-    """Locate the owner's active cash game.
+    """Locate the owner's active cash game in game_state_service.
 
-    First checks `game_state_service.games` (hot, in-memory). On a
-    miss, falls back to the persisted `games` table — `progress_game`
-    auto-saves cash sessions, so a backend reload that wiped the
-    in-memory copy still leaves the row behind under the `cash-`
-    prefix. Returning the id lets `/api/game-state/<id>` cold-load
-    the game back into memory with cash-mode flags restored. v1
-    invariant: one active cash game per owner; if the DB has
-    multiples (e.g., from prior unclean shutdowns) we pick the most
-    recently updated one.
+    Cash games are keyed on the standard `game_id` and tagged with
+    `cash_mode=True`. v1 invariant: one active cash game per owner,
+    in-memory only. DO NOT fall back to the persisted `games` table
+    — auto-save can leave `cash-*` rows behind, and treating them as
+    active sessions opened a free-money exploit: leave_table refunded
+    the human player's stack and deleted the current game, but the
+    next `/api/cash/state` would return a stale prior-session row,
+    redirect the player back into it, and let them cash out *that*
+    stack too. Orphan rows are cleaned up at startup instead (see
+    `cleanup_orphan_cash_games`).
     """
     from flask_app.services import game_state_service
     for gid, gdata in list(game_state_service.games.items()):
         if gdata.get("cash_mode") and gdata.get("owner_id") == owner_id:
             return gid
+    return None
 
+
+def cleanup_orphan_cash_games() -> int:
+    """Delete every `cash-*` row left over from a previous run.
+
+    Cash games are in-memory only (spec §"v1 architectural invariants"),
+    so any `cash-*` row in the `games` table is by definition an
+    orphan — a snapshot from a session whose in-memory state was lost
+    when the backend last shut down. Leaving these behind is what
+    enabled the free-money exploit: `_find_active_cash_game_id` (back
+    when it had a DB fallback) could surface the orphan as an
+    "active session" and let the player cash out a stack that had
+    already been settled, or hadn't yet been credited back, in the
+    prior process.
+
+    No refund logic — we don't know whether the player's bankroll
+    already reflects that stack (they may have cashed out via the
+    glitch, or never had the chips credited at all). Tightening the
+    save-side (cash games no longer auto-save) keeps this list empty
+    on future restarts; this cleanup mops up legacy rows once at
+    boot. Returns the count cleaned up so the caller can log it.
+    """
     from flask_app.extensions import game_repo
     try:
-        rows = game_repo.list_games(owner_id=owner_id, limit=50, offset=0)
-    except Exception:
-        return None
-    for row in rows:
-        if row.game_id.startswith("cash-"):
-            return row.game_id
-    return None
+        rows = game_repo.list_games(owner_id=None, limit=1000, offset=0)
+    except Exception as e:
+        logger.warning("[CASH] orphan cleanup: list_games failed: %s", e)
+        return 0
+    orphans = [r.game_id for r in rows if r.game_id.startswith("cash-")]
+    for gid in orphans:
+        try:
+            game_repo.delete_game(gid)
+        except Exception as e:
+            logger.warning(
+                "[CASH] orphan cleanup: delete_game(%r) failed: %s", gid, e,
+            )
+    if orphans:
+        logger.info(
+            "[CASH] orphan cleanup: deleted %d stale cash session(s): %s",
+            len(orphans), orphans,
+        )
+    return len(orphans)
 
 
 def _load_or_seed_player_bankroll(owner_id: str) -> PlayerBankrollState:
@@ -700,31 +734,15 @@ def leave_table():
         return jsonify({"error": "No active cash session"}), 404
 
     from cash_mode.loan_settlement import settle_loan_on_leave
-    from flask_app.extensions import bankroll_repo
+    from flask_app.extensions import bankroll_repo, game_repo
     from flask_app.services import game_state_service
 
-    # `_find_active_cash_game_id` may have returned a DB-only id
-    # (in-memory cache lost to a backend restart). Fall back to the
-    # persisted state machine so the player can still cash out the
-    # last-saved stack without having to navigate to /game/:id
-    # first to trigger a cold-load.
-    from flask_app.extensions import game_repo
     game_data = game_state_service.get_game(game_id)
-    if game_data is not None:
-        state_machine = game_data["state_machine"]
-        human_player = next(
-            (p for p in state_machine.game_state.players if p.is_human), None,
-        )
-        chips_at_table = human_player.stack if human_player else 0
-    else:
-        base_state_machine = game_repo.load_game(game_id)
-        if base_state_machine is None:
-            return jsonify({"error": "No active cash session"}), 404
-        human_player = next(
-            (p for p in base_state_machine.game_state.players if p.is_human),
-            None,
-        )
-        chips_at_table = human_player.stack if human_player else 0
+    state_machine = game_data["state_machine"]
+    human_player = next(
+        (p for p in state_machine.game_state.players if p.is_human), None,
+    )
+    chips_at_table = human_player.stack if human_player else 0
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
     settlement = settle_loan_on_leave(bankroll, chips_at_table)
@@ -842,36 +860,38 @@ def top_up():
 
 @cash_bp.route("/api/cash/state", methods=["GET"])
 def get_state():
-    """GET /api/cash/state — minimal status snapshot.
+    """GET /api/cash/state — entry-screen snapshot.
 
-    Returns `{state: null}` if no active session, else `{state:
-    {game_id, bankroll, stake_label}}`. Used by the entry page to
-    decide whether to redirect to /game/<id>.
+    Always returns `bankroll` at the top level (seeding a fresh row
+    if needed) so the stake picker can show the player's bankroll
+    and grey out tiers they can't afford. `state` is the active-
+    session redirect target (or None when no session is live).
+
+    Response shape: `{state: null | {game_id, stake_label}, bankroll: int}`.
     """
     try:
         owner_id = _resolve_owner_id()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
+    bankroll = _load_or_seed_player_bankroll(owner_id)
     game_id = _find_active_cash_game_id(owner_id)
     if game_id is None:
-        return jsonify({"state": None})
+        return jsonify({
+            "state": None,
+            "bankroll": bankroll.chips,
+        })
 
-    from flask_app.extensions import bankroll_repo
     from flask_app.services import game_state_service
 
-    # `_find_active_cash_game_id` may return a DB-only id (after a
-    # backend restart that wiped the in-memory cache). The /game/:id
-    # cold-load path will rehydrate it on the next request — here we
-    # just publish what the entry screen needs: a game_id to redirect
-    # to and the current bankroll. `stake_label` is optional and
-    # unused by the redirect, so we tolerate it being absent.
+    # The entry screen needs game_id to redirect; stake_label is a
+    # nicety. Tolerate missing game_data (DB-only id after a restart;
+    # the /game/:id cold-load will rehydrate it).
     game_data = game_state_service.get_game(game_id)
-    bankroll = bankroll_repo.load_player_bankroll(owner_id)
     return jsonify({
         "state": {
             "game_id": game_id,
-            "bankroll": bankroll.chips if bankroll else 0,
             "stake_label": game_data.get("cash_stake_label") if game_data else None,
         },
+        "bankroll": bankroll.chips,
     })

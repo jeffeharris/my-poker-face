@@ -60,22 +60,21 @@ export function CashModeEntry() {
 
   // Check for an existing session on mount; redirect to the existing
   // tournament-style /game/:id page (cash sessions ride the same UI).
-  // Also reads the player's bankroll for the affordability filter on
-  // the stake picker — disable stakes the player can't afford to
-  // fully buy into.
+  // Always reads bankroll — it's at the top level of /api/cash/state
+  // regardless of whether a session is active, so the picker can
+  // grey out locked tiers from the start.
   useEffect(() => {
     (async () => {
       try {
-        const { state } = await getState();
-        if (state?.game_id) {
-          navigate(`/game/${state.game_id}`, { replace: true });
+        const response = await getState();
+        if (response.state?.game_id) {
+          navigate(`/game/${response.state.game_id}`, { replace: true });
           return;
         }
-        if (state?.bankroll !== undefined) {
-          setBankroll(state.bankroll);
-        }
+        setBankroll(response.bankroll);
       } catch {
-        // No active session — fall through to entry UI
+        // /api/cash/state errored (auth, network) — fall through to
+        // entry UI with bankroll unknown; stakes default to active.
       }
     })();
   }, [navigate]);
@@ -118,7 +117,10 @@ export function CashModeEntry() {
       <div className="cash-entry">
         {bankroll !== null && (
           <div className="cash-entry__bankroll">
-            Bankroll: <strong>${bankroll.toLocaleString()}</strong>
+            <span className="cash-entry__bankroll-label">Your bankroll</span>
+            <span className="cash-entry__bankroll-value">
+              ${bankroll.toLocaleString()}
+            </span>
           </div>
         )}
 
