@@ -140,17 +140,32 @@ class CashTableRepository(BaseRepository):
             return _row_to_state(row)
 
     def list_all_tables(self) -> List[CashTableState]:
-        """Return every persisted cash table, ordered by table_id.
+        """Return every persisted cash table, ordered by stake (ascending).
 
-        Deterministic order so the lobby UI renders consistently across
-        polls and so tests can compare list equality without sorting.
+        Stake order ($2 → $10 → $50 → $200 → $1000) matches the user's
+        mental model of "low to high" so the lobby renders intuitively.
+        Falls back to lexicographic `stake_label` then `table_id` for
+        determinism so tests can compare list equality without sorting.
+
+        The CASE expression keys off the stake numeric, not the label
+        string — alphabetical `$10 < $1000 < $2 < $200 < $50` would be
+        unintuitive.
         """
         with self._get_connection() as conn:
             rows = conn.execute(
                 """
                 SELECT table_id, stake_label, seats_json, created_at, last_activity_at
                 FROM cash_tables
-                ORDER BY table_id
+                ORDER BY
+                    CASE stake_label
+                        WHEN '$2'    THEN 1
+                        WHEN '$10'   THEN 2
+                        WHEN '$50'   THEN 3
+                        WHEN '$200'  THEN 4
+                        WHEN '$1000' THEN 5
+                        ELSE 999
+                    END,
+                    table_id
                 """,
             ).fetchall()
             return [_row_to_state(r) for r in rows]
