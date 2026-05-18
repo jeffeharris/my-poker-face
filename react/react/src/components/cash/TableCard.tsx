@@ -57,12 +57,32 @@ export function TableCard({ table, busy, onSeatTap }: TableCardProps) {
       <div className="lobby-table-card__roster">
         {table.seats.map((seat) => {
           if (seat.kind === 'ai') {
+            const title = seat.relationship_hint
+              ? `${seat.name} — ${seat.relationship_hint} (${seat.emotion})`
+              : `${seat.name} (${seat.emotion})`;
             return (
               <div
                 key={seat.index}
-                className="lobby-table-card__seat lobby-table-card__seat--ai"
-                title={seat.relationship_hint || `${seat.name}`}
+                className={
+                  'lobby-table-card__seat lobby-table-card__seat--ai' +
+                  ` lobby-table-card__seat--emotion-${seat.emotion}`
+                }
+                title={title}
+                data-emotion={seat.emotion}
               >
+                <div className="lobby-table-card__seat-avatar">
+                  {seat.avatar_url ? (
+                    <img
+                      src={seat.avatar_url}
+                      alt={seat.name}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span aria-hidden="true">
+                      {seat.name.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </div>
                 <div className="lobby-table-card__seat-name">{seat.name}</div>
                 <div className="lobby-table-card__seat-chips">
                   ${seat.chips.toLocaleString()}

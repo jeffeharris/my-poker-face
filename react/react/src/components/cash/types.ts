@@ -128,6 +128,12 @@ export type LobbySeat =
       personality_id: string;
       name: string;
       avatar_url: string | null;
+      /** Current emotion driving the avatar image. For AIs at the
+       *  player's active table this reflects live psychology;
+       *  otherwise defaults to 'confident' (a priority emotion that's
+       *  always pre-generated). Full Path C will source live emotion
+       *  from background sim for unseated tables too. */
+      emotion: string;
       chips: number;
       relationship_hint: string;
     }

@@ -370,8 +370,59 @@
 }
 
 .lobby-table-card__seat--ai {
-  background: rgba(74, 222, 128, 0.08);
-  border-color: rgba(74, 222, 128, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+  padding: 0.4rem 0.5rem 0.5rem;
+}
+
+/* Avatar circle. img is square-cropped via aspect-ratio; the
+   letter fallback fills the same circle. Emotion-coloured ring sits
+   on the wrapper so it shifts as the AI's psychology updates. */
+.lobby-table-card__seat-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: rgba(255, 255, 255, 0.7);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.lobby-table-card__seat-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Emotion → border tint. Cheap visual signal; full per-emotion
+   styling will land when Path C wires live emotion to unseated
+   tables too. Names match the avatar pipeline's PRIORITY_EMOTIONS
+   plus the common active-game ones. */
+.lobby-table-card__seat--emotion-confident .lobby-table-card__seat-avatar {
+  border-color: rgba(74, 222, 128, 0.6);
+}
+.lobby-table-card__seat--emotion-thinking .lobby-table-card__seat-avatar {
+  border-color: rgba(96, 165, 250, 0.6);
+}
+.lobby-table-card__seat--emotion-poker_face .lobby-table-card__seat-avatar {
+  border-color: rgba(180, 180, 180, 0.5);
+}
+.lobby-table-card__seat--emotion-tilted .lobby-table-card__seat-avatar,
+.lobby-table-card__seat--emotion-frustrated .lobby-table-card__seat-avatar,
+.lobby-table-card__seat--emotion-shaken .lobby-table-card__seat-avatar {
+  border-color: rgba(239, 68, 68, 0.7);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.25);
+}
+.lobby-table-card__seat--emotion-excited .lobby-table-card__seat-avatar,
+.lobby-table-card__seat--emotion-happy .lobby-table-card__seat-avatar {
+  border-color: rgba(250, 204, 21, 0.7);
 }
 
 .lobby-table-card__seat--human {

@@ -1623,8 +1623,8 @@ def get_lobby():
             "seats": [
               {"kind": "open", "index": int}                        |
               {"kind": "ai", "index": int, "personality_id": str,
-               "name": str, "avatar_url": str|null, "chips": int,
-               "relationship_hint": str}                            |
+               "name": str, "avatar_url": str|null, "emotion": str,
+               "chips": int, "relationship_hint": str}              |
               {"kind": "human", "index": int, "personality_id": str,
                "chips": int}
             ]
@@ -1642,6 +1642,8 @@ def get_lobby():
         bankroll_repo, cash_table_repo, personality_repo,
         relationship_repo,
     )
+    from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
+    from flask_app.services import game_state_service
     from cash_mode.lobby import refresh_unseated_tables
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
@@ -1657,6 +1659,27 @@ def get_lobby():
         )
     except Exception as e:
         logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)
+
+    # Build live-emotion map for AIs at the player's active cash table.
+    # Other AIs (at tables without the player, or in the idle pool)
+    # default to "confident" — a priority emotion that's always
+    # generated, so the avatar URL lookup succeeds without a fallback
+    # chain. Full Path C will source emotions from background-sim
+    # state for unseated tables too.
+    active_emotions: Dict[str, str] = {}
+    active_game_id = _find_active_cash_game_id(owner_id)
+    if active_game_id:
+        active_game = game_state_service.get_game(active_game_id)
+        if active_game:
+            for name, controller in (active_game.get("ai_controllers") or {}).items():
+                emotional_state = getattr(controller, "emotional_state", None)
+                if emotional_state:
+                    try:
+                        active_emotions[name] = emotional_state.get_display_emotion()
+                    except Exception:
+                        active_emotions[name] = "confident"
+                else:
+                    active_emotions[name] = "confident"
 
     tables = cash_table_repo.list_all_tables()
 
@@ -1684,9 +1707,14 @@ def get_lobby():
                 except Exception:
                     personality = None
                 entry["personality_id"] = pid
-                entry["name"] = (personality or {}).get("name") if personality else pid
+                ai_name = (personality or {}).get("name") if personality else pid
+                entry["name"] = ai_name
                 entry["chips"] = int(slot.get("chips", 0))
-                entry["avatar_url"] = None  # avatars are served separately
+                emotion = active_emotions.get(ai_name, "confident")
+                entry["emotion"] = emotion
+                entry["avatar_url"] = get_avatar_url_with_fallback(
+                    None, ai_name, emotion,
+                )
                 # Relationship hint: lender's POV of the player.
                 hint = ""
                 try:
