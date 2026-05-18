@@ -1,31 +1,40 @@
 """Induce override: smooth-call instead of raise vs detected multi-street barrelers.
 
-Phase A of the induce_override initiative. See
-docs/plans/INDUCE_OVERRIDE_PHASE_A.md for full design + testable hypothesis.
+Phase B Item 2: switches the gate to read `barrel_frequency` directly
+(Phase B Item 1 ships the stat). Replaces Phase A's AF_pf × cbet_attempt
+proxy. Also replaces the fixed 1.00 call redistribution with a
+confidence-scaled mix in [0.70, 0.90].
+
+See:
+- docs/plans/INDUCE_OVERRIDE_PHASE_A.md — original design, shipped
+- docs/plans/INDUCE_OVERRIDE_PHASE_B.md — Item 1 + Item 2 specs
 
 ## What this does
 
 When hero has the nuts on a dry flop/turn IP and faces a bet from an
 opponent whose AggregatedOpponentStats flag them as a multi-street
-barreler (high AF_postflop + high cbet_attempt_rate with sufficient
-sample), this layer replaces the strategy distribution with **100%
-call** — capturing the bluff sequence across multiple streets instead
-of ending it with a raise.
+barreler (barrel_frequency × confidence), this layer redistributes
+the strategy distribution toward `call` — capturing the bluff sequence
+across multiple streets instead of ending it with a raise.
 
-The 100% call is Phase A's validation-mode redistribution. None of
-Phase A's matchup villains adapt to a smooth-call line; the 0.85/0.15
-unexploitability mix is Phase B work once adaptive opponents are in
-the matrix.
+The call probability scales with two axes:
+- Signal magnitude: `barrel_frequency` ramps 0.60 → 0.85
+- Sample confidence: `barrel_opportunities` ramps 10 → 50
+
+Their product (∈ [0, 1]) maps to call probability ∈ [0.70, 0.90].
+- At minimum gate (both at threshold): 0.70 call / 0.30 raise
+- At maximum gate (barrel_freq ≥ 0.85, opportunities ≥ 50): 0.90 call / 0.10 raise
+
+The 0.70 lower bound prevents the rule from degrading toward
+value_override's 0.50 at low confidence — if the gate fires at all,
+we're at least mildly trapping. The 0.90 upper bound preserves the
+unexploitability tax against future adaptive opponents.
 
 ## Architectural placement
 
 Sits IMMEDIATELY BEFORE `_apply_value_override` in the postflop
 pipeline. When induce fires, value_override defers via its own
-`prior_layer_fired` check. The two are mutually exclusive by gate
-construction: value_override fires on hyper_aggressive opponents with
-nuts/strong_made/strong; induce fires on a narrower subset
-(barreler-proxy opponent + nuts only + dry board + IP + ≥40 BB +
-flop/turn). When both gates match the same decision, induce wins.
+`prior_layer_fired` check.
 
 ## Gate (all conditions required)
 
@@ -35,15 +44,14 @@ flop/turn). When both gates match the same decision, induce wins.
 - Hand is `actual_nuts` (`hand_strength == 'nuts'` AND `nut_status == 'actual_nuts'`)
 - Dry board (`len(node.danger_flags) <= 1`)
 - Effective stack ≥ 40 BB (need room for turn + river barrels)
-- Barreler proxy: `AF_postflop >= 3.0` AND `cbet_attempt_rate >= 0.70`
-- Sample floor: `hands_observed >= 10` AND `postflop_seen_as_pfr_count >= 10`
+- Barrel signal: `barrel_frequency >= 0.60` AND `barrel_opportunities >= 10`
 - Not a station (`not _is_passive_with_jams` AND `not _is_hyper_passive`)
 - Not facing all-in (no future streets to extract on)
 - Heads-up only (`active_opponent_count == 1`)
 - Psychology gate: `adaptation_bias * tilt_factor > GATING_FLOOR`
 """
 
-from typing import Tuple
+from typing import List, Tuple
 
 from .exploitation import (
     AggregatedOpponentStats,
@@ -65,15 +73,39 @@ from .intervention_trace import (
 )
 from .strategy_profile import StrategyProfile
 
-# ── Gate tunables (Phase A) ────────────────────────────────────────
+# ── Gate tunables (Phase B Item 2) ─────────────────────────────────
 
-# Barreler proxy thresholds. Below these, induce stays off.
-MIN_AGGRESSION_FACTOR_POSTFLOP = 3.0
-MIN_CBET_ATTEMPT_RATE = 0.70
+# Barrel signal thresholds. Gate fires when both barrel_frequency
+# meets the minimum and barrel_opportunities is sufficient. Below
+# either threshold, induce stays off.
+#
+# MIN_BARREL_OPPORTUNITIES was tuned from 10→5 in the Phase B Item 2
+# validation: the original threshold required ~30-50 hands of warmup
+# vs Maniac before firing, which combined with the narrow gate gave
+# only ~5 fires per 1000-hand arm. Dropping to 5 cuts warmup roughly
+# in half. The tradeoff (lower sample confidence on the signal) is
+# absorbed by the confidence-scaled mix: at opps=5 the sample
+# confidence is 0 → call_prob lands at the CALL_PROB_MIN floor (0.70),
+# so a small-sample fire is still meaningfully trapping but not
+# maxed out.
+MIN_BARREL_FREQUENCY = 0.60
+MIN_BARREL_OPPORTUNITIES = 5
 
-# Sample-floor thresholds. Prevents firing on cold-start samples.
+# Sample-floor on observed hands. Even with barrel data populated,
+# require a minimum activity baseline to avoid cold-start spikes.
 MIN_HANDS_OBSERVED = 10
-MIN_POSTFLOP_SEEN_AS_PFR = 10
+
+# Confidence-scaled mixing parameters (Phase B Item 2).
+# rate_intensity ramps barrel_frequency between RATE_MIN and RATE_MAX
+# to [0, 1]. sample_confidence ramps barrel_opportunities between
+# OPPS_MIN and OPPS_MAX to [0, 1]. Their product (∈ [0, 1]) maps to
+# call probability in [CALL_MIN, CALL_MAX].
+RATE_RAMP_MIN = 0.60   # below this the gate doesn't fire
+RATE_RAMP_MAX = 0.85   # at/above this the rate axis saturates
+OPPS_RAMP_MIN = 5.0    # aligned with MIN_BARREL_OPPORTUNITIES
+OPPS_RAMP_MAX = 50.0   # at/above this the sample axis saturates
+CALL_PROB_MIN = 0.70   # minimum trap intensity when gate fires
+CALL_PROB_MAX = 0.90   # maximum trap intensity (preserves unexploitability)
 
 # Stack-depth floor in BB. Below 40 BB, the SPR after a flop call is
 # too low to extract meaningful turn/river barrels.
@@ -83,13 +115,60 @@ MIN_EFFECTIVE_STACK_BB = 40.0
 # allowed for the rule to fire. 0 = strict dry; 1 = one mild flag.
 MAX_DANGER_FLAGS = 1
 
-# Hand-strength + nut-status gate. Phase A is `actual_nuts` only.
+# Hand-strength + nut-status gate. Phase B still nuts-only (Item 3
+# extends to strong_made with stricter texture gates).
 ELIGIBLE_HAND_STRENGTH = 'nuts'
 ELIGIBLE_NUT_STATUS = 'actual_nuts'
 
 # Streets where induce can fire. River is excluded — no streets left
 # to extract on.
 ELIGIBLE_STREETS = frozenset({'flop', 'turn'})
+
+
+def _ramp(value: float, start: float, end: float) -> float:
+    """Linear ramp from `start` to `end`, clamped to [0, 1].
+
+    Mirrors the pattern in `exploitation._ramp` (private helper used
+    by compute_pattern_intensity). Returns 0 at or below `start`,
+    1 at or above `end`, linear in between.
+    """
+    if value <= start:
+        return 0.0
+    if value >= end:
+        return 1.0
+    return (value - start) / (end - start)
+
+
+def compute_call_probability(stats: AggregatedOpponentStats) -> float:
+    """Confidence-scaled call probability ∈ [CALL_PROB_MIN, CALL_PROB_MAX].
+
+    Two-axis ramp:
+      - Signal magnitude (barrel_frequency 0.60 → 0.85)
+      - Sample confidence (barrel_opportunities 10 → 50)
+
+    Multiplied, then linearly mapped to the call-probability range.
+    Caller has already verified barrel_frequency >= MIN_BARREL_FREQUENCY
+    and barrel_opportunities >= MIN_BARREL_OPPORTUNITIES (i.e. ramp
+    inputs are at or above their MIN). At those thresholds intensity=0
+    and call_prob=CALL_PROB_MIN.
+    """
+    rate_intensity = _ramp(
+        stats.barrel_frequency, RATE_RAMP_MIN, RATE_RAMP_MAX,
+    )
+    sample_confidence = _ramp(
+        float(stats.barrel_opportunities), OPPS_RAMP_MIN, OPPS_RAMP_MAX,
+    )
+    intensity = rate_intensity * sample_confidence
+    return CALL_PROB_MIN + intensity * (CALL_PROB_MAX - CALL_PROB_MIN)
+
+
+def _raise_actions(available_actions) -> List[str]:
+    """All raise-like action keys in the current strategy. Mirrors the
+    helper in value_override.py."""
+    return [
+        a for a in available_actions
+        if a == 'jam' or a.startswith(('bet_', 'raise_'))
+    ]
 
 
 def should_apply_induce_override(
@@ -108,15 +187,14 @@ def should_apply_induce_override(
     adaptation_bias: float,
     tilt_factor: float = 1.0,
 ) -> Tuple[bool, str]:
-    """Evaluate the Phase A gate. Returns (should_fire, reason_code).
+    """Evaluate the Phase B Item 2 gate. Returns (should_fire, reason_code).
 
     The reason_code surfaces in the no-op trace so attribution analysis
     can see which gate component blocked. When `should_fire` is True,
     reason_code is `'gate_pass'`.
 
     Gate checks are ordered cheap → expensive so the early exits are
-    fast — pure-Python dataclass attribute reads first, then the
-    station-detector calls (which iterate through tendencies fields).
+    fast.
     """
     # Cheap structural checks first.
     if not has_call:
@@ -146,19 +224,13 @@ def should_apply_induce_override(
     if adaptation_bias * tilt_factor <= GATING_FLOOR:
         return False, 'psychology_suppressed'
 
-    # Sample-floor checks before barreler proxy — both are cheap field
-    # reads but the sample floor is more often the blocker in fresh
-    # opponent models.
+    # Sample-floor + signal-floor on barrel stats.
     if stats.hands_observed < MIN_HANDS_OBSERVED:
         return False, 'cold_start_hands'
-    if stats.postflop_seen_as_pfr_count < MIN_POSTFLOP_SEEN_AS_PFR:
-        return False, 'cold_start_cbet_sample'
-
-    # Barreler proxy.
-    if stats.aggression_factor_postflop < MIN_AGGRESSION_FACTOR_POSTFLOP:
-        return False, 'af_postflop_below_threshold'
-    if stats.cbet_attempt_rate < MIN_CBET_ATTEMPT_RATE:
-        return False, 'cbet_rate_below_threshold'
+    if stats.barrel_opportunities < MIN_BARREL_OPPORTUNITIES:
+        return False, 'cold_start_barrel_sample'
+    if stats.barrel_frequency < MIN_BARREL_FREQUENCY:
+        return False, 'barrel_frequency_below_threshold'
 
     # Station exclusions — both detectors return False when the stats
     # don't match the pattern, so this is also cheap.
@@ -172,18 +244,32 @@ def should_apply_induce_override(
 
 def compute_induce_override_strategy(
     strategy: StrategyProfile,
+    call_probability: float,
 ) -> StrategyProfile:
-    """Replace the strategy distribution with 100% call.
+    """Redistribute strategy to `call_probability` call / remainder raise.
 
-    Phase A's validation-mode redistribution. The full 1.00 maximizes
-    measurable signal during ablation testing against static villains.
-    Phase B switches to 0.85 call / 0.15 raise (or confidence-scaled)
-    once adaptive opponents enter the matrix.
+    The remainder (1 - call_probability) is split evenly across all
+    raise-like action keys in the input strategy. Other action keys
+    ('fold', 'check', non-raise quanta) get zero probability since
+    induce specifically picks between call (trap) and raise (unexploitability).
 
-    Does not invent a 'call' action — caller already gated on it being
-    present in the distribution.
+    If the strategy has no raise actions (pathological for a facing-bet
+    spot), the full mass goes to call.
     """
-    return StrategyProfile(action_probabilities={'call': 1.0})
+    available = list(strategy.action_probabilities.keys())
+    raises = _raise_actions(available)
+
+    if not raises:
+        # No raise option — give everything to call. Pathological since
+        # induce only fires when facing a bet, but the safety net
+        # mirrors value_override's logic.
+        return StrategyProfile(action_probabilities={'call': 1.0})
+
+    raise_share = (1.0 - call_probability) / len(raises)
+    new_probs = {'call': call_probability}
+    for action in raises:
+        new_probs[action] = raise_share
+    return StrategyProfile(action_probabilities=new_probs)
 
 
 def apply_induce_override(
@@ -241,7 +327,8 @@ def apply_induce_override(
             reason_code=reason_code,
         )
 
-    new_strategy = compute_induce_override_strategy(strategy)
+    call_probability = compute_call_probability(stats)
+    new_strategy = compute_induce_override_strategy(strategy, call_probability)
 
     summary_before = summarize_strategy(strategy.action_probabilities)
     summary_after = summarize_strategy(new_strategy.action_probabilities)
@@ -266,9 +353,9 @@ def apply_induce_override(
         reason_code=f'induced_{street}_facing_bet',
         rationale=(
             f'induce override: nuts IP on {street}, '
-            f'AF_pf={stats.aggression_factor_postflop:.2f}, '
-            f'cbet_rate={stats.cbet_attempt_rate:.2f}, '
-            f'pfr_seen={stats.postflop_seen_as_pfr_count}, '
+            f'barrel_freq={stats.barrel_frequency:.2f}, '
+            f'barrel_opps={stats.barrel_opportunities}, '
+            f'call_prob={call_probability:.2f}, '
             f'stack={effective_stack_bb:.1f} BB → smooth-call to induce barrel'
         ),
         inputs={
@@ -279,11 +366,11 @@ def apply_induce_override(
             'danger_flag_count': danger_flag_count,
             'effective_stack_bb': round(effective_stack_bb, 2),
             'active_opponent_count': active_opponent_count,
-            'aggression_factor_postflop': round(
-                stats.aggression_factor_postflop, 4,
-            ),
-            'cbet_attempt_rate': round(stats.cbet_attempt_rate, 4),
-            'postflop_seen_as_pfr_count': stats.postflop_seen_as_pfr_count,
+            'barrel_frequency': round(stats.barrel_frequency, 4),
+            'barrel_opportunities': stats.barrel_opportunities,
+            'third_barrel_frequency': round(stats.third_barrel_frequency, 4),
+            'third_barrel_opportunities': stats.third_barrel_opportunities,
+            'call_probability': round(call_probability, 4),
             'hands_observed': stats.hands_observed,
         },
         input_strategy_summary=summary_before,
