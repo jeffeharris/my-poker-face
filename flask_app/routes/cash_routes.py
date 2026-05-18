@@ -32,7 +32,8 @@ from typing import Any, Dict
 
 from flask import Blueprint, jsonify, request
 
-from cash_mode import HandResult, PLAYER_SEAT_ID
+from cash_mode import PLAYER_SEAT_ID
+from cash_mode.session import HandResult
 from flask_app.services.cash_session_service import (
     cash_session_store,
     create_cash_session,
@@ -107,26 +108,34 @@ def _serialize_hand_result(result: HandResult) -> Dict[str, Any]:
     }
 
 
-def _build_controller_factory():
+def _build_controller_factory(*, game_id: str, owner_id: str):
     """Return the production AI controller factory used by cash sessions.
 
-    For v1 we lazily import the existing HybridAIController. This
-    keeps the cash blueprint loadable without the full LLM stack
-    being ready (test paths use a smaller factory).
+    Lazily imports the existing HybridAIController so the cash blueprint
+    loads even if the LLM stack isn't ready (test paths use a smaller
+    factory injected via the cash_session_service).
+
+    `state_machine` is attached post-construction by `_build_state_machine`
+    on each hand (cash mode rebuilds the state machine per hand because
+    AI composition changes). Passing `state_machine=None` here is fine
+    — the controller's `decide_action` won't fire before the session's
+    next refresh attaches the live one.
     """
     from poker.hybrid_ai_controller import HybridAIController
     from core.llm import DEFAULT_PROVIDER, DEFAULT_MODEL
+    from flask_app.extensions import capture_label_repo, decision_analysis_repo
+
+    llm_config = {"provider": DEFAULT_PROVIDER, "model": DEFAULT_MODEL}
 
     def factory(personality_id: str, display_name: str, memory_manager):
-        # Minimal HybridAIController construction — production should
-        # source provider/model from session config. v1 uses the
-        # default tier; v2 may surface per-personality LLM tier.
         return HybridAIController(
-            player_name=display_name,
-            ai_temp=0.7,
-            provider=DEFAULT_PROVIDER,
-            model=DEFAULT_MODEL,
-            memory_manager=memory_manager,
+            display_name,
+            state_machine=None,  # attached per-hand by the session
+            llm_config=llm_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
         )
 
     return factory
@@ -184,7 +193,10 @@ def start_cash_session():
             personality_repo=personality_repo,
             hand_history_repo=hand_history_repo,
             db_path=persistence_db_path,
-            controller_factory=_build_controller_factory(),
+            controller_factory=_build_controller_factory(
+                game_id=f"cash-{owner_id}",
+                owner_id=owner_id,
+            ),
             seat_count=6,
             user_id=owner_id,
         )

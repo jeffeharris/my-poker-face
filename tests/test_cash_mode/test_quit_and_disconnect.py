@@ -28,11 +28,10 @@ pytestmark = pytest.mark.integration
 from cash_mode import (
     AIBankrollState,
     PLAYER_SEAT_ID,
-    CashSession,
     PlayerBankrollState,
     new_table,
 )
-from cash_mode.session import DISCONNECT_GRACE_SECONDS
+from cash_mode.session import CashSession, DISCONNECT_GRACE_SECONDS
 from poker.memory.memory_manager import AIMemoryManager
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.hand_history_repository import HandHistoryRepository

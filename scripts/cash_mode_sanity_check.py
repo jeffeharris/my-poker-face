@@ -37,10 +37,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cash_mode import (
     AIBankrollState,
     PLAYER_SEAT_ID,
-    CashSession,
     PlayerBankrollState,
     new_table,
 )
+from cash_mode.session import CashSession
 from poker.memory.memory_manager import AIMemoryManager
 from poker.repositories import create_repos
 

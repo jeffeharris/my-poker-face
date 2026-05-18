@@ -20,11 +20,11 @@ pytestmark = pytest.mark.integration
 from cash_mode import (
     AIBankrollState,
     PLAYER_SEAT_ID,
-    fill_seats,
     new_table,
     sit_down,
     PlayerBankrollState,
 )
+from cash_mode.seat_filler import fill_seats
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.personality_repository import PersonalityRepository
 from poker.repositories.schema_manager import SchemaManager

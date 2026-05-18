@@ -481,7 +481,16 @@ class CashSession:
         return sum(1 for seat in self.table.seats if seat is not None)
 
     def _build_state_machine(self) -> PokerStateMachine:
-        """Construct a fresh state machine from current CashTable state."""
+        """Construct a fresh state machine from current CashTable state.
+
+        Also refreshes the `state_machine` attribute on every existing
+        controller. Production controllers (HybridAIController) read
+        live game state via `self.state_machine.game_state` — a stale
+        reference from the previous hand would surface stacks that
+        don't match the new hand's players. Mock test controllers
+        either ignore the attribute or set it as a class attribute;
+        either way the assignment is safe.
+        """
         # Map seat_id → display_name. AI: lookup from personality repo.
         # Human: hardcoded "you" (matches Flask convention).
         players = []
@@ -504,7 +513,18 @@ class CashSession:
             current_ante=self.big_blind,
             last_raise_amount=self.big_blind,
         )
-        return PokerStateMachine(game_state)
+        state_machine = PokerStateMachine(game_state)
+
+        # Refresh every controller's state_machine reference so their
+        # decide_action sees the new hand's game_state. Test mocks
+        # without a `state_machine` attribute get one set (harmless).
+        for ctrl in self.controllers.values():
+            try:
+                ctrl.state_machine = state_machine
+            except AttributeError:
+                pass  # protocol-only mock that doesn't accept attrs
+
+        return state_machine
 
     def _run_action_loop(
         self,

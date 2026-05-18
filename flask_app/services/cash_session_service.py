@@ -18,11 +18,8 @@ import uuid
 from datetime import datetime
 from typing import Callable, Dict, Optional
 
-from cash_mode import (
-    CashSession,
-    PlayerBankrollState,
-    new_table,
-)
+from cash_mode import PlayerBankrollState, new_table
+from cash_mode.session import CashSession
 from poker.memory.memory_manager import AIMemoryManager
 
 logger = logging.getLogger(__name__)

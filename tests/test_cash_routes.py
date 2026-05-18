@@ -45,7 +45,12 @@ class AlwaysFoldController:
         return {"action": "fold", "raise_to": 0}
 
 
-def _mock_controller_factory():
+def _mock_controller_factory(**_kwargs):
+    """Replacement for cash_routes._build_controller_factory.
+
+    Ignores game_id / owner_id (passed by the route) and returns a
+    factory that always builds an AlwaysFoldController.
+    """
     return lambda pid, name, mm: AlwaysFoldController(name)
 
 
