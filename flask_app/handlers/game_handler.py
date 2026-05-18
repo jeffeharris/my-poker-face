@@ -774,6 +774,71 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         game_state_service.set_game(game_id, game_data)
 
 
+def _detect_human_cash_bust(game_id: str, game_data: dict, state_machine) -> None:
+    """Emit a SocketIO bust event when the human's stack hits 0 between hands.
+
+    Symmetric to `_refill_cash_seats` but for the player seat — the
+    server already has authoritative game state, so we don't make the
+    frontend poll. Two distinct events so the modal can branch cleanly:
+
+      - `cash_rebuy_needed`: bankroll >= table's min_buy_in. Player
+        can rebuy from their own bankroll. Modal offers Rebuy /
+        Top-up-to-max / Leave.
+      - `cash_bust`: bankroll < table's min_buy_in (typically 0).
+        Player can't rebuy here; must leave to `/cash` to find a
+        sponsor or pick a lower stake.
+
+    Payload includes the data the frontend needs to render either
+    modal without a follow-up fetch (bankroll, min_buy_in, max_buy_in,
+    stake_label, has_active_loan). Safe no-op if the human's stack
+    is non-zero — exits early.
+    """
+    from cash_mode.stakes import table_buy_in_window
+    from flask_app.extensions import bankroll_repo
+
+    game_state = state_machine.game_state
+    human_idx = next(
+        (i for i, p in enumerate(game_state.players) if p.is_human),
+        None,
+    )
+    if human_idx is None:
+        return
+    human_player = game_state.players[human_idx]
+    if human_player.stack != 0:
+        return
+
+    stake_label = game_data.get('cash_stake_label')
+    if not stake_label:
+        return
+    try:
+        _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
+    except KeyError:
+        return
+
+    owner_id = game_data.get('owner_id')
+    bankroll = bankroll_repo.load_player_bankroll(owner_id) if owner_id else None
+    bankroll_chips = bankroll.chips if bankroll else 0
+    has_active_loan = bool(bankroll and bankroll.active_loan_amount > 0)
+
+    event_name = (
+        'cash_rebuy_needed'
+        if bankroll_chips >= min_buy_in and not has_active_loan
+        else 'cash_bust'
+    )
+    socketio.emit(event_name, {
+        'game_id': game_id,
+        'stake_label': stake_label,
+        'min_buy_in': min_buy_in,
+        'max_buy_in': max_buy_in,
+        'bankroll': bankroll_chips,
+        'has_active_loan': has_active_loan,
+    }, to=game_id)
+    logger.info(
+        "[CASH] Human bust at %r owner=%r stake=%r bankroll=%d had_loan=%s emitted=%s",
+        game_id, owner_id, stake_label, bankroll_chips, has_active_loan, event_name,
+    )
+
+
 def handle_eliminations(game_id: str, game_data: dict, game_state,
                         winning_player_names: list, pot_size: int,
                         final_hand_data: dict = None) -> Optional[bool]:
@@ -1507,6 +1572,17 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         except Exception as e:
             logger.error(
                 f"[CASH] Failed to refill seats for {game_id}: {e}",
+                exc_info=True,
+            )
+        # Symmetric check for the human seat: emit a bust event so
+        # the frontend can open the rebuy/sponsor modal. Wrapped
+        # separately so a bust-emit failure doesn't taint the
+        # refill flow above.
+        try:
+            _detect_human_cash_bust(game_id, game_data, state_machine)
+        except Exception as e:
+            logger.error(
+                f"[CASH] Bust detection failed for {game_id}: {e}",
                 exc_info=True,
             )
 
