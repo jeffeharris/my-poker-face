@@ -14,7 +14,22 @@
  */
 
 import { useCallback } from 'react';
+import { config } from '../../config';
 import type { LobbyTable } from './types';
+
+/** Avatar URLs from the lobby route are returned as relative paths
+ *  ("/api/avatar/<name>/<emotion>/full"). In dev, the frontend runs
+ *  on a different port from the backend and Vite's proxy isn't
+ *  configured (the env var that enables it isn't set), so relative
+ *  paths hit the Vite SPA fallback and return index.html instead of
+ *  the image. Prefix with config.API_URL to send the request straight
+ *  to the backend. In production (PROD build), config.API_URL is ''
+ *  so this is a no-op. */
+function absolutizeAvatarUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${config.API_URL}${url}`;
+}
 
 interface TableCardProps {
   table: LobbyTable;
@@ -71,17 +86,16 @@ export function TableCard({ table, busy, onSeatTap }: TableCardProps) {
                 data-emotion={seat.emotion}
               >
                 <div className="lobby-table-card__seat-avatar">
-                  {seat.avatar_url ? (
-                    <img
-                      src={seat.avatar_url}
-                      alt={seat.name}
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span aria-hidden="true">
-                      {seat.name.charAt(0).toUpperCase()}
-                    </span>
-                  )}
+                  {(() => {
+                    const src = absolutizeAvatarUrl(seat.avatar_url);
+                    return src ? (
+                      <img src={src} alt={seat.name} loading="lazy" />
+                    ) : (
+                      <span aria-hidden="true">
+                        {seat.name.charAt(0).toUpperCase()}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <div className="lobby-table-card__seat-name">{seat.name}</div>
                 <div className="lobby-table-card__seat-chips">
