@@ -233,6 +233,77 @@ class RelationshipRepository(BaseRepository):
                 ),
             )
 
+    def apply_cash_pair_pnl(
+        self,
+        winner_id: str,
+        loser_id: str,
+        chips: int,
+        *,
+        hand_delta: int = 1,
+    ) -> None:
+        """Bilateral cash_pair_stats update for one chip-flow tuple.
+
+        Loads both `(winner, loser)` and `(loser, winner)` rows (or
+        defaults), applies `+chips` to the winner-perspective row and
+        `-chips` to the loser-perspective row, increments
+        `hands_played_cash` on both by `hand_delta`, and persists in
+        a single transaction so the views can't drift on partial
+        failure.
+
+        `chips` is the winner-POV magnitude (always positive when
+        called from the chip-flow allocator's `ChipFlow.chips`); the
+        method handles sign-flipping for the mirror row internally.
+
+        Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 1
+        §"Cash pair stats" — "Write transactions update both rows so
+        the views can't drift."
+        """
+        with self._get_connection() as conn:
+            # Load existing rows (raw row reads within the same conn
+            # so the transaction sees consistent state).
+            winner_row = conn.execute(
+                """
+                SELECT cumulative_pnl, hands_played_cash
+                FROM cash_pair_stats
+                WHERE observer_id = ? AND opponent_id = ?
+                """,
+                (winner_id, loser_id),
+            ).fetchone()
+            loser_row = conn.execute(
+                """
+                SELECT cumulative_pnl, hands_played_cash
+                FROM cash_pair_stats
+                WHERE observer_id = ? AND opponent_id = ?
+                """,
+                (loser_id, winner_id),
+            ).fetchone()
+
+            winner_pnl = (winner_row['cumulative_pnl'] if winner_row else 0) + chips
+            winner_hands = (
+                winner_row['hands_played_cash'] if winner_row else 0
+            ) + hand_delta
+            loser_pnl = (loser_row['cumulative_pnl'] if loser_row else 0) - chips
+            loser_hands = (
+                loser_row['hands_played_cash'] if loser_row else 0
+            ) + hand_delta
+
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO cash_pair_stats
+                    (observer_id, opponent_id, cumulative_pnl, hands_played_cash)
+                VALUES (?, ?, ?, ?)
+                """,
+                (winner_id, loser_id, winner_pnl, winner_hands),
+            )
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO cash_pair_stats
+                    (observer_id, opponent_id, cumulative_pnl, hands_played_cash)
+                VALUES (?, ?, ?, ?)
+                """,
+                (loser_id, winner_id, loser_pnl, loser_hands),
+            )
+
     def load_cash_pair_stats(
         self,
         observer_id: str,

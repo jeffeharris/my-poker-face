@@ -27,12 +27,17 @@ Sequencing: `docs/plans/RELATIONSHIP_PHASE_3_HANDOFF.md`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from datetime import datetime
+from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from .chip_flow import ChipFlow, PotShare, allocate_chip_flow
 from .hand_history import RecordedHand
 from .relationship_events import RelationshipEvent
 from ..moment_analyzer import MomentAnalyzer
+
+if TYPE_CHECKING:
+    from .opponent_model import OpponentModelManager
+    from ..repositories.relationship_repository import RelationshipRepository
 
 
 @dataclass(frozen=True)
@@ -64,11 +69,14 @@ class DetectedEvent:
 class HandOutcomeDetector:
     """Maps `RecordedHand` records to `DetectedEvent` lists.
 
-    Stateless across hands by design — each `detect_events` call
-    inspects only the supplied `RecordedHand`. Cross-hand dedup
-    (`(hand_id, actor_id, target_id, event)`) lives at the dispatch
-    layer in a later commit, not here, so the detector stays a pure
-    mapping function and unit tests don't need state setup.
+    Holds an in-memory dedup set keyed on
+    `(hand_id, actor_id, target_id, event)` so a second call on the
+    same `RecordedHand` doesn't double-emit. The set lives on the
+    detector instance, which is intended to be one-per-game-session
+    (created in `MemoryManager.__init__`, reused across hands). It
+    naturally bounds: the integration point in `complete_hand` calls
+    `detect_events` exactly once per hand, so legitimate re-emission
+    only happens if a hand is replayed.
 
     The `name_to_id` registry is consulted at emission time. A name
     with no registered id (or `None` registered) falls back to using
@@ -80,18 +88,45 @@ class HandOutcomeDetector:
         self._name_to_id: Dict[str, Optional[str]] = (
             dict(name_to_id) if name_to_id else {}
         )
+        # Dedup set; key shape: (hand_number, actor_id, target_id, event)
+        self._emitted: Set[
+            Tuple[int, str, str, RelationshipEvent]
+        ] = set()
 
     def detect_events(self, recorded_hand: RecordedHand) -> List[DetectedEvent]:
         """Inspect a completed hand and return the events it triggered.
 
         Returns an empty list when the hand triggers no relationship
-        events (small pot, no losers, etc.). Order within the returned
-        list is: `BIG_WIN` events first, then `BIG_LOSS` events for
-        the same pair — but consumers should not rely on order.
+        events (small pot, no losers, etc.). Within a single call to
+        this method, dedup also filters out duplicates: a second call
+        on the same `RecordedHand` instance will return [] because
+        every event key was added to `self._emitted` on the first pass.
         """
         events: List[DetectedEvent] = []
         events.extend(self._detect_big_pot_events(recorded_hand))
-        return events
+        # Apply dedup AFTER detection so detection logic stays a
+        # pure mapping. Each surviving event marks its key as
+        # emitted; re-running the same hand returns no events.
+        return self._filter_already_emitted(events, recorded_hand.hand_number)
+
+    def _filter_already_emitted(
+        self,
+        events: List[DetectedEvent],
+        hand_number: int,
+    ) -> List[DetectedEvent]:
+        """Drop events whose `(hand, actor, target, event)` key is
+        already in the dedup set; record the rest before returning.
+        """
+        surviving: List[DetectedEvent] = []
+        for event in events:
+            key = (
+                hand_number, event.actor_id, event.target_id, event.event,
+            )
+            if key in self._emitted:
+                continue
+            self._emitted.add(key)
+            surviving.append(event)
+        return surviving
 
     def _detect_big_pot_events(
         self, hand: RecordedHand,
@@ -209,3 +244,72 @@ class HandOutcomeDetector:
             mapped = self._name_to_id[name]
             return mapped if mapped is not None else name
         return name
+
+
+def dispatch_events(
+    events: List[DetectedEvent],
+    manager: "OpponentModelManager",
+    *,
+    cash_pair_repo: Optional["RelationshipRepository"] = None,
+    hand_id: Optional[int] = None,
+    now: Optional[datetime] = None,
+) -> None:
+    """Apply a list of detected events to the relationship + cash layers.
+
+    For each event:
+      1. Call `manager.record_event` — bilateral relationship axis
+         update through the only legal mutation entry point.
+      2. If `cash_pair_repo` is provided (cash-mode hands), also
+         apply the bilateral `cash_pair_stats` update via
+         `apply_cash_pair_pnl`. cumulative_pnl moves by the event's
+         `chips_won`; `hands_played_cash` increments by 1.
+
+    Only `BIG_WIN` events drive the cash_pair_stats update — their
+    paired `BIG_LOSS` events refer to the same chip flow with the
+    opposite sign, and processing both would double-count. Other
+    event types (`HERO_CALL`, `BAD_BEAT`, etc.) don't carry a
+    chip-flow magnitude and are skipped for cash_pair_stats.
+
+    `now` defaults to `datetime.utcnow()` for `record_event`'s
+    decay anchor. `hand_id` is forwarded to `record_event` for the
+    `MemorableHand` sidecar.
+
+    Dedup is the detector's responsibility (`detect_events` already
+    filters duplicates); this function processes every event it
+    receives.
+    """
+    if not events:
+        return
+    if now is None:
+        now = datetime.utcnow()
+
+    for event in events:
+        manager.record_event(
+            actor_id=event.actor_id,
+            target_id=event.target_id,
+            event=event.event,
+            impact_score=event.impact_score,
+            narrative=event.narrative,
+            hand_summary=event.hand_summary,
+            hand_id=hand_id,
+            now=now,
+        )
+
+    if cash_pair_repo is None:
+        return
+
+    for event in events:
+        # Only positive-chips events drive cash_pair_stats — see
+        # docstring. BIG_LOSS is the mirror view of the same flow.
+        if event.event is not RelationshipEvent.BIG_WIN:
+            continue
+        if event.chips_won <= 0:
+            # Defensive: a BIG_WIN with zero/negative chips would
+            # mean the allocator emitted a flow that doesn't move
+            # money — skip rather than write a no-op row.
+            continue
+        cash_pair_repo.apply_cash_pair_pnl(
+            winner_id=event.actor_id,
+            loser_id=event.target_id,
+            chips=event.chips_won,
+        )
