@@ -37,7 +37,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Tuple
 
-from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
+from cash_mode.bankroll import (
+    AIBankrollState,
+    BankrollKnobs,
+    PlayerBankrollState,
+    project_bankroll,
+)
 from cash_mode.table import CashTable
 
 
@@ -188,6 +193,68 @@ def sit_down_ai(
     new_bankroll = AIBankrollState(
         personality_id=ai_bankroll.personality_id,
         chips=ai_bankroll.chips - buy_in,
+        last_regen_tick=now,
+    )
+    return new_table, new_bankroll
+
+
+# --- Row 3 (AI variant): Stand up an AI personality (cash-out) ---
+
+
+def cash_out_ai_seat(
+    table: CashTable,
+    personality_id: str,
+    ai_bankroll: AIBankrollState,
+    knobs: BankrollKnobs,
+    *,
+    now: datetime,
+) -> Tuple[CashTable, AIBankrollState]:
+    """Stand an AI up between hands: table stack credits to bankroll.
+
+    AI analogue of the human `leave_table` row. Returns the new
+    table (seat cleared, stack entry removed) and the new
+    `AIBankrollState` with the credited chips clamped to
+    `knobs.bankroll_cap`.
+
+    Matches the leave-time accounting in `cash_routes.leave_table`:
+    project the stored bankroll forward through elapsed time
+    (passive regen), credit the seat's current table stack on top,
+    clamp to cap. The cap is a hard ceiling — extras evaporate so
+    one AI can't accumulate runaway wealth relative to the rest of
+    the cast.
+
+    Unused in v1: AI seats only leave the table on bust (handled by
+    `bust_at_table`, no bankroll move because the chips were lost in
+    the hand). Path B (relationship-driven stand-up) and Path C
+    (stop-loss / stop-win) will use this. Wiring the function now
+    keeps the call site stable for those future callers.
+
+    Validates:
+      - `hand_in_progress` is False — same between-hands gate as
+        `leave_table`.
+      - `personality_id` is currently seated.
+
+    Bust case (stack == 0): the seat clears and the bankroll write
+    still fires (`last_regen_tick` advances to `now`, picking up any
+    accumulated regen) but no table credit lands. Idiomatic for the
+    "AI busted; refresh the regen clock as you remove them" case.
+    """
+    if table.hand_in_progress:
+        raise HandInProgressError("Cannot stand AI up during an active hand")
+    seat_index = table.seat_index_of(personality_id)
+    if seat_index is None:
+        raise SeatingError(f"{personality_id!r} is not seated at this table")
+
+    chips_at_table = table.stack_of(personality_id)
+    projected = project_bankroll(
+        ai_bankroll, knobs.bankroll_cap, knobs.bankroll_rate, now,
+    )
+    new_chips = min(knobs.bankroll_cap, projected + chips_at_table)
+
+    new_table = table.with_seat(seat_index, None).without_stack(personality_id)
+    new_bankroll = AIBankrollState(
+        personality_id=ai_bankroll.personality_id,
+        chips=new_chips,
         last_regen_tick=now,
     )
     return new_table, new_bankroll

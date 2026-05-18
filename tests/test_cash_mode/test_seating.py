@@ -20,12 +20,13 @@ Row reference (spec §"Bankroll accounting order"):
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
 from cash_mode import (
     AIBankrollState,
+    BankrollKnobs,
     PLAYER_SEAT_ID,
     CashTable,
     HandInProgressError,
@@ -33,6 +34,7 @@ from cash_mode import (
     SeatingError,
     apply_settlement,
     bust_at_table,
+    cash_out_ai_seat,
     disconnect_timeout,
     full_bankroll_bust,
     leave_table,
@@ -245,6 +247,130 @@ class TestSitDownAI:
         assert t.seats[1] == "napoleon"
         assert t.stack_of(PLAYER_SEAT_ID) == 500
         assert t.stack_of("napoleon") == 500
+
+
+# --- Row 3 (AI variant): cash_out_ai_seat ---
+
+
+class TestCashOutAISeat:
+    """Pure-function variant of leave_table for AI seats.
+
+    Unused in v1 — AI seats only leave the table on bust (no bankroll
+    move; the chips were lost in the hand). Path B (relationship-driven
+    stand-up) and Path C (stop-loss / stop-win) will use this. Tests
+    cover the accounting math + table state transition.
+    """
+
+    @pytest.fixture
+    def knobs(self) -> BankrollKnobs:
+        return BankrollKnobs(
+            bankroll_cap=50_000,
+            bankroll_rate=500,
+            buy_in_multiplier=1.0,
+            stop_loss_buy_ins=3,
+            stop_win_buy_ins=5,
+            stake_comfort_zone="$10",
+        )
+
+    @pytest.fixture
+    def now(self) -> datetime:
+        return datetime(2026, 5, 18, 12, 0, 0)
+
+    @pytest.fixture
+    def seated_ai(self, empty_table, now) -> tuple[CashTable, AIBankrollState]:
+        """Napoleon seated at seat 1 with 500-chip buy-in. Bankroll
+        starts at 10_000, gets debited to 9_500 by sit-down."""
+        ai = AIBankrollState("napoleon", chips=10_000, last_regen_tick=None)
+        return sit_down_ai(empty_table, 1, "napoleon", 500, ai, now=now)
+
+    def test_happy_path_credits_table_stack_clears_seat(self, seated_ai, knobs, now):
+        t, ai = seated_ai  # seat 1 = napoleon, stack=500, bankroll=9_500
+        new_t, new_b = cash_out_ai_seat(t, "napoleon", ai, knobs, now=now)
+        # Seat cleared.
+        assert new_t.seats[1] is None
+        assert not new_t.is_seated("napoleon")
+        # Bankroll: projected (no elapsed time) = 9_500, + 500 chips = 10_000.
+        assert new_b.chips == 10_000
+        assert new_b.last_regen_tick == now
+        assert new_b.personality_id == "napoleon"
+
+    def test_projection_applied_before_credit(self, empty_table, knobs, now):
+        # last_regen_tick is one day ago. Bankroll debited by sit_down
+        # would be 9_500, but we construct the seated state manually
+        # so we control the regen tick.
+        one_day_ago = now - timedelta(days=1)
+        ai = AIBankrollState(
+            "napoleon", chips=9_500, last_regen_tick=one_day_ago,
+        )
+        t = empty_table.with_seat(1, "napoleon").with_stack("napoleon", 500)
+        _new_t, new_b = cash_out_ai_seat(t, "napoleon", ai, knobs, now=now)
+        # 9_500 + 500 (regen) + 500 (table) = 10_500.
+        assert new_b.chips == 10_500
+
+    def test_cap_clamp(self, empty_table, knobs, now):
+        # Bankroll 49_900, table 500 → would be 50_400 but cap is 50_000.
+        ai = AIBankrollState(
+            "napoleon", chips=49_900, last_regen_tick=now,
+        )
+        t = empty_table.with_seat(1, "napoleon").with_stack("napoleon", 500)
+        _new_t, new_b = cash_out_ai_seat(t, "napoleon", ai, knobs, now=now)
+        assert new_b.chips == 50_000
+
+    def test_busted_seat_no_credit(self, empty_table, knobs, now):
+        # Stack 0 at table: seat still clears, bankroll only refreshes
+        # the regen tick (chips unchanged).
+        ai = AIBankrollState(
+            "napoleon", chips=8_000, last_regen_tick=now,
+        )
+        t = empty_table.with_seat(1, "napoleon").with_stack("napoleon", 0)
+        new_t, new_b = cash_out_ai_seat(t, "napoleon", ai, knobs, now=now)
+        assert new_t.seats[1] is None
+        assert new_b.chips == 8_000
+        assert new_b.last_regen_tick == now
+
+    def test_blocked_during_hand(self, seated_ai, knobs, now):
+        t, ai = seated_ai
+        in_hand = t.with_hand_in_progress(True)
+        with pytest.raises(HandInProgressError):
+            cash_out_ai_seat(in_hand, "napoleon", ai, knobs, now=now)
+
+    def test_rejects_not_seated(self, empty_table, knobs, now):
+        ai = AIBankrollState("napoleon", chips=10_000, last_regen_tick=now)
+        with pytest.raises(SeatingError, match="not seated"):
+            cash_out_ai_seat(empty_table, "napoleon", ai, knobs, now=now)
+
+    def test_does_not_mutate_inputs(self, seated_ai, knobs, now):
+        t, ai = seated_ai
+        cash_out_ai_seat(t, "napoleon", ai, knobs, now=now)
+        # Originals unchanged
+        assert t.seats[1] == "napoleon"
+        assert t.stack_of("napoleon") == 500
+        assert ai.chips == 9_500
+
+    def test_stack_entry_removed(self, seated_ai, knobs, now):
+        t, ai = seated_ai
+        new_t, _ = cash_out_ai_seat(t, "napoleon", ai, knobs, now=now)
+        # The stacks mapping no longer contains the AI.
+        assert "napoleon" not in new_t.stacks
+
+    def test_round_trip_with_sit_down_ai_conserves_chips_no_regen(self, empty_table, now):
+        # Sit AI down, immediately cash them out — total bankroll
+        # back to original (no elapsed time, no regen, no winnings).
+        knobs = BankrollKnobs(
+            bankroll_cap=50_000,
+            bankroll_rate=0,  # no regen for invariant clarity
+            buy_in_multiplier=1.0,
+            stop_loss_buy_ins=3,
+            stop_win_buy_ins=5,
+            stake_comfort_zone="$10",
+        )
+        ai = AIBankrollState("napoleon", chips=10_000, last_regen_tick=None)
+        t, after_sit = sit_down_ai(empty_table, 0, "napoleon", 500, ai, now=now)
+        # After sit-down: bankroll=9_500, table stack=500.
+        assert after_sit.chips == 9_500
+        # Immediately cash out: bankroll back to 10_000.
+        _t, after_cash = cash_out_ai_seat(t, "napoleon", after_sit, knobs, now=now)
+        assert after_cash.chips == 10_000
 
 
 # --- Row 2: Top up ---
