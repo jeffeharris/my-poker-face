@@ -32,7 +32,15 @@
         "stop_win_buy_ins": 3,
         "stake_comfort_zone": "$10"
       },
-      "id": "abraham_lincoln"
+      "id": "abraham_lincoln",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Winston Churchill": {
       "play_style": "strategic and calculated, with occasional bursts of boldness",
@@ -66,7 +74,15 @@
         "stop_win_buy_ins": 6,
         "stake_comfort_zone": "$200"
       },
-      "id": "winston_churchill"
+      "id": "winston_churchill",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Napoleon": {
       "play_style": "strategically aggressive with calculated risks",
@@ -100,7 +116,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
-      "id": "napoleon"
+      "id": "napoleon",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Louis XIV": {
       "play_style": "strategically flamboyant, blending calculated risks with theatricality",
@@ -135,7 +159,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$1000"
       },
-      "id": "louis_xiv"
+      "id": "louis_xiv",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "King Henry VIII": {
       "play_style": "strategic and imposing, often using calculated risks to assert dominance",
@@ -171,7 +203,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$1000"
       },
-      "id": "king_henry_viii"
+      "id": "king_henry_viii",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Shakespeare": {
       "play_style": "strategic and dramatic, often using theatrics to enhance their gameplay",
@@ -205,7 +245,15 @@
         "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$50"
       },
-      "id": "shakespeare"
+      "id": "shakespeare",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Socrates": {
       "play_style": "philosophical and observational, playing the long game while patiently assessing opponents' tendencies",
@@ -239,7 +287,15 @@
         "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$10"
       },
-      "id": "socrates"
+      "id": "socrates",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Sherlock Holmes": {
       "play_style": "analytical and strategic, often employing deductive reasoning to outsmart opponents",
@@ -273,7 +329,15 @@
         "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$50"
       },
-      "id": "sherlock_holmes"
+      "id": "sherlock_holmes",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Jay Gatsby": {
       "play_style": "charismatic yet strategic, often blending opportunistic bluffs with calculated plays",
@@ -307,7 +371,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
-      "id": "jay_gatsby"
+      "id": "jay_gatsby",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "A Mime": {
       "play_style": "mysterious and deceptive",
@@ -343,7 +415,15 @@
         "stop_win_buy_ins": 8,
         "stake_comfort_zone": "$2"
       },
-      "id": "a_mime"
+      "id": "a_mime",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     },
     "A guy who tells too many dad jokes": {
       "play_style": "light-hearted and unpredictable, often using humor to mask strategic plays",
@@ -379,7 +459,15 @@
         "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$10"
       },
-      "id": "a_guy_who_tells_too_many_dad_jokes"
+      "id": "a_guy_who_tells_too_many_dad_jokes",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Someone who is very, very mean to people": {
       "play_style": "brutally aggressive and mercilessly unpredictable",
@@ -416,7 +504,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$50"
       },
-      "id": "someone_who_is_very_very_mean_to_people"
+      "id": "someone_who_is_very_very_mean_to_people",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Buddha": {
       "play_style": "calm and strategic, often waiting for the perfect moment to strike",
@@ -450,7 +546,15 @@
         "stop_win_buy_ins": 2,
         "stake_comfort_zone": "$2"
       },
-      "id": "buddha"
+      "id": "buddha",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Bob Ross": {
       "play_style": "calm and optimistic",
@@ -485,7 +589,15 @@
         "stop_win_buy_ins": 3,
         "stake_comfort_zone": "$10"
       },
-      "id": "bob_ross"
+      "id": "bob_ross",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Dr. Seuss": {
       "play_style": "whimsical and unpredictable, often using playful tactics to confuse opponents",
@@ -520,7 +632,15 @@
         "stop_win_buy_ins": 8,
         "stake_comfort_zone": "$50"
       },
-      "id": "dr_seuss"
+      "id": "dr_seuss",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Jesus Christ": {
       "play_style": "calm and calculated, often relying on psychological insight to read opponents",
@@ -554,7 +674,15 @@
         "stop_win_buy_ins": 3,
         "stake_comfort_zone": "$2"
       },
-      "id": "jesus_christ"
+      "id": "jesus_christ",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Blackbeard": {
       "play_style": "aggressive and intimidating, uses psychological warfare to bully opponents out of pots",
@@ -590,7 +718,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
-      "id": "blackbeard"
+      "id": "blackbeard",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Sun Tzu": {
       "play_style": "patient and strategic, wins through superior positioning and discipline rather than brute force",
@@ -626,7 +762,15 @@
         "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$50"
       },
-      "id": "sun_tzu"
+      "id": "sun_tzu",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Benjamin Franklin": {
       "play_style": "pragmatic and witty, balances calculated risk with folksy charm to keep opponents off guard",
@@ -662,7 +806,15 @@
         "stop_win_buy_ins": 6,
         "stake_comfort_zone": "$50"
       },
-      "id": "benjamin_franklin"
+      "id": "benjamin_franklin",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Mark Twain": {
       "play_style": "sardonic and deceptively sharp, uses folksy storytelling to disguise ruthlessly calculated play",
@@ -698,7 +850,15 @@
         "stop_win_buy_ins": 6,
         "stake_comfort_zone": "$50"
       },
-      "id": "mark_twain"
+      "id": "mark_twain",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Nikola Tesla": {
       "play_style": "eccentric and pattern-obsessed, relies on mathematical analysis and unconventional strategies",
@@ -734,7 +894,15 @@
         "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$50"
       },
-      "id": "nikola_tesla"
+      "id": "nikola_tesla",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Houdini": {
       "play_style": "elusive and theatrical, specializes in escaping impossible situations and dramatic reversals",
@@ -770,7 +938,15 @@
         "stop_win_buy_ins": 10,
         "stake_comfort_zone": "$200"
       },
-      "id": "houdini"
+      "id": "houdini",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Oscar Wilde": {
       "play_style": "elegant and cutting, uses devastating wit to unsettle opponents while making precisely calculated plays",
@@ -806,7 +982,15 @@
         "stop_win_buy_ins": 10,
         "stake_comfort_zone": "$200"
       },
-      "id": "oscar_wilde"
+      "id": "oscar_wilde",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Edgar Allan Poe": {
       "play_style": "dark and brooding, reads opponents like horror clues and builds dread with every bet",
@@ -842,7 +1026,15 @@
         "stop_win_buy_ins": 6,
         "stake_comfort_zone": "$10"
       },
-      "id": "edgar_allan_poe"
+      "id": "edgar_allan_poe",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Machiavelli": {
       "play_style": "cold and calculating, treats every hand as a political maneuver where the ends justify the means",
@@ -878,7 +1070,15 @@
         "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$200"
       },
-      "id": "machiavelli"
+      "id": "machiavelli",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Zeus": {
       "play_style": "dominant and imperious, throws down massive bets like thunderbolts and expects tribute from lesser players",
@@ -914,7 +1114,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$1000"
       },
-      "id": "zeus"
+      "id": "zeus",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.2,
+        "heat_ceiling": 0.55
+      }
     },
     "Cleopatra": {
       "play_style": "seductive and strategic, uses charm and cunning to manipulate opponents into costly mistakes",
@@ -950,7 +1158,15 @@
         "stop_win_buy_ins": 10,
         "stake_comfort_zone": "$1000"
       },
-      "id": "cleopatra"
+      "id": "cleopatra",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.2,
+        "heat_ceiling": 0.55
+      }
     },
     "Marie Antoinette": {
       "play_style": "extravagant and reckless, goes big on every hand with lavish disregard for chip conservation",
@@ -986,7 +1202,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$1000"
       },
-      "id": "marie_antoinette"
+      "id": "marie_antoinette",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.2,
+        "heat_ceiling": 0.55
+      }
     },
     "Calamity Jane": {
       "play_style": "fearless and rowdy, charges into hands with frontier toughness and sharp instincts",
@@ -1022,7 +1246,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$50"
       },
-      "id": "calamity_jane"
+      "id": "calamity_jane",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Queen Elizabeth I": {
       "play_style": "regal and commanding, rules the table with strategic precision and steely resolve",
@@ -1058,7 +1290,15 @@
         "stop_win_buy_ins": 6,
         "stake_comfort_zone": "$1000"
       },
-      "id": "queen_elizabeth_i"
+      "id": "queen_elizabeth_i",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Joan of Arc": {
       "play_style": "fearless and conviction-driven, plays with unwavering belief and charges into pots without hesitation",
@@ -1094,7 +1334,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$50"
       },
-      "id": "joan_of_arc"
+      "id": "joan_of_arc",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Frida Kahlo": {
       "play_style": "passionate and emotionally intense, plays from the heart with artistic flair and fierce determination",
@@ -1130,7 +1378,15 @@
         "stop_win_buy_ins": 8,
         "stake_comfort_zone": "$50"
       },
-      "id": "frida_kahlo"
+      "id": "frida_kahlo",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Lucille Ball": {
       "play_style": "comedic and chaotic, hatches elaborate schemes that often backfire spectacularly but somehow work out",
@@ -1169,7 +1425,15 @@
         "stop_win_buy_ins": 12,
         "stake_comfort_zone": "$10"
       },
-      "id": "lucille_ball"
+      "id": "lucille_ball",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Annie Oakley": {
       "play_style": "precise and confident, takes careful aim at every pot with sharpshooter accuracy",
@@ -1205,7 +1469,15 @@
         "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$50"
       },
-      "id": "annie_oakley"
+      "id": "annie_oakley",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Agatha Christie": {
       "play_style": "observant and methodical, treats every hand as a mystery to solve, piecing together clues from opponents' behavior",
@@ -1241,7 +1513,15 @@
         "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$50"
       },
-      "id": "agatha_christie"
+      "id": "agatha_christie",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Lady Macbeth": {
       "play_style": "ruthlessly ambitious, manipulates table dynamics and pressures opponents into mistakes through sheer force of will",
@@ -1277,7 +1557,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
-      "id": "lady_macbeth"
+      "id": "lady_macbeth",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Dracula": {
       "play_style": "patient and predatory, waits in the shadows before striking with devastating precision",
@@ -1313,7 +1601,15 @@
         "stop_win_buy_ins": 8,
         "stake_comfort_zone": "$1000"
       },
-      "id": "dracula"
+      "id": "dracula",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Ebenezer Scrooge": {
       "play_style": "miserly and tight, guards every chip like it's his last and only bets when absolutely certain",
@@ -1349,7 +1645,15 @@
         "stop_win_buy_ins": 2,
         "stake_comfort_zone": "$2"
       },
-      "id": "ebenezer_scrooge"
+      "id": "ebenezer_scrooge",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Robin Hood": {
       "play_style": "heroic and targeted, steals pots from chip leaders while going easy on short stacks",
@@ -1385,7 +1689,15 @@
         "stop_win_buy_ins": 8,
         "stake_comfort_zone": "$50"
       },
-      "id": "robin_hood"
+      "id": "robin_hood",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Don Quixote": {
       "play_style": "delusionally confident, sees every hand as an epic quest and charges into pots that aren't there",
@@ -1421,7 +1733,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$10"
       },
-      "id": "don_quixote"
+      "id": "don_quixote",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Alice": {
       "play_style": "curious and adaptable, navigates the chaos of the table with wide-eyed wonder and surprising logic",
@@ -1458,7 +1778,15 @@
         "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$2"
       },
-      "id": "alice"
+      "id": "alice",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Queen of Hearts": {
       "play_style": "tyrannical and volatile, demands obedience at the table and explodes when defied",
@@ -1495,7 +1823,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$1000"
       },
-      "id": "queen_of_hearts"
+      "id": "queen_of_hearts",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Cheshire Cat": {
       "play_style": "cryptic and mischievous, plays mind games with paradoxical logic and an ever-present grin",
@@ -1532,7 +1868,15 @@
         "stop_win_buy_ins": 10,
         "stake_comfort_zone": "$50"
       },
-      "id": "cheshire_cat"
+      "id": "cheshire_cat",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     },
     "Wicked Witch": {
       "play_style": "scheming and vindictive, targets specific opponents and cackles with glee when her plans come together",
@@ -1569,7 +1913,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
-      "id": "wicked_witch"
+      "id": "wicked_witch",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Medusa": {
       "play_style": "petrifying and intense, freezes opponents with an unbreakable stare that makes them second-guess every decision",
@@ -1605,7 +1957,15 @@
         "stop_win_buy_ins": 7,
         "stake_comfort_zone": "$200"
       },
-      "id": "medusa"
+      "id": "medusa",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "The Fortune Teller": {
       "play_style": "mystical and theatrical, claims to see the future and uses psychic patter to unsettle rational opponents",
@@ -1642,7 +2002,15 @@
         "stop_win_buy_ins": 10,
         "stake_comfort_zone": "$10"
       },
-      "id": "the_fortune_teller"
+      "id": "the_fortune_teller",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     },
     "The Librarian": {
       "play_style": "quietly lethal, maintains perfect composure while methodically dismantling opponents' chip stacks",
@@ -1679,7 +2047,15 @@
         "stop_win_buy_ins": 3,
         "stake_comfort_zone": "$10"
       },
-      "id": "the_librarian"
+      "id": "the_librarian",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "The Honey Badger": {
       "play_style": "absolutely fearless and relentless, calls everything, fears nothing, and simply does not care",
@@ -1716,7 +2092,15 @@
         "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
-      "id": "the_honey_badger"
+      "id": "the_honey_badger",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "The Grandmother": {
       "play_style": "deceptively sweet, lures opponents into a false sense of security before ruthlessly taking their chips",
@@ -1753,7 +2137,15 @@
         "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10"
       },
-      "id": "the_grandmother"
+      "id": "the_grandmother",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "The Kindergarten Teacher": {
       "play_style": "patronizingly supportive, treats opponents like small children while quietly dominating the table",
@@ -1790,7 +2182,15 @@
         "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10"
       },
-      "id": "the_kindergarten_teacher"
+      "id": "the_kindergarten_teacher",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "CaseBot": {
       "play_style": "deterministic case-based decision tree; adapts to opponent VPIP and aggression",
@@ -1818,7 +2218,15 @@
         "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10"
       },
-      "id": "casebot"
+      "id": "casebot",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     },
     "GTO-Lite": {
       "play_style": "pure pot-odds math; calls when getting the right price, folds otherwise",
@@ -1846,7 +2254,15 @@
         "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10"
       },
-      "id": "gto_lite"
+      "id": "gto_lite",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     },
     "BaselineSolver": {
       "play_style": "solver-table baseline; no personality distortion, no chat",
@@ -1874,7 +2290,15 @@
         "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10"
       },
-      "id": "baselinesolver"
+      "id": "baselinesolver",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     }
   }
 }

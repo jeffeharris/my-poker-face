@@ -36,6 +36,7 @@ from cash_mode.bankroll import (
     PlayerBankrollState,
     project_bankroll,
 )
+from cash_mode.lender_profile import LENDER_PROFILE_DEFAULTS, LenderProfile
 from poker.repositories.base_repository import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -266,6 +267,59 @@ class BankrollRepository(BaseRepository):
             stop_loss_buy_ins=sub.get("stop_loss_buy_ins", defaults.stop_loss_buy_ins),
             stop_win_buy_ins=sub.get("stop_win_buy_ins", defaults.stop_win_buy_ins),
             stake_comfort_zone=sub.get("stake_comfort_zone", defaults.stake_comfort_zone),
+        )
+
+    def load_lender_profile(self, personality_id: str) -> LenderProfile:
+        """Read the lender profile from `config_json.lender_profile`.
+
+        Mirrors `load_personality_knobs`: same nesting convention, same
+        per-field fallback to `LENDER_PROFILE_DEFAULTS`. Three fallback
+        cases all return the default profile:
+          - personality_id not in the table (unknown personality)
+          - config_json has no `lender_profile` sub-dict (untuned)
+          - sub-dict is partial (only some keys set; missing keys fall
+            back per-field)
+
+        Defaults are conservative (`max_loan_pct=0.05`, `floor=1.20`,
+        `rate=0.30`, `respect_floor=-0.5`, `heat_ceiling=0.7`) so a
+        personality without an explicit profile lends like a cautious
+        small-stake banker rather than refusing outright.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                (personality_id,),
+            ).fetchone()
+        if not row:
+            return LENDER_PROFILE_DEFAULTS
+
+        try:
+            config = json.loads(row["config_json"])
+        except (TypeError, ValueError):
+            logger.warning(
+                "Personality %r has malformed config_json; using lender profile defaults",
+                personality_id,
+            )
+            return LENDER_PROFILE_DEFAULTS
+
+        sub = config.get("lender_profile") or {}
+        if not isinstance(sub, dict):
+            logger.warning(
+                "Personality %r has non-dict lender_profile; using defaults",
+                personality_id,
+            )
+            return LENDER_PROFILE_DEFAULTS
+
+        defaults = LENDER_PROFILE_DEFAULTS
+        return LenderProfile(
+            willing=sub.get("willing", defaults.willing),
+            max_loan_pct_of_bankroll=sub.get(
+                "max_loan_pct_of_bankroll", defaults.max_loan_pct_of_bankroll,
+            ),
+            floor_anchor=sub.get("floor_anchor", defaults.floor_anchor),
+            rate_anchor=sub.get("rate_anchor", defaults.rate_anchor),
+            respect_floor=sub.get("respect_floor", defaults.respect_floor),
+            heat_ceiling=sub.get("heat_ceiling", defaults.heat_ceiling),
         )
 
     def save_personality_knobs(
