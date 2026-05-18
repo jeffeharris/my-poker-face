@@ -1357,7 +1357,17 @@ class AITournamentRunner:
                             hand_in_progress.add_community_cards('TURN', cc[3:4])
                         if len(cc) >= 5:
                             hand_in_progress.add_community_cards('RIVER', cc[4:5])
-                    # Remove folded players to avoid false equity events
+                    # Snapshot then strip-then-restore so folded
+                    # players' cards survive into the RecordedHand
+                    # built by on_hand_complete below. The strip
+                    # itself is defensive against false equity-shock
+                    # events (see commit 9b7dcc7c "fix: enable equity
+                    # shock detection in experiment runner") — keeping
+                    # it bracketed in a snapshot/restore preserves
+                    # that protection while letting Phase 3's
+                    # HandOutcomeDetector see folder cards for
+                    # BLUFFED_OFF detection in on_hand_complete.
+                    original_hole_cards = dict(hand_in_progress.hole_cards)
                     folded_names = {p.name for p in game_state.players if p.is_folded}
                     for name in folded_names:
                         hand_in_progress.hole_cards.pop(name, None)
@@ -1367,6 +1377,8 @@ class AITournamentRunner:
                         equity_history = equity_tracker.calculate_hand_equity_history(hand_in_progress)
                     except Exception as e:
                         logger.warning(f"Equity calculation failed: {e}")
+                    finally:
+                        hand_in_progress.hole_cards = original_hole_cards
 
             # Record hand history to database (always, for outcome metrics)
             # This persists to hand_history table via memory_manager's persistence layer
