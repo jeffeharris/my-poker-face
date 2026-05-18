@@ -85,8 +85,14 @@ class HandOutcomeDetector:
     """
 
     def __init__(self, name_to_id: Optional[Dict[str, Optional[str]]] = None):
+        # Hold the registry by reference so callers (e.g.,
+        # `AIMemoryManager`) can share a single map between the
+        # detector and `OpponentModelManager._name_to_id` — when the
+        # manager registers a new player id, the detector sees it on
+        # the next `detect_events` call without an explicit sync.
+        # `None` becomes a fresh dict owned by the detector.
         self._name_to_id: Dict[str, Optional[str]] = (
-            dict(name_to_id) if name_to_id else {}
+            name_to_id if name_to_id is not None else {}
         )
         # Dedup set; key shape: (hand_number, actor_id, target_id, event)
         self._emitted: Set[

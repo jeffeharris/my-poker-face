@@ -19,6 +19,7 @@ from .opponent_model import OpponentModelManager
 from .commentary_generator import CommentaryGenerator, HandCommentary
 from .commentary_filter import should_player_comment
 from .cbet_detector import CbetDetector
+from .hand_outcome_detector import HandOutcomeDetector, dispatch_events
 from ..hand_narrator import narrate_key_moments
 from ..config import COMMENTARY_ENABLED
 
@@ -49,6 +50,19 @@ class AIMemoryManager:
         self.hand_recorder = HandHistoryRecorder(game_id)
         self.opponent_model_manager = OpponentModelManager()
         self.commentary_generator = CommentaryGenerator(game_id=game_id, owner_id=owner_id)
+
+        # Phase 3 (relationship layer): detector fires per completed
+        # hand. Shares the manager's `_name_to_id` dict by reference
+        # so a later `register_player_id` call surfaces the new id to
+        # the detector on the next emission without an explicit sync.
+        # `_relationship_repo` defaults to None — `set_relationship_repo`
+        # below activates the dispatch path. Without it the detector
+        # is silent.
+        self.hand_outcome_detector = HandOutcomeDetector(
+            name_to_id=self.opponent_model_manager._name_to_id,
+        )
+        self._relationship_repo = None
+        self._cash_mode: bool = False
 
         # Per-player session memories
         self.session_memories: Dict[str, SessionMemory] = {}
@@ -83,6 +97,65 @@ class AIMemoryManager:
             hand_history_repo: HandHistoryRepository instance
         """
         self._persistence = hand_history_repo
+
+    def _process_relationship_events(self, recorded_hand: RecordedHand) -> None:
+        """Run the hand-outcome detector and dispatch its events.
+
+        Silent no-op when no relationship_repo is wired
+        (`set_relationship_repo` wasn't called). Otherwise: ask the
+        detector for events triggered by this hand, then dispatch
+        each through `record_event` (relationship axis updates) and,
+        in cash mode, through `apply_cash_pair_pnl` (cumulative_pnl
+        + hands_played_cash bilateral writes).
+
+        Wrapped in a broad try/except: a detector or dispatch
+        failure must not block the downstream session_memory and
+        commentary paths. Errors are logged and swallowed; the
+        relationship layer simply misses this hand's events.
+        """
+        if self._relationship_repo is None:
+            return
+        try:
+            events = self.hand_outcome_detector.detect_events(recorded_hand)
+            if not events:
+                return
+            dispatch_events(
+                events,
+                self.opponent_model_manager,
+                cash_pair_repo=(
+                    self._relationship_repo if self._cash_mode else None
+                ),
+                hand_id=recorded_hand.hand_number,
+            )
+        except Exception as e:
+            logger.warning(f"HandOutcomeDetector dispatch failed: {e}")
+
+    def set_relationship_repo(
+        self, relationship_repo, *, cash_mode: bool = False,
+    ) -> None:
+        """Wire the relationship repository into the manager + detector.
+
+        Required for Phase 3 relationship-event population. Without
+        this call the detector is silent: `on_hand_complete` skips
+        the dispatch entirely, so games without relationship
+        persistence accumulate no axis state from gameplay.
+
+        Args:
+            relationship_repo: `RelationshipRepository` instance for
+                both `record_event` (used internally by
+                `OpponentModelManager`) and `cash_pair_stats`
+                writes when `cash_mode=True`.
+            cash_mode: When True, the per-hand dispatch also updates
+                `cash_pair_stats` (cumulative_pnl + hands_played_cash).
+                Tournament games keep this False — chips reset, PnL
+                is meaningless.
+        """
+        self._relationship_repo = relationship_repo
+        # OpponentModelManager.record_event requires this attribute.
+        # Mutating directly is the documented contract — the repo is
+        # an optional construction param and there's no setter yet.
+        self.opponent_model_manager._relationship_repo = relationship_repo
+        self._cash_mode = cash_mode
 
     @property
     def last_preflop_aggressor(self) -> Optional[str]:
@@ -449,6 +522,13 @@ class AIMemoryManager:
                 logger.warning(
                     f"Polarization Phase A equity recording failed: {e}"
                 )
+
+        # Phase 3: relationship event detection + dispatch. Runs only
+        # when a relationship_repo is wired; tournament-only games
+        # without persistence stay detector-silent. Wrapped in
+        # try/except so detector failures (e.g., transient DB lock)
+        # don't block commentary / session_memory updates downstream.
+        self._process_relationship_events(recorded_hand)
 
         # Update session memories
         for player_name, session_memory in self.session_memories.items():
