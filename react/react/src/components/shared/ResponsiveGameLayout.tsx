@@ -37,6 +37,7 @@ export function ResponsiveGameLayout({
       gameId={gameId}
       playerName={playerName}
       onGameCreated={onGameCreated}
+      onBack={onBack}
     />
   );
 }

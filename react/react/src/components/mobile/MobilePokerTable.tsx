@@ -18,6 +18,7 @@ import { LLMDebugModal } from './LLMDebugModal';
 import { CoachButton } from './CoachButton';
 import { CoachPanel } from './CoachPanel';
 import { CoachBubble } from './CoachBubble';
+import { CashControls } from '../cash/CashControls';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useGameStore } from '../../stores/gameStore';
@@ -96,6 +97,7 @@ export function MobilePokerTable({
   const newlyDealtCount = useGameStore(state => state.newlyDealtCount);
   const awaitingAction = useGameStore(state => state.awaitingAction);
   const runItOut = useGameStore(state => state.runItOut);
+  const cashMode = useGameStore(state => state.cashMode);
 
   // Non-game-state from the hook (socket, overlays, actions)
   const {
@@ -419,6 +421,22 @@ export function MobilePokerTable({
       />
       {/* Spacer for fixed MenuBar */}
       <div className="menu-bar-spacer" />
+
+      {/* Cash mode HUD — bankroll + top-up. Renders nothing for
+       *  tournament games (cashMode is null). */}
+      {cashMode && humanPlayer && (
+        <div className="cash-controls-mobile-wrapper">
+          <CashControls
+            cashMode={cashMode}
+            playerStack={humanPlayer.stack}
+            handInProgress={
+              phase !== 'INITIALIZING_HAND'
+              && phase !== 'HAND_OVER'
+              && phase !== 'EVALUATING_HAND'
+            }
+          />
+        </div>
+      )}
 
       {/* Opponents Section */}
       <div className={`opponents-wrapper ${isInShowdown ? 'showdown-mode' : ''}`}>
