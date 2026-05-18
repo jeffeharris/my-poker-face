@@ -28,6 +28,7 @@ from cash_mode.seating import (
     leave_table,
     mid_hand_quit,
     sit_down,
+    sit_down_ai,
     top_up,
 )
 from cash_mode.table import (
@@ -54,5 +55,6 @@ __all__ = [
     "new_table",
     "project_bankroll",
     "sit_down",
+    "sit_down_ai",
     "top_up",
 ]

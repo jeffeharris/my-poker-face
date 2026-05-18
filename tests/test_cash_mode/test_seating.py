@@ -20,9 +20,12 @@ Row reference (spec §"Bankroll accounting order"):
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from cash_mode import (
+    AIBankrollState,
     PLAYER_SEAT_ID,
     CashTable,
     HandInProgressError,
@@ -36,6 +39,7 @@ from cash_mode import (
     mid_hand_quit,
     new_table,
     sit_down,
+    sit_down_ai,
     top_up,
 )
 
@@ -138,6 +142,109 @@ class TestSitDown:
         bigger = PlayerBankrollState("alice", 5_000, 5_000)
         new_t, new_b = sit_down(empty_table, 0, PLAYER_SEAT_ID, 1_000, bigger)
         assert new_t.stack_of(PLAYER_SEAT_ID) == 1_000
+
+
+# --- Row 1 (AI variant): sit_down_ai ---
+
+
+class TestSitDownAI:
+    """AI sit-down mirrors the human sit_down test matrix but verifies
+    the AI-specific invariants: chips debited from AIBankrollState,
+    last_regen_tick written to `now`, no PlayerBankrollState entanglement.
+    """
+
+    @pytest.fixture
+    def ai_bankroll(self) -> AIBankrollState:
+        # last_regen_tick None: fresh seed state (never sat before).
+        return AIBankrollState("napoleon", chips=10_000, last_regen_tick=None)
+
+    @pytest.fixture
+    def now(self) -> datetime:
+        return datetime(2026, 5, 18, 12, 0, 0)
+
+    def test_happy_path_debits_bankroll_and_sets_stack(self, empty_table, ai_bankroll, now):
+        new_t, new_b = sit_down_ai(empty_table, 2, "napoleon", 500, ai_bankroll, now=now)
+        assert new_t.seats[2] == "napoleon"
+        assert new_t.stack_of("napoleon") == 500
+        assert new_b.chips == 9_500
+        assert new_b.last_regen_tick == now
+        assert new_b.personality_id == "napoleon"
+
+    def test_writes_last_regen_tick_on_fresh_seed(self, empty_table, now):
+        # Even if the input had no last_regen_tick (never-sat state),
+        # the output must carry now() so projection from this point
+        # is correct.
+        fresh = AIBankrollState("zeus", chips=200_000, last_regen_tick=None)
+        _new_t, new_b = sit_down_ai(empty_table, 0, "zeus", 1_000, fresh, now=now)
+        assert new_b.last_regen_tick == now
+
+    def test_does_not_mutate_input(self, empty_table, ai_bankroll, now):
+        sit_down_ai(empty_table, 0, "napoleon", 500, ai_bankroll, now=now)
+        assert ai_bankroll.chips == 10_000
+        assert ai_bankroll.last_regen_tick is None
+        assert empty_table.seats == (None,) * 6
+
+    def test_blocked_during_hand(self, empty_table, ai_bankroll, now):
+        in_hand = empty_table.with_hand_in_progress(True)
+        with pytest.raises(HandInProgressError):
+            sit_down_ai(in_hand, 0, "napoleon", 500, ai_bankroll, now=now)
+
+    def test_rejects_occupied_seat(self, empty_table, ai_bankroll, now):
+        # Seat 0 taken by a different personality
+        taken = empty_table.with_seat(0, "zeus").with_stack("zeus", 500)
+        with pytest.raises(SeatingError, match="occupied"):
+            sit_down_ai(taken, 0, "napoleon", 500, ai_bankroll, now=now)
+
+    def test_rejects_already_seated_personality(self, empty_table, ai_bankroll, now):
+        # Same personality, different seat — Napoleon can't double-buy
+        sat = empty_table.with_seat(0, "napoleon").with_stack("napoleon", 500)
+        with pytest.raises(SeatingError, match="already seated"):
+            sit_down_ai(sat, 3, "napoleon", 500, ai_bankroll, now=now)
+
+    def test_rejects_buy_in_below_min(self, empty_table, ai_bankroll, now):
+        with pytest.raises(SeatingError, match="below table min_buy_in"):
+            sit_down_ai(empty_table, 0, "napoleon", 399, ai_bankroll, now=now)
+
+    def test_rejects_buy_in_above_max(self, empty_table, ai_bankroll, now):
+        with pytest.raises(SeatingError, match="exceeds table max_buy_in"):
+            sit_down_ai(empty_table, 0, "napoleon", 1_001, ai_bankroll, now=now)
+
+    def test_rejects_insufficient_bankroll(self, empty_table, now):
+        broke_ai = AIBankrollState("broke", chips=300, last_regen_tick=now)
+        with pytest.raises(SeatingError, match="insufficient"):
+            sit_down_ai(empty_table, 0, "broke", 500, broke_ai, now=now)
+
+    def test_rejects_out_of_range_seat_index(self, empty_table, ai_bankroll, now):
+        with pytest.raises(SeatingError, match="out of range"):
+            sit_down_ai(empty_table, 7, "napoleon", 500, ai_bankroll, now=now)
+        with pytest.raises(SeatingError, match="out of range"):
+            sit_down_ai(empty_table, -1, "napoleon", 500, ai_bankroll, now=now)
+
+    def test_max_buy_in_exact_boundary_allowed(self, empty_table, ai_bankroll, now):
+        new_t, new_b = sit_down_ai(empty_table, 0, "napoleon", 1_000, ai_bankroll, now=now)
+        assert new_t.stack_of("napoleon") == 1_000
+        assert new_b.chips == 9_000
+
+    def test_personality_id_preserved_in_output(self, empty_table, now):
+        # If the input AIBankrollState has personality_id "x" but the
+        # caller passes personality_id="y" to sit_down_ai, the function
+        # uses the *input bankroll's* personality_id for the returned
+        # state (since that's the bankroll being debited).
+        # This guards against the caller accidentally writing a row to
+        # the wrong personality_id.
+        ai = AIBankrollState("napoleon", chips=10_000, last_regen_tick=None)
+        _new_t, new_b = sit_down_ai(empty_table, 0, "napoleon", 500, ai, now=now)
+        assert new_b.personality_id == "napoleon"
+
+    def test_ai_seat_id_can_coexist_with_player_seat(self, empty_table, player_bankroll, ai_bankroll, now):
+        # Player sits at 0, AI sits at 1 — both seats occupied, both
+        # stacks present in the stacks mapping. No interference.
+        t, _ = sit_down(empty_table, 0, PLAYER_SEAT_ID, 500, player_bankroll)
+        t, _ = sit_down_ai(t, 1, "napoleon", 500, ai_bankroll, now=now)
+        assert t.seats[0] == PLAYER_SEAT_ID
+        assert t.seats[1] == "napoleon"
+        assert t.stack_of(PLAYER_SEAT_ID) == 500
+        assert t.stack_of("napoleon") == 500
 
 
 # --- Row 2: Top up ---

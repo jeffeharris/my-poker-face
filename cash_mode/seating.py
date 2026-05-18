@@ -9,6 +9,8 @@ state, and persistence writes never happen.
 The eight rows of the accounting matrix:
 
   1. Sit down (buy-in)              — debit bankroll, set table stack to buy-in
+     1a. sit_down                   — human bankroll path (PlayerBankrollState)
+     1b. sit_down_ai                — AI bankroll path (AIBankrollState; writes last_regen_tick)
   2. Top up (between hands)         — debit bankroll, credit stack (capped to max_buy_in)
   3. Leave table (between hands)    — credit bankroll with stack, clear seat
   4. Bust at table (in-hand loss)   — clear seat; no bankroll change
@@ -32,9 +34,10 @@ Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 2
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Tuple
 
-from cash_mode.bankroll import PlayerBankrollState
+from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
 from cash_mode.table import CashTable
 
 
@@ -106,6 +109,86 @@ def sit_down(
         player_id=bankroll.player_id,
         chips=bankroll.chips - buy_in,
         starting_bankroll=bankroll.starting_bankroll,
+    )
+    return new_table, new_bankroll
+
+
+# --- Row 1 (AI variant): Sit down an AI personality ---
+
+
+def sit_down_ai(
+    table: CashTable,
+    seat_index: int,
+    personality_id: str,
+    buy_in: int,
+    ai_bankroll: AIBankrollState,
+    *,
+    now: datetime,
+) -> Tuple[CashTable, AIBankrollState]:
+    """Seat an AI personality with `buy_in` chips from its bankroll.
+
+    Mirrors `sit_down` but operates on `AIBankrollState` instead of
+    `PlayerBankrollState`. The returned bankroll has `chips` debited
+    by `buy_in` and `last_regen_tick = now` set structurally — codex
+    flagged in the wiring-plan review that wrapping the human path
+    with a synthetic `PlayerBankrollState` would leave "remember to
+    write last_regen_tick" as an implicit invariant in session code.
+    This sibling keeps the invariant in the signature.
+
+    AI bankroll invariant: `AIBankrollState.chips` is **off-table
+    bankroll only**. At sit-down it's debited by `buy_in`. Hand
+    settlement does NOT update `AIBankrollState` — only
+    `CashTable.stacks`. The bankroll moves again only when the AI
+    leaves the table (v2 stop-win) or busts (no bankroll move; the
+    chips at the table were lost during the hand).
+
+    The caller is responsible for projecting the bankroll to its
+    current value before passing it in — `BankrollRepository.
+    load_ai_bankroll_current` is the read path. Passing a stale
+    snapshot would under-credit the AI's available chips.
+
+    Validates: same shape as `sit_down` — no active hand, seat
+    in range and empty, personality not already at this table,
+    buy_in within table min/max, AI bankroll has at least `buy_in`.
+
+    Returns (new_table, new_ai_bankroll). Persistence is the
+    caller's responsibility. If this raises, no state was returned
+    so no persistence fires.
+    """
+    if table.hand_in_progress:
+        raise HandInProgressError("Cannot sit AI during an active hand")
+    if seat_index < 0 or seat_index >= table.seat_count:
+        raise SeatingError(f"seat_index {seat_index} out of range")
+    if table.seats[seat_index] is not None:
+        raise SeatingError(
+            f"seat {seat_index} is occupied by {table.seats[seat_index]!r}"
+        )
+    if table.is_seated(personality_id):
+        raise SeatingError(
+            f"{personality_id!r} is already seated at this table"
+        )
+    if buy_in < table.min_buy_in:
+        raise SeatingError(
+            f"buy_in {buy_in} below table min_buy_in {table.min_buy_in}"
+        )
+    if buy_in > table.max_buy_in:
+        raise SeatingError(
+            f"buy_in {buy_in} exceeds table max_buy_in {table.max_buy_in}"
+        )
+    if ai_bankroll.chips < buy_in:
+        raise SeatingError(
+            f"AI bankroll {ai_bankroll.chips} insufficient for buy_in {buy_in}"
+        )
+
+    new_table = (
+        table
+        .with_seat(seat_index, personality_id)
+        .with_stack(personality_id, buy_in)
+    )
+    new_bankroll = AIBankrollState(
+        personality_id=ai_bankroll.personality_id,
+        chips=ai_bankroll.chips - buy_in,
+        last_regen_tick=now,
     )
     return new_table, new_bankroll
 
