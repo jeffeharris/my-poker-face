@@ -280,6 +280,70 @@ class PersonalityRepository(BaseRepository):
 
             return personalities
 
+    def list_eligible_for_cash_mode(
+        self,
+        *,
+        user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """List personalities eligible to fill open cash-mode seats.
+
+        Returns `[{personality_id, name}]` ordered by personality_id
+        for determinism. The seat-filler downstream applies bankroll-
+        eligibility filtering; this method's job is to enumerate the
+        candidate pool by visibility/ownership.
+
+        Filter rules:
+          - `visibility = 'public'` always included (the seeded
+            corpus + any user-published personalities).
+          - `user_id` (if provided) → also include that user's
+            'private' personalities. v1 doesn't surface this from
+            the cash-mode home UI, but the parameter is here so v2's
+            "play with your own custom personalities" feature drops
+            in without a signature change.
+          - Rows with NULL `personality_id` are excluded — they
+            can't be keyed for cash persistence (pre-v85 leftovers
+            that escaped backfill, malformed seeds).
+
+        Distinct from `list_personalities`: that method returns
+        display-name-keyed metadata for management UI; this method
+        returns stable-ID-keyed candidates for game orchestration.
+        """
+        with self._get_connection() as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()}
+            has_ownership = 'owner_id' in columns
+            has_personality_id = 'personality_id' in columns
+
+            if not has_personality_id:
+                # Pre-v85 schema — no stable IDs to surface.
+                return []
+
+            conditions = ["personality_id IS NOT NULL"]
+            params: list = []
+
+            if has_ownership:
+                visibility_clauses = ["visibility = 'public'"]
+                if user_id:
+                    visibility_clauses.append(
+                        "(owner_id = ? AND visibility = 'private')"
+                    )
+                    params.append(user_id)
+                conditions.append("(" + " OR ".join(visibility_clauses) + ")")
+
+            where_clause = " AND ".join(conditions)
+            cursor = conn.execute(
+                f"""
+                SELECT personality_id, name
+                FROM personalities
+                WHERE {where_clause}
+                ORDER BY personality_id
+                """,
+                params,
+            )
+            return [
+                {"personality_id": row["personality_id"], "name": row["name"]}
+                for row in cursor
+            ]
+
     def delete_personality(self, name: str) -> bool:
         """Delete a personality from the database."""
         try:

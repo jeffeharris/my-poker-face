@@ -31,6 +31,7 @@ from cash_mode.seating import (
     sit_down_ai,
     top_up,
 )
+from cash_mode.seat_filler import fill_seats
 from cash_mode.table import (
     PLAYER_SEAT_ID,
     CashTable,
@@ -49,6 +50,7 @@ __all__ = [
     "apply_settlement",
     "bust_at_table",
     "disconnect_timeout",
+    "fill_seats",
     "full_bankroll_bust",
     "leave_table",
     "mid_hand_quit",
