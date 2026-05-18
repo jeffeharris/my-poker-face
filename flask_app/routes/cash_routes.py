@@ -810,18 +810,22 @@ def sit_at_table():
 
 @cash_bp.route("/api/cash/sponsor-offers", methods=["GET"])
 def sponsor_offers_for_stake():
-    """GET /api/cash/sponsor-offers?stake_label=$10
+    """GET /api/cash/sponsor-offers?stake_label=$10&table_id=...
 
     Returns up to 3 sponsor offers for the requested stake — Path B
     mixes named AI personalities with anonymous "house" archetypes.
 
     Personality offers come first (sorted by lender capacity desc),
     filtered through `compute_personality_offers`' four eligibility
-    gates (willing / capacity / respect_floor / heat_ceiling). The
-    candidate pool is the cash-eligible personality roster — the
-    same set `_build_cash_game` draws seats from. If fewer than 3
-    personalities qualify, anonymous house archetypes fill the rest;
-    they're always available as a fallback when no AI will lend.
+    gates (willing / capacity / respect_floor / heat_ceiling).
+
+    **Lobby v1.5 narrowing** (commit 7): when `table_id` is supplied
+    and resolves to a persisted cash table, the candidate pool is
+    narrowed to the AIs currently SEATED at that table. The model: a
+    personality only lends if they're going to be at the table
+    watching you play. If zero of the table's seated AIs qualify,
+    fall back to the broad eligible pool — and from there, fall back
+    to anonymous house archetypes as before.
 
     Validates that the player is sponsor-eligible at this tier; if
     not, returns a structured rejection the frontend can render
@@ -837,6 +841,7 @@ def sponsor_offers_for_stake():
         return jsonify({"error": str(e)}), 400
 
     stake_label = request.args.get("stake_label")
+    table_id = request.args.get("table_id")
     if stake_label not in STAKES_LADDER:
         return jsonify({
             "error": "Invalid stake_label",
@@ -855,11 +860,26 @@ def sponsor_offers_for_stake():
 
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
 
-    # Path B: assemble personality offers first.
+    # Path B + Lobby v1.5: assemble personality offers, narrowed to the
+    # current table's seated AIs when `table_id` is provided.
     from flask_app.extensions import (
-        bankroll_repo, personality_repo, relationship_repo,
+        bankroll_repo, cash_table_repo, personality_repo, relationship_repo,
     )
-    candidates = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
+
+    broad_candidates = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
+    candidates = broad_candidates
+
+    if table_id:
+        table = cash_table_repo.load_table(table_id)
+        if table is not None and table.stake_label == stake_label:
+            seated_pids = set(table.seated_personality_ids())
+            narrowed = [
+                c for c in broad_candidates
+                if c.get("personality_id") in seated_pids
+            ]
+            if narrowed:
+                candidates = narrowed
+
     personality_offers = compute_personality_offers(
         player_owner_id=owner_id,
         min_buy_in=min_buy_in,
@@ -869,6 +889,20 @@ def sponsor_offers_for_stake():
         relationship_repo=relationship_repo,
         count=3,
     )
+
+    # Lobby v1.5 fallback: if the narrowed-to-table pool produced zero
+    # qualifying offers, retry with the broader pool. House archetypes
+    # are still the final fallback when even that returns nothing.
+    if table_id and not personality_offers and candidates is not broad_candidates:
+        personality_offers = compute_personality_offers(
+            player_owner_id=owner_id,
+            min_buy_in=min_buy_in,
+            max_buy_in=max_buy_in,
+            candidate_personalities=broad_candidates,
+            bankroll_repo=bankroll_repo,
+            relationship_repo=relationship_repo,
+            count=3,
+        )
 
     # House fallback: fill the remainder up to 3 with anonymous archetypes.
     house_slots = max(0, 3 - len(personality_offers))
@@ -1286,7 +1320,7 @@ def leave_table():
         return jsonify({"error": "No active cash session"}), 404
 
     from cash_mode.loan_settlement import settle_loan_on_leave
-    from flask_app.extensions import bankroll_repo, game_repo
+    from flask_app.extensions import bankroll_repo, game_repo, personality_repo
     from flask_app.services import game_state_service
 
     game_data = game_state_service.get_game(game_id)
@@ -1356,6 +1390,77 @@ def leave_table():
             player.stack,
             now=now,
         )
+
+    # Lobby v1.5: persist end-of-session chip counts back to the
+    # `cash_tables` row, free the human seat, and run a final
+    # refresh_table_roster so AI movement can act on the post-session
+    # state. The seat free happens BEFORE the refresh so live-fill can
+    # claim the now-open intent slot.
+    cash_table_id = game_data.get("cash_table_id")
+    cash_seat_index = game_data.get("cash_seat_index")
+    if cash_table_id is not None:
+        from cash_mode.tables import ai_slot, open_slot
+        from flask_app.extensions import cash_table_repo
+        table = cash_table_repo.load_table(cash_table_id)
+        if table is not None:
+            # Build chip map: AI's name → personality_id (from session)
+            # → final stack.
+            pid_chips: Dict[str, int] = {}
+            name_to_pid = cash_personality_ids
+            for player in state_machine.game_state.players:
+                if player.is_human:
+                    continue
+                pid = name_to_pid.get(player.name)
+                if pid:
+                    pid_chips[pid] = int(player.stack)
+
+            new_seats = []
+            for idx, slot in enumerate(table.seats):
+                if cash_seat_index is not None and idx == cash_seat_index and slot["kind"] == "human":
+                    # Free the human's seat back to "open".
+                    new_seats.append(open_slot())
+                elif slot["kind"] == "ai":
+                    pid = slot["personality_id"]
+                    if pid in pid_chips and pid_chips[pid] > 0:
+                        new_seats.append(ai_slot(pid, pid_chips[pid]))
+                    elif pid in pid_chips and pid_chips[pid] <= 0:
+                        # Busted on table; free their seat too.
+                        new_seats.append(open_slot())
+                    else:
+                        # AI was added mid-session (live fill) — preserve.
+                        new_seats.append(dict(slot))
+                else:
+                    new_seats.append(dict(slot))
+
+            from cash_mode.tables import CashTableState
+            updated_table = CashTableState(
+                table_id=table.table_id,
+                stake_label=table.stake_label,
+                seats=new_seats,
+                created_at=table.created_at,
+                last_activity_at=table.last_activity_at,
+            )
+            cash_table_repo.save_table(updated_table, now=now)
+            logger.info(
+                "[CASH][LOBBY] freed seat %r:%s and persisted final chip counts",
+                cash_table_id, cash_seat_index,
+            )
+
+            # Final refresh pass: lets AI movement act on the post-leave
+            # state (e.g., an AI who won big can now stake_up).
+            try:
+                from cash_mode.lobby import refresh_unseated_tables
+                refresh_unseated_tables(
+                    cash_table_repo=cash_table_repo,
+                    personality_repo=personality_repo,
+                    bankroll_repo=bankroll_repo,
+                    user_id=owner_id,
+                    now=now,
+                )
+            except Exception as e:
+                logger.warning(
+                    "[CASH][LOBBY] leave-time final refresh failed: %s", e,
+                )
 
     game_state_service.delete_game(game_id)
     # Best-effort: drop the persisted row too so the cash game doesn't

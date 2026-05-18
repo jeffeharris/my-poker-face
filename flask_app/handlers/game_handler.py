@@ -774,6 +774,245 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         game_state_service.set_game(game_id, game_data)
 
 
+def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machine) -> None:
+    """Hand-boundary lobby refresh for the player's active table.
+
+    Three responsibilities:
+
+      1. Sync the table's persisted AI chip counts to the live
+         `Player.stack` values from this game. Without this, the AIs
+         on the table look frozen at their previous chip counts even
+         while a hand changed their stacks.
+
+      2. Run `refresh_table_roster` so AI movement (stake_up,
+         take_break, forced_leave, bored_move) and live-fill happen
+         alongside the regular hand-end flow.
+
+      3. If live-fill placed a new AI, build a controller for them so
+         the next hand can deal them in. Uses the same controller-rebuild
+         path `_refill_cash_seats` uses (see `_install_ai_controller`).
+
+    Failures are caught by the caller — a flaky lobby refresh shouldn't
+    block the hand from advancing.
+    """
+    table_id = game_data.get('cash_table_id')
+    if not table_id:
+        # Lobby v1.5 didn't tag the game with a table id (older /api/cash/start
+        # path). Nothing to refresh.
+        return
+
+    import random
+    from datetime import datetime
+    from cash_mode.lobby import _global_seated_set
+    from cash_mode.movement import refresh_table_roster
+    from cash_mode.stakes import STAKES_ORDER, table_buy_in_window
+    from cash_mode.tables import ai_slot, human_slot
+    from flask_app.extensions import bankroll_repo, cash_table_repo, personality_repo
+
+    table = cash_table_repo.load_table(table_id)
+    if table is None:
+        logger.warning("[CASH][LOBBY] table %r not found for hand-boundary refresh", table_id)
+        return
+
+    # 1. Sync table seat chips from live state.
+    cash_pids = game_data.get('cash_personality_ids', {})
+    name_to_pid = dict(cash_pids)
+    pid_to_chips: Dict[str, int] = {}
+    human_owner_id = game_data.get('owner_id')
+    human_chips = 0
+    for player in state_machine.game_state.players:
+        if player.is_human:
+            human_chips = int(player.stack)
+            continue
+        pid = name_to_pid.get(player.name)
+        if pid:
+            pid_to_chips[pid] = int(player.stack)
+
+    synced_seats = []
+    for slot in table.seats:
+        if slot["kind"] == "ai":
+            pid = slot["personality_id"]
+            new_chips = pid_to_chips.get(pid, int(slot.get("chips", 0)))
+            synced_seats.append(ai_slot(pid, new_chips))
+        elif slot["kind"] == "human" and human_owner_id:
+            synced_seats.append(human_slot(human_owner_id, human_chips))
+        else:
+            synced_seats.append(dict(slot))
+
+    from cash_mode.tables import CashTableState
+    synced_table = CashTableState(
+        table_id=table.table_id,
+        stake_label=table.stake_label,
+        seats=synced_seats,
+        created_at=table.created_at,
+        last_activity_at=table.last_activity_at,
+    )
+
+    # 2. Refresh movement + live-fill for this table.
+    now = datetime.utcnow()
+    big_blind, table_min_buy_in, table_max_buy_in = table_buy_in_window(synced_table.stake_label)
+    try:
+        stake_idx = STAKES_ORDER.index(synced_table.stake_label)
+    except ValueError:
+        return
+    next_tier_min_buy_in = None
+    if stake_idx + 1 < len(STAKES_ORDER):
+        _, next_min, _ = table_buy_in_window(STAKES_ORDER[stake_idx + 1])
+        next_tier_min_buy_in = next_min
+
+    all_tables = cash_table_repo.list_all_tables()
+    seated_globally = _global_seated_set([t for t in all_tables if t.table_id != table_id])
+    seated_globally.update(s["personality_id"] for s in synced_seats if s["kind"] == "ai")
+
+    eligible = personality_repo.list_eligible_for_cash_mode(user_id=human_owner_id)
+
+    def _bankroll_lookup(pid: str):
+        return bankroll_repo.load_ai_bankroll_current(pid, now=now)
+
+    _buy_in_cache: Dict[str, int] = {}
+
+    def _buy_in_lookup(pid: str) -> int:
+        if pid not in _buy_in_cache:
+            knobs = bankroll_repo.load_personality_knobs(pid)
+            threshold = round(table_min_buy_in * knobs.buy_in_multiplier)
+            _buy_in_cache[pid] = min(threshold, table_max_buy_in)
+        return _buy_in_cache[pid]
+
+    idle_pool = cash_table_repo.list_idle()
+    rng = random.Random()
+    result = refresh_table_roster(
+        synced_table,
+        idle_pool=idle_pool,
+        eligible_candidates=eligible,
+        seated_globally=seated_globally,
+        bankroll_lookup=_bankroll_lookup,
+        buy_in_lookup=_buy_in_lookup,
+        rng=rng,
+        now=now,
+        stake_idx=stake_idx,
+        table_min_buy_in=table_min_buy_in,
+        table_max_buy_in=table_max_buy_in,
+        next_tier_min_buy_in=next_tier_min_buy_in,
+    )
+
+    # Persist table + idle changes.
+    cash_table_repo.save_table(result.new_table, now=now)
+    for change in result.idle_changes:
+        if change.kind == "add" and change.entry is not None:
+            cash_table_repo.save_idle(change.entry)
+        elif change.kind == "remove":
+            cash_table_repo.delete_idle(change.personality_id)
+
+    # 3. Add controllers for freshly-seated AIs (mid-session live fill).
+    if result.freshly_seated_personality_ids:
+        try:
+            _seat_freshly_filled_ais(
+                game_id, game_data, state_machine,
+                result.new_table, result.freshly_seated_personality_ids,
+            )
+        except Exception as e:
+            logger.error(
+                "[CASH][LOBBY] live-fill controller install failed: %s",
+                e, exc_info=True,
+            )
+
+
+def _seat_freshly_filled_ais(
+    game_id: str,
+    game_data: dict,
+    state_machine,
+    new_table,
+    freshly_seated_pids,
+):
+    """Mid-session live-fill: drop new AIs into the running game.
+
+    Mirrors `_refill_cash_seats`'s controller-build path. For each
+    freshly seated personality:
+      - Insert a new `Player` into the game state with the buy-in stack
+        carried from the lobby refresh.
+      - Build a HybridAIController and register it in `ai_controllers`.
+      - Initialize memory + opponent model wiring.
+      - Update `cash_personality_ids` so the leave-time cash-out knows
+        the personality.
+
+    Game state is keyed on player NAME, not seat index; we append the
+    new player at the end. The state machine's seat order will pick
+    them up on the next hand.
+    """
+    from poker.hybrid_ai_controller import HybridAIController
+    from poker.poker_game import Player
+    from flask_app.extensions import (
+        capture_label_repo, decision_analysis_repo, personality_repo,
+    )
+
+    game_state = state_machine.game_state
+    occupied_names = {p.name for p in game_state.players}
+    ai_controllers = game_data.get('ai_controllers', {})
+    cash_pids = game_data.get('cash_personality_ids', {})
+    memory_manager = game_data.get('memory_manager')
+    owner_id = game_data.get('owner_id')
+
+    # Find the AI chips on the new table for these personalities.
+    pid_to_chips = {
+        slot["personality_id"]: int(slot["chips"])
+        for slot in new_table.seats
+        if slot["kind"] == "ai" and slot["personality_id"] in freshly_seated_pids
+    }
+
+    for pid in freshly_seated_pids:
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            personality = None
+        name = (personality or {}).get("name") if personality else pid
+        if not name or name in occupied_names:
+            continue
+        chips = pid_to_chips.get(pid, 0)
+        if chips <= 0:
+            continue
+
+        new_player = Player(name=name, stack=chips, is_human=False)
+        new_players = tuple(list(game_state.players) + [new_player])
+        game_state = game_state.update(players=new_players)
+        state_machine.game_state = game_state
+        occupied_names.add(name)
+
+        controller = HybridAIController(
+            name,
+            state_machine,
+            llm_config=game_data.get('llm_config', {}),
+            prompt_config=None,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+        ai_controllers[name] = controller
+
+        if memory_manager is not None:
+            try:
+                memory_manager.initialize_for_player(name, personality_id=pid)
+                controller.session_memory = memory_manager.get_session_memory(name)
+                controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+                controller.memory_manager = memory_manager
+            except Exception as e:
+                logger.warning(
+                    "[CASH][LOBBY] memory init failed for live-fill %r: %s",
+                    name, e,
+                )
+
+        cash_pids[name] = pid
+        logger.info(
+            "[CASH][LOBBY] mid-session live fill: seated %r at chips=%d",
+            pid, chips,
+        )
+
+    game_data['ai_controllers'] = ai_controllers
+    game_data['cash_personality_ids'] = cash_pids
+    game_data['state_machine'] = state_machine
+    game_state_service.set_game(game_id, game_data)
+
+
 def _detect_human_cash_bust(game_id: str, game_data: dict, state_machine) -> None:
     """Emit a SocketIO bust event when the human's stack hits 0 between hands.
 
@@ -1583,6 +1822,17 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         except Exception as e:
             logger.error(
                 f"[CASH] Bust detection failed for {game_id}: {e}",
+                exc_info=True,
+            )
+        # Lobby v1.5: refresh the persisted `cash_tables` row for the
+        # human's table. Runs AFTER _refill_cash_seats so the live-fill
+        # candidate pool doesn't include AIs we just brought in to fill
+        # a bust. Wrapped separately for the same isolation reason.
+        try:
+            _refresh_lobby_table_for_session(game_id, game_data, state_machine)
+        except Exception as e:
+            logger.error(
+                f"[CASH] Lobby refresh failed for {game_id}: {e}",
                 exc_info=True,
             )
 
