@@ -54,14 +54,3 @@
   padding: 0.25rem 0;
 }
 
-/* Mobile wrapper centers the controls below the menu bar */
-.cash-controls-mobile-wrapper {
-  display: flex;
-  justify-content: center;
-  padding: 0.5rem 0.75rem 0.25rem;
-}
-
-.cash-controls-mobile-wrapper .cash-controls {
-  flex: 1;
-  max-width: 360px;
-}

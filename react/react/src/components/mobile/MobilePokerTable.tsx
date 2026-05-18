@@ -18,7 +18,8 @@ import { LLMDebugModal } from './LLMDebugModal';
 import { CoachButton } from './CoachButton';
 import { CoachPanel } from './CoachPanel';
 import { CoachBubble } from './CoachBubble';
-import { CashControls } from '../cash/CashControls';
+import { MobileCashButton } from '../cash/MobileCashButton';
+import { MobileCashSheet } from '../cash/MobileCashSheet';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useGameStore } from '../../stores/gameStore';
@@ -47,6 +48,7 @@ export function MobilePokerTable({
 }: MobilePokerTableProps) {
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
+  const [showCashSheet, setShowCashSheet] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
   const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -74,6 +76,8 @@ export function MobilePokerTable({
   // Stable callbacks for child components to avoid re-renders
   const openChatSheet = useCallback(() => setShowChatSheet(true), []);
   const closeChatSheet = useCallback(() => setShowChatSheet(false), []);
+  const openCashSheet = useCallback(() => setShowCashSheet(true), []);
+  const closeCashSheet = useCallback(() => setShowCashSheet(false), []);
   const openCoachPanel = useCallback(() => setShowCoachPanel(true), []);
   const closeCoachPanel = useCallback(() => setShowCoachPanel(false), []);
   const closeDebugModal = useCallback(() => setDebugModalPlayer(null), []);
@@ -422,11 +426,18 @@ export function MobilePokerTable({
       {/* Spacer for fixed MenuBar */}
       <div className="menu-bar-spacer" />
 
-      {/* Cash mode HUD — bankroll + top-up. Renders nothing for
-       *  tournament games (cashMode is null). */}
+      {/* Cash mode: floating button (bottom-left) + slide-up sheet.
+       *  Replaces the always-visible top HUD which ate screen
+       *  real estate. Renders nothing for tournament games. */}
       {cashMode && humanPlayer && (
-        <div className="cash-controls-mobile-wrapper">
-          <CashControls
+        <>
+          <MobileCashButton
+            bankroll={cashMode.bankroll}
+            onClick={openCashSheet}
+          />
+          <MobileCashSheet
+            isOpen={showCashSheet}
+            onClose={closeCashSheet}
             cashMode={cashMode}
             playerStack={humanPlayer.stack}
             handInProgress={
@@ -435,7 +446,7 @@ export function MobilePokerTable({
               && phase !== 'EVALUATING_HAND'
             }
           />
-        </div>
+        </>
       )}
 
       {/* Opponents Section */}

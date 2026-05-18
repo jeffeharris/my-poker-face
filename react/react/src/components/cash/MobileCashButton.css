@@ -1,0 +1,48 @@
+/* Floating cash button — bottom-left corner.
+ *
+ * Sized to read at a glance but not crowd the action buttons or
+ * floating chat. Sits above the mobile action area; sibling-ish
+ * to CoachButton positioning.
+ */
+
+.mobile-cash-button {
+  position: fixed;
+  left: 12px;
+  bottom: 96px; /* above the action buttons row */
+  z-index: 30;
+
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+
+  background: rgba(18, 20, 28, 0.92);
+  border: 1px solid rgba(212, 165, 116, 0.30);
+  border-radius: 999px;
+  color: #fbeac9;
+  font-weight: 600;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  transition: transform 0.15s ease-out, background 0.15s;
+}
+
+.mobile-cash-button:hover {
+  background: rgba(28, 30, 40, 0.95);
+}
+
+.mobile-cash-button:active {
+  transform: scale(0.96);
+}
+
+.mobile-cash-button__icon {
+  color: #d4a574;
+}
+
+.mobile-cash-button__amount {
+  white-space: nowrap;
+}
