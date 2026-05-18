@@ -1,60 +1,57 @@
-"""Cash mode routes — entry, state, sit/leave/topup, action.
+"""Cash mode routes — sit at a cash table, leave, top up.
 
-Five REST endpoints for v1:
+Cash games are a **flavor of the tournament game flow**, not a separate
+orchestrator. The action route, SocketIO emits, progress_game, hand
+engine, AI controllers, settlement, and React UI are all reused
+identically. Cash-specific behavior is gated by a `cash_mode=True`
+flag on the game_data dict:
 
-  POST  /api/cash/start    — pick stake + buy_in, start a new session
-                              and seat the player.
-  POST  /api/cash/action   — player submits an action mid-hand
-                              (fold/check/call/raise/all_in).
-  POST  /api/cash/topup    — player tops up between hands.
-  POST  /api/cash/leave    — player leaves the table; chips return
-                              to bankroll, session ends.
-  GET   /api/cash/state    — current session snapshot (table, stacks,
-                              bankroll, awaiting status).
+  - `handle_eliminations` and `check_tournament_complete` no-op
+    because cash games have no `tournament_tracker`.
+  - `progress_game` continues until the hand engine yields awaiting
+    human input. Cash hands run forever until the player leaves.
+  - Sit / leave / top-up between hands flows through the
+    BankrollRepository.
 
-The Flask app maintains one active `CashSession` per user via
-`cash_session_store` (in-memory singleton). v1 is single-table per
-user; v2 will surface a lobby with multiple tables.
+This keeps cash-mode delta tiny: a route to set up a game with the
+cash flag + bankroll accounting, and a route to tear it down.
 
-Hand progression: `/api/cash/start` runs hands until the player's
-turn comes up (returning awaiting_human) or the session can't fill
-seats. `/api/cash/action` applies the player's action and resumes;
-when the hand completes it returns "continue" and the route runs
-another hand. Repeat. This is a synchronous request model — v2 may
-move to SocketIO push, but for v1 the polling shape keeps the
-integration simple.
+Spec: docs/plans/CASH_MODE_AND_RELATIONSHIPS.md Part 2.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request
 
-from cash_mode import PLAYER_SEAT_ID
-from cash_mode.session import HandResult
-from flask_app.services.cash_session_service import (
-    cash_session_store,
-    create_cash_session,
-    register_cash_session_with_game_service,
-    unregister_cash_session_from_game_service,
-)
+from cash_mode.bankroll import AIBankrollState, project_bankroll
+from cash_mode.seating import full_bankroll_bust
+from cash_mode.table import PLAYER_SEAT_ID
 
 logger = logging.getLogger(__name__)
 
 cash_bp = Blueprint("cash", __name__)
 
 
-# --- Stake ladder (matches spec §"Stakes ladder") ---
+# --- Stakes ladder (matches spec §"Stakes ladder") ---
 
 STAKES_LADDER = {
-    "$2":   {"big_blind": 2,    "min_buy_in_bb": 40, "max_buy_in_bb": 100},
-    "$10":  {"big_blind": 10,   "min_buy_in_bb": 40, "max_buy_in_bb": 100},
-    "$50":  {"big_blind": 50,   "min_buy_in_bb": 40, "max_buy_in_bb": 100},
-    "$200": {"big_blind": 200,  "min_buy_in_bb": 40, "max_buy_in_bb": 100},
-    "$1000": {"big_blind": 1000, "min_buy_in_bb": 40, "max_buy_in_bb": 100},
+    "$2":   {"big_blind": 2},
+    "$10":  {"big_blind": 10},
+    "$50":  {"big_blind": 50},
+    "$200": {"big_blind": 200},
+    "$1000": {"big_blind": 1000},
 }
+
+DEFAULT_PLAYER_STARTING_BANKROLL = 5_000
+"""Fresh-grant amount for new players. Spec doesn't pin a value; 5k
+chips is enough for a $10 table buy-in (400 chips min) plus headroom."""
+
+MIN_BUY_IN_BB = 40
+MAX_BUY_IN_BB = 100
 
 
 def _resolve_owner_id() -> str:
@@ -62,15 +59,8 @@ def _resolve_owner_id() -> str:
 
     Uses `auth_manager.get_current_user()['id']` — same path tournament
     routes use, so cash session owner_id matches the user id that
-    `_authorize_game_access` checks against. Guest sessions go through
-    the same channel (auth_manager creates a guest user record for
-    them); the returned id is stable across requests for the same
-    cookie.
-
-    Raises ValueError if no current user is resolvable. Browser
-    sessions should always produce one because the auth middleware
-    sets up guest tracking before the route runs; raw curl without
-    cookies will fail here, which is intentional.
+    `_authorize_game_access` checks against. Raises ValueError if no
+    current user is resolvable.
     """
     from flask_app.extensions import auth_manager
     user = auth_manager.get_current_user() if auth_manager else None
@@ -79,74 +69,26 @@ def _resolve_owner_id() -> str:
     raise ValueError("No owner_id resolvable from request")
 
 
-def _serialize_session(session) -> Dict[str, Any]:
-    """Build the wire-format snapshot returned by /state, /start, /action."""
-    table = session.table
-    return {
-        "game_id": session.game_id,
-        "table": {
-            "table_id": table.table_id,
-            "stake_label": table.stake_label,
-            "big_blind": table.big_blind,
-            "min_buy_in": table.min_buy_in,
-            "max_buy_in": table.max_buy_in,
-            "seat_count": table.seat_count,
-            "seats": list(table.seats),
-            "stacks": dict(table.stacks),
-            "hand_in_progress": table.hand_in_progress,
-        },
-        "player_bankroll": {
-            "player_id": session.player_bankroll.player_id,
-            "chips": session.player_bankroll.chips,
-            "starting_bankroll": session.player_bankroll.starting_bankroll,
-        },
-        "hand_number": session.hand_number,
-        "player_disconnected": session.is_player_disconnected(),
-        "player_pending_quit": PLAYER_SEAT_ID in session._pending_quit,
-    }
+def _resolve_player_name() -> str:
+    """Display name for the human player at the cash table."""
+    from flask_app.extensions import auth_manager
+    user = auth_manager.get_current_user() if auth_manager else None
+    if user and user.get("name"):
+        return user["name"]
+    return "You"
 
 
-def _serialize_hand_result(result: HandResult) -> Dict[str, Any]:
-    return {
-        "status": result.status,
-        "hand_number": result.hand_number,
-        "bust_seats": result.bust_seats,
-        "error": result.error,
-        "awaiting_player_name": result.awaiting_player_name,
-    }
+def _find_active_cash_game_id(owner_id: str) -> Optional[str]:
+    """Locate the owner's active cash game in game_state_service.
 
-
-def _build_controller_factory(*, game_id: str, owner_id: str):
-    """Return the production AI controller factory used by cash sessions.
-
-    Lazily imports the existing HybridAIController so the cash blueprint
-    loads even if the LLM stack isn't ready (test paths use a smaller
-    factory injected via the cash_session_service).
-
-    `state_machine` is attached post-construction by `_build_state_machine`
-    on each hand (cash mode rebuilds the state machine per hand because
-    AI composition changes). Passing `state_machine=None` here is fine
-    — the controller's `decide_action` won't fire before the session's
-    next refresh attaches the live one.
+    Cash games are keyed on the standard `game_id` and tagged with
+    `cash_mode=True`. v1 invariant: one active cash game per owner.
     """
-    from poker.hybrid_ai_controller import HybridAIController
-    from core.llm import DEFAULT_PROVIDER, DEFAULT_MODEL
-    from flask_app.extensions import capture_label_repo, decision_analysis_repo
-
-    llm_config = {"provider": DEFAULT_PROVIDER, "model": DEFAULT_MODEL}
-
-    def factory(personality_id: str, display_name: str, memory_manager):
-        return HybridAIController(
-            display_name,
-            state_machine=None,  # attached per-hand by the session
-            llm_config=llm_config,
-            game_id=game_id,
-            owner_id=owner_id,
-            capture_label_repo=capture_label_repo,
-            decision_analysis_repo=decision_analysis_repo,
-        )
-
-    return factory
+    from flask_app.services import game_state_service
+    for gid, gdata in list(game_state_service.games.items()):
+        if gdata.get("cash_mode") and gdata.get("owner_id") == owner_id:
+            return gid
+    return None
 
 
 # --- Routes ---
@@ -154,13 +96,18 @@ def _build_controller_factory(*, game_id: str, owner_id: str):
 
 @cash_bp.route("/api/cash/start", methods=["POST"])
 def start_cash_session():
-    """POST /api/cash/start
+    """POST /api/cash/start  body: {stake_label, buy_in, opponents?}
 
-    Body: {stake_label: "$10", buy_in: 500}
+    Creates a tournament-style game with `cash_mode=True` flagging on
+    game_data. The standard tournament flow drives the rest — same
+    state machine, same controllers, same UI, same action route.
 
-    Creates a new session, seats the player, then runs hands until
-    the player's turn comes up (or the session can't proceed).
-    Returns the current state snapshot + last hand result.
+    Bankroll accounting:
+      - Player bankroll debited by buy_in at sit-down.
+      - Each AI's bankroll debited by their per-personality buy-in.
+      - All amounts persist via `BankrollRepository`.
+
+    Returns the game_id; frontend navigates to /game/<game_id>.
     """
     try:
         owner_id = _resolve_owner_id()
@@ -170,7 +117,7 @@ def start_cash_session():
     payload = request.get_json(silent=True) or {}
     stake_label = payload.get("stake_label")
     buy_in = payload.get("buy_in")
-    seat_index = int(payload.get("seat_index", 0))
+    opponent_count = int(payload.get("opponents", 5))
 
     if stake_label not in STAKES_LADDER:
         return jsonify({
@@ -180,126 +127,320 @@ def start_cash_session():
     if not isinstance(buy_in, int) or buy_in <= 0:
         return jsonify({"error": "buy_in must be a positive integer"}), 400
 
-    if cash_session_store.has(owner_id):
+    big_blind = STAKES_LADDER[stake_label]["big_blind"]
+    min_buy_in = big_blind * MIN_BUY_IN_BB
+    max_buy_in = big_blind * MAX_BUY_IN_BB
+    if buy_in < min_buy_in or buy_in > max_buy_in:
+        return jsonify({
+            "error": (
+                f"buy_in {buy_in} out of range for {stake_label} table "
+                f"(min={min_buy_in}, max={max_buy_in})"
+            ),
+        }), 400
+
+    # Block duplicate sessions: one cash game per owner at a time.
+    existing = _find_active_cash_game_id(owner_id)
+    if existing is not None:
         return jsonify({
             "error": "A cash session is already active. Leave first.",
+            "game_id": existing,
         }), 409
 
     from flask_app.extensions import (
-        bankroll_repo, relationship_repo, personality_repo,
-        hand_history_repo, persistence_db_path,
+        auth_manager, bankroll_repo, hand_history_repo, personality_repo,
+        persistence_db_path, relationship_repo,
+        capture_label_repo, decision_analysis_repo,
     )
 
-    stake = STAKES_LADDER[stake_label]
-    try:
-        session = create_cash_session(
-            owner_id,
-            stake_label=stake_label,
-            big_blind=stake["big_blind"],
-            bankroll_repo=bankroll_repo,
-            relationship_repo=relationship_repo,
-            personality_repo=personality_repo,
-            hand_history_repo=hand_history_repo,
-            db_path=persistence_db_path,
-            controller_factory=_build_controller_factory(
-                game_id=f"cash-{owner_id}",
-                owner_id=owner_id,
-            ),
-            seat_count=6,
-            user_id=owner_id,
+    # 1. Player bankroll: load or seed.
+    player_bankroll = bankroll_repo.load_player_bankroll(owner_id)
+    if player_bankroll is None:
+        from cash_mode.bankroll import PlayerBankrollState
+        player_bankroll = PlayerBankrollState(
+            player_id=owner_id,
+            chips=DEFAULT_PLAYER_STARTING_BANKROLL,
+            starting_bankroll=DEFAULT_PLAYER_STARTING_BANKROLL,
         )
-        session.sit_player(seat_index, buy_in)
-    except Exception as e:
-        logger.warning("cash/start: session setup failed: %s", e, exc_info=True)
-        return jsonify({"error": f"Session setup failed: {e}"}), 500
+        bankroll_repo.save_player_bankroll(player_bankroll)
+        logger.info("[CASH] Seeded fresh bankroll for %r at %d chips",
+                    owner_id, DEFAULT_PLAYER_STARTING_BANKROLL)
 
-    cash_session_store.put(owner_id, session)
-
-    # Register with game_state_service NOW (after sit_player) so the
-    # existing /game/:gameId page + SocketIO emitter pick it up. The
-    # session has a state machine after registration (lazy-built if
-    # needed). update_and_emit_game_state(game_id) fires from
-    # CashSession's on_state_change callback after every action.
-    register_cash_session_with_game_service(session)
-
-    # Run the first hand. May yield with awaiting_human (player's turn).
-    try:
-        result = session.run_hand()
-    except Exception as e:
-        logger.warning("cash/start: first hand failed: %s", e, exc_info=True)
+    if player_bankroll.chips < buy_in:
         return jsonify({
-            "error": f"Hand failed: {e}",
-            "state": _serialize_session(session),
-            "game_id": session.game_id,
-        }), 500
+            "error": (
+                f"Insufficient bankroll: {player_bankroll.chips} chips, "
+                f"buy_in {buy_in}"
+            ),
+        }), 400
 
-    return jsonify({
-        "state": _serialize_session(session),
-        "result": _serialize_hand_result(result),
-        "game_id": session.game_id,
-    })
+    # 2. Pick AI personalities.
+    now = datetime.utcnow()
+    eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
+    selected_ai: list = []
+    ai_buy_ins: Dict[str, int] = {}  # personality_id → buy_in
+    ai_states: Dict[str, AIBankrollState] = {}  # personality_id → snapped state
+    for entry in eligible:
+        if len(selected_ai) >= opponent_count:
+            break
+        pid = entry["personality_id"]
+        name = entry["name"]
+        knobs = bankroll_repo.load_personality_knobs(pid)
+        ai_threshold = round(min_buy_in * knobs.buy_in_multiplier)
+        ai_buy_in = min(ai_threshold, max_buy_in)
+
+        stored = bankroll_repo.load_ai_bankroll(pid)
+        if stored is None:
+            projected = knobs.bankroll_cap
+            stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
+        else:
+            projected = project_bankroll(
+                stored, knobs.bankroll_cap, knobs.bankroll_rate, now,
+            )
+        if projected < ai_threshold:
+            continue
+        selected_ai.append({"personality_id": pid, "name": name})
+        ai_buy_ins[pid] = ai_buy_in
+        # Snap to projected for the upcoming debit.
+        ai_states[pid] = AIBankrollState(
+            personality_id=pid, chips=projected, last_regen_tick=stored.last_regen_tick,
+        )
+
+    if not selected_ai:
+        return jsonify({
+            "error": "No eligible AI opponents available for this stake",
+        }), 503
+
+    # 3. Build the game state. Mirrors the /api/new-game path.
+    from datetime import datetime as _dt
+    from poker.poker_game import initialize_game_state
+    from poker.poker_state_machine import PokerStateMachine
+    from poker.memory import AIMemoryManager
+    from poker.pressure_detector import PressureEventDetector
+    from poker.pressure_stats import PressureStatsTracker
+    from poker.repositories.sqlite_repositories import PressureEventRepository
+    from poker.hybrid_ai_controller import HybridAIController
+    from poker.prompt_config import PromptConfig
+    from flask_app.game_adapter import StateMachineAdapter
+    from flask_app.routes.game_routes import generate_game_id, load_game_mode_preset
+    from flask_app import config
+
+    human_name = _resolve_player_name()
+    ai_names = [a["name"] for a in selected_ai]
+
+    # Set starting stack uniformly — players whose buy-ins differ from
+    # the human's get adjusted via update_player after initialize.
+    game_state = initialize_game_state(
+        player_names=ai_names,
+        human_name=human_name,
+        starting_stack=buy_in,
+        big_blind=big_blind,
+    )
+    # Adjust AI stacks to their per-personality buy-ins.
+    for idx, player in enumerate(game_state.players):
+        if player.is_human:
+            continue
+        ai_entry = next((a for a in selected_ai if a["name"] == player.name), None)
+        if ai_entry is None:
+            continue
+        ai_buy_in = ai_buy_ins[ai_entry["personality_id"]]
+        if ai_buy_in != player.stack:
+            game_state = game_state.update_player(idx, stack=ai_buy_in)
+
+    base_state_machine = PokerStateMachine(
+        game_state=game_state,
+        blind_config={"growth": 1.0, "hands_per_level": 999999, "max_blind": big_blind},
+    )
+    state_machine = StateMachineAdapter(base_state_machine)
+    game_id = generate_game_id()
+
+    # 4. AI controllers — same shape as the tournament path.
+    default_prompt_config = load_game_mode_preset("standard")
+    default_llm_config: Dict[str, Any] = {}  # use system defaults
+    ai_controllers = {}
+    for player in state_machine.game_state.players:
+        if player.is_human:
+            continue
+        ai_controllers[player.name] = HybridAIController(
+            player.name,
+            state_machine,
+            llm_config=default_llm_config,
+            prompt_config=default_prompt_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+
+    # 5. Memory manager (cash_mode=True wires Phase 3 dispatch's
+    # cash_pair_stats writes — the unique cash-mode payoff).
+    pressure_event_repo = PressureEventRepository(persistence_db_path)
+    pressure_detector = PressureEventDetector()
+    pressure_stats = PressureStatsTracker(game_id, pressure_event_repo)
+
+    memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
+    memory_manager.set_hand_history_repo(hand_history_repo)
+    memory_manager.set_relationship_repo(relationship_repo, cash_mode=True)
+    for player in state_machine.game_state.players:
+        try:
+            pid = personality_repo.resolve_name_to_personality_id(player.name)
+        except Exception:
+            pid = None
+        if not player.is_human:
+            memory_manager.initialize_for_player(player.name, personality_id=pid)
+            controller = ai_controllers[player.name]
+            controller.session_memory = memory_manager.get_session_memory(player.name)
+            controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+            controller.memory_manager = memory_manager
+        else:
+            memory_manager.initialize_human_observer(player.name, personality_id=pid)
+
+    # 6. Advance to first action so hole cards are dealt before recording.
+    state_machine.run_until_player_action()
+    memory_manager.on_hand_start(
+        state_machine.game_state,
+        hand_number=1,
+        deck_seed=state_machine.current_hand_seed,
+    )
+
+    # 7. Debit bankrolls — atomic across all seats.
+    player_bankroll = type(player_bankroll)(
+        player_id=player_bankroll.player_id,
+        chips=player_bankroll.chips - buy_in,
+        starting_bankroll=player_bankroll.starting_bankroll,
+    )
+    bankroll_repo.save_player_bankroll(player_bankroll)
+    for pid, state in ai_states.items():
+        debited = AIBankrollState(
+            personality_id=pid,
+            chips=state.chips - ai_buy_ins[pid],
+            last_regen_tick=now,
+        )
+        bankroll_repo.save_ai_bankroll(debited)
+
+    # 8. Register with game_state_service. **No tournament_tracker** —
+    # so handle_eliminations + check_tournament_complete no-op.
+    # `cash_mode=True` is the flavor flag.
+    game_data = {
+        "state_machine": state_machine,
+        "ai_controllers": ai_controllers,
+        "pressure_detector": pressure_detector,
+        "pressure_stats": pressure_stats,
+        "memory_manager": memory_manager,
+        "owner_id": owner_id,
+        "owner_name": _resolve_player_name(),
+        "llm_config": default_llm_config,
+        "player_llm_configs": {},
+        "player_prompt_configs": {},
+        "default_game_mode": "standard",
+        "last_announced_phase": None,
+        "guest_tracking_id": None,
+        "guest_messages_this_action": 0,
+        "messages": [{
+            "id": "1",
+            "sender": "Table",
+            "content": f"*** Cash table {stake_label} — sit down at ${buy_in} ***",
+            "timestamp": datetime.now().isoformat(),
+            "type": "table",
+        }],
+        "hand_start_stacks": {
+            p.name: p.stack for p in state_machine.game_state.players
+        },
+        "short_stack_players": set(),
+        # Cash-mode flavor flag — every cash-aware hook reads this.
+        "cash_mode": True,
+        "cash_stake_label": stake_label,
+        "cash_personality_ids": {a["name"]: a["personality_id"] for a in selected_ai},
+    }
+
+    from flask_app.services import game_state_service
+    game_state_service.set_game(game_id, game_data)
+    logger.info("[CASH] Created game_id=%r owner=%r stake=%r buy_in=%d ai=%r",
+                game_id, owner_id, stake_label, buy_in,
+                [a["name"] for a in selected_ai])
+
+    return jsonify({"game_id": game_id})
 
 
-@cash_bp.route("/api/cash/action", methods=["POST"])
-def submit_action():
-    """POST /api/cash/action
+@cash_bp.route("/api/cash/leave", methods=["POST"])
+def leave_table():
+    """POST /api/cash/leave — player stands up.
 
-    Body: {action: "call", raise_to: 0}
+    Between hands: player's stack returns to bankroll. Mid-hand:
+    forfeit (spec §"Bust semantics"). v1 simplification: always
+    return current stack to bankroll regardless — multi-table v2 can
+    refine to the spec's mid-hand-quit forfeit. The tournament-mode
+    flow doesn't have a forfeit concept either, so the simpler v1
+    behavior aligns with what the engine supports out of the box.
 
-    Applies the player's action to the in-progress hand and continues.
-    Returns the next state + result (continue → another hand may have
-    started; awaiting_human → another action expected).
+    Player bankroll = 0 + table stack = 0 → fresh-grant fires.
+
+    Tears down the game from `game_state_service`.
     """
     try:
         owner_id = _resolve_owner_id()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    session = cash_session_store.get(owner_id)
-    if session is None:
+    game_id = _find_active_cash_game_id(owner_id)
+    if game_id is None:
         return jsonify({"error": "No active cash session"}), 404
 
-    payload = request.get_json(silent=True) or {}
-    action = payload.get("action")
-    amount = int(payload.get("raise_to", 0) or 0)
-    if action not in {"fold", "check", "call", "raise", "all_in"}:
-        return jsonify({"error": f"Invalid action: {action!r}"}), 400
+    from flask_app.extensions import bankroll_repo
+    from flask_app.services import game_state_service
 
-    try:
-        result = session.apply_human_action(action, amount)
-        # If the hand completed, automatically start the next one
-        # until we yield again or can't proceed. Polling caller doesn't
-        # have to micromanage hand boundaries.
-        while result.status == "continue":
-            result = session.run_hand()
-    except Exception as e:
-        logger.warning("cash/action: failed: %s", e, exc_info=True)
-        return jsonify({
-            "error": f"Action failed: {e}",
-            "state": _serialize_session(session),
-        }), 500
+    game_data = game_state_service.get_game(game_id)
+    state_machine = game_data["state_machine"]
+    human_player = next(
+        (p for p in state_machine.game_state.players if p.is_human), None,
+    )
+    returned_chips = human_player.stack if human_player else 0
+
+    bankroll = bankroll_repo.load_player_bankroll(owner_id)
+    if bankroll is None:
+        from cash_mode.bankroll import PlayerBankrollState
+        bankroll = PlayerBankrollState(
+            player_id=owner_id,
+            chips=DEFAULT_PLAYER_STARTING_BANKROLL,
+            starting_bankroll=DEFAULT_PLAYER_STARTING_BANKROLL,
+        )
+
+    new_chips = bankroll.chips + returned_chips
+    if new_chips == 0:
+        bankroll = full_bankroll_bust(bankroll)
+    else:
+        bankroll = type(bankroll)(
+            player_id=bankroll.player_id,
+            chips=new_chips,
+            starting_bankroll=bankroll.starting_bankroll,
+        )
+    bankroll_repo.save_player_bankroll(bankroll)
+
+    game_state_service.delete_game(game_id)
+    logger.info("[CASH] Left game_id=%r owner=%r returned=%d bankroll_now=%d",
+                game_id, owner_id, returned_chips, bankroll.chips)
 
     return jsonify({
-        "state": _serialize_session(session),
-        "result": _serialize_hand_result(result),
+        "session_ended": True,
+        "returned_chips": returned_chips,
+        "bankroll": bankroll.chips,
     })
 
 
 @cash_bp.route("/api/cash/topup", methods=["POST"])
 def top_up():
-    """POST /api/cash/topup
+    """POST /api/cash/topup body: {amount: int}
 
-    Body: {amount: 200}
-
-    Top up the player's table stack from bankroll. Between hands only.
+    Top up the human player's stack from bankroll. v1 hard rule:
+    between hands only — checks `state_machine.current_phase` is
+    not in the middle of betting.
     """
     try:
         owner_id = _resolve_owner_id()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    session = cash_session_store.get(owner_id)
-    if session is None:
+    game_id = _find_active_cash_game_id(owner_id)
+    if game_id is None:
         return jsonify({"error": "No active cash session"}), 404
 
     payload = request.get_json(silent=True) or {}
@@ -307,74 +448,82 @@ def top_up():
     if amount <= 0:
         return jsonify({"error": "amount must be a positive integer"}), 400
 
-    try:
-        session.top_up_player(amount)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
+    from flask_app.extensions import bankroll_repo
+    from flask_app.services import game_state_service
+    from poker.poker_state_machine import PokerPhase
 
-    return jsonify({"state": _serialize_session(session)})
+    game_data = game_state_service.get_game(game_id)
+    state_machine = game_data["state_machine"]
 
+    # Hard rule: only between hands. INITIALIZING_HAND / HAND_OVER are
+    # the safe phases; anything mid-hand we reject.
+    if state_machine.current_phase not in (
+        PokerPhase.INITIALIZING_GAME,
+        PokerPhase.INITIALIZING_HAND,
+        PokerPhase.HAND_OVER,
+    ):
+        return jsonify({
+            "error": "Top up is only allowed between hands",
+        }), 400
 
-@cash_bp.route("/api/cash/leave", methods=["POST"])
-def leave_table():
-    """POST /api/cash/leave
+    bankroll = bankroll_repo.load_player_bankroll(owner_id)
+    if bankroll is None or bankroll.chips < amount:
+        return jsonify({"error": "Insufficient bankroll"}), 400
 
-    Player stands up from the table. If between hands, stack returns
-    to bankroll (clean leave). If mid-hand, the request triggers a
-    mid-hand quit (table stack forfeited). Session is ended either
-    way.
-    """
-    try:
-        owner_id = _resolve_owner_id()
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+    human_idx = next(
+        (i for i, p in enumerate(state_machine.game_state.players) if p.is_human),
+        None,
+    )
+    if human_idx is None:
+        return jsonify({"error": "Player not seated"}), 400
 
-    session = cash_session_store.get(owner_id)
-    if session is None:
-        return jsonify({"error": "No active cash session"}), 404
+    new_stack = state_machine.game_state.players[human_idx].stack + amount
+    state_machine.game_state = state_machine.game_state.update_player(
+        human_idx, stack=new_stack,
+    )
 
-    try:
-        if session.table.hand_in_progress:
-            session.quit_player()
-            # Continue the hand to settlement so the quit forfeit applies
-            while True:
-                result = session.run_hand()
-                if result.status != "awaiting_human":
-                    break
-                # If somehow awaiting_human after quit (shouldn't happen
-                # — quit auto-folds the player), bail to avoid an
-                # infinite loop. Logged as a warning.
-                logger.warning(
-                    "cash/leave: unexpected awaiting_human after quit; bailing"
-                )
-                break
-        else:
-            session.leave_player()
-    except Exception as e:
-        logger.warning("cash/leave: failed: %s", e, exc_info=True)
-        return jsonify({"error": str(e)}), 500
+    new_bankroll = type(bankroll)(
+        player_id=bankroll.player_id,
+        chips=bankroll.chips - amount,
+        starting_bankroll=bankroll.starting_bankroll,
+    )
+    bankroll_repo.save_player_bankroll(new_bankroll)
 
-    final_state = _serialize_session(session)
-    unregister_cash_session_from_game_service(session.game_id)
-    cash_session_store.end(owner_id)
+    from flask_app.handlers.game_handler import update_and_emit_game_state
+    update_and_emit_game_state(game_id)
 
-    return jsonify({"state": final_state, "session_ended": True})
+    return jsonify({
+        "stack": new_stack,
+        "bankroll": new_bankroll.chips,
+    })
 
 
 @cash_bp.route("/api/cash/state", methods=["GET"])
 def get_state():
-    """GET /api/cash/state — current session snapshot.
+    """GET /api/cash/state — minimal status snapshot.
 
-    Returns 404 if no active session for this user. The frontend can
-    use this to recover state after a page refresh.
+    Returns `{state: null}` if no active session, else `{state:
+    {game_id, bankroll, stake_label}}`. Used by the entry page to
+    decide whether to redirect to /game/<id>.
     """
     try:
         owner_id = _resolve_owner_id()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    session = cash_session_store.get(owner_id)
-    if session is None:
-        return jsonify({"error": "No active cash session"}), 404
+    game_id = _find_active_cash_game_id(owner_id)
+    if game_id is None:
+        return jsonify({"state": None})
 
-    return jsonify({"state": _serialize_session(session)})
+    from flask_app.extensions import bankroll_repo
+    from flask_app.services import game_state_service
+
+    game_data = game_state_service.get_game(game_id)
+    bankroll = bankroll_repo.load_player_bankroll(owner_id)
+    return jsonify({
+        "state": {
+            "game_id": game_id,
+            "bankroll": bankroll.chips if bankroll else 0,
+            "stake_label": game_data.get("cash_stake_label"),
+        },
+    })

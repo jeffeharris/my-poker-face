@@ -37,7 +37,11 @@ async function getJson<T>(path: string): Promise<T> {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `HTTP ${res.status}`);
+    // Use a class that doesn't trigger the console.error for 4xx
+    // responses we expect (e.g., 404 on /state when no session exists).
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
   }
   return res.json();
 }
@@ -69,6 +73,6 @@ export async function leaveTable(): Promise<CashApiResponse> {
   return postJson('/leave');
 }
 
-export async function getState(): Promise<{ state: CashSessionState }> {
+export async function getState(): Promise<{ state: CashSessionState | null }> {
   return getJson('/state');
 }

@@ -1288,47 +1288,13 @@ def api_new_game():
     return jsonify({'game_id': game_id})
 
 
-def _dispatch_cash_action(cash_session, action, amount):
-    """Cash-mode action dispatch — called from /api/game/<id>/action when
-    the game is a cash session.
-
-    Calls `apply_human_action` to apply the player's choice, then loops
-    `run_hand` while the status is "continue" so the player gets driven
-    forward through subsequent AI hands automatically. SocketIO emits
-    are fired from CashSession's `on_state_change` callback, so the
-    frontend animates each AI move without the route having to do
-    anything extra.
-
-    Returns the same `{success: true}` shape as the tournament path
-    so the existing frontend doesn't need to branch.
-    """
-    if action not in {"fold", "check", "call", "raise", "all_in"}:
-        return jsonify({"error": f"Invalid action: {action!r}"}), 400
-    try:
-        result = cash_session.apply_human_action(action, amount)
-        # If the hand ended, auto-run the next one until it either yields
-        # for human input or can't start. Mirrors the cash_routes pattern.
-        while result.status == "continue":
-            result = cash_session.run_hand()
-    except Exception as e:
-        logger.error(
-            f"Cash mode action failed for game {cash_session.game_id}: {e}",
-            exc_info=True,
-        )
-        return jsonify({"error": "Failed to process action"}), 500
-    return jsonify({"success": True})
-
-
 @game_bp.route('/api/game/<game_id>/action', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_GAME_ACTION)
 def api_player_action(game_id):
-    """Handle player action via API.
-
-    Cash mode dispatch: if the game_state_service entry has a
-    `cash_session` field, route through `CashSession.apply_human_action`
-    instead of the tournament flow. Cash sessions don't have a
-    TournamentTracker / per-action game_repo.save / elimination
-    handling — they run their own loop in cash_mode/session.py.
+    """Handle player action via API. Same shape for cash + tournament:
+    cash games skip the tournament_tracker work via the no-tracker
+    branches inside handle_eliminations / check_tournament_complete
+    (they early-return when 'tournament_tracker' isn't in game_data).
     """
     data = request.json or {}
     action = data.get('action')
@@ -1341,11 +1307,6 @@ def api_player_action(game_id):
 
     if not current_game_data:
         return jsonify({'error': 'Game not found'}), 404
-
-    # Cash mode dispatch — short-circuit before any tournament logic
-    cash_session = current_game_data.get('cash_session')
-    if cash_session is not None:
-        return _dispatch_cash_action(cash_session, action, amount)
 
     state_machine = current_game_data['state_machine']
 

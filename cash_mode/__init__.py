@@ -1,18 +1,22 @@
-"""Cash mode package — single-table cash game with persistent bankrolls.
+"""Cash mode package — persistent bankrolls + sit/leave/topup accounting.
 
-Top-level package surface kept pure of `poker.repositories` /
-`poker.memory` imports so the package can be imported by repository
-modules without circular-import risk. (`BankrollRepository` imports
-`cash_mode.bankroll`; if this `__init__` reached back through
-`seat_filler` or `session` it would close the cycle.)
+Cash games run through the existing tournament game infrastructure
+(state machine, controllers, action route, SocketIO, UI) — flagged
+with `cash_mode=True` on the game_data dict. Cash-specific behavior
+lives in:
 
-For the orchestration surface, import explicitly:
+  - `bankroll`: PlayerBankrollState / AIBankrollState dataclasses +
+    `project_bankroll` (passive regen).
+  - `table`: CashTable dataclass (mostly vestigial post-refactor;
+    seating accounting works directly on the hand engine's
+    PokerGameState now).
+  - `seating`: pure transitions for sit/leave/topup + bust accounting
+    helpers. Used by the cash routes.
 
-    from cash_mode.seat_filler import fill_seats
-    from cash_mode.session import CashSession, HandResult
-
-The leaf modules `bankroll`, `table`, `seating` are repo-free and
-re-exported here.
+The orchestration (CashSession, seat_filler) that lived here briefly
+in v0.5 has been replaced by direct use of the tournament flow —
+that approach is far simpler and reuses every UI / animation / action
+path automatically.
 
 Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 2.
 """
