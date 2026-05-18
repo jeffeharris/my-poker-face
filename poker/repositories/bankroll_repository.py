@@ -4,8 +4,8 @@ Three persistence surfaces, all introduced in schema v88:
 
   - `ai_bankroll_state`: per-personality persistent bankroll, keyed on
     personality_id. Stored `chips` is the snapshot at
-    `last_regen_tick`; the `load_*_projected` reads return the live
-    value via `cash_mode.project_bankroll`.
+    `last_regen_tick`; the `load_ai_bankroll_current` read returns the
+    live value via `cash_mode.project_bankroll`.
 
   - `player_bankroll_state`: per-player persistent bankroll, keyed on
     player_id. No regen in v1 — fresh-grant on full bust is the only
@@ -98,7 +98,7 @@ class BankrollRepository(BaseRepository):
 
         Returns the AIBankrollState exactly as persisted (`chips` is
         the snapshot at `last_regen_tick`). Callers wanting the live
-        projected value should use `load_ai_bankroll_projected`.
+        projected value should use `load_ai_bankroll_current`.
 
         Returns None when no row exists; treat that as "AI has never
         sat down at a cash table" — the caller decides whether to
@@ -121,16 +121,21 @@ class BankrollRepository(BaseRepository):
                 last_regen_tick=_parse_timestamp(row["last_regen_tick"]),
             )
 
-    def load_ai_bankroll_projected(
+    def load_ai_bankroll_current(
         self,
         personality_id: str,
         *,
         now: Optional[datetime] = None,
     ) -> Optional[int]:
-        """Load the projected live bankroll chip count.
+        """Load the current live bankroll chip count (projection applied).
+
+        "Current" means "what the bankroll is right now," computed by
+        projecting the stored snapshot through elapsed time via
+        `project_bankroll`. Pair name with `load_ai_bankroll` (raw
+        snapshot, no projection — admin/analytics only).
 
         Reads the stored snapshot, looks up the per-personality knob
-        columns (with default fallback), and returns
+        sub-dict (with default fallback), and returns
         `project_bankroll(state, cap, rate, now)`. Returns None when
         the personality has no bankroll row yet.
 

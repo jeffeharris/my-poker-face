@@ -6,7 +6,8 @@ Covers:
   - save / load round-trips for AI and player bankroll
   - load_personality_knobs falls back to defaults when config_json lacks
     the bankroll_knobs sub-dict (or it's missing keys)
-  - load_ai_bankroll_projected applies projection (clamped to cap)
+  - load_ai_bankroll_current applies projection (clamped to cap)
+
   - load_* returns None when no row exists
 """
 
@@ -366,21 +367,21 @@ class TestProjectBankrollPure:
         assert project_bankroll(state, cap=10_000, rate=500, now=now) == 10_000
 
 
-class TestAIBankrollProjectedReads:
-    def test_load_projected_applies_regen(self, db_path, repo):
+class TestAIBankrollCurrentReads:
+    def test_load_current_applies_regen(self, db_path, repo):
         # Seed: 1000 chips, last_regen_tick = 4 days ago, rate=500/day → 3000.
         # Personality row has no bankroll_knobs → defaults (rate 500, cap 10_000).
         _insert_personality(db_path, "hungry_hippo", name="Hungry Hippo")
         tick = datetime(2026, 5, 13, 12, 0, 0)
         now = datetime(2026, 5, 17, 12, 0, 0)
         repo.save_ai_bankroll(AIBankrollState("hungry_hippo", chips=1_000, last_regen_tick=tick))
-        projected = repo.load_ai_bankroll_projected("hungry_hippo", now=now)
+        projected = repo.load_ai_bankroll_current("hungry_hippo", now=now)
         assert projected == 3_000
 
-    def test_load_projected_returns_none_for_unknown(self, repo):
-        assert repo.load_ai_bankroll_projected("nobody") is None
+    def test_load_current_returns_none_for_unknown(self, repo):
+        assert repo.load_ai_bankroll_current("nobody") is None
 
-    def test_load_projected_uses_personality_specific_cap(self, db_path, repo):
+    def test_load_current_uses_personality_specific_cap(self, db_path, repo):
         # Personality with bankroll_cap=2000 — should clamp tighter than default.
         _insert_personality(
             db_path,
@@ -391,5 +392,5 @@ class TestAIBankrollProjectedReads:
         tick = datetime(2026, 5, 10, 12, 0, 0)
         now = datetime(2026, 5, 17, 12, 0, 0)  # 7 days, would add 3500
         repo.save_ai_bankroll(AIBankrollState("capped_cat", chips=500, last_regen_tick=tick))
-        projected = repo.load_ai_bankroll_projected("capped_cat", now=now)
+        projected = repo.load_ai_bankroll_current("capped_cat", now=now)
         assert projected == 2_000
