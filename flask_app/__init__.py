@@ -97,6 +97,14 @@ def create_app():
     from .services.game_state_service import start_cleanup_timer
     start_cleanup_timer()
 
+    # Drop any cash-* rows surviving from a previous run. Cash games
+    # are in-memory only; persisted rows are by definition orphans.
+    try:
+        from .routes.cash_routes import cleanup_orphan_cash_games
+        cleanup_orphan_cash_games()
+    except Exception as e:
+        logger.error(f"[CASH] orphan cleanup failed at startup: {e}")
+
     return app
 
 

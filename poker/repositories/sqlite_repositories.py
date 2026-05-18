@@ -14,6 +14,8 @@ class PressureEventRepository(BaseRepository):
                    details: Optional[Dict[str, Any]] = None,
                    hand_number: Optional[int] = None) -> None:
         """Save a pressure event to the database."""
+        if game_id.startswith("cash-"):
+            return  # Cash sessions are in-memory only (see GameRepository.save_game).
         with self._get_connection() as conn:
             conn.execute(
                 """
