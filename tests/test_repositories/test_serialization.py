@@ -120,6 +120,26 @@ class TestGameStateSerialization(unittest.TestCase):
         for p in restored.players:
             self.assertIsNone(p.hand)
 
+    def test_round_trip_preserves_last_raise_amount(self):
+        # Regression: $2 cash table reloaded mid-betting-round was showing a
+        # $50 min raise because last_raise_amount dropped to ANTE default.
+        game_state = initialize_game_state(player_names=['P1', 'P2'], big_blind=2)
+        # Simulate a raise BY 10 having occurred within the round.
+        game_state = game_state.update(last_raise_amount=10)
+        state_dict = game_state.to_dict()
+        restored = restore_state_from_dict(state_dict)
+        self.assertEqual(restored.last_raise_amount, 10)
+        self.assertEqual(restored.min_raise_amount, 10)
+
+    def test_restore_falls_back_to_current_ante_when_last_raise_missing(self):
+        # Older saves (pre-fix) don't include last_raise_amount. Falling back
+        # to current_ante matches the standard start-of-street reset.
+        game_state = initialize_game_state(player_names=['P1', 'P2'], big_blind=2)
+        state_dict = game_state.to_dict()
+        state_dict.pop('last_raise_amount', None)
+        restored = restore_state_from_dict(state_dict)
+        self.assertEqual(restored.last_raise_amount, 2)
+
 
 if __name__ == '__main__':
     unittest.main()
