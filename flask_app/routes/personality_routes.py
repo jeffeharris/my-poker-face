@@ -14,6 +14,8 @@ from core.llm import LLMClient, CallType
 from ..extensions import personality_repo, limiter, auth_manager, personality_generator
 from .. import config
 
+from cash_mode.bankroll import BANKROLL_KNOB_DEFAULTS, BankrollKnobs
+
 logger = logging.getLogger(__name__)
 
 personality_bp = Blueprint('personality', __name__)
@@ -708,4 +710,158 @@ def update_personality_visibility(name):
             'message': f'Personality {name} visibility set to {visibility}'
         })
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# --- Bankroll knobs (cash mode) ---
+
+
+def _resolve_personality_id_or_404(name):
+    """Look up the stable personality_id for a display name.
+
+    Returns (personality_id, None) on success or (None, (json_body, status))
+    on failure so the caller can short-circuit with the error tuple.
+    """
+    pid = personality_repo.resolve_name_to_personality_id(name)
+    if not pid:
+        return None, ({'success': False, 'error': f'Personality {name} not found'}, 404)
+    return pid, None
+
+
+def _knobs_to_dict(knobs: BankrollKnobs) -> dict:
+    """Serialize BankrollKnobs to the JSON shape consumed by the admin UI."""
+    return {
+        'bankroll_cap': knobs.bankroll_cap,
+        'bankroll_rate': knobs.bankroll_rate,
+        'buy_in_multiplier': knobs.buy_in_multiplier,
+        'stop_loss_buy_ins': knobs.stop_loss_buy_ins,
+        'stop_win_buy_ins': knobs.stop_win_buy_ins,
+        'stake_comfort_zone': knobs.stake_comfort_zone,
+    }
+
+
+@personality_bp.route('/api/personality/<name>/bankroll-knobs', methods=['GET'])
+def get_bankroll_knobs(name):
+    """GET the per-personality bankroll knobs.
+
+    Returns the knobs (with defaults filled in for any missing keys)
+    plus the AI's current live bankroll (projection applied) so the
+    admin UI can show actual state alongside the editable knobs.
+
+    Admin-only — knobs control the cash-mode economy globally and
+    aren't a per-user personality field.
+    """
+    try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+        if not is_admin:
+            return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+        pid, err = _resolve_personality_id_or_404(name)
+        if err is not None:
+            return jsonify(err[0]), err[1]
+
+        from ..extensions import bankroll_repo
+        knobs = bankroll_repo.load_personality_knobs(pid)
+        current_bankroll = bankroll_repo.load_ai_bankroll_current(pid)
+
+        return jsonify({
+            'success': True,
+            'name': name,
+            'personality_id': pid,
+            'knobs': _knobs_to_dict(knobs),
+            'defaults': _knobs_to_dict(BANKROLL_KNOB_DEFAULTS),
+            'current_bankroll': current_bankroll,  # None if no row yet
+        })
+    except Exception as e:
+        logger.exception("Error loading bankroll knobs for %r", name)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@personality_bp.route('/api/personality/<name>/bankroll-knobs', methods=['PUT'])
+def update_bankroll_knobs(name):
+    """PUT a partial knob update; merges into config_json.bankroll_knobs.
+
+    Request body: a JSON object containing any subset of:
+      - bankroll_cap (int)
+      - bankroll_rate (int)
+      - buy_in_multiplier (float)
+      - stop_loss_buy_ins (int)
+      - stop_win_buy_ins (int)
+      - stake_comfort_zone (str)
+
+    Missing keys fall back to the current stored knob value (which
+    itself falls back to BANKROLL_KNOB_DEFAULTS), so a partial PUT
+    only touches the fields the client sent.
+
+    Admin-only.
+    """
+    try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+        if not is_admin:
+            return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+        pid, err = _resolve_personality_id_or_404(name)
+        if err is not None:
+            return jsonify(err[0]), err[1]
+
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({'success': False, 'error': 'Request body must be a JSON object'}), 400
+
+        from ..extensions import bankroll_repo
+        current = bankroll_repo.load_personality_knobs(pid)
+
+        # Validate types per-field. Anything not provided keeps the
+        # current stored value — partial updates are the norm.
+        try:
+            new_knobs = BankrollKnobs(
+                bankroll_cap=int(payload.get('bankroll_cap', current.bankroll_cap)),
+                bankroll_rate=int(payload.get('bankroll_rate', current.bankroll_rate)),
+                buy_in_multiplier=float(payload.get('buy_in_multiplier', current.buy_in_multiplier)),
+                stop_loss_buy_ins=int(payload.get('stop_loss_buy_ins', current.stop_loss_buy_ins)),
+                stop_win_buy_ins=int(payload.get('stop_win_buy_ins', current.stop_win_buy_ins)),
+                stake_comfort_zone=str(payload.get('stake_comfort_zone', current.stake_comfort_zone)),
+            )
+        except (TypeError, ValueError) as e:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid knob value: {e}',
+            }), 400
+
+        # Light range validation — keep the floor at 0 for caps/rates so
+        # we don't produce negative-debit math, and require multipliers > 0.
+        if new_knobs.bankroll_cap < 0:
+            return jsonify({'success': False, 'error': 'bankroll_cap must be >= 0'}), 400
+        if new_knobs.bankroll_rate < 0:
+            return jsonify({'success': False, 'error': 'bankroll_rate must be >= 0'}), 400
+        if new_knobs.buy_in_multiplier <= 0:
+            return jsonify({'success': False, 'error': 'buy_in_multiplier must be > 0'}), 400
+
+        saved = bankroll_repo.save_personality_knobs(pid, new_knobs)
+        if not saved:
+            return jsonify({
+                'success': False,
+                'error': f'Personality {name} not found in database',
+            }), 404
+
+        return jsonify({
+            'success': True,
+            'name': name,
+            'personality_id': pid,
+            'knobs': _knobs_to_dict(new_knobs),
+        })
+    except Exception as e:
+        logger.exception("Error updating bankroll knobs for %r", name)
         return jsonify({'success': False, 'error': str(e)}), 500
