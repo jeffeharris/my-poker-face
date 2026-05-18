@@ -1094,11 +1094,17 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
         ai_players = {name: controller.ai_player for name, controller in ai_controllers.items()}
         try:
+            # Phase 3: forward equity_history (computed just above) to
+            # the relationship detector via on_hand_complete. This
+            # enables BAD_BEAT events in live user games — the only
+            # event in the Phase 3 vocabulary that needs pre-river
+            # equity data to fire.
             memory_manager.on_hand_complete(
                 winner_info=winner_info,
                 game_state=game_state,
                 ai_players=ai_players,
-                skip_commentary=True
+                skip_commentary=True,
+                equity_history=equity_history,
             )
         except Exception as e:
             logger.warning(f"Memory manager hand completion failed: {e}")
