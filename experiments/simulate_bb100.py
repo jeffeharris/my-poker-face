@@ -256,6 +256,16 @@ def make_controller(
     controller._deviation_profile = (
         None if is_baseline else DEVIATION_PROFILES[profile_key]
     )
+    # Track B Phase 2 seam: sims don't populate relationship_states,
+    # so the modifier seam has nothing to read. Default `False` here
+    # (rather than mirroring TieredBotController.__init__'s `True`)
+    # because the bypassed-`__init__` factory above doesn't run the
+    # constructor that would set up the relationship-state hooks the
+    # seam expects. Leaves the offset path identical to pre-Phase-2
+    # sim behavior.
+    controller.apply_relationship_modifier = False
+    controller._last_relationship_modifier = None
+    controller._last_relationship_target_id = None
     # SimpleNamespace with anchors is sufficient — get_emotional_shift()
     # gracefully returns 'composed' when zone_effects is unavailable.
     controller.psychology = SimpleNamespace(anchors=anchors)
