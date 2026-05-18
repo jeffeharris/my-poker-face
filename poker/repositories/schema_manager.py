@@ -70,7 +70,13 @@ logger = logging.getLogger(__name__)
 #      (heat/respect/likability) and cash-mode-specific PnL pair stats, both keyed on
 #      (observer_id, opponent_id). Foundation for Relationship layer (Track B step 2) and Cash
 #      mode v1 (Track B step 3). Pure additions — no changes to existing tables.
-SCHEMA_VERSION = 87
+# v88: Add bankroll persistence for cash mode v1. Creates ai_bankroll_state (per personality_id)
+#      and player_bankroll_state (per player_id) tables, plus six bankroll-knob columns on
+#      personalities (bankroll_cap, bankroll_rate, buy_in_multiplier, stop_loss_buy_ins,
+#      stop_win_buy_ins, stake_comfort_zone). Knob columns are nullable; the BankrollRepository
+#      falls back to BANKROLL_KNOB_DEFAULTS when a row's columns are NULL, so the migration is
+#      non-destructive and personalities can be tuned per-row in a follow-up without a re-migration.
+SCHEMA_VERSION = 88
 
 
 
@@ -235,7 +241,8 @@ class SchemaManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_player ON pressure_events(player_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_type ON pressure_events(event_type)")
 
-            # 7. Personalities (v5 added elasticity_config)
+            # 7. Personalities (v5 added elasticity_config, v85 added personality_id,
+            #    v88 added bankroll knob columns)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS personalities (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -247,7 +254,13 @@ class SchemaManager:
                     source TEXT DEFAULT 'ai_generated',
                     times_used INTEGER DEFAULT 0,
                     elasticity_config TEXT,
-                    personality_id TEXT UNIQUE
+                    personality_id TEXT UNIQUE,
+                    bankroll_cap INTEGER,
+                    bankroll_rate INTEGER,
+                    buy_in_multiplier REAL,
+                    stop_loss_buy_ins INTEGER,
+                    stop_win_buy_ins INTEGER,
+                    stake_comfort_zone TEXT
                 )
             """)
 
@@ -381,6 +394,33 @@ class SchemaManager:
                     cumulative_pnl INTEGER NOT NULL DEFAULT 0,
                     hands_played_cash INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (observer_id, opponent_id)
+                )
+            """)
+
+            # 10d. AI bankroll state (v88) — per-personality persistent bankroll.
+            #      Keyed on personalities.personality_id (stable v85 slug, not
+            #      display name). `chips` is the "as of last_regen_tick"
+            #      snapshot; live reads project through elapsed wall-clock
+            #      time via `cash_mode.project_bankroll`. Writes only happen
+            #      on real events (sit-down, win, loss).
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS ai_bankroll_state (
+                    personality_id TEXT PRIMARY KEY,
+                    chips INTEGER NOT NULL DEFAULT 0,
+                    last_regen_tick TIMESTAMP
+                )
+            """)
+
+            # 10e. Player bankroll state (v88) — per-player persistent bankroll.
+            #      `starting_bankroll` is the fresh-grant reset value on full
+            #      bust (Part 2 §"Bust semantics"). Player bankrolls do not
+            #      regen in v1 — the column is shaped for future symmetry
+            #      with AI but `project_bankroll` is not called for players.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS player_bankroll_state (
+                    player_id TEXT PRIMARY KEY,
+                    chips INTEGER NOT NULL DEFAULT 0,
+                    starting_bankroll INTEGER NOT NULL DEFAULT 0
                 )
             """)
 
@@ -1170,6 +1210,7 @@ class SchemaManager:
             85: (self._migrate_v85_add_personality_id, "Add personality_id TEXT UNIQUE to personalities and backfill with slugified names"),
             86: (self._migrate_v86_add_opponent_model_ids, "Add observer_id + opponent_id to opponent_models and backfill via personality name lookup"),
             87: (self._migrate_v87_add_relationship_tables, "Add relationship_states + cash_pair_stats tables for cross-session affinity and cash-mode PnL"),
+            88: (self._migrate_v88_add_bankroll_tables, "Add ai_bankroll_state + player_bankroll_state tables and bankroll knob columns on personalities for cash mode v1"),
         }
 
         with self._get_connection() as conn:
@@ -3857,3 +3898,73 @@ class SchemaManager:
             )
         """)
         logger.info("v87: created relationship_states + cash_pair_stats tables")
+
+    def _migrate_v88_add_bankroll_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v88: Add bankroll persistence for cash mode v1.
+
+        Two new tables plus six knob columns on `personalities`. All
+        additions; nothing existing is modified.
+
+        ai_bankroll_state
+          Per-personality persistent bankroll. Keyed on
+          personality_id (stable v85 slug). `chips` is the snapshot
+          at `last_regen_tick`; live reads project through
+          `cash_mode.project_bankroll`. No rows are created here —
+          the BankrollRepository inserts on first sit-down with a
+          starting grant.
+
+        player_bankroll_state
+          Per-player persistent bankroll. `starting_bankroll` is the
+          fresh-grant value on full bust. No rows created here —
+          BankrollRepository inserts on first sit-down with a
+          starting grant (Part 2 §"Bust semantics" — player gets a
+          fresh bankroll automatically).
+
+        Personality bankroll knob columns
+          `bankroll_cap`, `bankroll_rate`, `buy_in_multiplier`,
+          `stop_loss_buy_ins`, `stop_win_buy_ins`,
+          `stake_comfort_zone`. All nullable. The BankrollRepository
+          falls back to `BANKROLL_KNOB_DEFAULTS` when a column is
+          NULL so the migration doesn't have to populate per-row
+          values — per-personality tuning is a follow-up that just
+          updates the columns from personalities.json without a
+          re-migration.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS + PRAGMA-guarded ALTER
+        for the knob columns. Safe to re-run.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_bankroll_state (
+                personality_id TEXT PRIMARY KEY,
+                chips INTEGER NOT NULL DEFAULT 0,
+                last_regen_tick TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_bankroll_state (
+                player_id TEXT PRIMARY KEY,
+                chips INTEGER NOT NULL DEFAULT 0,
+                starting_bankroll INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(personalities)")}
+        knob_columns = (
+            ("bankroll_cap", "INTEGER"),
+            ("bankroll_rate", "INTEGER"),
+            ("buy_in_multiplier", "REAL"),
+            ("stop_loss_buy_ins", "INTEGER"),
+            ("stop_win_buy_ins", "INTEGER"),
+            ("stake_comfort_zone", "TEXT"),
+        )
+        for col, col_type in knob_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE personalities ADD COLUMN {col} {col_type}"
+                )
+                logger.info(f"v88: added {col} column to personalities")
+
+        logger.info(
+            "v88: created ai_bankroll_state + player_bankroll_state, "
+            "bankroll knob columns on personalities ensured"
+        )

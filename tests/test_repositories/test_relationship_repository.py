@@ -102,13 +102,15 @@ class TestSchemaMigrationV87:
         # Simulate pre-v87 state: drop the v87 tables and remove the
         # v87 row from schema_version (which is an append log keyed by
         # version, NOT a single-row settings table — DELETE the row
-        # rather than UPDATE).
+        # rather than UPDATE). Also delete any rows for versions >87
+        # so MAX(version) drops below 87 and the migration loop will
+        # re-apply v87 (and any later migrations).
         with sqlite3.connect(path) as conn:
             conn.execute("DROP TABLE IF EXISTS relationship_states")
             conn.execute("DROP TABLE IF EXISTS cash_pair_stats")
-            conn.execute("DELETE FROM schema_version WHERE version = 87")
+            conn.execute("DELETE FROM schema_version WHERE version >= 87")
             conn.commit()
-        # Re-run ensure_schema → should re-apply v87 only (v85/v86 stay)
+        # Re-run ensure_schema → should re-apply v87 (and anything later) cleanly
         SchemaManager(path).ensure_schema()
         with sqlite3.connect(path) as conn:
             tables = {
