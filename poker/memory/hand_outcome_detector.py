@@ -111,6 +111,7 @@ class HandOutcomeDetector:
         events: List[DetectedEvent] = []
         events.extend(self._detect_big_pot_events(recorded_hand))
         events.extend(self._detect_hero_calls(recorded_hand))
+        events.extend(self._detect_bluffed_off(recorded_hand))
         # Apply dedup AFTER detection so detection logic stays a
         # pure mapping. Each surviving event marks its key as
         # emitted; re-running the same hand returns no events.
@@ -360,6 +361,155 @@ class HandOutcomeDetector:
                 narrative=(
                     f"{winner} called {called_against}'s river bet "
                     f"and showed down the winner"
+                ),
+                hand_summary=summary,
+            ))
+
+        return events
+
+    def _detect_bluffed_off(self, hand: RecordedHand) -> List[DetectedEvent]:
+        """Emit BLUFFED_OFF for folds where the folder would have won.
+
+        Semantic: the folder gave up a hand that would have beat the
+        opponent who bet into them. This is the first non-showdown-
+        outcome-driven event in the detector — it fires on the
+        emotional pain of folding a winner.
+
+        Detection requires both sides' card visibility:
+
+          1. Hand reached showdown (so the bluffer's cards were
+             revealed there).
+          2. Folder's `hole_cards` are still in the dict at detection
+             time. **Data dependency**: the tournament experiment
+             path in `run_ai_tournament.py` pops folded players'
+             cards from `hand_in_progress.hole_cards` before
+             `complete_hand` runs — equity-tracker setup that
+             predates this detector. So in experiment paths
+             BLUFFED_OFF will rarely fire; in Flask game paths
+             (production user play) folder cards are preserved and
+             detection works. Future change to make the strip
+             optional or move it after detection unblocks
+             experiment-path coverage.
+          3. The fold was postflop (`FLOP` / `TURN` / `RIVER` —
+             preflop folds have no community cards to evaluate
+             against).
+          4. The most recent aggressor on the fold's street (the
+             player whose bet/raise the folder gave up to) reached
+             showdown with revealed cards.
+          5. At the final board, folder's hand_rank beats bettor's.
+
+        Multi-bettor edge case: if two players were aggressive on
+        the same street before the fold (bet + raise), attribute the
+        BLUFFED_OFF to the most recent aggressor — they're the
+        proximate cause of the fold decision.
+
+        Dispatch table asymmetry (intentional): the actor (folder)
+        feels +0.20 heat, -0.05 respect, -0.02 likability — the
+        canonical "they got me with junk" anger. The mirror
+        (bluffer) is all zeros because they don't see the fold
+        reveal and can't experience the moment. This is why
+        BLUFFED_OFF is one-sided in the dispatch table while
+        BIG_WIN/BIG_LOSS are mostly symmetric.
+        """
+        if not hand.was_showdown:
+            return []
+
+        # Players who reached showdown and have visible cards.
+        fold_actors = {
+            a.player_name for a in hand.actions if a.action == 'fold'
+        }
+        showdown_with_cards = {
+            name for name in hand.hole_cards
+            if name not in fold_actors
+        }
+        if not showdown_with_cards:
+            return []
+
+        postflop_folds = [
+            a for a in hand.actions
+            if a.action == 'fold' and a.phase in ('FLOP', 'TURN', 'RIVER')
+        ]
+        if not postflop_folds:
+            return []
+
+        # Local imports — same rationale as `_detect_hero_calls`:
+        # keep the relationship module's import graph clean.
+        from core.card import Card
+        from poker.hand_evaluator import HandEvaluator
+
+        try:
+            community = [Card.from_short(c) for c in hand.community_cards]
+        except Exception:
+            return []
+        # Showdown implies a completed board; defensive check anyway.
+        if len(community) < 5:
+            return []
+
+        summary = hand.get_summary()
+        events: List[DetectedEvent] = []
+
+        for fold_action in postflop_folds:
+            folder = fold_action.player_name
+            if folder not in hand.hole_cards:
+                # Folder's cards stripped — can't compute their
+                # would-have-been hand. Silently skip (see docstring
+                # data-dependency note).
+                continue
+
+            # Find the most recent aggressive action on the same
+            # street before this fold, by anyone other than the
+            # folder. That's the bettor the folder gave up to.
+            prior_bettor: Optional[str] = None
+            for a in hand.actions:
+                if a is fold_action:
+                    break
+                if a.phase != fold_action.phase:
+                    continue
+                if a.player_name == folder:
+                    continue
+                if a.action in ('bet', 'raise', 'all_in'):
+                    prior_bettor = a.player_name
+
+            if prior_bettor is None:
+                # Fold to a check or no prior action — not a bluff
+                # spot (folder gave up unforced).
+                continue
+            if prior_bettor not in showdown_with_cards:
+                # Bettor didn't reach showdown / has no card
+                # visibility — can't verify the bluff.
+                continue
+
+            try:
+                folder_cards = [
+                    Card.from_short(c) for c in hand.hole_cards[folder]
+                ] + community
+                bettor_cards = [
+                    Card.from_short(c) for c in hand.hole_cards[prior_bettor]
+                ] + community
+                folder_rank = HandEvaluator(folder_cards).evaluate_hand()['hand_rank']
+                bettor_rank = HandEvaluator(bettor_cards).evaluate_hand()['hand_rank']
+            except Exception:
+                continue
+
+            # Folder was ahead (strictly) — lower rank is better.
+            # Equal ranks don't qualify; the would-have-been outcome
+            # is ambiguous (chopped pot, or kicker-level comparison
+            # which our rank-only check can't resolve).
+            if folder_rank >= bettor_rank:
+                continue
+
+            folder_id = self._resolve_id(folder)
+            bettor_id = self._resolve_id(prior_bettor)
+            if folder_id is None or bettor_id is None:
+                continue
+
+            events.append(DetectedEvent(
+                actor_id=folder_id,
+                target_id=bettor_id,
+                event=RelationshipEvent.BLUFFED_OFF,
+                narrative=(
+                    f"{folder} folded a winner to {prior_bettor}'s "
+                    f"{fold_action.phase.lower()} bet"
                 ),
                 hand_summary=summary,
             ))
