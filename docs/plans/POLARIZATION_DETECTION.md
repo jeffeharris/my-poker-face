@@ -129,13 +129,15 @@ def compute_aggression_polarization(stats: AggregatedOpponentStats) -> float:
 
 ### Measurement gate
 
-After Phase B ships, run a 2000-hand sim per archetype (Rock / TAG / LAG) vs CaseBot and compare bb/100 to the post-patch baseline. The current expectation:
+After Phase B ships, run a 2000-hand sim per archetype (Rock / TAG / LAG) vs CaseBot and compare bb/100 to the **post-patch baseline measured 2026-05-18** (commits `11dd7d7a` + `2c09c686` shipped):
 
-- TAG: large positive improvement (post-patch baseline TBD via the still-pending Track A step 1 sim; with the all-in gate alone TAG moved from −84.3 to −19.0)
-- Rock: roughly neutral or slight gain (Rock's leak is upstream of the fold-reduction issue)
-- LAG: neutral or slight gain (LAG's leak is upstream)
+| Archetype | Pre-patch | Post-patch baseline | Phase B expectation |
+|---|---|---|---|
+| Rock | −58.8 | **−82.2** [−112.8, −51.5] | Recover toward / past pre-patch baseline. The all-in gate's edge cases are clipping some of Rock's value extraction; the polarization gate preserves the raise-push half so this should reverse. |
+| TAG | −84.3 | **−17.8** [−58.9, +23.3] | Already near-breakeven from the upstream patches. Phase B should hold or modestly improve — limited room to push the signal that's mostly fired already. CI already includes zero. |
+| LAG | −129.0 | **−94.4** [−142.7, −46.0] | Modest gain expected. LAG's residual leak is structural (base strategy spews vs tight-back opponents) — Phase B helps marginally but won't close. The real LAG fix is upstream in the deviation profile. |
 
-Track A step 1 (post-patch baseline) is a prerequisite for this comparison. If the docker-exec sim instability keeps hitting OOM, the workaround is to run the sim on the host with a directly-invoked `python -m experiments.simulate_bb100`, persisting results to file.
+The Rock recovery is the most telling Phase B signal — it isolates the value-extraction vs fold-reduction split. If Rock comes back to ~−60 or better while TAG stays at/around zero, the polarization gate is doing exactly what it's designed to do.
 
 ---
 
