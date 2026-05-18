@@ -122,6 +122,13 @@ def ensure_lobby_seeded(
 
     out_tables: List[CashTableState] = []
 
+    # Randomly distribute the 4 AI seats across the 6 positions so the
+    # player picks a seat with positional meaning (3-handed UTG vs.
+    # button) rather than always taking position 5 because that's where
+    # the deterministic empty seat is. `seed_rng` is local — pure-ish
+    # boot pass; tests can override by patching random.Random.
+    seed_rng = random.Random()
+
     for stake_label in STAKES_ORDER:
         table_id = _table_id_for_stake(stake_label)
         existing = by_id.get(table_id)
@@ -130,9 +137,17 @@ def ensure_lobby_seeded(
             out_tables.append(existing)
             continue
 
-        # Build a fresh row. Fill 4 AI seats.
+        # Pick which 4 positions hold AI seats (the remaining 2 stay
+        # open and become the player's choices). Distinct random sample
+        # so no duplicates.
+        ai_positions = sorted(
+            seed_rng.sample(range(TABLE_SEAT_COUNT), BASELINE_AI_SEATS)
+        )
+
+        # Build a fresh row. Fill the chosen positions with AI seats.
         seats = [open_slot() for _ in range(TABLE_SEAT_COUNT)]
         _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
+        position_iter = iter(ai_positions)
         filled = 0
         for cand in eligible:
             if filled >= BASELINE_AI_SEATS:
@@ -159,12 +174,13 @@ def ensure_lobby_seeded(
             if projected < ai_threshold:
                 continue
 
-            seats[filled] = ai_slot(pid, ai_buy_in)
+            seat_position = next(position_iter)
+            seats[seat_position] = ai_slot(pid, ai_buy_in)
             seated_globally.add(pid)
             filled += 1
             logger.info(
-                "[CASH][LOBBY] seed %s: seated %r at chips=%d",
-                stake_label, pid, ai_buy_in,
+                "[CASH][LOBBY] seed %s: seated %r at seat %d chips=%d",
+                stake_label, pid, seat_position, ai_buy_in,
             )
 
         new_state = CashTableState(

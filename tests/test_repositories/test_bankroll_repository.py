@@ -130,14 +130,14 @@ class TestSchemaMigrationV88:
         path = str(tmp_path / "old.db")
         SchemaManager(path).ensure_schema()
         # Simulate pre-v88 state: drop the two bankroll tables and
-        # remove the v88 row from schema_version. The personalities
-        # table is untouched — v88 doesn't alter its shape.
+        # remove the v88+ rows from schema_version. The personalities
+        # table is untouched — v88 doesn't alter its shape. Versions >=
+        # v91 (cash_tables, cash_idle_pool) are also rolled back so the
+        # migration loop re-applies from v88 onward.
         with sqlite3.connect(path) as conn:
             conn.execute("DROP TABLE IF EXISTS ai_bankroll_state")
             conn.execute("DROP TABLE IF EXISTS player_bankroll_state")
-            conn.execute("DELETE FROM schema_version WHERE version = 88")
-            conn.execute("DELETE FROM schema_version WHERE version = 89")
-            conn.execute("DELETE FROM schema_version WHERE version = 90")
+            conn.execute("DELETE FROM schema_version WHERE version >= 88")
             conn.commit()
         # Re-run ensure_schema → should re-apply v88
         SchemaManager(path).ensure_schema()
@@ -201,8 +201,7 @@ class TestSchemaMigrationV89:
                 "chips INTEGER NOT NULL DEFAULT 0, "
                 "starting_bankroll INTEGER NOT NULL DEFAULT 0)"
             )
-            conn.execute("DELETE FROM schema_version WHERE version = 89")
-            conn.execute("DELETE FROM schema_version WHERE version = 90")
+            conn.execute("DELETE FROM schema_version WHERE version >= 89")
             conn.commit()
         # Re-run ensure_schema → should re-apply v89.
         SchemaManager(path).ensure_schema()
@@ -267,7 +266,7 @@ class TestSchemaMigrationV90:
                 "active_loan_floor REAL NOT NULL DEFAULT 0.0, "
                 "active_loan_rate REAL NOT NULL DEFAULT 0.0)"
             )
-            conn.execute("DELETE FROM schema_version WHERE version = 90")
+            conn.execute("DELETE FROM schema_version WHERE version >= 90")
             conn.commit()
         # Re-run ensure_schema → should re-apply v90.
         SchemaManager(path).ensure_schema()
