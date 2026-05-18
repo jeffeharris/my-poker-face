@@ -127,7 +127,18 @@ def _find_active_cash_game_id(owner_id: str) -> Optional[str]:
 
 
 def cleanup_orphan_cash_games() -> int:
-    """Enforce one cash session per owner; delete older duplicates.
+    """**Deprecated** (v1.5): use `cash_mode.lobby.kill_all_cash_sessions`.
+
+    Subsumed by the lobby boot hook. Kept temporarily in case external
+    code calls it directly. Per handoff §"Locked decisions" (3): the
+    v1.5 deploy kills every in-flight cash session at boot, then seeds
+    the persistent lobby. The new pass is more aggressive (drops every
+    cash-* row, not just per-owner duplicates) but safe because v1.5
+    moves persistent table state to `cash_tables`, not `games`.
+
+    Original docstring below:
+
+    Enforce one cash session per owner; delete older duplicates.
 
     The user's mental model is "back arrow freezes the game, leave
     table cashes out." Persistence makes the frozen-game path survive

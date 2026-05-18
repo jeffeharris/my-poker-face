@@ -97,13 +97,26 @@ def create_app():
     from .services.game_state_service import start_cleanup_timer
     start_cleanup_timer()
 
-    # Drop any cash-* rows surviving from a previous run. Cash games
-    # are in-memory only; persisted rows are by definition orphans.
+    # Drop every in-flight cash session (memory + DB) and seed the
+    # persistent lobby. `kill_all_cash_sessions` subsumes the old
+    # `cleanup_orphan_cash_games`: in v1.5 the deploy that lands the
+    # lobby has no production users to preserve, and persistent table
+    # state lives in `cash_tables` (not in `games`), so wiping every
+    # `cash-*` game row is safe.
     try:
-        from .routes.cash_routes import cleanup_orphan_cash_games
-        cleanup_orphan_cash_games()
+        from cash_mode.lobby import ensure_lobby_seeded, kill_all_cash_sessions
+        from .services import game_state_service
+        kill_all_cash_sessions(
+            game_state_service=game_state_service,
+            game_repo=extensions.game_repo,
+        )
+        ensure_lobby_seeded(
+            cash_table_repo=extensions.cash_table_repo,
+            personality_repo=extensions.personality_repo,
+            bankroll_repo=extensions.bankroll_repo,
+        )
     except Exception as e:
-        logger.error(f"[CASH] orphan cleanup failed at startup: {e}")
+        logger.error(f"[CASH] lobby boot hook failed: {e}", exc_info=True)
 
     return app
 
