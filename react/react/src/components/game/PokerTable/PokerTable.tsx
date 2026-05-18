@@ -9,6 +9,7 @@ import { GameHeader } from '../GameHeader';
 import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { CashControls } from '../../cash/CashControls';
+import { BustModal } from '../../cash/BustModal';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
 import { ShuffleLoading } from '../../shared/ShuffleLoading';
@@ -54,6 +55,8 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
+    cashBustEvent,
+    clearCashBustEvent,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
@@ -240,6 +243,8 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
 
   // Stadium Layout - used for all desktop screen sizes
   return (
+    <>
+    <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
     <StadiumLayout
         header={
           <GameHeader
@@ -408,5 +413,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
           </div>
         </div>
       </StadiumLayout>
+    </>
   );
 }

@@ -67,6 +67,24 @@
   font-style: italic;
 }
 
+.cash-entry__stake-button.is-sponsor {
+  border-color: rgba(255, 216, 125, 0.5);
+  background: rgba(255, 216, 125, 0.06);
+}
+
+.cash-entry__stake-button.is-sponsor:hover:not(:disabled) {
+  background: rgba(255, 216, 125, 0.12);
+  border-color: rgba(255, 216, 125, 0.7);
+}
+
+.cash-entry__stake-sponsor {
+  font-size: 0.75rem;
+  color: #ffd87d;
+  margin-top: 0.25rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .cash-entry__stake-label {
   font-weight: 600;
   font-size: 1.125rem;

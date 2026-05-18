@@ -12,6 +12,8 @@ import type {
   CashAction,
   CashApiResponse,
   CashSessionState,
+  SponsorOffer,
+  SponsorOffersResponse,
   StakeLabel,
 } from './types';
 
@@ -75,4 +77,24 @@ export async function leaveTable(): Promise<CashApiResponse> {
 
 export async function getState(): Promise<{ state: CashSessionState | null }> {
   return getJson('/state');
+}
+
+export async function getSponsorOffers(
+  stakeLabel: StakeLabel,
+): Promise<SponsorOffersResponse> {
+  return getJson(`/sponsor-offers?stake_label=${encodeURIComponent(stakeLabel)}`);
+}
+
+export async function sponsorAndSit(
+  stakeLabel: StakeLabel,
+  archetypeId: string,
+): Promise<{ game_id: string; offer: SponsorOffer }> {
+  return postJson('/sponsor-and-sit', {
+    stake_label: stakeLabel,
+    archetype_id: archetypeId,
+  });
+}
+
+export async function rebuy(amount: number): Promise<{ stack: number; bankroll: number }> {
+  return postJson('/rebuy', { amount });
 }

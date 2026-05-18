@@ -57,3 +57,34 @@ export interface CashApiResponse {
 }
 
 export type CashAction = 'fold' | 'check' | 'call' | 'raise' | 'all_in';
+
+/**
+ * One concrete sponsor offer materialized for a specific stake table.
+ * Mirrors `cash_mode.sponsor_offers.SponsorOffer`. The server always
+ * recomputes `amount`, `floor`, `rate` from `archetype_id` + the
+ * stake's buy-in window, so the client only needs to round-trip the
+ * archetype id when accepting an offer.
+ */
+export interface SponsorOffer {
+  archetype_id: string;
+  name: string;
+  amount: number;
+  floor: number;
+  rate: number;
+  flavor: string;
+}
+
+/** Response from GET /api/cash/sponsor-offers. */
+export type SponsorOffersResponse =
+  | { eligible: true; stake_label: StakeLabel; offers: SponsorOffer[] }
+  | { eligible: false; reason: string; bankroll: number; this_min_buy_in: number };
+
+/** Payload of the `cash_bust` / `cash_rebuy_needed` SocketIO events. */
+export interface CashBustEvent {
+  game_id: string;
+  stake_label: StakeLabel;
+  min_buy_in: number;
+  max_buy_in: number;
+  bankroll: number;
+  has_active_loan: boolean;
+}

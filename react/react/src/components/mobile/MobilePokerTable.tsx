@@ -20,6 +20,7 @@ import { CoachPanel } from './CoachPanel';
 import { CoachBubble } from './CoachBubble';
 import { MobileCashButton } from '../cash/MobileCashButton';
 import { MobileCashSheet } from '../cash/MobileCashSheet';
+import { BustModal } from '../cash/BustModal';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useGameStore } from '../../stores/gameStore';
@@ -121,6 +122,8 @@ export function MobilePokerTable({
     clearWinnerInfo,
     clearTournamentResult,
     guestLimitReached,
+    cashBustEvent,
+    clearCashBustEvent,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
@@ -425,6 +428,11 @@ export function MobilePokerTable({
       />
       {/* Spacer for fixed MenuBar */}
       <div className="menu-bar-spacer" />
+
+      {/* Cash mode bust modal — fires when server emits cash_bust /
+       *  cash_rebuy_needed. Sits above MobileCashSheet so the player
+       *  can't dismiss it by tapping outside. */}
+      <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
 
       {/* Cash mode: slide-up sheet — opens from the button inside
        *  the hero panel. Renders nothing for tournament games. */}

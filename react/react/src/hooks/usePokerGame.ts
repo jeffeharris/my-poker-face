@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import type { ChatMessage, GameState, WinnerInfo, BackendChatMessage } from '../types';
 import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
+import type { CashBustEvent } from '../components/cash/types';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
@@ -59,6 +60,11 @@ interface UsePokerGameResult {
   clearRevealedCards: () => void;
   refreshGameState: (gId: string, silent?: boolean) => Promise<boolean>;
   guestLimitReached: boolean;
+  // Cash mode bust state — populated by SocketIO `cash_bust` /
+  // `cash_rebuy_needed` events from the backend. `null` means no
+  // bust is currently active.
+  cashBustEvent: (CashBustEvent & { kind: 'bust' | 'rebuy_needed' }) | null;
+  clearCashBustEvent: () => void;
   // Debug functions
   debugTriggerSplitPot: () => void;
   debugTriggerSidePot: () => void;
@@ -102,6 +108,10 @@ export function usePokerGame({
   const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
   const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
+  const [cashBustEvent, setCashBustEvent] = useState<
+    (CashBustEvent & { kind: 'bust' | 'rebuy_needed' }) | null
+  >(null);
+  const clearCashBustEvent = useCallback(() => setCashBustEvent(null), []);
   const [isConnected, setIsConnected] = useState(false);
   // Cache avatar URLs by player/emotion so background generation results aren't lost
   const avatarCacheRef = useRef<Record<string, Record<string, string>>>({});
@@ -515,6 +525,17 @@ export function usePokerGame({
     socket.on('rate_limited', (data: { event: string; message: string }) => {
       logger.warn(`Rate limited: ${data.event}`);
       toast.error(data.message);
+    });
+
+    // Cash mode: server-driven bust detection. `cash_rebuy_needed`
+    // fires when the human's stack hits 0 but bankroll can still
+    // afford a rebuy at this table; `cash_bust` fires when bankroll
+    // is too low (player must leave and find a sponsor at /cash).
+    socket.on('cash_rebuy_needed', (data: CashBustEvent) => {
+      setCashBustEvent({ ...data, kind: 'rebuy_needed' });
+    });
+    socket.on('cash_bust', (data: CashBustEvent) => {
+      setCashBustEvent({ ...data, kind: 'bust' });
     });
 
     // Listen for avatar updates (when background generation completes)
@@ -936,6 +957,8 @@ export function usePokerGame({
     clearRevealedCards,
     refreshGameState,
     guestLimitReached,
+    cashBustEvent,
+    clearCashBustEvent,
     // Debug functions
     debugTriggerSplitPot,
     debugTriggerSidePot,

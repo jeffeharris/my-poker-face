@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageLayout, PageHeader } from '../shared';
 import { startCashSession, getState } from './api';
+import { SponsorModal } from './SponsorModal';
 import { STAKES, type StakeLabel } from './types';
 import './CashMode.css';
 
@@ -30,6 +31,24 @@ const BIG_BLIND_BY_STAKE: Record<StakeLabel, number> = {
 const MIN_BB = 40;
 const MAX_BB = 100;
 
+type StakeAvailability = 'affordable' | 'sponsor_eligible' | 'locked';
+
+/**
+ * Mirrors `cash_mode.stakes.is_sponsor_eligible` server-side rule:
+ *   sponsor-eligible iff bankroll < this tier's min AND
+ *                       (this is the lowest tier OR
+ *                        bankroll >= previous tier's min).
+ * Returning a tri-state lets the picker render three visual states.
+ */
+function stakeAvailability(stake: StakeLabel, bankroll: number): StakeAvailability {
+  const thisMin = BIG_BLIND_BY_STAKE[stake] * MIN_BB;
+  if (bankroll >= thisMin) return 'affordable';
+  const tierIdx = STAKES.indexOf(stake);
+  if (tierIdx === 0) return 'sponsor_eligible';
+  const prevMin = BIG_BLIND_BY_STAKE[STAKES[tierIdx - 1]] * MIN_BB;
+  return bankroll >= prevMin ? 'sponsor_eligible' : 'locked';
+}
+
 export function CashModeEntry() {
   const navigate = useNavigate();
   const [stake, setStake] = useState<StakeLabel | null>(null);
@@ -37,6 +56,7 @@ export function CashModeEntry() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bankroll, setBankroll] = useState<number | null>(null);
+  const [sponsorStake, setSponsorStake] = useState<StakeLabel | null>(null);
 
   // Check for an existing session on mount; redirect to the existing
   // tournament-style /game/:id page (cash sessions ride the same UI).
@@ -107,23 +127,54 @@ export function CashModeEntry() {
           <div className="cash-entry__stake-grid">
             {STAKES.map((s) => {
               const min = BIG_BLIND_BY_STAKE[s] * MIN_BB;
-              const affordable = bankroll === null || bankroll >= min;
+              // Treat unknown bankroll (still loading) as affordable so the
+              // picker remains usable before /api/cash/state resolves.
+              const availability =
+                bankroll === null
+                  ? 'affordable'
+                  : stakeAvailability(s, bankroll);
+              const locked = availability === 'locked';
+              const sponsorOnly = availability === 'sponsor_eligible';
+              const handleClick = () => {
+                if (locked || busy) return;
+                if (sponsorOnly) {
+                  setSponsorStake(s);
+                  return;
+                }
+                setStake(s);
+              };
               return (
                 <button
                   key={s}
                   type="button"
-                  onClick={() => affordable && setStake(s)}
-                  className={`cash-entry__stake-button${stake === s ? ' is-selected' : ''}${affordable ? '' : ' is-disabled'}`}
-                  disabled={busy || !affordable}
-                  title={affordable ? undefined : `Need $${min.toLocaleString()} bankroll to sit here`}
+                  onClick={handleClick}
+                  className={
+                    `cash-entry__stake-button` +
+                    (stake === s ? ' is-selected' : '') +
+                    (locked ? ' is-disabled' : '') +
+                    (sponsorOnly ? ' is-sponsor' : '')
+                  }
+                  disabled={busy || locked}
+                  title={
+                    locked
+                      ? `Earn $${min.toLocaleString()} bankroll to unlock this tier`
+                      : sponsorOnly
+                        ? 'Sponsor required — tap to see offers'
+                        : undefined
+                  }
                 >
                   <div className="cash-entry__stake-label">{s} table</div>
                   <div className="cash-entry__stake-meta">
                     BB ${BIG_BLIND_BY_STAKE[s]} · min ${min} · max ${BIG_BLIND_BY_STAKE[s] * MAX_BB}
                   </div>
-                  {!affordable && (
+                  {locked && (
                     <div className="cash-entry__stake-locked">
-                      Bankroll too small
+                      Locked — earn ${min.toLocaleString()}
+                    </div>
+                  )}
+                  {sponsorOnly && (
+                    <div className="cash-entry__stake-sponsor">
+                      Sponsor required
                     </div>
                   )}
                 </button>
@@ -169,6 +220,11 @@ export function CashModeEntry() {
           {busy ? 'Seating…' : 'Sit at table'}
         </button>
       </div>
+      <SponsorModal
+        isOpen={sponsorStake !== null}
+        stakeLabel={sponsorStake}
+        onClose={() => setSponsorStake(null)}
+      />
     </PageLayout>
   );
 }
