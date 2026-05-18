@@ -29,6 +29,7 @@ export interface PlayerBankrollState {
 }
 
 export interface CashSessionState {
+  game_id: string;
   table: CashTableState;
   player_bankroll: PlayerBankrollState;
   hand_number: number;

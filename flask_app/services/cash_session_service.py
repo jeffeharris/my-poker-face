@@ -82,6 +82,7 @@ def create_cash_session(
     controller_factory: Callable,
     seat_count: int = 6,
     user_id: Optional[str] = None,
+    wire_socket_emitter: bool = True,
 ) -> CashSession:
     """Build a fresh `CashSession` for `owner_id`.
 
@@ -90,13 +91,22 @@ def create_cash_session(
     Constructs the per-session `AIMemoryManager` with cash_mode=True
     wiring.
 
-    `controller_factory` produces controllers for AI seats; the
-    production wiring uses the existing AI controller stack.
+    When `wire_socket_emitter=True` (production default), the
+    session's `on_state_change` callback is wired to
+    `update_and_emit_game_state(game_id)` so AI moves animate live to
+    the player through SocketIO. The caller is responsible for
+    calling `register_cash_session_with_game_service(session)` AFTER
+    the player has sat (so the state machine has a meaningful initial
+    game_state); the emitter is harmless in the meantime because the
+    emit happens via game_state_service which won't find the game yet.
 
-    Does NOT register the session in the store — caller is responsible
-    via `cash_session_store.put(owner_id, session)`. Separating the
-    construction from registration makes the test path cleaner (build
-    + assert without polluting the store).
+    Tests that don't want Flask-app coupling can pass
+    `wire_socket_emitter=False`.
+
+    Does NOT register the session in the cash_session_store — the
+    caller (the cash route) is responsible via
+    `cash_session_store.put(owner_id, session)`. Separating the
+    construction from registration makes the test path cleaner.
     """
     bankroll = bankroll_repo.load_player_bankroll(owner_id)
     if bankroll is None:
@@ -130,6 +140,17 @@ def create_cash_session(
     )
     memory_manager.set_hand_history_repo(hand_history_repo)
 
+    # Build the on_state_change callback if integrating with the
+    # Flask SocketIO emitter. The callback closes over game_id; the
+    # actual emit happens in update_and_emit_game_state which reads
+    # the current state machine from game_state_service.
+    on_state_change = None
+    if wire_socket_emitter:
+        from flask_app.handlers.game_handler import update_and_emit_game_state
+
+        def on_state_change():
+            update_and_emit_game_state(game_id)
+
     return CashSession(
         table=table,
         player_bankroll=bankroll,
@@ -141,4 +162,49 @@ def create_cash_session(
         game_id=game_id,
         big_blind=big_blind,
         user_id=user_id,
+        on_state_change=on_state_change,
     )
+
+
+def register_cash_session_with_game_service(session: CashSession) -> None:
+    """Insert the cash session into `game_state_service` keyed on game_id.
+
+    The shape mirrors what tournament games put in: state_machine,
+    ai_controllers, memory_manager, messages, plus a `cash_session`
+    sentinel so the action route can recognize it.
+
+    Idempotent — re-registering replaces the existing entry. The
+    state_machine reference held here is the persistent one CashSession
+    refreshes across hands (not a per-hand rebuild), so the entry
+    stays valid for the session's lifetime.
+
+    Call AFTER sit_player so the state machine has a meaningful
+    initial game_state to emit. If session has no state_machine yet
+    (no run_hand has fired), one is created here from the current
+    table state so update_and_emit_game_state won't crash on None.
+
+    Lazy import of game_state_service so tests that don't load the
+    Flask app aren't forced to.
+    """
+    from flask_app.services import game_state_service
+
+    if session._state_machine is None:
+        session._build_state_machine()
+
+    game_state_service.set_game(session.game_id, {
+        "state_machine": session._state_machine,
+        "ai_controllers": session.controllers,
+        "memory_manager": session.memory_manager,
+        "cash_session": session,
+        "messages": [],
+        "owner_id": session.player_bankroll.player_id,
+    })
+
+
+def unregister_cash_session_from_game_service(game_id: str) -> None:
+    """Remove the cash session entry from game_state_service.
+
+    Called when the session ends (leave / quit). Idempotent.
+    """
+    from flask_app.services import game_state_service
+    game_state_service.delete_game(game_id)

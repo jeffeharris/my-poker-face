@@ -37,6 +37,8 @@ from cash_mode.session import HandResult
 from flask_app.services.cash_session_service import (
     cash_session_store,
     create_cash_session,
+    register_cash_session_with_game_service,
+    unregister_cash_session_from_game_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,17 +60,22 @@ STAKES_LADDER = {
 def _resolve_owner_id() -> str:
     """Return a stable identifier for the current request's user.
 
-    Prefers authed user id; falls back to guest_tracking_id cookie.
-    Raises ValueError if neither is available (shouldn't happen —
-    Flask's request middleware sets up guest tracking).
+    Uses `auth_manager.get_current_user()['id']` — same path tournament
+    routes use, so cash session owner_id matches the user id that
+    `_authorize_game_access` checks against. Guest sessions go through
+    the same channel (auth_manager creates a guest user record for
+    them); the returned id is stable across requests for the same
+    cookie.
+
+    Raises ValueError if no current user is resolvable. Browser
+    sessions should always produce one because the auth middleware
+    sets up guest tracking before the route runs; raw curl without
+    cookies will fail here, which is intentional.
     """
     from flask_app.extensions import auth_manager
     user = auth_manager.get_current_user() if auth_manager else None
     if user and user.get("id"):
         return user["id"]
-    guest_id = request.cookies.get("guest_tracking_id")
-    if guest_id:
-        return f"guest:{guest_id}"
     raise ValueError("No owner_id resolvable from request")
 
 
@@ -76,6 +83,7 @@ def _serialize_session(session) -> Dict[str, Any]:
     """Build the wire-format snapshot returned by /state, /start, /action."""
     table = session.table
     return {
+        "game_id": session.game_id,
         "table": {
             "table_id": table.table_id,
             "stake_label": table.stake_label,
@@ -207,6 +215,13 @@ def start_cash_session():
 
     cash_session_store.put(owner_id, session)
 
+    # Register with game_state_service NOW (after sit_player) so the
+    # existing /game/:gameId page + SocketIO emitter pick it up. The
+    # session has a state machine after registration (lazy-built if
+    # needed). update_and_emit_game_state(game_id) fires from
+    # CashSession's on_state_change callback after every action.
+    register_cash_session_with_game_service(session)
+
     # Run the first hand. May yield with awaiting_human (player's turn).
     try:
         result = session.run_hand()
@@ -215,11 +230,13 @@ def start_cash_session():
         return jsonify({
             "error": f"Hand failed: {e}",
             "state": _serialize_session(session),
+            "game_id": session.game_id,
         }), 500
 
     return jsonify({
         "state": _serialize_session(session),
         "result": _serialize_hand_result(result),
+        "game_id": session.game_id,
     })
 
 
@@ -338,6 +355,7 @@ def leave_table():
         return jsonify({"error": str(e)}), 500
 
     final_state = _serialize_session(session)
+    unregister_cash_session_from_game_service(session.game_id)
     cash_session_store.end(owner_id)
 
     return jsonify({"state": final_state, "session_ended": True})

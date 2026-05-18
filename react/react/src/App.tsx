@@ -26,7 +26,6 @@ const InstallPrompt = lazy(() => import('./components/pwa/InstallPrompt').then(m
 const AdminRoutes = lazy(() => import('./components/admin/AdminRoutes').then(m => ({ default: m.AdminRoutes })))
 const LandingPage = lazy(() => import('./components/landing').then(m => ({ default: m.LandingPage })))
 const CashModeEntry = lazy(() => import('./components/cash/CashModeEntry').then(m => ({ default: m.CashModeEntry })))
-const CashTablePage = lazy(() => import('./components/cash/CashTable').then(m => ({ default: m.CashTablePage })))
 const PrivacyPolicy = lazy(() => import('./components/legal').then(m => ({ default: m.PrivacyPolicy })))
 const TermsOfService = lazy(() => import('./components/legal').then(m => ({ default: m.TermsOfService })))
 
@@ -45,7 +44,6 @@ const ROUTE_TITLES: Record<string, string> = {
   '/game/new/themed': 'Themed Game - My Poker Face',
   '/personalities': 'Manage Personalities - My Poker Face',
   '/cash': 'Cash Game - My Poker Face',
-  '/cash/table': 'Cash Table - My Poker Face',
   '/stats': 'My Stats - My Poker Face',
   '/admin': 'Admin Dashboard - My Poker Face',
   '/privacy': 'Privacy Policy - My Poker Face',
@@ -406,12 +404,6 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         <Route path="/cash" element={
           <ProtectedRoute>
             <CashModeEntry />
-          </ProtectedRoute>
-        } />
-
-        <Route path="/cash/table" element={
-          <ProtectedRoute>
-            <CashTablePage />
           </ProtectedRoute>
         } />
 

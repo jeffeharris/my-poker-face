@@ -46,7 +46,7 @@ export async function startCashSession(
   stakeLabel: StakeLabel,
   buyIn: number,
   seatIndex = 0,
-): Promise<CashApiResponse> {
+): Promise<CashApiResponse & { game_id: string }> {
   return postJson('/start', {
     stake_label: stakeLabel,
     buy_in: buyIn,

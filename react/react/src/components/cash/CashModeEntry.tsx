@@ -38,14 +38,14 @@ export function CashModeEntry() {
   const [error, setError] = useState<string | null>(null);
   const [bankroll, setBankroll] = useState<number | null>(null);
 
-  // Check for an existing session on mount; redirect if one is active.
-  // Also fetches bankroll for display.
+  // Check for an existing session on mount; redirect to the existing
+  // tournament-style /game/:id page (cash sessions ride the same UI).
   useEffect(() => {
     (async () => {
       try {
         const { state } = await getState();
-        if (state) {
-          navigate('/cash/table', { replace: true });
+        if (state?.game_id) {
+          navigate(`/game/${state.game_id}`, { replace: true });
         }
       } catch {
         // 404 expected if no active session — fall through to entry UI
@@ -70,8 +70,11 @@ export function CashModeEntry() {
     setBusy(true);
     setError(null);
     try {
-      await startCashSession(stake, buyIn);
-      navigate('/cash/table');
+      const response = await startCashSession(stake, buyIn);
+      // Navigate to the existing /game/:id page. The page connects
+      // to the SocketIO room and renders from the cash session's
+      // emissions exactly like a tournament game.
+      navigate(`/game/${response.game_id}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);

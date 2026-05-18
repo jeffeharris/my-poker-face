@@ -165,6 +165,7 @@ class CashSession:
         big_blind: int,
         user_id: Optional[str] = None,
         now_fn: Callable[[], datetime] = None,
+        on_state_change: Optional[Callable[[], None]] = None,
     ):
         self.table = table
         self.player_bankroll = player_bankroll
@@ -177,9 +178,18 @@ class CashSession:
         self.big_blind = big_blind
         self.user_id = user_id
         self._now_fn = now_fn or datetime.utcnow
+        self._on_state_change = on_state_change
 
         self.hand_number = 0
         self.controllers: Dict[str, CashController] = {}
+
+        # Persistent state machine across hands. Cash mode rebuilds the
+        # game_state (PokerGameState) each hand because the player set
+        # changes (busts/refills), but the state_machine OBJECT stays
+        # the same — Flask's `game_state_service` and registered
+        # controllers all hold this reference. Lazy-initialized on the
+        # first run_hand call.
+        self._state_machine: Optional[PokerStateMachine] = None
 
         # Mid-hand quit + disconnect grace state (commit 4).
         # `_pending_quit` holds seat-ids whose player has declared a
@@ -432,6 +442,11 @@ class CashSession:
             # after forfeit distribution).
             bust_seats = self._handle_busts()
 
+            # Final emit for this hand — frontend renders the winner +
+            # post-settlement stacks. The state machine is still at
+            # EVALUATING_HAND; the next run_hand call will reset it.
+            self._emit_state_change()
+
         finally:
             # 12. Unblock + clear in-progress state + filter
             # pending_quit/disconnect to keep only entries for seats
@@ -455,6 +470,23 @@ class CashSession:
         )
 
     # --- Internal helpers ---
+
+    def _emit_state_change(self) -> None:
+        """Fire the on_state_change callback if one was registered.
+
+        Production callers wire this to `update_and_emit_game_state(game_id)`
+        which serializes the current state machine and emits via SocketIO
+        to the game's room. Tests leave the callback as None — no-op.
+
+        Wrapped in try/except so an emit failure (broken socket, etc.)
+        doesn't crash the hand loop. The next state-change will retry.
+        """
+        if self._on_state_change is None:
+            return
+        try:
+            self._on_state_change()
+        except Exception as e:
+            logger.warning("on_state_change callback failed: %s", e)
 
     def _refill_seats(self, now: datetime) -> None:
         """Fill open AI seats and instantiate controllers for new arrivals."""
@@ -481,15 +513,15 @@ class CashSession:
         return sum(1 for seat in self.table.seats if seat is not None)
 
     def _build_state_machine(self) -> PokerStateMachine:
-        """Construct a fresh state machine from current CashTable state.
+        """Refresh the persistent state machine for a new hand.
 
-        Also refreshes the `state_machine` attribute on every existing
-        controller. Production controllers (HybridAIController) read
-        live game state via `self.state_machine.game_state` — a stale
-        reference from the previous hand would surface stacks that
-        don't match the new hand's players. Mock test controllers
-        either ignore the attribute or set it as a class attribute;
-        either way the assignment is safe.
+        On the first call, creates `self._state_machine` and attaches
+        it to every existing controller. On subsequent calls, builds
+        a fresh `PokerGameState` from the current CashTable (new
+        player set, fresh deck) and assigns it to the existing state
+        machine — the state_machine OBJECT stays the same so
+        downstream consumers (game_state_service, controllers) keep
+        their references valid.
         """
         # Map seat_id → display_name. AI: lookup from personality repo.
         # Human: hardcoded "you" (matches Flask convention).
@@ -513,18 +545,30 @@ class CashSession:
             current_ante=self.big_blind,
             last_raise_amount=self.big_blind,
         )
-        state_machine = PokerStateMachine(game_state)
 
-        # Refresh every controller's state_machine reference so their
-        # decide_action sees the new hand's game_state. Test mocks
-        # without a `state_machine` attribute get one set (harmless).
+        if self._state_machine is None:
+            self._state_machine = PokerStateMachine(game_state)
+        else:
+            # Reuse: reassign game_state + reset phase. The state
+            # machine's evaluating_hand_transition is bypassed by the
+            # manual settlement in run_hand, so leftover phase from
+            # the previous hand is EVALUATING_HAND. Reset to
+            # INITIALIZING_HAND so the next run_until advances through
+            # the new hand's lifecycle (deals cards, runs blinds, etc.).
+            self._state_machine.game_state = game_state
+            self._state_machine.update_phase(PokerPhase.INITIALIZING_HAND)
+
+        # Refresh every controller's state_machine reference. For the
+        # initial creation this attaches the new state machine; on
+        # subsequent hands the reference is already correct, but
+        # writing again is harmless and keeps the loop simple.
         for ctrl in self.controllers.values():
             try:
-                ctrl.state_machine = state_machine
+                ctrl.state_machine = self._state_machine
             except AttributeError:
                 pass  # protocol-only mock that doesn't accept attrs
 
-        return state_machine
+        return self._state_machine
 
     def _run_action_loop(
         self,
@@ -727,6 +771,11 @@ class CashSession:
         if advanced is not None:
             game_state = advanced
         state_machine.game_state = game_state
+
+        # Notify the SocketIO emitter (if wired) so the frontend animates
+        # the action. Tournament games do this from progress_game in
+        # the Flask game_handler; cash mode does it inline.
+        self._emit_state_change()
 
     def _apply_forfeit_distribution(self, game_state) -> "PokerGameState":
         """Zero quitting seats' stacks and split the forfeit among survivors.
