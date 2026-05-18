@@ -29,6 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from .chip_flow import ChipFlow, PotShare, allocate_chip_flow
 from .hand_history import RecordedHand
 from .relationship_events import RelationshipEvent
 from ..moment_analyzer import MomentAnalyzer
@@ -97,11 +98,23 @@ class HandOutcomeDetector:
     ) -> List[DetectedEvent]:
         """Emit BIG_WIN / BIG_LOSS pairs for big-pot hands.
 
-        Commit 1 scope: handles only the simple single-winner /
-        single-loser case (heads-up showdown, or multiway hands where
-        everyone but one opponent folds out). Split pots and multiway
-        losers are skipped here — commit 2's chip-flow allocation
-        handles those cases and feeds this method.
+        Uses the chip-flow allocation in `chip_flow.allocate_chip_flow`
+        to produce one BIG_WIN + one BIG_LOSS per (winner, loser) pair
+        — heads-up trivially, but also for multiway pots and split
+        pots. The allocation rule is the same one feeding
+        `cash_pair_stats` so the relationship layer and the cash
+        bookkeeping stay aligned.
+
+        Side-pot caveat: `RecordedHand` doesn't currently carry
+        explicit per-pot structure (it has a flat winners list with
+        per-winner amounts and a single contributions map). The
+        detector reconstructs a single `PotShare` from that data,
+        which is exact for headsup / split-pot / single-pot multiway
+        hands and an approximation when side pots had different
+        winners. The allocation helper is fully side-pot aware — if
+        a future change adds `pot_breakdown` to `RecordedHand`, this
+        method can build multiple `PotShare`s without touching the
+        helper.
         """
         if hand.pot_size <= 0 or not hand.winners:
             return []
@@ -122,81 +135,65 @@ class HandOutcomeDetector:
         if not MomentAnalyzer.is_big_pot(hand.pot_size, 0, avg_stack):
             return []
 
-        # Aggregate winner chips across pot_breakdown rows: a single
-        # winner who collects main + side pot appears twice in
-        # `hand.winners`; sum to one entry.
-        winner_chips: Dict[str, int] = {}
+        # Build a single PotShare from the recorded hand. Aggregate
+        # winner amounts in case the same name appears in multiple
+        # pot_breakdown rows (shouldn't happen given the dedup in
+        # `HandHistoryRecorder.complete_hand`, but defensive).
+        winner_amounts: Dict[str, int] = {}
         for w in hand.winners:
-            winner_chips[w.name] = winner_chips.get(w.name, 0) + w.amount_won
+            winner_amounts[w.name] = (
+                winner_amounts.get(w.name, 0) + w.amount_won
+            )
+        if not winner_amounts:
+            return []
 
-        # Losers = players who paid into the pot but didn't collect.
-        # A BB who folded preflop still contributed the blind — they
-        # are a loser. Players with zero contribution (folded before
-        # posting) are excluded.
         contributions = hand.get_player_contributions()
-        loser_chips: Dict[str, int] = {
-            name: contrib
-            for name, contrib in contributions.items()
-            if name not in winner_chips and contrib > 0
-        }
-
-        # Commit 1 restriction: only emit when the chip flow is
-        # unambiguous (one winner, one loser). Split pots and multiway
-        # losers wait for the chip-flow allocation in commit 2 — the
-        # design doc's adapter table says "Multiway: emit per (winner,
-        # loser) pair", but the pair selection requires the allocation
-        # rule that ships next. Returning [] here is the correct
-        # behavior until that lands.
-        if len(winner_chips) != 1 or len(loser_chips) != 1:
+        pot = PotShare(
+            amount=hand.pot_size,
+            winners=tuple(winner_amounts.keys()),
+            contributions=contributions,
+        )
+        flows = allocate_chip_flow([pot])
+        if not flows:
             return []
 
-        winner_name, total_won = next(iter(winner_chips.items()))
-        loser_name, loser_contribution = next(iter(loser_chips.items()))
-
-        winner_id = self._resolve_id(winner_name)
-        loser_id = self._resolve_id(loser_name)
-        if winner_id is None or loser_id is None:
-            return []
-
-        # Heads-up chip flow: the winner's net gain from the loser is
-        # bounded by both the loser's contribution (can't lose more
-        # than they put in) and the winner's collection. In the
-        # single-pair case these are equal once raked/uncalled bets
-        # are accounted for; `min` is the conservative bound and
-        # matches what the multiway allocation reduces to in commit 2.
-        chips_flow = min(total_won, loser_contribution)
         summary = hand.get_summary()
+        events: List[DetectedEvent] = []
+        for flow in flows:
+            winner_id = self._resolve_id(flow.winner)
+            loser_id = self._resolve_id(flow.loser)
+            if winner_id is None or loser_id is None:
+                continue
 
-        # The bilateral axis update is encoded by emitting BOTH events:
-        # BIG_WIN(winner→loser) applies the winner's POV via the actor
-        # table and the loser's POV via the mirror table; BIG_LOSS
-        # (loser→winner) applies the loser's POV via the actor table
-        # and the winner's POV via the mirror table. The actor/mirror
-        # rows in `relationship_events.py` are calibrated assuming
-        # both events fire — emitting only one would understate the
-        # axis movement for one side of the pair.
-        return [
-            DetectedEvent(
+            # The bilateral axis update is encoded by emitting BOTH
+            # events: BIG_WIN(winner→loser) applies the winner's POV
+            # via the actor table and the loser's POV via the mirror
+            # table; BIG_LOSS(loser→winner) applies the loser's POV
+            # via the actor table and the winner's POV via the mirror
+            # table. The calibration in `relationship_events.py`
+            # assumes both events fire — emitting only one would
+            # understate the axis movement for one side of the pair.
+            events.append(DetectedEvent(
                 actor_id=winner_id,
                 target_id=loser_id,
                 event=RelationshipEvent.BIG_WIN,
                 narrative=(
-                    f"{winner_name} won a big pot from {loser_name}"
+                    f"{flow.winner} won a big pot from {flow.loser}"
                 ),
                 hand_summary=summary,
-                chips_won=chips_flow,
-            ),
-            DetectedEvent(
+                chips_won=flow.chips,
+            ))
+            events.append(DetectedEvent(
                 actor_id=loser_id,
                 target_id=winner_id,
                 event=RelationshipEvent.BIG_LOSS,
                 narrative=(
-                    f"{loser_name} lost a big pot to {winner_name}"
+                    f"{flow.loser} lost a big pot to {flow.winner}"
                 ),
                 hand_summary=summary,
-                chips_won=-chips_flow,
-            ),
-        ]
+                chips_won=-flow.chips,
+            ))
+        return events
 
     def _resolve_id(self, name: str) -> Optional[str]:
         """Resolve a display name to its registered personality_id.

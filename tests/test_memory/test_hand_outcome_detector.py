@@ -114,22 +114,25 @@ class TestHeadsUpBigPotEmission:
         assert big_loss.chips_won == -400
 
     def test_big_pot_by_fold_emits_paired_events(self):
-        # Heads-up by fold: alice folds postflop after a big pot built.
-        # Still one winner, one loser — same emission shape.
-        # Avg stack 1000 → big-pot threshold is pot > 750.
+        # Heads-up by fold on a non-showdown street. Both players
+        # contributed equally (matched bets), so chip flow reduces
+        # to the loser's full contribution. Avoiding uncalled-bet
+        # returns keeps the test fixture clean — `RecordedHand`
+        # doesn't expose the called/uncalled split.
         players = [_player("alice"), _player("bob")]
         actions = [
-            _action("alice", "raise", 300, pot_after=300),
-            _action("bob", "call", 300, pot_after=600),
-            _action("alice", "bet", 300, phase="FLOP", pot_after=900),
-            _action("bob", "raise", 600, phase="FLOP", pot_after=1200),
-            _action("alice", "fold", 0, phase="FLOP", pot_after=1200),
+            _action("alice", "raise", 200, pot_after=200),
+            _action("bob", "call", 200, pot_after=400),
+            _action("alice", "bet", 200, phase="FLOP", pot_after=600),
+            _action("bob", "call", 200, phase="FLOP", pot_after=800),
+            _action("alice", "bet", 200, phase="TURN", pot_after=1000),
+            _action("bob", "fold", 0, phase="TURN", pot_after=1000),
         ]
         winners = [WinnerInfo(
-            name="bob", amount_won=900, hand_name=None, hand_rank=None,
+            name="alice", amount_won=800, hand_name=None, hand_rank=None,
         )]
         hand = _make_hand(
-            pot_size=900, winners=winners, players=players, actions=actions,
+            pot_size=800, winners=winners, players=players, actions=actions,
             was_showdown=False,
         )
 
@@ -138,8 +141,8 @@ class TestHeadsUpBigPotEmission:
         kinds = {e.event for e in events}
         assert kinds == {RelationshipEvent.BIG_WIN, RelationshipEvent.BIG_LOSS}
         big_win = next(e for e in events if e.event is RelationshipEvent.BIG_WIN)
-        assert big_win.actor_id == "bob"
-        assert big_win.target_id == "alice"
+        assert big_win.actor_id == "alice"
+        assert big_win.target_id == "bob"
 
 
 # ---------------------------------------------------------------------
@@ -185,35 +188,23 @@ class TestNoEmission:
         )
         assert HandOutcomeDetector().detect_events(hand) == []
 
-    def test_split_pot_skipped_in_commit_1(self):
-        # Multiple winners (chopped pot) — commit 2 handles allocation.
-        players = [_player("alice"), _player("bob"), _player("carol")]
-        winners = [
-            WinnerInfo(
-                name="alice", amount_won=400, hand_name="Straight",
-                hand_rank=5,
-            ),
-            WinnerInfo(
-                name="bob", amount_won=400, hand_name="Straight",
-                hand_rank=5,
-            ),
-        ]
-        actions = [
-            _action("alice", "raise", 250, pot_after=250),
-            _action("bob", "call", 250, pot_after=500),
-            _action("carol", "call", 250, pot_after=750),
-            _action("alice", "check", 0, phase="FLOP", pot_after=750),
-            _action("bob", "check", 0, phase="FLOP", pot_after=750),
-            _action("carol", "fold", 0, phase="FLOP", pot_after=750),
-        ]
-        hand = _make_hand(
-            pot_size=800, winners=winners, players=players, actions=actions,
-        )
-        # Multiple winners → commit 1 skips, commit 2 will handle.
-        assert HandOutcomeDetector().detect_events(hand) == []
 
-    def test_multiway_losers_skipped_in_commit_1(self):
-        # One winner, multiple losers — commit 2 ships the allocation.
+# ---------------------------------------------------------------------
+# Multiway and split pots (commit 2: chip-flow allocation wired in)
+# ---------------------------------------------------------------------
+
+
+class TestMultiwayAllocation:
+    """Commit 2 wires `allocate_chip_flow` into the detector.
+
+    Multiway hands now emit one BIG_WIN + one BIG_LOSS per (winner,
+    loser) pair, with `chips_won` reflecting each loser's pro-rata
+    contribution to the winner's net gain.
+    """
+
+    def test_multiway_one_winner_two_losers(self):
+        # 3-way pot, alice wins. Both losers contribute equally → each
+        # is allocated half of alice's net gain.
         players = [_player("alice"), _player("bob"), _player("carol")]
         winners = [WinnerInfo(
             name="alice", amount_won=900, hand_name="Flush", hand_rank=4,
@@ -226,8 +217,97 @@ class TestNoEmission:
         hand = _make_hand(
             pot_size=900, winners=winners, players=players, actions=actions,
         )
-        # Multiple losers → commit 1 skips, commit 2 will allocate.
-        assert HandOutcomeDetector().detect_events(hand) == []
+
+        events = HandOutcomeDetector().detect_events(hand)
+
+        big_wins = [e for e in events if e.event is RelationshipEvent.BIG_WIN]
+        big_losses = [e for e in events if e.event is RelationshipEvent.BIG_LOSS]
+        # alice has one BIG_WIN per loser, each loser has one BIG_LOSS.
+        assert len(big_wins) == 2
+        assert len(big_losses) == 2
+
+        # alice net gain = 900 - 300 = 600; split 50/50 between bob/carol.
+        win_chips = {e.target_id: e.chips_won for e in big_wins}
+        assert win_chips == {"bob": 300, "carol": 300}
+
+        # Mirror: each loser's BIG_LOSS is negative chip flow.
+        loss_chips = {e.actor_id: e.chips_won for e in big_losses}
+        assert loss_chips == {"bob": -300, "carol": -300}
+
+    def test_multiway_uneven_contributions(self):
+        # 3-way with uneven contributions: alice wins, bob put in more
+        # than carol. Allocation should split alice's net gain
+        # proportionally to bob/carol's contribution.
+        players = [_player("alice"), _player("bob"), _player("carol")]
+        winners = [WinnerInfo(
+            name="alice", amount_won=900, hand_name="Flush", hand_rank=4,
+        )]
+        actions = [
+            _action("alice", "raise", 100, pot_after=100),
+            _action("bob", "raise", 500, pot_after=600),
+            _action("carol", "call", 500, pot_after=1100),
+            _action("alice", "call", 400, pot_after=1500),  # call to 500
+        ]
+        # Contributions: alice 500, bob 500, carol 500 → equal.
+        # Let me use truly uneven instead via a fold scenario:
+        actions = [
+            _action("alice", "raise", 100, pot_after=100),
+            _action("bob", "call", 100, pot_after=200),
+            _action("carol", "raise", 400, pot_after=600),
+            _action("alice", "call", 300, pot_after=900),
+            # bob folds (loses 100), alice/carol see the flop
+            _action("bob", "fold", 0, pot_after=900),
+        ]
+        hand = _make_hand(
+            pot_size=900, winners=winners, players=players, actions=actions,
+        )
+        # Contributions: alice 400, bob 100, carol 400.
+        # Losers: bob (100), carol (400). Total loser contrib = 500.
+        # alice net gain = 900 - 400 = 500.
+        # bob's allocation = (100/500) * 500 = 100
+        # carol's allocation = (400/500) * 500 = 400
+
+        events = HandOutcomeDetector().detect_events(hand)
+        win_chips = {
+            e.target_id: e.chips_won
+            for e in events if e.event is RelationshipEvent.BIG_WIN
+        }
+        assert win_chips == {"bob": 100, "carol": 400}
+
+    def test_split_pot_two_winners_one_loser(self):
+        # 3-way: alice & bob chop (equal hands), carol is the only
+        # loser. Each winner gets half the pot; carol's contribution
+        # to each winner is proportional to her share of losers
+        # (she's the only loser → all of each winner's net gain).
+        players = [_player("alice"), _player("bob"), _player("carol")]
+        winners = [
+            WinnerInfo(name="alice", amount_won=450, hand_name="Pair", hand_rank=8),
+            WinnerInfo(name="bob", amount_won=450, hand_name="Pair", hand_rank=8),
+        ]
+        actions = [
+            _action("alice", "raise", 300, pot_after=300),
+            _action("bob", "call", 300, pot_after=600),
+            _action("carol", "call", 300, pot_after=900),
+        ]
+        hand = _make_hand(
+            pot_size=900, winners=winners, players=players, actions=actions,
+        )
+
+        events = HandOutcomeDetector().detect_events(hand)
+        # alice net gain: 450 - 300 = 150, all from carol.
+        # bob net gain: 450 - 300 = 150, all from carol.
+        # carol total loss: 300 (her full contribution).
+        win_pairs = {
+            (e.actor_id, e.target_id): e.chips_won
+            for e in events if e.event is RelationshipEvent.BIG_WIN
+        }
+        assert win_pairs == {("alice", "carol"): 150, ("bob", "carol"): 150}
+
+        loss_pairs = {
+            (e.actor_id, e.target_id): e.chips_won
+            for e in events if e.event is RelationshipEvent.BIG_LOSS
+        }
+        assert loss_pairs == {("carol", "alice"): -150, ("carol", "bob"): -150}
 
 
 # ---------------------------------------------------------------------
