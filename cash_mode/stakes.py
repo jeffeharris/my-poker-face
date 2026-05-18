@@ -12,6 +12,19 @@ from __future__ import annotations
 from typing import Dict, Tuple
 
 
+# --- Stakes ladder: SINGLE SOURCE OF TRUTH ---
+#
+# To add a new stake (or reorder), edit ONLY this dict. Insertion
+# order is preserved (Python 3.7+) and `STAKES_ORDER` derives from
+# it below, so every downstream consumer — sort order in the lobby
+# repo, eligibility checks, sponsor offers, route validation — picks
+# up the new entry automatically.
+#
+# Frontend has its own `STAKES` constant in
+# `react/.../components/cash/types.ts` for type safety; that one
+# must be edited too when adding a stake (TypeScript literal unions
+# can't be generated from a server response). Keep them in lockstep.
+
 STAKES_LADDER: Dict[str, Dict[str, int]] = {
     "$2":   {"big_blind": 2},
     "$10":  {"big_blind": 10},
@@ -20,8 +33,9 @@ STAKES_LADDER: Dict[str, Dict[str, int]] = {
     "$1000": {"big_blind": 1000},
 }
 
-STAKES_ORDER = ["$2", "$10", "$50", "$200", "$1000"]
-"""Stake labels in ascending order — used for tier-eligibility checks."""
+STAKES_ORDER: list[str] = list(STAKES_LADDER.keys())
+"""Stake labels in ascending order — derived from STAKES_LADDER's
+insertion order. Used for tier-eligibility checks and lobby sort."""
 
 MIN_BUY_IN_BB = 40
 MAX_BUY_IN_BB = 100

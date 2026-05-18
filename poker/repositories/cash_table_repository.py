@@ -142,33 +142,35 @@ class CashTableRepository(BaseRepository):
     def list_all_tables(self) -> List[CashTableState]:
         """Return every persisted cash table, ordered by stake (ascending).
 
-        Stake order ($2 → $10 → $50 → $200 → $1000) matches the user's
-        mental model of "low to high" so the lobby renders intuitively.
-        Falls back to lexicographic `stake_label` then `table_id` for
-        determinism so tests can compare list equality without sorting.
+        Ordering keys off `cash_mode.stakes.STAKES_ORDER` — the single
+        source of truth for the stakes ladder. Adding a new stake (or
+        reordering) only requires editing that list; this repo picks
+        up the change with no edits here. Tables whose stake_label
+        isn't in STAKES_ORDER (shouldn't happen — pinned by schema —
+        but defensive) land at the end in insertion order.
 
-        The CASE expression keys off the stake numeric, not the label
-        string — alphabetical `$10 < $1000 < $2 < $200 < $50` would be
-        unintuitive.
+        Secondary sort by `table_id` keeps order deterministic when
+        multiple tables share a stake (v2 / Path C territory; v1.5
+        invariant is one table per stake).
         """
+        from cash_mode.stakes import STAKES_ORDER
+
         with self._get_connection() as conn:
             rows = conn.execute(
                 """
                 SELECT table_id, stake_label, seats_json, created_at, last_activity_at
                 FROM cash_tables
-                ORDER BY
-                    CASE stake_label
-                        WHEN '$2'    THEN 1
-                        WHEN '$10'   THEN 2
-                        WHEN '$50'   THEN 3
-                        WHEN '$200'  THEN 4
-                        WHEN '$1000' THEN 5
-                        ELSE 999
-                    END,
-                    table_id
                 """,
             ).fetchall()
-            return [_row_to_state(r) for r in rows]
+
+        # Python-side stable sort against STAKES_ORDER. SQL CASE would
+        # hardcode the ladder a second time; this version stays in
+        # lockstep with the canonical list.
+        rank = {label: i for i, label in enumerate(STAKES_ORDER)}
+        unknown = len(STAKES_ORDER)
+        states = [_row_to_state(r) for r in rows]
+        states.sort(key=lambda s: (rank.get(s.stake_label, unknown), s.table_id))
+        return states
 
     # --- Idle pool ---
 
