@@ -395,6 +395,7 @@ def _record_sim_equity_at_actions(
     action_log: List[Tuple[str, str, str, Tuple[str, ...]]],
     opponent_manager: OpponentModelManager,
     hero_name: str,
+    equity_seed: Optional[int] = None,
 ) -> None:
     """Sim-side equivalent of MemoryManager._record_showdown_equity_at_actions.
 
@@ -415,6 +416,15 @@ def _record_sim_equity_at_actions(
     unparseable, board snapshot missing, eval7 unavailable) silently
     skips that action without affecting the rest of the recording or
     the surrounding sim.
+
+    `equity_seed`, when provided, is mixed with the action index to
+    seed each per-action Monte Carlo equity calculation. This makes
+    the recorded equity values reproducible across sim runs — required
+    for deterministic bb/100 measurement at fixed seeds. Without a
+    seed, `calculate_equity_vs_random` uses system entropy and the
+    sim becomes non-reproducible (the equity values feed the opponent
+    model, which feeds tiered-bot exploitation logic, which affects
+    hero decisions, which affects game outcomes).
     """
     from poker.decision_analyzer import DecisionAnalyzer
     from poker.card_utils import card_to_string
@@ -432,6 +442,12 @@ def _record_sim_equity_at_actions(
     n_revealed = len(revealed)
 
     analyzer = DecisionAnalyzer(iterations=400)
+
+    # Per-action seed counter — paired with `equity_seed` to give each
+    # equity calculation a stable, distinct seed. Stays at None when the
+    # caller didn't supply a seed (preserving the pre-reproducibility
+    # behavior for any future caller that explicitly wants entropy).
+    action_idx = 0
 
     for p in revealed:
         if p.name == hero_name:
@@ -459,11 +475,17 @@ def _record_sim_equity_at_actions(
             # non-folded showdown player matches the production
             # _record_showdown_equity_at_actions convention.
             num_opp = max(1, n_revealed - 1)
+            per_action_seed = (
+                None if equity_seed is None
+                else equity_seed + action_idx * 1_000_003  # arbitrary prime stride
+            )
+            action_idx += 1
             try:
                 equity = analyzer.calculate_equity_vs_random(
                     player_hand=hole_strs,
                     community_cards=list(board_strs),
                     num_opponents=num_opp,
+                    seed=per_action_seed,
                 )
             except Exception:
                 continue
@@ -480,6 +502,7 @@ def run_hand(
     opponent_manager: Optional[OpponentModelManager] = None,
     hero_name: Optional[str] = None,
     hand_number: Optional[int] = None,
+    equity_seed: Optional[int] = None,
 ) -> Dict[str, int]:
     """Drive one complete hand to completion.
 
@@ -489,6 +512,11 @@ def run_hand(
     action observed during the hand is fed into the manager so the hero
     controller can adapt to opponent tendencies across hands. Default is
     no observation (behavior unchanged).
+
+    ``equity_seed`` is forwarded to `_record_sim_equity_at_actions` so
+    the per-action Monte Carlo equity calculations are reproducible.
+    Caller typically derives this from `hand_seed` for hand-level
+    determinism.
     """
     controller_map = {c.player_name: c for c in controllers}
     action_count = 0
@@ -692,6 +720,7 @@ def run_hand(
         try:
             _record_sim_equity_at_actions(
                 sm.game_state, action_log, opponent_manager, hero_name,
+                equity_seed=equity_seed,
             )
         except Exception as e:
             logger.warning(
@@ -716,6 +745,7 @@ def run_matchup(
     decision_analysis_repo=None,
     disable_rules: Optional[frozenset] = None,
     game_id: Optional[str] = None,
+    enable_session_drift: bool = False,
 ) -> List[float]:
     """Run n_hands between two archetypes.
 
@@ -726,11 +756,44 @@ def run_matchup(
     provided, hero's per-decision trace + pipeline snapshot are
     persisted for downstream Mode 1/4 analysis. `disable_rules`
     suppresses the named (layer, rule_id) pairs in the hero pipeline.
+
+    `enable_session_drift` (default False): when True, perturb each
+    archetype's anchors once per matchup via `apply_session_drift`
+    (drift_strength derived from poise + recovery_rate). The drifted
+    anchors then drive every hand in this matchup — drift is per-
+    session, not per-hand. Default off so the post-patch baselines
+    measured for the Phase B gate stay reproducible.
     """
     config_a = apply_adaptation_bias_override(
         ARCHETYPES[archetype_a], hero_adaptation_bias
     )
     config_b = ARCHETYPES[archetype_b]
+
+    if enable_session_drift:
+        from poker.psychology_model import apply_session_drift
+        # Stable per-matchup seeds for drift — derived from base_seed so
+        # the same matchup with the same base_seed produces identical
+        # drift, even across separate invocations. Mixed with two
+        # distinct multipliers so the two archetypes draw independent
+        # noise. The multipliers are arbitrary primes; their job is
+        # decorrelation, not cryptographic quality.
+        drift_seed_a = base_seed * 7919 + 11
+        drift_seed_b = base_seed * 7919 + 17
+        # Shallow-copy config_a/_b before mutating — config_b is a
+        # direct reference into the global ARCHETYPES dict and must
+        # not be mutated in place (would corrupt subsequent matchups).
+        # config_a came from apply_adaptation_bias_override and is
+        # already a shallow copy, but the symmetry is cheap.
+        config_a = dict(config_a)
+        config_b = dict(config_b)
+        for cfg, drift_seed in ((config_a, drift_seed_a),
+                                (config_b, drift_seed_b)):
+            anchors = cfg.get('anchors')
+            if anchors is not None:
+                cfg['anchors'] = apply_session_drift(
+                    anchors, random.Random(drift_seed),
+                )
+
     name_a = 'P1'
     name_b = 'P2'
     deltas_a: List[float] = []
@@ -750,6 +813,17 @@ def run_matchup(
         hand_seed = base_seed + hand_num
         dealer_idx = hand_num % 2  # alternate button for fairness
 
+        # Re-seed the global `random` module per hand. Several downstream
+        # consumers (eval7.Deck().shuffle() inside calculate_quick_equity,
+        # rule strategies' fallback paths, etc.) read from the global
+        # random state. Without per-hand re-seeding, cross-matchup
+        # state varies based on prior matchups' consumption — including
+        # any drift-induced changes to tiered controllers' decision
+        # schedule, which advances global random differently and breaks
+        # reproducibility for downstream rule_bot matchups. Per-hand
+        # seeding isolates each hand to its own deterministic prefix.
+        random.seed(hand_seed)
+
         gs = make_game_state(
             player_names=[name_a, name_b],
             big_blind=big_blind,
@@ -758,6 +832,13 @@ def run_matchup(
             seed=hand_seed,
         )
         sm = PokerStateMachine(gs)
+        # Tell the state machine the deck seed was provided. Otherwise
+        # `_resolve_hand_seed` falls back to `random.getrandbits(32)`
+        # (global random state) and reshuffles the deck on the first
+        # initialize_hand_transition — making the sim non-deterministic
+        # despite `make_game_state(seed=hand_seed)` setting up a
+        # deterministic initial deck.
+        sm.current_hand_seed = hand_seed
 
         ctrl_a = make_controller(
             name_a, config_a, strategy_table, sm, rng_seed=hand_seed,
@@ -780,6 +861,11 @@ def run_matchup(
             opponent_manager=opponent_manager,
             hero_name=name_a,
             hand_number=hand_num,
+            # Stable per-hand seed for the Phase A equity Monte Carlo.
+            # Without this, calculate_equity_vs_random uses an unseeded
+            # Random and recorded equity values vary across runs — which
+            # feeds the opponent model and breaks sim reproducibility.
+            equity_seed=hand_seed * 31 + 7,
         )
         delta_a = final_stacks.get(name_a, starting_stack) - starting_stack
         deltas_a.append(delta_a)
@@ -868,6 +954,8 @@ def run_6max_matchup(
         hand_seed = base_seed + hand_num
         dealer_idx = hand_num % 6  # rotate button through all 6 seats
 
+        random.seed(hand_seed)  # see HU branch — per-hand global-random reset
+
         gs = make_game_state(
             player_names=all_names,
             big_blind=big_blind,
@@ -876,6 +964,7 @@ def run_6max_matchup(
             seed=hand_seed,
         )
         sm = PokerStateMachine(gs)
+        sm.current_hand_seed = hand_seed  # see HU branch above
 
         controllers = [
             make_controller(
@@ -904,6 +993,7 @@ def run_6max_matchup(
             opponent_manager=opponent_manager,
             hero_name=archetype_seat,
             hand_number=hand_num,
+            equity_seed=hand_seed * 31 + 7,
         )
         delta = final_stacks.get(archetype_seat, starting_stack) - starting_stack
         deltas.append(delta)
@@ -1162,6 +1252,7 @@ def run_all_vs_tag(
     decision_analysis_repo=None,
     disable_rules: Optional[frozenset] = None,
     game_id_prefix: Optional[str] = None,
+    enable_session_drift: bool = False,
 ):
     """Run each archetype heads-up vs TAG (or specified opponent)."""
     print(f"\nBB/100 Simulation: {n_hands} hands per matchup, seed={seed}")
@@ -1171,6 +1262,8 @@ def run_all_vs_tag(
     if disable_rules:
         rules_str = ', '.join(f'{l}.{r}' for (l, r) in sorted(disable_rules))
         print(f"Disabled rules: {rules_str}")
+    if enable_session_drift:
+        print("Session drift: ENABLED (anchors perturbed once per matchup)")
     print("=" * 67)
 
     results: Dict[str, MatchupStats] = {}
@@ -1189,6 +1282,7 @@ def run_all_vs_tag(
             decision_analysis_repo=decision_analysis_repo,
             disable_rules=disable_rules,
             game_id=matchup_game_id,
+            enable_session_drift=enable_session_drift,
         )
         results[name] = compute_stats(deltas, big_blind)
 
@@ -1327,7 +1421,29 @@ def main():
              '--db (the persisted traces are the only way to see the '
              'effect downstream).',
     )
+    parser.add_argument(
+        '--enable-session-drift', action='store_true',
+        help='Perturb each archetype\'s anchors once per matchup via '
+             'apply_session_drift (drift_strength derived from poise + '
+             'recovery_rate). Off by default so post-patch baseline '
+             'measurements stay reproducible. Stoic archetypes (high '
+             'poise + recovery_rate, e.g. Nit) drift very little; '
+             'volatile ones (Maniac, LAG) drift visibly.',
+    )
     args = parser.parse_args()
+
+    # Seed the global `random` module so any code path that calls
+    # `random.random()` / `random.choice()` / `random.getrandbits()` etc.
+    # (rather than an instance method on a seeded Random) becomes
+    # reproducible across CLI invocations. Without this, the sim's
+    # per-CLI-run output varies because the global random module is
+    # auto-seeded from os.urandom per process. Specific known consumers
+    # we depend on being deterministic: state-machine fallback path
+    # (`_resolve_hand_seed`), AI fallback strategies, chat/commentary
+    # randomness. All instance-level RNGs (controller `self.rng`,
+    # `create_deck(random_seed=...)`, equity Monte Carlo seed-aware
+    # path) are seeded separately and don't depend on this.
+    random.seed(args.seed)
 
     if args.verbose:
         logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -1406,6 +1522,7 @@ def main():
             decision_analysis_repo=decision_analysis_repo,
             disable_rules=disable_rules,
             game_id_prefix=game_id_prefix,
+            enable_session_drift=args.enable_session_drift,
         )
 
 

@@ -6,7 +6,8 @@ quadrant model, poker face zone, and baseline computation functions.
 """
 
 import logging
-from dataclasses import dataclass, field
+import random
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -18,6 +19,79 @@ logger = logging.getLogger(__name__)
 def _clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
     """Clamp value to range [min_val, max_val]."""
     return max(min_val, min(max_val, value))
+
+
+# ── Per-session archetype drift ──────────────────────────────────────────
+#
+# Per-anchor Gaussian sigma for session-start drift. The actual sigma
+# applied is `BASE_SIGMA × drift_strength`, where drift_strength is
+# derived from poise + recovery_rate (see `apply_session_drift`).
+#
+# Tighter bounds on identity-load-bearing anchors (baseline_aggression /
+# baseline_looseness ±0.02) so drift can't push a character across the
+# DeviationProfile selection thresholds (e.g., TAG drifting into Maniac
+# territory). Wider bounds on behavioral anchors that don't gate the
+# archetype label.
+#
+# poise + recovery_rate are deliberately ABSENT from this table — they're
+# the source signal driving drift_strength, so drifting them would create
+# a recursive instability where chaotic characters drift INTO being more
+# chaotic. Hold them constant.
+DRIFT_BASE_SIGMA: Dict[str, float] = {
+    'baseline_aggression': 0.02,   # identity-load-bearing
+    'baseline_looseness':  0.02,   # identity-load-bearing
+    'risk_identity':       0.05,
+    'ego':                 0.06,
+    'expressiveness':      0.10,
+    'adaptation_bias':     0.08,
+    'baseline_energy':     0.10,
+}
+
+# Below this drift_strength, drift is dust — treat the character as
+# stoic and return anchors unchanged. Saves a wasted call to rng.gauss
+# for the bulk of "stable" characters and keeps the audit log clean.
+DRIFT_STRENGTH_FLOOR: float = 0.05
+
+
+def apply_session_drift(
+    anchors: 'PersonalityAnchors',
+    rng: random.Random,
+) -> 'PersonalityAnchors':
+    """Perturb anchors at session start to vary archetype intensity.
+
+    Drift strength is derived from existing anchors:
+
+        drift_strength = (1 - poise) * (1 - recovery_rate)
+
+    Range [0, 1]: 0 = perfectly stoic (high poise + high recovery_rate),
+    1 = perfectly chaotic (low poise + low recovery_rate). Below
+    `DRIFT_STRENGTH_FLOOR` the function early-exits with the original
+    anchors — saves work and avoids microscopic noise.
+
+    Per-anchor Gaussian sigma comes from `DRIFT_BASE_SIGMA × drift_strength`,
+    with sample clamped to [0, 1] on output. `poise` and `recovery_rate`
+    themselves never drift (they're the source signal).
+
+    The function is pure: given the same anchors + rng state, returns the
+    same perturbed anchors. Callers control determinism via the rng seed.
+
+    Args:
+        anchors: PersonalityAnchors to perturb.
+        rng: Seeded random.Random instance. Caller controls determinism.
+
+    Returns:
+        New PersonalityAnchors with the perturbed values (anchors not
+        in DRIFT_BASE_SIGMA pass through unchanged).
+    """
+    drift_strength = (1.0 - anchors.poise) * (1.0 - anchors.recovery_rate)
+    if drift_strength < DRIFT_STRENGTH_FLOOR:
+        return anchors
+    perturbed: Dict[str, float] = {}
+    for name, base_sigma in DRIFT_BASE_SIGMA.items():
+        sigma = base_sigma * drift_strength
+        value = rng.gauss(getattr(anchors, name), sigma)
+        perturbed[name] = _clamp(value)
+    return replace(anchors, **perturbed)
 
 
 class EmotionalQuadrant(Enum):
