@@ -2160,7 +2160,54 @@ class AIPlayerController:
             if opponent_ctx:
                 parts.append(f"=== Opponent Intel ===\n{opponent_ctx}")
 
+            # Dedicated narrative-observations section: 1-2 reads pulled
+            # from `OpponentModel.narrative_observations`, weighted toward
+            # the opponent hero is facing (highest current bet, falling
+            # back to first active opponent) and toward any nemesis (high
+            # heat in relationship state). The LLM can key on these in
+            # its dramatic_sequence or ignore them — they're "extra info,"
+            # not strategy directives.
+            from .memory.opponent_model import format_opponent_observations
+            facing_opponent = self._infer_facing_opponent(game_state, opponents)
+            obs_pairs = self.opponent_model_manager.select_opponent_observations(
+                self.player_name,
+                active_opponents=opponents,
+                facing_opponent=facing_opponent,
+            )
+            obs_block = format_opponent_observations(obs_pairs)
+            if obs_block:
+                parts.append(f"=== Opponent Observations ===\n{obs_block}")
+
         return "\n\n".join(parts) if parts else ""
+
+    def _infer_facing_opponent(self, game_state, opponents: List[str]) -> Optional[str]:
+        """Best-effort guess at which opponent hero is reacting to.
+
+        Used by the narrative-observation section's relevance scoring.
+        Returns the active opponent with the highest current bet (the
+        most-recent aggressor when there's only one). Falls back to None
+        if no opponent has a non-zero bet — caller's selection helper
+        then weights purely by recency + nemesis.
+
+        Pure heuristic — wrong guesses don't break anything, they just
+        slightly under-prioritize the right read.
+        """
+        if not opponents:
+            return None
+        try:
+            opp_bets = [
+                (p.name, getattr(p, 'bet', 0) or 0)
+                for p in game_state.players
+                if p.name in opponents
+            ]
+            if not opp_bets:
+                return None
+            best = max(opp_bets, key=lambda nb: nb[1])
+            if best[1] <= 0:
+                return None
+            return best[0]
+        except Exception:
+            return None
 
 
     def _build_chattiness_guidance(self, chattiness: float, should_speak: bool,

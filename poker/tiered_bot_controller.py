@@ -2756,6 +2756,14 @@ class TieredBotController(AIPlayerController):
             # standard prompt template).
             narration_facts = self._build_narration_facts(phase)
 
+            # Opponent narrative observations — surfaced so Layer 3
+            # narration can riff on accumulated reads from prior hands.
+            # Best-effort: any failure produces an empty list and the
+            # generator's prompt template skips the corresponding block.
+            opponent_observations = self._select_opponent_observations(
+                game_state, player,
+            )
+
             context = ExpressionContext(
                 action_taken=decision['action'],
                 raise_to=decision.get('raise_to', 0) or 0,
@@ -2793,6 +2801,7 @@ class TieredBotController(AIPlayerController):
                 should_speak=should_speak,
                 should_gesture=should_gesture,
                 narration_facts=narration_facts,
+                opponent_observations=opponent_observations,
             )
 
             capture_id_holder = [None]
@@ -2840,6 +2849,48 @@ class TieredBotController(AIPlayerController):
                     f"[TIERED_BOT] {self.player_name}: "
                     f"capture_id linkage failed: {e}"
                 )
+
+    def _select_opponent_observations(
+        self, game_state, player,
+    ) -> List[Tuple[str, str]]:
+        """Best-effort selection of narrative observations for Layer 3.
+
+        Returns up to 2 (opponent_name, observation_text) tuples,
+        weighted toward the opponent hero is facing and any nemesis.
+        Empty list when the controller has no opponent_model_manager,
+        no active opponents, or no stored observations.
+        """
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return []
+        try:
+            active_opponents = [
+                p.name for p in game_state.players
+                if p.name != player.name and not p.is_folded
+            ]
+            if not active_opponents:
+                return []
+            # Facing opponent: highest current bet among actives. Same
+            # heuristic as AIPlayerController._infer_facing_opponent —
+            # not extracted to a shared utility because the controllers
+            # don't share a memory mixin and this is a 6-line guess.
+            facing_opponent: Optional[str] = None
+            opp_bets = [
+                (p.name, getattr(p, 'bet', 0) or 0)
+                for p in game_state.players
+                if p.name in active_opponents
+            ]
+            if opp_bets:
+                best_name, best_bet = max(opp_bets, key=lambda nb: nb[1])
+                if best_bet > 0:
+                    facing_opponent = best_name
+            return manager.select_opponent_observations(
+                player.name,
+                active_opponents=active_opponents,
+                facing_opponent=facing_opponent,
+            )
+        except Exception:
+            return []
 
     def _build_expression_extras(
         self, game_state, player, hand_cards: List[str], community_cards: List[str],

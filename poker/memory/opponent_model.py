@@ -1520,6 +1520,113 @@ class OpponentModelManager:
 
         return "\n".join(summaries)
 
+    def select_opponent_observations(
+        self,
+        observer: str,
+        active_opponents: List[str],
+        facing_opponent: Optional[str] = None,
+        max_observations: int = 2,
+        now: Optional[datetime] = None,
+    ) -> List[Tuple[str, str]]:
+        """Pick the most relevant narrative observations to surface to the LLM.
+
+        Each `OpponentModel` keeps up to 5 narrative observations as a
+        sliding window, but only the LATEST is currently injected into
+        prompts (via `get_prompt_summary`). This helper selects up to
+        `max_observations` total across all active opponents, weighted
+        by relevance, for the LLM to key on (or ignore).
+
+        Scoring per (opponent, observation):
+          - recency:        +0.0..+0.3 (newest = highest)
+          - facing bonus:   +2.0 if opponent is the current `facing_opponent`
+                            (typically the recent aggressor — the player
+                            hero is actively reacting to)
+          - nemesis bonus:  +1.0 if relationship heat > rival threshold
+                            (graceful no-op when relationship state isn't
+                            wired up — manager._relationship_repo is None
+                            or no row exists for the pair)
+
+        Args:
+            observer: The AI player whose memory we're reading.
+            active_opponents: Opponents still in the hand (not folded).
+                Folded opponents are filtered upstream by the caller.
+            facing_opponent: Name of the opponent hero is directly facing
+                (aggressor, raiser, current bet source). When provided,
+                their observation gets the largest bonus. Optional —
+                callers without spot-level aggressor info can omit it.
+            max_observations: Cap on the returned list. Default 2 — small
+                enough that the LLM can latch onto them, large enough to
+                cover both an active-opponent read and a nemesis read.
+            now: Projection point for relationship heat decay. Defaults to
+                `datetime.utcnow()` when None.
+
+        Returns:
+            Up to `max_observations` (opponent_name, observation_text)
+            tuples, sorted by score descending. Empty list when no active
+            opponent has stored observations.
+        """
+        if observer not in self.models or not active_opponents:
+            return []
+
+        # Resolve nemesis lookups lazily — relationship_repo may be None.
+        from .relationship_modifier import HEAT_RIVAL_THRESHOLD
+
+        if now is None:
+            now = datetime.utcnow()
+
+        scored: List[Tuple[float, str, str]] = []
+        for opp_name in active_opponents:
+            model = self.models[observer].get(opp_name)
+            if model is None or not model.narrative_observations:
+                continue
+
+            # Nemesis bonus — look up heat once per opponent. Graceful
+            # when relationship_repo isn't wired (heat defaults to 0).
+            nemesis_bonus = 0.0
+            if self._relationship_repo is not None:
+                opp_id = self._name_to_id.get(opp_name)
+                observer_id = self._name_to_id.get(observer)
+                if opp_id is not None and observer_id is not None:
+                    try:
+                        state = self._relationship_repo.load_relationship_state(
+                            observer_id, opp_id, now=now,
+                        )
+                        if state is not None and state.heat > HEAT_RIVAL_THRESHOLD:
+                            nemesis_bonus = 1.0
+                    except Exception:
+                        # Relationship lookup failure is non-fatal —
+                        # observation selection should never block a
+                        # decision.
+                        pass
+
+            facing_bonus = 2.0 if opp_name == facing_opponent else 0.0
+
+            # Recency bonus — last entry in the deque is newest.
+            observations = list(model.narrative_observations)
+            n = len(observations)
+            for idx, obs in enumerate(observations):
+                recency = 0.3 * (idx + 1) / n  # 0.0..0.3, newer is higher
+                score = recency + facing_bonus + nemesis_bonus
+                scored.append((score, opp_name, obs))
+
+        if not scored:
+            return []
+
+        # Take the highest-scoring observation per opponent (one per
+        # opponent to avoid two reads on the same player crowding out
+        # other opponents' observations).
+        scored.sort(reverse=True)
+        seen_opps = set()
+        deduped: List[Tuple[str, str]] = []
+        for score, opp, obs in scored:
+            if opp in seen_opps:
+                continue
+            seen_opps.add(opp)
+            deduped.append((opp, obs))
+            if len(deduped) >= max_observations:
+                break
+        return deduped
+
     def get_all_models_for_observer(self, observer: str) -> Dict[str, OpponentModel]:
         """Get all opponent models for an observer."""
         return self.models.get(observer, {})
@@ -1799,3 +1906,25 @@ class OpponentModelManager:
             if pid == personality_id:
                 return name
         return None
+
+
+def format_opponent_observations(pairs: List[Tuple[str, str]]) -> str:
+    """Render a selected-observations list as a prompt block.
+
+    Companion to `OpponentModelManager.select_opponent_observations`.
+    Pure formatter — no I/O, no manager dependency.
+
+    Returns the empty string when `pairs` is empty so callers can
+    conditionally skip the section. When non-empty, returns a labeled
+    block the LLM can key on (or ignore):
+
+        Your reads on opponents:
+        - {name}: {observation}
+        - {name}: {observation}
+    """
+    if not pairs:
+        return ''
+    lines = ['Your reads on opponents:']
+    for opp, obs in pairs:
+        lines.append(f'- {opp}: {obs}')
+    return '\n'.join(lines)

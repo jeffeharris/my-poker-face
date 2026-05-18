@@ -9,7 +9,7 @@ See docs/technical/TIERED_BOT_ARCHITECTURE.md (Layer 3 section).
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from .narration_facts import NarrationFacts
@@ -117,3 +117,14 @@ class ExpressionContext:
     # Optional and defaults to None — pre-7.6 callers / hybrid path
     # produce identical prompts to before.
     narration_facts: Optional['NarrationFacts'] = None
+
+    # Up to N (opponent_name, observation_text) pairs from prior hands'
+    # narrative observations, selected by relevance via
+    # `OpponentModelManager.select_opponent_observations`. When non-empty,
+    # ExpressionGenerator renders a "Your reads on opponents" block in
+    # the user prompt so the narration can riff on accumulated reads
+    # (or ignore them — they're extra info, not directives).
+    #
+    # Optional and defaults to empty list — pre-existing callers /
+    # tests render identical prompts when no observations exist.
+    opponent_observations: List[Tuple[str, str]] = field(default_factory=list)

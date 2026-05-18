@@ -342,7 +342,36 @@ class ExpressionGenerator:
         if facts_block:
             user_text = f"{user_text}\n\n{facts_block}"
 
+        # Append opponent narrative-observations block when present.
+        # Same suffix-append pattern as narration_facts — keeps the
+        # stable system prefix cache-friendly and groups all dynamic
+        # per-turn context on the user side.
+        obs_block = self._render_opponent_observations_block(ctx)
+        if obs_block:
+            user_text = f"{user_text}\n\n{obs_block}"
+
         return system_text, user_text
+
+    def _render_opponent_observations_block(self, ctx: ExpressionContext) -> str:
+        """Render the opponent-observations block as a prompt suffix.
+
+        Returns empty string when `ctx.opponent_observations` is empty —
+        the existing prompt template is then used verbatim. The
+        narration LLM treats these as flavor reads (riff on them or
+        ignore them); they're not action-directing facts.
+        """
+        observations = getattr(ctx, 'opponent_observations', None)
+        if not observations:
+            return ''
+        from poker.memory.opponent_model import format_opponent_observations
+        try:
+            return format_opponent_observations(list(observations))
+        except Exception as e:  # noqa: BLE001 — graceful degradation
+            logger.warning(
+                f"[EXPRESSION] Failed to render opponent_observations for "
+                f"{ctx.personality_name}: {e}"
+            )
+            return ''
 
     def _render_narration_facts_block(self, ctx: ExpressionContext) -> str:
         """Render the NarrationFacts block as a prompt suffix.
