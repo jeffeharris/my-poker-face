@@ -32,6 +32,7 @@ from cash_mode.seating import (
     top_up,
 )
 from cash_mode.seat_filler import fill_seats
+from cash_mode.session import CashSession, HandResult
 from cash_mode.table import (
     PLAYER_SEAT_ID,
     CashTable,
@@ -42,8 +43,10 @@ __all__ = [
     "AIBankrollState",
     "BANKROLL_KNOB_DEFAULTS",
     "BankrollKnobs",
+    "CashSession",
     "CashTable",
     "HandInProgressError",
+    "HandResult",
     "PLAYER_SEAT_ID",
     "PlayerBankrollState",
     "SeatingError",
