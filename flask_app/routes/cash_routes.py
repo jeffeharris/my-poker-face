@@ -1706,8 +1706,23 @@ def get_lobby():
                     personality = personality_repo.load_personality_by_id(pid)
                 except Exception:
                     personality = None
+                # Orphan seat: the seat references a personality that no
+                # longer exists in the DB (manual cleanup, migration, or
+                # an old seat surviving a deletion). Render as `open` so
+                # the next refresh_table_roster tick can fill it, and
+                # critically — do NOT call get_avatar_url_with_fallback
+                # with the personality_id as the name: that triggers
+                # on-demand avatar generation, which calls
+                # personality_generator.get_personality(name) which
+                # auto-creates a new personality with the pid as the
+                # display name. That's how "ai_12"-style zombies came
+                # back after deletion.
+                if personality is None:
+                    entry = {"index": idx, "kind": "open"}
+                    serialized_seats.append(entry)
+                    continue
                 entry["personality_id"] = pid
-                ai_name = (personality or {}).get("name") if personality else pid
+                ai_name = personality.get("name") or pid
                 entry["name"] = ai_name
                 entry["chips"] = int(slot.get("chips", 0))
                 emotion = active_emotions.get(ai_name, "confident")
