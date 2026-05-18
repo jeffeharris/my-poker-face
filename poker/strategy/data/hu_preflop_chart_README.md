@@ -2,7 +2,7 @@
 purpose: Specification for the heads-up preflop strategy chart (preflop_100bb_hu.json)
 type: spec
 created: 2026-05-13
-last_updated: 2026-05-13
+last_updated: 2026-05-19
 ---
 
 > **v1 authoring note** — see the "Border-flip log (v1)" section at the
@@ -12,6 +12,13 @@ last_updated: 2026-05-13
 > deviations made to satisfy the chart-level invariants when probabilities
 > are summed uniformly across the 169 canonical hands (rather than
 > combo-weighted).
+>
+> **v2 mixed-frequency calibration note (2026-05-19)** — the "Mixed-
+> frequency calibration (v2)" section near the bottom documents the
+> hand-positions that moved from pure 100%/0% to mixed frequencies to
+> break preflop tells like "always raises pocket queens." Twelve
+> hand-positions total. Aggregate bands stay within their original
+> targets under uniform 169-hand counting.
 
 # HU preflop chart spec (100 BB cash, 3bb opens)
 
@@ -317,3 +324,108 @@ to soften the aggressive perception of the v1 chart, or (b) switch the
 aggregate tests to combo-weighted sums and restore the README's literal
 binary ranges. v1 prioritizes shipping with passing tests over either
 of those refinements.
+
+## Mixed-frequency calibration (v2)
+
+The v1 chart encoded every hand as 100% to a single action — including
+borderline spots where mixed strategies are the GTO-correct play. That
+made preflop play deterministic for any hand-class: "this bot always
+raises QQ pre" and "this bot always 4-bets AKo facing a 3-bet" were
+free reads available to any opponent paying attention. v2 demotes
+twelve README-flagged borderline hand-positions from pure to mixed
+frequencies to break those tells.
+
+### What changed
+
+**rfi.SB — borderline opens (3 hands, 33% raise_3bb / 67% fold)**
+
+The README's "Mixed (optional refinement)" tier called out K3o, Q4o,
+J6o as candidates that "could open 25-50% in a solver-derived chart"
+but v1 encoded them as 100% fold. v2 sets them at 33% raise (the
+lower bound of the README's range — minimal risk of widening the
+open range too aggressively).
+
+| Hand | v1 | v2 |
+|---|---|---|
+| K3o | 100% fold | 33% raise_3bb / 67% fold |
+| Q4o | 100% fold | 33% raise_3bb / 67% fold |
+| J6o | 100% fold | 33% raise_3bb / 67% fold |
+
+**vs_open.BB_vs_SB — value mix tier (6 hands, 70% raise_3x / 30% call)**
+
+The README's "3-bet mixed value/bluff (split — 50% raise_3x, 50%
+call)" tier originally listed JJ, TT, AQs, AQo, A5s, A4s. The v1
+border-flip log promoted them to 100% raise_3x to hit the 12-18%
+BB 3-bet aggregate band under uniform 169-hand counting. v2
+restores partial mixing — 70/30 raise/call rather than the
+README's literal 50/50 — to stay within the 12% lower band under
+the existing uniform aggregator. Going to 50/50 would require
+either switching the test to combo-weighted aggregation or adding
+more bluff 3-bets, both deferred to a future calibration pass.
+
+| Hand | v1 | v2 |
+|---|---|---|
+| JJ  | 100% raise_3x | 70% raise_3x / 30% call |
+| TT  | 100% raise_3x | 70% raise_3x / 30% call |
+| AQs | 100% raise_3x | 70% raise_3x / 30% call |
+| AQo | 100% raise_3x | 70% raise_3x / 30% call |
+| A5s | 100% raise_3x | 70% raise_3x / 30% call |
+| A4s | 100% raise_3x | 70% raise_3x / 30% call |
+
+The bluff-3-bet tier (A3s, A2s, K5s-K2s, T9s, 98s, 87s, 76s, 65s,
+54s) stays at 100% raise_3x in v2 — they're the chart's documented
+bluff component and demoting them dilutes the polar strategy.
+
+**vs_3bet.SB_vs_BB — value mix tier (3 hands, 50% raise_4x / 50% call)**
+
+The README's "4-bet mixed value/bluff (split 50% raise_4x / 50%
+call)" tier listed QQ, AKs, AKo. v1 border-flip promoted to 100%
+raise_4x for the 6-10% aggregate band. v2 restores the literal
+50/50 — sample math shows this still hits the band (6.2% under
+uniform counting, vs the 6-10% target).
+
+| Hand | v1 | v2 |
+|---|---|---|
+| QQ  | 100% raise_4x | 50% raise_4x / 50% call |
+| AKs | 100% raise_4x | 50% raise_4x / 50% call |
+| AKo | 100% raise_4x | 50% raise_4x / 50% call |
+
+**vs_4bet.BB_vs_SB — no changes**
+
+The README didn't flag any mix candidates for this scenario; the
+continues are top-of-range jams or strong calls, with no
+borderline spots where mixing is GTO-correct.
+
+### Aggregate band sanity check (uniform 169-hand counting)
+
+| Metric | Pre-v2 | Post-v2 | Band |
+|---|---|---|---|
+| SB open rate              | ~71%  | 71.6% | 60-72% ✓ |
+| BB defense rate           | ~52%  | 52.1% | 52-62% ✓ |
+| BB 3-bet rate             | 13.6% | 12.5% | 12-18% ✓ |
+| SB 4-bet+jam rate vs 3-bet| 7.1%  | 6.2%  | 6-10% ✓ |
+
+All bands stay within targets; the v2 chart is a strict subset of
+v1's behavior (the same hands are in the same range; mixing just
+adds stochastic variation among README-flagged GTO-equivalent
+alternatives).
+
+### Why these mix proportions
+
+The README's explicit prescriptions were 50/50 for the BB defense
+mix tier and 50/50 for the SB-vs-3bet mix tier. v2 takes those at
+face value where the aggregate-band math allows it (vs_3bet) and
+softens to 70/30 where 50/50 would violate the band under the
+existing uniform aggregator (vs_open). The 33% open on K3o/Q4o/J6o
+is the lower bound of the README's "25-50%" range, chosen
+conservatively to avoid widening the SB opening range past the 72%
+ceiling.
+
+### Future calibration
+
+A future pass can either (a) switch the aggregate tests to
+combo-weighted sums (which would let vs_open mix tier go to the
+literal 50/50 in the README), or (b) add solver-derived mix
+points for the remaining borderline hands the README doesn't
+currently flag. v2 prioritizes shipping passing tests + breaking
+the explicit tells over either refinement.

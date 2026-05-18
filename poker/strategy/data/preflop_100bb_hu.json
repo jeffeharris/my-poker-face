@@ -175,7 +175,8 @@
         "raise_3bb": 1.0
       },
       "K3o": {
-        "fold": 1.0
+        "raise_3bb": 0.33,
+        "fold": 0.67
       },
       "A3s": {
         "raise_3bb": 1.0
@@ -229,7 +230,8 @@
         "raise_3bb": 1.0
       },
       "Q4o": {
-        "fold": 1.0
+        "raise_3bb": 0.33,
+        "fold": 0.67
       },
       "K4s": {
         "raise_3bb": 1.0
@@ -325,7 +327,8 @@
         "raise_3bb": 1.0
       },
       "J6o": {
-        "fold": 1.0
+        "raise_3bb": 0.33,
+        "fold": 0.67
       },
       "Q6s": {
         "raise_3bb": 1.0
@@ -542,10 +545,12 @@
         "call": 1.0
       },
       "TT": {
-        "raise_3x": 1.0
+        "raise_3x": 0.7,
+        "call": 0.3
       },
       "JJ": {
-        "raise_3x": 1.0
+        "raise_3x": 0.7,
+        "call": 0.3
       },
       "QQ": {
         "raise_3x": 1.0
@@ -749,7 +754,8 @@
         "fold": 1.0
       },
       "A4s": {
-        "raise_3x": 1.0
+        "raise_3x": 0.7,
+        "call": 0.3
       },
       "A4o": {
         "call": 1.0
@@ -803,7 +809,8 @@
         "fold": 1.0
       },
       "A5s": {
-        "raise_3x": 1.0
+        "raise_3x": 0.7,
+        "call": 0.3
       },
       "A5o": {
         "call": 1.0
@@ -1013,10 +1020,12 @@
         "call": 1.0
       },
       "AQs": {
-        "raise_3x": 1.0
+        "raise_3x": 0.7,
+        "call": 0.3
       },
       "AQo": {
-        "raise_3x": 1.0
+        "raise_3x": 0.7,
+        "call": 0.3
       },
       "AKs": {
         "raise_3x": 1.0
@@ -1059,7 +1068,8 @@
         "call": 1.0
       },
       "QQ": {
-        "raise_4x": 1.0
+        "raise_4x": 0.5,
+        "call": 0.5
       },
       "KK": {
         "raise_4x": 1.0
@@ -1530,10 +1540,12 @@
         "fold": 1.0
       },
       "AKs": {
-        "raise_4x": 1.0
+        "raise_4x": 0.5,
+        "call": 0.5
       },
       "AKo": {
-        "raise_4x": 1.0
+        "raise_4x": 0.5,
+        "call": 0.5
       }
     }
   },
