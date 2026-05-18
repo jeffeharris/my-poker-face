@@ -25,7 +25,7 @@ const CareerStats = lazy(() => import('./components/stats/CareerStats').then(m =
 const InstallPrompt = lazy(() => import('./components/pwa/InstallPrompt').then(m => ({ default: m.InstallPrompt })))
 const AdminRoutes = lazy(() => import('./components/admin/AdminRoutes').then(m => ({ default: m.AdminRoutes })))
 const LandingPage = lazy(() => import('./components/landing').then(m => ({ default: m.LandingPage })))
-const CashModeEntry = lazy(() => import('./components/cash/CashModeEntry').then(m => ({ default: m.CashModeEntry })))
+const Lobby = lazy(() => import('./components/cash/Lobby').then(m => ({ default: m.Lobby })))
 const PrivacyPolicy = lazy(() => import('./components/legal').then(m => ({ default: m.PrivacyPolicy })))
 const TermsOfService = lazy(() => import('./components/legal').then(m => ({ default: m.TermsOfService })))
 
@@ -403,7 +403,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
         <Route path="/cash" element={
           <ProtectedRoute>
-            <CashModeEntry />
+            <Lobby />
           </ProtectedRoute>
         } />
 

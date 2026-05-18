@@ -115,3 +115,56 @@ export interface CashBustEvent {
   bankroll: number;
   has_active_loan: boolean;
 }
+
+// --- Lobby v1.5 ---
+
+export type AffordabilityState = 'affordable' | 'sponsor_eligible' | 'locked';
+
+export type LobbySeat =
+  | { kind: 'open'; index: number }
+  | {
+      kind: 'ai';
+      index: number;
+      personality_id: string;
+      name: string;
+      avatar_url: string | null;
+      chips: number;
+      relationship_hint: string;
+    }
+  | {
+      kind: 'human';
+      index: number;
+      personality_id: string;
+      chips: number;
+    };
+
+export interface LobbyTable {
+  table_id: string;
+  stake_label: StakeLabel;
+  big_blind: number;
+  min_buy_in: number;
+  max_buy_in: number;
+  affordability: AffordabilityState;
+  seats: LobbySeat[];
+}
+
+export interface LobbyResponse {
+  bankroll: number;
+  tables: LobbyTable[];
+}
+
+/** Successful response from POST /api/cash/sit. */
+export interface SitResponse {
+  game_id: string;
+  table_id: string;
+  seat_index: number;
+}
+
+/** 402 body when the player tapped a sponsor-required seat. */
+export interface SitRequiresSponsor {
+  requires_sponsor: true;
+  stake_label: StakeLabel;
+  bankroll: number;
+  min_buy_in: number;
+  max_buy_in: number;
+}

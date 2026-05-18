@@ -12,6 +12,9 @@ import type {
   CashAction,
   CashApiResponse,
   CashStateResponse,
+  LobbyResponse,
+  SitResponse,
+  SitRequiresSponsor,
   SponsorOffer,
   SponsorOffersResponse,
   StakeLabel,
@@ -99,4 +102,49 @@ export async function sponsorAndSit(
 
 export async function rebuy(amount: number): Promise<{ stack: number; bankroll: number }> {
   return postJson('/rebuy', { amount });
+}
+
+// --- Lobby v1.5 ---
+
+export async function getLobby(): Promise<LobbyResponse> {
+  return getJson('/lobby');
+}
+
+/**
+ * Sit at a specific seat on a specific table.
+ *
+ * Returns the `SitResponse` on success. On 402 the server returned a
+ * `SitRequiresSponsor` body — the caller should open SponsorModal.
+ *
+ * `buyIn` is optional; the server defaults to the table's min_buy_in.
+ *
+ * Throws on non-2xx, non-402 responses (network error / 404 / 409 etc.).
+ */
+export async function sitAtTable(
+  tableId: string,
+  seatIndex: number,
+  buyIn?: number,
+): Promise<SitResponse | { kind: 'requires_sponsor'; data: SitRequiresSponsor }> {
+  const body: Record<string, unknown> = {
+    table_id: tableId,
+    seat_index: seatIndex,
+  };
+  if (typeof buyIn === 'number') {
+    body.buy_in = buyIn;
+  }
+  const res = await fetch(`${config.API_URL}/api/cash/sit`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 402) {
+    const data = (await res.json()) as SitRequiresSponsor;
+    return { kind: 'requires_sponsor', data };
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+  }
+  return (await res.json()) as SitResponse;
 }
