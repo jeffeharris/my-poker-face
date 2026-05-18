@@ -355,6 +355,59 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertEqual(bankroll.active_loan_lender_id, self.napoleon_id)
         self.assertGreater(bankroll.active_loan_amount, 0)
 
+    def test_personality_path_emits_sponsorship_offered_event(self):
+        # The route fires SPONSORSHIP_OFFERED via the relationship_repo
+        # when an AI lender extends a loan. The repo's projection-on-read
+        # surface (load_relationship_state) reveals the bilateral update.
+        with self._patch_build_cash_game():
+            response = self.client.post(
+                '/api/cash/sponsor-and-sit',
+                json={
+                    'stake_label': '$10',
+                    'lender_id': self.napoleon_id,
+                    'opponents': 2,
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+
+        # Lender's view of the player: small positive shifts on
+        # respect + likability per the actor table.
+        state_lender_pov = self.relationship_repo.load_relationship_state(
+            observer_id=self.napoleon_id, opponent_id=PLAYER_OWNER_ID,
+        )
+        self.assertIsNotNone(state_lender_pov)
+        self.assertGreater(state_lender_pov.respect, 0.5)
+        self.assertGreater(state_lender_pov.likability, 0.5)
+
+        # Player's view of the lender: mirror shifts also positive.
+        state_player_pov = self.relationship_repo.load_relationship_state(
+            observer_id=PLAYER_OWNER_ID, opponent_id=self.napoleon_id,
+        )
+        self.assertIsNotNone(state_player_pov)
+        self.assertGreater(state_player_pov.respect, 0.5)
+        self.assertGreater(state_player_pov.likability, 0.5)
+
+    def test_house_path_does_not_emit_event(self):
+        # Anonymous house loans have no actor to fire SPONSORSHIP_OFFERED.
+        # No relationship row should land.
+        with self._patch_build_cash_game():
+            response = self.client.post(
+                '/api/cash/sponsor-and-sit',
+                json={
+                    'stake_label': '$10',
+                    'archetype_id': 'friendly_boost',
+                    'opponents': 2,
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+
+        # No relationship_state row keyed on player vs napoleon (the
+        # only AI in the seeded pool we'd otherwise see).
+        state = self.relationship_repo.load_relationship_state(
+            observer_id=self.napoleon_id, opponent_id=PLAYER_OWNER_ID,
+        )
+        self.assertIsNone(state)
+
     def test_personality_path_rejects_unwilling_lender(self):
         # The Mime won't lend → eligibility filters them out → route 400.
         response = self.client.post(

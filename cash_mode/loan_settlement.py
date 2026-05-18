@@ -22,14 +22,26 @@ Edge cases (v1):
 Loan fields always reset to 0/0.0/0.0 on the returned bankroll, by
 design — loans are session-scoped in v1.
 
-Spec: `docs/plans/CASH_MODE_SPONSORSHIP_HANDOFF.md` §"Leave-time math".
+Path B extension: when `active_loan_lender_id` is set on the bankroll
+AND a `bankroll_repo` is passed, `sponsor_total` credits back to the
+named AI lender's persistent bankroll (clamped to their cap). NULL
+lender_id (anonymous house loan) routes sponsor_total to the ether,
+same as v1 sponsorship.
+
+Spec: `docs/plans/CASH_MODE_SPONSORSHIP_HANDOFF.md` §"Leave-time math",
+extended by `docs/plans/CASH_MODE_PATH_B_HANDOFF.md` §B.5.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
 
-from cash_mode.bankroll import PlayerBankrollState
+from cash_mode.bankroll import PlayerBankrollState, credit_ai_cash_out
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -48,16 +60,63 @@ class LoanSettlement:
     returned_chips: int
 
 
+def classify_loan_outcome(
+    bankroll: PlayerBankrollState,
+    chips_at_table: int,
+) -> str:
+    """Categorize the settlement outcome for relationship-event emission.
+
+    Returns one of:
+      - "no_loan": there was no active loan; no event needs firing.
+      - "no_chips_no_event": player walked away with 0 chips at the
+        table; loan is forgiven by the v1 rule, no reputation hit
+        (matches the "busted, sponsor gets 0" branch).
+      - "repaid": chips_at_table covered the full floor; the lender
+        was made whole (and possibly took a cut on the upside) — fire
+        LOAN_REPAID.
+      - "defaulted": chips_at_table fell short of the floor; the
+        lender is short — fire LOAN_DEFAULTED.
+
+    The route uses this label to know which RelationshipEvent to emit.
+    Distinct from the math (`sponsor_total`, `returned_chips`); the
+    classification is a separate concern. Spec: Path B handoff §B.4.
+    """
+    if bankroll.active_loan_amount <= 0:
+        return "no_loan"
+    if chips_at_table <= 0:
+        # v1 rule: no chips, no event — defer the edge case.
+        return "no_chips_no_event"
+    floor = int(bankroll.active_loan_amount * bankroll.active_loan_floor)
+    if chips_at_table >= floor:
+        return "repaid"
+    return "defaulted"
+
+
 def settle_loan_on_leave(
     bankroll: PlayerBankrollState,
     chips_at_table: int,
+    *,
+    bankroll_repo=None,
+    now: Optional[datetime] = None,
 ) -> LoanSettlement:
     """Apply the loan-floor + sponsor-cut math; return new bankroll.
 
-    Pure function; does not write to the database. Caller saves the
-    returned `new_bankroll`. Safe to call with no active loan — the
-    no-loan branch just routes chips_at_table back to bankroll
-    verbatim.
+    Pure-ish function: does the math purely, and (Path B) optionally
+    fires the side effect of crediting the AI lender's bankroll when
+    `active_loan_lender_id` is set AND `bankroll_repo` is provided.
+    Caller saves the returned `new_bankroll`.
+
+    Safe to call with no active loan — the no-loan branch just routes
+    chips_at_table back to bankroll verbatim, no side effects.
+
+    `bankroll_repo` is optional so legacy callers (tests, anonymous
+    house loans) can omit it and skip AI-lender credit. When the
+    lender_id is set but `bankroll_repo` is None, a warning logs and
+    the credit is skipped — defensive: indicates a caller forgot to
+    wire the seam.
+
+    `now` defaults to `datetime.utcnow()` — explicit `now` lets tests
+    pin the AI bankroll's `last_regen_tick` for stable assertions.
     """
     if bankroll.active_loan_amount <= 0:
         new_chips = bankroll.chips + chips_at_table
@@ -78,12 +137,32 @@ def settle_loan_on_leave(
     to_player = remaining - sponsor_cut
     sponsor_total = to_floor + sponsor_cut
 
+    # Path B: credit the AI lender's bankroll when a personality_id
+    # is pinned. The clamp-to-cap rule is the same one Path A's
+    # cash-out helper enforces — winnings above cap evaporate.
+    if bankroll.active_loan_lender_id and sponsor_total > 0:
+        if bankroll_repo is not None:
+            credit_ai_cash_out(
+                bankroll_repo,
+                bankroll.active_loan_lender_id,
+                sponsor_total,
+                now=now,
+            )
+        else:
+            logger.warning(
+                "[CASH] settle_loan_on_leave skipped AI credit for lender %r "
+                "(sponsor_total=%d) — no bankroll_repo provided",
+                bankroll.active_loan_lender_id, sponsor_total,
+            )
+
     return LoanSettlement(
         new_bankroll=PlayerBankrollState(
             player_id=bankroll.player_id,
             chips=bankroll.chips + to_player,
             starting_bankroll=bankroll.starting_bankroll,
             # Loans always clear on leave — session-scoped per v1.
+            # lender_id resets to None along with the rest of the
+            # loan fields (default in the dataclass).
         ),
         sponsor_total=sponsor_total,
         returned_chips=to_player,

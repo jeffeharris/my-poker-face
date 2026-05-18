@@ -33,12 +33,14 @@ from cash_mode.bankroll import (
     credit_ai_cash_out,
     project_bankroll,
 )
+from cash_mode.loan_settlement import classify_loan_outcome
 from cash_mode.sponsor_offers import (
     PersonalitySponsorOffer,
     compute_offers_for_table,
     compute_personality_offers,
     offer_for_archetype,
 )
+from poker.memory.relationship_events import RelationshipEvent
 from cash_mode.stakes import (
     MAX_BUY_IN_BB,
     MIN_BUY_IN_BB,
@@ -687,6 +689,38 @@ def sponsor_offers_for_stake():
     })
 
 
+def _record_relationship_event(
+    *,
+    actor_id: str,
+    target_id: str,
+    event: RelationshipEvent,
+) -> None:
+    """Fire a relationship event from outside hand flow.
+
+    Path B emits SPONSORSHIP_OFFERED at sit-down and LOAN_REPAID /
+    LOAN_DEFAULTED at leave. None of those happen inside hand flow
+    where a `memory_manager` is already wired into the game; the
+    route constructs a transient `OpponentModelManager` around the
+    live `relationship_repo` so the projection-on-read / clamp /
+    persist guarantees inside `record_event` still apply.
+
+    Failures (missing repo, repo write error) log a warning and
+    return silently — the loan settlement is the load-bearing
+    surface; relationship-state drift is a recoverable degradation,
+    not a reason to fail the leave route.
+    """
+    try:
+        from flask_app.extensions import relationship_repo
+        from poker.memory import OpponentModelManager
+        mgr = OpponentModelManager(relationship_repo=relationship_repo)
+        mgr.record_event(actor_id=actor_id, target_id=target_id, event=event)
+    except Exception as e:
+        logger.warning(
+            "[CASH] record_relationship_event(%s) actor=%r target=%r failed: %s",
+            event.value, actor_id, target_id, e,
+        )
+
+
 def _materialize_personality_offer(
     *,
     lender_id: str,
@@ -871,6 +905,14 @@ def sponsor_and_sit():
             game_id, owner_id, stake_label, lender_id,
             offer_amount, offer_floor, offer_rate,
         )
+        # Path B relationship event: the AI lender just extended trust.
+        # Anonymous house loans don't fire this — no `actor` to credit
+        # the gesture to. Actor = lender (AI), target = player.
+        _record_relationship_event(
+            actor_id=lender_id,
+            target_id=owner_id,
+            event=RelationshipEvent.SPONSORSHIP_OFFERED,
+        )
     else:
         logger.info(
             "[CASH] Sponsored sit %r owner=%r stake=%r archetype=%r "
@@ -1037,8 +1079,38 @@ def leave_table():
     chips_at_table = human_player.stack if human_player else 0
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
-    settlement = settle_loan_on_leave(bankroll, chips_at_table)
+
+    # Snapshot the loan state before settle clears it — needed for the
+    # post-settlement event classification (LOAN_REPAID vs LOAN_DEFAULTED).
+    loan_outcome = classify_loan_outcome(bankroll, chips_at_table)
+    lender_id_at_settle = bankroll.active_loan_lender_id
+
+    # Settlement: pass the bankroll_repo so Path B can credit the AI
+    # lender's persistent bankroll with sponsor_total (clamped to cap).
+    # Anonymous loans (NULL lender_id) skip the AI-credit branch.
+    settlement = settle_loan_on_leave(
+        bankroll, chips_at_table, bankroll_repo=bankroll_repo,
+    )
     bankroll_repo.save_player_bankroll(settlement.new_bankroll)
+
+    # Path B relationship event: only when a named AI lender was on
+    # the loan. Anonymous loans don't have an `actor` to update.
+    if lender_id_at_settle:
+        if loan_outcome == "repaid":
+            _record_relationship_event(
+                actor_id=lender_id_at_settle,
+                target_id=owner_id,
+                event=RelationshipEvent.LOAN_REPAID,
+            )
+        elif loan_outcome == "defaulted":
+            _record_relationship_event(
+                actor_id=lender_id_at_settle,
+                target_id=owner_id,
+                event=RelationshipEvent.LOAN_DEFAULTED,
+            )
+        # "no_chips_no_event" / "no_loan" branches deliberately silent —
+        # the v1 rule forgives full busts and no-loan leaves don't have
+        # a credit relationship to update.
 
     # Credit every seated AI's current Player.stack back to their
     # persistent bankroll. Without this loop, AI table winnings
