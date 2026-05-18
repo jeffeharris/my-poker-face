@@ -327,6 +327,9 @@ def _build_cash_game(
     from poker.pressure_stats import PressureStatsTracker
     from poker.repositories.sqlite_repositories import PressureEventRepository
     from poker.hybrid_ai_controller import HybridAIController
+    from poker.controllers import AIPlayerController
+    from poker.cash_bot_assignment import assign_bot
+    from flask_app.handlers.tiered_factory import build_tiered_controller
     from flask_app.game_adapter import StateMachineAdapter
     from flask_app.routes.game_routes import generate_game_id, load_game_mode_preset
 
@@ -357,23 +360,64 @@ def _build_cash_game(
     state_machine = StateMachineAdapter(base_state_machine)
     game_id = f"cash-{generate_game_id()}"
 
-    # 3. AI controllers — same shape as the tournament path.
+    # 3. AI controllers — sandbox bucketing per personality.
+    #
+    # Each personality gets a sticky (bot_type, llm_config) from
+    # `assign_bot`: explicit `config_json.bot_profile` first, then
+    # poise-quantile fallback (sharp / standard / chaos). Tournament
+    # mode lets the user pick per seat; cash mode hides the knob and
+    # lets character anchors drive it.
     default_prompt_config = load_game_mode_preset("standard")
     default_llm_config: Dict[str, Any] = {}
-    ai_controllers = {}
+    ai_controllers: Dict[str, Any] = {}
+    bot_types: Dict[str, str] = {}
+    player_llm_configs: Dict[str, Dict[str, Any]] = {}
     for player in state_machine.game_state.players:
         if player.is_human:
             continue
-        ai_controllers[player.name] = HybridAIController(
-            player.name,
-            state_machine,
-            llm_config=default_llm_config,
-            prompt_config=default_prompt_config,
-            game_id=game_id,
-            owner_id=owner_id,
-            capture_label_repo=capture_label_repo,
-            decision_analysis_repo=decision_analysis_repo,
+        ai_entry = next((a for a in selected_ai if a["name"] == player.name), None)
+        pid = ai_entry["personality_id"] if ai_entry else None
+        personality_config = (
+            personality_repo.load_personality_by_id(pid) if pid else None
         )
+        assignment = assign_bot(personality_config)
+        bot_types[player.name] = assignment.bot_type
+        player_llm_configs[player.name] = assignment.llm_config
+
+        if assignment.bot_type == "chaos":
+            controller = AIPlayerController(
+                player_name=player.name,
+                state_machine=state_machine,
+                llm_config=assignment.llm_config,
+                prompt_config=default_prompt_config,
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=capture_label_repo,
+                decision_analysis_repo=decision_analysis_repo,
+            )
+        elif assignment.bot_type == "sharp":
+            controller = build_tiered_controller(
+                player_name=player.name,
+                state_machine=state_machine,
+                llm_config=assignment.llm_config,
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=capture_label_repo,
+                decision_analysis_repo=decision_analysis_repo,
+                expression_enabled=True,
+            )
+        else:
+            controller = HybridAIController(
+                player.name,
+                state_machine,
+                llm_config=assignment.llm_config,
+                prompt_config=default_prompt_config,
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=capture_label_repo,
+                decision_analysis_repo=decision_analysis_repo,
+            )
+        ai_controllers[player.name] = controller
 
     # 4. Memory manager (cash_mode=True wires Phase 3 cash_pair_stats).
     pressure_event_repo = PressureEventRepository(persistence_db_path)
@@ -424,8 +468,9 @@ def _build_cash_game(
         "owner_id": owner_id,
         "owner_name": human_name,
         "llm_config": default_llm_config,
-        "player_llm_configs": {},
+        "player_llm_configs": player_llm_configs,
         "player_prompt_configs": {},
+        "bot_types": bot_types,
         "default_game_mode": "standard",
         "last_announced_phase": None,
         "guest_tracking_id": None,
@@ -870,6 +915,27 @@ def leave_table():
         game_repo.delete_game(game_id)
     except Exception as e:
         logger.warning("[CASH] delete_game failed for %r: %s", game_id, e)
+
+    # "Leave = clean slate" — purge every OTHER cash session this
+    # owner has, both in memory and in the DB. Defends against:
+    #   - Two cash games for one owner in memory (e.g., a prior
+    #     leave that hit the wrong game via iteration order, so the
+    #     intended game survived and is now an orphan in memory).
+    #   - Auto-saved rows from prior sessions that didn't make it
+    #     through `_build_cash_game`'s `_purge_other_cash_rows`.
+    # Without this, the next `/api/cash/state` would surface the
+    # orphan as an "active session" and redirect the player back
+    # into a table they thought they'd already left.
+    for other_gid, other_gdata in list(game_state_service.games.items()):
+        if other_gid == game_id:
+            continue
+        if other_gdata.get("cash_mode") and other_gdata.get("owner_id") == owner_id:
+            game_state_service.delete_game(other_gid)
+            logger.info(
+                "[CASH] Leave purged orphan in-memory cash game_id=%r owner=%r",
+                other_gid, owner_id,
+            )
+    _purge_other_cash_rows(owner_id, except_game_id=None)
 
     had_loan = bankroll.active_loan_amount > 0
     logger.info(
