@@ -623,6 +623,11 @@ export function usePokerGame({
   refreshGameStateRef.current = refreshGameState;
 
   const createSocket = useCallback((gId: string) => {
+    // Pin to polling in dev — Werkzeug + Flask-SocketIO threading
+    // mode can't reliably hold a WS upgrade and emits malformed
+    // frames during the upgrade probe. Production (gunicorn +
+    // GeventWebSocketWorker behind Caddy) handles WS fine, so let
+    // socket.io negotiate normally there.
     const socket = io(config.SOCKET_URL, {
       reconnection: true,
       reconnectionAttempts: Infinity,
@@ -630,6 +635,7 @@ export function usePokerGame({
       reconnectionDelayMax: 5000,
       timeout: 20000,
       withCredentials: true,  // Send cookies for auth
+      ...(import.meta.env.PROD ? {} : { transports: ['polling'] }),
     });
 
     socketRef.current = socket;
