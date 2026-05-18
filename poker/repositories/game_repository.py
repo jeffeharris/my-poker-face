@@ -68,15 +68,6 @@ class GameRepository(BaseRepository):
             owner_name: The owner's display name
             llm_configs: Dict with 'player_llm_configs' and 'default_llm_config'
         """
-        # Cash games are in-memory only (spec §"v1 architectural
-        # invariants"). Skipping the write keeps prior-session ghosts
-        # out of the DB — a persisted cash row that survives a
-        # backend restart used to surface as a stale "active session"
-        # the player could redirect into and cash out a second time
-        # (free-money exploit). Tournament games are unaffected.
-        if game_id.startswith("cash-"):
-            return
-
         game_state = state_machine.game_state
 
         state_dict = game_state.to_dict()
@@ -223,8 +214,6 @@ class GameRepository(BaseRepository):
             game_id: The game identifier
             tracker: TournamentTracker instance or dict from to_dict()
         """
-        if game_id.startswith("cash-"):
-            return  # See save_game — cash sessions are in-memory only.
         if hasattr(tracker, 'to_dict'):
             tracker_dict = tracker.to_dict()
         else:
@@ -316,8 +305,6 @@ class GameRepository(BaseRepository):
 
     def save_message(self, game_id: str, message_type: str, message_text: str) -> None:
         """Save a game message/event."""
-        if game_id.startswith("cash-"):
-            return  # See save_game — cash sessions are in-memory only.
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO game_messages (game_id, message_type, message_text)
@@ -361,8 +348,6 @@ class GameRepository(BaseRepository):
                             messages: List[Dict[str, str]],
                             personality_state: Dict[str, Any]) -> None:
         """Save AI player conversation history and personality state."""
-        if game_id.startswith("cash-"):
-            return  # See save_game — cash sessions are in-memory only.
         with self._get_connection() as conn:
             conversation_history = json.dumps(messages)
             personality_json = json.dumps(personality_state)
@@ -403,8 +388,6 @@ class GameRepository(BaseRepository):
         UNIQUE constraint on (game_id, player_name, hand_number) and an
         autoincrement PK).
         """
-        if game_id.startswith("cash-"):
-            return  # See save_game — cash sessions are in-memory only.
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR IGNORE INTO personality_snapshots
@@ -430,8 +413,6 @@ class GameRepository(BaseRepository):
             player_name: The player's name
             emotional_state: EmotionalState object or dict from EmotionalState.to_dict()
         """
-        if game_id.startswith("cash-"):
-            return  # See save_game — cash sessions are in-memory only.
         if hasattr(emotional_state, 'to_dict'):
             state_dict = emotional_state.to_dict()
         else:
@@ -537,8 +518,6 @@ class GameRepository(BaseRepository):
             psychology: Dict from PlayerPsychology.to_dict()
             prompt_config: Dict from PromptConfig.to_dict() (optional)
         """
-        if game_id.startswith("cash-"):
-            return  # See save_game — cash sessions are in-memory only.
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO controller_state
@@ -635,8 +614,6 @@ class GameRepository(BaseRepository):
             game_id: The game identifier
             opponent_model_manager: OpponentModelManager instance or dict from to_dict()
         """
-        if game_id.startswith("cash-"):
-            return  # See save_game — cash sessions are in-memory only.
         if hasattr(opponent_model_manager, 'to_dict'):
             models_dict = opponent_model_manager.to_dict()
         else:

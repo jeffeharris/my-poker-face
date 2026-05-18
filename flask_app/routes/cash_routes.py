@@ -83,45 +83,65 @@ def _resolve_player_name() -> str:
 
 
 def _find_active_cash_game_id(owner_id: str) -> Optional[str]:
-    """Locate the owner's active cash game in game_state_service.
+    """Locate the owner's active cash game.
 
-    Cash games are keyed on the standard `game_id` and tagged with
-    `cash_mode=True`. v1 invariant: one active cash game per owner,
-    in-memory only. DO NOT fall back to the persisted `games` table
-    — auto-save can leave `cash-*` rows behind, and treating them as
-    active sessions opened a free-money exploit: leave_table refunded
-    the human player's stack and deleted the current game, but the
-    next `/api/cash/state` would return a stale prior-session row,
-    redirect the player back into it, and let them cash out *that*
-    stack too. Orphan rows are cleaned up at startup instead (see
-    `cleanup_orphan_cash_games`).
+    First checks `game_state_service.games` (hot, in-memory). On a
+    miss, falls back to the persisted `games` table — `progress_game`
+    auto-saves cash sessions, so a Flask reload that wiped the
+    in-memory copy still leaves the row behind. Returning the id lets
+    `/api/game-state/<id>` cold-load the game back into memory with
+    cash-mode flags restored. Matches the user's mental model of "back
+    arrow = pause; come back to the table as if time had been frozen."
+
+    The free-money exploit that this DB fallback used to enable
+    (resuming a stale prior-session row after a clean leave, then
+    cashing out a second time) is now blocked by the
+    one-cash-row-per-owner invariant: `/api/cash/start` purges any
+    existing cash-* row for the owner before creating a new one, and
+    `/api/cash/leave` deletes the row. So after a clean leave, the DB
+    has zero cash rows for this owner — nothing to resume.
     """
     from flask_app.services import game_state_service
     for gid, gdata in list(game_state_service.games.items()):
         if gdata.get("cash_mode") and gdata.get("owner_id") == owner_id:
             return gid
+
+    from flask_app.extensions import game_repo
+    try:
+        rows = game_repo.list_games(owner_id=owner_id, limit=50, offset=0)
+    except Exception:
+        return None
+    for row in rows:
+        if row.game_id.startswith("cash-"):
+            return row.game_id
     return None
 
 
 def cleanup_orphan_cash_games() -> int:
-    """Delete every `cash-*` row left over from a previous run.
+    """Enforce one cash session per owner; delete older duplicates.
 
-    Cash games are in-memory only (spec §"v1 architectural invariants"),
-    so any `cash-*` row in the `games` table is by definition an
-    orphan — a snapshot from a session whose in-memory state was lost
-    when the backend last shut down. Leaving these behind is what
-    enabled the free-money exploit: `_find_active_cash_game_id` (back
-    when it had a DB fallback) could surface the orphan as an
-    "active session" and let the player cash out a stack that had
-    already been settled, or hadn't yet been credited back, in the
-    prior process.
+    The user's mental model is "back arrow freezes the game, leave
+    table cashes out." Persistence makes the frozen-game path survive
+    Flask reloads — `_find_active_cash_game_id` falls back to the DB
+    on a memory miss, and `/api/game-state/<id>` cold-loads with cash
+    flags restored.
 
-    No refund logic — we don't know whether the player's bankroll
-    already reflects that stack (they may have cashed out via the
-    glitch, or never had the chips credited at all). Tightening the
-    save-side (cash games no longer auto-save) keeps this list empty
-    on future restarts; this cleanup mops up legacy rows once at
-    boot. Returns the count cleaned up so the caller can log it.
+    Invariant we have to enforce on every entry point: at most one
+    `cash-*` row per owner at a time. Otherwise a clean leave (which
+    deletes only the current row) can still leave a *different* stale
+    row that `_find_active_cash_game_id` surfaces as an "active
+    session" — the original free-money exploit. Two enforcement
+    points keep this tight:
+
+      - `_purge_other_cash_rows` runs from `_build_cash_game` so a
+        new sit-down nukes any leftover row for this owner before
+        creating its own.
+      - This boot-time pass keeps the **most recent** row per owner
+        (it's the legit frozen session the player is expected to
+        resume) and drops any older duplicates left over from prior
+        unclean shutdowns or pre-fix data.
+
+    Returns the count of rows deleted so the caller can log it.
     """
     from flask_app.extensions import game_repo
     try:
@@ -129,20 +149,75 @@ def cleanup_orphan_cash_games() -> int:
     except Exception as e:
         logger.warning("[CASH] orphan cleanup: list_games failed: %s", e)
         return 0
-    orphans = [r.game_id for r in rows if r.game_id.startswith("cash-")]
-    for gid in orphans:
+
+    # list_games already orders by updated_at DESC, so the first cash
+    # row per owner is the freshest and stays; everything after is a
+    # stale duplicate.
+    seen_owners: set[str] = set()
+    to_delete: list[str] = []
+    for row in rows:
+        if not row.game_id.startswith("cash-"):
+            continue
+        owner = row.owner_id or ""
+        if owner in seen_owners:
+            to_delete.append(row.game_id)
+        else:
+            seen_owners.add(owner)
+
+    for gid in to_delete:
         try:
             game_repo.delete_game(gid)
         except Exception as e:
             logger.warning(
                 "[CASH] orphan cleanup: delete_game(%r) failed: %s", gid, e,
             )
-    if orphans:
+    if to_delete:
         logger.info(
-            "[CASH] orphan cleanup: deleted %d stale cash session(s): %s",
-            len(orphans), orphans,
+            "[CASH] orphan cleanup: deleted %d stale duplicate cash row(s): %s",
+            len(to_delete), to_delete,
         )
-    return len(orphans)
+    return len(to_delete)
+
+
+def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) -> int:
+    """Delete every `cash-*` row this owner has (except the named one).
+
+    The one-cash-row-per-owner invariant's enforcement at sit-down
+    time. Called from `_build_cash_game` before registering the new
+    game so a fresh sit always starts from a clean slate. Defense in
+    depth against:
+      - `/api/cash/leave` having silently failed its `delete_game`
+        on a previous session.
+      - Legacy rows from before persistence enforcement existed.
+    Both leave behind orphan cash rows that would otherwise surface
+    via `_find_active_cash_game_id`'s DB fallback and re-enable the
+    free-money exploit.
+    """
+    from flask_app.extensions import game_repo
+    try:
+        rows = game_repo.list_games(owner_id=owner_id, limit=50, offset=0)
+    except Exception as e:
+        logger.warning("[CASH] purge other rows failed for %r: %s", owner_id, e)
+        return 0
+    purged: list[str] = []
+    for row in rows:
+        if not row.game_id.startswith("cash-"):
+            continue
+        if row.game_id == except_game_id:
+            continue
+        try:
+            game_repo.delete_game(row.game_id)
+            purged.append(row.game_id)
+        except Exception as e:
+            logger.warning(
+                "[CASH] purge: delete_game(%r) failed: %s", row.game_id, e,
+            )
+    if purged:
+        logger.info(
+            "[CASH] purged %d prior cash row(s) for owner=%r: %s",
+            len(purged), owner_id, purged,
+        )
+    return len(purged)
 
 
 def _load_or_seed_player_bankroll(owner_id: str) -> PlayerBankrollState:
@@ -189,6 +264,11 @@ def _build_cash_game(
     """
     if now is None:
         now = datetime.utcnow()
+
+    # Enforce the one-cash-row-per-owner invariant before this owner
+    # gets a new cash- row. Belt-and-suspenders for `/api/cash/leave`
+    # cleanup failures and pre-fix legacy data.
+    _purge_other_cash_rows(owner_id)
 
     big_blind, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
 
