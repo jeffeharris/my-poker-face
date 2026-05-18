@@ -133,6 +133,7 @@ class TestSchemaMigrationV88:
             conn.execute("DROP TABLE IF EXISTS player_bankroll_state")
             conn.execute("DELETE FROM schema_version WHERE version = 88")
             conn.execute("DELETE FROM schema_version WHERE version = 89")
+            conn.execute("DELETE FROM schema_version WHERE version = 90")
             conn.commit()
         # Re-run ensure_schema → should re-apply v88
         SchemaManager(path).ensure_schema()
@@ -197,6 +198,7 @@ class TestSchemaMigrationV89:
                 "starting_bankroll INTEGER NOT NULL DEFAULT 0)"
             )
             conn.execute("DELETE FROM schema_version WHERE version = 89")
+            conn.execute("DELETE FROM schema_version WHERE version = 90")
             conn.commit()
         # Re-run ensure_schema → should re-apply v89.
         SchemaManager(path).ensure_schema()
@@ -209,6 +211,69 @@ class TestSchemaMigrationV89:
                 "SELECT description FROM schema_version WHERE version = 89"
             ).fetchone()
             assert v89_row is not None
+
+
+class TestSchemaMigrationV90:
+    """Path B: AI-personality sponsorship adds `active_loan_lender_id`."""
+
+    def test_player_bankroll_state_has_lender_id_column(self, db_path):
+        with sqlite3.connect(db_path) as conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(player_bankroll_state)")}
+            assert "active_loan_lender_id" in cols
+
+    def test_legacy_rows_default_to_null_lender(self, db_path):
+        # Insert using the pre-v90 column set; the new column should
+        # default to NULL (= anonymous house loan, backward-compatible
+        # with v1 sponsorship semantics).
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO player_bankroll_state "
+                "(player_id, chips, starting_bankroll) VALUES (?, ?, ?)",
+                ("legacy_player", 1_500, 1_500),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT active_loan_lender_id "
+                "FROM player_bankroll_state WHERE player_id = ?",
+                ("legacy_player",),
+            ).fetchone()
+            assert row == (None,)
+
+    def test_idempotent_on_rerun(self, db_path):
+        # Running v90 twice must be a no-op — the ALTER is PRAGMA-guarded.
+        sm = SchemaManager.__new__(SchemaManager)
+        with sqlite3.connect(db_path) as conn:
+            sm._migrate_v90_add_lender_id_to_player_bankroll(conn)
+            sm._migrate_v90_add_lender_id_to_player_bankroll(conn)
+
+    def test_migrates_from_pre_v90_db(self, tmp_path):
+        """A DB at v89 should migrate up to v90 when ensure_schema runs."""
+        path = str(tmp_path / "v89.db")
+        SchemaManager(path).ensure_schema()
+        # Simulate pre-v90: drop the lender_id column by rebuilding the
+        # table with the v89 shape, then strip the v90 row.
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TABLE player_bankroll_state")
+            conn.execute(
+                "CREATE TABLE player_bankroll_state ("
+                "player_id TEXT PRIMARY KEY, "
+                "chips INTEGER NOT NULL DEFAULT 0, "
+                "starting_bankroll INTEGER NOT NULL DEFAULT 0, "
+                "active_loan_amount INTEGER NOT NULL DEFAULT 0, "
+                "active_loan_floor REAL NOT NULL DEFAULT 0.0, "
+                "active_loan_rate REAL NOT NULL DEFAULT 0.0)"
+            )
+            conn.execute("DELETE FROM schema_version WHERE version = 90")
+            conn.commit()
+        # Re-run ensure_schema → should re-apply v90.
+        SchemaManager(path).ensure_schema()
+        with sqlite3.connect(path) as conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(player_bankroll_state)")}
+            assert "active_loan_lender_id" in cols
+            v90_row = conn.execute(
+                "SELECT description FROM schema_version WHERE version = 90"
+            ).fetchone()
+            assert v90_row is not None
 
 
 # --- AI bankroll round-trip ---
@@ -312,6 +377,44 @@ class TestPlayerBankrollRoundTrip:
         assert loaded.active_loan_amount == 0
         assert loaded.active_loan_floor == 0.0
         assert loaded.active_loan_rate == 0.0
+
+    def test_default_state_has_null_lender_id(self, repo):
+        # New PlayerBankrollState defaults lender_id to None — i.e.,
+        # "if there's a loan at all, it's an anonymous house loan."
+        repo.save_player_bankroll(PlayerBankrollState("p_no_lender", 1_000, 1_000))
+        loaded = repo.load_player_bankroll("p_no_lender")
+        assert loaded.active_loan_lender_id is None
+
+    def test_round_trip_with_ai_lender(self, repo):
+        # Path B: a personality_id lands in active_loan_lender_id.
+        state = PlayerBankrollState(
+            player_id="p_napoleon_borrower",
+            chips=0,
+            starting_bankroll=200,
+            active_loan_amount=800,
+            active_loan_floor=1.20,
+            active_loan_rate=0.30,
+            active_loan_lender_id="napoleon",
+        )
+        repo.save_player_bankroll(state)
+        loaded = repo.load_player_bankroll("p_napoleon_borrower")
+        assert loaded.active_loan_lender_id == "napoleon"
+        assert loaded.active_loan_amount == 800
+
+    def test_save_clears_lender_id_on_settlement(self, repo):
+        # Path B: lender_id resets to NULL alongside the other loan fields.
+        repo.save_player_bankroll(PlayerBankrollState(
+            "p_path_b", 0, 200,
+            active_loan_amount=500, active_loan_floor=1.10,
+            active_loan_rate=0.25, active_loan_lender_id="zeus",
+        ))
+        repo.save_player_bankroll(PlayerBankrollState(
+            "p_path_b", 300, 200,
+            active_loan_amount=0, active_loan_floor=0.0,
+            active_loan_rate=0.0, active_loan_lender_id=None,
+        ))
+        loaded = repo.load_player_bankroll("p_path_b")
+        assert loaded.active_loan_lender_id is None
 
 
 # --- Personality knob loading ---

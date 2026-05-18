@@ -156,18 +156,20 @@ class BankrollRepository(BaseRepository):
     def save_player_bankroll(self, state: PlayerBankrollState) -> None:
         """Upsert the player bankroll row.
 
-        Writes the full state including v89 loan fields. Callers
-        clearing a settled loan must set `active_loan_amount=0`,
-        `active_loan_floor=0.0`, `active_loan_rate=0.0` on the state
-        before saving — no implicit reset here.
+        Writes the full state including v89 loan fields and the v90
+        `active_loan_lender_id`. Callers clearing a settled loan must
+        set `active_loan_amount=0`, `active_loan_floor=0.0`,
+        `active_loan_rate=0.0`, `active_loan_lender_id=None` on the
+        state before saving — no implicit reset here.
         """
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO player_bankroll_state
                     (player_id, chips, starting_bankroll,
-                     active_loan_amount, active_loan_floor, active_loan_rate)
-                VALUES (?, ?, ?, ?, ?, ?)
+                     active_loan_amount, active_loan_floor, active_loan_rate,
+                     active_loan_lender_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     state.player_id,
@@ -176,6 +178,7 @@ class BankrollRepository(BaseRepository):
                     state.active_loan_amount,
                     state.active_loan_floor,
                     state.active_loan_rate,
+                    state.active_loan_lender_id,
                 ),
             )
 
@@ -187,13 +190,16 @@ class BankrollRepository(BaseRepository):
         mode) or refuse the operation.
 
         Legacy pre-v89 rows return with loan fields at their column
-        defaults (0/0.0/0.0) — i.e., "no active loan."
+        defaults (0/0.0/0.0) — i.e., "no active loan." Legacy pre-v90
+        rows return with `active_loan_lender_id=None` (anonymous house
+        loan, matching v1 sponsorship semantics).
         """
         with self._get_connection() as conn:
             row = conn.execute(
                 """
                 SELECT chips, starting_bankroll,
-                       active_loan_amount, active_loan_floor, active_loan_rate
+                       active_loan_amount, active_loan_floor, active_loan_rate,
+                       active_loan_lender_id
                 FROM player_bankroll_state
                 WHERE player_id = ?
                 """,
@@ -208,6 +214,7 @@ class BankrollRepository(BaseRepository):
                 active_loan_amount=row["active_loan_amount"],
                 active_loan_floor=row["active_loan_floor"],
                 active_loan_rate=row["active_loan_rate"],
+                active_loan_lender_id=row["active_loan_lender_id"],
             )
 
     # --- Personality bankroll knobs ---

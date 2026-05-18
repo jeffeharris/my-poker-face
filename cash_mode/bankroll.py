@@ -73,10 +73,16 @@ class PlayerBankrollState:
         chips-at-table before any split kicks in)
       - `active_loan_rate`: sponsor's cut of post-floor remaining
         chips (e.g., 0.40 = 40% to sponsor, 60% to player)
+      - `active_loan_lender_id`: personality_id of the AI lender
+        (v90, Path B). NULL = anonymous house loan (v1 sponsorship);
+        non-NULL = named AI personality whose persistent bankroll
+        receives sponsor_total at leave-time. Reset to NULL on
+        `/api/cash/leave` alongside the other loan fields.
 
     See `docs/plans/CASH_MODE_SPONSORSHIP_HANDOFF.md` for the
     leave-time math and the sponsor archetype pool that produces
-    these triples.
+    these triples, and `docs/plans/CASH_MODE_PATH_B_HANDOFF.md` for
+    the AI-lender extension.
     """
 
     player_id: str
@@ -85,6 +91,7 @@ class PlayerBankrollState:
     active_loan_amount: int = 0
     active_loan_floor: float = 0.0
     active_loan_rate: float = 0.0
+    active_loan_lender_id: Optional[str] = None
 
 
 @dataclass

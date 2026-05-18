@@ -76,7 +76,11 @@ logger = logging.getLogger(__name__)
 #      stake_comfort_zone) live inside config_json as a `bankroll_knobs` sub-dict — same
 #      convention as `anchors`. The BankrollRepository falls back to BANKROLL_KNOB_DEFAULTS
 #      per-field, so personalities without bankroll_knobs in their JSON land at sane defaults.
-SCHEMA_VERSION = 89
+# v90: Add active_loan_lender_id column to player_bankroll_state for cash-mode Path B
+#      (AI-personality sponsorship). NULL = anonymous house loan (v1 sponsorship);
+#      non-NULL = personality_id of the named AI lender. Used by leave-time settlement to
+#      credit sponsor_total back to the lender's persistent bankroll.
+SCHEMA_VERSION = 90
 
 
 
@@ -406,13 +410,18 @@ class SchemaManager:
                 )
             """)
 
-            # 10e. Player bankroll state (v88, loan fields added v89) —
-            #      per-player persistent bankroll. `starting_bankroll` is
-            #      the seed grant on first entry. The `active_loan_*`
-            #      columns (v89) encode a session-scoped sponsor loan;
-            #      all three reset to 0/0.0/0.0 on `/api/cash/leave` after
-            #      the leave-time math settles the loan. Loans do NOT
-            #      persist across sessions in v1.
+            # 10e. Player bankroll state (v88, loan fields added v89,
+            #      lender_id added v90) — per-player persistent bankroll.
+            #      `starting_bankroll` is the seed grant on first entry.
+            #      The `active_loan_*` columns (v89) encode a session-
+            #      scoped sponsor loan; all reset to 0/0.0/0.0 on
+            #      `/api/cash/leave` after the leave-time math settles the
+            #      loan. `active_loan_lender_id` (v90) is the optional
+            #      personality_id of an AI lender — NULL means anonymous
+            #      house loan (v1 sponsorship), non-NULL means a named AI
+            #      lender whose persistent bankroll receives sponsor_total
+            #      at leave-time. Loans do NOT persist across sessions in
+            #      v1.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS player_bankroll_state (
                     player_id TEXT PRIMARY KEY,
@@ -420,7 +429,8 @@ class SchemaManager:
                     starting_bankroll INTEGER NOT NULL DEFAULT 0,
                     active_loan_amount INTEGER NOT NULL DEFAULT 0,
                     active_loan_floor REAL NOT NULL DEFAULT 0.0,
-                    active_loan_rate REAL NOT NULL DEFAULT 0.0
+                    active_loan_rate REAL NOT NULL DEFAULT 0.0,
+                    active_loan_lender_id TEXT DEFAULT NULL
                 )
             """)
 
@@ -1212,6 +1222,7 @@ class SchemaManager:
             87: (self._migrate_v87_add_relationship_tables, "Add relationship_states + cash_pair_stats tables for cross-session affinity and cash-mode PnL"),
             88: (self._migrate_v88_add_bankroll_tables, "Add ai_bankroll_state + player_bankroll_state tables and bankroll knob columns on personalities for cash mode v1"),
             89: (self._migrate_v89_add_loan_fields_to_player_bankroll, "Add active_loan_amount, active_loan_floor, active_loan_rate to player_bankroll_state for cash mode sponsorship"),
+            90: (self._migrate_v90_add_lender_id_to_player_bankroll, "Add active_loan_lender_id to player_bankroll_state for cash mode Path B (AI sponsorship)"),
         }
 
         with self._get_connection() as conn:
@@ -3977,3 +3988,30 @@ class SchemaManager:
                 "ADD COLUMN active_loan_rate REAL NOT NULL DEFAULT 0.0"
             )
         logger.info("v89: added active_loan_* columns to player_bankroll_state")
+
+    def _migrate_v90_add_lender_id_to_player_bankroll(self, conn: sqlite3.Connection) -> None:
+        """Migration v90: Add `active_loan_lender_id` to player_bankroll_state.
+
+        Path B (AI sponsorship) extension: when a player accepts a loan
+        from a named AI personality (vs. the anonymous house sponsor pool),
+        the personality_id of the lender lands here. NULL means anonymous
+        house loan — backward-compatible with v1 sponsorship rows.
+
+        At leave-time, `settle_loan_on_leave` reads this column; when
+        non-NULL, it credits `sponsor_total` back to the lender's
+        persistent AI bankroll via `credit_ai_cash_out` (Path A helper).
+        NULL routes sponsor_total to the ether (anonymous house).
+
+        Reset to NULL on `/api/cash/leave` after settlement — same
+        session-scoping invariant as the rest of the loan fields.
+
+        Idempotent: ALTER is PRAGMA-guarded so re-running is safe.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_bankroll_state)")
+        cols = {row[1] for row in cursor}
+        if "active_loan_lender_id" not in cols:
+            conn.execute(
+                "ALTER TABLE player_bankroll_state "
+                "ADD COLUMN active_loan_lender_id TEXT DEFAULT NULL"
+            )
+        logger.info("v90: added active_loan_lender_id column to player_bankroll_state")
