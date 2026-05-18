@@ -85,27 +85,32 @@ export function TableCard({ table, busy, onSeatTap }: TableCardProps) {
                 title={title}
                 data-emotion={seat.emotion}
               >
-                <div className="lobby-table-card__seat-avatar">
+                <div className="lobby-table-card__seat-image">
                   {(() => {
                     const src = absolutizeAvatarUrl(seat.avatar_url);
                     return src ? (
                       <img src={src} alt={seat.name} loading="lazy" />
                     ) : (
-                      <span aria-hidden="true">
+                      <span
+                        className="lobby-table-card__seat-initial"
+                        aria-hidden="true"
+                      >
                         {seat.name.charAt(0).toUpperCase()}
                       </span>
                     );
                   })()}
                 </div>
-                <div className="lobby-table-card__seat-name">{seat.name}</div>
-                <div className="lobby-table-card__seat-chips">
-                  ${seat.chips.toLocaleString()}
-                </div>
-                {seat.relationship_hint && (
-                  <div className="lobby-table-card__seat-hint">
-                    {seat.relationship_hint}
+                <div className="lobby-table-card__seat-overlay">
+                  <div className="lobby-table-card__seat-name">{seat.name}</div>
+                  <div className="lobby-table-card__seat-chips">
+                    ${seat.chips.toLocaleString()}
                   </div>
-                )}
+                  {seat.relationship_hint && (
+                    <div className="lobby-table-card__seat-hint">
+                      {seat.relationship_hint}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           }
