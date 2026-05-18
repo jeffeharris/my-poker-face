@@ -7,6 +7,11 @@ last_updated: 2026-05-18
 
 # Cash Mode — Path B Handoff: AI-Opponent Sponsorship
 
+**Status: shipped (2026-05-18).** All seven commits in the breakdown
+below landed on branch `path-b-ai-sponsors` off `phase-1`. Schema v90
+applied; 53 personalities seeded with `lender_profile`; frontend
+modal renders personality cards alongside anonymous house fallbacks.
+
 This is **the high-leverage cash-mode feature**. v1 sponsorship
 ships anonymous "house" sponsors (Friendly Boost, Loan Shark, etc.).
 Path B replaces or augments those with **specific AI personalities**

@@ -204,13 +204,15 @@ two new fields (both default 0/0.0).
 
 ### v2 deferred (don't build yet)
 
-- **AI-opponent sponsorship.** "Napoleon will lend you $500 at 35%."
-  Affects the relationship layer: now you owe a specific AI, future
-  hands carry stakes, AI behavior shifts toward the borrower (more
-  aggressive when sponsoring? less likely to bluff out of solidarity?).
-  Each personality could have a sponsorship profile (does this AI
-  lend? at what terms? affected by their `heat`/`respect` toward
-  the player). This is the **real** sandbox payoff.
+- ~~**AI-opponent sponsorship.**~~ **Shipped 2026-05-18 as Path B** —
+  see `CASH_MODE_PATH_B_HANDOFF.md`. Personalities have a
+  `lender_profile` (willing / max_loan_pct / floor_anchor /
+  rate_anchor / respect_floor / heat_ceiling), terms are trimmed at
+  offer time by the relationship axes, and leave-time settlement
+  credits the AI lender's persistent bankroll. Loan lifecycle fires
+  `SPONSORSHIP_OFFERED` / `LOAN_REPAID` / `LOAN_DEFAULTED` so AI
+  behavior toward a defaulting borrower sharpens automatically via
+  the existing modifier seam.
 - **Reputation / credit damage** for forgiven balances.
 - **Persistent loans across sessions** — if you leave the table
   with unpaid debt, it carries to your next sit-down. v1 says
