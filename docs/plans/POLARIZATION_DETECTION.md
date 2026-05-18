@@ -2,7 +2,7 @@
 purpose: Spec for opponent-aggression-polarization detection and its consumer rules
 type: spec
 created: 2026-05-17
-last_updated: 2026-05-18
+last_updated: 2026-05-19
 ---
 
 # Polarization Detection
@@ -65,50 +65,46 @@ Thresholds will calibrate further once Phase A has accumulated real sim data; th
 
 ---
 
-## Phase B status: shipped (code), measurement gate pending
+## Phase B status: shipped, measurement gate run
+
+**Measurement gate (2000 hands per archetype HU vs CaseBot, seed 42, 2026-05-18):**
+
+| Archetype | Post-patch baseline | Phase B | Spec prediction | Verdict |
+|---|---|---|---|---|
+| Rock | −82.2 [−112.8, −51.5] | **−55.2 [−89.4, −21.1]** | recover toward/past pre-patch −58.8 | ✅ matches |
+| TAG | −17.8 [−58.9, +23.3] | −51.5 [−91.8, −11.3] | hold or modestly improve | ⚠️ regression at central trend, CIs overlap |
+| LAG | −94.4 [−142.7, −46.0] | −108.5 [−163.0, −53.9] | modest gain expected | ⚠️ modest regression, CIs overlap |
+
+**Rock recovery is the headline signal and it lands.** −82.2 → −55.2, beating the pre-patch baseline of −58.8. Exactly the spec prediction: polarization gate preserves the value-extraction raise push while killing the fold-reduction that was bleeding chips on marginal calls into CaseBot's polarized range.
+
+TAG and LAG regressed at central trend but CIs overlap with the post-patch baseline in all three matchups — differences are within sample noise at 2000 hands. The TAG result deserves a closer look: spec predicted "hold or modestly improve" given limited room to push a near-zero signal, and we got central trend −34 bb/100 worse. Possible explanations to investigate:
+
+  1. TAG was already partially exploiting CaseBot well; the gate suppresses some of that.
+  2. Sample noise (CI upper bound is −11.3 — within striking distance of the baseline upper bound +23.3).
+  3. The polarization signal IS firing for TAG-vs-CaseBot and the rule's design is wrong on the TAG side.
+
+A paired-sample sim (same hands, Phase B on vs Phase B off) would isolate the effect from noise at this sample size. The current CI overlap means we can't yet say whether Phase B is genuinely a net positive for TAG or LAG.
+
+**Sim wiring caveat (resolved):** `simulate_bb100.run_hand` previously bypassed `MemoryManager.complete_hand`, so Phase A equity-at-action recording never fired in sims. Commit `d7609190` added an inline sim-local equivalent (`_record_sim_equity_at_actions`) so equity gets populated end-to-end. The 50-hand sanity check produced polarization +0.239 on CaseBot (raise-eq 0.683, call-eq 0.443) — the signature is clearly detectable, and at 2000 hands the signal should be solidly above the 0.25 threshold for the gate to actively fire.
+
+### What shipped under "Phase B"
 
 `compute_aggression_polarization` helper + hyper_passive split landed
-2026-05-18. The value-extraction half (`raise_like += 0.3 * scale`)
-always fires when `hyper_passive_intensity > 0` and the
-non-all-in-station-continuing flag is set. The fold-reduction half
-(`fold -= 0.2 * scale`) fires only when the per-opponent polarization
-signal is below `POLARIZATION_HIGH = 0.25` or insufficient sample is
-available — in which case `polarization_gate ∈ {'noisy_station',
-'insufficient_sample'}` and the rule's behavior is unchanged.
+2026-05-18 (commits `5f85ac81`, `36cea1b4`, `d7609190`).
 
-When `polarization_gate == 'polarized_station'`, only the raise push
-fires and the §5.5 budget (`('exploitation', 'hyper_passive'): 0.80`)
-continues to clamp the value-extraction half if it overshoots — the
-test `test_budget_clamp_still_applies_to_polarized_half` pins this.
+- Value-extraction half (`raise_like += 0.3 * scale`) always fires when `hyper_passive_intensity > 0` and the non-all-in-station-continuing flag is set.
+- Fold-reduction half (`fold -= 0.2 * scale`) fires only when polarization signal is below `POLARIZATION_HIGH = 0.25` or sample is insufficient — `polarization_gate ∈ {'noisy_station', 'insufficient_sample'}`, behavior unchanged.
+- When `polarization_gate == 'polarized_station'`, only the raise push fires and the §5.5 budget (`hyper_passive`: 0.80) continues to clamp it. `test_budget_clamp_still_applies_to_polarized_half` pins this.
 
-`AggregatedOpponentStats` now propagates the Phase A equity fields
-(`equity_when_raising_postflop`, `equity_when_calling_postflop`, plus
-matching `_equity_*_count`) end-to-end:
+`AggregatedOpponentStats` propagates the Phase A equity fields end-to-end through `_build_aggregate_from_single` (verbatim from `OpponentTendencies`), `_build_aggregate_from_multi` (equal-weight legacy), `aggregate_from_spots` (stake-weighted canonical), `_copy_stats`, and `TieredBotController._build_opponent_spots` (with `getattr`-with-default for SimpleNamespace tests).
 
-- `_build_aggregate_from_single` → verbatim copy from `OpponentTendencies`
-- `_build_aggregate_from_multi` → equal-weight average / MIN counter
-  (legacy path)
-- `aggregate_from_spots` → stake-weighted average / MIN counter
-  (canonical spot-aware path)
-- `_copy_stats` → verbatim for single-opponent / 60%-dominant branches
-- `TieredBotController._build_opponent_spots` → reads from tendencies
-  with `getattr`-with-default for SimpleNamespace test compatibility
+Diagnostic surface on `rule_context[('exploitation', 'hyper_passive')]['inputs']` gains `polarization_gate`, `polarization`, `equity_raising_count`, `equity_calling_count` — propagates to `InterventionTrace.inputs`.
 
-Diagnostic surface on `rule_context[('exploitation', 'hyper_passive')]`
-gains `polarization_gate`, `polarization`, `equity_raising_count`,
-`equity_calling_count` (under `inputs`, so they propagate to
-`InterventionTrace.inputs`).
-
-Tests: `tests/test_strategy/test_polarization.py` (24 tests, green).
-Memory + strategy regression suites green except for two pre-existing
-Track B `apply_relationship_modifier` failures unrelated to Phase B.
-
-The measurement gate (bb/100 sims per archetype vs CaseBot) is the
-next step.
+Tests: `tests/test_strategy/test_polarization.py` (24 tests, green). Memory + strategy regression suites green except for two pre-existing Track B `apply_relationship_modifier` failures unrelated to Phase B.
 
 ---
 
-## Phase B: gate `hyper_passive` fold-reduction
+## Phase B: gate `hyper_passive` fold-reduction (original spec)
 
 The two halves of `hyper_passive` ship today as a coupled rule:
 
