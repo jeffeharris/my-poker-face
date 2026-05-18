@@ -119,3 +119,14 @@ class TestListEligibleForCashMode:
         _insert(db_path, name="Abraham Lincoln", personality_id="abraham_lincoln")
         result = repo.list_eligible_for_cash_mode()
         assert result == [{"personality_id": "abraham_lincoln", "name": "Abraham Lincoln"}]
+
+    def test_excludes_rule_bot_stand_ins(self, db_path, repo):
+        # CaseBot / GTO-Lite / BaselineSolver are seeded for tournament-
+        # mode picker symmetry but should not appear as cash opponents.
+        _insert(db_path, name="Abraham Lincoln", personality_id="abraham_lincoln")
+        _insert(db_path, name="CaseBot", personality_id="casebot")
+        _insert(db_path, name="GTO-Lite", personality_id="gto_lite")
+        _insert(db_path, name="BaselineSolver", personality_id="baselinesolver")
+        result = repo.list_eligible_for_cash_mode()
+        ids = {r["personality_id"] for r in result}
+        assert ids == {"abraham_lincoln"}

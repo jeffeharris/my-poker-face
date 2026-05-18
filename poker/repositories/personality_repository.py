@@ -14,6 +14,18 @@ from poker.personality_id import (
 
 logger = logging.getLogger(__name__)
 
+# Seeded rule-bot stand-ins (CaseBot / GTO-Lite / BaselineSolver) that
+# live in the personalities table for tournament-mode picker symmetry
+# but are NOT roleplay characters and shouldn't fill cash-mode seats —
+# they'd otherwise leak into cash sessions and play as `sharp` purely
+# on their authored poise. Filtered by stable personality_id so display
+# names can be renamed without re-opening the gate.
+CASH_INELIGIBLE_PERSONALITY_IDS = frozenset({
+    "casebot",
+    "gto_lite",
+    "baselinesolver",
+})
+
 
 class PersonalityRepository(BaseRepository):
     """Handles CRUD operations for personalities and avatar images."""
@@ -303,6 +315,9 @@ class PersonalityRepository(BaseRepository):
           - Rows with NULL `personality_id` are excluded — they
             can't be keyed for cash persistence (pre-v85 leftovers
             that escaped backfill, malformed seeds).
+          - Rule-bot stand-ins in :data:`CASH_INELIGIBLE_PERSONALITY_IDS`
+            are excluded — they exist in the table for tournament-mode
+            picker symmetry but aren't real cash opponents.
 
         Distinct from `list_personalities`: that method returns
         display-name-keyed metadata for management UI; this method
@@ -319,6 +334,11 @@ class PersonalityRepository(BaseRepository):
 
             conditions = ["personality_id IS NOT NULL"]
             params: list = []
+
+            if CASH_INELIGIBLE_PERSONALITY_IDS:
+                placeholders = ",".join("?" * len(CASH_INELIGIBLE_PERSONALITY_IDS))
+                conditions.append(f"personality_id NOT IN ({placeholders})")
+                params.extend(sorted(CASH_INELIGIBLE_PERSONALITY_IDS))
 
             if has_ownership:
                 visibility_clauses = ["visibility = 'public'"]
