@@ -41,16 +41,20 @@ def _mock_authorization_service(user, has_admin_permission=True):
 
 
 class _CashLobbyRouteBase(unittest.TestCase):
-    def setUp(self):
-        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        self.test_db.close()
+    """Class-scoped tempdb (avoids the prompt_preset_repo module-level
+    binding flake described in test_cash_sit_route)."""
 
-        repos = create_repos(self.test_db.name)
-        self.bankroll_repo = repos['bankroll_repo']
-        self.personality_repo = repos['personality_repo']
-        self.relationship_repo = repos['relationship_repo']
-        self.cash_table_repo = repos['cash_table_repo']
-        self.game_repo = repos['game_repo']
+    @classmethod
+    def setUpClass(cls):
+        cls.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        cls.test_db.close()
+
+        repos = create_repos(cls.test_db.name)
+        cls.bankroll_repo = repos['bankroll_repo']
+        cls.personality_repo = repos['personality_repo']
+        cls.relationship_repo = repos['relationship_repo']
+        cls.cash_table_repo = repos['cash_table_repo']
+        cls.game_repo = repos['game_repo']
 
         def mock_init_persistence():
             import flask_app.extensions as ext
@@ -67,9 +71,7 @@ class _CashLobbyRouteBase(unittest.TestCase):
                     setattr(ext, key, repos[key])
             ext.persistence_db_path = repos['db_path']
 
-        # Seed personalities BEFORE create_app so the lobby boot hook
-        # can find them.
-        self.napoleon_id = self.personality_repo.save_personality(
+        cls.napoleon_id = cls.personality_repo.save_personality(
             'Napoleon',
             {
                 'play_style': 'aggressive',
@@ -81,16 +83,24 @@ class _CashLobbyRouteBase(unittest.TestCase):
                 },
             },
         )
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=self.napoleon_id, chips=10_000,
+        cls.bankroll_repo.save_ai_bankroll(AIBankrollState(
+            personality_id=cls.napoleon_id, chips=10_000,
             last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
         ))
 
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
-            self.app = create_app()
-        self.app.testing = True
-        self.client = self.app.test_client()
+            cls.app = create_app()
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
 
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            os.unlink(cls.test_db.name)
+        except FileNotFoundError:
+            pass
+
+    def setUp(self):
         user = {'id': PLAYER_OWNER_ID, 'name': 'Tester'}
         self._authz_patcher = patch(
             'poker.authorization.authorization_service',
@@ -108,10 +118,9 @@ class _CashLobbyRouteBase(unittest.TestCase):
     def tearDown(self):
         self._auth_patcher.stop()
         self._authz_patcher.stop()
-        os.unlink(self.test_db.name)
 
 
-class TestLobbyResponseShape(_CashLobbyRouteBase):
+class TestLobbyRouteAll(_CashLobbyRouteBase):
     def test_returns_bankroll_and_tables(self):
         resp = self.client.get("/api/cash/lobby")
         assert resp.status_code == 200
@@ -142,7 +151,7 @@ class TestLobbyResponseShape(_CashLobbyRouteBase):
             assert len(t["seats"]) == 6
 
 
-class TestAffordabilityTriState(_CashLobbyRouteBase):
+    # --- Affordability tri-state (rolled into single class).
     def _set_player_bankroll(self, chips):
         self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
             player_id=PLAYER_OWNER_ID, chips=chips, starting_bankroll=200,
@@ -168,7 +177,7 @@ class TestAffordabilityTriState(_CashLobbyRouteBase):
             assert t["affordability"] == "affordable"
 
 
-class TestMovementOnRead(_CashLobbyRouteBase):
+    # --- Movement on read.
     def test_last_activity_at_bumps_on_read(self):
         # The route triggers refresh_unseated_tables, which always bumps
         # last_activity_at via save_table. Pre-read the value, then re-read.
@@ -192,7 +201,7 @@ class TestMovementOnRead(_CashLobbyRouteBase):
         assert after_second.last_activity_at >= first_ts
 
 
-class TestSeatSerialization(_CashLobbyRouteBase):
+    # --- Seat serialization.
     def test_ai_seat_carries_personality_id_and_chips(self):
         resp = self.client.get("/api/cash/lobby")
         data = resp.get_json()

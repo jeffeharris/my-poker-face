@@ -270,6 +270,8 @@ def _build_cash_game(
     welcome_message: str,
     opponent_count: int = 5,
     now: Optional[datetime] = None,
+    preselected_ai: Optional[list] = None,
+    preselected_ai_chips: Optional[Dict[str, int]] = None,
 ) -> tuple[Optional[str], Optional[tuple[dict, int]]]:
     """Create + register a cash game; return (game_id, None) or (None, (err, status)).
 
@@ -278,6 +280,15 @@ def _build_cash_game(
     caller decides whether to debit (start path) or write loan fields
     (sponsor path). AI bankrolls ARE debited here — they're symmetric
     across both paths.
+
+    `preselected_ai` / `preselected_ai_chips` (lobby v1.5): when the
+    caller already has a roster (from the persisted `cash_tables`
+    row), pass `preselected_ai=[{personality_id, name}, ...]` and
+    `preselected_ai_chips={personality_id: chips}`. AI stacks come
+    from the table's persisted chip counts rather than fresh
+    randomization. Falls back to the legacy "pick fresh eligible"
+    path when both are None — preserves `/api/cash/start` and
+    `/api/cash/sponsor-and-sit` behavior.
 
     The error tuple is `(json_body, http_status)` so the caller can
     `return jsonify(err), status` directly.
@@ -298,41 +309,68 @@ def _build_cash_game(
         capture_label_repo, decision_analysis_repo,
     )
 
-    # 1. Pick AI personalities.
-    eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
     selected_ai: list = []
     ai_buy_ins: Dict[str, int] = {}
     ai_states: Dict[str, AIBankrollState] = {}
-    for entry in eligible:
-        if len(selected_ai) >= opponent_count:
-            break
-        pid = entry["personality_id"]
-        name = entry["name"]
-        knobs = bankroll_repo.load_personality_knobs(pid)
-        ai_threshold = round(min_buy_in * knobs.buy_in_multiplier)
-        ai_buy_in = min(ai_threshold, max_buy_in)
 
-        stored = bankroll_repo.load_ai_bankroll(pid)
-        if stored is None:
-            projected = knobs.bankroll_cap
-            stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
-        else:
-            projected = project_bankroll(
-                stored, knobs.bankroll_cap, knobs.bankroll_rate, now,
+    if preselected_ai is not None:
+        # Lobby v1.5 path: AI roster + chip counts come from the
+        # persisted table. AI bankrolls are NOT debited because the
+        # chips are already "on the table" — the AI never returned
+        # them to bankroll on a prior leave (Path A's leave-time
+        # cash_out credits the final stack back; in v1.5, the chips
+        # persist with the seat instead).
+        chip_map = preselected_ai_chips or {}
+        for entry in preselected_ai:
+            pid = entry.get("personality_id")
+            name = entry.get("name") or pid
+            if not pid:
+                continue
+            chips = int(chip_map.get(pid, 0))
+            if chips <= 0:
+                # Shouldn't happen — a seated AI with zero chips is a
+                # bug elsewhere. Skip to avoid bad game state.
+                continue
+            selected_ai.append({"personality_id": pid, "name": name})
+            ai_buy_ins[pid] = chips
+        if not selected_ai:
+            return None, (
+                {"error": "No AI players on the table to sit against"},
+                503,
             )
-        if projected < ai_threshold:
-            continue
-        selected_ai.append({"personality_id": pid, "name": name})
-        ai_buy_ins[pid] = ai_buy_in
-        ai_states[pid] = AIBankrollState(
-            personality_id=pid, chips=projected, last_regen_tick=stored.last_regen_tick,
-        )
+    else:
+        # Legacy path: pick fresh eligible personalities.
+        eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
+        for entry in eligible:
+            if len(selected_ai) >= opponent_count:
+                break
+            pid = entry["personality_id"]
+            name = entry["name"]
+            knobs = bankroll_repo.load_personality_knobs(pid)
+            ai_threshold = round(min_buy_in * knobs.buy_in_multiplier)
+            ai_buy_in = min(ai_threshold, max_buy_in)
 
-    if not selected_ai:
-        return None, (
-            {"error": "No eligible AI opponents available for this stake"},
-            503,
-        )
+            stored = bankroll_repo.load_ai_bankroll(pid)
+            if stored is None:
+                projected = knobs.bankroll_cap
+                stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
+            else:
+                projected = project_bankroll(
+                    stored, knobs.bankroll_cap, knobs.bankroll_rate, now,
+                )
+            if projected < ai_threshold:
+                continue
+            selected_ai.append({"personality_id": pid, "name": name})
+            ai_buy_ins[pid] = ai_buy_in
+            ai_states[pid] = AIBankrollState(
+                personality_id=pid, chips=projected, last_regen_tick=stored.last_regen_tick,
+            )
+
+        if not selected_ai:
+            return None, (
+                {"error": "No eligible AI opponents available for this stake"},
+                503,
+            )
 
     # 2. Build the game state.
     from poker.poker_game import initialize_game_state
@@ -465,6 +503,9 @@ def _build_cash_game(
     )
 
     # 6. Debit AI bankrolls.
+    # Only fires for the legacy "fresh sample" path. Lobby v1.5 sits
+    # use the persisted table chips, which already represent chips
+    # off-bankroll, so debiting here would double-charge the AI.
     for pid, state in ai_states.items():
         debited = AIBankrollState(
             personality_id=pid,
@@ -599,6 +640,172 @@ def start_cash_session():
     ))
 
     return jsonify({"game_id": game_id})
+
+
+@cash_bp.route("/api/cash/sit", methods=["POST"])
+def sit_at_table():
+    """POST /api/cash/sit  body: {table_id, seat_index, buy_in?}
+
+    Lobby v1.5 sit-down — replaces `/api/cash/start`. The player taps
+    an open seat in the lobby; the route validates that the seat is
+    open on the persisted table, that they can afford it, and that
+    they have no active session. On success, the persisted table is
+    mutated to mark the seat `"human"` (so concurrent reads see the
+    sit), then a cash game is built using the table's CURRENT AI
+    roster + persisted chip counts (no fresh sample).
+
+    `buy_in` is optional; when omitted, defaults to the table's
+    `min_buy_in`. Must lie in `[min_buy_in, max_buy_in]` if provided.
+
+    Returns:
+      - 200 `{game_id, table_id, seat_index}` on success.
+      - 402 `{requires_sponsor: True, ...}` when bankroll <
+        min_buy_in but sponsor-eligible at this stake. Frontend opens
+        SponsorModal.
+      - 400 on invalid input / unaffordable / not sponsor-eligible.
+      - 404 if `table_id` doesn't exist.
+      - 409 if the seat is taken or the player has an active session.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    payload = request.get_json(silent=True) or {}
+    table_id = payload.get("table_id")
+    seat_index = payload.get("seat_index")
+    buy_in = payload.get("buy_in")
+
+    if not isinstance(table_id, str) or not table_id:
+        return jsonify({"error": "table_id is required"}), 400
+    if not isinstance(seat_index, int) or seat_index < 0:
+        return jsonify({"error": "seat_index must be a non-negative integer"}), 400
+
+    from flask_app.extensions import bankroll_repo, cash_table_repo
+
+    table = cash_table_repo.load_table(table_id)
+    if table is None:
+        return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
+
+    if seat_index >= len(table.seats):
+        return jsonify({"error": "seat_index out of range"}), 400
+    target_slot = table.seats[seat_index]
+    if target_slot["kind"] != "open":
+        return jsonify({
+            "error": "Seat is not open",
+            "seat_kind": target_slot["kind"],
+        }), 409
+
+    stake_label = table.stake_label
+    if stake_label not in STAKES_LADDER:
+        return jsonify({
+            "error": f"Table has invalid stake_label {stake_label!r}",
+        }), 500
+    _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
+
+    if buy_in is None:
+        buy_in = min_buy_in
+    if not isinstance(buy_in, int) or buy_in <= 0:
+        return jsonify({"error": "buy_in must be a positive integer"}), 400
+    if buy_in < min_buy_in or buy_in > max_buy_in:
+        return jsonify({
+            "error": (
+                f"buy_in {buy_in} out of range for {stake_label} table "
+                f"(min={min_buy_in}, max={max_buy_in})"
+            ),
+        }), 400
+
+    # Block duplicate sessions: one cash game per owner at a time.
+    existing = _find_active_cash_game_id(owner_id)
+    if existing is not None:
+        return jsonify({
+            "error": "A cash session is already active. Leave first.",
+            "game_id": existing,
+        }), 409
+
+    # Affordability + sponsor-eligibility branching.
+    player_bankroll = _load_or_seed_player_bankroll(owner_id)
+    if player_bankroll.chips < buy_in:
+        if is_sponsor_eligible(player_bankroll.chips, stake_label):
+            return jsonify({
+                "requires_sponsor": True,
+                "stake_label": stake_label,
+                "bankroll": player_bankroll.chips,
+                "min_buy_in": min_buy_in,
+                "max_buy_in": max_buy_in,
+            }), 402
+        return jsonify({
+            "error": (
+                f"Insufficient bankroll: {player_bankroll.chips} chips, "
+                f"buy_in {buy_in}"
+            ),
+            "bankroll": player_bankroll.chips,
+        }), 400
+
+    # Persist the seat claim immediately so a second device can't
+    # double-sit. The roster-based _build_cash_game below reads this
+    # updated table.
+    from cash_mode.tables import human_slot
+    claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
+    cash_table_repo.save_table(claimed_table)
+
+    # Build the cash game using the table's CURRENT AI roster + chip counts.
+    preselected_ai = []
+    preselected_chips = {}
+    for slot in claimed_table.seats:
+        if slot["kind"] != "ai":
+            continue
+        pid = slot["personality_id"]
+        # Look up display name from the personality repo. Falls back to
+        # personality_id if the row was deleted under us (shouldn't
+        # happen for seated AIs).
+        from flask_app.extensions import personality_repo
+        personality = None
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            personality = None
+        name = (personality or {}).get("name") if personality else pid
+        preselected_ai.append({"personality_id": pid, "name": name})
+        preselected_chips[pid] = int(slot.get("chips", 0))
+
+    game_id, err = _build_cash_game(
+        owner_id=owner_id,
+        stake_label=stake_label,
+        player_starting_stack=buy_in,
+        welcome_message=(
+            f"*** Cash table {stake_label} — sit down at ${buy_in} ***"
+        ),
+        preselected_ai=preselected_ai,
+        preselected_ai_chips=preselected_chips,
+    )
+    if err is not None:
+        # Roll back the seat claim so the player can retry.
+        cash_table_repo.save_table(table)
+        return jsonify(err[0]), err[1]
+
+    # Debit the player's bankroll. Loan fields stay zeroed — this is
+    # the self-funded path.
+    bankroll_repo.save_player_bankroll(PlayerBankrollState(
+        player_id=player_bankroll.player_id,
+        chips=player_bankroll.chips - buy_in,
+        starting_bankroll=player_bankroll.starting_bankroll,
+    ))
+
+    # Stash the table_id + seat_index on the game_data so /api/cash/leave
+    # can free the seat back to "open" at session end.
+    from flask_app.services import game_state_service
+    game_data = game_state_service.get_game(game_id)
+    if game_data is not None:
+        game_data["cash_table_id"] = table_id
+        game_data["cash_seat_index"] = seat_index
+        game_state_service.set_game(game_id, game_data)
+
+    return jsonify({
+        "game_id": game_id,
+        "table_id": table_id,
+        "seat_index": seat_index,
+    })
 
 
 @cash_bp.route("/api/cash/sponsor-offers", methods=["GET"])
