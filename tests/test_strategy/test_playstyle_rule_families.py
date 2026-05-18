@@ -704,9 +704,12 @@ class TestAggregateColdStartBypass:
     helpers already self-gate on per-opponent samples.
     """
 
-    def test_cold_start_aggregate_blocks_legacy_rules(self):
-        # vpip > 0.60 + AF < 0.80 would trigger hyper_passive, but the
-        # aggregate cold-start gate (hands < 15) suppresses it.
+    def test_cold_start_aggregate_now_fires_at_low_confidence(self):
+        """Pre-7b: aggregate cold-start (hands < 15) blocked the
+        hyper_passive rule entirely → empty offsets. Post-7b: the rule
+        fires at low confidence_ramp (5/100 = 0.05 strength at hands=5),
+        so offsets are non-empty but small. Cold-start replacement
+        (Track A item 7b) eliminated the predictable 15-hand window."""
         offsets = compute_exploitation_offsets(
             stats=_stats(hands_observed=5, vpip=0.85,
                          aggression_factor=0.4),
@@ -714,9 +717,12 @@ class TestAggregateColdStartBypass:
             decision_context=_basic_decision_context(is_preflop=False),
             available_actions=['check', 'bet_33', 'bet_67', 'fold'],
         )
-        # Without Phase 8 intensities and with cold-start aggregate,
-        # behavior matches the pre-Phase-8 contract: empty offsets.
-        assert offsets == {}
+        # Smooth ramp now lets hyper_passive fire weakly at low hand
+        # counts — bot adapts from hand 1, just gently.
+        assert offsets != {}, (
+            "Cold-start replacement should let aggregate rules fire "
+            "weakly under MIN_HANDS_DEFAULT, not return empty offsets."
+        )
 
     def test_cold_start_aggregate_does_not_block_value_vs_station(self):
         # Same cold-start aggregate, but value_vs_station_intensity > 0
