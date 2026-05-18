@@ -1278,6 +1278,13 @@ def _build_aggregate_from_single(t: OpponentTendencies):
         vpip_per_voluntary_opportunity=t.vpip_per_voluntary_opportunity,
         preflop_open_opportunities=t._preflop_open_opportunities,
         preflop_voluntary_opportunities=t._preflop_voluntary_opportunities,
+        # Polarization Phase A equity-at-action fields
+        equity_when_betting_postflop=t.equity_when_betting_postflop,
+        equity_when_raising_postflop=t.equity_when_raising_postflop,
+        equity_when_calling_postflop=t.equity_when_calling_postflop,
+        _equity_betting_count=t._equity_betting_count,
+        _equity_raising_count=t._equity_raising_count,
+        _equity_calling_count=t._equity_calling_count,
     )
 
 
@@ -1326,6 +1333,28 @@ def _build_aggregate_from_multi(tendencies_list):
         t._preflop_voluntary_opportunities for t in tendencies_list
     )
 
+    # Polarization Phase A equity-at-action fields — same policy:
+    # rates average across the list (legacy equal-weight path; the
+    # spot-aware aggregate_from_spots stake-weights), counters MIN.
+    avg_eq_betting = sum(
+        t.equity_when_betting_postflop for t in tendencies_list
+    ) / n
+    avg_eq_raising = sum(
+        t.equity_when_raising_postflop for t in tendencies_list
+    ) / n
+    avg_eq_calling = sum(
+        t.equity_when_calling_postflop for t in tendencies_list
+    ) / n
+    min_eq_betting_count = min(
+        t._equity_betting_count for t in tendencies_list
+    )
+    min_eq_raising_count = min(
+        t._equity_raising_count for t in tendencies_list
+    )
+    min_eq_calling_count = min(
+        t._equity_calling_count for t in tendencies_list
+    )
+
     return AggregatedOpponentStats(
         hands_observed=min_hands,
         vpip=avg_vpip,
@@ -1343,6 +1372,12 @@ def _build_aggregate_from_multi(tendencies_list):
         vpip_per_voluntary_opportunity=avg_vpip_per_vol,
         preflop_open_opportunities=min_pre_open_opps,
         preflop_voluntary_opportunities=min_pre_vol_opps,
+        equity_when_betting_postflop=avg_eq_betting,
+        equity_when_raising_postflop=avg_eq_raising,
+        equity_when_calling_postflop=avg_eq_calling,
+        _equity_betting_count=min_eq_betting_count,
+        _equity_raising_count=min_eq_raising_count,
+        _equity_calling_count=min_eq_calling_count,
     )
 
 

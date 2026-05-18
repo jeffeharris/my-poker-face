@@ -2150,6 +2150,27 @@ class TieredBotController(AIPlayerController):
                             preflop_voluntary_opportunities=getattr(
                                 t, '_preflop_voluntary_opportunities', 0,
                             ),
+                            # Polarization Phase A equity-at-action fields.
+                            # getattr-with-default for SimpleNamespace
+                            # tests predating the field.
+                            equity_when_betting_postflop=getattr(
+                                t, 'equity_when_betting_postflop', 0.5,
+                            ),
+                            equity_when_raising_postflop=getattr(
+                                t, 'equity_when_raising_postflop', 0.5,
+                            ),
+                            equity_when_calling_postflop=getattr(
+                                t, 'equity_when_calling_postflop', 0.5,
+                            ),
+                            _equity_betting_count=getattr(
+                                t, '_equity_betting_count', 0,
+                            ),
+                            _equity_raising_count=getattr(
+                                t, '_equity_raising_count', 0,
+                            ),
+                            _equity_calling_count=getattr(
+                                t, '_equity_calling_count', 0,
+                            ),
                         )
 
             spots.append(OpponentSpot(

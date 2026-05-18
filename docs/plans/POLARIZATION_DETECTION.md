@@ -2,7 +2,7 @@
 purpose: Spec for opponent-aggression-polarization detection and its consumer rules
 type: spec
 created: 2026-05-17
-last_updated: 2026-05-17
+last_updated: 2026-05-18
 ---
 
 # Polarization Detection
@@ -62,6 +62,49 @@ Rationale:
 - 8 observations per bucket gives a stable enough mean to distinguish 0.25 polarization from noise. At fewer samples the standard error of the mean is too large to gate on confidently.
 
 Thresholds will calibrate further once Phase A has accumulated real sim data; the values above are reasonable defaults to ship Phase B against.
+
+---
+
+## Phase B status: shipped (code), measurement gate pending
+
+`compute_aggression_polarization` helper + hyper_passive split landed
+2026-05-18. The value-extraction half (`raise_like += 0.3 * scale`)
+always fires when `hyper_passive_intensity > 0` and the
+non-all-in-station-continuing flag is set. The fold-reduction half
+(`fold -= 0.2 * scale`) fires only when the per-opponent polarization
+signal is below `POLARIZATION_HIGH = 0.25` or insufficient sample is
+available — in which case `polarization_gate ∈ {'noisy_station',
+'insufficient_sample'}` and the rule's behavior is unchanged.
+
+When `polarization_gate == 'polarized_station'`, only the raise push
+fires and the §5.5 budget (`('exploitation', 'hyper_passive'): 0.80`)
+continues to clamp the value-extraction half if it overshoots — the
+test `test_budget_clamp_still_applies_to_polarized_half` pins this.
+
+`AggregatedOpponentStats` now propagates the Phase A equity fields
+(`equity_when_raising_postflop`, `equity_when_calling_postflop`, plus
+matching `_equity_*_count`) end-to-end:
+
+- `_build_aggregate_from_single` → verbatim copy from `OpponentTendencies`
+- `_build_aggregate_from_multi` → equal-weight average / MIN counter
+  (legacy path)
+- `aggregate_from_spots` → stake-weighted average / MIN counter
+  (canonical spot-aware path)
+- `_copy_stats` → verbatim for single-opponent / 60%-dominant branches
+- `TieredBotController._build_opponent_spots` → reads from tendencies
+  with `getattr`-with-default for SimpleNamespace test compatibility
+
+Diagnostic surface on `rule_context[('exploitation', 'hyper_passive')]`
+gains `polarization_gate`, `polarization`, `equity_raising_count`,
+`equity_calling_count` (under `inputs`, so they propagate to
+`InterventionTrace.inputs`).
+
+Tests: `tests/test_strategy/test_polarization.py` (24 tests, green).
+Memory + strategy regression suites green except for two pre-existing
+Track B `apply_relationship_modifier` failures unrelated to Phase B.
+
+The measurement gate (bb/100 sims per archetype vs CaseBot) is the
+next step.
 
 ---
 
