@@ -1,0 +1,30 @@
+{
+  "name": "phase3_relationship_sanity",
+  "description": "Phase 3 sanity check: verify HandOutcomeDetector populates relationship_states from real play via the wired integration in AIMemoryManager. All-rule_bot (no LLM cost), heads-up so big-pot detection fires reliably.",
+  "tags": ["phase3", "relationship", "sanity"],
+  "num_tournaments": 1,
+  "hands_per_tournament": 40,
+  "num_players": 2,
+  "starting_stack": 1000,
+  "big_blind": 50,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["GTO-Lite", "ABCBot"],
+  "player_types": {
+    "GTO-Lite": {
+      "type": "rule_bot",
+      "strategy": "pot_odds_robot"
+    },
+    "ABCBot": {
+      "type": "rule_bot",
+      "strategy": "abc"
+    }
+  },
+  "capture_prompts": false,
+  "control": {
+    "label": "phase3 sanity",
+    "enable_psychology": false,
+    "enable_telemetry": false,
+    "enable_commentary": false
+  }
+}

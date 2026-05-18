@@ -27,7 +27,7 @@ from poker.tournament_tracker import TournamentTracker
 from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
 
 from ..game_adapter import StateMachineAdapter
-from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, prompt_preset_repo, decision_analysis_repo, capture_label_repo, coach_repo, persistence_db_path, personality_repo
+from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, prompt_preset_repo, decision_analysis_repo, capture_label_repo, coach_repo, relationship_repo, persistence_db_path, personality_repo
 from ..socket_rate_limit import socket_rate_limit
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
@@ -527,6 +527,12 @@ def api_game_state(game_id):
 
                         memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
                         memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
+                        # Phase 3: relationship state populates from hand
+                        # outcomes. Tournament mode (the only mode today)
+                        # → cash_mode=False; cash_pair_stats stays empty.
+                        memory_manager.set_relationship_repo(
+                            relationship_repo, cash_mode=False,
+                        )
 
                         # Restore hand count from database
                         restored_hand_count = hand_history_repo.get_hand_count(game_id)
@@ -1180,6 +1186,12 @@ def api_new_game():
 
     memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
     memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
+    # Phase 3: relationship state populates from hand outcomes.
+    # Tournament mode (the only mode today) → cash_mode=False;
+    # cash_pair_stats stays empty.
+    memory_manager.set_relationship_repo(
+        relationship_repo, cash_mode=False,
+    )
     for player in state_machine.game_state.players:
         # Resolve each player's stable personality_id (None for humans)
         try:

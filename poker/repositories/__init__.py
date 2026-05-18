@@ -24,6 +24,7 @@ from .hand_history_repository import HandHistoryRepository
 from .tournament_repository import TournamentRepository
 from .llm_repository import LLMRepository
 from .coach_repository import CoachRepository
+from .relationship_repository import RelationshipRepository
 
 
 def create_repos(db_path: str) -> dict:
@@ -55,6 +56,7 @@ def create_repos(db_path: str) -> dict:
         'guest_tracking_repo': GuestTrackingRepository(db_path),
         'coach_repo': CoachRepository(db_path),
         'pressure_event_repo': PressureEventRepository(db_path),
+        'relationship_repo': RelationshipRepository(db_path),
         'db_path': db_path,
     }
 
@@ -73,6 +75,7 @@ __all__ = [
     'PressureEventRepository',
     'PromptCaptureRepository',
     'PromptPresetRepository',
+    'RelationshipRepository',
     'ReplayExperimentRepository',
     'SavedGame',
     'SchemaManager',

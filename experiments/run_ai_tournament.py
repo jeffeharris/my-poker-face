@@ -578,6 +578,7 @@ class AITournamentRunner:
         self.capture_label_repo = repos['capture_label_repo']
         self.tournament_repo = repos['tournament_repo']
         self.hand_history_repo = repos['hand_history_repo']
+        self.relationship_repo = repos['relationship_repo']
         self.all_personalities = get_celebrities()
 
         # Pressure event detection and persistence for psychology system
@@ -759,6 +760,13 @@ class AITournamentRunner:
         )
         # Set persistence so hand history is saved to database
         memory_manager.set_hand_history_repo(self.hand_history_repo)
+        # Phase 3: wire relationship persistence so HandOutcomeDetector
+        # populates relationship_states from real play. Tournament
+        # games — `cash_mode=False` keeps `cash_pair_stats` empty
+        # (PnL is meaningless when chips reset).
+        memory_manager.set_relationship_repo(
+            self.relationship_repo, cash_mode=False,
+        )
 
         # Determine LLM config: use variant_config if provided, else use experiment defaults
         if variant_config:

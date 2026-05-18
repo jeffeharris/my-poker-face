@@ -207,6 +207,14 @@ def resume_variant_impl(
         game_id=game_id,
         db_path=db_path,
     )
+    # Phase 3: wire relationship persistence so resumed tournaments
+    # also populate relationship_states. Tournament mode → cash_mode
+    # off (same gating as the fresh-tournament path in
+    # AITournamentRunner._setup_game).
+    memory_manager.set_hand_history_repo(repos['hand_history_repo'])
+    memory_manager.set_relationship_repo(
+        repos['relationship_repo'], cash_mode=False,
+    )
 
     # Create runner
     runner = AITournamentRunner(

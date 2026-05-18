@@ -14,7 +14,7 @@ from flask import Blueprint, jsonify, request, session, Response
 
 from core.llm import LLMClient, CallType
 from poker.prompt_config import PromptConfig
-from ..extensions import limiter, experiment_repo, game_repo, personality_repo, persistence_db_path, hand_history_repo, auth_manager
+from ..extensions import limiter, experiment_repo, game_repo, personality_repo, persistence_db_path, hand_history_repo, relationship_repo, auth_manager
 from .. import config
 from experiments.pause_coordinator import pause_coordinator
 from datetime import datetime, timedelta
@@ -2817,6 +2817,11 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                     owner_id=f"experiment_{exp_config.name}"
                 )
                 memory_manager.set_hand_history_repo(hand_history_repo)
+                # Phase 3: relationship state populates from hand
+                # outcomes. Tournament path → cash_mode=False.
+                memory_manager.set_relationship_repo(
+                    relationship_repo, cash_mode=False,
+                )
 
                 # Initialize memory manager for players
                 for player in state_machine.game_state.players:
