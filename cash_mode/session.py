@@ -16,16 +16,19 @@ hands; the state machine doesn't.
 Spec: docs/plans/CASH_MODE_AND_RELATIONSHIPS.md Part 2.
 Wiring plan: docs/plans/CASH_MODE_V1_WIRING_PLAN.md.
 
-What v1 ships here (commit 3):
+What v1 ships here (commits 3 + 4):
   - Sit/leave/topup methods (delegate to seating.py).
   - run_hand: full memory lifecycle, fresh state machine, settlement
     sync, bust handling.
+  - Mid-hand quit: player's full table stack is forfeited; remaining
+    stack distributed to surviving seats at settlement.
+  - Disconnect grace: 60s window with auto-check / auto-fold during
+    the player's turn; timeout triggers the quit accounting path.
   - Controller-based design — every seat has a controller. Real
     human-input handling lands in commit 5 (Flask routes detect
     is_human and yield).
 
 What v1 doesn't ship in this commit:
-  - Mid-hand quit / disconnect grace (commit 4).
   - Flask route / SocketIO integration (commit 5).
   - Stop-loss / stop-win (deferred to v2).
   - Persisting CashTable across process restarts (deferred to v2).
@@ -36,7 +39,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional, Protocol, Set
 
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
 from cash_mode.seat_filler import fill_seats as _fill_seats
@@ -111,6 +114,14 @@ class HandResult:
     error: Optional[str] = None
 
 
+DISCONNECT_GRACE_SECONDS = 60
+"""How long a disconnected player has to reconnect before the seat
+is treated as a mid-hand quit. Spec §"Disconnect" pins this at 60s
+as the starting value; tunable later if production traffic suggests
+a different fit.
+"""
+
+
 class CashSession:
     """One human + N AI at one cash table.
 
@@ -160,6 +171,18 @@ class CashSession:
         self.hand_number = 0
         self.controllers: Dict[str, CashController] = {}
 
+        # Mid-hand quit + disconnect grace state (commit 4).
+        # `_pending_quit` holds seat-ids whose player has declared a
+        # mid-hand quit; they are auto-folded at their next turn and
+        # their remaining stack is forfeited at settlement. Cleared at
+        # end-of-hand (the seat is also cleared during bust handling).
+        # `_disconnect_times` holds seat-id → disconnect timestamp for
+        # the 60s grace window. During that window, the seat's turns
+        # auto-check or auto-fold (whichever is legal). Past the
+        # window, the entry is promoted to _pending_quit.
+        self._pending_quit: Set[str] = set()
+        self._disconnect_times: Dict[str, datetime] = {}
+
         # THE WIRING POINT: cash_mode=True enables cash_pair_stats writes
         # from the Phase 3 dispatch. Everything else flows through the
         # existing relationship-event pipeline unchanged.
@@ -189,6 +212,62 @@ class CashSession:
             self.table, PLAYER_SEAT_ID, amount, self.player_bankroll,
         )
         self.bankroll_repo.save_player_bankroll(self.player_bankroll)
+
+    # --- Mid-hand quit + disconnect grace (commit 4) ---
+
+    def quit_player(self) -> None:
+        """Player declares a mid-hand quit.
+
+        The seat is added to `_pending_quit`. On the next turn the
+        action loop will auto-fold (instead of asking for a decision)
+        and at settlement the player's remaining table stack will be
+        forfeited and distributed among surviving seats. Bankroll is
+        untouched per spec §"Bust semantics".
+
+        Idempotent — re-declaring quit is a no-op.
+
+        Safe to call when no hand is in progress; the flag will be
+        consumed at the start of the next hand's settlement (the seat
+        will appear bust-empty and clear via `_handle_busts`). Real
+        production callers (commit 5 Flask routes) gate this on
+        hand_in_progress=True for the "leave during a hand" path;
+        between-hands "leave" goes through `leave_player` instead.
+        """
+        if self.table.is_seated(PLAYER_SEAT_ID):
+            self._pending_quit.add(PLAYER_SEAT_ID)
+
+    def mark_player_disconnected(self, *, now: Optional[datetime] = None) -> None:
+        """Start the 60s grace timer for the player seat.
+
+        During the window, the player's turns auto-check or auto-fold
+        (whichever is legal). Reconnect via `mark_player_reconnected`.
+        Window expiry promotes the seat to `_pending_quit` —
+        accounting identical to a deliberate mid-hand quit.
+
+        `now` defaults to the session's `now_fn` so tests can pin
+        time. Idempotent within the same window (re-marking does NOT
+        reset the timer — that's a deliberate anti-abuse choice; the
+        spec note says "preventing reconnect-as-fold-equity-saving
+        over multiple hands").
+        """
+        if not self.table.is_seated(PLAYER_SEAT_ID):
+            return
+        if PLAYER_SEAT_ID in self._disconnect_times:
+            return  # already disconnected; don't reset the timer
+        self._disconnect_times[PLAYER_SEAT_ID] = now or self._now_fn()
+
+    def mark_player_reconnected(self) -> None:
+        """Clear the disconnect timer for the player seat.
+
+        No-op if the seat wasn't disconnected. Doesn't undo any
+        auto-folds that already fired during the window — those
+        actions are already in the hand history. The player resumes
+        seated for subsequent turns.
+        """
+        self._disconnect_times.pop(PLAYER_SEAT_ID, None)
+
+    def is_player_disconnected(self) -> bool:
+        return PLAYER_SEAT_ID in self._disconnect_times
 
     # --- Hand loop ---
 
@@ -261,6 +340,17 @@ class CashSession:
             game_state = award_pot_winnings(game_state, winner_info)
             state_machine.game_state = game_state
 
+            # 8b. Mid-hand quit / disconnect-timeout forfeit:
+            # quitting seats forfeit their *remaining* table stack
+            # (after settlement) to the surviving seats. Spec §"Bust
+            # semantics" pins the entire stack as forfeit; the
+            # quitter's Player.stack at this point already had bets
+            # in pot withdrawn, plus any won-back chips from the
+            # award. We zero out the quitter's stack and redistribute
+            # to survivors so chip conservation holds.
+            game_state = self._apply_forfeit_distribution(game_state)
+            state_machine.game_state = game_state
+
             # 9. Sync table stacks from post-hand Player.stack
             seat_id_by_name = self._seat_id_by_player_name()
             for player in game_state.players:
@@ -280,12 +370,22 @@ class CashSession:
             except Exception as e:
                 logger.warning("on_hand_complete failed: %s", e, exc_info=True)
 
-            # 11. Bust handling
+            # 11. Bust handling — also catches quitter seats (stack==0
+            # after forfeit distribution).
             bust_seats = self._handle_busts()
 
         finally:
-            # 12. Unblock
+            # 12. Unblock + clear pending_quit/disconnect for seats that
+            # are no longer at the table (busted or quit).
             self.table = self.table.with_hand_in_progress(False)
+            self._pending_quit = {
+                seat_id for seat_id in self._pending_quit
+                if self.table.is_seated(seat_id)
+            }
+            self._disconnect_times = {
+                seat_id: tick for seat_id, tick in self._disconnect_times.items()
+                if self.table.is_seated(seat_id)
+            }
 
         return HandResult(
             status="continue",
@@ -418,9 +518,48 @@ class CashSession:
                 same_player_count = 0
                 last_player_name = current_player.name
 
+            # Resolve seat & check quit / disconnect state before controllers
+            seat_id = self._player_name_to_seat_id(current_player.name)
+
+            # Mid-hand quit: auto-fold and don't ask the controller.
+            if seat_id is not None and seat_id in self._pending_quit:
+                self._apply_action(
+                    state_machine, current_player.name, "fold", 0,
+                    hand_action_log,
+                )
+                action_count += 1
+                continue
+
+            # Disconnect grace window: timeout → quit; within window →
+            # auto-check (if free) or auto-fold.
+            if seat_id is not None and seat_id in self._disconnect_times:
+                disconnected_at = self._disconnect_times[seat_id]
+                elapsed = (self._now_fn() - disconnected_at).total_seconds()
+                if elapsed >= DISCONNECT_GRACE_SECONDS:
+                    # Promote to quit; release the disconnect entry so
+                    # the next pass treats this as pending_quit
+                    self._pending_quit.add(seat_id)
+                    self._disconnect_times.pop(seat_id, None)
+                    self._apply_action(
+                        state_machine, current_player.name, "fold", 0,
+                        hand_action_log,
+                    )
+                    action_count += 1
+                    continue
+                # Within grace: auto-check if legal, else auto-fold.
+                cost_to_call = max(
+                    0, game_state.highest_bet - current_player.bet
+                )
+                auto_action = "check" if cost_to_call == 0 else "fold"
+                self._apply_action(
+                    state_machine, current_player.name, auto_action, 0,
+                    hand_action_log,
+                )
+                action_count += 1
+                continue
+
             # Resolve controller. For commit 3 every seat has one; commit 5
             # will detect is_human and yield instead.
-            seat_id = self._player_name_to_seat_id(current_player.name)
             controller = self.controllers.get(seat_id) if seat_id else None
             if controller is None:
                 logger.warning(
@@ -495,6 +634,89 @@ class CashSession:
         if advanced is not None:
             game_state = advanced
         state_machine.game_state = game_state
+
+    def _apply_forfeit_distribution(self, game_state) -> "PokerGameState":
+        """Zero quitting seats' stacks and split the forfeit among survivors.
+
+        Called after award_pot_winnings, before sync to CashTable.stacks.
+        For each seat in `_pending_quit`, take that player's remaining
+        `Player.stack` (post-settlement), distribute evenly among
+        survivors (non-quitting players still at the table with chips).
+        Remainder goes to the first survivor in seat order.
+
+        Survivors = seated players who are NOT in pending_quit AND
+        whose post-settlement stack > 0. This excludes seats that
+        also busted at the table (their stack hit 0 from losing the
+        hand) — we don't redistribute to busted seats; they wouldn't
+        benefit anyway.
+
+        If there are no survivors, the forfeit chips are dropped
+        (chip leak, but the only scenario is "everyone left or busted
+        at once" which is a corner case worth flagging in logs). v1
+        accepts the leak; v2 may add a session-level rake account.
+
+        Returns the updated game_state with quitter stacks zeroed
+        and survivor stacks credited. Pure-ish — uses update_player
+        which returns a new immutable game_state.
+        """
+        if not self._pending_quit:
+            return game_state
+
+        # Map seat_id → Player index in game_state.players.
+        seat_to_player_idx: Dict[str, int] = {}
+        for idx, player in enumerate(game_state.players):
+            seat_id = self._player_name_to_seat_id(player.name)
+            if seat_id is not None:
+                seat_to_player_idx[seat_id] = idx
+
+        # Total forfeit chips across all quitters.
+        forfeit_total = 0
+        quitter_indices: List[int] = []
+        for seat_id in self._pending_quit:
+            idx = seat_to_player_idx.get(seat_id)
+            if idx is None:
+                continue
+            forfeit_total += game_state.players[idx].stack
+            quitter_indices.append(idx)
+
+        if forfeit_total == 0:
+            # Quitters already at 0 (lost everything in the hand). Nothing to
+            # redistribute; just no-op.
+            return game_state
+
+        # Survivors: seated, non-quitting, stack > 0.
+        survivor_indices = [
+            idx for seat_id, idx in sorted(seat_to_player_idx.items())
+            if seat_id not in self._pending_quit
+            and game_state.players[idx].stack > 0
+        ]
+
+        if not survivor_indices:
+            # No survivors — log and drop chips (rare corner case).
+            logger.warning(
+                "Forfeit distribution: no survivors for %d chips from %d quitters; "
+                "chips dropped from circulation",
+                forfeit_total, len(quitter_indices),
+            )
+            # Still zero out the quitters' stacks for accurate sync.
+            for idx in quitter_indices:
+                game_state = game_state.update_player(idx, stack=0)
+            return game_state
+
+        # Even split with remainder to first survivor (seat-order).
+        per_survivor = forfeit_total // len(survivor_indices)
+        remainder = forfeit_total - per_survivor * len(survivor_indices)
+
+        for i, idx in enumerate(survivor_indices):
+            bonus = per_survivor + (remainder if i == 0 else 0)
+            new_stack = game_state.players[idx].stack + bonus
+            game_state = game_state.update_player(idx, stack=new_stack)
+
+        # Zero out the quitters' stacks.
+        for idx in quitter_indices:
+            game_state = game_state.update_player(idx, stack=0)
+
+        return game_state
 
     def _handle_busts(self) -> List[str]:
         """Clear seats whose stack hit 0. Fresh-grant player if bankroll == 0.
