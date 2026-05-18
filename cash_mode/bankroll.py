@@ -18,9 +18,12 @@ Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 2
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -154,3 +157,62 @@ def project_bankroll(
     elapsed_days = (now - state.last_regen_tick).total_seconds() / 86400.0
     projected = state.chips + int(rate * elapsed_days)
     return min(cap, projected)
+
+
+def credit_ai_cash_out(
+    bankroll_repo,
+    personality_id: str,
+    player_stack: int,
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[AIBankrollState]:
+    """Credit `player_stack` chips back to an AI's persistent bankroll.
+
+    Mirrors the leave-time accounting rule: project the stored
+    bankroll forward through elapsed time (passive regen), then add
+    the AI's current table stack, clamped to `bankroll_cap`. The cap
+    is a hard ceiling — winnings above the cap evaporate. This is
+    intentional: it prevents a single AI from accumulating a runaway
+    bankroll relative to the rest of the cast.
+
+    Skips (returns None) when:
+      - the AI has no row in `ai_bankroll_state` yet (shouldn't
+        happen for an AI that sat at a table — sit_down writes the
+        row — but the seam is defensive)
+      - `player_stack <= 0` (busted or near-zero stack; nothing to
+        credit, and we avoid pointless writes)
+
+    Writes a fresh `AIBankrollState` snapshot via `save_ai_bankroll`
+    with `last_regen_tick = now`. Returns the persisted state so
+    callers can log / inspect.
+
+    `bankroll_repo` is the live `BankrollRepository` instance — taken
+    as a parameter (rather than the module-level singleton) so tests
+    can pass a tempdb-backed instance without monkey-patching the
+    flask_app.extensions module.
+    """
+    if player_stack <= 0:
+        return None
+    if now is None:
+        now = datetime.utcnow()
+    stored = bankroll_repo.load_ai_bankroll(personality_id)
+    if stored is None:
+        logger.warning(
+            "[CASH] AI cash-out skipped — no bankroll row for %r",
+            personality_id,
+        )
+        return None
+    knobs = bankroll_repo.load_personality_knobs(personality_id)
+    projected = project_bankroll(stored, knobs.bankroll_cap, knobs.bankroll_rate, now)
+    new_chips = min(knobs.bankroll_cap, projected + player_stack)
+    new_state = AIBankrollState(
+        personality_id=personality_id,
+        chips=new_chips,
+        last_regen_tick=now,
+    )
+    bankroll_repo.save_ai_bankroll(new_state)
+    logger.info(
+        "[CASH] AI cash-out %r: +%d (projected=%d) → %d (cap %d)",
+        personality_id, player_stack, projected, new_chips, knobs.bankroll_cap,
+    )
+    return new_state

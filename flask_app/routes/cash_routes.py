@@ -27,7 +27,12 @@ from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request
 
-from cash_mode.bankroll import AIBankrollState, PlayerBankrollState, project_bankroll
+from cash_mode.bankroll import (
+    AIBankrollState,
+    PlayerBankrollState,
+    credit_ai_cash_out,
+    project_bankroll,
+)
 from cash_mode.sponsor_offers import (
     compute_offers_for_table,
     offer_for_archetype,
@@ -827,6 +832,33 @@ def leave_table():
     bankroll = _load_or_seed_player_bankroll(owner_id)
     settlement = settle_loan_on_leave(bankroll, chips_at_table)
     bankroll_repo.save_player_bankroll(settlement.new_bankroll)
+
+    # Credit every seated AI's current Player.stack back to their
+    # persistent bankroll. Without this loop, AI table winnings
+    # evaporate at session end and AI bankrolls drift monotonically
+    # downward — sit-down debits never get matched by cash-out
+    # credits. Path B (AI sponsorship) needs this to be honest, since
+    # lender-eligibility reads `load_ai_bankroll_current`.
+    cash_personality_ids: Dict[str, str] = game_data.get(
+        "cash_personality_ids", {}
+    ) or {}
+    now = datetime.utcnow()
+    for player in state_machine.game_state.players:
+        if player.is_human:
+            continue
+        pid = cash_personality_ids.get(player.name)
+        if not pid:
+            logger.warning(
+                "[CASH] AI cash-out skipped — no personality_id mapping for %r",
+                player.name,
+            )
+            continue
+        credit_ai_cash_out(
+            bankroll_repo,
+            pid,
+            player.stack,
+            now=now,
+        )
 
     game_state_service.delete_game(game_id)
     # Best-effort: drop the persisted row too so the cash game doesn't

@@ -26,6 +26,7 @@ from cash_mode.bankroll import (
     BANKROLL_KNOB_DEFAULTS,
     BankrollKnobs,
     PlayerBankrollState,
+    credit_ai_cash_out,
     project_bankroll,
 )
 from cash_mode.seating import (
@@ -58,6 +59,7 @@ __all__ = [
     "SeatingError",
     "apply_settlement",
     "bust_at_table",
+    "credit_ai_cash_out",
     "disconnect_timeout",
     "full_bankroll_bust",
     "leave_table",
