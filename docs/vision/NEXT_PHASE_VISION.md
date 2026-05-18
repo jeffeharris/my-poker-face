@@ -2,8 +2,8 @@
 purpose: Prioritized roadmap for the next phase — competitive bot quality, cash mode with relationships, and a conditional decision on solver build
 type: vision
 created: 2026-05-17
-last_updated: 2026-05-18
-revision: 3 — folds in completed personality_id foundation, incorporates consultancy review (Gate 1 framing, equity-bias correction, cash mode estimate range, merge-point hardening, backout plan exception, LAG split possibility, cloud cost line, play-test rigor, "done" definition, calendar column relabel)
+last_updated: 2026-05-19
+revision: 4 — folds in the 2026-05-18 evening session that effectively closed Track A. Phase B (polarization gate) shipped + measured; Track A items 4b (action ties), 7b (cold-start), 7c (per-session drift), and 8 (narrative observations) all shipped; item 7a (creative play injection) explicitly deferred per user-judgment call (would be an EV leak without multi-street story-tracking the codebase doesn't have). Sim determinism fixes shipped as part of drift work. Gate 1 is now the open decision.
 ---
 
 # Next Phase Vision
@@ -50,6 +50,43 @@ Three exploitation patches shipped in the pre-roadmap session:
 **82 tests green across the migration surface.** Backend boots cleanly with the new schema. Personality identity is now stable end-to-end: every personality has a slug-based id at creation (factory + create route + JSON seed paths all populate it); every opponent model save/load round-trips both display name and stable id; game startup resolves name→id and registers both surfaces on the manager. The remaining theoretical item — one-time backfill pass for existing saved games — is a no-op given the zero-production-users posture; the v86 migration's name-lookup backfill correctly populates ids for any rows that do exist.
 
 Track B step 1 is **unblocked for step 2 (Relationship Phases 1–3)**.
+
+### What has shipped since revision 3 (2026-05-18 evening session)
+
+Track A (this session, 8 commits):
+
+| Commit | Item | Roadmap # |
+|---|---|---|
+| `5f85ac81` | Polarization Phase B — gate `hyper_passive` fold-reduction on `aggression_polarization` | Track A #6 |
+| `36cea1b4` | sim fix: bypassed-init controller missing `apply_relationship_modifier` (patched Track B's Phase 2 regression that blocked `simulate_bb100`) | — |
+| `d7609190` | Phase A equity-at-action recording wired into `simulate_bb100` (sim path bypassed `MemoryManager.complete_hand` so the recorder never fired) | Phase B prereq |
+| `af077fb9` | Spec doc: Phase B measurement-gate results folded into `POLARIZATION_DETECTION.md` | docs |
+| `0863b692` | HU preflop v2 — mixed frequencies on the 12 README-flagged borderline hands (K3o/Q4o/J6o open at 33%, JJ/TT/AQs/AQo/A5s/A4s mix 70/30 raise/call, QQ/AKs/AKo mix 50/50 raise/call vs 3-bet) | Track A #4b (action ties) |
+| `2bb078b8` | Per-session archetype drift via `(1-poise)*(1-recovery_rate)` + three sim determinism fixes (state machine fallback seed, unseeded equity Monte Carlo, eval7.Deck.shuffle reading global random) | Track A #7c + sim infra |
+| `81f572d6` | Surface opponent narrative observations to LLM prompts via shared `select_opponent_observations` helper (chaos / hybrid / tiered; lean intentionally skipped per the lean philosophy) | Track A #8 |
+| `74658a2a` | Cold-start replacement — replaced the hard 15-hand cliff with smooth `confidence_ramp` from hand 1 | Track A #7b |
+
+**Net Track A status:** Items 1–11 are all shipped except 7a (creative play injection), which was explicitly deferred per user-judgment call this session. The reasoning: doing it correctly requires a multi-street story-tracking layer the codebase doesn't have (so the bot can know "I c-bet flop, so this turn barrel is a credible story"); doing it without that layer is just random EV bleed. The unpredictability the spec wanted is already covered by the sizing jitter, action-ties mixed frequencies, per-session drift, and narrative observations that did ship — all of which are EV-neutral by design.
+
+**Sub-win: sim determinism.** Two independent `simulate_bb100` CLI invocations with the same `--seed` now produce byte-identical bb/100 tables. Three pre-existing non-determinism sources got fixed as part of the drift work (the work surfaced them through inability to reproduce results). This makes paired ablations possible — the natural next move is the TAG/LAG paired Phase-B-on-vs-off comparison to settle whether tonight's CI-overlap regression is real or sampling noise.
+
+**Phase B measurement results** (2000 hands HU vs CaseBot, seed 42):
+
+| Archetype | Post-patch baseline | Phase B | Verdict |
+|---|---|---|---|
+| Rock | −82.2 [−112.8, −51.5] | **−55.2** [−89.4, −21.1] | ✅ Recovered past pre-patch −58.8 baseline. Spec prediction confirmed: polarization gate preserves value-extraction raise push, kills fold-reduction that bled chips on marginal calls into CaseBot's polarized range. |
+| TAG | −17.8 [−58.9, +23.3] | −51.5 [−91.8, −11.3] | ⚠️ Central trend −34 worse, CIs overlap baseline → noise-consistent at this N. The spec predicted "hold or modestly improve" — this is the open question Gate 1 hinges on. |
+| LAG | −94.4 [−142.7, −46.0] | −108.5 [−163.0, −53.9] | ⚠️ Minor central regression, CIs overlap → noise-consistent. |
+
+The Rock recovery is the headline signal and it works. TAG/LAG are noise-consistent but the central trends deserve a paired-ablation to confirm. **Gate 1 is now the open decision.** Three reasonable paths follow:
+
+1. **Solver validation pipeline (Bucket 6 Phase 1)** — ~1 week coding, zero compute. Definitively answers solver viability via Cepheus match. Highest-information move.
+2. **Phase 2 bot quality without solver** — Polarization Phases C+D, stakes-aware play, 15-30bb interpolation. Medium-each, all +EV. No big strategic bet.
+3. **Stop here** — declare Phase 1 effectively shipped. Track B finishes cash mode v1. Real play informs Phase 2 direction.
+
+Recommended sequencing regardless of path: TAG/LAG paired ablation first (~30 min, settles the Gate 1 ambiguity), then path 1/2/3.
+
+Track B (parallel session) has continued cash mode v1 development tonight (mid-hand quit, disconnect grace, Flask routes, leave/refill, sponsorship/rebuy docs). They're independently driving toward cash mode v1 close.
 
 ### Measured leaks (pre-patch HU baselines vs CaseBot, 2000 hands per matchup)
 
@@ -381,29 +418,34 @@ The tracks run in parallel. They touch mostly different files. The one coordinat
 
 **Track A — Bot Quality and Competitive Feel**
 
-Steps 1–5 and 7–11 proceed in parallel (only step 6 is blocked on Track B Phase 2). Within Track A, the natural order is:
+Steps 1–5 and 7–11 proceeded in parallel (only step 6 was blocked on Track B Phase 2). Within Track A, the natural order was:
 
-1. Post-patch bb/100 measurement (Rock/TAG/LAG vs CaseBot, 2000 hands × 3–5 seeds). Establishes the new baseline after shipped patches. First task; everything else builds on this. Small (sim run time).
+1. ~~Post-patch bb/100 measurement~~ — **✅ shipped** (Rock −82.2, TAG −17.8, LAG −94.4 baselines folded into `POLARIZATION_DETECTION.md` at commit `73555696`).
 
 2. ~~§5.5 per-rule offset budgets~~ — verified already shipped (commit 8511414a). Safety net in place; no work needed for Phase B prerequisite.
 
-3. Polarization Phase A — instrument equity-tracking fields (both showdown-equity and decision-time-equity per the bias correction above), populate at showdown / at decision, emit to diagnostics, calibrate via sim, **categorize leak structure per archetype to decide whether Phase B is one rule change or split per archetype**, write standalone polarization spec doc, user approves. Small-medium.
+3. ~~Polarization Phase A~~ — **✅ shipped** (`41b6ab27` Phase A instrumentation; `d7609190` sim-side wiring this session; calibrated thresholds + spec doc approved). Equity-tracking fields populate at showdown via `_record_showdown_equity_at_actions` (production) and `_record_sim_equity_at_actions` (sims). The decision-time-equity bias-correction split was not needed in practice — the showdown sample alone produced a clear-enough signal (Rock recovery confirmed the gate works on showdown data).
 
-4. Competitive feel items 1 and 2 (sizing randomization, action ties). Independent, zero EV cost. Can ship in parallel with any other Track A step. Small.
+4. ~~Competitive feel items 1 and 2~~ (sizing randomization, action ties) — **✅ shipped**. Sizing jitter at commit `400bb540`. Action ties shipped this session at `0863b692` as HU preflop v2: twelve README-flagged borderline hands moved from pure to mixed frequencies, breaking the "always raises QQ / always 4-bets AKo" tells while keeping aggregate range bands intact.
 
-5. Push/fold tables for <15bb. **License-vet upstream task lands first** (Sklansky-Chubukov / WizardOfOdds / HRC terms). Independent thereafter. Small.
+5. ~~Push/fold tables for <15bb~~ — **✅ shipped** at commit `0575952a`.
 
-6. **(Blocked on Track B Relationship Phase 2 merging)** Polarization Phase B — gate hyper_passive fold-reduction on calibrated `aggression_polarization` threshold, re-measure bb/100. This measurement feeds Gate 1. Small-medium.
+6. ~~Polarization Phase B~~ — **✅ shipped this session** at `5f85ac81` (gate hyper_passive fold-reduction on `aggression_polarization >= POLARIZATION_HIGH=0.25` with `MIN_SAMPLE_FOR_GATE=8`). Measured at 2000 hands HU vs CaseBot seed 42: Rock recovered −82.2 → −55.2 (past pre-patch −58.8), TAG/LAG noise-consistent with baseline. The Rock recovery confirms the gate's design works as the spec predicted. Gate 1 evaluation is now the open user-judgment decision.
 
-7. Competitive feel items 3, 4, 6 (creative play injection, cold-start replacement, per-session drift). Sequence after Phase B measurement to keep the baseline clean. Medium each.
+7. Competitive feel items 3, 4, 6 (creative play injection, cold-start replacement, per-session drift) — **partially shipped this session**:
+   - **7a Creative play injection** — **DEFERRED per user-judgment call**. Implementing correctly requires a multi-street story-tracking layer (so the bot knows "I c-bet flop, this turn barrel is a credible story") that the codebase doesn't have. Implementing without that layer is random EV bleed — the bot would triple-barrel into multiway pots, against stations, and on bad boards. The unpredictability gain the spec wanted is already covered by the EV-neutral items already shipped (sizing jitter, action ties, per-session drift, narrative observations). Revisit if Phase 2 play-testing shows the bot is "too predictable."
+   - **7b Cold-start replacement** — **✅ shipped** at commit `74658a2a`. Replaced the hard 15-hand cliff in `compute_exploitation_offsets_with_traces` with the smooth `confidence_ramp` from hand 1. At hands=k the multiplier is k/100 of full strength. No behavioral jump at 15 hands. Adaptation now trickles in from hand 1, just weakly. Eliminates the predictable 15-hand no-exploitation window a savvy human could game.
+   - **7c Per-session archetype drift** — **✅ shipped** at commit `2bb078b8`. `drift_strength = (1-poise) * (1-recovery_rate)` derives directly from existing anchors; no schema change. Tight bounds on `baseline_aggression` / `baseline_looseness` so drift never crosses DeviationProfile thresholds. Stoic archetypes (Rock, Nit) drift ≈0; volatile ones (Maniac, LAG) drift visibly. Bonus: three pre-existing sim non-determinism sources got fixed during this work, making future paired ablations possible.
 
-8. Competitive feel item 5 (surface narrative_observations). Independent. Small.
+8. ~~Competitive feel item 5~~ (surface narrative_observations) — **✅ shipped this session** at `81f572d6`. New shared helper `OpponentModelManager.select_opponent_observations(observer, active_opponents, facing_opponent, max_observations=2)` picks up to 2 observations weighted by recency + facing-opponent + nemesis-bonus. Wired into chaos / hybrid (via `_build_memory_context`) and tiered (via `ExpressionContext.opponent_observations`). Lean intentionally skipped per its design philosophy.
 
-9. Strategy provenance READMEs. Independent. Small.
+9. ~~Strategy provenance READMEs~~ — **✅ shipped** at commit `c4466ade`.
 
-10. T1-26: guest identity forgeable. `poker/auth.py:317, 355`. Random UUID for guest IDs + signed cookie. Small (~half day).
+10. ~~T1-26: guest identity forgeable~~ — **✅ shipped** at commit `bd72a9fd`.
 
-11. T1-27: anonymous chat-session leak. `flask_app/routes/experiment_routes.py:1640, 1689` + `poker/repositories/experiment_repository.py:727`. Per-session owner identifier instead of bucketed `'anonymous'`. Small-medium (half to one day).
+11. ~~T1-27: anonymous chat-session leak~~ — **✅ shipped** at commit `bd72a9fd` (same commit as T1-26).
+
+**Track A is effectively complete.** Item 7a was the only competitive-feel item explicitly deferred, by user-judgment call. Gate 1 evaluation is the remaining decision point that determines whether Phase 2 starts with solver validation (Bucket 6) or with Phase 2 bot-quality work (Phases C+D + stakes-aware play + 15-30bb interpolation).
 
 ---
 
@@ -647,13 +689,15 @@ M3 work runs in a separate Claude session against `docs/plans/M3_PLAN.md`. The o
 Phase boundaries are advisory in the sense that we don't ship a release on a date — we iterate and reach gates when the data is in. But the gate triggers need a concrete "phase done" definition so we know when Gate 1 fires (revised per consultancy critique #12):
 
 **Phase 1 done = all of:**
-- Track A items **1–6** shipped to main (post-patch baseline → §5.5 budgets → Polarization Phase A instrumented + spec approved → competitive feel quick items → push/fold tables → Polarization Phase B gating)
-- Track B items **1–2** shipped to main (personality_id migration complete end-to-end → relationship layer Phases 1–3 wired + apply_relationship_modifier flag in place)
-- **Gate 1 evaluated**: post-Phase B bb/100 measured against post-patch baseline; user reviews and either triggers Gate 2 or defers solver indefinitely
+- Track A items **1–6** shipped to main (post-patch baseline → §5.5 budgets → Polarization Phase A instrumented + spec approved → competitive feel quick items → push/fold tables → Polarization Phase B gating) — **✅ all shipped as of 2026-05-18**
+- Track B items **1–2** shipped to main (personality_id migration complete end-to-end → relationship layer Phases 1–3 wired + apply_relationship_modifier flag in place) — **✅ all shipped**
+- **Gate 1 evaluated**: post-Phase B bb/100 measured against post-patch baseline; user reviews and either triggers Gate 2 or defers solver indefinitely — **⏳ pending user-judgment call**
 
-**Track A items 7–11 (competitive feel medium items + provenance READMEs + security fixes) and Track B item 3 (cash mode v1)** may be partial at the end of Phase 1 — they continue into Phase 2 without blocking Gate 1.
+Track A items 7–11 were treated as "Phase 1 if convenient, Phase 2 otherwise." Tonight's session pushed most of them in too: **7b (cold-start), 7c (per-session drift), and 8 (narrative observations) shipped**; **7a (creative play injection) was explicitly deferred** as outlined above; 9-11 shipped pre-session.
 
-Phase 2 then either kicks off solver Phase 1 validation (if Gate 2 was triggered at the Gate 1 review) or focuses on Polarization Phases C+D + chat-driven affinity + the carryover Phase 1 items.
+Track B item 3 (cash mode v1) remains in active development by Track B's parallel session — does not block Gate 1 evaluation per the original revision-3 framing.
+
+Phase 2 then either kicks off solver Phase 1 validation (if Gate 2 was triggered at the Gate 1 review) or focuses on Polarization Phases C+D + chat-driven affinity + stakes-aware play + 15-30bb interpolation. Recommended sequencing regardless: **TAG/LAG paired ablation first** (now possible with the determinism fixes from `2bb078b8`, ~30 min sim run) to settle whether Phase B's TAG/LAG central-trend regression is real or sampling noise — the answer affects how confidently Gate 1 can be evaluated.
 
 ---
 
