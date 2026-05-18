@@ -124,11 +124,11 @@ class HandOutcomeDetector:
 
         `equity_history` is optional. When supplied, BAD_BEAT
         detection runs (favorite-loser-with-bad-runout pattern);
-        without it, BAD_BEAT is silently skipped. The equity history
-        is built by `EquityTracker` during the experiment-runner
-        path; the Flask game path doesn't compute equity today, so
-        BAD_BEAT only fires in experiments where psychology or
-        telemetry is enabled.
+        without it, BAD_BEAT is silently skipped. Built by
+        `EquityTracker` in both production paths (experiment
+        runner + Flask game handler) and forwarded through
+        `on_hand_complete`. See `_detect_bad_beats` for the
+        per-path data-dependency details.
         """
         events: List[DetectedEvent] = []
         events.extend(self._detect_big_pot_events(recorded_hand))
@@ -564,11 +564,14 @@ class HandOutcomeDetector:
         winner who bad-beat me" is ambiguous when there are multiple.
 
         **Data dependency**: requires `equity_history` to be supplied
-        by the caller. The experiment runner builds it when
-        `enable_psychology` or `enable_telemetry` is true; the Flask
-        game path doesn't compute equity today. So BAD_BEAT fires in
-        experiment paths only until equity computation gets wired
-        into the Flask game flow.
+        by the caller. Wired in both production paths:
+          - Experiment runner (`run_ai_tournament.py`) — builds it
+            when `enable_psychology` or `enable_telemetry` is true.
+            Configs with neither enabled won't fire BAD_BEAT.
+          - Flask game handler (`game_handler.py`) — always builds it
+            for its own equity-persistence path, then forwards to
+            `on_hand_complete`. BAD_BEAT fires unconditionally for
+            qualifying hands in live user games.
 
         **Why the highest axis weights**: BAD_BEAT actor shift is
         heat +0.30, respect -0.15, likability -0.10 — the most

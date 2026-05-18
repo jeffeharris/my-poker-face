@@ -114,10 +114,10 @@ class AIMemoryManager:
 
         `equity_history` (optional `HandEquityHistory`): when
         supplied, BAD_BEAT detection runs. Built by `EquityTracker`
-        in the experiment-runner path before this method is called;
-        the Flask game path doesn't compute equity today and passes
-        None, so BAD_BEAT is experiment-only until equity wiring
-        lands on the Flask side.
+        in both production paths (experiment runner + Flask game
+        handler) before `on_hand_complete` runs. Passes None when a
+        caller hasn't computed equity (e.g., custom integrations);
+        in that case BAD_BEAT silently no-ops.
 
         Wrapped in a broad try/except: a detector or dispatch
         failure must not block the downstream session_memory and
@@ -481,8 +481,9 @@ class AIMemoryManager:
             equity_history: Optional HandEquityHistory built by the
                 caller before this method runs. Forwarded to the
                 relationship detector to enable BAD_BEAT detection.
-                Experiment runner passes this when telemetry /
-                psychology is enabled; Flask game path passes None.
+                Both production paths (experiment runner + Flask
+                game handler) wire this; custom integrations may
+                pass None to skip BAD_BEAT.
 
         Returns:
             Dict mapping player names to their HandCommentary (or None if skip_commentary)
