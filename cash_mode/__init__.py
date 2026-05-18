@@ -51,6 +51,8 @@ from cash_mode.table import (
 from cash_mode.tables import (
     BASELINE_AI_SEATS,
     CashTableState,
+    IDLE_REASONS,
+    IdlePoolEntry,
     OPEN_SEATS,
     TABLE_SEAT_COUNT,
     ai_slot,
@@ -68,6 +70,8 @@ __all__ = [
     "CashTable",
     "CashTableState",
     "HandInProgressError",
+    "IDLE_REASONS",
+    "IdlePoolEntry",
     "OPEN_SEATS",
     "PLAYER_SEAT_ID",
     "PlayerBankrollState",

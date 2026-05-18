@@ -19,6 +19,7 @@ from typing import List, Optional
 
 from cash_mode.tables import (
     CashTableState,
+    IdlePoolEntry,
     seats_from_json,
     seats_to_json,
 )
@@ -154,6 +155,74 @@ class CashTableRepository(BaseRepository):
             ).fetchall()
             return [_row_to_state(r) for r in rows]
 
+    # --- Idle pool ---
+
+    def save_idle(self, entry: IdlePoolEntry) -> None:
+        """Upsert one personality's idle-pool row.
+
+        Writes `left_at`, `reason`, `target_stake` verbatim. Callers
+        moving an AI from a table → idle should call `save_idle`
+        (after the table is updated to mark the seat `"open"`); callers
+        moving an AI from idle → table should call `delete_idle`.
+        """
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO cash_idle_pool
+                    (personality_id, left_at, reason, target_stake)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    entry.personality_id,
+                    entry.left_at.isoformat(),
+                    entry.reason,
+                    entry.target_stake,
+                ),
+            )
+
+    def load_idle(self, personality_id: str) -> Optional[IdlePoolEntry]:
+        """Load one personality's idle-pool row, or None if not idle."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT personality_id, left_at, reason, target_stake
+                FROM cash_idle_pool
+                WHERE personality_id = ?
+                """,
+                (personality_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return _row_to_idle(row)
+
+    def list_idle(self) -> List[IdlePoolEntry]:
+        """Return every idle-pool row, ordered by `left_at` ASC.
+
+        Oldest-first makes the re-entry tick natural: the AI who's been
+        idle longest is the most likely to walk back up.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT personality_id, left_at, reason, target_stake
+                FROM cash_idle_pool
+                ORDER BY left_at ASC
+                """,
+            ).fetchall()
+            return [_row_to_idle(r) for r in rows]
+
+    def delete_idle(self, personality_id: str) -> bool:
+        """Remove one personality's idle-pool row.
+
+        Returns True if a row was deleted, False if no such row existed.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM cash_idle_pool WHERE personality_id = ?",
+                (personality_id,),
+            )
+            return cursor.rowcount > 0
+
 
 def _row_to_state(row) -> CashTableState:
     """Build a `CashTableState` from a `cash_tables` row."""
@@ -164,4 +233,21 @@ def _row_to_state(row) -> CashTableState:
         seats=seats,
         created_at=_parse_timestamp(row["created_at"]),
         last_activity_at=_parse_timestamp(row["last_activity_at"]),
+    )
+
+
+def _row_to_idle(row) -> IdlePoolEntry:
+    """Build an `IdlePoolEntry` from a `cash_idle_pool` row."""
+    left_at = _parse_timestamp(row["left_at"])
+    # `left_at` is NOT NULL in the schema, so a None here would mean
+    # a malformed row — surface it loudly rather than silently lying.
+    if left_at is None:
+        raise ValueError(
+            f"cash_idle_pool row {row['personality_id']!r} has unparseable left_at"
+        )
+    return IdlePoolEntry(
+        personality_id=row["personality_id"],
+        left_at=left_at,
+        reason=row["reason"],
+        target_stake=row["target_stake"],
     )

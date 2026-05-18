@@ -19,6 +19,8 @@ pytestmark = pytest.mark.integration
 
 from cash_mode.tables import (
     CashTableState,
+    IDLE_REASONS,
+    IdlePoolEntry,
     ai_slot,
     human_slot,
     open_slot,
@@ -159,3 +161,133 @@ class TestListAllTables:
         all_tables = repo.list_all_tables()
         assert len(all_tables) == 1
         assert all_tables[0].seats == seats
+
+
+# --- Idle pool ---
+
+
+class TestSchemaMigrationV92:
+    def test_cash_idle_pool_exists(self, db_path):
+        with sqlite3.connect(db_path) as conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(cash_idle_pool)")}
+        assert "personality_id" in cols
+        assert "left_at" in cols
+        assert "reason" in cols
+        assert "target_stake" in cols
+
+    def test_schema_version_at_least_92(self, db_path):
+        with sqlite3.connect(db_path) as conn:
+            version = conn.execute(
+                "SELECT MAX(version) FROM schema_version"
+            ).fetchone()[0]
+        assert version >= 92
+
+    def test_personality_id_is_primary_key(self, db_path):
+        with sqlite3.connect(db_path) as conn:
+            info = conn.execute("PRAGMA table_info(cash_idle_pool)").fetchall()
+        pk_cols = [row[1] for row in info if row[5]]
+        assert pk_cols == ["personality_id"]
+
+
+class TestIdlePoolRoundtrip:
+    def test_save_and_load(self, repo):
+        now = datetime(2026, 5, 18, 12, 0, 0)
+        entry = IdlePoolEntry(
+            personality_id="napoleon",
+            left_at=now,
+            reason="forced_leave",
+        )
+        repo.save_idle(entry)
+        loaded = repo.load_idle("napoleon")
+        assert loaded is not None
+        assert loaded.personality_id == "napoleon"
+        assert loaded.left_at == now
+        assert loaded.reason == "forced_leave"
+        assert loaded.target_stake is None
+
+    def test_save_with_target_stake(self, repo):
+        now = datetime(2026, 5, 18, 12, 0, 0)
+        entry = IdlePoolEntry(
+            personality_id="zeus",
+            left_at=now,
+            reason="stake_up_queued",
+            target_stake="$50",
+        )
+        repo.save_idle(entry)
+        loaded = repo.load_idle("zeus")
+        assert loaded.target_stake == "$50"
+        assert loaded.reason == "stake_up_queued"
+
+    def test_load_missing_returns_none(self, repo):
+        assert repo.load_idle("nobody") is None
+
+    def test_upsert(self, repo):
+        t1 = datetime(2026, 5, 18, 12, 0, 0)
+        t2 = datetime(2026, 5, 18, 13, 0, 0)
+        repo.save_idle(IdlePoolEntry(
+            personality_id="napoleon", left_at=t1, reason="bored_move",
+        ))
+        repo.save_idle(IdlePoolEntry(
+            personality_id="napoleon", left_at=t2, reason="forced_leave",
+        ))
+        loaded = repo.load_idle("napoleon")
+        # Last write wins.
+        assert loaded.left_at == t2
+        assert loaded.reason == "forced_leave"
+
+
+class TestIdlePoolList:
+    def test_empty_returns_empty(self, repo):
+        assert repo.list_idle() == []
+
+    def test_ordered_by_left_at_asc(self, repo):
+        # Insert out of order; should come back oldest-first.
+        repo.save_idle(IdlePoolEntry(
+            personality_id="newest", left_at=datetime(2026, 5, 18, 15, 0),
+            reason="bored_move",
+        ))
+        repo.save_idle(IdlePoolEntry(
+            personality_id="oldest", left_at=datetime(2026, 5, 18, 9, 0),
+            reason="forced_leave",
+        ))
+        repo.save_idle(IdlePoolEntry(
+            personality_id="middle", left_at=datetime(2026, 5, 18, 12, 0),
+            reason="take_break",
+        ))
+        ids = [e.personality_id for e in repo.list_idle()]
+        assert ids == ["oldest", "middle", "newest"]
+
+
+class TestIdlePoolDelete:
+    def test_delete_existing_returns_true(self, repo):
+        repo.save_idle(IdlePoolEntry(
+            personality_id="napoleon",
+            left_at=datetime(2026, 5, 18, 12, 0),
+            reason="bored_move",
+        ))
+        assert repo.delete_idle("napoleon") is True
+        assert repo.load_idle("napoleon") is None
+
+    def test_delete_missing_returns_false(self, repo):
+        assert repo.delete_idle("ghost") is False
+
+
+class TestIdleReasonEnum:
+    @pytest.mark.parametrize("reason", IDLE_REASONS)
+    def test_all_reasons_roundtrip(self, repo, reason):
+        entry = IdlePoolEntry(
+            personality_id=f"p-{reason}",
+            left_at=datetime(2026, 5, 18, 12, 0),
+            reason=reason,
+        )
+        repo.save_idle(entry)
+        loaded = repo.load_idle(f"p-{reason}")
+        assert loaded.reason == reason
+
+    def test_unknown_reason_rejected_in_dataclass(self):
+        with pytest.raises(ValueError, match="Unknown reason"):
+            IdlePoolEntry(
+                personality_id="napoleon",
+                left_at=datetime(2026, 5, 18, 12, 0),
+                reason="alien_abduction",
+            )

@@ -155,3 +155,39 @@ def seats_from_json(seats_json: str) -> List[Dict[str, Any]]:
     if not isinstance(parsed, list):
         raise ValueError(f"seats_json must decode to a list, got {type(parsed).__name__}")
     return parsed
+
+
+# --- Idle pool ---
+
+
+# Movement decision reasons — also used as `cash_idle_pool.reason` values.
+# Keep the set explicit so the lobby UI / admin views can interpret the
+# state.
+IDLE_REASONS: Tuple[str, ...] = (
+    "forced_leave",       # AI busted or near-busted; needs bankroll recovery
+    "stake_up_queued",    # AI won big and wants a higher stake
+    "take_break",         # AI's choice to step away for a bit
+    "bored_move",         # Small base-rate cycling to keep the lobby alive
+)
+
+
+@dataclass
+class IdlePoolEntry:
+    """One row from `cash_idle_pool` — an AI between cash sessions.
+
+    `personality_id` is the primary key — an AI is either at a table
+    or in the idle pool, never both. `target_stake` is non-None only
+    when `reason == 'stake_up_queued'`; it preserves the AI's intent
+    to walk up a tier on re-entry.
+    """
+
+    personality_id: str
+    left_at: datetime
+    reason: str
+    target_stake: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.reason not in IDLE_REASONS:
+            raise ValueError(
+                f"Unknown reason {self.reason!r}; expected one of {IDLE_REASONS}"
+            )

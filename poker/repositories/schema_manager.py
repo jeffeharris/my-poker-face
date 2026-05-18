@@ -80,7 +80,7 @@ logger = logging.getLogger(__name__)
 #      (AI-personality sponsorship). NULL = anonymous house loan (v1 sponsorship);
 #      non-NULL = personality_id of the named AI lender. Used by leave-time settlement to
 #      credit sponsor_total back to the lender's persistent bankroll.
-SCHEMA_VERSION = 91
+SCHEMA_VERSION = 92
 
 
 
@@ -1224,6 +1224,7 @@ class SchemaManager:
             89: (self._migrate_v89_add_loan_fields_to_player_bankroll, "Add active_loan_amount, active_loan_floor, active_loan_rate to player_bankroll_state for cash mode sponsorship"),
             90: (self._migrate_v90_add_lender_id_to_player_bankroll, "Add active_loan_lender_id to player_bankroll_state for cash mode Path B (AI sponsorship)"),
             91: (self._migrate_v91_add_cash_tables, "Add cash_tables table for persistent multi-table lobby (cash mode v1.5)"),
+            92: (self._migrate_v92_add_cash_idle_pool, "Add cash_idle_pool table for AIs between cash sessions (cash mode v1.5)"),
         }
 
         with self._get_connection() as conn:
@@ -4049,3 +4050,36 @@ class SchemaManager:
             )
         """)
         logger.info("v91: created cash_tables for persistent multi-table lobby")
+
+    def _migrate_v92_add_cash_idle_pool(self, conn: sqlite3.Connection) -> None:
+        """Migration v92: Add `cash_idle_pool` for AIs between cash sessions (v1.5).
+
+        Personalities not currently seated at any cash table land here.
+        Their re-entry tick (called from the lobby read endpoint) decides
+        when they walk back up to a table.
+
+          - `personality_id`: stable v85 slug. Primary key — an AI is
+            either at one table or in the idle pool, never both.
+          - `left_at`: wall-clock timestamp of when they left a table
+            (or were seeded into the pool at boot). Read by the
+            re-entry tick to enforce the 3-10 minute idle window.
+          - `reason`: why they're idle. One of
+            `forced_leave` | `stake_up_queued` | `take_break` |
+            `bored_move`. The re-entry tick uses this to bias the
+            target stake (stake_up_queued → walk up a tier).
+          - `target_stake`: optional preferred stake label for
+            re-entry. Set when `reason == 'stake_up_queued'` to
+            preserve the AI's intent; otherwise NULL and re-entry
+            picks the highest stake their bankroll affords.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS. Safe to re-run.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_idle_pool (
+                personality_id TEXT PRIMARY KEY,
+                left_at TIMESTAMP NOT NULL,
+                reason TEXT NOT NULL,
+                target_stake TEXT
+            )
+        """)
+        logger.info("v92: created cash_idle_pool for AIs between cash sessions")
