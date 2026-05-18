@@ -39,13 +39,15 @@ interface MobilePokerTableProps {
   playerName?: string;
   onGameCreated?: (gameId: string) => void;
   onBack?: () => void;
+  onGameLoadFailed?: () => void;
 }
 
 export function MobilePokerTable({
   gameId: providedGameId,
   playerName,
   onGameCreated,
-  onBack
+  onBack,
+  onGameLoadFailed
 }: MobilePokerTableProps) {
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
@@ -129,6 +131,7 @@ export function MobilePokerTable({
     playerName,
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
+    onGameLoadFailed,
   });
 
   const { wrappedSendMessage, guestChatDisabled, isGuest } = useGuestChatLimit(

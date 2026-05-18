@@ -29,9 +29,13 @@ interface PokerTableProps {
   /** Parent's back handler. Falls back to `window.location.href = '/'`
    *  if omitted, matching the legacy desktop behavior. */
   onBack?: () => void;
+  /** Fired when the backend reports the game is gone (HTTP 404). Page
+   *  level decides where to redirect — cash sessions go to /cash,
+   *  tournaments to /menu. */
+  onGameLoadFailed?: () => void;
 }
 
-export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, onBack }: PokerTableProps) {
+export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, onBack, onGameLoadFailed }: PokerTableProps) {
 
   // Track last known actions for fade-out animation
   const lastKnownActions = useRef<Map<string, string>>(new Map());
@@ -61,6 +65,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
     gameId: providedGameId ?? null,
     playerName,
     onGameCreated,
+    onGameLoadFailed,
   });
 
   const { wrappedSendMessage, guestChatDisabled } = useGuestChatLimit(

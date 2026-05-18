@@ -104,7 +104,7 @@ describe('VT-10: ResponsiveGameLayout — routes to MobilePokerTable on mobile',
       expect(screen.queryByTestId('mobile-poker-table')).not.toBeInTheDocument();
     });
 
-    it('passes gameId, playerName, and onGameCreated to PokerTable (no onBack)', () => {
+    it('passes gameId, playerName, onGameCreated, and onBack to PokerTable', () => {
       desktopViewport();
 
       render(<ResponsiveGameLayout {...defaultProps} />);
@@ -112,8 +112,7 @@ describe('VT-10: ResponsiveGameLayout — routes to MobilePokerTable on mobile',
       expect(lastDesktopProps.gameId).toBe('test-game-123');
       expect(lastDesktopProps.playerName).toBe('TestPlayer');
       expect(typeof lastDesktopProps.onGameCreated).toBe('function');
-      // onBack is NOT passed to PokerTable
-      expect(lastDesktopProps).not.toHaveProperty('onBack');
+      expect(typeof lastDesktopProps.onBack).toBe('function');
     });
   });
 

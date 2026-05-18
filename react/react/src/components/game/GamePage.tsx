@@ -1,4 +1,6 @@
+import { useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { ResponsiveGameLayout } from '../shared';
 
 interface GamePageProps {
@@ -23,12 +25,29 @@ export function GamePage({ playerName }: GamePageProps) {
     navigate(`/game/${newGameId}`, { replace: true });
   };
 
+  // The backend has no record of this game (HTTP 404). Cash sessions
+  // are in-memory-only, so they vanish on backend restart — kick the
+  // player back to the cash menu where they can start fresh.
+  // Tournament games can also 404 if the in-memory entry was evicted
+  // and persistence couldn't rehydrate.
+  const handleGameLoadFailed = useCallback(() => {
+    const isCashGame = gameId?.startsWith('cash-') ?? false;
+    if (isCashGame) {
+      toast.error('Your cash session ended — back to the cash menu.');
+      navigate('/cash', { replace: true });
+    } else {
+      toast.error('Game not found.');
+      navigate('/menu', { replace: true });
+    }
+  }, [gameId, navigate]);
+
   return (
     <ResponsiveGameLayout
       gameId={gameId || null}
       playerName={playerName}
       onGameCreated={handleGameCreated}
       onBack={handleBack}
+      onGameLoadFailed={handleGameLoadFailed}
     />
   );
 }

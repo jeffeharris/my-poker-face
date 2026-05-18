@@ -123,6 +123,13 @@ export function usePokerGame({
   const aiThinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gameIdRef = useRef<string | null>(null);
   const lastErrorRefreshRef = useRef<number>(0);
+  // Latches when the backend has reported the game is gone (HTTP 404
+  // on game-state). Cash sessions are in-memory-only, so a backend
+  // restart drops the room and the frontend would otherwise reconnect-
+  // spam socket.io with the stale sid forever. Once this is true we
+  // disconnect the socket, fire onGameLoadFailed exactly once, and
+  // skip subsequent refreshes.
+  const gameGoneRef = useRef(false);
 
   // State buffer for card animation gating
   // Use refs (not useState) because socket callbacks capture values at registration time,
@@ -573,14 +580,38 @@ export function usePokerGame({
     });
   }, [onNewAiMessage, clearAiThinkingTimeout, updateStorePlayers, updateStorePlayerOptions, resetBuffer, processStateUpdate]);
 
+  // Fires exactly once when the backend confirms the game no longer
+  // exists. Disconnects the socket so the reconnect loop stops, then
+  // hands control back to the caller (page-level routing decides
+  // where to redirect — cash menu vs main menu).
+  const handleGameGone = useCallback(() => {
+    if (gameGoneRef.current) return;
+    gameGoneRef.current = true;
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
+    if (onGameLoadFailed) {
+      onGameLoadFailed();
+    }
+  }, [onGameLoadFailed]);
+
   // refreshGameState: silent=true means don't touch loading state (for reconnections)
   const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
+    if (gameGoneRef.current) return false;
     try {
       clearAiThinkingTimeout();
       // Reset buffer on full refresh to prevent stale queued state
       resetBuffer();
 
       const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+      if (res.status === 404) {
+        // Game is gone from the backend (cash sessions don't survive
+        // a backend restart; tournament games could be evicted from
+        // memory). Stop trying.
+        logger.warn(`Game ${gId} not found — backend has no record`);
+        handleGameGone();
+        return false;
+      }
       if (!res.ok) {
         logger.error(`Failed to fetch game state: HTTP ${res.status}`);
         return false;
@@ -617,7 +648,7 @@ export function usePokerGame({
       logger.error('Failed to refresh game state:', err);
       return false;
     }
-  }, [clearAiThinkingTimeout, applyGameState, resetBuffer]);
+  }, [clearAiThinkingTimeout, applyGameState, resetBuffer, handleGameGone]);
 
   // Keep ref in sync for socket callback access
   refreshGameStateRef.current = refreshGameState;
@@ -674,10 +705,14 @@ export function usePokerGame({
           if (onGameCreated) {
             onGameCreated('');
           }
-          if (onGameLoadFailed) {
+          // 404s already fired onGameLoadFailed via handleGameGone.
+          // For other transient failures, hand control to the page-
+          // level callback; if none was provided, stay put — a
+          // location.reload() here used to create an infinite loop
+          // when the game was permanently gone (cash session after
+          // backend restart).
+          if (!gameGoneRef.current && onGameLoadFailed) {
             onGameLoadFailed();
-          } else {
-            window.location.reload();
           }
         }
       });
@@ -720,7 +755,7 @@ export function usePokerGame({
   // Handle visibility changes (browser wake from sleep)
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && gameId) {
+      if (document.visibilityState === 'visible' && gameId && !gameGoneRef.current) {
         const socket = socketRef.current;
 
         if (!socket || !socket.connected) {
