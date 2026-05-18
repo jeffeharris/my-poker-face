@@ -156,6 +156,44 @@
   cursor: not-allowed;
 }
 
+.mobile-cash-sheet__leave {
+  margin-top: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.mobile-cash-sheet__leave:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.mobile-cash-sheet__leave.is-confirming {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.45);
+  font-weight: 600;
+}
+
+.mobile-cash-sheet__leave.is-confirming:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.mobile-cash-sheet__leave:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .mobile-cash-sheet__note {
   margin-top: 0.5rem;
   padding: 0.625rem 0.75rem;

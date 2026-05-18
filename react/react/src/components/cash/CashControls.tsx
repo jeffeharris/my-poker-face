@@ -1,14 +1,16 @@
 /**
- * Cash-mode HUD: bankroll display + between-hands top-up button.
+ * Cash-mode HUD: bankroll display + between-hands top-up button +
+ * leave-table button. Desktop only — mobile uses MobileCashSheet
+ * for the same surface area in a slide-up bottom sheet.
  *
- * Renders nothing for non-cash games. Reads cash_mode metadata from
- * the GameState (which the backend includes only for cash games).
- *
- * v1: bankroll display + "Top up to max" button (between hands only).
- * Future: rebuy modal on bust, loan / sponsorship UI.
+ * Renders nothing for non-cash games. Reads cash_mode metadata
+ * from the GameState (which the backend includes only for cash
+ * games).
  */
 
 import { useCallback, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { LogOut } from 'lucide-react';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import type { CashModeInfo } from '../../types/game';
@@ -21,8 +23,10 @@ interface CashControlsProps {
 }
 
 export function CashControls({ cashMode, playerStack, handInProgress }: CashControlsProps) {
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
   // Headroom for a top-up: the gap between current stack and the
   // table's max_buy_in. If stack is at or above max, the button is
@@ -56,6 +60,35 @@ export function CashControls({ cashMode, playerStack, handInProgress }: CashCont
     }
   }, [canTopUp, topUpAmount]);
 
+  const handleLeave = useCallback(async () => {
+    // Two-tap confirm: first click flips the button to a red
+    // "Confirm leave — return $X to bankroll" state; second click
+    // actually leaves. Guards against accidental table abandonment
+    // (you lose any heat/respect built with these AI opponents).
+    if (!confirmLeave) {
+      setConfirmLeave(true);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${config.API_URL}/api/cash/leave`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      navigate('/menu');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.error('Leave failed:', msg);
+      setError(msg);
+      setBusy(false);
+    }
+  }, [confirmLeave, navigate]);
+
   return (
     <div className="cash-controls glass">
       <div className="cash-controls__row">
@@ -82,9 +115,24 @@ export function CashControls({ cashMode, playerStack, handInProgress }: CashCont
                 : `Top up $${topUpAmount.toLocaleString()}`
           }
         >
-          {busy ? 'Topping up…' : `Top up +$${topUpAmount.toLocaleString()}`}
+          {busy && !confirmLeave
+            ? 'Topping up…'
+            : `Top up +$${topUpAmount.toLocaleString()}`}
         </button>
       )}
+      <button
+        type="button"
+        onClick={handleLeave}
+        disabled={busy && confirmLeave}
+        className={`cash-controls__leave${confirmLeave ? ' is-confirming' : ''}`}
+      >
+        <LogOut size={14} />
+        {busy && confirmLeave
+          ? 'Leaving…'
+          : confirmLeave
+            ? `Confirm — return $${playerStack.toLocaleString()}`
+            : 'Leave table'}
+      </button>
       {error && <div className="cash-controls__error">{error}</div>}
     </div>
   );

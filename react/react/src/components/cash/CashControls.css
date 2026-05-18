@@ -48,6 +48,44 @@
   cursor: not-allowed;
 }
 
+.cash-controls__leave {
+  margin-top: 0.25rem;
+  padding: 0.45rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.cash-controls__leave:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.cash-controls__leave.is-confirming {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.45);
+  font-weight: 600;
+}
+
+.cash-controls__leave.is-confirming:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.cash-controls__leave:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .cash-controls__error {
   color: #fca5a5;
   font-size: 0.75rem;

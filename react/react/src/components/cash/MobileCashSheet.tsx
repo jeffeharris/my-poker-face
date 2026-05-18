@@ -9,7 +9,8 @@
  */
 
 import { useCallback, useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { X, LogOut } from 'lucide-react';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import type { CashModeInfo } from '../../types/game';
@@ -30,16 +31,20 @@ export function MobileCashSheet({
   playerStack,
   handInProgress,
 }: MobileCashSheetProps) {
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
-  // Reset error when sheet opens (a stale message from a previous
-  // attempt shouldn't carry over).
+  // Reset error + confirmation state when sheet opens (a stale
+  // message or partial-confirm from a previous open shouldn't
+  // carry over).
   useEffect(() => {
     if (isOpen) {
       setError(null);
       setClosing(false);
+      setConfirmLeave(false);
     }
   }, [isOpen]);
 
@@ -79,6 +84,35 @@ export function MobileCashSheet({
       setBusy(false);
     }
   }, [canTopUp, topUpAmount, handleClose]);
+
+  const handleLeave = useCallback(async () => {
+    // First click: show the confirmation. Second click: actually leave.
+    // Two-tap confirm avoids "I tapped the wrong button" regret since
+    // leaving the table forfeits any heat/respect we've built with
+    // the AIs at this table.
+    if (!confirmLeave) {
+      setConfirmLeave(true);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${config.API_URL}/api/cash/leave`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      navigate('/menu');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.error('Leave failed:', msg);
+      setError(msg);
+      setBusy(false);
+    }
+  }, [confirmLeave, navigate]);
 
   if (!isOpen) return null;
 
@@ -137,7 +171,7 @@ export function MobileCashSheet({
               disabled={!canTopUp}
               className="mobile-cash-sheet__topup"
             >
-              {busy
+              {busy && !confirmLeave
                 ? 'Topping up…'
                 : handInProgress
                   ? 'Top up between hands only'
@@ -150,6 +184,20 @@ export function MobileCashSheet({
               Stack at max buy-in — no headroom to top up.
             </div>
           )}
+
+          <button
+            type="button"
+            onClick={handleLeave}
+            disabled={busy && confirmLeave}
+            className={`mobile-cash-sheet__leave${confirmLeave ? ' is-confirming' : ''}`}
+          >
+            <LogOut size={16} />
+            {busy && confirmLeave
+              ? 'Leaving…'
+              : confirmLeave
+                ? `Confirm leave — return $${playerStack.toLocaleString()} to bankroll`
+                : 'Leave table'}
+          </button>
 
           {error && (
             <div className="mobile-cash-sheet__error" role="alert">
