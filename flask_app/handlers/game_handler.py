@@ -540,6 +540,29 @@ def update_and_emit_game_state(game_id: str) -> None:
     betting_context['opponent_covers'] = opponent_covers
     game_state_dict['betting_context'] = betting_context
 
+    # Cash mode metadata — surfaced so the React UI can show the
+    # bankroll, the table's buy-in window, and gate the top-up /
+    # rebuy buttons on. Tournament games omit this key entirely.
+    if current_game_data.get('cash_mode'):
+        from flask_app.extensions import bankroll_repo
+        owner_id_cash = current_game_data.get('owner_id')
+        bankroll_chips = 0
+        if owner_id_cash:
+            try:
+                bankroll = bankroll_repo.load_player_bankroll(owner_id_cash)
+                if bankroll is not None:
+                    bankroll_chips = bankroll.chips
+            except Exception:
+                pass
+        big_blind = game_state.current_ante
+        game_state_dict['cash_mode'] = {
+            'stake_label': current_game_data.get('cash_stake_label'),
+            'bankroll': bankroll_chips,
+            'big_blind': big_blind,
+            'min_buy_in': big_blind * 40,
+            'max_buy_in': big_blind * 100,
+        }
+
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 

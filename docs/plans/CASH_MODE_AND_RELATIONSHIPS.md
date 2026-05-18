@@ -403,19 +403,59 @@ AI output (existing `dramatic_sequence` beats) **reads** projected relationship 
 
 ## Part 2: Cash Game Mode
 
-### Architecture
+### Architecture (as shipped — revised post-rewrite)
 
-Cash mode is a **new mode**, not a tweak. The current state machine assumes one-game-at-a-time, players locked in until bust. Cash mode needs:
-- Tables with their own persistent state
-- Sit-down / leave / top-up mid-session
+Cash mode is implemented as a **flavor of the existing tournament
+game flow**, gated by a `cash_mode=True` boolean on
+`game_state_service`'s `game_data` dict. Cash games use the same
+`StateMachineAdapter`, the same `HybridAIController` (and other bot
+types), the same `progress_game` action loop, the same SocketIO
+emits, the same React UI at `/game/<game_id>`, the same
+`/api/game/<id>/action` route. The only deltas vs tournament games:
+
+- **No `tournament_tracker`** — so `handle_eliminations` and
+  `check_tournament_complete` naturally no-op via their existing
+  no-tracker early-return.
+- **Bankroll integration** at sit-down / leave / topup / between-hand
+  AI refill — via `/api/cash/*` routes and the `cash_mode/`
+  package's pure accounting helpers.
+- **AI refill** between hands when a non-human seat busts —
+  `_refill_cash_seats` in `flask_app/handlers/game_handler.py`.
+- **`game_id` "cash-" prefix** so the continue-games list filters
+  cash sessions out (they don't belong in the saved-game flow).
+- **`cash_mode` info block** in the SocketIO state emit, so the
+  React UI can render bankroll + buy-in caps without a second
+  fetch.
+
+The earlier-drafted `cash_mode/session.py` orchestrator was
+replaced by direct tournament-flow integration in commit
+`b2a0ad36` (May 2026). See `CASH_MODE_V1_WIRING_PLAN.md` for the
+superseded design and the lessons that prompted the rewrite.
+
+### Why it's a separate "mode" anyway
+
+Even though it shares the tournament infrastructure, cash mode
+is a distinct **product** mode:
+
+- Tables with their own persistent state (`CashTable.stacks` lives
+  on the state machine's player tuple; bankrolls live in
+  `player_bankroll_state` / `ai_bankroll_state`)
+- Sit-down / leave / top-up mid-session (between hands)
 - Persistent bankrolls across sessions and games
 - (v2) Lobby with concurrent tables
 
-Lives in a new `cash_mode/` package alongside existing orchestration. **Shares the hand engine.**
+Lives in a `cash_mode/` package for the bankroll dataclasses +
+pure accounting helpers + (mostly vestigial) `CashTable` dataclass.
+**The hand engine and game orchestration are shared verbatim with
+tournament mode.**
 
 ### v1 scope (single-table foundation) — SHIPPED
 
-**Status**: Shipped on the `phase-1` branch (commits `613c0e9b` → `bcfe4a69`, May 2026). Per-personality bankroll knobs tuned for all 53 seeded personalities; 116 tests passing. v2 unblocked. See `CASH_MODE_V1_WIRING_PLAN.md` for the codex-vetted implementation design.
+**Status**: Shipped on the `phase-1` branch in two arcs:
+  - First arc (commits `613c0e9b` → `bcfe4a69`, May 2026): parallel `CashSession` orchestrator + dedicated routes.
+  - Second arc (commits `b2a0ad36` → `08b50900`, May 2026): rewrite to tournament-flavor architecture above; deleted the parallel orchestrator (-2815 LoC net).
+
+Per-personality bankroll knobs tuned for all 53 seeded personalities; 95 tests passing (down from 117 since the rewrite deleted the parallel-orchestrator tests that no longer apply). v2 unblocked.
 
 **Per codex review, v1 cash mode is a single cash table with persistent bankroll.** This proves bankroll/stack accounting, persistence semantics, and the integration with the relationship layer's tier-modifier seam before adding the multi-table lobby complexity.
 

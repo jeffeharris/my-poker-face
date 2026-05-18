@@ -40,15 +40,22 @@ export function CashModeEntry() {
 
   // Check for an existing session on mount; redirect to the existing
   // tournament-style /game/:id page (cash sessions ride the same UI).
+  // Also reads the player's bankroll for the affordability filter on
+  // the stake picker — disable stakes the player can't afford to
+  // fully buy into.
   useEffect(() => {
     (async () => {
       try {
         const { state } = await getState();
         if (state?.game_id) {
           navigate(`/game/${state.game_id}`, { replace: true });
+          return;
+        }
+        if (state?.bankroll !== undefined) {
+          setBankroll(state.bankroll);
         }
       } catch {
-        // 404 expected if no active session — fall through to entry UI
+        // No active session — fall through to entry UI
       }
     })();
   }, [navigate]);
@@ -98,20 +105,30 @@ export function CashModeEntry() {
         <section className="cash-entry__stakes">
           <h2>Choose a stake</h2>
           <div className="cash-entry__stake-grid">
-            {STAKES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setStake(s)}
-                className={`cash-entry__stake-button${stake === s ? ' is-selected' : ''}`}
-                disabled={busy}
-              >
-                <div className="cash-entry__stake-label">{s} table</div>
-                <div className="cash-entry__stake-meta">
-                  BB ${BIG_BLIND_BY_STAKE[s]} · min ${BIG_BLIND_BY_STAKE[s] * MIN_BB} · max ${BIG_BLIND_BY_STAKE[s] * MAX_BB}
-                </div>
-              </button>
-            ))}
+            {STAKES.map((s) => {
+              const min = BIG_BLIND_BY_STAKE[s] * MIN_BB;
+              const affordable = bankroll === null || bankroll >= min;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => affordable && setStake(s)}
+                  className={`cash-entry__stake-button${stake === s ? ' is-selected' : ''}${affordable ? '' : ' is-disabled'}`}
+                  disabled={busy || !affordable}
+                  title={affordable ? undefined : `Need $${min.toLocaleString()} bankroll to sit here`}
+                >
+                  <div className="cash-entry__stake-label">{s} table</div>
+                  <div className="cash-entry__stake-meta">
+                    BB ${BIG_BLIND_BY_STAKE[s]} · min ${min} · max ${BIG_BLIND_BY_STAKE[s] * MAX_BB}
+                  </div>
+                  {!affordable && (
+                    <div className="cash-entry__stake-locked">
+                      Bankroll too small
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </section>
 

@@ -1,17 +1,28 @@
 ---
-purpose: Proposed wiring for cash mode v1 commit 3 — how the cash-mode session loop integrates with the existing hand engine
+purpose: SUPERSEDED — original wiring plan for the CashSession parallel-orchestrator architecture; v1 was rewritten to use the tournament flow directly
 type: design
 created: 2026-05-18
 last_updated: 2026-05-18
 ---
 
-# Cash Mode v1 — Wiring Plan (commit 3)
+# Cash Mode v1 — Wiring Plan (SUPERSEDED)
 
-**Status: implemented, shipped on `phase-1` branch.** Commit 3 (split
-into 3a/3b/3c: `004b15e8`, `02daf1c8`, `3375696f`) implemented the
-session orchestrator per this plan. Commits 4-7 follow with quit/
-disconnect, Flask routes, React UI, and the sanity script. v1 closed
-out on 2026-05-18.
+**⚠️  This document is historical.** It describes the
+`CashSession` parallel-orchestrator architecture that v1 was
+initially built on. After live playtest revealed that the parallel
+orchestrator kept hitting tournament-shaped integration seams
+(action route, on_join, save_game, controller wiring), v1 was
+rewritten in commit `b2a0ad36` to build directly on the tournament
+flow. Cash games are now tournament-shape games with a
+`cash_mode=True` flag on `game_data` — see
+`CASH_MODE_V1_HANDOFF.md` and the route at
+`flask_app/routes/cash_routes.py` for the current architecture.
+
+Kept on disk as a record of the codex-vetted design pass and the
+ten concerns that prompted the rewrite. Useful context for the
+sponsorship work or any future cash-mode refactor.
+
+---
 
 This is the integration design for the cash-mode hand orchestration
 commit. It's a proposal — open to redirection before code lands.

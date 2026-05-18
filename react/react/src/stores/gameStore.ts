@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Player } from '../types/player';
-import type { GameState, BettingContext } from '../types/game';
+import type { GameState, BettingContext, CashModeInfo } from '../types/game';
 
 // Stable references to avoid creating new objects on every selectGameState call
 const EMPTY_MESSAGES: never[] = [];
@@ -26,6 +26,7 @@ interface GameStore {
   newlyDealtCount: number | undefined;
   awaitingAction: boolean | undefined;
   runItOut: boolean | undefined;
+  cashMode: CashModeInfo | null;
 
   // Actions
   applyGameState: (state: GameState) => void;
@@ -53,6 +54,7 @@ const initialState = {
   newlyDealtCount: undefined as number | undefined,
   awaitingAction: undefined as boolean | undefined,
   runItOut: undefined as boolean | undefined,
+  cashMode: null as CashModeInfo | null,
 };
 
 /** Compare two Player objects field-by-field, including nested objects. */
@@ -149,6 +151,7 @@ export const useGameStore = create<GameStore>((set) => ({
         newlyDealtCount: state.newly_dealt_count,
         awaitingAction: state.awaiting_action,
         runItOut: state.run_it_out,
+        cashMode: state.cash_mode ?? null,
       };
     });
   },
@@ -194,5 +197,6 @@ export function selectGameState(state: GameStore): GameState | null {
     newly_dealt_count: state.newlyDealtCount,
     awaiting_action: state.awaitingAction,
     run_it_out: state.runItOut,
+    cash_mode: state.cashMode ?? undefined,
   };
 }

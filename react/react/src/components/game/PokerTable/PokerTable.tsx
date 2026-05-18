@@ -8,6 +8,7 @@ import { StadiumLayout } from '../StadiumLayout';
 import { GameHeader } from '../GameHeader';
 import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
+import { CashControls } from '../../cash/CashControls';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
 import { ShuffleLoading } from '../../shared/ShuffleLoading';
@@ -262,12 +263,25 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         }
         leftPanel={
           humanPlayer && (
-            <StatsPanel
-              humanPlayer={humanPlayer}
-              players={gameState.players}
-              potTotal={gameState.pot.total}
-              handNumber={gameState.hand_number}
-            />
+            <>
+              {gameState.cash_mode && (
+                <CashControls
+                  cashMode={gameState.cash_mode}
+                  playerStack={humanPlayer.stack}
+                  handInProgress={
+                    gameState.phase !== 'INITIALIZING_HAND'
+                    && gameState.phase !== 'HAND_OVER'
+                    && gameState.phase !== 'EVALUATING_HAND'
+                  }
+                />
+              )}
+              <StatsPanel
+                humanPlayer={humanPlayer}
+                players={gameState.players}
+                potTotal={gameState.pot.total}
+                handNumber={gameState.hand_number}
+              />
+            </>
           )
         }
         bottomCenter={

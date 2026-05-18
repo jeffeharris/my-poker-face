@@ -28,13 +28,12 @@ export interface PlayerBankrollState {
   starting_bankroll: number;
 }
 
+/** Returned by /api/cash/state — minimal session summary for the
+ *  cash entry page (refresh-recovery + affordability filter). */
 export interface CashSessionState {
   game_id: string;
-  table: CashTableState;
-  player_bankroll: PlayerBankrollState;
-  hand_number: number;
-  player_disconnected: boolean;
-  player_pending_quit: boolean;
+  bankroll: number;
+  stake_label: string;
 }
 
 export type HandStatus =

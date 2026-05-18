@@ -7,12 +7,29 @@ last_updated: 2026-05-18
 
 # Cash Mode v1 — Handoff
 
-**Status: SHIPPED on `phase-1` (commits `613c0e9b` → `bcfe4a69`).**
-116 tests passing across the cash-mode surface. v2 unblocked.
-This handoff is kept as the historical record of the implementation
-plan + post-mortem; the canonical spec
-`CASH_MODE_AND_RELATIONSHIPS.md` Part 2 marks v1 as shipped and is
-the source of truth for v2/v3 work.
+**Status: SHIPPED on `phase-1`** — but the architecture described
+below was rewritten partway through. The original implementation
+(commits `613c0e9b` → `bcfe4a69`) built a parallel `CashSession`
+orchestrator. After live playtest revealed that the parallel
+approach kept hitting tournament-shaped integration seams, v1 was
+**rewritten in commit `b2a0ad36`** to build directly on the
+tournament flow (cash games are tournament-shape with a
+`cash_mode=True` flag).
+
+**For the current architecture, see:**
+- `CASH_MODE_AND_RELATIONSHIPS.md` Part 2 §"Architecture (as
+  shipped — revised post-rewrite)" — the canonical spec
+- `flask_app/routes/cash_routes.py` — the route layer
+- `flask_app/handlers/game_handler.py` — `_refill_cash_seats`
+  + cash branches in the tournament flow
+
+**For the next chunk of work**, see `CASH_MODE_SPONSORSHIP_HANDOFF.md`
+— the player-rebuy + sponsorship-loan design.
+
+The rest of this document is the original implementation handoff,
+kept as the historical record of the parallel-orchestrator design.
+Some parts (commit breakdown, file references) describe code that
+was later deleted; treat as archival.
 
 This doc gets a fresh context up to speed on what's done, what's
 next, and the smallest set of files to read before touching code.
