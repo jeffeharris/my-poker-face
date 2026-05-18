@@ -110,6 +110,7 @@ class HandOutcomeDetector:
         """
         events: List[DetectedEvent] = []
         events.extend(self._detect_big_pot_events(recorded_hand))
+        events.extend(self._detect_hero_calls(recorded_hand))
         # Apply dedup AFTER detection so detection logic stays a
         # pure mapping. Each surviving event marks its key as
         # emitted; re-running the same hand returns no events.
@@ -234,6 +235,135 @@ class HandOutcomeDetector:
                 hand_summary=summary,
                 chips_won=-flow.chips,
             ))
+        return events
+
+    def _detect_hero_calls(self, hand: RecordedHand) -> List[DetectedEvent]:
+        """Emit HERO_CALL events for river calls that beat a worse hand.
+
+        v1 simple semantic — fires on the outcome pattern, not on
+        whether the call was equity-justified:
+
+          1. Hand reached showdown.
+          2. Winner's last RIVER action was a `call`.
+          3. The call answered a `bet` / `raise` / `all_in` from a
+             specific loser on the RIVER (most recent aggressive
+             action before the call).
+          4. That loser's revealed hand at showdown was weaker than
+             the winner's (higher hand_rank — lower is better in
+             this codebase's HandEvaluator convention).
+
+        **Approximation, not equity-aware.** A call that was
+        technically a suckout (caller had worse equity at decision
+        time but caught up by the river) still fires HERO_CALL —
+        the showdown reveal is what the loser sees and feels, and
+        the dispatch table's actor shift (heat −0.05, respect
+        −0.10, likability +0.01 from the caller's POV) reads cleanly
+        either way: "they caught me." Equity-aware refinement
+        ("called a bet your range didn't justify") needs decision-
+        time equity, which is on Track A's polarization-Phase-B
+        roadmap. BAD_BEAT ships in the same later wave because it
+        depends on the same equity-history-at-on_hand_complete
+        plumbing that doesn't exist yet.
+
+        Pre-river hero calls (turn call then river check-check) are
+        also not detected — the simple semantic restricts to river
+        action because that's where bluff-catcher patterns
+        concentrate. Future revision can broaden.
+
+        Losers' hand_rank is computed from
+        `hole_cards + community_cards` via `HandEvaluator` because
+        `RecordedHand` only persists `hand_rank` on winners
+        (`WinnerInfo.hand_rank`). The compute is local and cheap;
+        no DB round-trip.
+        """
+        if not hand.was_showdown:
+            return []
+
+        # Local imports — avoid importing heavy poker.* modules at
+        # detector module-load time (keeps the import graph clean
+        # for the relationship layer's other consumers).
+        from core.card import Card
+        from poker.hand_evaluator import HandEvaluator
+
+        # Compute hand_rank for every revealed player. `hole_cards`
+        # is keyed by name and only contains showdown-reaching
+        # players (folded players are stripped before
+        # complete_hand). Errors parsing cards / evaluating skip
+        # that player silently — degraded data shouldn't crash the
+        # detector.
+        try:
+            community = [Card.from_short(c) for c in hand.community_cards]
+        except Exception:
+            return []
+
+        revealed_ranks: Dict[str, int] = {}
+        for name, hole in hand.hole_cards.items():
+            try:
+                cards = [Card.from_short(c) for c in hole] + community
+                result = HandEvaluator(cards).evaluate_hand()
+                revealed_ranks[name] = result['hand_rank']
+            except Exception:
+                continue
+        if len(revealed_ranks) < 2:
+            return []
+
+        winner_names = {w.name for w in hand.winners}
+        # A hero call needs at least one winner that reached showdown
+        # with a rank we computed. Most of the time
+        # winner_info.hand_rank matches our computed value, but
+        # using the computed rank keeps the comparison consistent
+        # (same evaluator on both sides of the comparison).
+        river_actions = [a for a in hand.actions if a.phase == 'RIVER']
+        if not river_actions:
+            return []
+
+        summary = hand.get_summary()
+        events: List[DetectedEvent] = []
+
+        for winner in winner_names:
+            winner_rank = revealed_ranks.get(winner)
+            if winner_rank is None:
+                continue
+
+            # Scan RIVER actions in order. Track the most recent
+            # aggressive action by a non-winner; if the winner's
+            # next action is `call`, that's a hero-call candidate.
+            last_bettor: Optional[str] = None
+            called_against: Optional[str] = None
+            for action in river_actions:
+                actor = action.player_name
+                act = action.action
+                if act in ('bet', 'raise', 'all_in') and actor != winner:
+                    last_bettor = actor
+                elif act == 'call' and actor == winner and last_bettor:
+                    called_against = last_bettor
+                    break
+            if called_against is None:
+                continue
+
+            loser_rank = revealed_ranks.get(called_against)
+            # Strictly weaker hand (higher rank number). Equal ranks
+            # (chopped pots, split-rank ties) don't qualify — the
+            # bluff-catcher framing requires the loser actually lost.
+            if loser_rank is None or loser_rank <= winner_rank:
+                continue
+
+            winner_id = self._resolve_id(winner)
+            loser_id = self._resolve_id(called_against)
+            if winner_id is None or loser_id is None:
+                continue
+
+            events.append(DetectedEvent(
+                actor_id=winner_id,
+                target_id=loser_id,
+                event=RelationshipEvent.HERO_CALL,
+                narrative=(
+                    f"{winner} called {called_against}'s river bet "
+                    f"and showed down the winner"
+                ),
+                hand_summary=summary,
+            ))
+
         return events
 
     def _resolve_id(self, name: str) -> Optional[str]:
