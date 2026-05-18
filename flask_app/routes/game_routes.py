@@ -416,6 +416,11 @@ def list_games():
     else:
         saved_games = []
 
+    # Filter out cash games — they're session-only and don't belong
+    # in the "continue games" list. Identified by the "cash-" game_id
+    # prefix that /api/cash/start uses.
+    saved_games = [g for g in saved_games if not g.game_id.startswith("cash-")]
+
     games_data = []
     for game in saved_games:
         try:

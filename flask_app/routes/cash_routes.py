@@ -251,7 +251,11 @@ def start_cash_session():
         blind_config={"growth": 1.0, "hands_per_level": 999999, "max_blind": big_blind},
     )
     state_machine = StateMachineAdapter(base_state_machine)
-    game_id = generate_game_id()
+    # Cash games get a "cash-" prefixed game_id so the list_games
+    # filter can identify them without touching the games-table
+    # schema. Persistence is best-effort (cash sessions are in-memory
+    # only per spec); the prefix is the durable hint.
+    game_id = f"cash-{generate_game_id()}"
 
     # 4. AI controllers — same shape as the tournament path.
     default_prompt_config = load_game_mode_preset("standard")
@@ -416,6 +420,17 @@ def leave_table():
     bankroll_repo.save_player_bankroll(bankroll)
 
     game_state_service.delete_game(game_id)
+    # Best-effort: drop the persisted row too so the cash game doesn't
+    # linger in game_repo. Cash games shouldn't even be persisted
+    # (spec §"v1 architectural invariants" — CashTable in-memory
+    # only), but progress_game's auto-save can write rows; this
+    # cleans them up on leave. Missing row is fine.
+    from flask_app.extensions import game_repo
+    try:
+        game_repo.delete_game(game_id)
+    except Exception as e:
+        logger.warning("[CASH] delete_game failed for %r: %s", game_id, e)
+
     logger.info("[CASH] Left game_id=%r owner=%r returned=%d bankroll_now=%d",
                 game_id, owner_id, returned_chips, bankroll.chips)
 

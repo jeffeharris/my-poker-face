@@ -242,7 +242,22 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
             handNumber={gameState.hand_number}
             blinds={{ small: gameState.small_blind, big: gameState.big_blind }}
             phase={gameState.phase}
-            onBackClick={() => { window.location.href = '/'; }}
+            onBackClick={async () => {
+              // Cash games: return chips to bankroll and tear down the
+              // session before navigating. Tournament games can stay
+              // running for "Continue Games" — just navigate away.
+              if (gameId?.startsWith('cash-')) {
+                try {
+                  await fetch(`${config.API_URL}/api/cash/leave`, {
+                    method: 'POST',
+                    credentials: 'include',
+                  });
+                } catch (e) {
+                  logger.error('Cash leave failed:', e);
+                }
+              }
+              window.location.href = '/';
+            }}
           />
         }
         leftPanel={

@@ -590,6 +590,167 @@ def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data:
 
 
 
+def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
+    """Cash-mode helper: replace busted AI seats with fresh personalities.
+
+    Called between hands (after HAND_OVER, before the next deal).
+    For each non-human player whose stack is 0, picks a new
+    personality from the eligible pool (not already seated), debits
+    that AI's bankroll for a fresh buy-in, and swaps the Player tuple
+    entry in-place. Also wires a new HybridAIController into
+    `ai_controllers` keyed on the new display name.
+
+    The human seat is left alone — player rebuy is a separate UX
+    decision (v1: player has to leave + come back; v2 may add a
+    "Rebuy" button between hands).
+    """
+    from datetime import datetime
+    from poker.poker_game import Player
+    from poker.hybrid_ai_controller import HybridAIController
+    from cash_mode.bankroll import AIBankrollState, project_bankroll
+    from flask_app.extensions import (
+        bankroll_repo, personality_repo,
+        capture_label_repo, decision_analysis_repo,
+    )
+
+    game_state = state_machine.game_state
+    busted_indices = [
+        i for i, p in enumerate(game_state.players)
+        if not p.is_human and p.stack == 0
+    ]
+    if not busted_indices:
+        return
+
+    occupied_names = {
+        p.name for p in game_state.players if p.stack > 0
+    }
+    big_blind = game_state.current_ante
+    min_buy_in = big_blind * 40
+    max_buy_in = big_blind * 100
+
+    owner_id = game_data.get('owner_id')
+    eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
+    eligible_pool = [
+        e for e in eligible
+        if e['name'] not in occupied_names
+        # Don't reseat a personality whose name matches a busted seat
+        # we're about to remove (rare but possible if the eligible
+        # query returns it twice).
+        and e['name'] not in {game_state.players[i].name for i in busted_indices}
+    ]
+
+    now = datetime.utcnow()
+    refilled_count = 0
+
+    for seat_idx in busted_indices:
+        old_player = game_state.players[seat_idx]
+        replacement = None
+        replacement_buy_in = 0
+        replacement_state = None
+
+        # Find an affordable, eligible replacement
+        for candidate in list(eligible_pool):
+            pid = candidate['personality_id']
+            knobs = bankroll_repo.load_personality_knobs(pid)
+            threshold = round(min_buy_in * knobs.buy_in_multiplier)
+            buy_in = min(threshold, max_buy_in)
+
+            stored = bankroll_repo.load_ai_bankroll(pid)
+            if stored is None:
+                projected = knobs.bankroll_cap
+                stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
+            else:
+                projected = project_bankroll(
+                    stored, knobs.bankroll_cap, knobs.bankroll_rate, now,
+                )
+            if projected < threshold:
+                continue
+
+            replacement = candidate
+            replacement_buy_in = buy_in
+            replacement_state = AIBankrollState(
+                personality_id=pid,
+                chips=projected - buy_in,
+                last_regen_tick=now,
+            )
+            eligible_pool.remove(candidate)
+            break
+
+        if replacement is None:
+            logger.info(
+                "[CASH] Refill: no eligible replacement for busted %r at seat %d",
+                old_player.name, seat_idx,
+            )
+            continue
+
+        # Swap player tuple entry. update_player keeps a stable
+        # position; we rebuild it with the new name + stack + zero bet.
+        new_player = Player(
+            name=replacement['name'],
+            stack=replacement_buy_in,
+            is_human=False,
+        )
+        new_players = tuple(
+            new_player if i == seat_idx else p
+            for i, p in enumerate(game_state.players)
+        )
+        game_state = game_state.update(players=new_players)
+        state_machine.game_state = game_state
+
+        # Persist AI bankroll debit
+        bankroll_repo.save_ai_bankroll(replacement_state)
+
+        # Swap controller registry: remove old, build new
+        ai_controllers = game_data.get('ai_controllers', {})
+        ai_controllers.pop(old_player.name, None)
+        new_controller = HybridAIController(
+            replacement['name'],
+            state_machine,
+            llm_config=game_data.get('llm_config', {}),
+            prompt_config=None,  # default
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+        ai_controllers[replacement['name']] = new_controller
+
+        # Initialize memory for the new player
+        memory_manager = game_data.get('memory_manager')
+        if memory_manager is not None:
+            try:
+                pid = personality_repo.resolve_name_to_personality_id(
+                    replacement['name'],
+                )
+            except Exception:
+                pid = None
+            memory_manager.initialize_for_player(
+                replacement['name'], personality_id=pid,
+            )
+            new_controller.session_memory = memory_manager.get_session_memory(
+                replacement['name'],
+            )
+            new_controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+            new_controller.memory_manager = memory_manager
+
+        # Update the cash-personality-id map so emit knows the mapping
+        cash_pids = game_data.get('cash_personality_ids', {})
+        cash_pids.pop(old_player.name, None)
+        cash_pids[replacement['name']] = replacement['personality_id']
+        game_data['cash_personality_ids'] = cash_pids
+
+        refilled_count += 1
+        logger.info(
+            "[CASH] Refilled seat %d: %r → %r (buy_in=%d)",
+            seat_idx, old_player.name, replacement['name'], replacement_buy_in,
+        )
+
+    if refilled_count > 0:
+        # Sync the updated game_state back to the service
+        game_data['state_machine'] = state_machine
+        game_state_service.set_game(game_id, game_data)
+
+
 def handle_eliminations(game_id: str, game_data: dict, game_state,
                         winning_player_names: list, pot_size: int,
                         final_hand_data: dict = None) -> Optional[bool]:
@@ -1313,6 +1474,18 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     game_data['last_announced_phase'] = None
     game_data.pop('runout_reaction_schedule', None)
     game_data.pop('runout_emotion_overrides', None)
+
+    # Cash mode: refill empty seats with fresh AIs before dealing the
+    # next hand. Tournament mode skips this — busted players stay
+    # eliminated, and the tracker drives the end-of-game flow.
+    if game_data.get('cash_mode'):
+        try:
+            _refill_cash_seats(game_id, game_data, state_machine)
+        except Exception as e:
+            logger.error(
+                f"[CASH] Failed to refill seats for {game_id}: {e}",
+                exc_info=True,
+            )
 
     # Advance to next hand - run until player action needed (deals cards, posts blinds)
     try:
