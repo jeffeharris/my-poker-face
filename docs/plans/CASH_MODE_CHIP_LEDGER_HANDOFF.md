@@ -3,6 +3,7 @@ purpose: Implementation handoff for the chip ledger — observability layer that
 type: guide
 created: 2026-05-19
 last_updated: 2026-05-19
+implementation_status: commit 1 of 5 shipped (schema v93 + repo + ledger module)
 ---
 
 # Cash Mode — Chip Ledger Handoff (v0: observability only)
@@ -56,7 +57,7 @@ credit, fake-sim chip movement, in-game pots) are NOT tracked.
 We're answering "is the economy inflating?" — the internal
 moves don't affect that.
 
-## Schema v94
+## Schema v93
 
 ```sql
 CREATE TABLE chip_ledger_entries (
@@ -139,7 +140,7 @@ if leaks are accumulating.
 
 ## Phase / commit breakdown (~5 commits)
 
-**Commit 1: Schema v94 + repo + ledger module**
+**Commit 1: Schema v93 + repo + ledger module**
 - Migrate `chip_ledger_entries` table.
 - `poker/repositories/chip_ledger_repository.py` with
   `record(source, sink, amount, reason, context_json)`,
@@ -293,8 +294,8 @@ Use that data to:
 ## Files to read first
 
 1. **This doc.**
-2. **`poker/repositories/schema_manager.py`** — v90, v91, v92,
-   v93 migration patterns to mirror for v94.
+2. **`poker/repositories/schema_manager.py`** — v90, v91, v92
+   migration patterns mirrored for v93 (already shipped in commit 1).
 3. **`cash_mode/bankroll.py:credit_ai_cash_out`** — the main AI
    bankroll write path; needs instrumentation in commits 2+3.
 4. **`flask_app/routes/cash_routes.py:_load_or_seed_player_bankroll`** —

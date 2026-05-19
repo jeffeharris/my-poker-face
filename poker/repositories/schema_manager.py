@@ -80,7 +80,12 @@ logger = logging.getLogger(__name__)
 #      (AI-personality sponsorship). NULL = anonymous house loan (v1 sponsorship);
 #      non-NULL = personality_id of the named AI lender. Used by leave-time settlement to
 #      credit sponsor_total back to the lender's persistent bankroll.
-SCHEMA_VERSION = 92
+# v93: Add chip_ledger_entries — observability for chip creation/destruction events.
+#      One row per central_bank ↔ X transfer (player_seed, ai_regen, cap_clamp,
+#      house_loan_issue, house_loan_settle, forgive_balance). Pure transfers
+#      between non-bank entities are NOT recorded. Append-only; no enforcement
+#      in v0. Spec: docs/plans/CASH_MODE_CHIP_LEDGER_HANDOFF.md.
+SCHEMA_VERSION = 93
 
 
 
@@ -1225,6 +1230,7 @@ class SchemaManager:
             90: (self._migrate_v90_add_lender_id_to_player_bankroll, "Add active_loan_lender_id to player_bankroll_state for cash mode Path B (AI sponsorship)"),
             91: (self._migrate_v91_add_cash_tables, "Add cash_tables table for persistent multi-table lobby (cash mode v1.5)"),
             92: (self._migrate_v92_add_cash_idle_pool, "Add cash_idle_pool table for AIs between cash sessions (cash mode v1.5)"),
+            93: (self._migrate_v93_add_chip_ledger, "Add chip_ledger_entries table for chip economy observability (v0: append-only ledger)"),
         }
 
         with self._get_connection() as conn:
@@ -4083,3 +4089,50 @@ class SchemaManager:
             )
         """)
         logger.info("v92: created cash_idle_pool for AIs between cash sessions")
+
+    def _migrate_v93_add_chip_ledger(self, conn: sqlite3.Connection) -> None:
+        """Migration v93: Add `chip_ledger_entries` for chip-economy observability.
+
+        Append-only ledger. One row per chip creation or destruction event
+        — i.e. any transfer where `central_bank` is on one side. Pure
+        transfers between non-bank entities (sit-down debits, pot
+        payouts, fake-sim shuffles, personality-loan principal flow) are
+        NOT recorded in v0; they don't change the size of the universe.
+
+        Endpoint shape (v0):
+          - source/sink — `'central_bank'` | `'player:<owner_id>'` | `'ai:<personality_id>'`.
+          - amount — non-negative integer.
+          - reason — free-form string drawn from a fixed vocabulary in
+            `core.economy.ledger.LEDGER_REASONS`; new reasons can be
+            added without a migration. Annotation rows (e.g.
+            `forgive_balance`) carry `amount = 0` and rely on
+            `context_json` to record the forgiven principal.
+          - context_json — optional JSON blob with game_id, loan_lender,
+            projected_chips, cap, etc.
+
+        Indexes match the audit query: `created_at DESC` for window
+        scans, `reason` for breakdowns.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS + CREATE INDEX IF NOT
+        EXISTS. Safe to re-run.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chip_ledger_entries (
+                entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                source TEXT NOT NULL,
+                sink TEXT NOT NULL,
+                amount INTEGER NOT NULL CHECK (amount >= 0),
+                reason TEXT NOT NULL,
+                context_json TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chip_ledger_created "
+            "ON chip_ledger_entries(created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chip_ledger_reason "
+            "ON chip_ledger_entries(reason)"
+        )
+        logger.info("v93: created chip_ledger_entries for chip-economy observability")

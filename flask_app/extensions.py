@@ -71,6 +71,7 @@ coach_repo = None
 relationship_repo = None
 bankroll_repo = None
 cash_table_repo = None
+chip_ledger_repo = None
 persistence_db_path = None  # for callers that need the raw path
 
 # Pressure event repository (separate, not part of create_repos)
@@ -168,7 +169,7 @@ def init_persistence() -> None:
     """Initialize persistence layer with individual repositories."""
     global game_repo, user_repo, settings_repo, personality_repo
     global experiment_repo, llm_repo, guest_tracking_repo
-    global hand_history_repo, tournament_repo, coach_repo, relationship_repo, bankroll_repo, cash_table_repo, persistence_db_path
+    global hand_history_repo, tournament_repo, coach_repo, relationship_repo, bankroll_repo, cash_table_repo, chip_ledger_repo, persistence_db_path
     global prompt_capture_repo, decision_analysis_repo, prompt_preset_repo
     global capture_label_repo, replay_experiment_repo
     global event_repository
@@ -194,6 +195,7 @@ def init_persistence() -> None:
     relationship_repo = repos['relationship_repo']
     bankroll_repo = repos['bankroll_repo']
     cash_table_repo = repos['cash_table_repo']
+    chip_ledger_repo = repos['chip_ledger_repo']
     persistence_db_path = repos['db_path']
 
     event_repository = PressureEventRepository(db_path)
