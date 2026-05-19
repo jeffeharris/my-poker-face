@@ -249,6 +249,11 @@ class ExpressionGenerator:
         drama_context = self.drama_contexts.get(ctx.drama_level, '')
         tone_modifier = self.tone_modifiers.get(ctx.drama_tone, '')
 
+        # Shared gesture/example block — sourced from prompt_manager so
+        # all dramatic_sequence prompts (full hybrid, tiered expression,
+        # bounded choice) stay in sync.
+        from poker.prompt_manager import DRAMATIC_SEQUENCE_GUIDANCE
+
         raise_clause = (
             f" (to {ctx.raise_to})"
             if ctx.action_taken in ('raise', 'all_in') and ctx.raise_to
@@ -304,6 +309,7 @@ class ExpressionGenerator:
             'situational_reads': situational_reads,
             'mode_label': self._MODE_LABELS[mode],
             'mode_hint': self._MODE_HINTS[mode],
+            'dramatic_sequence_guidance': DRAMATIC_SEQUENCE_GUIDANCE,
         }
 
         # Optional user-side sections — skipped when empty so the prompt

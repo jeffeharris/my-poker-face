@@ -352,6 +352,8 @@ class HybridAIController(AIPlayerController):
 
         Presents the bounded options and asks the LLM to pick one with narrative.
         """
+        from poker.prompt_manager import DRAMATIC_SEQUENCE_GUIDANCE
+
         equity = context.get('equity', 0.5)
         pot_odds = context.get('pot_odds', 0)
 
@@ -378,14 +380,16 @@ CRITICAL RULES:
 - You MUST pick one of the numbered options above
 - "choice" must be an integer from 1 to {num_options}
 - Keep dramatic_sequence to 1-3 beats for normal hands, more for dramatic moments
-- Each beat is EITHER an action (*in asterisks*) OR speech (plain text)
 - Stay in character with your personality
+
+{dramatic_sequence_guidance}
 """
 
         return choice_template.format(
             base_message=base_message,
             options_text=options_text,
             num_options=len(options),
+            dramatic_sequence_guidance=DRAMATIC_SEQUENCE_GUIDANCE,
         )
 
     def _validate_and_select(self, response: Optional[Dict], options: List[BoundedOption]) -> Dict:

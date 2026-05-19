@@ -82,34 +82,9 @@ sections:
   dramatic_sequence: |-
     DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats
     in the 'dramatic_sequence' field. Match intensity to the moment —
-    0-1 beats routine, 3-5 climactic. Each beat is EITHER an action OR
-    speech, never both.
+    0-1 beats routine, 3-5 climactic.
 
-    ACTIONS: lowercase gestures wrapped in *asterisks*, third-person.
-    SPEECH: plain text dialogue addressed to the table. Audible to all.
-
-    GOOD examples — note `addressing` pairs with the beats:
-      routine, no one specific:
-        dramatic_sequence: ["*taps chips*", "Call."]
-        addressing: []
-      notable, addressing one player:
-        dramatic_sequence: ["Nice raise, Bob.", "*counts chips*"]
-        addressing: ["Bob"]
-      climactic, addressing two players:
-        dramatic_sequence: ["*leans forward*", "You two are nuts.", "*pushes stack*"]
-        addressing: ["Alice", "Carol"]
-      general muttering, no target:
-        dramatic_sequence: ["Anyone calling this?"]
-        addressing: []
-
-    BAD — do NOT do this:
-      ["I lean back in my chair and call"]       ← first-person, mixed action+speech
-      ["*Leans Back*"]                            ← capitalized action
-      ["\"leans back\""]                          ← quote chars wrapping a gesture
-      ["*leans back* Call."]                      ← action + speech in one beat
-      ["Bob seems nervous about his hand"]        ← mind-reading opponent
-      ["Hmm, maybe I should have folded"]         ← inner thought as speech
-      ["Alice: 'Your move.'"]                     ← name prefix on speech
+    {dramatic_sequence_guidance}
 
     You ARE {name} — stay fully in character. Reference opponents by name
     when needling them. Keep your actual hand SECRET.

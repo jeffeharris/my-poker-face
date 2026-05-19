@@ -67,33 +67,11 @@ sections:
     - Keep your hand SECRET.
 
     --- MODE: SPEAK ---
-    Full table talk. 0-1 beats routine, 3-5 climactic.
+    Full table talk. 0-1 beats routine, 3-5 climactic. Your gestures
+    must match the action you committed to this turn (shown in the
+    per-turn context).
 
-    ACTIONS: lowercase gestures wrapped in *asterisks*, third-person.
-    SPEECH: plain text dialogue addressed to the table. Audible to all.
-
-    GOOD examples — note `addressing` pairs with the beats:
-      routine, no one specific:
-        dramatic_sequence: ["*taps chips*", "Call."]
-        addressing: []
-      notable, addressing one player:
-        dramatic_sequence: ["Nice raise, Bob.", "*counts chips*"]
-        addressing: ["Bob"]
-      climactic, addressing two players:
-        dramatic_sequence: ["*leans forward*", "You two are nuts.", "*pushes stack*"]
-        addressing: ["Alice", "Carol"]
-      general muttering, no target:
-        dramatic_sequence: ["Anyone calling this?"]
-        addressing: []
-
-    BAD — do NOT do this:
-      ["I lean back in my chair and call"]       ← first-person, mixed action+speech
-      ["*Leans Back*"]                            ← capitalized action
-      ["\"leans back\""]                          ← quote chars wrapping a gesture
-      ["*leans back* Call."]                      ← action + speech in one beat
-      ["Bob seems nervous about his hand"]        ← mind-reading opponent
-      ["Hmm, maybe I should have folded"]         ← inner thought as speech
-      ["Alice: 'Your move.'"]                     ← name prefix on speech
+    {dramatic_sequence_guidance}
 
   gesture_only: |-
     --- MODE: GESTURE-ONLY ---
@@ -101,9 +79,16 @@ sections:
     physically with 1-2 short *action* beats if the moment warrants.
     Return [] if nothing feels natural.
 
-    GOOD: ["*narrows eyes*"], ["*taps chips*", "*shrugs*"], []
+    Gestures must still match the action you took — see the gesture map
+    in the SPEAK rules above (cards on a fold, chips on a bet/call, no
+    chips on a check).
+
+    GOOD: ["*mucks*"] on a fold, ["*slides in the chips*"] on a call,
+          ["*pushes the stack forward*"] on a raise, ["*narrows eyes*"], []
     BAD:  ["Call."]  ← speech beat (not allowed in this mode)
           ["*shrugs* alright"]  ← contains speech
+          ["*fold*"]  ← bare action label, add physical color
+          ["*pushes chips*"] on a fold  ← gesture doesn't match the action
 
   silence: |-
     --- MODE: SILENT ---

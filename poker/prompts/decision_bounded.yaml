@@ -51,16 +51,11 @@ sections:
     - Each beat is EITHER an action (*in asterisks*) OR speech (plain text)
     - Stay in character with your personality
 
-  # Narrative guidance for dramatic moments
-  dramatic_guidance: |-
-    DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats.
-    Match intensity to the moment:
-    - Routine hands: 0-1 beats
-    - Notable hands: 1-2 beats
-    - High stakes: 2-3 beats
-    - Climactic moments: 3-5 beats, savor the moment
-
-    You ARE {name} — stay fully in character with your signature style.
+  # Note: the dramatic_sequence guidance text used to live here as a
+  # `dramatic_guidance` section but had no caller. The hybrid bounded
+  # choice prompt is built inline in `_build_choice_prompt`, which now
+  # injects the shared `DRAMATIC_SEQUENCE_GUIDANCE` constant from
+  # `poker.prompt_manager`. Edit there to update wording.
 
   # Option type explanations (for context)
   option_explanations:

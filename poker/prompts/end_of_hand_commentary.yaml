@@ -47,22 +47,42 @@ sections:
     ACTIONS: lowercase gestures wrapped in *asterisks*, third-person.
     SPEECH: plain text dialogue addressed to the table. Audible to all.
 
-    GOOD examples — `addressing` pairs with the beats:
+    MATCH THE GESTURE TO YOUR OUTCOME. The hand is OVER — physical
+    beats should reflect reacting to a result, not making a decision.
+    Don't use decision-time gestures like *pushes chips forward* or
+    *calls* — there's nothing to bet on anymore.
+
+      WON THE POT → raking / stacking / smirking.
+        e.g. *rakes in the pot*, *stacks the chips*, *smirks*, *spreads arms wide*
+      LOST AT SHOWDOWN → mucking face-down / head-shaking / sitting back.
+        e.g. *mucks face-down*, *shakes head*, *leans back*, *stares at the board*
+      FOLDED EARLIER → already out of the hand; just react to what happened.
+        e.g. *eyes the board*, *taps the rail*, *whistles*
+      ELIMINATED / BUST → standing up / pushing back / table-slap.
+        e.g. *pushes back from the table*, *stands up*, *slams the felt*
+      SPECTATING (already out, watching others) → heckle the action, no chips in front of you.
+        e.g. *crosses arms*, *gestures at the board*, *leans in*
+
+    GOOD examples — `addressing` pairs with the speech beats:
       after winning, no one specific:
-        dramatic_sequence: ["*slams table*", "Easy game."]
+        dramatic_sequence: ["*rakes in the pot*", "Easy game."]
         addressing: []
       heckling the player who knocked you out:
         dramatic_sequence: ["Bob, that was painful to watch.", "*shakes head*"]
         addressing: ["Bob"]
-      addressing two players:
-        dramatic_sequence: ["*leans back*", "You two cost me everything."]
+      eliminated, addressing two players who put you out:
+        dramatic_sequence: ["*pushes back from the table*", "You two cost me everything."]
         addressing: ["Alice", "Carol"]
 
     BAD — do NOT do this:
       ["I slam the table"]                ← first-person, mixed
       ["*Slams Table*"]                    ← capitalized action
       ["*shakes head* Bob, painful."]     ← action + speech in one beat
-      ["Ben: easy game"]                   ← name prefix on speech
+      ["Zeus: easy game"]                  ← NEVER prefix YOUR OWN name on speech; speech is already attributed to you
+      ["Ben: easy game"]                   ← don't prefix anyone's name on speech (yours or theirs)
+      ["*fold*"], ["*calls*"], ["*raises*"]  ← decision-time labels; the hand is over
+      ["*pushes chips forward*"] after losing  ← decision-time gesture; you're not betting
+      ["*mucks*"] after winning            ← gesture doesn't match the outcome
 
     For 'addressing': list of opponent name(s) you are DIRECTLY
     addressing in a speech beat (e.g. ["Bob"] when you say "Bob, that

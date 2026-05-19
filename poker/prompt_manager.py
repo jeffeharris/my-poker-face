@@ -59,6 +59,63 @@ TONE_MODIFIERS = {
 }
 
 
+# Shared dramatic_sequence guidance — the gesture map, examples, and
+# do-not-do list referenced by every prompt that asks the LLM to
+# produce a dramatic_sequence (full hybrid decision.yaml, tiered
+# expression decision_expression.yaml, and hybrid bounded-options
+# choice prompt). Manage the wording here, not in YAML.
+#
+# This block intentionally avoids `{...}` literals so it is safe to
+# inject via either `str.replace` or `str.format` callers.
+DRAMATIC_SEQUENCE_GUIDANCE = """\
+ACTIONS: lowercase gestures wrapped in *asterisks*, third-person.
+SPEECH: plain text dialogue addressed to the table. Audible to all.
+Each beat is EITHER an action OR speech, never both.
+
+MATCH THE GESTURE TO YOUR ACTION. Physical beats should reflect what
+you are actually doing this turn — chips go with bets, cards go with
+folds. Don't repeat the action label as a beat ("*fold*", "*calls*")
+— that already shows in the activity feed. Add color, not the label.
+
+  FOLD → cards: muck, toss, push the cards away.
+    e.g. *mucks*, *tosses cards forward*, *slides the cards away*, *flicks the cards in*
+  CHECK → no commitment: rap, tap, wave it through.
+    e.g. *raps the felt*, *taps the table*, *waves it through*
+  CALL → matched chips: slide / set / cut out the call.
+    e.g. *slides in the chips*, *cuts out a call*, *sets the call forward*
+  RAISE / ALL-IN → committing more: push / shove / splash.
+    e.g. *pushes the stack forward*, *shoves it all in*, *splashes the pot*, *cuts out a raise*
+  TENSION COLOR (any action, use sparingly): shuffle, riffle, stare.
+    e.g. *shuffles chips*, *riffles a stack*, *stares at the board*, *fans the cards*
+
+GOOD examples — `addressing` pairs with the speech beats and gestures fit the action:
+  routine call, no one specific:
+    dramatic_sequence: ["*slides in the chips*", "Call."]
+    addressing: []
+  notable fold, addressing one player:
+    dramatic_sequence: ["Nice raise, Bob.", "*mucks*"]
+    addressing: ["Bob"]
+  climactic shove, addressing two players:
+    dramatic_sequence: ["*leans forward*", "You two are nuts.", "*pushes the stack forward*"]
+    addressing: ["Alice", "Carol"]
+  general muttering check, no target:
+    dramatic_sequence: ["*raps the felt*", "Anyone got anything?"]
+    addressing: []
+
+BAD — do NOT do this:
+  ["I lean back in my chair and call"]       ← first-person, mixed action+speech
+  ["*Leans Back*"]                            ← capitalized action
+  ["\\"leans back\\""]                          ← quote chars wrapping a gesture
+  ["*leans back* Call."]                      ← action + speech in one beat
+  ["Bob seems nervous about his hand"]        ← mind-reading opponent
+  ["Hmm, maybe I should have folded"]         ← inner thought as speech
+  ["Zeus: I'm all in."]                       ← NEVER prefix YOUR OWN name on speech; speech is already attributed to you
+  ["Alice: 'Your move.'"]                     ← don't prefix anyone's name on speech (yours or theirs)
+  ["*fold*"], ["*calls*"], ["*raises*"]       ← bare action label; add physical color instead
+  ["*pushes chips forward*"] on a fold        ← chips don't move on a fold; muck the cards
+  ["*tosses cards*"] on a raise               ← cards don't move on a raise; push chips"""
+
+
 def _validate_format_placeholders(text: str) -> Set[str]:
     """Extract and validate format placeholders from a string.
 
@@ -683,7 +740,13 @@ class PromptManager:
         if use_simple_response_format and 'response_format_simple' in template.sections:
             sections_to_render.append(template.sections['response_format_simple'])
         elif include_dramatic_sequence and 'dramatic_sequence' in template.sections:
-            sections_to_render.append(template.sections['dramatic_sequence'])
+            # Substitute the shared gesture/example block. Use `.replace`
+            # rather than `.format` to avoid disturbing the `{name}`
+            # placeholder, which is not bound by this renderer.
+            section = template.sections['dramatic_sequence'].replace(
+                '{dramatic_sequence_guidance}', DRAMATIC_SEQUENCE_GUIDANCE
+            )
+            sections_to_render.append(section)
 
         # Join all sections
         rendered = "\n\n".join(sections_to_render)
