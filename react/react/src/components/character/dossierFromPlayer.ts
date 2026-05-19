@@ -36,19 +36,15 @@ export interface LobbyAISeat {
   personality?: PersonalityBlock;
 }
 
-/** Subset of personalities.json that the dossier cares about. */
+/** Subset of personalities.json that the dossier cares about.
+ *  Trait/anchor values aren't here — the dossier route fetches
+ *  them server-side; static callers only need the textual fields. */
 export interface PersonalityBlock {
   name?: string;
   nickname?: string;
   play_style?: string;
   attitude?: string;
   confidence?: string;
-  personality_traits?: {
-    bluff_tendency?: number;
-    aggression?: number;
-    chattiness?: number;
-    emoji_usage?: number;
-  };
   signature_line?: string;
 }
 
@@ -66,12 +62,6 @@ export function dossierFromPlayer(
     playStyle: personality?.play_style,
     attitude: personality?.attitude,
     confidence: personality?.confidence,
-    traits: personality?.personality_traits && {
-      bluffTendency: personality.personality_traits.bluff_tendency,
-      aggression:    personality.personality_traits.aggression,
-      chattiness:    personality.personality_traits.chattiness,
-      emojiUsage:    personality.personality_traits.emoji_usage,
-    },
     observed: player.observation && {
       handsObserved:     player.observation.hands_observed,
       vpip:              player.observation.vpip,
@@ -96,12 +86,6 @@ export function dossierFromLobbySeat(seat: LobbyAISeat): CharacterDossierData {
     playStyle: p?.play_style,
     attitude: p?.attitude,
     confidence: p?.confidence,
-    traits: p?.personality_traits && {
-      bluffTendency: p.personality_traits.bluff_tendency,
-      aggression:    p.personality_traits.aggression,
-      chattiness:    p.personality_traits.chattiness,
-      emojiUsage:    p.personality_traits.emoji_usage,
-    },
     chips: seat.chips !== undefined ? { atTable: seat.chips } : undefined,
     affiliation: seat.relationship_hint
       ? {

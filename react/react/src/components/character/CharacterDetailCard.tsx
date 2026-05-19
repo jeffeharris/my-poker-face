@@ -43,13 +43,6 @@ export interface CharacterDossierData {
   attitude?: string;
   /** Free-form confidence descriptor. */
   confidence?: string;
-  /** Personality knobs (0–1). Each rendered as a tally strip. */
-  traits?: {
-    bluffTendency?: number;
-    aggression?: number;
-    chattiness?: number;
-    emojiUsage?: number;
-  };
   /** Observed-at-table stats (only shown if handsObserved > 0). */
   observed?: {
     handsObserved?: number;
@@ -287,7 +280,6 @@ export function CharacterDetailCard({
   // renders instantly before the fetch resolves.
   const merged = useMemo(() => {
     const p = fetched?.personality;
-    const traits = p?.personality_traits;
     const obs = fetched?.observation;
     return {
       name: p?.name ?? character.name,
@@ -301,14 +293,6 @@ export function CharacterDetailCard({
       // opens before the first socket update lands.
       emotion: fetched?.emotion ?? character.emotion,
       remark: character.remark ?? p?.signature_line ?? undefined,
-      traits: traits
-        ? {
-            bluffTendency: traits.bluff_tendency ?? character.traits?.bluffTendency,
-            aggression:    traits.aggression     ?? character.traits?.aggression,
-            chattiness:    traits.chattiness     ?? character.traits?.chattiness,
-            emojiUsage:    traits.emoji_usage    ?? character.traits?.emojiUsage,
-          }
-        : character.traits,
       // Server-side observation wins; the static prop's `observed` is
       // legacy and only fires for callers who pre-populate.
       observed: obs
@@ -343,7 +327,12 @@ export function CharacterDetailCard({
     };
   }, [origin]);
 
-  const hasTraits = !!merged.traits && Object.values(merged.traits).some(v => v !== undefined);
+  // BEHAVIORAL INDEX reads the curated anchor subset from the
+  // server fetch. Static-prop fallback is intentionally absent —
+  // the anchors live on the personality config, which only the
+  // dossier endpoint resolves.
+  const anchors = fetched?.personality?.anchors ?? null;
+  const hasAnchors = !!anchors && Object.values(anchors).some(v => v != null);
   const hasObserved = !!merged.observed && (merged.observed.handsObserved ?? 0) > 0;
   const hasChips = !!character.chips && (
     character.chips.atTable !== undefined || character.chips.bankroll !== undefined
@@ -509,33 +498,24 @@ export function CharacterDetailCard({
               )}
             </section>
 
-            {hasTraits && (
+            {hasAnchors && anchors && (
               <>
                 <SectionRule>BEHAVIORAL INDEX</SectionRule>
                 <section className="dossier__behavior">
-                  {merged.traits?.bluffTendency !== undefined && (
-                    <TallyStrip
-                      value={merged.traits.bluffTendency}
-                      label="Bluff"
-                    />
+                  {anchors.aggression != null && (
+                    <TallyStrip value={anchors.aggression} label="Aggression" />
                   )}
-                  {merged.traits?.aggression !== undefined && (
-                    <TallyStrip
-                      value={merged.traits.aggression}
-                      label="Aggression"
-                    />
+                  {anchors.looseness != null && (
+                    <TallyStrip value={anchors.looseness} label="Looseness" />
                   )}
-                  {merged.traits?.chattiness !== undefined && (
-                    <TallyStrip
-                      value={merged.traits.chattiness}
-                      label="Chattiness"
-                    />
+                  {anchors.poise != null && (
+                    <TallyStrip value={anchors.poise} label="Poise" />
                   )}
-                  {merged.traits?.emojiUsage !== undefined && (
-                    <TallyStrip
-                      value={merged.traits.emojiUsage}
-                      label="Theatrics"
-                    />
+                  {anchors.expressiveness != null && (
+                    <TallyStrip value={anchors.expressiveness} label="Expressiveness" />
+                  )}
+                  {anchors.risk != null && (
+                    <TallyStrip value={anchors.risk} label="Risk" />
                   )}
                 </section>
               </>

@@ -23,6 +23,18 @@ export interface DossierCashPairStats {
   hands_played_cash: number;
 }
 
+/** Player-facing subset of the AI's psychology anchors (5 of 9
+ *  axes — the ones that meaningfully shape what shows across the
+ *  table). The other anchors (ego, recovery_rate, etc.) are
+ *  internal plumbing for tilt dynamics and don't add player signal. */
+export interface DossierAnchors {
+  aggression: number | null;     // baseline_aggression — bet/raise frequency
+  looseness: number | null;      // baseline_looseness  — starting range width
+  poise: number | null;          // poise               — tilt resistance
+  expressiveness: number | null; // expressiveness      — readability at the table
+  risk: number | null;           // risk_identity       — variance tolerance
+}
+
 export interface DossierPersonality {
   name: string | null;
   nickname: string | null;
@@ -30,12 +42,7 @@ export interface DossierPersonality {
   attitude: string | null;
   confidence: string | null;
   signature_line: string | null;
-  personality_traits: {
-    bluff_tendency: number | null;
-    aggression: number | null;
-    chattiness: number | null;
-    emoji_usage: number | null;
-  };
+  anchors: DossierAnchors | null;
 }
 
 export interface DossierObservation {

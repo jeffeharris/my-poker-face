@@ -20,12 +20,6 @@ const SAMPLES: CharacterDossierData[] = [
     playStyle: 'Tight-Aggressive',
     attitude: 'calculating, never tilts',
     confidence: 'high — believes preparation beats luck',
-    traits: {
-      bluffTendency: 0.35,
-      aggression: 0.72,
-      chattiness: 0.18,
-      emojiUsage: 0.02,
-    },
     observed: {
       handsObserved: 87,
       vpip: 0.21,
@@ -50,12 +44,6 @@ const SAMPLES: CharacterDossierData[] = [
     playStyle: 'Loose-Passive',
     attitude: 'warm, disarming, deceptively soft',
     confidence: 'comfortable — laughs through bad beats',
-    traits: {
-      bluffTendency: 0.5,
-      aggression: 0.32,
-      chattiness: 0.95,
-      emojiUsage: 0.68,
-    },
     chips: {
       atTable: 3_200,
     },
@@ -69,11 +57,6 @@ const SAMPLES: CharacterDossierData[] = [
     name: 'Gordon Ramsay',
     playStyle: 'Maniac',
     attitude: 'volatile — punishes any sign of weakness',
-    traits: {
-      bluffTendency: 0.78,
-      aggression: 0.92,
-      chattiness: 0.85,
-    },
     remark: "This donkey 3-bet me with seven-deuce off. SEVEN. DEUCE. OFF.",
   },
 ];

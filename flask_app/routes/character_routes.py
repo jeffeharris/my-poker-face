@@ -102,65 +102,49 @@ def _relationship_hint(
     return ""
 
 
-def _derive_traits_from_anchors(anchors: dict) -> dict:
-    """Map the v2 psychology anchors to the legacy four-trait dict.
+def _curated_anchors(personality: dict) -> Optional[dict]:
+    """Return the player-facing subset of psychology anchors, or None.
 
-    All 53 seed personalities in `personalities.json` use the anchors
-    shape and never set `personality_traits` — only the 39 user-
-    created personalities (added via the admin tool) carry the legacy
-    dict directly. Without this derivation the BEHAVIORAL INDEX
-    section drops for the entire seed cast.
+    The full anchor block has 9 axes (psychology_model.PersonalityAnchors).
+    We surface only the five that meaningfully shape what the player
+    sees across the table — the rest (ego, adaptation_bias, recovery_rate,
+    baseline_energy) are inside-baseball plumbing for tilt dynamics
+    and session drift and don't add player-actionable signal.
 
-    Mapping (each value clamped to [0, 1]):
-      - aggression     = baseline_aggression                    (direct)
-      - chattiness     = expressiveness                         (direct — "0=poker face, 1=open book")
-      - bluff_tendency = (baseline_aggression + risk_identity)/2 (aggressive AND risk-seeking → more bluffs)
-      - emoji_usage    = (expressiveness + baseline_energy)/2   (rendered as "Theatrics")
+    Curated set:
+      - aggression     ← baseline_aggression   (bet/raise vs check/call frequency)
+      - looseness      ← baseline_looseness    (starting hand range width)
+      - poise          ← poise                 (composure under pressure / tilt resistance)
+      - expressiveness ← expressiveness        (how readable they are at the table)
+      - risk           ← risk_identity         (variance tolerance / dramatic plays)
+
+    Returns None when the personality has no anchors block (a small
+    set of user-created personalities from the legacy admin tool).
     """
+    anchors = personality.get('anchors') or {}
+    if not anchors:
+        return None
+
     def get(key: str) -> Optional[float]:
         v = anchors.get(key)
         return float(v) if isinstance(v, (int, float)) else None
 
-    agg = get('baseline_aggression')
-    expr = get('expressiveness')
-    risk = get('risk_identity')
-    energy = get('baseline_energy')
-
-    def avg(a: Optional[float], b: Optional[float]) -> Optional[float]:
-        if a is None or b is None:
-            return None
-        return max(0.0, min(1.0, (a + b) / 2))
-
     return {
-        'bluff_tendency': avg(agg, risk),
-        'aggression':     agg,
-        'chattiness':     expr,
-        'emoji_usage':    avg(expr, energy),
+        'aggression':     get('baseline_aggression'),
+        'looseness':      get('baseline_looseness'),
+        'poise':          get('poise'),
+        'expressiveness': get('expressiveness'),
+        'risk':           get('risk_identity'),
     }
 
 
 def _build_personality_payload(personality_id: str) -> dict:
-    """Return the subset of personality fields the dossier renders.
-
-    Trait values come from `personality_traits` when set; otherwise
-    they're derived from the v2 `anchors` block via
-    `_derive_traits_from_anchors`. Either way the BEHAVIORAL INDEX
-    section in the dossier gets the data it needs.
-    """
+    """Return the subset of personality fields the dossier renders."""
     from flask_app.extensions import personality_repo
     try:
         p = personality_repo.load_personality_by_id(personality_id) or {}
     except Exception:
         p = {}
-
-    traits = p.get('personality_traits') or {}
-    # Legacy block missing or all-null? Fall back to anchors.
-    if not any(traits.get(k) is not None for k in (
-        'bluff_tendency', 'aggression', 'chattiness', 'emoji_usage',
-    )):
-        anchors = p.get('anchors') or {}
-        if anchors:
-            traits = _derive_traits_from_anchors(anchors)
 
     return {
         'name': p.get('name'),
@@ -169,12 +153,7 @@ def _build_personality_payload(personality_id: str) -> dict:
         'attitude': p.get('attitude') or p.get('default_attitude'),
         'confidence': p.get('confidence') or p.get('default_confidence'),
         'signature_line': p.get('signature_line'),
-        'personality_traits': {
-            'bluff_tendency': traits.get('bluff_tendency'),
-            'aggression':     traits.get('aggression'),
-            'chattiness':     traits.get('chattiness'),
-            'emoji_usage':    traits.get('emoji_usage'),
-        },
+        'anchors': _curated_anchors(p),
     }
 
 
@@ -335,13 +314,19 @@ def get_dossier(identifier: str):
 
       {
         "personality_id": "batman",
-        "personality": {...} | null,
+        "personality": {
+          "name", "nickname", "play_style", "attitude", "confidence",
+          "signature_line",
+          "anchors": {aggression, looseness, poise,
+                      expressiveness, risk} | null
+        } | null,
         "emotion": "focused" | null,
         "observation": {
           "hands_observed": 87, "vpip": 0.21, "pfr": 0.18,
           "aggression_factor": 3.4, "play_style": "tight-aggressive"
         } | null,
         "pressure_summary": {...} | null,
+        "ai_bankroll": 4250 | null,
         "relationship": {
           "heat": 0.31, "respect": 0.62, "likability": 0.48,
           "last_seen": "2026-05-18T22:14:01",
