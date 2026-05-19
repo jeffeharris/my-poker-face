@@ -386,14 +386,34 @@ def refresh_unseated_tables(
 
         sim_results: List[HandSimResult] = []
         for _ in range(burst_n):
+            # Rotate the dealer button to the next occupied seat for
+            # this hand. Matters for seat-choice UX — when a player
+            # opens the lobby, the visible button position tells them
+            # what positional spots (UTG / CO / BTN / blinds) the open
+            # seats correspond to. Without this, the in-engine dealer
+            # would be seat 0 for every burst hand and the position
+            # signal would be noise.
+            current_dealer = get_dealer_index(table)
+            next_dealer = _next_occupied_seat(
+                table.seats,
+                start_after=current_dealer if current_dealer is not None else -1,
+            )
+
             r = play_one_hand(
                 table.seats,
                 big_blind=big_blind,
                 rng=rng,
                 name_for=_name_for_personality(personality_repo),
+                starting_dealer_seat_idx=next_dealer,
             )
             if r.delta > 0:
                 table.seats = r.new_seats
+            # Pin the in-memory dealer to whoever just held the button.
+            # On a no-op hand (e.g. table dropped below 2 AIs mid-burst),
+            # `r.dealer_seat_idx` is None and we leave the cached value
+            # alone — the next refresh will re-seed via get_dealer_index.
+            if r.dealer_seat_idx is not None:
+                _dealer_indices[table.table_id] = r.dealer_seat_idx
             sim_results.append(r)
 
         result = refresh_table_roster(
@@ -413,14 +433,12 @@ def refresh_unseated_tables(
         )
 
         # Persist the table (always — last_activity_at bumps) and idle
-        # pool changes.
+        # pool changes. The dealer button was advanced in real engine-
+        # order inside the burst loop above (one rotation per sim hand,
+        # synchronized with `play_one_hand`'s starting dealer), so we
+        # don't need a separate `advance_dealer` step here.
         cash_table_repo.save_table(result.new_table, now=now)
 
-        # Walk the dealer button clockwise once per simulated hand in
-        # this burst. Cosmetic only; see `_dealer_indices` docstring for
-        # why it's not persisted.
-        if burst_n > 0:
-            advance_dealer(result.new_table, steps=burst_n)
         for change in result.idle_changes:
             if change.kind == "add" and change.entry is not None:
                 cash_table_repo.save_idle(change.entry)

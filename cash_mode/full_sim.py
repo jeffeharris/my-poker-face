@@ -172,6 +172,13 @@ class HandSimResult:
     Structural superset of `FakeHandResult` — the original fields
     carry identical semantics so the lobby emission code keeps
     working unchanged when the call site swaps in Commit 3.
+
+    `dealer_seat_idx` is the cash-table seats index of the player
+    who held the button during this hand. The lobby tracks this
+    across burst hands so the dealer indicator on table cards
+    reflects the real engine dealer (load-bearing for seat-choice
+    UX — players pick positions relative to the button). None on
+    no-op hands or when no AI seats were available.
     """
 
     new_seats: List[dict] = field(default_factory=list)
@@ -182,6 +189,7 @@ class HandSimResult:
     hand_events: List[HandEvent] = field(default_factory=list)
     pot: int = 0
     showdown_hands: Optional[List[ShowdownHand]] = None
+    dealer_seat_idx: Optional[int] = None
 
 
 # Process-level cache for the default code path. Tests and isolated
@@ -272,6 +280,7 @@ def play_one_hand(
     big_event_threshold_bb: int = DEFAULT_BIG_EVENT_THRESHOLD_BB,
     name_for: Callable[[str], str] = _default_name_for,
     controller_cache: Optional[LruControllerCache] = None,
+    starting_dealer_seat_idx: Optional[int] = None,
 ) -> HandSimResult:
     """Run one AI-only hand at the given cash-mode table.
 
@@ -289,6 +298,14 @@ def play_one_hand(
     `controller_cache` defaults to a process-level singleton so the
     lobby's repeated calls share the warm pool. Tests should pass
     their own cache to keep instances isolated.
+
+    `starting_dealer_seat_idx` lets the caller pin the engine's
+    button to a specific cash-table seat. The lobby uses this to
+    walk the button through the seated AIs in real engine-order
+    across a burst (matters for seat-choice UX). When None, or
+    when the index points at a seat that's no longer an AI, the
+    engine defaults to the first seated AI as dealer. The result's
+    `dealer_seat_idx` reports who actually held the button.
 
     Pure-ish: no DB writes, no SocketIO, no LLM. The state machine
     runs with `record_snapshots=False` so the snapshots tuple
@@ -326,6 +343,7 @@ def play_one_hand(
             big_event_threshold_bb=big_event_threshold_bb,
             name_for=name_for,
             controller_cache=controller_cache,
+            starting_dealer_seat_idx=starting_dealer_seat_idx,
         )
     finally:
         random.setstate(_saved_global_random_state)
@@ -340,6 +358,7 @@ def _play_one_hand_inner(
     big_event_threshold_bb: int,
     name_for: Callable[[str], str],
     controller_cache: LruControllerCache,
+    starting_dealer_seat_idx: Optional[int],
 ) -> HandSimResult:
     """Body of play_one_hand, run inside the hermetic random snapshot.
 
@@ -360,11 +379,26 @@ def _play_one_hand_inner(
         players.append(Player(name=display, stack=int(seat["chips"]), is_human=False))
         seat_pid_by_name[display] = pid
 
+    # Resolve the engine dealer index from the caller's seat hint.
+    # `starting_dealer_seat_idx` is in the full-seats coordinate space;
+    # we map back to the compacted `players` array. When the hint
+    # doesn't point at a seated AI (e.g. that seat opened up between
+    # ticks), fall back to player 0 — the engine then deals from the
+    # first occupied seat, which is the same behavior the engine had
+    # before this kwarg existed.
+    dealer_player_idx = 0
+    if starting_dealer_seat_idx is not None:
+        try:
+            dealer_player_idx = ai_indices.index(starting_dealer_seat_idx)
+        except ValueError:
+            dealer_player_idx = 0
+
     game_state = PokerGameState(
         players=tuple(players),
         deck=create_deck(shuffled=True, random_seed=rng.randrange(2**32)),
         current_ante=big_blind,
         last_raise_amount=big_blind,
+        current_dealer_idx=dealer_player_idx,
     )
     sm = PokerStateMachine(game_state, record_snapshots=False)
 
@@ -428,6 +462,16 @@ def _play_one_hand_inner(
         loser_pid=loser_pid,
     )
 
+    # Map the engine's post-hand dealer back to the cash-table seat
+    # index. The engine doesn't rotate during a single hand, so this
+    # equals the seat we set as dealer at hand start (when the caller
+    # passed a valid hint) — but we read it from the engine to handle
+    # the fall-back path where the hint pointed at a now-open seat.
+    engine_dealer_player_idx = sm.game_state.current_dealer_idx
+    dealer_seat_idx: Optional[int] = None
+    if 0 <= engine_dealer_player_idx < len(ai_indices):
+        dealer_seat_idx = ai_indices[engine_dealer_player_idx]
+
     return HandSimResult(
         new_seats=new_seats,
         winner_pid=winner_pid,
@@ -437,6 +481,7 @@ def _play_one_hand_inner(
         hand_events=hand_events,
         pot=pot,
         showdown_hands=None,     # Phase 6 (psychology at unseated tables) may populate
+        dealer_seat_idx=dealer_seat_idx,
     )
 
 

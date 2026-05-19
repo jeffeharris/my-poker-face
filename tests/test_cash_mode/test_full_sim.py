@@ -132,6 +132,49 @@ class TestPlayOneHandRealCardplay:
         if result.loser_pid is not None:
             assert result.loser_pid in PERSONALITIES[:4]
             assert result.loser_pid != result.winner_pid
+        # dealer_seat_idx must point at one of the seated AIs (seats
+        # 0..3 in this fixture). The lobby's seat-choice UX depends
+        # on this being a real seat index, not None on a valid hand.
+        assert result.dealer_seat_idx is not None
+        assert result.dealer_seat_idx in range(4)
+
+
+class TestPlayOneHandDealerRotation:
+    """The dealer button is load-bearing for seat-choice UX. The lobby
+    tracks the engine's dealer across burst hands so positional
+    affordances (UTG vs CO vs BTN vs blinds) reflect reality."""
+
+    def test_starting_dealer_seat_idx_is_honored(self, warm_cache):
+        seats = _build_seats(5000, 4)
+        result = play_one_hand(
+            seats, big_blind=100, rng=random.Random(0),
+            name_for=_identity_name_for, controller_cache=warm_cache,
+            starting_dealer_seat_idx=2,
+        )
+        assert result.dealer_seat_idx == 2
+
+    def test_dealer_hint_falls_back_when_seat_not_ai(self, warm_cache):
+        """When the caller passes a seat index that isn't an AI seat
+        (e.g. that seat opened up between refreshes), the engine
+        falls back to player 0 rather than crashing."""
+        seats = _build_seats(5000, 4)
+        result = play_one_hand(
+            seats, big_blind=100, rng=random.Random(0),
+            name_for=_identity_name_for, controller_cache=warm_cache,
+            starting_dealer_seat_idx=5,   # open seat in this fixture
+        )
+        assert result.dealer_seat_idx == 0
+
+    def test_default_dealer_is_first_seated_ai(self, warm_cache):
+        """No hint → dealer is seat 0 (first seated AI). Calling code
+        in the lobby relies on this for the very first hand at a
+        table where _dealer_indices has no cached entry."""
+        seats = _build_seats(5000, 4)
+        result = play_one_hand(
+            seats, big_blind=100, rng=random.Random(0),
+            name_for=_identity_name_for, controller_cache=warm_cache,
+        )
+        assert result.dealer_seat_idx == 0
 
     def test_input_seats_not_mutated(self, warm_cache):
         seats = _build_seats(5000, 4)

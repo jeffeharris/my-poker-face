@@ -230,3 +230,78 @@ class TestEmitBurstEvents(unittest.TestCase):
         )
         # And doesn't emit (winner_name resolves to None → skipped).
         assert recent_events(limit=10) == []
+
+
+class TestDealerRotationInBurst(unittest.TestCase):
+    """The lobby walks the dealer button through the seated AIs in
+    real engine order across a burst — one rotation per sim hand.
+    This matters for seat-choice UX (UTG vs CO vs BTN positioning
+    depends on the dealer location, not a cosmetic counter).
+    """
+
+    def setUp(self):
+        from cash_mode.lobby import _dealer_indices
+        _dealer_indices.clear()
+
+    def test_button_walks_one_seat_per_burst_hand(self):
+        from cash_mode.lobby import _dealer_indices, _next_occupied_seat
+        from cash_mode.tables import ai_slot, open_slot
+
+        # Build a 4-AI table; track the button across 6 hands of burst.
+        seats = [
+            ai_slot(f"pid-{i}", 5_000) for i in range(4)
+        ] + [open_slot(), open_slot()]
+
+        # Simulate the lobby's per-hand rotation by hand. We don't
+        # need to run actual play_one_hand here — the unit under
+        # test is "lobby advances the dealer in real engine order"
+        # which is fully captured by _next_occupied_seat.
+        table_id = "cash-table-2-001"
+        visited: List[int] = []
+        current: Optional[int] = None
+        for _ in range(6):
+            current = _next_occupied_seat(
+                seats, start_after=current if current is not None else -1,
+            )
+            assert current is not None
+            visited.append(current)
+            _dealer_indices[table_id] = current
+
+        # Across 4 occupied seats × 6 hands, the button should walk
+        # 0 -> 1 -> 2 -> 3 -> 0 -> 1 (wraps clockwise, skipping
+        # open seats 4 and 5).
+        assert visited == [0, 1, 2, 3, 0, 1]
+
+    def test_button_self_heals_when_dealer_seat_opens(self):
+        """If an AI leaves the dealer seat between refreshes, the
+        next get_dealer_index call should advance to the next
+        occupied seat instead of pointing at an empty slot."""
+        from cash_mode.lobby import _dealer_indices, get_dealer_index
+        from cash_mode.tables import (
+            CashTableState, ai_slot, open_slot,
+        )
+
+        seats = [
+            ai_slot("pid-0", 5_000),
+            ai_slot("pid-1", 5_000),
+            ai_slot("pid-2", 5_000),
+            ai_slot("pid-3", 5_000),
+            open_slot(),
+            open_slot(),
+        ]
+        table = CashTableState(
+            table_id="cash-table-2-001",
+            stake_label="$2",
+            seats=seats,
+            created_at=datetime(2026, 5, 19, 12, 0, 0),
+        )
+
+        # Pin the button to seat 2, then "leave" — seat 2 becomes open.
+        _dealer_indices[table.table_id] = 2
+        table.seats[2] = open_slot()
+
+        # Read should self-heal to the next occupied seat (which is
+        # seat 3 since the cached one is no longer an AI).
+        idx = get_dealer_index(table)
+        assert idx in {0, 1, 3}  # any remaining occupied seat is fine
+        assert table.seats[idx]["kind"] == "ai"
