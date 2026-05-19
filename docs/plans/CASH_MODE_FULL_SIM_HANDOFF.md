@@ -321,14 +321,13 @@ DONE — see "Phase 0 spike — DONE" section above.
    unseated tables) with per-hand emotional state updates that
    drive the per-hand cost up materially.
 
-3. **Does the player see live sim while at a table?** Today, the
-   player's own table doesn't run sim ticks (the hand-boundary
-   refresh hook handles it). The other tables tick during their
-   browsing. Should the lobby show "Napoleon won big at $200"
-   notifications while the player is at the $10 table? Probably
-   yes — same socket events the in-table modal uses, fired from
-   the sim. Adds a `LobbyEvent` socket emit on top of the read-
-   surface mechanism.
+3. ~~**Does the player see live sim while at a table?**~~
+   **Decided 2026-05-19: lobby only.** No SocketIO emit to the
+   in-game client for off-table sim events. The in-game
+   experience stays focused on the current hand; off-table
+   activity is something you check by going back to the lobby.
+   Keeps the implementation simpler (no in-game toast UI) and
+   the in-table UX clean.
 
 4. **Hand history persistence at unseated tables.** Real hands
    produce hand-history events that today persist to
@@ -346,11 +345,28 @@ DONE — see "Phase 0 spike — DONE" section above.
    is more lobotomized than the player-vs-AI one. Recommend yes
    for memory updates but skip the heavy snapshot persistence.
 
-6. **Headline event selection.** When the lobby ticker shows 5
-   events, which 5? If sim generates 30 events per tick during a
-   burst, the buffer fills with the burst's events and pushes
-   out older join/leave events. May want type-weighted retention
-   (keep at least 1 join, 1 leave, 1 big_win in the visible set).
+6. ~~**Headline event selection.**~~ **Decided 2026-05-19:
+   select-or-summarize, specifics open.** A burst that fires
+   25 hands per table × 4 tables can emit 100+ events; the
+   ticker shows 5. Some compression is needed; the exact shape
+   is left to the implementer. Two viable approaches:
+
+   - **Per-burst per-table cap** (simpler): emit at most 1
+     `big_win` + 1 `big_loss` + 1 `bust` + 1 `all_in` per table
+     per burst, even if 25 hands fire. Plus 1 optional summary
+     event ("...and 4 more hands at $50") if anything was
+     compressed. ~3 lines of logic in `_emit_fake_sim_events`'s
+     successor.
+   - **Type-weighted slot retention** (more complex): cap the
+     visible ticker to N slots, but reserve at least 1 slot
+     per event type so a burst can't bury all join/leave/etc.
+     Implemented at ring-buffer read time, not write time.
+
+   Recommended: per-burst per-table cap. Cheap, predictable,
+   does not require ticker-side awareness of burst events.
+   Land a summary event format like:
+   `{type: 'burst_summary', table_id, message: '4 more hands
+   at $50 — Napoleon +$220 net'}`.
 
 ## Risks to flag before starting
 

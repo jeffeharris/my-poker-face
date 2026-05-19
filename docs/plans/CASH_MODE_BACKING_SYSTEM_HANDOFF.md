@@ -299,46 +299,57 @@ After Phase 4: the AI economy mirrors the player economy. AIs lend
 to each other, default on each other, build histories. The
 player's interactions are one node in a much larger graph.
 
-## Open design questions
+## Locked decisions (2026-05-19) + remaining open questions
 
-1. **Default cooldown duration.** Phase 2 says "default blocks
-   re-lending for N days, default=7." That's wall-clock days.
-   Pin or playtest? 7 may be too long for a daily-play game; 1
-   may be too short to feel like a consequence.
+1. ~~**Default cooldown duration.**~~ **Locked: 7 wall-clock
+   days.** Phase 2's gate refuses re-lending from any lender the
+   player defaulted on within the last 7 days. Configurable
+   constant; tune in playtest.
 
-2. **Loan interest accrual.** Currently loans don't grow over
-   time. Should sitting on debt for a week cost extra? Phase 1's
-   schema admits an `interest_rate_daily` column without
-   redesign, but the v1 calculus is "flat terms, settle when you
-   leave." Adding accrual changes the player loop significantly
-   — might be too much.
+2. **Loan interest accrual.** Still open. Currently loans don't
+   grow over time. Phase 1's schema admits an `interest_rate_daily`
+   column without redesign, but the v1 calculus is "flat terms,
+   settle when you leave." Recommend defer — adding accrual
+   changes the player loop significantly. Revisit if playtest
+   shows persistent debt is too forgiving (you can owe forever
+   with no escalating pressure).
 
-3. **House loans, persistent or session?** Phase 1 makes loans
-   persistent across the board, including house loans (anonymous
-   archetype). Is that the right call, or should house loans
-   keep the v1 session-scoped behavior (they auto-settle) and
-   only personality loans become persistent? Argument for split:
-   the personality loans carry the emotional weight; house
-   loans are just a cash floor.
+3. ~~**House loans, persistent or session?**~~ **Locked: persistent
+   ("follow around"), but not urgent.** House tabs carry across
+   sessions, same as personality loans. Phase 1's schema and
+   settlement already treat them uniformly; no extra work to
+   make house loans persistent. The "not urgent" framing means
+   if a sub-commit needs to defer house-loan persistence to ship
+   Phase 1 sooner, that's acceptable — auto-settling house loans
+   on leave (v1 behavior) is the deferred fallback.
 
-4. **AI bankrupt cascade.** If Napoleon defaults on Bezos, Bezos
-   loses $300. If Bezos was already low-bankroll, this might tip
-   *him* into forced_leave on his next session. Then Bezos takes
-   a loan, defaults, cascades to another AI... the AI economy
-   could collapse to chaos under heavy AI lending. Phase 4
-   needs gating: only AIs above some bankroll floor can lend,
-   only AIs in some respect band can be borrowed-from.
+4. ~~**AI bankrupt cascade.**~~ **Locked: sane defaults, tune
+   later.** Phase 4's gating uses these starting values
+   (constants in `cash_mode/lender_profile.py`):
+   - **Lender bankroll floor**: `2 × ai_buy_in` — an AI won't
+     lend if their projected bankroll is less than 2× the loan's
+     stake (must have real capacity, not bare-cover).
+   - **Max outstanding loans per lender**: 2 — one AI can have
+     at most 2 active loans receivable. Keeps lending distributed
+     across the AI population.
+   - **AI-to-AI default cooldown**: 14 days — longer than the
+     player cooldown (7) since AIs are conceptually less
+     forgiving and the cascade risk is real.
+   - **Respect threshold**: reuses existing `lender_profile.respect_floor`
+     from Path B (defaults to -0.5 for personality lenders).
+     AI lender refuses if their respect for the borrower < this.
 
-5. **Player can sponsor AIs?** v3 territory but worth flagging.
-   Could the player back Napoleon when he busts? Creates a third
-   role (player as backer) and a new gameplay loop ("invest in
-   personalities, earn passive returns from their winnings").
+   These are starting values. Adjust based on playtest signal
+   (specifically: watch the chip ledger audit for AI bankroll
+   crashes after Phase 4 ships).
+
+5. **Player can sponsor AIs?** Still open / v3 territory.
    Defer; mention in the doc so we don't paint into a corner.
 
-6. **Reputation across stakes.** If you default on Napoleon at
-   the $10 table, does he refuse to lend at $1000 too? My
-   instinct: yes, refusal is per-personality not per-stake.
-   Reputation is global.
+6. ~~**Reputation across stakes.**~~ **Locked: global
+   per-personality.** Default on Napoleon at $10 → Napoleon
+   refuses at $1000 too. Reputation is a relationship attribute,
+   not a stake-local one.
 
 ## Risks to flag before starting
 
