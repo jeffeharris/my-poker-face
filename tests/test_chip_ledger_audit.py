@@ -256,6 +256,64 @@ class TestComputeAudit:
         assert data['ledger_totals']['chips_destroyed'] == 50
         assert data['by_reason']['forgive_balance'] == 0  # annotation visible but neutral
 
+    def test_annotation_only_forgive_appears_in_by_reason(self, repos, db_path):
+        """forgive_balance is the lone destruction-side reason with no
+        positive amounts. When it appears alone (no house_loan_settle
+        rows alongside), `by_reason` must still surface it so the UI
+        can show the annotation occurred. Catches a future merge/SQL
+        change that silently drops zero-amount destructions."""
+        bankroll_repo, cash_table_repo, ledger_repo = repos
+        ledger_repo.record('player:a', 'central_bank', 0, 'forgive_balance',
+                           context={'forgiven_principal': 150})
+
+        now = datetime(2026, 5, 18, 12, 0, 0)
+        data = compute_audit(
+            ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            db_path=db_path,
+            now=now,
+        )
+
+        assert 'forgive_balance' in data['by_reason']
+        assert data['by_reason']['forgive_balance'] == 0
+        # And in the 24h window too.
+        assert 'forgive_balance' in data['by_reason_window_24h']
+        assert data['by_reason_window_24h']['forgive_balance'] == 0
+
+    def test_errors_field_empty_on_clean_run(self, repos, db_path):
+        """No live-session iteration failures → empty errors dict."""
+        bankroll_repo, cash_table_repo, ledger_repo = repos
+        now = datetime(2026, 5, 18, 12, 0, 0)
+        data = compute_audit(
+            ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            db_path=db_path,
+            now=now,
+        )
+        assert data['errors'] == {}
+
+    def test_errors_field_populated_when_live_session_iter_fails(self, repos, db_path):
+        bankroll_repo, cash_table_repo, ledger_repo = repos
+
+        def boom():
+            raise RuntimeError("game_state_service exploded")
+
+        data = compute_audit(
+            ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            db_path=db_path,
+            list_game_ids_fn=boom,
+            get_game_fn=lambda gid: None,
+            now=datetime(2026, 5, 18, 12, 0, 0),
+        )
+        assert 'live_session_ai_stacks' in data['errors']
+        assert 'exploded' in data['errors']['live_session_ai_stacks']
+        # Falls back to 0 so the rest of the audit still computes.
+        assert data['actual_totals']['live_session_ai_stacks'] == 0
+
     def test_live_session_ai_stacks_summed(self, repos, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
 

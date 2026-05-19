@@ -25,6 +25,7 @@ interface AuditResponse {
   drift: number;
   by_reason: Record<string, number>;
   by_reason_window_24h: Record<string, number>;
+  errors?: Record<string, string>;
   as_of: string;
 }
 
@@ -141,6 +142,17 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
               : 'ledger ≠ actual — bypass somewhere; v0 baseline may include pre-ledger chips'}
         </span>
       </div>
+
+      {audit.errors && Object.keys(audit.errors).length > 0 && (
+        <div className="chip-ledger-errors">
+          <strong>Partial data:</strong>
+          <ul>
+            {Object.entries(audit.errors).map(([source, msg]) => (
+              <li key={source}><code>{source}</code> — {msg}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="chip-ledger-grid">
         <section className="chip-ledger-card">

@@ -299,6 +299,12 @@ def record_forgive_balance(
 
     Always source=player, sink=bank to keep the central-bank-side
     rule simple. Amount is 0 by construction.
+
+    Skips the write when `forgiven_principal <= 0` — the annotation
+    is meaningful only when chips were actually forgiven. Without
+    this guard, every successful loan repayment would generate a
+    noise-row with amount=0 and forgiven_principal=0 that adds
+    audit clutter for no signal.
     """
     if repo is None or forgiven_principal <= 0:
         return None

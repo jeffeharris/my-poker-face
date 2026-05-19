@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from cash_mode.bankroll import (
     AIBankrollState,
@@ -121,6 +121,31 @@ class BankrollRepository(BaseRepository):
                 chips=row["chips"],
                 last_regen_tick=_parse_timestamp(row["last_regen_tick"]),
             )
+
+    def sum_ai_bankroll_chips_stored(self) -> int:
+        """Return the sum of stored chips across every AI bankroll row.
+
+        Stored value, not projected — this matches the chip ledger's
+        commit-on-write semantics. The chip-ledger audit uses this
+        to compute `ai_bankrolls_stored` for drift math.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state"
+            ).fetchone()
+            return int(row[0] or 0)
+
+    def iter_personality_ids_with_bankrolls(self) -> List[str]:
+        """Return every personality_id with a row in ai_bankroll_state.
+
+        Used by the audit to project each AI's bankroll forward for
+        the `ai_bankrolls_projected` informational total.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT personality_id FROM ai_bankroll_state"
+            ).fetchall()
+        return [row[0] if not hasattr(row, 'keys') else row['personality_id'] for row in rows]
 
     def load_ai_bankroll_current(
         self,

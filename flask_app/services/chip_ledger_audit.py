@@ -93,7 +93,7 @@ def compute_audit(
     ai_bankrolls_stored = _sum_ai_bankrolls_stored(bankroll_repo)
     ai_bankrolls_projected = _sum_ai_bankrolls_projected(bankroll_repo, now)
     cash_table_seats_ai = _sum_cash_table_ai_seats(cash_table_repo)
-    live_session_ai_stacks = _sum_live_session_ai_stacks(
+    live_session_ai_stacks, live_session_error = _sum_live_session_ai_stacks(
         list_game_ids_fn, get_game_fn,
     )
 
@@ -111,6 +111,14 @@ def compute_audit(
 
     by_reason = _merge_reasons(creations, destructions)
     by_reason_window_24h = _merge_reasons(creations_24h, destructions_24h)
+
+    # Per-source error bookkeeping. live_session_ai_stacks is the
+    # only term whose failure can't be expressed as 0 without
+    # making drift look spuriously positive — surface it so callers
+    # (and the admin UI) know the data is degraded.
+    errors: Dict[str, str] = {}
+    if live_session_error is not None:
+        errors['live_session_ai_stacks'] = live_session_error
 
     return {
         'ledger_totals': {
@@ -131,6 +139,7 @@ def compute_audit(
         'drift': ledger_outstanding - actual_outstanding,
         'by_reason': by_reason,
         'by_reason_window_24h': by_reason_window_24h,
+        'errors': errors,
         'as_of': now.isoformat(),
     }
 
@@ -183,11 +192,7 @@ def _sum_ai_bankrolls_stored(bankroll_repo) -> int:
     moment the `ai_regen` / `cap_clamp` ledger entries fire. This
     is what drift math needs.
     """
-    with bankroll_repo._get_connection() as conn:
-        row = conn.execute(
-            "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state"
-        ).fetchone()
-        return int(row[0] or 0)
+    return bankroll_repo.sum_ai_bankroll_chips_stored()
 
 
 def _sum_ai_bankrolls_projected(bankroll_repo, now: datetime) -> int:
@@ -199,12 +204,7 @@ def _sum_ai_bankrolls_projected(bankroll_repo, now: datetime) -> int:
     audit payload for tuning purposes.
     """
     total = 0
-    with bankroll_repo._get_connection() as conn:
-        rows = conn.execute(
-            "SELECT personality_id FROM ai_bankroll_state"
-        ).fetchall()
-    for row in rows:
-        pid = row['personality_id'] if hasattr(row, 'keys') else row[0]
+    for pid in bankroll_repo.iter_personality_ids_with_bankrolls():
         try:
             chips = bankroll_repo.load_ai_bankroll_current(pid, now=now)
         except Exception as e:
@@ -223,16 +223,21 @@ def _sum_cash_table_ai_seats(cash_table_repo) -> int:
     return total
 
 
-def _sum_live_session_ai_stacks(list_game_ids_fn, get_game_fn) -> int:
+def _sum_live_session_ai_stacks(list_game_ids_fn, get_game_fn):
     """Sum AI table stacks across in-memory active cash sessions.
 
     Approximation: if the backend restarts and a session resumes
     from DB, those chips will briefly appear as drift until the
     session ends and bankrolls credit back. v0 reports this as a
     line item rather than blending it into one number.
+
+    Returns `(total, error_message_or_None)`. When the iteration
+    raises, the caller surfaces the message in the audit payload's
+    `errors` dict so the UI can flag degraded data — silently
+    returning 0 would look like real positive drift.
     """
     if list_game_ids_fn is None or get_game_fn is None:
-        return 0
+        return 0, None
     total = 0
     try:
         for game_id in list_game_ids_fn():
@@ -254,5 +259,5 @@ def _sum_live_session_ai_stacks(list_game_ids_fn, get_game_fn) -> int:
                 total += int(getattr(p, 'stack', 0) or 0)
     except Exception as e:
         logger.warning("chip-ledger audit: live-session sum failed: %s", e)
-        return 0
-    return total
+        return 0, f"live-session iteration failed: {e}"
+    return total, None

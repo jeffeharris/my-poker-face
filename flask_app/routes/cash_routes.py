@@ -213,6 +213,21 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
     Both leave behind orphan cash rows that would otherwise surface
     via `_find_active_cash_game_id`'s DB fallback and re-enable the
     free-money exploit.
+
+    TODO (chip-ledger v0 finding): this delete path skips the
+    leave/cash-out / settle pipeline that would normally fire the
+    `ai_regen`, `cap_clamp`, and `house_loan_settle` ledger entries
+    for the abandoned session. Net effect on the audit:
+      * AI chips still on the orphan game's live table stack are
+        lost from the universe — they should have credited back
+        to the AI's persistent bankroll via `credit_ai_cash_out`.
+      * Any house loan principal on the player's stack is also
+        silently dropped instead of getting a `house_loan_settle`
+        or `forgive_balance` entry.
+    The audit will surface this as drift (positive — ledger has
+    more outstanding than actual) the first time a stale row is
+    purged after v94 ships. Pre-existing bug; resolves at next
+    instrumentation pass for the orphan-cleanup path.
     """
     from flask_app.extensions import game_repo
     try:
