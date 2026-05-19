@@ -1,0 +1,161 @@
+.chip-ledger-panel {
+  padding: 1rem;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.chip-ledger-panel.embedded {
+  padding: 0;
+}
+
+.chip-ledger-header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.chip-ledger-header h2 {
+  margin: 0;
+}
+
+.chip-ledger-asof {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #999);
+}
+
+.chip-ledger-refresh {
+  margin-left: auto;
+  padding: 0.25rem 0.75rem;
+  background: var(--surface-2, #2a2a2a);
+  color: inherit;
+  border: 1px solid var(--border, #444);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.chip-ledger-refresh:hover {
+  background: var(--surface-3, #333);
+}
+
+.chip-ledger-drift {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border, #444);
+}
+
+.chip-ledger-drift.drift-zero {
+  background: rgba(46, 160, 67, 0.12);
+  border-color: rgba(46, 160, 67, 0.4);
+}
+
+.chip-ledger-drift.drift-pos,
+.chip-ledger-drift.drift-neg {
+  background: rgba(248, 81, 73, 0.10);
+  border-color: rgba(248, 81, 73, 0.4);
+}
+
+.drift-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+}
+
+.drift-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.drift-help {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #999);
+}
+
+.chip-ledger-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.chip-ledger-card {
+  background: var(--surface-2, #1d1d1d);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.chip-ledger-card h3 {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.95rem;
+  color: var(--text-secondary, #aaa);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.chip-ledger-card dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.4rem 1rem;
+}
+
+.chip-ledger-card dt {
+  color: var(--text-secondary, #999);
+}
+
+.chip-ledger-card dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: right;
+}
+
+.chip-ledger-card table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.chip-ledger-card td,
+.chip-ledger-card th {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+}
+
+.chip-ledger-card th {
+  text-align: left;
+  color: var(--text-secondary, #999);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border, #333);
+}
+
+.chip-ledger-card td.amount {
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.chip-ledger-card td.amount.pos {
+  color: #56d364;
+}
+
+.chip-ledger-card td.amount.neg {
+  color: #f85149;
+}
+
+.chip-ledger-recent table {
+  margin-top: 0.5rem;
+}
+
+.chip-ledger-empty {
+  color: var(--text-secondary, #888);
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+
+.chip-ledger-error {
+  color: #f85149;
+}

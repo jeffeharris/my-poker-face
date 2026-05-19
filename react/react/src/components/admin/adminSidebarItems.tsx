@@ -1,4 +1,4 @@
-import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, BookMarked, Shield, Film } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, BookMarked, Shield, Film, Coins } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
 export const SIDEBAR_ITEMS: SidebarItem[] = [
@@ -61,5 +61,11 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Debug',
     icon: <Bug size={24} />,
     description: 'Inspect game state and AI internals',
+  },
+  {
+    id: 'chip-ledger',
+    label: 'Chip economy',
+    icon: <Coins size={24} />,
+    description: 'Audit chip creation, destruction, and drift',
   },
 ];

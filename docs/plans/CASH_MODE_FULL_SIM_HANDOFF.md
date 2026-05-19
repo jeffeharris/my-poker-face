@@ -12,6 +12,14 @@ written before any of the lobby/sim work shipped and is now
 historical). Read this for the current implementation plan, the
 older doc for the original conception.
 
+> **Related:** the [chip ledger](CASH_MODE_CHIP_LEDGER_HANDOFF.md)
+> instruments every chip creation / destruction in cash mode. Once
+> full sim is running unattended sessions at scale, the audit
+> endpoint is the canary for whether AI regen rates are inflating
+> the economy faster than `cap_clamp` and `house_loan_settle` are
+> pulling chips back. Check the audit panel after the first full
+> day of background sim runs.
+
 ## What's shipped (the foundation)
 
 The full sim builds on a stack of smaller increments:

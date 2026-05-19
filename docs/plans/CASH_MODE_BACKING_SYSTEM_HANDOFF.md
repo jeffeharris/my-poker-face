@@ -7,6 +7,13 @@ last_updated: 2026-05-19
 
 # Cash Mode — Backing System Handoff
 
+> **Related:** the [chip ledger](CASH_MODE_CHIP_LEDGER_HANDOFF.md)
+> ships in parallel as observability for the cash economy. Once the
+> backing system makes loans persistent, the ledger's
+> `house_loan_issue` / `house_loan_settle` / `forgive_balance`
+> categories become the data feed for sizing reserves and tuning
+> enforcement thresholds. Read that doc before shipping enforcement.
+
 This is the v2 layer on top of Path B's sponsorship. The goal is a
 **coherent loan economy** where chips, trust, and rivalry all
 compound: you owe Napoleon real money, defaulting on Bezos changes
