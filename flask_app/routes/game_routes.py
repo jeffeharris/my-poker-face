@@ -771,6 +771,16 @@ def api_game_state(game_id):
         'betting_context': betting_context,
     }
 
+    # Cash-mode metadata. Included on the cold-load path too so the
+    # bankroll pill renders immediately — otherwise the React UI
+    # would wait for the first socket `update_game_state` frame
+    # before knowing this is a cash session, leaving the pill hidden
+    # on initial paint.
+    from flask_app.handlers.game_handler import build_cash_mode_payload
+    cash_meta = build_cash_mode_payload(current_game_data, game_state)
+    if cash_meta is not None:
+        response['cash_mode'] = cash_meta
+
     return jsonify(response)
 
 

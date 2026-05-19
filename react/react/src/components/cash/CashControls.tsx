@@ -20,9 +20,15 @@ interface CashControlsProps {
   cashMode: CashModeInfo;
   playerStack: number;
   handInProgress: boolean;
+  playerFolded: boolean;
 }
 
-export function CashControls({ cashMode, playerStack, handInProgress }: CashControlsProps) {
+export function CashControls({
+  cashMode,
+  playerStack,
+  handInProgress,
+  playerFolded,
+}: CashControlsProps) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +39,11 @@ export function CashControls({ cashMode, playerStack, handInProgress }: CashCont
   // disabled (no legal top-up).
   const headroom = Math.max(0, cashMode.max_buy_in - playerStack);
   const topUpAmount = Math.min(headroom, cashMode.bankroll);
-  const canTopUp = !busy && !handInProgress && topUpAmount > 0;
+  // Mid-hand top-up is allowed once the human has folded — they're
+  // out of the betting for this hand, so adding chips to the stack
+  // just stages them for the next deal.
+  const topUpBlocked = handInProgress && !playerFolded;
+  const canTopUp = !busy && !topUpBlocked && topUpAmount > 0;
 
   const handleTopUp = useCallback(async () => {
     if (!canTopUp) return;
@@ -108,8 +118,8 @@ export function CashControls({ cashMode, playerStack, handInProgress }: CashCont
           disabled={!canTopUp}
           className="cash-controls__topup"
           title={
-            handInProgress
-              ? 'Top up only between hands'
+            topUpBlocked
+              ? 'Top up between hands (or after you fold)'
               : cashMode.bankroll === 0
                 ? 'No bankroll left to top up'
                 : `Top up $${topUpAmount.toLocaleString()}`

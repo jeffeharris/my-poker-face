@@ -544,27 +544,42 @@ def update_and_emit_game_state(game_id: str) -> None:
     # Cash mode metadata — surfaced so the React UI can show the
     # bankroll, the table's buy-in window, and gate the top-up /
     # rebuy buttons on. Tournament games omit this key entirely.
-    if current_game_data.get('cash_mode'):
-        from flask_app.extensions import bankroll_repo
-        owner_id_cash = current_game_data.get('owner_id')
-        bankroll_chips = 0
-        if owner_id_cash:
-            try:
-                bankroll = bankroll_repo.load_player_bankroll(owner_id_cash)
-                if bankroll is not None:
-                    bankroll_chips = bankroll.chips
-            except Exception:
-                pass
-        big_blind = game_state.current_ante
-        game_state_dict['cash_mode'] = {
-            'stake_label': current_game_data.get('cash_stake_label'),
-            'bankroll': bankroll_chips,
-            'big_blind': big_blind,
-            'min_buy_in': big_blind * 40,
-            'max_buy_in': big_blind * 100,
-        }
+    cash_meta = build_cash_mode_payload(current_game_data, game_state)
+    if cash_meta is not None:
+        game_state_dict['cash_mode'] = cash_meta
 
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
+
+
+def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dict]:
+    """Cash-mode metadata block for game-state responses.
+
+    Returns the dict the React `cash_mode` field expects (bankroll,
+    stake_label, big_blind, buy-in window), or None for tournament
+    games. Shared by the WebSocket emit and the REST cold-load
+    endpoint so the bankroll pill renders on first paint instead of
+    waiting for the first socket frame.
+    """
+    if not current_game_data.get('cash_mode'):
+        return None
+    from flask_app.extensions import bankroll_repo
+    owner_id_cash = current_game_data.get('owner_id')
+    bankroll_chips = 0
+    if owner_id_cash:
+        try:
+            bankroll = bankroll_repo.load_player_bankroll(owner_id_cash)
+            if bankroll is not None:
+                bankroll_chips = bankroll.chips
+        except Exception:
+            pass
+    big_blind = game_state.current_ante
+    return {
+        'stake_label': current_game_data.get('cash_stake_label'),
+        'bankroll': bankroll_chips,
+        'big_blind': big_blind,
+        'min_buy_in': big_blind * 40,
+        'max_buy_in': big_blind * 100,
+    }
 
 
 def emit_hole_cards_reveal(game_id: str, game_state) -> None:
@@ -778,20 +793,31 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
 def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machine) -> None:
     """Hand-boundary lobby refresh for the player's active table.
 
-    Three responsibilities:
+    Four responsibilities, in order:
 
-      1. Sync the table's persisted AI chip counts to the live
+      1. Reconcile busted slots: any persisted AI slot whose pid is no
+         longer in `cash_personality_ids` (because `_refill_cash_seats`
+         already swapped it out in game state) is paired FIFO with the
+         replacement pid and rewritten. Without this step, the next
+         step's `refresh_table_roster` would see a chips=0 ghost AI in
+         the slot, forced_leave it, and then live-fill a *different*
+         AI on top of the in-memory refill — the duplicate-player bug.
+
+      2. Sync the table's persisted AI chip counts to the live
          `Player.stack` values from this game. Without this, the AIs
          on the table look frozen at their previous chip counts even
          while a hand changed their stacks.
 
-      2. Run `refresh_table_roster` so AI movement (stake_up,
+      3. Run `refresh_table_roster` so AI movement (stake_up,
          take_break, forced_leave, bored_move) and live-fill happen
-         alongside the regular hand-end flow.
+         alongside the regular hand-end flow. Live-fill defers
+         freshly-vacated seats by one tick — a chair sits empty for at
+         least one hand before someone new sits down.
 
-      3. If live-fill placed a new AI, build a controller for them so
-         the next hand can deal them in. Uses the same controller-rebuild
-         path `_refill_cash_seats` uses (see `_install_ai_controller`).
+      4. Mirror persisted seat changes into game state: AIs that
+         voluntarily left get removed from `game_state.players` /
+         `ai_controllers` / `cash_personality_ids`; AIs that joined
+         (via live-fill) get added through `_seat_freshly_filled_ais`.
 
     Failures are caught by the caller — a flaky lobby refresh shouldn't
     block the hand from advancing.
@@ -807,7 +833,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     from cash_mode.lobby import _global_seated_set
     from cash_mode.movement import refresh_table_roster
     from cash_mode.stakes import STAKES_ORDER, table_buy_in_window
-    from cash_mode.tables import ai_slot, human_slot
+    from cash_mode.tables import ai_slot, human_slot, open_slot
     from flask_app.extensions import bankroll_repo, cash_table_repo, personality_repo
 
     table = cash_table_repo.load_table(table_id)
@@ -815,9 +841,11 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         logger.warning("[CASH][LOBBY] table %r not found for hand-boundary refresh", table_id)
         return
 
-    # 1. Sync table seat chips from live state.
     cash_pids = game_data.get('cash_personality_ids', {})
+    current_ai_pids = set(cash_pids.values())
     name_to_pid = dict(cash_pids)
+
+    # Live: pid → chips (from game state, the source of truth).
     pid_to_chips: Dict[str, int] = {}
     human_owner_id = game_data.get('owner_id')
     human_chips = 0
@@ -829,12 +857,42 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         if pid:
             pid_to_chips[pid] = int(player.stack)
 
-    synced_seats = []
-    for slot in table.seats:
+    # 1. Reconciliation: persisted AI slots whose pid isn't in the live
+    # game state were busted+replaced by `_refill_cash_seats`. Pair them
+    # FIFO with the fresh pids that are in game state but have no
+    # persisted slot. Any leftover busted slot (no replacement was
+    # found, e.g., no eligible AI affording the buy-in) becomes "open".
+    persisted_ai_slot_indices = [
+        (i, s["personality_id"]) for i, s in enumerate(table.seats)
+        if s["kind"] == "ai"
+    ]
+    busted_slot_indices = [
+        i for i, pid in persisted_ai_slot_indices
+        if pid not in current_ai_pids
+    ]
+    persisted_ai_pid_set = {pid for _, pid in persisted_ai_slot_indices}
+    fresh_pids_needing_slot = [
+        pid for pid in current_ai_pids if pid not in persisted_ai_pid_set
+    ]
+    reseat_map: Dict[int, str] = {
+        slot_idx: new_pid
+        for slot_idx, new_pid in zip(busted_slot_indices, fresh_pids_needing_slot)
+    }
+    leftover_busted = busted_slot_indices[len(fresh_pids_needing_slot):]
+
+    # 2. Sync: rewrite each persisted slot using game-state truth.
+    synced_seats: List[Dict] = []
+    for i, slot in enumerate(table.seats):
         if slot["kind"] == "ai":
-            pid = slot["personality_id"]
-            new_chips = pid_to_chips.get(pid, int(slot.get("chips", 0)))
-            synced_seats.append(ai_slot(pid, new_chips))
+            if i in reseat_map:
+                new_pid = reseat_map[i]
+                synced_seats.append(ai_slot(new_pid, pid_to_chips.get(new_pid, 0)))
+            elif i in leftover_busted:
+                synced_seats.append(open_slot())
+            else:
+                pid = slot["personality_id"]
+                new_chips = pid_to_chips.get(pid, int(slot.get("chips", 0)))
+                synced_seats.append(ai_slot(pid, new_chips))
         elif slot["kind"] == "human" and human_owner_id:
             synced_seats.append(human_slot(human_owner_id, human_chips))
         else:
@@ -848,6 +906,12 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         created_at=table.created_at,
         last_activity_at=table.last_activity_at,
     )
+
+    # Pids in the persisted table after reconciliation, used below to
+    # detect voluntary departures by diffing against `result.new_table`.
+    pre_refresh_ai_pids = {
+        s["personality_id"] for s in synced_seats if s["kind"] == "ai"
+    }
 
     # 2. Refresh movement + live-fill for this table.
     now = datetime.utcnow()
@@ -894,6 +958,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         table_min_buy_in=table_min_buy_in,
         table_max_buy_in=table_max_buy_in,
         next_tier_min_buy_in=next_tier_min_buy_in,
+        defer_freshly_vacated_live_fill=True,
     )
 
     # Persist table + idle changes.
@@ -904,7 +969,27 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         elif change.kind == "remove":
             cash_table_repo.delete_idle(change.personality_id)
 
-    # 3. Add controllers for freshly-seated AIs (mid-session live fill).
+    # 4a. Mirror voluntary departures into game state: AIs that
+    # `refresh_table_roster` moved off the persisted table (take_break,
+    # stake_up, forced_leave, bored_move) must also leave the live game.
+    # Without this step, the AI keeps a seat in `game_state.players`
+    # while live-fill drops a *different* AI on top — the same drift
+    # symptom as the bust path.
+    post_refresh_ai_pids = {
+        s["personality_id"] for s in result.new_table.seats if s["kind"] == "ai"
+    }
+    departed_pids = pre_refresh_ai_pids - post_refresh_ai_pids
+    if departed_pids:
+        try:
+            _remove_departed_ais_from_game(
+                game_id, game_data, state_machine, departed_pids,
+            )
+        except Exception as e:
+            logger.error(
+                "[CASH][LOBBY] departure-sync failed: %s", e, exc_info=True,
+            )
+
+    # 4b. Add controllers for freshly-seated AIs (mid-session live fill).
     if result.freshly_seated_personality_ids:
         try:
             _seat_freshly_filled_ais(
@@ -916,6 +1001,55 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
                 "[CASH][LOBBY] live-fill controller install failed: %s",
                 e, exc_info=True,
             )
+
+
+def _remove_departed_ais_from_game(
+    game_id: str,
+    game_data: dict,
+    state_machine,
+    departed_pids,
+) -> None:
+    """Symmetric inverse of `_seat_freshly_filled_ais`: drop AIs that
+    voluntarily left the persisted table from the running game so the
+    next hand isn't dealt to ghost players.
+
+    The chips on the departing player's seat are not credited back to
+    the AI bankroll — that's the existing v1 behavior (chips stay
+    "on the table" conceptually). If/when leave-time cash-out is
+    extended to voluntary moves, plumb the credit through here.
+    """
+    if not departed_pids:
+        return
+
+    cash_pids = game_data.get('cash_personality_ids', {})
+    pid_to_name = {pid: name for name, pid in cash_pids.items()}
+    departed_names = {
+        pid_to_name[pid] for pid in departed_pids if pid in pid_to_name
+    }
+    if not departed_names:
+        return
+
+    game_state = state_machine.game_state
+    remaining_players = tuple(
+        p for p in game_state.players if p.name not in departed_names
+    )
+    if len(remaining_players) == len(game_state.players):
+        return
+
+    state_machine.game_state = game_state.update(players=remaining_players)
+
+    ai_controllers = game_data.get('ai_controllers', {})
+    for name in departed_names:
+        ai_controllers.pop(name, None)
+        cash_pids.pop(name, None)
+        logger.info(
+            "[CASH][LOBBY] removed departed AI %r from game state", name,
+        )
+
+    game_data['ai_controllers'] = ai_controllers
+    game_data['cash_personality_ids'] = cash_pids
+    game_data['state_machine'] = state_machine
+    game_state_service.set_game(game_id, game_data)
 
 
 def _seat_freshly_filled_ais(

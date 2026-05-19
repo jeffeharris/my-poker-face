@@ -450,6 +450,7 @@ export function MobilePokerTable({
             && phase !== 'HAND_OVER'
             && phase !== 'EVALUATING_HAND'
           }
+          playerFolded={!!humanPlayer.is_folded}
         />
       )}
 

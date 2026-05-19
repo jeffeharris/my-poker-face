@@ -22,6 +22,7 @@ interface MobileCashSheetProps {
   cashMode: CashModeInfo;
   playerStack: number;
   handInProgress: boolean;
+  playerFolded: boolean;
 }
 
 export function MobileCashSheet({
@@ -30,6 +31,7 @@ export function MobileCashSheet({
   cashMode,
   playerStack,
   handInProgress,
+  playerFolded,
 }: MobileCashSheetProps) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -58,7 +60,11 @@ export function MobileCashSheet({
 
   const headroom = Math.max(0, cashMode.max_buy_in - playerStack);
   const topUpAmount = Math.min(headroom, cashMode.bankroll);
-  const canTopUp = !busy && !handInProgress && topUpAmount > 0;
+  // Mid-hand top-up is allowed once the human has folded — they're
+  // out of the betting for this hand, so adding chips can't shift
+  // the call/raise math in front of the AIs.
+  const topUpBlocked = handInProgress && !playerFolded;
+  const canTopUp = !busy && !topUpBlocked && topUpAmount > 0;
 
   const handleTopUp = useCallback(async () => {
     if (!canTopUp) return;
@@ -173,8 +179,8 @@ export function MobileCashSheet({
             >
               {busy && !confirmLeave
                 ? 'Topping up…'
-                : handInProgress
-                  ? 'Top up between hands only'
+                : topUpBlocked
+                  ? 'Top up between hands (or after you fold)'
                   : topUpAmount === 0
                     ? 'No bankroll to top up'
                     : `Top up +$${topUpAmount.toLocaleString()}`}

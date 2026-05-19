@@ -271,6 +271,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
                     && gameState.phase !== 'HAND_OVER'
                     && gameState.phase !== 'EVALUATING_HAND'
                   }
+                  playerFolded={!!humanPlayer.is_folded}
                 />
               )}
               <StatsPanel
