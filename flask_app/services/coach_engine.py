@@ -419,6 +419,9 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
         except Exception as e:
             logger.warning(f"Failed to load historical opponent data: {e}")
 
+    from poker.hand_ranges import EquityConfig
+    min_hands = EquityConfig().min_hands_for_stats
+
     memory_manager = game_data.get('memory_manager')
     omm = None
     if memory_manager:
