@@ -371,6 +371,58 @@ class TestHandBurstCount:
         assert result == 0
 
 
+class TestMemoryFlatness:
+    """Full-sim Commit 2.5 invariant: memory does NOT grow per-hand.
+
+    The original concern was the state-machine `snapshots` tuple
+    accumulating monotonically (+25 MB / 1000 hands measured in the
+    Phase 0 spike). The mechanism we shipped is
+    `PokerStateMachine(record_snapshots=False)` set inside
+    play_one_hand, which short-circuits the snapshot append in
+    advance_state_pure entirely.
+
+    This test pins that invariant with `tracemalloc`: 1000 sim hands
+    must leave less than +5 MB on the heap. The threshold is well
+    above noise (transient allocations from a single hand ~50 KB)
+    and well below the pre-fix +25 MB regression mode.
+    """
+
+    def test_1000_hands_stays_under_5mb_heap_growth(self, warm_cache):
+        import tracemalloc
+
+        seats = _build_seats(5000, 4)
+        # Warm the cache + run a small burn-in so first-time allocations
+        # don't get counted against the measurement (strategy table,
+        # PromptManager templates, etc. load lazily).
+        for seed in range(5):
+            play_one_hand(
+                seats, big_blind=100, rng=random.Random(seed),
+                name_for=_identity_name_for, controller_cache=warm_cache,
+            )
+
+        tracemalloc.start()
+        baseline = tracemalloc.take_snapshot()
+
+        for seed in range(1000):
+            play_one_hand(
+                seats, big_blind=100, rng=random.Random(100 + seed),
+                name_for=_identity_name_for, controller_cache=warm_cache,
+            )
+
+        after = tracemalloc.take_snapshot()
+        stats = after.compare_to(baseline, "filename")
+        total_growth = sum(stat.size_diff for stat in stats)
+        tracemalloc.stop()
+
+        growth_mb = total_growth / (1024 * 1024)
+        assert growth_mb < 5.0, (
+            f"1000 sim hands grew heap by {growth_mb:.2f} MB; expected < 5 MB. "
+            f"State machine snapshots may be leaking again — check that "
+            f"PokerStateMachine(record_snapshots=False) is still set in "
+            f"play_one_hand."
+        )
+
+
 class TestPsychologyPersistence:
     """Full-sim Commit 3 discipline: psychology hydrates from
     `ai_bankroll_state.emotional_state_json` on cache miss, and

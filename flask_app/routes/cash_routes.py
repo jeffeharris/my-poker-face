@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
@@ -125,6 +125,40 @@ def _find_active_cash_game_id(owner_id: str) -> Optional[str]:
         if row.game_id.startswith("cash-"):
             return row.game_id
     return None
+
+
+def _resolve_emotion_from_blob(blob: str, personality_id: str) -> str:
+    """Translate a persisted emotional_state_json blob into a display
+    emotion string ("tilted", "confident", "nervous", etc.).
+
+    Used by the lobby route to surface real sim psychology on
+    unseated AI seats (schema v97 + full-sim Commit 3 flush
+    discipline). Best-effort: any JSON / schema mismatch falls back
+    to "confident" so a bad blob doesn't break the lobby render.
+
+    Decay-on-read is a TODO — for v1 we trust the most recent flush
+    because (a) sim hands run every lobby refresh, so live tilt
+    naturally fades through gameplay, and (b) the catch-up burst
+    (full-sim Commit 7) bursts hands when the player returns after
+    a long gap, applying the same gameplay-driven decay.
+    """
+    try:
+        import json as _json
+
+        from flask_app.extensions import personality_repo as _personality_repo
+
+        state_dict = _json.loads(blob)
+        personality = _personality_repo.load_personality_by_id(personality_id)
+        if personality is None:
+            return "confident"
+        from poker.player_psychology import PlayerPsychology
+        psych = PlayerPsychology.from_dict(state_dict, personality)
+        return psych.get_display_emotion()
+    except Exception as exc:  # noqa: BLE001 — emotion is best-effort UX
+        logger.debug(
+            f"[CASH][LOBBY] emotion resolution failed for {personality_id}: {exc}"
+        )
+        return "confident"
 
 
 def cleanup_orphan_cash_games() -> int:
@@ -597,6 +631,8 @@ def _build_cash_game(
         "cash_mode": True,
         "cash_stake_label": stake_label,
         "cash_personality_ids": {a["name"]: a["personality_id"] for a in selected_ai},
+        "cash_buy_in": int(player_starting_stack),
+        "cash_started_at": now.isoformat(),
     }
 
     from flask_app.services import game_state_service
@@ -1425,6 +1461,61 @@ def leave_table():
         return _leave_table_locked(owner_id, game_id)
 
 
+def _build_session_summary(
+    *,
+    game_data: dict,
+    human_name: str,
+    game_id: str,
+    cash_out: int,
+    state_machine,
+) -> dict:
+    """Compute the post-session summary payload for the leave response.
+
+    Pulls hand_history rows for this game and delegates to the pure
+    `summarize_cash_session` helper. Tolerates a missing repo (early
+    test paths) by falling back to the state_machine's hand_count.
+    """
+    from cash_mode.session_summary import summarize_cash_session
+    from flask_app.extensions import hand_history_repo
+
+    buy_in = int(game_data.get("cash_buy_in") or 0)
+    started_at_raw = game_data.get("cash_started_at")
+    started_at = None
+    if started_at_raw:
+        try:
+            started_at = datetime.fromisoformat(started_at_raw)
+        except (TypeError, ValueError):
+            started_at = None
+
+    hands: List[Dict[str, Any]] = []
+    if hand_history_repo is not None:
+        try:
+            hands = hand_history_repo.load_hand_history(game_id) or []
+        except Exception as e:
+            logger.warning(
+                "[CASH] load_hand_history failed for summary %r: %s",
+                game_id, e,
+            )
+
+    fallback_hand_count = 0
+    try:
+        fallback_hand_count = int(
+            getattr(state_machine, "_state", None).stats.hand_count
+        )
+    except Exception:
+        fallback_hand_count = 0
+
+    return summarize_cash_session(
+        hands=hands,
+        human_name=human_name,
+        buy_in=buy_in,
+        cash_out=cash_out,
+        started_at=started_at,
+        now=datetime.utcnow(),
+        fallback_hand_count=fallback_hand_count,
+    )
+
+
 def _leave_table_locked(owner_id: str, game_id: str):
     """Body of `leave_table`, run under the per-game lock.
 
@@ -1456,12 +1547,24 @@ def _leave_table_locked(owner_id: str, game_id: str):
             "sponsor_repaid": 0,
             "returned_chips": 0,
             "bankroll": _load_or_seed_player_bankroll(owner_id).chips,
+            "session_summary": None,
         })
     state_machine = game_data["state_machine"]
     human_player = next(
         (p for p in state_machine.game_state.players if p.is_human), None,
     )
     chips_at_table = human_player.stack if human_player else 0
+
+    # Build the cash-out session summary BEFORE any teardown — we read
+    # hand_history rows for VPIP/aggression and need the buy-in/start
+    # timestamp from game_data, which is purged a few lines down.
+    session_summary = _build_session_summary(
+        game_data=game_data,
+        human_name=human_player.name if human_player else "",
+        game_id=game_id,
+        cash_out=chips_at_table,
+        state_machine=state_machine,
+    )
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
 
@@ -1651,6 +1754,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
         "sponsor_repaid": settlement.sponsor_total,
         "returned_chips": settlement.returned_chips,
         "bankroll": settlement.new_bankroll.chips,
+        "session_summary": session_summary,
     })
 
 
@@ -1828,6 +1932,34 @@ def get_lobby():
 
     tables = cash_table_repo.list_all_tables()
 
+    # Resolve emotions for AIs at unseated tables from the persisted
+    # emotional_state_json column (schema v97). Without this, every
+    # unseated AI showed "confident" regardless of recent sim history
+    # — tilted AIs surrender their signal to the player browsing the
+    # lobby, breaking the "world feels alive" affordance. Batched
+    # in one query to keep the lobby response cheap.
+    unseated_pids: List[str] = []
+    for table in tables:
+        if table.human_seat_index() is not None:
+            # Active session table: emotions come from live in-memory
+            # controllers (active_emotions, populated above). No need
+            # to read persisted state for these.
+            continue
+        for slot in table.seats:
+            if slot.get("kind") == "ai":
+                pid = slot.get("personality_id")
+                if pid:
+                    unseated_pids.append(pid)
+
+    unseated_emotion_blobs = bankroll_repo.load_emotional_state_json_for_pids(
+        unseated_pids,
+    )
+    unseated_emotions: Dict[str, str] = {}
+    for pid, blob in unseated_emotion_blobs.items():
+        if not blob:
+            continue
+        unseated_emotions[pid] = _resolve_emotion_from_blob(blob, pid)
+
     response_tables = []
     for table in tables:
         big_blind, min_buy_in, max_buy_in = table_buy_in_window(table.stake_label)
@@ -1870,7 +2002,19 @@ def get_lobby():
                 ai_name = personality.get("name") or pid
                 entry["name"] = ai_name
                 entry["chips"] = int(slot.get("chips", 0))
-                emotion = active_emotions.get(ai_name, "confident")
+                # Emotion resolution priority:
+                #   1. active_emotions[name] — live in-memory state from
+                #      the player's current cash table (always freshest).
+                #   2. unseated_emotions[pid] — persisted state for AIs
+                #      at tables the player isn't at (schema v97).
+                #   3. "confident" default — fallback for AIs that have
+                #      never been touched by sim.
+                if ai_name in active_emotions:
+                    emotion = active_emotions[ai_name]
+                elif pid in unseated_emotions:
+                    emotion = unseated_emotions[pid]
+                else:
+                    emotion = "confident"
                 entry["emotion"] = emotion
                 entry["avatar_url"] = get_avatar_url_with_fallback(
                     None, ai_name, emotion,

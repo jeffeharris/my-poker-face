@@ -79,3 +79,33 @@ class TestEmotionalStateRoundTrip:
         assert bankroll.chips == 12_345
         assert bankroll.last_regen_tick == datetime(2026, 5, 19, 0, 0, 0)
         assert repo.load_emotional_state_json("napoleon") == '{"state": "tilted"}'
+
+
+class TestBatchEmotionalStateLoad:
+    """The lobby route uses load_emotional_state_json_for_pids to
+    resolve unseated-AI emotions in one query instead of N queries."""
+
+    def test_empty_pid_list_returns_empty_dict(self, repo):
+        assert repo.load_emotional_state_json_for_pids([]) == {}
+
+    def test_batch_includes_missing_as_none(self, repo):
+        repo.save_emotional_state_json("napoleon", '{"state": "tilted"}')
+        # Buddha doesn't exist; should still appear in result as None.
+        result = repo.load_emotional_state_json_for_pids(
+            ["napoleon", "buddha"],
+        )
+        assert result == {
+            "napoleon": '{"state": "tilted"}',
+            "buddha": None,
+        }
+
+    def test_batch_with_null_column_returns_none(self, repo):
+        from datetime import datetime
+        # Seed a bankroll row without ever flushing psychology.
+        repo.save_ai_bankroll(AIBankrollState(
+            personality_id="lincoln",
+            chips=5000,
+            last_regen_tick=datetime(2026, 5, 19, 0, 0, 0),
+        ))
+        result = repo.load_emotional_state_json_for_pids(["lincoln"])
+        assert result == {"lincoln": None}

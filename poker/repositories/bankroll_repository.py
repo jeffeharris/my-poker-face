@@ -188,6 +188,41 @@ class BankrollRepository(BaseRepository):
                 return None
             return row["emotional_state_json"]
 
+    def load_emotional_state_json_for_pids(
+        self,
+        personality_ids: List[str],
+    ) -> dict:
+        """Batched read of emotional_state_json for multiple AIs.
+
+        Returns `{personality_id: blob_or_none}` covering exactly the
+        requested ids. Missing rows and NULL columns both map to None
+        — callers (the lobby route's emotion resolver) treat both as
+        "no persisted state, fall back to confident default."
+
+        Single SELECT with parameterized IN list keeps the lobby
+        response cheap even with 5 stakes × 6 seats = 30 lookups per
+        request.
+        """
+        result = {pid: None for pid in personality_ids}
+        if not personality_ids:
+            return result
+        # Build the placeholder list. We don't trust the count enough
+        # to skip the build (callers may pass empty list), and SQLite
+        # supports parameterized IN clauses with ? placeholders.
+        placeholders = ",".join("?" for _ in personality_ids)
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT personality_id, emotional_state_json
+                FROM ai_bankroll_state
+                WHERE personality_id IN ({placeholders})
+                """,
+                tuple(personality_ids),
+            ).fetchall()
+        for row in rows:
+            result[row["personality_id"]] = row["emotional_state_json"]
+        return result
+
     def sum_ai_bankroll_chips_stored(self) -> int:
         """Return the sum of stored chips across every AI bankroll row.
 
