@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from .chip_flow import ChipFlow, PotShare, allocate_chip_flow
 from .hand_history import RecordedHand
@@ -160,17 +160,52 @@ class HandOutcomeDetector:
             surviving.append(event)
         return surviving
 
+    def compute_chip_flows(self, hand: RecordedHand) -> List[ChipFlow]:
+        """Pure allocation: return every (winner, loser, chips) flow for
+        this hand. No big-pot threshold — every pot, regardless of size.
+
+        Distinct from `_detect_big_pot_events`, which gates BIG_WIN/
+        BIG_LOSS *event* emission on the big-pot threshold (the axes
+        should only move on stack-threatening pots). This method
+        exists so `cash_pair_stats` can track full lifetime PnL across
+        every hand a pair shares, not just the dramatic ones. Both
+        callers funnel through the same `allocate_chip_flow` allocator
+        so the two views stay aligned.
+
+        This method is **pure** — it can be called multiple times per
+        hand without side effects. Dedup for cash_pair_stats writes
+        lives in the caller (`AIMemoryManager._process_relationship_events`)
+        so the same hand_number can be allocated by both
+        `_detect_big_pot_events` and the cash-PnL dispatch path on
+        a single pass without one starving the other.
+        """
+        if hand.pot_size <= 0 or not hand.winners:
+            return []
+        winner_amounts: Dict[str, int] = {}
+        for w in hand.winners:
+            winner_amounts[w.name] = (
+                winner_amounts.get(w.name, 0) + w.amount_won
+            )
+        if not winner_amounts:
+            return []
+        contributions = hand.get_player_contributions()
+        pot = PotShare(
+            amount=hand.pot_size,
+            winners=tuple(winner_amounts.keys()),
+            contributions=contributions,
+        )
+        return allocate_chip_flow([pot])
+
     def _detect_big_pot_events(
         self, hand: RecordedHand,
     ) -> List[DetectedEvent]:
         """Emit BIG_WIN / BIG_LOSS pairs for big-pot hands.
 
-        Uses the chip-flow allocation in `chip_flow.allocate_chip_flow`
-        to produce one BIG_WIN + one BIG_LOSS per (winner, loser) pair
-        — heads-up trivially, but also for multiway pots and split
-        pots. The allocation rule is the same one feeding
-        `cash_pair_stats` so the relationship layer and the cash
-        bookkeeping stay aligned.
+        Reuses `compute_chip_flows` for the allocation, then gates
+        event emission on `MomentAnalyzer.is_big_pot` — the same
+        threshold `PressureEventDetector` uses, so the relationship-
+        axis updates here align with the pressure layer's big_win/
+        big_loss signals.
 
         Side-pot caveat: `RecordedHand` doesn't currently carry
         explicit per-pot structure (it has a flat winners list with
@@ -183,7 +218,8 @@ class HandOutcomeDetector:
         method can build multiple `PotShare`s without touching the
         helper.
         """
-        if hand.pot_size <= 0 or not hand.winners:
+        flows = self.compute_chip_flows(hand)
+        if not flows:
             return []
 
         # Big-pot threshold: same `MomentAnalyzer.is_big_pot` calc as
@@ -200,28 +236,6 @@ class HandOutcomeDetector:
             if starting_stacks else 0
         )
         if not MomentAnalyzer.is_big_pot(hand.pot_size, 0, avg_stack):
-            return []
-
-        # Build a single PotShare from the recorded hand. Aggregate
-        # winner amounts in case the same name appears in multiple
-        # pot_breakdown rows (shouldn't happen given the dedup in
-        # `HandHistoryRecorder.complete_hand`, but defensive).
-        winner_amounts: Dict[str, int] = {}
-        for w in hand.winners:
-            winner_amounts[w.name] = (
-                winner_amounts.get(w.name, 0) + w.amount_won
-            )
-        if not winner_amounts:
-            return []
-
-        contributions = hand.get_player_contributions()
-        pot = PotShare(
-            amount=hand.pot_size,
-            winners=tuple(winner_amounts.keys()),
-            contributions=contributions,
-        )
-        flows = allocate_chip_flow([pot])
-        if not flows:
             return []
 
         summary = hand.get_summary()
@@ -652,39 +666,44 @@ def dispatch_events(
     manager: "OpponentModelManager",
     *,
     cash_pair_repo: Optional["RelationshipRepository"] = None,
+    chip_flows: Optional[List[ChipFlow]] = None,
+    id_resolver: Optional[Callable[[str], Optional[str]]] = None,
     hand_id: Optional[int] = None,
     now: Optional[datetime] = None,
 ) -> None:
-    """Apply a list of detected events to the relationship + cash layers.
+    """Apply detected events to the relationship + cash layers.
 
-    For each event:
-      1. Call `manager.record_event` — bilateral relationship axis
-         update through the only legal mutation entry point.
-      2. If `cash_pair_repo` is provided (cash-mode hands), also
-         apply the bilateral `cash_pair_stats` update via
-         `apply_cash_pair_pnl`. cumulative_pnl moves by the event's
-         `chips_won`; `hands_played_cash` increments by 1.
+    Two independent surfaces fan out from here:
 
-    Only `BIG_WIN` events drive the cash_pair_stats update — their
-    paired `BIG_LOSS` events refer to the same chip flow with the
-    opposite sign, and processing both would double-count. Other
-    event types (`HERO_CALL`, `BAD_BEAT`, etc.) don't carry a
-    chip-flow magnitude and are skipped for cash_pair_stats.
+      1. **Relationship axes** — every event in `events` goes
+         through `manager.record_event` (bilateral axis update).
+         BIG_WIN/BIG_LOSS, HERO_CALL, BAD_BEAT, etc. all drive
+         this. Gating (big-pot threshold, etc.) is the detector's
+         job before the events get here.
+
+      2. **Cash pair PnL** — when `cash_pair_repo` is provided AND
+         `chip_flows` is provided, *every* flow gets written via
+         `apply_cash_pair_pnl`. No big-pot threshold — small pots
+         count too, so cumulative PnL between any two players is
+         a true lifetime total. `id_resolver` maps each flow's
+         display name → stable id (mirrors `_resolve_id` on the
+         detector); when not supplied, names are used verbatim.
+
+    Backward-compat shim: callers that don't yet pass `chip_flows`
+    fall through to the legacy path — `BIG_WIN` events drive
+    `apply_cash_pair_pnl`. New callers should pass `chip_flows`;
+    the old path is kept so out-of-tree integrations don't break.
 
     `now` defaults to `datetime.utcnow()` for `record_event`'s
     decay anchor. `hand_id` is forwarded to `record_event` for the
     `MemorableHand` sidecar.
-
-    Dedup is the detector's responsibility (`detect_events` already
-    filters duplicates); this function processes every event it
-    receives.
     """
-    if not events:
+    if not events and not chip_flows:
         return
     if now is None:
         now = datetime.utcnow()
 
-    for event in events:
+    for event in events or []:
         manager.record_event(
             actor_id=event.actor_id,
             target_id=event.target_id,
@@ -699,15 +718,30 @@ def dispatch_events(
     if cash_pair_repo is None:
         return
 
-    for event in events:
-        # Only positive-chips events drive cash_pair_stats — see
-        # docstring. BIG_LOSS is the mirror view of the same flow.
+    if chip_flows is not None:
+        # New path: every chip flow tallies into cash_pair_stats,
+        # regardless of pot size. This is the canonical surface for
+        # lifetime PnL between two players.
+        resolve = id_resolver or (lambda name: name)
+        for flow in chip_flows:
+            if flow.chips <= 0:
+                continue
+            winner_id = resolve(flow.winner)
+            loser_id = resolve(flow.loser)
+            if not winner_id or not loser_id:
+                continue
+            cash_pair_repo.apply_cash_pair_pnl(
+                winner_id=winner_id,
+                loser_id=loser_id,
+                chips=flow.chips,
+            )
+        return
+
+    # Legacy path: derive cash PnL from BIG_WIN events only.
+    for event in events or []:
         if event.event is not RelationshipEvent.BIG_WIN:
             continue
         if event.chips_won <= 0:
-            # Defensive: a BIG_WIN with zero/negative chips would
-            # mean the allocator emitted a flow that doesn't move
-            # money — skip rather than write a no-op row.
             continue
         cash_pair_repo.apply_cash_pair_pnl(
             winner_id=event.actor_id,

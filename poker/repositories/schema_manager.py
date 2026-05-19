@@ -90,7 +90,13 @@ logger = logging.getLogger(__name__)
 #      entire pre-existing chip universe and the "is the ledger consistent?"
 #      signal is unusable. Idempotent — skipped if any pre_ledger_universe
 #      entries already exist.
-SCHEMA_VERSION = 94
+# v95: Add `notes` TEXT column to relationship_states for player-authored
+#      opponent notes. Cross-session, cross-game — keyed on the same
+#      (observer_id, opponent_id) as the affinity axes. Stored as NULL
+#      when empty so existing rows don't need a backfill. Cash mode is
+#      the surface for now; tournaments use the per-game opponent_models
+#      notes column for their own purposes.
+SCHEMA_VERSION = 95
 
 
 
@@ -387,6 +393,7 @@ class SchemaManager:
                     likability REAL NOT NULL DEFAULT 0.5,
                     last_seen TIMESTAMP,
                     last_decay_tick TIMESTAMP,
+                    notes TEXT,
                     PRIMARY KEY (observer_id, opponent_id)
                 )
             """)
@@ -1237,6 +1244,7 @@ class SchemaManager:
             92: (self._migrate_v92_add_cash_idle_pool, "Add cash_idle_pool table for AIs between cash sessions (cash mode v1.5)"),
             93: (self._migrate_v93_add_chip_ledger, "Add chip_ledger_entries table for chip economy observability (v0: append-only ledger)"),
             94: (self._migrate_v94_seed_pre_ledger_universe, "Seed pre_ledger_universe entries so day-1 audit drift is 0"),
+            95: (self._migrate_v95_add_relationship_notes, "Add notes column to relationship_states for player-authored opponent notes (cross-session, cash mode)"),
         }
 
         with self._get_connection() as conn:
@@ -4169,10 +4177,10 @@ class SchemaManager:
             central_bank → ai:<pid>
           - cash_tables.seats_json kind=ai chips → central_bank →
             ai:<pid>
-          - player_bankroll_state.active_loan_amount (both anonymous
-            house loans and named personality loans — both get
-            counted in the audit's active_loans_principal, so both
-            need a baseline) → central_bank → player:<id>
+          - player_bankroll_state.active_loan_amount (anonymous /
+            house loans only — personality loans are pure transfers
+            and don't need a central_bank seed) → central_bank →
+            player:<id>
 
         Live-session AI table stacks aren't seeded — they're
         transient and resolve to AI bankrolls at session end via
@@ -4198,7 +4206,7 @@ class SchemaManager:
                 "WHERE chips > 0"
             ).fetchall()
         except sqlite3.OperationalError:
-            rows = []
+            rows = []  # table doesn't exist yet on a very fresh DB
         for row in rows:
             conn.execute(
                 "INSERT INTO chip_ledger_entries "
@@ -4305,3 +4313,23 @@ class SchemaManager:
             seeded += 1
 
         logger.info("v94: seeded %d pre_ledger_universe entries", seeded)
+
+    def _migrate_v95_add_relationship_notes(self, conn: sqlite3.Connection) -> None:
+        """Migration v95: Add `notes` TEXT to relationship_states.
+
+        Player-authored note about an opponent (e.g., "calls light on
+        the turn", "tilts after losing big"). Persistent across cash
+        sessions because it's keyed on the same (observer_id,
+        opponent_id) pair the affinity axes already use.
+
+        Idempotent: only adds the column if it doesn't already exist.
+        Existing rows keep their other axes; `notes` defaults to NULL.
+        """
+        cursor = conn.execute("PRAGMA table_info(relationship_states)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'notes' not in existing_columns:
+            conn.execute("ALTER TABLE relationship_states ADD COLUMN notes TEXT")
+            logger.debug("Added notes column to relationship_states")
+
+        logger.info("Migration v95 complete: relationship_states.notes added")

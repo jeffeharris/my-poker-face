@@ -11,7 +11,7 @@ Coordinates:
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Dict, List, Optional, Any, Tuple
+from typing import Callable, Dict, List, Optional, Any, Set, Tuple
 
 from .hand_history import HandHistoryRecorder, RecordedHand
 from .session_memory import SessionMemory
@@ -63,6 +63,12 @@ class AIMemoryManager:
         )
         self._relationship_repo = None
         self._cash_mode: bool = False
+        # Dedup for cash_pair_stats writes — a replay of the same
+        # hand_number through `_process_relationship_events` (e.g.,
+        # tests, recovery flows) must not double-apply PnL. Event-axis
+        # dedup is handled inside the detector; this is the parallel
+        # gate for the chip-flow path.
+        self._cash_pnl_emitted: Set[int] = set()
 
         # Per-player session memories
         self.session_memories: Dict[str, SessionMemory] = {}
@@ -130,7 +136,23 @@ class AIMemoryManager:
             events = self.hand_outcome_detector.detect_events(
                 recorded_hand, equity_history=equity_history,
             )
-            if not events:
+            # Cash pair PnL feeds from every chip flow (no big-pot
+            # gate), independent of whether relationship-axis events
+            # fired. Compute flows even when `events` is empty — small
+            # pots still accumulate. Replays of the same hand_number
+            # are short-circuited to None (skips the chip_flows path
+            # entirely) so cumulative_pnl can't double-apply.
+            already_emitted = (
+                recorded_hand.hand_number in self._cash_pnl_emitted
+            )
+            chip_flows = (
+                self.hand_outcome_detector.compute_chip_flows(recorded_hand)
+                if self._cash_mode and not already_emitted
+                else None
+            )
+            if chip_flows:
+                self._cash_pnl_emitted.add(recorded_hand.hand_number)
+            if not events and not chip_flows:
                 return
             dispatch_events(
                 events,
@@ -138,6 +160,11 @@ class AIMemoryManager:
                 cash_pair_repo=(
                     self._relationship_repo if self._cash_mode else None
                 ),
+                chip_flows=chip_flows,
+                # Detector carries the name→id map (initialized from
+                # the manager's `_name_to_id`), and its `_resolve_id`
+                # falls back to the name itself when no id is registered.
+                id_resolver=self.hand_outcome_detector._resolve_id,
                 hand_id=recorded_hand.hand_number,
             )
         except Exception as e:

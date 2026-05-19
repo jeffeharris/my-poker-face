@@ -96,6 +96,7 @@ export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardPr
                     : undefined,
                 },
                 origin: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+                identifier: seat.personality_id,
               });
             };
             return (

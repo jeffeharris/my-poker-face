@@ -11,8 +11,13 @@
  * handles "lobby with no live game" and "mid-hand at the table".
  */
 
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import {
+  fetchCharacterDossier,
+  saveCharacterNote,
+  type DossierResponse,
+} from './api';
 import './CharacterDetailCard.css';
 
 export type RelationshipKind =
@@ -80,6 +85,14 @@ export interface CharacterDetailCardProps {
    * thing you clicked.
    */
   origin?: { x: number; y: number };
+  /**
+   * Personality id OR display name. When provided, the card fetches
+   * /api/character/<identifier>/dossier on open to enrich the static
+   * `character` data with the relationship axes, cash pair stats,
+   * recent hands, and the player-authored note (which becomes
+   * editable with debounced autosave).
+   */
+  identifier?: string;
 }
 
 const RELATIONSHIP_COPY: Record<RelationshipKind, { label: string; tone: string }> = {
@@ -155,11 +168,14 @@ function SectionRule({ children }: { children: React.ReactNode }) {
   );
 }
 
+type NoteSaveState = 'idle' | 'saving' | 'saved' | 'error';
+
 export function CharacterDetailCard({
   isOpen,
   onClose,
   character,
   origin,
+  identifier,
 }: CharacterDetailCardProps) {
   // ESC to close — felt-tabletop UX expects it.
   useEffect(() => {
@@ -171,9 +187,151 @@ export function CharacterDetailCard({
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, onClose]);
 
+  // ─── Server-side enrichment ─────────────────────────────────
+  // Fetched on open when `identifier` is provided. Sections derived
+  // from this fall in below the prop-driven ones — the static prop
+  // gives an instant render, the server fetch hydrates the rest.
+  const [fetched, setFetched] = useState<DossierResponse | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [noteState, setNoteState] = useState<NoteSaveState>('idle');
+  const lastSavedNote = useRef<string>('');
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !identifier) {
+      setFetched(null);
+      return;
+    }
+    let cancelled = false;
+    fetchCharacterDossier(identifier)
+      .then((data) => {
+        if (cancelled) return;
+        setFetched(data);
+        const initial = data.note ?? '';
+        setNoteDraft(initial);
+        lastSavedNote.current = initial;
+        setNoteState('idle');
+      })
+      .catch((e) => {
+        // Anonymous reads return 200 with null fields, so this is
+        // genuinely an error case — log but don't block the render.
+        // The card still shows whatever static `character` carries.
+        console.error('[dossier] fetch failed:', e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, identifier]);
+
+  // Debounced autosave: 600ms after the last keystroke. Cancels any
+  // pending save when a new keystroke comes in or the card closes.
+  const scheduleNoteSave = useCallback(
+    (next: string) => {
+      if (!identifier) return;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        if (next === lastSavedNote.current) return;
+        setNoteState('saving');
+        saveCharacterNote(identifier, next)
+          .then((res) => {
+            lastSavedNote.current = res.note ?? '';
+            setNoteState('saved');
+            // Quietly drop the "saved" indicator after a beat so it
+            // doesn't linger as the player keeps reading.
+            setTimeout(() => setNoteState('idle'), 1400);
+          })
+          .catch((e) => {
+            console.error('[dossier] note save failed:', e);
+            setNoteState('error');
+          });
+      }, 600);
+    },
+    [identifier],
+  );
+
+  // Flush on close: if there's an unsaved draft when the card closes,
+  // fire one final save synchronously (no debounce). Without this
+  // you'd lose the last few keystrokes when dismissing fast.
+  useEffect(() => {
+    if (isOpen) return;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (identifier && noteDraft !== lastSavedNote.current) {
+      saveCharacterNote(identifier, noteDraft)
+        .then((res) => {
+          lastSavedNote.current = res.note ?? '';
+        })
+        .catch(() => {
+          // Silent — the card is gone, no UI surface to report into.
+        });
+    }
+  // Intentionally only depends on isOpen — we want flush on
+  // close, not on every draft keystroke.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const handleNoteChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const next = e.target.value.slice(0, 2000);
+      setNoteDraft(next);
+      scheduleNoteSave(next);
+    },
+    [scheduleNoteSave],
+  );
+
+  // ─── Section-presence flags (server-fetched overlays prop data) ───
+  // Prefer the freshly-fetched personality fields, but fall back to
+  // whatever the caller passed in `character` so the card still
+  // renders instantly before the fetch resolves.
+  const merged = useMemo(() => {
+    const p = fetched?.personality;
+    const traits = p?.personality_traits;
+    const obs = fetched?.observation;
+    return {
+      name: p?.name ?? character.name,
+      nickname: p?.nickname ?? character.nickname ?? undefined,
+      playStyle: p?.play_style ?? character.playStyle,
+      attitude: p?.attitude ?? character.attitude,
+      confidence: p?.confidence ?? character.confidence,
+      // Prefer the server-fetched live emotion (always-set with a
+      // 'confident' default for RuleBots) over whatever was on the
+      // initial click payload, which can be undefined for table-side
+      // opens before the first socket update lands.
+      emotion: fetched?.emotion ?? character.emotion,
+      remark: character.remark ?? p?.signature_line ?? undefined,
+      traits: traits
+        ? {
+            bluffTendency: traits.bluff_tendency ?? character.traits?.bluffTendency,
+            aggression:    traits.aggression     ?? character.traits?.aggression,
+            chattiness:    traits.chattiness     ?? character.traits?.chattiness,
+            emojiUsage:    traits.emoji_usage    ?? character.traits?.emojiUsage,
+          }
+        : character.traits,
+      // Server-side observation wins; the static prop's `observed` is
+      // legacy and only fires for callers who pre-populate.
+      observed: obs
+        ? {
+            handsObserved:    obs.hands_observed,
+            vpip:             obs.vpip,
+            pfr:              obs.pfr,
+            aggressionFactor: obs.aggression_factor,
+            playStyleLabel:   obs.play_style,
+          }
+        : character.observed && {
+            handsObserved:    character.observed.handsObserved,
+            vpip:             character.observed.vpip,
+            pfr:              character.observed.pfr,
+            aggressionFactor: character.observed.aggressionFactor,
+            playStyleLabel:   undefined as string | undefined,
+          },
+    };
+  }, [fetched, character]);
+
   const fileNumber = useMemo(
-    () => character.fileNumber ?? deriveFileNumber(character.name),
-    [character.fileNumber, character.name],
+    () => character.fileNumber ?? deriveFileNumber(merged.name),
+    [character.fileNumber, merged.name],
   );
 
   // Origin-based transform for the open animation. If no origin
@@ -185,12 +343,45 @@ export function CharacterDetailCard({
     };
   }, [origin]);
 
-  const hasTraits = !!character.traits && Object.values(character.traits).some(v => v !== undefined);
-  const hasObserved = !!character.observed && (character.observed.handsObserved ?? 0) > 0;
+  const hasTraits = !!merged.traits && Object.values(merged.traits).some(v => v !== undefined);
+  const hasObserved = !!merged.observed && (merged.observed.handsObserved ?? 0) > 0;
   const hasChips = !!character.chips && (
     character.chips.atTable !== undefined || character.chips.bankroll !== undefined
   );
   const hasAffiliation = !!character.affiliation?.sponsor || !!character.affiliation?.relationship;
+  const hasStanding = !!fetched?.relationship;
+  // Pressure-summary surfaces only the highlights with non-zero values;
+  // omitting them entirely keeps the card from showing rows of zeros
+  // for opponents the human hasn't tangled with yet.
+  const ps = fetched?.pressure_summary ?? null;
+  const pressureRows: Array<[string, string]> = ps
+    ? [
+        ps.signature_move ? ['Signature move', ps.signature_move!] : null,
+        (ps.biggest_pot_won ?? 0) > 0
+          ? ['Biggest pot won', `$${ps.biggest_pot_won!.toLocaleString()}`]
+          : null,
+        (ps.biggest_pot_lost ?? 0) > 0
+          ? ['Biggest pot lost', `$${ps.biggest_pot_lost!.toLocaleString()}`]
+          : null,
+        (ps.successful_bluffs ?? 0) > 0
+          ? ['Bluffs landed', `${ps.successful_bluffs}`]
+          : null,
+        (ps.bluffs_caught ?? 0) > 0
+          ? ['Bluffs caught', `${ps.bluffs_caught}`]
+          : null,
+        (ps.bad_beats ?? 0) > 0
+          ? ['Bad beats', `${ps.bad_beats}`]
+          : null,
+        (ps.headsup_wins ?? 0) + (ps.headsup_losses ?? 0) > 0
+          ? ['Heads-up record', `${ps.headsup_wins ?? 0}–${ps.headsup_losses ?? 0}`]
+          : null,
+      ].filter((r): r is [string, string] => r !== null)
+    : [];
+  const hasPressureRows = pressureRows.length > 0;
+  const memorable = fetched?.memorable_hands ?? [];
+  const hasMemorable = memorable.length > 0;
+  const hasTrackRecord = !!fetched?.cash_pair_stats || hasMemorable || hasPressureRows;
+  const showNotes = !!identifier;
 
   const relationship = character.affiliation?.relationship;
   const relMeta = relationship ? RELATIONSHIP_COPY[relationship] : null;
@@ -207,7 +398,7 @@ export function CharacterDetailCard({
           onClick={onClose}
           role="dialog"
           aria-modal="true"
-          aria-label={`Dossier for ${character.name}`}
+          aria-label={`Dossier for ${merged.name}`}
         >
           <div className="dossier-overlay__grain" aria-hidden="true" />
           <div className="dossier-overlay__vignette" aria-hidden="true" />
@@ -283,26 +474,26 @@ export function CharacterDetailCard({
                     {monogram(character.name)}
                   </span>
                 </div>
-                {character.emotion && (
-                  <div className="dossier__wax-seal" title={`current state: ${character.emotion}`}>
-                    <span className="dossier__wax-text">{character.emotion}</span>
+                {merged.emotion && (
+                  <div className="dossier__wax-seal" title={`current state: ${merged.emotion}`}>
+                    <span className="dossier__wax-text">{merged.emotion}</span>
                   </div>
                 )}
               </div>
 
               <div className="dossier__subject-text">
                 <div className="dossier__eyebrow">SUBJECT</div>
-                <h2 className="dossier__name">{character.name}</h2>
-                {character.nickname && (
+                <h2 className="dossier__name">{merged.name}</h2>
+                {merged.nickname && (
                   <div className="dossier__nickname">
                     <span className="dossier__quote-marks" aria-hidden="true">&ldquo;</span>
-                    {character.nickname}
+                    {merged.nickname}
                     <span className="dossier__quote-marks" aria-hidden="true">&rdquo;</span>
                   </div>
                 )}
-                {character.playStyle && (
+                {merged.playStyle && (
                   <div className="dossier__archetype">
-                    {character.playStyle}
+                    {merged.playStyle}
                   </div>
                 )}
               </div>
@@ -310,11 +501,11 @@ export function CharacterDetailCard({
 
             <SectionRule>PROFILE</SectionRule>
             <section className="dossier__profile">
-              {character.attitude && (
-                <DataRow label="Attitude" value={character.attitude} />
+              {merged.attitude && (
+                <DataRow label="Attitude" value={merged.attitude} />
               )}
-              {character.confidence && (
-                <DataRow label="Confidence" value={character.confidence} />
+              {merged.confidence && (
+                <DataRow label="Confidence" value={merged.confidence} />
               )}
             </section>
 
@@ -322,27 +513,27 @@ export function CharacterDetailCard({
               <>
                 <SectionRule>BEHAVIORAL INDEX</SectionRule>
                 <section className="dossier__behavior">
-                  {character.traits?.bluffTendency !== undefined && (
+                  {merged.traits?.bluffTendency !== undefined && (
                     <TallyStrip
-                      value={character.traits.bluffTendency}
+                      value={merged.traits.bluffTendency}
                       label="Bluff"
                     />
                   )}
-                  {character.traits?.aggression !== undefined && (
+                  {merged.traits?.aggression !== undefined && (
                     <TallyStrip
-                      value={character.traits.aggression}
+                      value={merged.traits.aggression}
                       label="Aggression"
                     />
                   )}
-                  {character.traits?.chattiness !== undefined && (
+                  {merged.traits?.chattiness !== undefined && (
                     <TallyStrip
-                      value={character.traits.chattiness}
+                      value={merged.traits.chattiness}
                       label="Chattiness"
                     />
                   )}
-                  {character.traits?.emojiUsage !== undefined && (
+                  {merged.traits?.emojiUsage !== undefined && (
                     <TallyStrip
-                      value={character.traits.emojiUsage}
+                      value={merged.traits.emojiUsage}
                       label="Theatrics"
                     />
                   )}
@@ -350,7 +541,125 @@ export function CharacterDetailCard({
               </>
             )}
 
-            {(hasChips || hasObserved) && (
+            {hasStanding && fetched?.relationship && (
+              <>
+                <SectionRule>STANDING</SectionRule>
+                <section className="dossier__standing">
+                  <TallyStrip
+                    value={fetched.relationship.heat}
+                    label="Heat"
+                    readout={fetched.relationship.heat > 0 ? 'rivalry' : '—'}
+                  />
+                  <TallyStrip
+                    value={fetched.relationship.respect}
+                    label="Respect"
+                  />
+                  <TallyStrip
+                    value={fetched.relationship.likability}
+                    label="Likability"
+                  />
+                  {fetched.relationship.hint && (
+                    <div className="dossier__standing-hint">
+                      <span className="dossier__standing-mark" aria-hidden="true">›</span>
+                      <em>{fetched.relationship.hint}</em>
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+
+            {hasTrackRecord && (
+              <>
+                <SectionRule>TRACK RECORD</SectionRule>
+                <section className="dossier__track">
+                  {fetched?.cash_pair_stats && (
+                    <>
+                      <DataRow
+                        label="Lifetime PnL"
+                        value={
+                          <span
+                            className={
+                              'dossier__money dossier__money--' +
+                              (fetched.cash_pair_stats.cumulative_pnl >= 0 ? 'pos' : 'neg')
+                            }
+                          >
+                            {fetched.cash_pair_stats.cumulative_pnl >= 0 ? '+' : '−'}$
+                            {Math.abs(fetched.cash_pair_stats.cumulative_pnl).toLocaleString()}
+                          </span>
+                        }
+                      />
+                      <DataRow
+                        label="Cash hands"
+                        value={fetched.cash_pair_stats.hands_played_cash.toLocaleString()}
+                      />
+                    </>
+                  )}
+                  {pressureRows.map(([label, value]) => (
+                    <DataRow key={label} label={label} value={value} />
+                  ))}
+                  {hasMemorable && (
+                    <ul className="dossier__memorable-list" aria-label="Memorable hands">
+                      {memorable.map((h) => (
+                        <li key={h.hand_id} className="dossier__memorable">
+                          <div className="dossier__memorable-head">
+                            <span className="dossier__memorable-tag">
+                              {h.event.replace(/_/g, ' ')}
+                            </span>
+                            <span className="dossier__memorable-impact" title="impact score">
+                              {Math.round(h.impact_score * 100)}
+                            </span>
+                          </div>
+                          <p className="dossier__memorable-narrative">{h.narrative}</p>
+                          {h.hand_summary && (
+                            <p className="dossier__memorable-summary">
+                              <span aria-hidden="true">›</span> {h.hand_summary}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </>
+            )}
+
+            {showNotes && (
+              <>
+                <SectionRule>FIELD NOTES</SectionRule>
+                <section className="dossier__notes">
+                  <textarea
+                    className="dossier__notes-input"
+                    value={noteDraft}
+                    onChange={handleNoteChange}
+                    placeholder="Tells, tendencies, anything worth remembering…"
+                    rows={4}
+                    maxLength={2000}
+                    spellCheck
+                  />
+                  <div className="dossier__notes-footer">
+                    <span
+                      className={`dossier__notes-status dossier__notes-status--${noteState}`}
+                      aria-live="polite"
+                    >
+                      {noteState === 'saving'
+                        ? 'Saving…'
+                        : noteState === 'saved'
+                          ? '✓ Saved'
+                          : noteState === 'error'
+                            ? 'Couldn’t save'
+                            : noteDraft.length > 1800
+                              ? `${noteDraft.length} / 2000`
+                              : ''}
+                    </span>
+                    <span className="dossier__notes-hint">
+                      autosaves · persists across sessions
+                    </span>
+                  </div>
+                </section>
+              </>
+            )}
+
+            {(hasChips || hasObserved || fetched?.ai_bankroll != null) && (
               <>
                 <SectionRule>TABLE POSTURE</SectionRule>
                 <section className="dossier__posture">
@@ -360,34 +669,46 @@ export function CharacterDetailCard({
                       value={<span className="dossier__money">${character.chips.atTable.toLocaleString()}</span>}
                     />
                   )}
+                  {fetched?.ai_bankroll != null && (
+                    <DataRow
+                      label="Total bankroll"
+                      value={<span className="dossier__money">${fetched.ai_bankroll.toLocaleString()}</span>}
+                    />
+                  )}
                   {character.chips?.bankroll !== undefined && (
                     <DataRow
                       label="Bankroll"
                       value={<span className="dossier__money">${character.chips.bankroll.toLocaleString()}</span>}
                     />
                   )}
-                  {hasObserved && character.observed?.handsObserved !== undefined && (
+                  {hasObserved && merged.observed?.handsObserved !== undefined && (
                     <DataRow
                       label="Hands observed"
-                      value={character.observed.handsObserved.toLocaleString()}
+                      value={merged.observed.handsObserved.toLocaleString()}
                     />
                   )}
-                  {character.observed?.vpip !== undefined && (
+                  {merged.observed?.vpip !== undefined && (
                     <DataRow
                       label="VPIP"
-                      value={`${Math.round(character.observed.vpip * 100)}%`}
+                      value={`${Math.round(merged.observed.vpip * 100)}%`}
                     />
                   )}
-                  {character.observed?.pfr !== undefined && (
+                  {merged.observed?.pfr !== undefined && (
                     <DataRow
                       label="PFR"
-                      value={`${Math.round(character.observed.pfr * 100)}%`}
+                      value={`${Math.round(merged.observed.pfr * 100)}%`}
                     />
                   )}
-                  {character.observed?.aggressionFactor !== undefined && (
+                  {merged.observed?.aggressionFactor !== undefined && (
                     <DataRow
                       label="Aggression factor"
-                      value={character.observed.aggressionFactor.toFixed(1)}
+                      value={merged.observed.aggressionFactor.toFixed(1)}
+                    />
+                  )}
+                  {merged.observed?.playStyleLabel && (
+                    <DataRow
+                      label="Read"
+                      value={merged.observed.playStyleLabel}
                     />
                   )}
                 </section>

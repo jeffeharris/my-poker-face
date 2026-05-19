@@ -508,7 +508,13 @@ def _build_cash_game(
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
             controller.memory_manager = memory_manager
         else:
-            memory_manager.initialize_human_observer(player.name, personality_id=pid)
+            # Register the human with their stable `owner_id` so per-hand
+            # BIG_WIN/BIG_LOSS events write to (owner_id, ai_pid) rows —
+            # the same key the loan flow and the dossier read use.
+            # Without this, hand-flow events fall back to display_name,
+            # creating an unreachable parallel history under the wrong
+            # observer id.
+            memory_manager.initialize_human_observer(player.name, personality_id=owner_id)
 
     # 5. Advance to first action so hole cards are dealt before recording.
     state_machine.run_until_player_action()

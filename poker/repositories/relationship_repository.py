@@ -332,3 +332,51 @@ class RelationshipRepository(BaseRepository):
                 cumulative_pnl=row['cumulative_pnl'],
                 hands_played_cash=row['hands_played_cash'],
             )
+
+    # --- notes (v95) ---
+
+    def load_note(self, observer_id: str, opponent_id: str) -> Optional[str]:
+        """Return the player-authored note for this pair, or None.
+
+        None covers both "no row yet" and "row exists but notes is NULL"
+        — the dossier treats those identically (no note to display, empty
+        textarea to edit).
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT notes FROM relationship_states
+                WHERE observer_id = ? AND opponent_id = ?
+                """,
+                (observer_id, opponent_id),
+            ).fetchone()
+            if not row:
+                return None
+            return row['notes']
+
+    def save_note(
+        self,
+        observer_id: str,
+        opponent_id: str,
+        note: Optional[str],
+    ) -> None:
+        """Upsert the note for this pair.
+
+        Empty / whitespace-only notes are stored as NULL so the
+        "has a note" predicate stays meaningful. Uses an UPSERT so
+        we don't have to touch the affinity axes — a freshly-noted
+        pair gets a row with default heat/respect/likability and the
+        note attached.
+        """
+        clean = (note or '').strip() or None
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO relationship_states
+                    (observer_id, opponent_id, notes)
+                VALUES (?, ?, ?)
+                ON CONFLICT(observer_id, opponent_id)
+                DO UPDATE SET notes = excluded.notes
+                """,
+                (observer_id, opponent_id, clean),
+            )

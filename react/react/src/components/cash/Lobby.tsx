@@ -36,6 +36,8 @@ import './CashMode.css';
 export interface AiSeatClick {
   dossier: CharacterDossierData;
   origin: { x: number; y: number };
+  /** Stable id for the dossier route's lookup (personality_id or name). */
+  identifier?: string;
 }
 
 const LOBBY_REFRESH_INTERVAL_MS = 8000;
@@ -187,6 +189,7 @@ export function Lobby() {
         onClose={() => setDossier(null)}
         character={dossier?.dossier ?? { name: '' }}
         origin={dossier?.origin}
+        identifier={dossier?.identifier}
       />
     </PageLayout>
   );

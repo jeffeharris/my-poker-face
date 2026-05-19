@@ -578,8 +578,17 @@ def api_game_state(game_id):
                                 controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
                                 controller.memory_manager = memory_manager
                             elif player.is_human:
-                                # Initialize human player for opponent observation tracking
-                                memory_manager.initialize_human_observer(player.name, personality_id=pid)
+                                # Register with owner_id (the stable auth id) so
+                                # per-hand BIG_WIN/BIG_LOSS events land on
+                                # (owner_id, ai_pid) rows — the same key the
+                                # cash loan flow and the dossier read use.
+                                # Falls back to `pid` (almost always None for
+                                # humans) when owner_id isn't on this session,
+                                # preserving the legacy display-name fallback.
+                                memory_manager.initialize_human_observer(
+                                    player.name,
+                                    personality_id=owner_id or pid,
+                                )
 
                         memory_manager.on_hand_start(
                             state_machine.game_state,
@@ -1258,8 +1267,15 @@ def api_new_game():
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
             controller.memory_manager = memory_manager
         else:
-            # Initialize human player for opponent observation tracking
-            memory_manager.initialize_human_observer(player.name, personality_id=pid)
+            # Register with owner_id (the stable auth id) so per-hand
+            # BIG_WIN/BIG_LOSS events write to (owner_id, ai_pid) rows
+            # — the same key the dossier read uses. Falls back to `pid`
+            # (almost always None for humans) when owner_id isn't set
+            # on this session, preserving legacy display-name behavior.
+            memory_manager.initialize_human_observer(
+                player.name,
+                personality_id=owner_id or pid,
+            )
 
     # Advance state machine to deal cards and post blinds before recording hand start,
     # so that hole cards are available when on_hand_start records them.
