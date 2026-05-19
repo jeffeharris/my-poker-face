@@ -1,0 +1,232 @@
+"""Unit tests for the burst-event aggregation in `cash_mode/lobby.py`.
+
+Phase 0 spike + Commits 4-5 hand-event design (doc Q6 resolution):
+when a single lobby refresh fires multiple sim hands at one table
+(catch-up burst on long absence), the ticker would otherwise be
+flooded with N copies of the same event type per table. The cap
+is one event per type per table per refresh, plus a single
+`burst_summary` line aggregating the rest.
+
+These tests exercise `_emit_burst_events` directly with synthetic
+`HandSimResult` lists and a stub personality_repo so the
+aggregation logic is tested without requiring a real cash-mode
+lobby setup.
+"""
+
+from __future__ import annotations
+
+import unittest
+from datetime import datetime
+from typing import Dict, List, Optional
+from unittest.mock import MagicMock
+
+from cash_mode.activity import (
+    EVENT_ALL_IN,
+    EVENT_BIG_LOSS,
+    EVENT_BIG_WIN,
+    EVENT_BURST_SUMMARY,
+    EVENT_BUST,
+    clear_events,
+    recent_events,
+)
+from cash_mode.full_sim import (
+    HAND_EVENT_ALL_IN,
+    HAND_EVENT_BUST,
+    HandEvent,
+    HandSimResult,
+)
+from cash_mode.lobby import _emit_burst_events
+
+
+def _make_table(table_id: str = "cash-table-10-001", stake: str = "$10"):
+    """A minimal stand-in for CashTableState with just the fields the
+    emission code reads. Avoids dragging the full table dataclass +
+    seat validation into these aggregation tests."""
+    t = MagicMock()
+    t.table_id = table_id
+    t.stake_label = stake
+    return t
+
+
+def _personality_repo_with(name_by_id: Dict[str, str]) -> MagicMock:
+    """Stub `personality_repo.load_personality_by_id` to return a dict
+    with the display name. Returns None for unknown ids."""
+    repo = MagicMock()
+
+    def _load(pid: str) -> Optional[dict]:
+        if pid in name_by_id:
+            return {"name": name_by_id[pid]}
+        return None
+
+    repo.load_personality_by_id.side_effect = _load
+    return repo
+
+
+def _hand_result(
+    *,
+    winner: Optional[str] = None,
+    loser: Optional[str] = None,
+    delta: int = 0,
+    big_event: bool = False,
+    hand_events: Optional[List[HandEvent]] = None,
+) -> HandSimResult:
+    return HandSimResult(
+        new_seats=[],
+        winner_pid=winner,
+        loser_pid=loser,
+        delta=delta,
+        big_event=big_event,
+        hand_events=hand_events or [],
+        pot=delta,
+        showdown_hands=None,
+    )
+
+
+class TestEmitBurstEvents(unittest.TestCase):
+    def setUp(self):
+        clear_events()
+        self.now = datetime(2026, 5, 19, 12, 0, 0)
+        self.repo = _personality_repo_with({
+            "p-napoleon": "Napoleon",
+            "p-lincoln": "Abraham Lincoln",
+            "p-buddha": "Buddha",
+        })
+        self.table = _make_table()
+
+    def test_empty_burst_emits_nothing(self):
+        _emit_burst_events(
+            table=self.table,
+            sim_results=[],
+            personality_repo=self.repo,
+            now=self.now,
+        )
+        assert recent_events(limit=10) == []
+
+    def test_single_no_big_event_emits_nothing(self):
+        results = [_hand_result(winner="p-napoleon", loser="p-lincoln", delta=200)]
+        _emit_burst_events(
+            table=self.table, sim_results=results,
+            personality_repo=self.repo, now=self.now,
+        )
+        # No big_event, no hand_events, single hand → nothing surfaced.
+        assert recent_events(limit=10) == []
+
+    def test_single_big_event_emits_win_loss_pair_no_summary(self):
+        results = [
+            _hand_result(
+                winner="p-napoleon", loser="p-lincoln",
+                delta=1200, big_event=True,
+            ),
+        ]
+        _emit_burst_events(
+            table=self.table, sim_results=results,
+            personality_repo=self.repo, now=self.now,
+        )
+
+        types = [e.type for e in recent_events(limit=10)]
+        # Big_win + big_loss pair from the headline emission.
+        assert EVENT_BIG_WIN in types
+        assert EVENT_BIG_LOSS in types
+        # No summary — only one hand fired.
+        assert EVENT_BURST_SUMMARY not in types
+
+    def test_multi_hand_burst_emits_one_win_and_summary(self):
+        """The cap is one big_win + one big_loss per table per burst,
+        and a single summary regardless of how many were compressed."""
+        results = [
+            _hand_result(
+                winner="p-napoleon", loser="p-lincoln",
+                delta=400, big_event=True,
+            ),
+            _hand_result(
+                winner="p-buddha", loser="p-napoleon",
+                delta=1200, big_event=True,   # bigger → headline
+            ),
+            _hand_result(
+                winner="p-lincoln", loser="p-buddha",
+                delta=600, big_event=True,
+            ),
+        ]
+        _emit_burst_events(
+            table=self.table, sim_results=results,
+            personality_repo=self.repo, now=self.now,
+        )
+
+        events = recent_events(limit=10)
+        types = [e.type for e in events]
+
+        # Exactly one big_win and one big_loss — headline is the
+        # largest delta hand (Buddha winning $1200).
+        assert types.count(EVENT_BIG_WIN) == 1
+        assert types.count(EVENT_BIG_LOSS) == 1
+        big_win_evt = next(e for e in events if e.type == EVENT_BIG_WIN)
+        assert big_win_evt.name == "Buddha"
+
+        # Summary event present because 3 hands fired.
+        assert types.count(EVENT_BURST_SUMMARY) == 1
+
+    def test_burst_hand_events_capped_to_one_per_type(self):
+        """Even if every hand in a burst produces a bust event, only
+        the first one surfaces — the rest are summarized."""
+        bust_events_each = [
+            HandEvent(type=HAND_EVENT_BUST, personality_id="p-lincoln", amount=5000),
+        ]
+        results = [
+            _hand_result(
+                winner="p-napoleon", loser="p-lincoln",
+                delta=5000, big_event=True,
+                hand_events=bust_events_each,
+            ),
+            _hand_result(
+                winner="p-buddha", loser="p-lincoln",
+                delta=4000, big_event=True,
+                hand_events=bust_events_each,   # second bust — should be dropped
+            ),
+        ]
+        _emit_burst_events(
+            table=self.table, sim_results=results,
+            personality_repo=self.repo, now=self.now,
+        )
+
+        types = [e.type for e in recent_events(limit=10)]
+        # Exactly one BUST event despite two in the burst.
+        assert types.count(EVENT_BUST) == 1
+
+    def test_burst_summary_picks_top_net_leader(self):
+        """The summary's `name` field should be the personality with
+        the biggest cumulative net change across the burst."""
+        results = [
+            _hand_result(winner="p-napoleon", loser="p-lincoln", delta=300, big_event=True),
+            _hand_result(winner="p-napoleon", loser="p-buddha", delta=400, big_event=True),
+            _hand_result(winner="p-napoleon", loser="p-lincoln", delta=500, big_event=True),
+        ]
+        # Napoleon won 1200 net; Lincoln lost 800; Buddha lost 400.
+        _emit_burst_events(
+            table=self.table, sim_results=results,
+            personality_repo=self.repo, now=self.now,
+        )
+
+        summary = next(
+            (e for e in recent_events(limit=10) if e.type == EVENT_BURST_SUMMARY),
+            None,
+        )
+        assert summary is not None
+        assert summary.name == "Napoleon"
+
+    def test_unknown_personality_falls_back_quietly(self):
+        """Unknown personality_ids shouldn't crash the emission —
+        the ticker is best-effort."""
+        repo = _personality_repo_with({})  # no name maps
+        results = [
+            _hand_result(
+                winner="p-mystery", loser="p-other",
+                delta=1000, big_event=True,
+            ),
+        ]
+        # Doesn't raise.
+        _emit_burst_events(
+            table=self.table, sim_results=results,
+            personality_repo=repo, now=self.now,
+        )
+        # And doesn't emit (winner_name resolves to None → skipped).
+        assert recent_events(limit=10) == []

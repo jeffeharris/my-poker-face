@@ -33,10 +33,11 @@ from cash_mode.bankroll import (
     AIBankrollState,
     project_bankroll,
 )
-from cash_mode.fake_sim import (
-    DEFAULT_FAKE_HAND_PROB,
-    FakeHandResult,
-    roll_fake_hand,
+from cash_mode.full_sim import (
+    DEFAULT_HAND_SIM_PROB,
+    HandSimResult,
+    hand_burst_count,
+    play_one_hand,
 )
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
@@ -58,6 +59,74 @@ from cash_mode.tables import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Dealer-button position per table — in-memory only. The button rotates
+# clockwise to the next occupied seat once per simulated hand in the
+# lobby's catch-up burst, which gives each table card a small "the world
+# is dealing right now" affordance without paying for a schema migration:
+# dealer state is purely cosmetic, so a reset on backend restart is fine
+# (the next /api/cash/lobby hit re-seeds it lazily).
+_dealer_indices: Dict[str, int] = {}
+
+
+def _next_occupied_seat(
+    seats: List[Dict[str, Any]], start_after: int,
+) -> Optional[int]:
+    """Find the next non-`open` seat clockwise from `start_after` (exclusive).
+
+    Returns `None` when no seat is occupied. `start_after = -1` finds the
+    first occupied seat starting at index 0.
+    """
+    n = len(seats)
+    for offset in range(1, n + 1):
+        idx = (start_after + offset) % n
+        if seats[idx].get("kind") != "open":
+            return idx
+    return None
+
+
+def get_dealer_index(table: CashTableState) -> Optional[int]:
+    """Current dealer seat index for `table`, or `None` if all seats open.
+
+    Lazily initializes to the first occupied seat on first read and
+    self-heals when the cached index points to a now-open seat (an AI
+    left between refreshes — the button rolls forward).
+    """
+    cached = _dealer_indices.get(table.table_id)
+    seats = table.seats
+    if (
+        cached is not None
+        and 0 <= cached < len(seats)
+        and seats[cached].get("kind") != "open"
+    ):
+        return cached
+    nxt = _next_occupied_seat(seats, start_after=-1)
+    if nxt is None:
+        _dealer_indices.pop(table.table_id, None)
+        return None
+    _dealer_indices[table.table_id] = nxt
+    return nxt
+
+
+def advance_dealer(table: CashTableState, steps: int = 1) -> None:
+    """Rotate the dealer button `steps` occupied seats clockwise.
+
+    Called per simulated hand in `refresh_unseated_tables` so the button
+    visibly walks the table over a burst. No-op when steps <= 0 or the
+    table is empty.
+    """
+    if steps <= 0:
+        return
+    current = get_dealer_index(table)
+    if current is None:
+        return
+    for _ in range(steps):
+        nxt = _next_occupied_seat(table.seats, start_after=current)
+        if nxt is None:
+            break
+        current = nxt
+    _dealer_indices[table.table_id] = current
 
 
 def _table_id_for_stake(stake_label: str) -> str:
@@ -233,7 +302,7 @@ def refresh_unseated_tables(
     now: Optional[datetime] = None,
     user_id: Optional[str] = None,
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
-    fake_hand_prob: float = DEFAULT_FAKE_HAND_PROB,
+    hand_sim_prob: float = DEFAULT_HAND_SIM_PROB,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -298,19 +367,34 @@ def refresh_unseated_tables(
             _current_table_buy_in[pid] = value
             return value
 
-        # Fake-sim: probability-gated roll BEFORE movement so a
-        # won-big result can cascade into a stake_up in the same tick.
-        # See cash_mode/fake_sim.py for the conservation + capping
-        # rules. Chips actually mutate; ratification happens via the
-        # existing leave-time AI cash-out (Path A) when a player
-        # eventually sits at this table.
-        fake_result: Optional[FakeHandResult] = None
-        if rng.random() < fake_hand_prob:
-            fake_result = roll_fake_hand(
-                table.seats, big_blind=big_blind, rng=rng,
+        # Full sim with catch-up burst (Commits 3-5): if the table
+        # was last refreshed recently, fire at most one probability-
+        # gated hand (existing behavior). If the lobby was unwatched
+        # for longer than the burst threshold, simulate "the world
+        # advanced while you were away" by running multiple hands
+        # before this refresh tick returns. Cap is enforced per
+        # `hand_burst_count` to keep the lobby response under the
+        # 500 ms budget Phase 0 measured.
+        gap_seconds = 0.0
+        if table.last_activity_at is not None:
+            gap_seconds = max(0.0, (now - table.last_activity_at).total_seconds())
+        burst_n = hand_burst_count(
+            gap_seconds=gap_seconds,
+            base_prob=hand_sim_prob,
+            rng=rng,
+        )
+
+        sim_results: List[HandSimResult] = []
+        for _ in range(burst_n):
+            r = play_one_hand(
+                table.seats,
+                big_blind=big_blind,
+                rng=rng,
+                name_for=_name_for_personality(personality_repo),
             )
-            if fake_result.delta > 0:
-                table.seats = fake_result.new_seats
+            if r.delta > 0:
+                table.seats = r.new_seats
+            sim_results.append(r)
 
         result = refresh_table_roster(
             table,
@@ -331,6 +415,12 @@ def refresh_unseated_tables(
         # Persist the table (always — last_activity_at bumps) and idle
         # pool changes.
         cash_table_repo.save_table(result.new_table, now=now)
+
+        # Walk the dealer button clockwise once per simulated hand in
+        # this burst. Cosmetic only; see `_dealer_indices` docstring for
+        # why it's not persisted.
+        if burst_n > 0:
+            advance_dealer(result.new_table, steps=burst_n)
         for change in result.idle_changes:
             if change.kind == "add" and change.entry is not None:
                 cash_table_repo.save_idle(change.entry)
@@ -351,17 +441,16 @@ def refresh_unseated_tables(
             now=now,
         )
 
-        # Fake-sim big-win/loss events. Only emitted when the roll
-        # crossed the big-event threshold (see fake_sim.py defaults).
-        # Small chip drifts mutate state quietly without spamming
-        # the ticker.
-        if fake_result is not None and fake_result.big_event:
-            _emit_fake_sim_events(
-                table=result.new_table,
-                fake_result=fake_result,
-                personality_repo=personality_repo,
-                now=now,
-            )
+        # Burst-aware event emission: pick at most one headline per
+        # event type across the whole burst, then add a summary event
+        # when hands were compressed. The per-type-per-burst cap is
+        # the resolution recorded in the design doc's Q6.
+        _emit_burst_events(
+            table=result.new_table,
+            sim_results=sim_results,
+            personality_repo=personality_repo,
+            now=now,
+        )
 
         # Refresh idle_pool snapshot so the next iteration sees the
         # updated state (we may have added or removed entries).
@@ -450,22 +539,44 @@ def _emit_activity_events(
             pass
 
 
-def _emit_fake_sim_events(
+def _name_for_personality(personality_repo) -> Callable[[str], str]:
+    """Return a `pid -> display_name` resolver backed by the repo.
+
+    Used by `play_one_hand` so the engine builds controllers with the
+    right personality name (the TieredBotController looks up its
+    config by name). Falls back to the personality_id on any miss so
+    the engine still runs — controllers without a config get the
+    default psychology, which is fine for sim purposes.
+    """
+
+    def _resolve(pid: str) -> str:
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            return pid
+        if not personality:
+            return pid
+        return personality.get("name") or pid
+
+    return _resolve
+
+
+def _emit_sim_events(
     *,
     table,
-    fake_result,
+    sim_result,
     personality_repo,
     now: datetime,
 ) -> None:
-    """Push paired big_win + big_loss events for a fake-sim roll.
+    """Push paired big_win + big_loss events for a sim hand.
 
     Both sides are recorded so future filtering (per-personality
     feeds, "show me losses only") works without re-deriving the
     pair. The lobby ticker today shows the most recent N events,
     so the user sees both rows next to each other ("Napoleon won
-    $X off Bezos" / "Bezos dropped $X to Napoleon"). If that reads
-    as duplicate noise in playtest, we can suppress the loss-side
-    at the route layer.
+    $X off Bezos" / "Bezos dropped $X to Napoleon"). Same shape
+    as the predecessor fake-sim emission so the event contract on
+    the wire is unchanged across the swap.
     """
     from cash_mode.activity import (
         EVENT_BIG_LOSS,
@@ -476,8 +587,8 @@ def _emit_fake_sim_events(
         record_event,
     )
 
-    winner_pid = fake_result.winner_pid
-    loser_pid = fake_result.loser_pid
+    winner_pid = sim_result.winner_pid
+    loser_pid = sim_result.loser_pid
     if not winner_pid or not loser_pid:
         return
 
@@ -497,7 +608,7 @@ def _emit_fake_sim_events(
 
     stake = table.stake_label
     ts = now.isoformat()
-    delta = int(fake_result.delta)
+    delta = int(sim_result.delta)
 
     try:
         record_event(LobbyEvent(
@@ -523,6 +634,226 @@ def _emit_fake_sim_events(
     except Exception:
         # Buffer is best-effort.
         pass
+
+
+def _emit_burst_events(
+    *,
+    table,
+    sim_results: List[HandSimResult],
+    personality_repo,
+    now: datetime,
+) -> None:
+    """Emit at most one event per type across a catch-up burst.
+
+    The lobby ticker shows a small window; bursting 25 hands could
+    flood it with 25 big_win events from one table and bury every
+    other movement signal. Design Q6 (doc 2026-05-19) picked the
+    per-burst per-table cap: at most one big_win/big_loss, one
+    all_in, and one bust per refresh per table, plus an aggregate
+    summary event when hands were compressed.
+
+    Selection: the headline big_win across the burst is the hand
+    with the largest delta. The headline all_in / bust are the first
+    such events in the burst (chronological order — the user-facing
+    framing reads "X shoved" once, not "X shoved 4 times").
+    """
+    if not sim_results:
+        return
+
+    # Pick the biggest big_event hand for the headline win/loss
+    # emission. None when no hand in the burst crossed threshold.
+    headline_big: Optional[HandSimResult] = None
+    for r in sim_results:
+        if not r.big_event:
+            continue
+        if headline_big is None or r.delta > headline_big.delta:
+            headline_big = r
+
+    if headline_big is not None:
+        _emit_sim_events(
+            table=table,
+            sim_result=headline_big,
+            personality_repo=personality_repo,
+            now=now,
+        )
+
+    # Aggregate hand-level events across the burst, dedup'd by type.
+    # `_emit_hand_events` already caps to one per type per call; we
+    # just pass it the union of every burst hand's events.
+    from cash_mode.full_sim import HandSimResult as _HSR
+
+    aggregated_events = []
+    for r in sim_results:
+        aggregated_events.extend(r.hand_events)
+    if aggregated_events:
+        synthetic = _HSR(
+            new_seats=sim_results[-1].new_seats,
+            hand_events=aggregated_events,
+        )
+        _emit_hand_events(
+            table=table,
+            sim_result=synthetic,
+            personality_repo=personality_repo,
+            now=now,
+        )
+
+    # Summary event when more than one hand fired. Drops a single
+    # "...and N more hands" line so the user knows the world ticked.
+    if len(sim_results) > 1:
+        _emit_burst_summary(
+            table=table,
+            sim_results=sim_results,
+            personality_repo=personality_repo,
+            now=now,
+        )
+
+
+def _emit_burst_summary(
+    *,
+    table,
+    sim_results: List[HandSimResult],
+    personality_repo,
+    now: datetime,
+) -> None:
+    """Emit a single summary event for a multi-hand burst.
+
+    "Top leader" is the personality with the largest cumulative net
+    delta across the burst. When the burst was chip-neutral for
+    everyone (rare — would need every hand to be near-zero), the
+    summary degenerates to a plain hand-count phrase.
+    """
+    from cash_mode.activity import (
+        EVENT_BURST_SUMMARY,
+        LobbyEvent,
+        format_burst_summary_message,
+        record_event,
+    )
+
+    net_by_pid: Dict[str, int] = {}
+    for r in sim_results:
+        if not r.winner_pid or not r.loser_pid:
+            continue
+        net_by_pid[r.winner_pid] = net_by_pid.get(r.winner_pid, 0) + r.delta
+        net_by_pid[r.loser_pid] = net_by_pid.get(r.loser_pid, 0) - r.delta
+
+    top_pid: Optional[str] = None
+    top_delta = 0
+    for pid, net in net_by_pid.items():
+        if abs(net) > abs(top_delta):
+            top_pid = pid
+            top_delta = net
+
+    top_name: Optional[str] = None
+    if top_pid:
+        try:
+            personality = personality_repo.load_personality_by_id(top_pid)
+            if personality:
+                top_name = personality.get("name") or top_pid
+        except Exception:
+            top_name = top_pid
+
+    try:
+        record_event(LobbyEvent(
+            type=EVENT_BURST_SUMMARY,
+            table_id=table.table_id,
+            stake_label=table.stake_label,
+            personality_id=top_pid or "",
+            name=top_name or "",
+            reason="",
+            message=format_burst_summary_message(
+                stake_label=table.stake_label,
+                hands=len(sim_results),
+                top_name=top_name,
+                top_net_delta=top_delta,
+            ),
+            created_at=now.isoformat(),
+        ))
+    except Exception:
+        pass
+
+
+def _emit_hand_events(
+    *,
+    table,
+    sim_result,
+    personality_repo,
+    now: datetime,
+) -> None:
+    """Translate `HandSimResult.hand_events` into `LobbyEvent`s.
+
+    Per the design doc's resolved Q6, hand-level events use a
+    per-burst per-table cap so a catch-up burst (Commit 5) of 25
+    hands can't blow past 25 events for one table. v1 here emits
+    AT MOST one event per type per table per refresh — `seen_types`
+    enforces the cap. Commit 5 will replace this single-call cap
+    with a burst-aware cap that operates across the whole hand
+    sequence; today the per-tick cap is already in effect because
+    only one hand fires per refresh.
+    """
+    from cash_mode.activity import (
+        EVENT_ALL_IN,
+        EVENT_BUST,
+        LobbyEvent,
+        format_all_in_message,
+        format_bust_message,
+        record_event,
+    )
+    from cash_mode.full_sim import HAND_EVENT_ALL_IN, HAND_EVENT_BUST
+
+    def _name_for(pid: str) -> Optional[str]:
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            return None
+        if not personality:
+            return None
+        return personality.get("name") or pid
+
+    stake = table.stake_label
+    ts = now.isoformat()
+    seen_types: Set[str] = set()
+
+    for evt in sim_result.hand_events:
+        if evt.type in seen_types:
+            continue
+        name = _name_for(evt.personality_id)
+        if not name:
+            continue
+
+        if evt.type == HAND_EVENT_ALL_IN:
+            opponent_name = (
+                _name_for(evt.opponent_pid) if evt.opponent_pid else None
+            )
+            try:
+                record_event(LobbyEvent(
+                    type=EVENT_ALL_IN,
+                    table_id=table.table_id,
+                    stake_label=stake,
+                    personality_id=evt.personality_id,
+                    name=name,
+                    reason=evt.opponent_pid or "",
+                    message=format_all_in_message(name, stake, opponent_name),
+                    created_at=ts,
+                ))
+                seen_types.add(evt.type)
+            except Exception:
+                pass
+
+        elif evt.type == HAND_EVENT_BUST:
+            try:
+                record_event(LobbyEvent(
+                    type=EVENT_BUST,
+                    table_id=table.table_id,
+                    stake_label=stake,
+                    personality_id=evt.personality_id,
+                    name=name,
+                    reason=evt.opponent_pid or "",
+                    message=format_bust_message(name, stake),
+                    created_at=ts,
+                ))
+                seen_types.add(evt.type)
+            except Exception:
+                pass
 
 
 def kill_all_cash_sessions(

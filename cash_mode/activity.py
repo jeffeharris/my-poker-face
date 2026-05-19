@@ -52,6 +52,29 @@ so the frontend can render "won $X from <opponent>"."""
 EVENT_BIG_LOSS = "big_loss"
 """Symmetric pair to EVENT_BIG_WIN. Same fake-sim origin."""
 
+EVENT_ALL_IN = "all_in"
+"""An AI went all-in during a sim hand at an unseated table. Emitted
+by the full-sim path (Commit 4) when `HandSimResult.hand_events`
+contains an `all_in` HandEvent. The ALL_IN flag in the underlying
+game state persists through pot award until reset, so this event
+fires regardless of whether the all-in player won or lost — the
+drama is the shove itself."""
+
+EVENT_BUST = "bust"
+"""An AI ended a sim hand with 0 chips. Distinct from `leave` (which
+fires later, when movement decisions remove the bust seat from the
+table on the next refresh tick): `bust` is the hand-level "they're
+out of chips" beat; `leave` is the "they walked away" beat. Both
+fire over the course of a single lobby read after a bust hand."""
+
+EVENT_BURST_SUMMARY = "burst_summary"
+"""Compression event for catch-up bursts (Commit 5): when a single
+lobby read fires many sim hands at one table (e.g. after the
+player closed the tab for 30 minutes), we emit at most one
+big_win + one bust + one all_in per table per refresh, plus this
+summary event noting "N more hands at $X — Napoleon +$220 net."
+Keeps the ticker readable without losing the aggregate signal."""
+
 
 @dataclass(frozen=True)
 class LobbyEvent:
@@ -153,6 +176,40 @@ def format_big_loss_message(
     are recorded so future filtering / per-personality feeds can
     pick either side."""
     return f"{loser} dropped ${amount:,} to {winner} at {stake_label}"
+
+
+def format_all_in_message(
+    name: str, stake_label: str, opponent: Optional[str] = None,
+) -> str:
+    """Phrasing for an all-in event at an unseated table.
+
+    `opponent` is shown when the all-in was heads-up vs an obvious
+    counterparty; omitted in multiway pots where naming one
+    opponent would be misleading."""
+    if opponent:
+        return f"{name} shoved all-in against {opponent} at {stake_label}"
+    return f"{name} shoved all-in at {stake_label}"
+
+
+def format_bust_message(name: str, stake_label: str) -> str:
+    """Phrasing for a bust event — AI's stack hit 0 during a hand."""
+    return f"{name} busted out at {stake_label}"
+
+
+def format_burst_summary_message(
+    stake_label: str, hands: int, top_name: Optional[str] = None,
+    top_net_delta: int = 0,
+) -> str:
+    """Phrasing for the catch-up burst summary event (Commit 5).
+
+    Reads like "...and 24 more hands at $50 — Napoleon +$1,200 net"
+    when a leader is identifiable, falls back to a chip-neutral
+    framing when net deltas are small."""
+    base = f"...and {hands} more hands at {stake_label}"
+    if top_name and abs(top_net_delta) >= 100:
+        sign = "+" if top_net_delta >= 0 else "-"
+        return f"{base} — {top_name} {sign}${abs(top_net_delta):,} net"
+    return base
 
 
 def serialize_event(event: LobbyEvent) -> dict:

@@ -1,0 +1,606 @@
+"""Full-sim entry point — AI-only poker hands at unseated tables.
+
+Replaces `cash_mode/fake_sim.roll_fake_hand` at the call site
+(`refresh_unseated_tables`) once Commit 3 lands. Until then, lives
+beside fake-sim so the schema and tests can stabilize without
+disturbing the live event surface.
+
+**Phase 2 (current commit): real cardplay.** `play_one_hand`
+constructs a minimal `PokerGameState` from the cash table's
+seats, builds (or fetches from cache) one `TieredBotController`
+per AI personality_id, runs the hand engine until showdown, and
+returns the resulting chip deltas in the same `HandSimResult`
+shape Commit 1 introduced. No SocketIO, no DB writes — the
+caller (lobby refresh loop) owns persistence and event emission.
+
+Memory hygiene (Phase 2.5, inlined here): the state machine is
+constructed with `record_snapshots=False` so its `snapshots`
+tuple doesn't accumulate across thousands of sim hands. Spike
+showed +25 MB / 1000 hands when snapshots were retained;
+disabling them keeps the warm path memory-flat.
+
+Spec: `docs/plans/CASH_MODE_FULL_SIM_HANDOFF.md` Commits 1-2.
+Phase 0 spike (2026-05-19) measured 227 hands/sec warm with the
+cached controller path used here.
+"""
+
+from __future__ import annotations
+
+import logging
+import random
+import threading
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, Optional, Tuple
+
+from cash_mode.controller_cache import LruControllerCache
+from cash_mode.fake_sim import (
+    DEFAULT_BIG_EVENT_THRESHOLD_BB,
+    DEFAULT_FAKE_HAND_PROB,
+    DEFAULT_MAX_POT_BB,
+)
+
+# Per-table probability gate (per lobby read). Same numerical default
+# as the predecessor fake-sim gate so the swap is behavior-neutral on
+# the rate at which hands fire. Renamed because "fake" no longer
+# describes what happens — full sim runs real hands.
+DEFAULT_HAND_SIM_PROB = DEFAULT_FAKE_HAND_PROB
+
+# --- Catch-up burst (Commit 5) ---
+# Below this gap, lobby reads only fire a single probability-gated
+# hand (existing behavior). Above it, we burst-tick more hands to
+# simulate "the world advanced while the lobby was unwatched."
+DEFAULT_BURST_THRESHOLD_SECONDS = 30.0
+
+# Seconds of real time each burst hand represents. With ~3 hands per
+# minute as a casual baseline, this means a 5-minute gap bursts 15
+# hands per table. Spike measured ~4 ms per hand warm, so 15 × 4 ≈
+# 60 ms per table — well within the lobby response budget for 4-5
+# unseated tables.
+DEFAULT_BURST_PACING_SECONDS = 20.0
+
+# Hard cap on hands per table per refresh. 30 × 4 tables × 4 ms ≈
+# 480 ms total compute — still inside the 500 ms lobby budget set
+# by the Phase 0 spike. Multi-hour absences hit this cap; we trade
+# realism for response time and emit a summary event covering the
+# uncovered tail.
+DEFAULT_BURST_HAND_CAP = 30
+
+
+def hand_burst_count(
+    *,
+    gap_seconds: float,
+    base_prob: float,
+    rng: random.Random,
+    burst_threshold_seconds: float = DEFAULT_BURST_THRESHOLD_SECONDS,
+    burst_pacing_seconds: float = DEFAULT_BURST_PACING_SECONDS,
+    burst_hand_cap: int = DEFAULT_BURST_HAND_CAP,
+) -> int:
+    """Return the number of sim hands to run for one refresh tick.
+
+    Below `burst_threshold_seconds`, this is the existing probability
+    gate (returns 0 or 1). Above it, the caller has been away long
+    enough that one hand would leave the table looking frozen; we
+    burst-tick `floor(gap / pacing)` hands, capped at
+    `burst_hand_cap`.
+
+    The cap is the load-bearing safety net — a 2-hour absence
+    multiplied by 4 unseated tables would otherwise budget ~480
+    hands per refresh. Cap respected → lobby read stays inside
+    the 500 ms budget the Phase 0 spike pinned.
+    """
+    if gap_seconds < burst_threshold_seconds:
+        return 1 if rng.random() < base_prob else 0
+    if burst_pacing_seconds <= 0:
+        return min(burst_hand_cap, 1)
+    return min(burst_hand_cap, int(gap_seconds // burst_pacing_seconds))
+from poker.poker_game import (
+    Player,
+    PokerGameState,
+    advance_to_next_active_player,
+    award_pot_winnings,
+    create_deck,
+    determine_winner,
+    play_turn,
+)
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
+
+logger = logging.getLogger(__name__)
+
+
+# Hand-event types — Commit 4 wires these to the lobby ticker.
+# Phase 2 leaves `hand_events` empty; Commit 4 introduces the
+# detector that populates it from the hand outcome.
+HAND_EVENT_ALL_IN = "all_in"
+HAND_EVENT_SUCKOUT = "suckout"
+HAND_EVENT_BUST = "bust"
+HAND_EVENT_NICE_POT = "nice_pot"
+
+# Default name resolver used when callers don't pass `name_for`. The
+# personality_id is used as the Player.name fallback, which lets the
+# engine run without a personality_repo at the cost of every controller
+# falling back to the default psychology. Real callers (lobby.py)
+# inject a name_for that resolves to display names so the controllers
+# load the right personality config.
+def _default_name_for(pid: str) -> str:
+    return pid
+
+
+# Cap on actions per hand. 6-handed hands rarely exceed ~40 actions;
+# 200 is a defensive ceiling that catches stuck-loop bugs without
+# truncating any legitimate hand.
+_MAX_ACTIONS_PER_HAND = 200
+
+
+@dataclass(frozen=True)
+class HandEvent:
+    """One hand-level drama event surfaced from a single sim hand.
+
+    Distinct from `cash_mode/activity.LobbyEvent`: HandEvent is the
+    structured output of the sim (no UI text, no timestamps);
+    LobbyEvent is the formatted ticker-bound record. The lobby loop
+    translates the former to the latter in Commit 4.
+
+    `opponent_pid` is the second party when the event is pairwise
+    (e.g. RIVER_SUCKOUT names both the favored and the suckout
+    winner). None for single-party events (BUST).
+    """
+
+    type: str
+    personality_id: str
+    amount: int = 0
+    opponent_pid: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ShowdownHand:
+    """One revealed hand at showdown.
+
+    `hand_name` is the human-readable classification (e.g.
+    "Two Pair - Strong"). `hole_cards` is the list of card
+    string reprs (e.g. ["As", "Kh"]).
+    """
+
+    personality_id: str
+    hand_name: str
+    hole_cards: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class HandSimResult:
+    """Outcome of one sim hand.
+
+    Structural superset of `FakeHandResult` — the original fields
+    carry identical semantics so the lobby emission code keeps
+    working unchanged when the call site swaps in Commit 3.
+    """
+
+    new_seats: List[dict] = field(default_factory=list)
+    winner_pid: Optional[str] = None
+    loser_pid: Optional[str] = None
+    delta: int = 0
+    big_event: bool = False
+    hand_events: List[HandEvent] = field(default_factory=list)
+    pot: int = 0
+    showdown_hands: Optional[List[ShowdownHand]] = None
+
+
+# Process-level cache for the default code path. Tests and isolated
+# call sites should pass their own cache via `controller_cache=...`
+# so they don't share state with the live lobby.
+_default_controller_cache: Optional[LruControllerCache] = None
+_default_cache_lock = threading.Lock()
+
+
+def _get_default_controller_cache() -> LruControllerCache:
+    global _default_controller_cache
+    with _default_cache_lock:
+        if _default_controller_cache is None:
+            _default_controller_cache = LruControllerCache()
+    return _default_controller_cache
+
+
+# Module-level strategy tables. Spike measured load at ~30 ms one-shot;
+# we pay it once per process. `None` until first call.
+_strategy_table = None
+_hu_strategy_table = None
+_strategy_lock = threading.Lock()
+
+
+def _get_strategy_tables() -> Tuple[object, object]:
+    """Lazy-load + memoize the preflop / HU strategy tables.
+
+    Held module-level rather than per-cache because the table data is
+    immutable across the process lifetime and several caches (tests,
+    production) can safely share the same instances.
+    """
+    global _strategy_table, _hu_strategy_table
+    with _strategy_lock:
+        if _strategy_table is None:
+            # Imported here so module import doesn't drag the strategy
+            # data load into every poker_module consumer.
+            from poker.strategy.strategy_table import (
+                load_hu_strategy_table,
+                load_strategy_table,
+            )
+
+            _strategy_table = load_strategy_table()
+            _hu_strategy_table = load_hu_strategy_table()
+    return _strategy_table, _hu_strategy_table
+
+
+def _copy_seats(seats: List[dict]) -> List[dict]:
+    """Deep-copy the seats list. Callers never see in-place mutation."""
+    return [dict(s) for s in seats]
+
+
+def _build_controller(
+    *, personality_id: str, display_name: str, state_machine: PokerStateMachine,
+):
+    """Construct a `TieredBotController` for one AI seat.
+
+    Imported lazily because `TieredBotController.__init__` chains into
+    `AIPokerPlayer.__init__` which builds an `Assistant` (LLM client
+    setup) even though full sim never calls the LLM. Spike measured
+    77 ms per controller; the cache keeps this off the hot path after
+    warm-up.
+    """
+    from poker.tiered_bot_controller import TieredBotController
+
+    strategy_table, hu_table = _get_strategy_tables()
+    return TieredBotController(
+        player_name=display_name,
+        state_machine=state_machine,
+        strategy_table=strategy_table,
+        hu_strategy_table=hu_table,
+        llm_config={},  # no LLM for sim
+    )
+
+
+def _ai_seat_indices(seats: List[dict]) -> List[int]:
+    return [
+        i for i, s in enumerate(seats)
+        if s.get("kind") == "ai" and int(s.get("chips", 0)) > 0
+    ]
+
+
+def play_one_hand(
+    seats: List[dict],
+    *,
+    big_blind: int,
+    rng: random.Random,
+    max_pot_bb: int = DEFAULT_MAX_POT_BB,  # unused in Phase 2; kept for caller compat
+    big_event_threshold_bb: int = DEFAULT_BIG_EVENT_THRESHOLD_BB,
+    name_for: Callable[[str], str] = _default_name_for,
+    controller_cache: Optional[LruControllerCache] = None,
+) -> HandSimResult:
+    """Run one AI-only hand at the given cash-mode table.
+
+    Constructs a `PokerGameState` from the AI seats (at least 2
+    seats with positive chips required), builds or fetches
+    controllers from the cache keyed by `personality_id`, runs the
+    hand to showdown, and returns the chip deltas in `HandSimResult`.
+
+    `name_for(personality_id) -> display_name` lets the caller
+    resolve the display name used as Player.name and as the
+    TieredBotController's personality lookup key. Production
+    (lobby.py) injects a personality_repo-backed resolver; tests
+    that don't care can let the default (identity) drop through.
+
+    `controller_cache` defaults to a process-level singleton so the
+    lobby's repeated calls share the warm pool. Tests should pass
+    their own cache to keep instances isolated.
+
+    Pure-ish: no DB writes, no SocketIO, no LLM. The state machine
+    runs with `record_snapshots=False` so the snapshots tuple
+    doesn't accumulate across many sim hands (Phase 2.5 hygiene).
+    """
+    ai_indices = _ai_seat_indices(seats)
+    if len(ai_indices) < 2:
+        # No-op: same shape as fake-sim early-out so the lobby loop
+        # behavior is unchanged.
+        return HandSimResult(new_seats=_copy_seats(seats))
+
+    if controller_cache is None:
+        controller_cache = _get_default_controller_cache()
+
+    # Hermetic global-random state. Several downstream modules in the
+    # decision pipeline (equity_calculator, chattiness_manager, etc.)
+    # call `random.x()` without a seeded RNG — see the Phase 0 spike
+    # findings. Without isolation, those calls (1) leak state from
+    # play_one_hand into the rest of the process and (2) make two
+    # calls with the same hand `rng` produce different outcomes
+    # whenever the global RNG happens to be in a different position
+    # between them. We snapshot the global state on entry, re-seed it
+    # from the hand `rng` so internal decisions are deterministic
+    # under a given hand seed, then restore on exit. The proper fix
+    # (threading an rng through every decision-pipeline call) is out
+    # of scope here; tracked for a follow-up.
+    _saved_global_random_state = random.getstate()
+    random.seed(rng.randrange(2**32))
+    try:
+        return _play_one_hand_inner(
+            seats=seats,
+            ai_indices=ai_indices,
+            big_blind=big_blind,
+            rng=rng,
+            big_event_threshold_bb=big_event_threshold_bb,
+            name_for=name_for,
+            controller_cache=controller_cache,
+        )
+    finally:
+        random.setstate(_saved_global_random_state)
+
+
+def _play_one_hand_inner(
+    *,
+    seats: List[dict],
+    ai_indices: List[int],
+    big_blind: int,
+    rng: random.Random,
+    big_event_threshold_bb: int,
+    name_for: Callable[[str], str],
+    controller_cache: LruControllerCache,
+) -> HandSimResult:
+    """Body of play_one_hand, run inside the hermetic random snapshot.
+
+    Kept separate so the snapshot/restore wrapping is unambiguous —
+    every code path inside _play_one_hand_inner sees the seeded
+    global RNG, and play_one_hand's caller never does.
+    """
+
+    # Build the per-hand state machine. Players are added in seat
+    # order (using the cash-table seat indices), so the dealer button
+    # rotates in a stable order across hands at the same table.
+    players: List[Player] = []
+    seat_pid_by_name: Dict[str, str] = {}  # player.name -> personality_id
+    for idx in ai_indices:
+        seat = seats[idx]
+        pid = seat["personality_id"]
+        display = name_for(pid) or pid
+        players.append(Player(name=display, stack=int(seat["chips"]), is_human=False))
+        seat_pid_by_name[display] = pid
+
+    game_state = PokerGameState(
+        players=tuple(players),
+        deck=create_deck(shuffled=True, random_seed=rng.randrange(2**32)),
+        current_ante=big_blind,
+        last_raise_amount=big_blind,
+    )
+    sm = PokerStateMachine(game_state, record_snapshots=False)
+
+    # Fetch / build a controller per seated AI. Point each one at the
+    # new state machine — cache hits get re-pointed for the new hand.
+    # Re-seed controller.rng from the hand's rng so cross-hand
+    # determinism holds: same starting seats + same hand rng yields
+    # the same outcome regardless of cache warmth. Without this,
+    # cached controllers' internal rng state leaks across hands and
+    # makes outcomes depend on cache hit order.
+    controllers: Dict[str, object] = {}
+    for player in players:
+        pid = seat_pid_by_name[player.name]
+        ctrl = controller_cache.get_or_create(
+            pid,
+            lambda pid_local=pid, name_local=player.name: _build_controller(
+                personality_id=pid_local,
+                display_name=name_local,
+                state_machine=sm,
+            ),
+        )
+        ctrl.state_machine = sm
+        ctrl.rng = random.Random(rng.randrange(2**32))
+        controllers[player.name] = ctrl
+
+    # Snapshot starting chips per pid so we can compute deltas.
+    starting_chips: Dict[str, int] = {
+        seat_pid_by_name[p.name]: p.stack for p in players
+    }
+
+    _run_hand(sm, controllers)
+
+    # Awards already applied by _run_hand. Read final stacks.
+    final_chips: Dict[str, int] = {
+        seat_pid_by_name[p.name]: p.stack for p in sm.game_state.players
+    }
+
+    # Build new_seats reflecting the post-hand chip counts. Seats
+    # outside the AI set are passed through unchanged.
+    new_seats = _copy_seats(seats)
+    for idx in ai_indices:
+        pid = seats[idx]["personality_id"]
+        new_seats[idx] = {**new_seats[idx], "chips": int(final_chips.get(pid, 0))}
+
+    winner_pid, loser_pid, delta = _headline_pair(starting_chips, final_chips)
+    big_event = delta >= big_blind * big_event_threshold_bb
+    # Pot total: sum of all positive deltas (= sum of all negative
+    # deltas in absolute value). Equivalent to the actual pot that
+    # got awarded across all side pots in a multiway hand.
+    pot = sum(
+        max(0, final_chips[pid] - starting_chips[pid])
+        for pid in starting_chips
+    )
+
+    hand_events = _detect_hand_events(
+        starting_chips=starting_chips,
+        final_chips=final_chips,
+        final_players=sm.game_state.players,
+        seat_pid_by_name=seat_pid_by_name,
+        winner_pid=winner_pid,
+        loser_pid=loser_pid,
+    )
+
+    return HandSimResult(
+        new_seats=new_seats,
+        winner_pid=winner_pid,
+        loser_pid=loser_pid,
+        delta=delta,
+        big_event=big_event,
+        hand_events=hand_events,
+        pot=pot,
+        showdown_hands=None,     # Phase 6 (psychology at unseated tables) may populate
+    )
+
+
+def _detect_hand_events(
+    *,
+    starting_chips: Dict[str, int],
+    final_chips: Dict[str, int],
+    final_players,
+    seat_pid_by_name: Dict[str, str],
+    winner_pid: Optional[str],
+    loser_pid: Optional[str],
+) -> List[HandEvent]:
+    """Inspect the post-hand state for drama events to surface.
+
+    What gets detected here:
+      - **BUST**: a player whose final chips are 0. They'll be
+        removed from the table by the normal `forced_leave`
+        movement path on the next refresh tick, but the bust
+        moment itself deserves a ticker event right when it
+        happens.
+      - **ALL_IN**: a player whose `is_all_in` flag is still set
+        at the end of the hand. The flag persists through pot
+        award and is only cleared by `reset_game_state_for_new_hand`,
+        so reading it post-award correctly captures "someone went
+        all-in this hand" regardless of whether they won or lost.
+
+    Deferred to future commits:
+      - **SUCKOUT**: needs per-street equity history. Phase 6 / hand
+        history persistence would expose this.
+      - **NICE_POT**: redundant with the `big_event` flag → `big_win`
+        emission. Kept in the HandEvent vocabulary for future use
+        (e.g. if we split "big" into "big" vs "huge").
+
+    The amount on each event is the player's chip change vs
+    starting — negative for losses, positive for wins. The lobby's
+    formatter shows it as an absolute dollar figure.
+    """
+    events: List[HandEvent] = []
+
+    # Bust detection: final chips == 0. Skipped for opens / non-AIs.
+    for pid, final in final_chips.items():
+        if final <= 0 and starting_chips.get(pid, 0) > 0:
+            events.append(HandEvent(
+                type=HAND_EVENT_BUST,
+                personality_id=pid,
+                amount=starting_chips[pid],   # how much they lost
+                opponent_pid=winner_pid if winner_pid != pid else None,
+            ))
+
+    # All-in detection: read the per-player flag from the final
+    # game-state. A player who won an all-in pot still has the flag
+    # set until reset_game_state_for_new_hand runs (which we don't
+    # need to trigger here — the lobby loop persists chips, not
+    # the state machine).
+    name_to_pid = seat_pid_by_name
+    for player in final_players:
+        if not getattr(player, "is_all_in", False):
+            continue
+        pid = name_to_pid.get(player.name)
+        if not pid:
+            continue
+        # Skip if BUST already covered this player — bust subsumes
+        # all-in as the more dramatic outcome.
+        if final_chips.get(pid, 0) <= 0:
+            continue
+        events.append(HandEvent(
+            type=HAND_EVENT_ALL_IN,
+            personality_id=pid,
+            amount=max(
+                starting_chips.get(pid, 0),
+                final_chips.get(pid, 0),
+            ),
+            opponent_pid=(
+                loser_pid if pid == winner_pid else
+                winner_pid if pid == loser_pid else
+                None
+            ),
+        ))
+
+    return events
+
+
+def _headline_pair(
+    starting: Dict[str, int],
+    final: Dict[str, int],
+) -> Tuple[Optional[str], Optional[str], int]:
+    """Pick the (winner, loser, delta) pair that headlines the hand.
+
+    The headline is the personality with the largest positive net
+    chip change vs the personality with the largest loss. `delta` is
+    the WINNER's gain (always non-negative). When the hand was
+    chip-neutral for all players (everyone folded preflop unopened,
+    walks the BB), returns (None, None, 0).
+    """
+    deltas: List[Tuple[str, int]] = sorted(
+        ((pid, final[pid] - starting[pid]) for pid in starting),
+        key=lambda x: x[1],
+    )
+    if not deltas:
+        return None, None, 0
+    loser_pid, loser_delta = deltas[0]
+    winner_pid, winner_delta = deltas[-1]
+    if winner_delta <= 0 or loser_delta >= 0:
+        # No actual chip movement — fold-around or pot-neutral split.
+        return None, None, 0
+    return winner_pid, loser_pid, winner_delta
+
+
+def _run_hand(
+    sm: PokerStateMachine,
+    controllers: Dict[str, object],
+) -> None:
+    """Drive the state machine from PRE_FLOP to pot award.
+
+    Mirrors the spike's loop: advance to EVALUATING_HAND, handling
+    run-it-out auto-advance and per-action decisions. Decision-level
+    exceptions silently fold (matches production tournament behavior;
+    the math_floor 'jam' fix from Phase 0 means these should be near-
+    zero, but the safety net stays as a last line of defense).
+    """
+    actions = 0
+    while actions < _MAX_ACTIONS_PER_HAND:
+        sm.run_until([PokerPhase.EVALUATING_HAND])
+        gs = sm.game_state
+
+        if sm.current_phase == PokerPhase.EVALUATING_HAND:
+            break
+
+        if gs.run_it_out:
+            nxt = (
+                PokerPhase.SHOWDOWN
+                if sm.current_phase == PokerPhase.RIVER
+                else PokerPhase.DEALING_CARDS
+            )
+            sm.game_state = gs.update(awaiting_action=False, run_it_out=False)
+            sm.update_phase(nxt)
+            continue
+
+        if not gs.awaiting_action:
+            break
+
+        cp = gs.current_player
+        ctrl = controllers.get(cp.name) if cp is not None else None
+        if ctrl is None:
+            gs = play_turn(gs, "fold", 0)
+        else:
+            try:
+                resp = ctrl.decide_action()
+                action = resp.get("action", "fold")
+                amount = resp.get("raise_to", 0)
+            except Exception as exc:  # noqa: BLE001 — match production runner
+                logger.debug(
+                    f"[FULL_SIM] {cp.name}: decide_action raised "
+                    f"{type(exc).__name__}: {exc} — folding"
+                )
+                action, amount = "fold", 0
+            gs = play_turn(gs, action, amount)
+
+        adv = advance_to_next_active_player(gs)
+        if adv is not None:
+            gs = adv
+        sm.game_state = gs
+        actions += 1
+
+    if sm.current_phase == PokerPhase.EVALUATING_HAND:
+        winner_info = determine_winner(sm.game_state)
+        sm.game_state = award_pot_winnings(sm.game_state, winner_info)
