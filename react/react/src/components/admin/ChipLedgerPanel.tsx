@@ -10,7 +10,9 @@ interface LedgerTotals {
 
 interface ActualTotals {
   player_bankrolls: number;
+  ai_bankrolls_stored: number;
   ai_bankrolls_projected: number;
+  uncommitted_ai_regen: number;
   cash_table_seats_ai: number;
   active_loans_principal: number;
   live_session_ai_stacks: number;
@@ -154,11 +156,12 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           <h3>Actual view</h3>
           <dl>
             <dt>Player bankrolls</dt><dd>{fmt(actualTotals.player_bankrolls)}</dd>
-            <dt>AI bankrolls (projected)</dt><dd>{fmt(actualTotals.ai_bankrolls_projected)}</dd>
+            <dt>AI bankrolls (stored)</dt><dd>{fmt(actualTotals.ai_bankrolls_stored)}</dd>
             <dt>Cash table AI seats</dt><dd>{fmt(actualTotals.cash_table_seats_ai)}</dd>
             <dt>Active loan principal</dt><dd>{fmt(actualTotals.active_loans_principal)}</dd>
             <dt>Live session AI stacks</dt><dd>{fmt(actualTotals.live_session_ai_stacks)}</dd>
             <dt><strong>Outstanding</strong></dt><dd><strong>{fmt(actualTotals.actual_outstanding)}</strong></dd>
+            <dt className="muted">Uncommitted regen</dt><dd className="muted">{fmt(actualTotals.uncommitted_ai_regen)}</dd>
           </dl>
         </section>
 

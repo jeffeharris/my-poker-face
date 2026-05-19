@@ -3,7 +3,7 @@ purpose: Implementation handoff for the chip ledger — observability layer that
 type: guide
 created: 2026-05-19
 last_updated: 2026-05-19
-implementation_status: all 5 commits shipped (schema v93 + repo + instrumentation + audit endpoint + admin panel)
+implementation_status: 6 commits shipped (schema v93 ledger + repo + creation/destruction instrumentation + audit endpoint + admin panel + v94 pre_ledger_universe seed)
 ---
 
 # Cash Mode — Chip Ledger Handoff (v0: observability only)

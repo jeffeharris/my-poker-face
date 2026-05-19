@@ -85,7 +85,12 @@ logger = logging.getLogger(__name__)
 #      house_loan_issue, house_loan_settle, forgive_balance). Pure transfers
 #      between non-bank entities are NOT recorded. Append-only; no enforcement
 #      in v0. Spec: docs/plans/CASH_MODE_CHIP_LEDGER_HANDOFF.md.
-SCHEMA_VERSION = 93
+# v94: Seed chip_ledger_entries with `pre_ledger_universe` entries so the audit
+#      endpoint reports drift=0 at baseline. Without this, day-1 drift is the
+#      entire pre-existing chip universe and the "is the ledger consistent?"
+#      signal is unusable. Idempotent — skipped if any pre_ledger_universe
+#      entries already exist.
+SCHEMA_VERSION = 94
 
 
 
@@ -1231,6 +1236,7 @@ class SchemaManager:
             91: (self._migrate_v91_add_cash_tables, "Add cash_tables table for persistent multi-table lobby (cash mode v1.5)"),
             92: (self._migrate_v92_add_cash_idle_pool, "Add cash_idle_pool table for AIs between cash sessions (cash mode v1.5)"),
             93: (self._migrate_v93_add_chip_ledger, "Add chip_ledger_entries table for chip economy observability (v0: append-only ledger)"),
+            94: (self._migrate_v94_seed_pre_ledger_universe, "Seed pre_ledger_universe entries so day-1 audit drift is 0"),
         }
 
         with self._get_connection() as conn:
@@ -4136,3 +4142,166 @@ class SchemaManager:
             "ON chip_ledger_entries(reason)"
         )
         logger.info("v93: created chip_ledger_entries for chip-economy observability")
+
+    def _migrate_v94_seed_pre_ledger_universe(self, conn: sqlite3.Connection) -> None:
+        """Migration v94: write `pre_ledger_universe` entries so day-1 drift is 0.
+
+        The v93 ledger starts empty. The audit endpoint sums the
+        actual chip-bearing surfaces (player bankrolls, AI bankrolls,
+        cash table seats, active loan principal) and reports `drift =
+        ledger.outstanding - actual.outstanding`. Without a baseline,
+        drift on first audit is the entire pre-existing chip
+        universe (~hundreds of thousands of chips), drowning out
+        the bypass signal the audit is designed to catch.
+
+        This migration inserts one entry per pre-existing chip
+        location, all under reason `pre_ledger_universe`. Future
+        events (player_seed, ai_regen, cap_clamp, etc.) appear
+        on top of the baseline. As long as instrumentation is
+        complete, drift stays at 0.
+
+        Idempotent: skipped if any `pre_ledger_universe` rows
+        already exist. Re-running won't double-seed.
+
+        Coverage:
+          - player_bankroll_state.chips → central_bank → player:<id>
+          - ai_bankroll_state.chips (stored, not projected) →
+            central_bank → ai:<pid>
+          - cash_tables.seats_json kind=ai chips → central_bank →
+            ai:<pid>
+          - player_bankroll_state.active_loan_amount (both anonymous
+            house loans and named personality loans — both get
+            counted in the audit's active_loans_principal, so both
+            need a baseline) → central_bank → player:<id>
+
+        Live-session AI table stacks aren't seeded — they're
+        transient and resolve to AI bankrolls at session end via
+        the credit_ai_cash_out ledger writes.
+        """
+        existing = conn.execute(
+            "SELECT COUNT(*) FROM chip_ledger_entries "
+            "WHERE reason = 'pre_ledger_universe'"
+        ).fetchone()[0]
+        if existing > 0:
+            logger.info(
+                "v94: pre_ledger_universe entries already present (%d); skipping seed",
+                existing,
+            )
+            return
+
+        seeded = 0
+
+        # Player bankrolls.
+        try:
+            rows = conn.execute(
+                "SELECT player_id, chips FROM player_bankroll_state "
+                "WHERE chips > 0"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        for row in rows:
+            conn.execute(
+                "INSERT INTO chip_ledger_entries "
+                "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
+                (
+                    'central_bank', f"player:{row[0]}", int(row[1]),
+                    'pre_ledger_universe',
+                    json.dumps({'kind': 'player_bankroll'}),
+                ),
+            )
+            seeded += 1
+
+        # AI bankrolls — stored value, not projected. The audit also
+        # reads stored (after the v94 commit), so the two agree.
+        try:
+            rows = conn.execute(
+                "SELECT personality_id, chips FROM ai_bankroll_state "
+                "WHERE chips > 0"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        for row in rows:
+            conn.execute(
+                "INSERT INTO chip_ledger_entries "
+                "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
+                (
+                    'central_bank', f"ai:{row[0]}", int(row[1]),
+                    'pre_ledger_universe',
+                    json.dumps({'kind': 'ai_bankroll'}),
+                ),
+            )
+            seeded += 1
+
+        # Cash table AI seats.
+        try:
+            rows = conn.execute(
+                "SELECT table_id, seats_json FROM cash_tables"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        for row in rows:
+            try:
+                seats = json.loads(row[1])
+            except (TypeError, ValueError):
+                continue
+            for slot in seats:
+                if not isinstance(slot, dict) or slot.get('kind') != 'ai':
+                    continue
+                pid = slot.get('personality_id')
+                chips = int(slot.get('chips') or 0)
+                if not pid or chips <= 0:
+                    continue
+                conn.execute(
+                    "INSERT INTO chip_ledger_entries "
+                    "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        'central_bank', f"ai:{pid}", chips,
+                        'pre_ledger_universe',
+                        json.dumps({
+                            'kind': 'cash_table_seat',
+                            'table_id': row[0],
+                        }),
+                    ),
+                )
+                seeded += 1
+
+        # Outstanding loan principal — both anonymous (house) and
+        # named (personality). The audit sums every row with
+        # active_loan_amount > 0 into actual_outstanding, so we seed
+        # the same set to keep drift at 0 at baseline.
+        #
+        # For personality loans, *attributing* the chips to
+        # central_bank in the seed is fictional — historically those
+        # chips came from the AI lender's bankroll. But the lender's
+        # bankroll is also seeded (with its current, post-debit
+        # value), so seeding the loan here doesn't double-count: the
+        # universe total is the same either way, and the audit
+        # endpoint asks "is the ledger consistent with the actual
+        # chip locations?", not "where did each chip come from?".
+        try:
+            rows = conn.execute(
+                "SELECT player_id, active_loan_amount, active_loan_lender_id "
+                "FROM player_bankroll_state "
+                "WHERE active_loan_amount > 0"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        for row in rows:
+            lender_id = row[2]
+            kind = (
+                'house_loan_principal'
+                if lender_id is None
+                else 'personality_loan_principal'
+            )
+            conn.execute(
+                "INSERT INTO chip_ledger_entries "
+                "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
+                (
+                    'central_bank', f"player:{row[0]}", int(row[1]),
+                    'pre_ledger_universe',
+                    json.dumps({'kind': kind, 'lender_id': lender_id}),
+                ),
+            )
+            seeded += 1
+
+        logger.info("v94: seeded %d pre_ledger_universe entries", seeded)

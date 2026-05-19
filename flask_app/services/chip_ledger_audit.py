@@ -77,8 +77,20 @@ def compute_audit(
     destructions_24h = ledger_repo.sum_destructions_by_reason(since_iso=since_24h_iso)
 
     # --- Actual totals ---
+    #
+    # AI bankrolls are summed by *stored* chip value, not projected.
+    # The ledger fires `ai_regen` at write time, not at projection
+    # read time, so the canonical "chips in the universe" for drift
+    # math matches what's persisted on disk. Projected value is
+    # returned separately for the UI but doesn't enter the drift
+    # calculation — otherwise drift would always include uncommitted
+    # regen and never zero out.
     player_bankrolls = _sum_player_bankrolls(db_path)
+    # TODO(backing-system phase 1): when persistent loans move to
+    # their own table, this query needs updating to read from
+    # `player_loans` (or whatever the new table is called) instead.
     active_loans_principal = _sum_active_loans(db_path)
+    ai_bankrolls_stored = _sum_ai_bankrolls_stored(bankroll_repo)
     ai_bankrolls_projected = _sum_ai_bankrolls_projected(bankroll_repo, now)
     cash_table_seats_ai = _sum_cash_table_ai_seats(cash_table_repo)
     live_session_ai_stacks = _sum_live_session_ai_stacks(
@@ -87,11 +99,15 @@ def compute_audit(
 
     actual_outstanding = (
         player_bankrolls
-        + ai_bankrolls_projected
+        + ai_bankrolls_stored
         + cash_table_seats_ai
         + active_loans_principal
         + live_session_ai_stacks
     )
+    # Uncommitted regen — the gap between what AIs currently
+    # read as (projected) and what they have stored. Informative
+    # for tuning regen rates; doesn't affect drift.
+    uncommitted_ai_regen = ai_bankrolls_projected - ai_bankrolls_stored
 
     by_reason = _merge_reasons(creations, destructions)
     by_reason_window_24h = _merge_reasons(creations_24h, destructions_24h)
@@ -104,7 +120,9 @@ def compute_audit(
         },
         'actual_totals': {
             'player_bankrolls': player_bankrolls,
+            'ai_bankrolls_stored': ai_bankrolls_stored,
             'ai_bankrolls_projected': ai_bankrolls_projected,
+            'uncommitted_ai_regen': uncommitted_ai_regen,
             'cash_table_seats_ai': cash_table_seats_ai,
             'active_loans_principal': active_loans_principal,
             'live_session_ai_stacks': live_session_ai_stacks,
@@ -157,13 +175,28 @@ def _sum_active_loans(db_path: str) -> int:
         return int(row[0] or 0)
 
 
+def _sum_ai_bankrolls_stored(bankroll_repo) -> int:
+    """Sum AI bankroll chips as currently *stored* on disk.
+
+    Stored chips are the canonical persistence value — they only
+    change when `save_ai_bankroll` is called, which is the same
+    moment the `ai_regen` / `cap_clamp` ledger entries fire. This
+    is what drift math needs.
+    """
+    with bankroll_repo._get_connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state"
+        ).fetchone()
+        return int(row[0] or 0)
+
+
 def _sum_ai_bankrolls_projected(bankroll_repo, now: datetime) -> int:
     """Sum projected (regen-applied, cap-clamped) AI bankroll chips.
 
-    Uses the bankroll_repo's connection directly because
-    `BankrollRepository` doesn't expose a "list all" surface yet;
-    we read the IDs then loop through `load_ai_bankroll_current`,
-    which already does the projection.
+    Read-time view: what a live read of each AI's bankroll would
+    return now. Differs from stored when time has elapsed since
+    the last write — the gap is uncommitted regen, returned in the
+    audit payload for tuning purposes.
     """
     total = 0
     with bankroll_repo._get_connection() as conn:

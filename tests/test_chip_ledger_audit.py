@@ -153,7 +153,9 @@ class TestComputeAudit:
         )
 
         assert data['actual_totals']['player_bankrolls'] == 500
+        assert data['actual_totals']['ai_bankrolls_stored'] == 3000
         assert data['actual_totals']['ai_bankrolls_projected'] == 3000
+        assert data['actual_totals']['uncommitted_ai_regen'] == 0
         assert data['actual_totals']['cash_table_seats_ai'] == 300
         assert data['actual_totals']['active_loans_principal'] == 200
         assert data['actual_totals']['actual_outstanding'] == 4000

@@ -114,6 +114,13 @@
   color: var(--text-secondary, #999);
 }
 
+.chip-ledger-card dt.muted,
+.chip-ledger-card dd.muted {
+  color: var(--text-tertiary, #666);
+  font-size: 0.85rem;
+  margin-top: 0.4rem;
+}
+
 .chip-ledger-card dd {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
