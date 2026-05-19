@@ -134,6 +134,8 @@ class HandOutcomeDetector:
         events.extend(self._detect_big_pot_events(recorded_hand))
         events.extend(self._detect_hero_calls(recorded_hand))
         events.extend(self._detect_bluffed_off(recorded_hand))
+        events.extend(self._detect_dominated_showdown(recorded_hand))
+        events.extend(self._detect_strong_fold_shown(recorded_hand))
         if equity_history is not None:
             events.extend(self._detect_bad_beats(recorded_hand, equity_history))
         # Apply dedup AFTER detection so detection logic stays a
@@ -548,6 +550,227 @@ class HandOutcomeDetector:
                 narrative=(
                     f"{folder} folded a winner to {prior_bettor}'s "
                     f"{fold_action.phase.lower()} bet"
+                ),
+                hand_summary=summary,
+            ))
+
+        return events
+
+    def _detect_dominated_showdown(
+        self, hand: RecordedHand,
+    ) -> List[DetectedEvent]:
+        """Emit DOMINATED_SHOWDOWN for committed losers who got outclassed.
+
+        Semantic: at showdown, a non-winner who was committed postflop
+        (called a bet/raise on FLOP/TURN/RIVER) reaches the river with
+        a hand whose category is strictly weaker than a winner's.
+        "Materially worse" = different hand category, not just kicker
+        domination — uses `HandEvaluator.hand_rank` (1=royal flush …
+        10=high card, lower=better) and requires `winner_rank <
+        loser_rank` strictly.
+
+        Why categorical, not kicker-level: kicker domination (AK vs AQ
+        on an A-high board) is a different emotional event than
+        set-over-set. The current calibration (actor: respect −0.15,
+        no heat) reads as "they outclassed me," which fits the
+        category-jump shape. A future split could add a separate
+        KICKER_DOMINATED event with smaller weights.
+
+        Commitment gate: only fires when the loser called at least one
+        postflop bet/raise/all_in. A passive check-down to showdown
+        doesn't qualify — the loser didn't invest enough chips to feel
+        outclassed.
+
+        Reuses the same revealed-ranks scan as `_detect_hero_calls`;
+        sharing the import path keeps the relationship module's
+        load-time footprint small.
+        """
+        if not hand.was_showdown:
+            return []
+
+        from core.card import Card
+        from poker.hand_evaluator import HandEvaluator
+
+        try:
+            community = [Card.from_short(c) for c in hand.community_cards]
+        except Exception:
+            return []
+
+        revealed_ranks: Dict[str, int] = {}
+        for name, hole in hand.hole_cards.items():
+            try:
+                cards = [Card.from_short(c) for c in hole] + community
+                result = HandEvaluator(cards).evaluate_hand()
+                revealed_ranks[name] = result['hand_rank']
+            except Exception:
+                continue
+        if len(revealed_ranks) < 2:
+            return []
+
+        winner_names = {w.name for w in hand.winners}
+        # Postflop-committed losers only. "Committed" = called a
+        # bet/raise/all_in on FLOP, TURN, or RIVER. A river-only call
+        # qualifies; so does a flop call that mucks no further bets.
+        postflop_committed = {
+            a.player_name
+            for a in hand.actions
+            if a.action == 'call'
+            and a.phase in ('FLOP', 'TURN', 'RIVER')
+            and a.player_name not in winner_names
+        }
+        if not postflop_committed:
+            return []
+
+        summary = hand.get_summary()
+        events: List[DetectedEvent] = []
+
+        for loser in postflop_committed:
+            loser_rank = revealed_ranks.get(loser)
+            if loser_rank is None:
+                continue
+            for winner in winner_names:
+                winner_rank = revealed_ranks.get(winner)
+                if winner_rank is None:
+                    continue
+                # Strict category jump. Equal-rank kicker decisions
+                # don't qualify (they're a different emotional event;
+                # see method docstring).
+                if winner_rank >= loser_rank:
+                    continue
+
+                winner_id = self._resolve_id(winner)
+                loser_id = self._resolve_id(loser)
+                if winner_id is None or loser_id is None:
+                    continue
+
+                events.append(DetectedEvent(
+                    actor_id=loser_id,
+                    target_id=winner_id,
+                    event=RelationshipEvent.DOMINATED_SHOWDOWN,
+                    narrative=(
+                        f"{loser} called postflop and showed down "
+                        f"a weaker hand than {winner}"
+                    ),
+                    hand_summary=summary,
+                ))
+
+        return events
+
+    def _detect_strong_fold_shown(
+        self, hand: RecordedHand,
+    ) -> List[DetectedEvent]:
+        """Emit STRONG_FOLD_SHOWN for postflop folds that were correct.
+
+        Mirror of `_detect_bluffed_off`: same scan, opposite outcome.
+        Fires when the folder's would-have-been hand at the final
+        board was strictly *worse* than the bettor's revealed
+        showdown hand. The folder made a disciplined laydown — they
+        gain respect for the bettor for having it.
+
+        Detection mirrors `_detect_bluffed_off`'s data requirements
+        exactly: showdown reached, folder's `hole_cards` preserved
+        through `complete_hand`, the bettor reached showdown with
+        revealed cards, postflop street (`FLOP`/`TURN`/`RIVER`), and
+        both sides' hand_ranks computable. Equal ranks don't qualify
+        (the would-have-been outcome is ambiguous).
+
+        Dispatch-table asymmetry: the actor (folder) gains respect
+        (+0.10) for the bettor. The mirror (bettor) is all zeros
+        because the bettor doesn't see the fold reveal in normal
+        play — they don't know the folder made a good fold. If a
+        future `show_cards_on_fold` feature lands, the mirror values
+        can be revisited.
+
+        Data-dependency note: same as `_detect_bluffed_off`. The
+        tournament experiment path strips folded players' cards
+        before `complete_hand`, so STRONG_FOLD_SHOWN will rarely fire
+        in experiment paths until that change lands. Flask game paths
+        preserve cards and detection works.
+        """
+        if not hand.was_showdown:
+            return []
+
+        fold_actors = {
+            a.player_name for a in hand.actions if a.action == 'fold'
+        }
+        showdown_with_cards = {
+            name for name in hand.hole_cards
+            if name not in fold_actors
+        }
+        if not showdown_with_cards:
+            return []
+
+        postflop_folds = [
+            a for a in hand.actions
+            if a.action == 'fold' and a.phase in ('FLOP', 'TURN', 'RIVER')
+        ]
+        if not postflop_folds:
+            return []
+
+        from core.card import Card
+        from poker.hand_evaluator import HandEvaluator
+
+        try:
+            community = [Card.from_short(c) for c in hand.community_cards]
+        except Exception:
+            return []
+        if len(community) < 5:
+            return []
+
+        summary = hand.get_summary()
+        events: List[DetectedEvent] = []
+
+        for fold_action in postflop_folds:
+            folder = fold_action.player_name
+            if folder not in hand.hole_cards:
+                continue
+
+            prior_bettor: Optional[str] = None
+            for a in hand.actions:
+                if a is fold_action:
+                    break
+                if a.phase != fold_action.phase:
+                    continue
+                if a.player_name == folder:
+                    continue
+                if a.action in ('bet', 'raise', 'all_in'):
+                    prior_bettor = a.player_name
+
+            if prior_bettor is None:
+                continue
+            if prior_bettor not in showdown_with_cards:
+                continue
+
+            try:
+                folder_cards = [
+                    Card.from_short(c) for c in hand.hole_cards[folder]
+                ] + community
+                bettor_cards = [
+                    Card.from_short(c) for c in hand.hole_cards[prior_bettor]
+                ] + community
+                folder_rank = HandEvaluator(folder_cards).evaluate_hand()['hand_rank']
+                bettor_rank = HandEvaluator(bettor_cards).evaluate_hand()['hand_rank']
+            except Exception:
+                continue
+
+            # Folder was behind (strictly) — higher rank is worse.
+            # Equal ranks don't qualify; the would-have-been outcome
+            # is ambiguous at the rank-only level.
+            if folder_rank <= bettor_rank:
+                continue
+
+            folder_id = self._resolve_id(folder)
+            bettor_id = self._resolve_id(prior_bettor)
+            if folder_id is None or bettor_id is None:
+                continue
+
+            events.append(DetectedEvent(
+                actor_id=folder_id,
+                target_id=bettor_id,
+                event=RelationshipEvent.STRONG_FOLD_SHOWN,
+                narrative=(
+                    f"{folder} folded to {prior_bettor}'s "
+                    f"{fold_action.phase.lower()} bet and would have lost"
                 ),
                 hand_summary=summary,
             ))
