@@ -1410,11 +1410,53 @@ def leave_table():
     if game_id is None:
         return jsonify({"error": "No active cash session"}), 404
 
+    from flask_app.services import game_state_service
+
+    # Hold the per-game lock for the whole settlement + teardown so an
+    # in-flight `progress_game` can't resurrect the row right after we
+    # delete it. Without this, progress_game's `set_game` / `save_game`
+    # at the end of its iteration writes the (now-stale) state machine
+    # back to memory + DB, and the next `/api/cash/state` redirects the
+    # player straight back into the table they thought they'd left —
+    # which also lets a second leave return the full stack with no
+    # sponsor cut (free-money exploit on loan leaves).
+    lock = game_state_service.get_game_lock(game_id)
+    with lock:
+        return _leave_table_locked(owner_id, game_id)
+
+
+def _leave_table_locked(owner_id: str, game_id: str):
+    """Body of `leave_table`, run under the per-game lock.
+
+    Split out so the `with lock:` scope covers the entire teardown
+    without indenting the existing block — see the `with lock:` in
+    `leave_table` for the rationale.
+    """
     from cash_mode.loan_settlement import settle_loan_on_leave
     from flask_app.extensions import bankroll_repo, game_repo, personality_repo
     from flask_app.services import game_state_service
 
     game_data = game_state_service.get_game(game_id)
+    if game_data is None:
+        # Memory-only miss is fine when the game is still in the DB
+        # (e.g. server restarted mid-session). Best-effort cleanup of
+        # any persisted row(s) for this owner so we don't strand them
+        # in the no-active-session state with a stale `/api/cash/state`
+        # redirect target. No chips to settle when there's no state
+        # machine to read a stack from.
+        try:
+            game_repo.delete_game(game_id)
+        except Exception as e:
+            logger.warning("[CASH] delete_game failed for %r: %s", game_id, e)
+        _purge_other_cash_rows(owner_id, except_game_id=None)
+        return jsonify({
+            "session_ended": True,
+            "chips_at_table": 0,
+            "had_active_loan": False,
+            "sponsor_repaid": 0,
+            "returned_chips": 0,
+            "bankroll": _load_or_seed_player_bankroll(owner_id).chips,
+        })
     state_machine = game_data["state_machine"]
     human_player = next(
         (p for p in state_machine.game_state.players if p.is_human), None,
