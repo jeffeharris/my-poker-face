@@ -172,6 +172,8 @@ def credit_ai_cash_out(
     player_stack: int,
     *,
     now: Optional[datetime] = None,
+    chip_ledger_repo=None,
+    ledger_context: Optional[dict] = None,
 ) -> Optional[AIBankrollState]:
     """Credit `player_stack` chips back to an AI's persistent bankroll.
 
@@ -197,6 +199,12 @@ def credit_ai_cash_out(
     as a parameter (rather than the module-level singleton) so tests
     can pass a tempdb-backed instance without monkey-patching the
     flask_app.extensions module.
+
+    `chip_ledger_repo` (optional) opts the call into ledger
+    instrumentation. When provided, the regen portion of the write
+    (projected - stored.chips, if positive) fires an `ai_regen` entry
+    here in commit 2; commit 3 adds the cap-clamp entry. None disables
+    instrumentation entirely so tests don't need the repo.
     """
     if player_stack <= 0:
         return None
@@ -218,6 +226,18 @@ def credit_ai_cash_out(
         last_regen_tick=now,
     )
     bankroll_repo.save_ai_bankroll(new_state)
+    if chip_ledger_repo is not None:
+        from core.economy import ledger as chip_ledger
+        ctx = {'site': 'credit_ai_cash_out'}
+        if ledger_context:
+            ctx.update(ledger_context)
+        chip_ledger.record_ai_regen(
+            chip_ledger_repo,
+            personality_id=personality_id,
+            stored_chips=stored.chips,
+            projected_chips=projected,
+            context=ctx,
+        )
     logger.info(
         "[CASH] AI cash-out %r: +%d (projected=%d) → %d (cap %d)",
         personality_id, player_stack, projected, new_chips, knobs.bankroll_cap,

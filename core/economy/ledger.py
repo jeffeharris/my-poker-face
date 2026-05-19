@@ -145,3 +145,84 @@ def record(
             reason, amount_int, e,
         )
         return None
+
+
+# --- Reason-specific helpers ---
+#
+# Thin sugar over `record()`. They exist so call sites read as
+# `ledger.record_ai_regen(...)` rather than re-stating the reason
+# string and source/sink direction. If any of these grow real logic
+# (e.g. central bank v1 reserves check), it lives here once.
+
+def record_player_seed(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """First-time entry: central_bank → player. Accepts repo=None (no-op)."""
+    if repo is None:
+        return None
+    return record(
+        repo,
+        source=bank(),
+        sink=player(owner_id),
+        amount=amount,
+        reason='player_seed',
+        context=context,
+    )
+
+
+def record_ai_regen(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    stored_chips: int,
+    projected_chips: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """central_bank → ai for the positive delta between stored and projected.
+
+    No-op when `repo` is None or `projected_chips <= stored_chips`. Use at
+    every `save_ai_bankroll` call site immediately after computing
+    `projected_chips`.
+    """
+    if repo is None:
+        return None
+    delta = int(projected_chips) - int(stored_chips)
+    if delta <= 0:
+        return None
+    return record(
+        repo,
+        source=bank(),
+        sink=ai(personality_id),
+        amount=delta,
+        reason='ai_regen',
+        context=context,
+    )
+
+
+def record_house_loan_issue(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """Anonymous-house sponsor loan acceptance: central_bank → player.
+
+    Personality-loan principal is a pure transfer between non-bank
+    entities (AI lender's bankroll → player's table stack) and isn't
+    routed through here.
+    """
+    if repo is None:
+        return None
+    return record(
+        repo,
+        source=bank(),
+        sink=player(owner_id),
+        amount=amount,
+        reason='house_loan_issue',
+        context=context,
+    )

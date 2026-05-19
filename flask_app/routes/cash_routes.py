@@ -40,6 +40,7 @@ from cash_mode.sponsor_offers import (
     compute_personality_offers,
     offer_for_archetype,
 )
+from core.economy import ledger as chip_ledger
 from poker.memory.relationship_events import RelationshipEvent
 from cash_mode.stakes import (
     MAX_BUY_IN_BB,
@@ -247,7 +248,7 @@ def _load_or_seed_player_bankroll(owner_id: str) -> PlayerBankrollState:
     the same seed amount and writes the row immediately. Subsequent
     routes can assume `load_player_bankroll` returns non-None.
     """
-    from flask_app.extensions import bankroll_repo
+    from flask_app.extensions import bankroll_repo, chip_ledger_repo
     bankroll = bankroll_repo.load_player_bankroll(owner_id)
     if bankroll is not None:
         return bankroll
@@ -257,6 +258,12 @@ def _load_or_seed_player_bankroll(owner_id: str) -> PlayerBankrollState:
         starting_bankroll=DEFAULT_PLAYER_STARTING_BANKROLL,
     )
     bankroll_repo.save_player_bankroll(bankroll)
+    chip_ledger.record_player_seed(
+        chip_ledger_repo,
+        owner_id=owner_id,
+        amount=DEFAULT_PLAYER_STARTING_BANKROLL,
+        context={'reason_detail': 'first_cash_entry'},
+    )
     logger.info("[CASH] Seeded fresh bankroll for %r at %d chips",
                 owner_id, DEFAULT_PLAYER_STARTING_BANKROLL)
     return bankroll
@@ -312,6 +319,11 @@ def _build_cash_game(
     selected_ai: list = []
     ai_buy_ins: Dict[str, int] = {}
     ai_states: Dict[str, AIBankrollState] = {}
+    # Pre-regen stored chip counts, per personality_id. Populated only
+    # on the legacy fresh-sample path (lobby v1.5 skips bankroll
+    # writes here); used to emit ai_regen ledger entries that match
+    # the size of the regen that this write commits.
+    ai_stored_pre_regen: Dict[str, int] = {}
 
     if preselected_ai is not None:
         # Lobby v1.5 path: AI roster + chip counts come from the
@@ -365,6 +377,10 @@ def _build_cash_game(
             ai_states[pid] = AIBankrollState(
                 personality_id=pid, chips=projected, last_regen_tick=stored.last_regen_tick,
             )
+            # Stash stored.chips (pre-projection) so the eventual
+            # save_ai_bankroll can record the regen amount that just
+            # entered the universe.
+            ai_stored_pre_regen[pid] = stored.chips
 
         if not selected_ai:
             return None, (
@@ -506,6 +522,7 @@ def _build_cash_game(
     # Only fires for the legacy "fresh sample" path. Lobby v1.5 sits
     # use the persisted table chips, which already represent chips
     # off-bankroll, so debiting here would double-charge the AI.
+    from flask_app.extensions import chip_ledger_repo
     for pid, state in ai_states.items():
         debited = AIBankrollState(
             personality_id=pid,
@@ -513,6 +530,20 @@ def _build_cash_game(
             last_regen_tick=now,
         )
         bankroll_repo.save_ai_bankroll(debited)
+        # Regen that this write commits = projected (state.chips) -
+        # pre-regen stored. The transfer-to-table-stack portion is a
+        # pure non-bank move and isn't ledger-worthy in v0.
+        chip_ledger.record_ai_regen(
+            chip_ledger_repo,
+            personality_id=pid,
+            stored_chips=ai_stored_pre_regen.get(pid, state.chips),
+            projected_chips=state.chips,
+            context={
+                'game_id': game_id,
+                'stake_label': stake_label,
+                'site': 'sit_down_debit',
+            },
+        )
 
     # 7. Register with game_state_service.
     game_data = {
@@ -1170,6 +1201,25 @@ def sponsor_and_sit():
         active_loan_lender_id=offer_lender_id,
     ))
 
+    # House-archetype loans create chips out of central_bank. Personality
+    # loans are pure transfers (AI lender's bankroll → player's table
+    # stack via the AI debit step in _build_cash_game) and aren't routed
+    # through here.
+    if offer_lender_id is None:
+        from flask_app.extensions import chip_ledger_repo
+        chip_ledger.record_house_loan_issue(
+            chip_ledger_repo,
+            owner_id=owner_id,
+            amount=offer_amount,
+            context={
+                'game_id': game_id,
+                'stake_label': stake_label,
+                'archetype_id': archetype_id,
+                'offer_floor': offer_floor,
+                'offer_rate': offer_rate,
+            },
+        )
+
     if lender_id:
         logger.info(
             "[CASH] Sponsored sit %r owner=%r stake=%r lender=%r "
@@ -1360,8 +1410,12 @@ def leave_table():
     # Settlement: pass the bankroll_repo so Path B can credit the AI
     # lender's persistent bankroll with sponsor_total (clamped to cap).
     # Anonymous loans (NULL lender_id) skip the AI-credit branch.
+    from flask_app.extensions import chip_ledger_repo
     settlement = settle_loan_on_leave(
-        bankroll, chips_at_table, bankroll_repo=bankroll_repo,
+        bankroll, chips_at_table,
+        bankroll_repo=bankroll_repo,
+        chip_ledger_repo=chip_ledger_repo,
+        ledger_context={'game_id': game_id, 'site': 'loan_settle_path_b'},
     )
     bankroll_repo.save_player_bankroll(settlement.new_bankroll)
 
@@ -1404,11 +1458,14 @@ def leave_table():
                 player.name,
             )
             continue
+        from flask_app.extensions import chip_ledger_repo
         credit_ai_cash_out(
             bankroll_repo,
             pid,
             player.stack,
             now=now,
+            chip_ledger_repo=chip_ledger_repo,
+            ledger_context={'game_id': game_id, 'site': 'cash_leave_cashout'},
         )
 
     # Lobby v1.5: persist end-of-session chip counts back to the

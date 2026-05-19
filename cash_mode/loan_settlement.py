@@ -97,6 +97,8 @@ def settle_loan_on_leave(
     chips_at_table: int,
     *,
     bankroll_repo=None,
+    chip_ledger_repo=None,
+    ledger_context: Optional[dict] = None,
     now: Optional[datetime] = None,
 ) -> LoanSettlement:
     """Apply the loan-floor + sponsor-cut math; return new bankroll.
@@ -147,6 +149,8 @@ def settle_loan_on_leave(
                 bankroll.active_loan_lender_id,
                 sponsor_total,
                 now=now,
+                chip_ledger_repo=chip_ledger_repo,
+                ledger_context=ledger_context,
             )
         else:
             logger.warning(

@@ -686,6 +686,7 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         replacement = None
         replacement_buy_in = 0
         replacement_state = None
+        replacement_pre_regen_chips = 0
 
         # Find an affordable, eligible replacement
         for candidate in list(eligible_pool):
@@ -712,6 +713,7 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
                 chips=projected - buy_in,
                 last_regen_tick=now,
             )
+            replacement_pre_regen_chips = stored.chips
             eligible_pool.remove(candidate)
             break
 
@@ -738,6 +740,20 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
 
         # Persist AI bankroll debit
         bankroll_repo.save_ai_bankroll(replacement_state)
+        # Record any regen that this write commits. Transfer to table
+        # stack is a pure non-bank move and isn't ledger-worthy.
+        from flask_app.extensions import chip_ledger_repo
+        from core.economy import ledger as chip_ledger
+        # replacement_state.chips = projected - buy_in, so we
+        # reconstruct projected = chips + buy_in to compare against
+        # the pre-regen stored value.
+        chip_ledger.record_ai_regen(
+            chip_ledger_repo,
+            personality_id=replacement_state.personality_id,
+            stored_chips=replacement_pre_regen_chips,
+            projected_chips=replacement_state.chips + replacement_buy_in,
+            context={'game_id': game_id, 'site': 'cash_refill'},
+        )
 
         # Swap controller registry: remove old, build new
         ai_controllers = game_data.get('ai_controllers', {})
