@@ -1427,6 +1427,51 @@ def api_player_action(game_id):
         return jsonify({'error': 'Failed to process action'}), 500
 
 
+@game_bp.route('/api/game/<game_id>/fast-forward', methods=['POST'])
+def api_fast_forward(game_id):
+    """Enable fast-forward: subsequent AI decisions skip the LLM.
+
+    While `fast_forward` is set on game_data, `handle_ai_action` swaps each
+    AI's controller for a TieredBotController with `expression_enabled=False`
+    — sub-100ms decisions, zero token cost. The flag auto-clears when action
+    returns to the human (see `progress_game`'s human-turn branch), so this
+    is a one-orbit affordance: tap once, the rest of the cycle resolves
+    quickly, then normal personality-aware play resumes on your next turn.
+
+    Body: `{enabled: bool}` — optional, defaults to `true`. POST with
+    `enabled=false` to manually cancel before the orbit completes (e.g. you
+    changed your mind mid-cycle).
+
+    Returns `{success, fast_forward}` on success, 404 if the game is gone.
+    No 'authorized actor' check beyond the standard game-access guard — only
+    the seated human can meaningfully trigger FF (it's tied to *their* turn
+    cycle).
+    """
+    data = request.json or {}
+    enabled = data.get('enabled', True)
+    if not isinstance(enabled, bool):
+        return jsonify({'error': 'enabled must be a boolean'}), 400
+
+    current_game_data = game_state_service.get_game(game_id)
+    _, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
+    if not current_game_data:
+        return jsonify({'error': 'Game not found'}), 404
+
+    current_game_data['fast_forward'] = enabled
+    game_state_service.set_game(game_id, current_game_data)
+    logger.info(f"[FF] game={game_id} fast_forward={enabled}")
+
+    # Kick the progression loop so any AI mid-orbit resolves quickly.
+    # progress_game's per-game lock short-circuits if already running, so
+    # this is safe even when the loop is already draining the orbit.
+    if enabled:
+        progress_game(game_id)
+
+    return jsonify({'success': True, 'fast_forward': enabled})
+
+
 @game_bp.route('/api/game/<game_id>/message', methods=['POST'])
 def api_send_message(game_id):
     """Send a chat message in the game."""

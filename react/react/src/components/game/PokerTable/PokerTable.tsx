@@ -17,6 +17,7 @@ import { ActionBadge } from '../../shared';
 import { ShuffleLoading } from '../../shared/ShuffleLoading';
 import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { logger } from '../../../utils/logger';
+import { gameAPI } from '../../../utils/api';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
 import { isBettingPhase } from '../../../constants/gamePhases';
@@ -314,6 +315,16 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
               isSmallBlind={isHumanSmallBlind}
               isBigBlind={isHumanBigBlind}
               bettingContext={gameState.betting_context}
+              fastForward={gameState.fast_forward ?? false}
+              onFastForward={
+                gameId
+                  ? (enabled: boolean) => {
+                      gameAPI.fastForward(gameId, enabled).catch((e) => {
+                        logger.warn('[FF] toggle failed', e);
+                      });
+                    }
+                  : undefined
+              }
             />
           )
         }
@@ -450,6 +461,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
         onClose={closeDossier}
         character={dossierPlayer ? dossierFromPlayer(dossierPlayer) : { name: '' }}
         origin={dossierOrigin}
+        identifier={dossierPlayer?.name}
       />
     </>
   );

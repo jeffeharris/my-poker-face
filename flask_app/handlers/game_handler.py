@@ -548,6 +548,11 @@ def update_and_emit_game_state(game_id: str) -> None:
     if cash_meta is not None:
         game_state_dict['cash_mode'] = cash_meta
 
+    # Fast-forward indicator: tells the UI whether AI seats are currently
+    # resolving via the no-LLM tiered path. Auto-clears in progress_game
+    # when action returns to the human.
+    game_state_dict['fast_forward'] = bool(current_game_data.get('fast_forward'))
+
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
@@ -1929,7 +1934,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Small additional delay for visual pacing
     delay = (1 if is_showdown else 0.5) * config.ANIMATION_SPEED
     if delay > 0:
-        socketio.sleep(delay)
+        _ff_aware_sleep(game_id, delay)
 
     # Clear hole cards and set phase to HAND_OVER. Prevents stale cards
     # from flashing and triggers frontend exit animation + shuffle overlay.
@@ -1952,10 +1957,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         return state_machine.game_state, False
 
     # Brief delay (150ms at 1x speed) for frontend to receive cleared state and begin card exit animation
-    try:
-        socketio.sleep(0.15 * config.ANIMATION_SPEED)
-    except (OSError, RuntimeError) as e:
-        logger.warning(f"Sleep interrupted for game {game_id}: {e}")
+    _ff_aware_sleep(game_id, 0.15 * config.ANIMATION_SPEED)
 
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
@@ -2198,7 +2200,7 @@ def progress_game(game_id: str) -> None:
                     # Extra pause for players to see the cards
                     delay = 4 * config.ANIMATION_SPEED
                     if delay > 0:
-                        socketio.sleep(delay)
+                        _ff_aware_sleep(game_id, delay)
 
                 # Wait for card animation to finish, then emit reactions,
                 # then hold so the player can absorb before next street.
@@ -2208,7 +2210,7 @@ def progress_game(game_id: str) -> None:
                 reaction_hold = 1.5
                 delay = animation_sleep * config.ANIMATION_SPEED
                 if delay > 0:
-                    socketio.sleep(delay)
+                    _ff_aware_sleep(game_id, delay)
 
                 # Check if game was deleted during sleep
                 current_game_data = game_state_service.get_game(game_id)
@@ -2232,7 +2234,7 @@ def progress_game(game_id: str) -> None:
                 # Hold so the player can see reactions before next street
                 delay = reaction_hold * config.ANIMATION_SPEED
                 if delay > 0:
-                    socketio.sleep(delay)
+                    _ff_aware_sleep(game_id, delay)
                 # Emit showdown reactions after all cards are dealt
                 current_phase = state_machine.current_phase
                 if current_phase == PokerPhase.RIVER:
@@ -2250,7 +2252,7 @@ def progress_game(game_id: str) -> None:
                             game_state_service.set_game(game_id, current_game_data)
                         delay = 1.5 * config.ANIMATION_SPEED
                         if delay > 0:
-                            socketio.sleep(delay)
+                            _ff_aware_sleep(game_id, delay)
 
                 # Determine next phase (skip betting, go to dealing or showdown)
                 if current_phase == PokerPhase.RIVER:
@@ -2278,6 +2280,11 @@ def progress_game(game_id: str) -> None:
                 state_machine = current_game_data['state_machine']
 
             else:
+                # Action returned to the human — clear FF so the next AI turn
+                # uses the normal personality-aware controllers again.
+                if current_game_data.get('fast_forward'):
+                    current_game_data['fast_forward'] = False
+                    game_state_service.set_game(game_id, current_game_data)
                 handle_human_turn(game_id, current_game_data, game_state)
                 break
     finally:
@@ -2352,6 +2359,64 @@ def detect_and_apply_pressure(game_id: str, event_type: str, **kwargs) -> None:
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 
+def _ff_aware_sleep(game_id: str, seconds: float) -> None:
+    """`socketio.sleep` that compresses to ~10% when FF is on.
+
+    Reads the per-game `fast_forward` flag and scales the wait. Card-reveal
+    pacing, run-it-out holds, and reaction beats all flow through here, so
+    FF visibly skims the visuals (cards still flip, just much faster) on
+    top of skipping LLM deliberation. Outside FF, behaves identically to
+    `socketio.sleep`.
+    """
+    if seconds <= 0:
+        return
+    game_data = game_state_service.get_game(game_id)
+    if game_data and game_data.get('fast_forward'):
+        seconds = seconds * 0.1
+    try:
+        socketio.sleep(seconds)
+    except (OSError, RuntimeError) as e:
+        logger.warning(f"FF-aware sleep interrupted for game {game_id}: {e}")
+
+
+def _get_or_build_ff_controller(
+    current_game_data: dict,
+    player_name: str,
+    state_machine,
+    game_id: str,
+):
+    """Return a per-game tiered FF controller for `player_name`, lazily built.
+
+    Used by `handle_ai_action` when `fast_forward` is set on game_data. Each
+    AI seat gets a TieredBotController with `expression_enabled=False`, so
+    decisions come from the solver tables + personality distortion with zero
+    LLM calls — sub-100ms per decision instead of multi-second.
+
+    Controllers are cached on `current_game_data['ff_controllers']`. They are
+    intentionally lightweight (no memory_manager / opponent models wired);
+    FF is a "skip the orbit" affordance, not a long-running session.
+    """
+    ff_controllers = current_game_data.setdefault('ff_controllers', {})
+    cached = ff_controllers.get(player_name)
+    if cached is not None:
+        return cached
+
+    from flask_app.handlers.tiered_factory import build_tiered_controller
+
+    controller = build_tiered_controller(
+        player_name=player_name,
+        state_machine=state_machine,
+        llm_config={},
+        game_id=game_id,
+        owner_id=current_game_data.get('owner_id'),
+        capture_label_repo=None,
+        decision_analysis_repo=None,
+        expression_enabled=False,
+    )
+    ff_controllers[player_name] = controller
+    return controller
+
+
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
     logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")
@@ -2366,7 +2431,18 @@ def handle_ai_action(game_id: str) -> None:
 
     current_player = state_machine.game_state.current_player
     logger.debug(f"[AI_ACTION] Current AI player: {current_player.name}")
-    controller = ai_controllers[current_player.name]
+
+    # Fast-forward dispatch: swap to a tiered controller (solver + personality,
+    # no LLM expression) so the rest of the orbit resolves quickly. The flag
+    # auto-resets in progress_game once action returns to the human. Per-game
+    # FF controllers are cached in `ff_controllers` to avoid rebuilding the
+    # strategy tables on every decision.
+    if current_game_data.get('fast_forward'):
+        controller = _get_or_build_ff_controller(
+            current_game_data, current_player.name, state_machine, game_id,
+        )
+    else:
+        controller = ai_controllers[current_player.name]
 
     # Set current hand number for tracking
     if 'memory_manager' in current_game_data:

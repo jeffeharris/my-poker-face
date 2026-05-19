@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
-import { Check, X, MessageCircle, Bot } from 'lucide-react';
+import { Check, X, MessageCircle, Bot, FastForward } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
 import { Card } from '../cards';
@@ -31,6 +31,7 @@ import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation
 import { useCoach } from '../../hooks/useCoach';
 import { isBettingPhase } from '../../constants/gamePhases';
 import { logger } from '../../utils/logger';
+import { gameAPI } from '../../utils/api';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
 import './MobilePokerTable.css';
@@ -120,6 +121,7 @@ export function MobilePokerTable({
   const awaitingAction = useGameStore(state => state.awaitingAction);
   const runItOut = useGameStore(state => state.runItOut);
   const cashMode = useGameStore(state => state.cashMode);
+  const fastForward = useGameStore(state => state.fastForward);
 
   // Non-game-state from the hook (socket, overlays, actions)
   const {
@@ -461,6 +463,7 @@ export function MobilePokerTable({
         onClose={closeDossier}
         character={dossierPlayer ? dossierFromPlayer(dossierPlayer) : { name: '' }}
         origin={dossierOrigin}
+        identifier={dossierPlayer?.name}
       />
 
       {/* Cash mode: slide-up sheet — opens from the button inside
@@ -834,6 +837,32 @@ export function MobilePokerTable({
             <span className="waiting-text" data-testid="waiting-text">
               {aiThinking && currentPlayer ? `${currentPlayer.name} is thinking...` : 'Waiting...'}
             </span>
+            {/* Fast-forward: any time someone else is acting — including
+                while the human is folded (waiting out the hand is exactly
+                when FF matters). The auto-reset fires when action returns
+                to the human on the next hand's preflop. */}
+            {gameId &&
+              humanPlayer &&
+              currentPlayer &&
+              !currentPlayer.is_human && (
+                <button
+                  className={`action-btn ff-btn ${fastForward ? 'queued' : ''}`}
+                  data-testid="action-btn-ff"
+                  onClick={() => {
+                    gameAPI.fastForward(gameId, !fastForward).catch((e) => {
+                      logger.warn('[FF] toggle failed', e);
+                    });
+                  }}
+                  title={
+                    fastForward
+                      ? 'Tap to return to normal speed'
+                      : 'Skip AI deliberation — resolve to your next turn'
+                  }
+                >
+                  <span className="action-icon"><FastForward /></span>
+                  <span className="btn-label">{fastForward ? 'Stop' : 'FF'}</span>
+                </button>
+              )}
             <button
               className="action-btn chat-btn"
               data-testid="action-btn-chat"

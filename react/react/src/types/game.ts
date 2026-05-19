@@ -59,6 +59,10 @@ export interface GameState {
   /** Present only for cash-mode games; surfaces bankroll + buy-in
    *  caps for the rebuy/topup UI. Tournament games omit this. */
   cash_mode?: CashModeInfo;
+  /** True while AI decisions are resolving via the no-LLM tiered path.
+   *  Set by POST /api/game/<id>/fast-forward, auto-cleared when action
+   *  returns to the human. */
+  fast_forward?: boolean;
 }
 
 /** Player's showdown hand information */
