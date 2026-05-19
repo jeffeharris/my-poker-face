@@ -64,6 +64,7 @@ class RelationshipEvent(Enum):
     BAD_BEAT = "bad_beat"
     DOMINATED_SHOWDOWN = "dominated_showdown"
     STRONG_FOLD_SHOWN = "strong_fold_shown"
+    COOLER = "cooler"
 
     # Chat events (categorizer output — Phase 5 in the design doc)
     TRASH_TALK = "chat_trash_talk"
@@ -129,6 +130,15 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.BAD_BEAT:           AxisShift(heat=+0.30, respect=-0.15, likability=-0.10),
     RelationshipEvent.DOMINATED_SHOWDOWN: AxisShift(heat= 0.00, respect=-0.15, likability= 0.00),
     RelationshipEvent.STRONG_FOLD_SHOWN:  AxisShift(heat= 0.00, respect=+0.10, likability= 0.00),
+    # COOLER actor: the loser brought a strong hand and ran into a
+    # stronger one. Emotional signature differs from BAD_BEAT (no
+    # equity injustice) and from DOMINATED_SHOWDOWN (where the loser
+    # didn't have much to begin with) — "I had it, they had more."
+    # Heat ticks up (frustration of losing a real hand), respect up
+    # (winner had even more), likability down slightly (no malice).
+    # Starting calibration; tune from play data once distribution vs
+    # BAD_BEAT and DOMINATED_SHOWDOWN is visible.
+    RelationshipEvent.COOLER:             AxisShift(heat=+0.10, respect=+0.10, likability=-0.05),
 
     # Chat events
     RelationshipEvent.TRASH_TALK:         AxisShift(heat=+0.10, respect= 0.00, likability=-0.05),
@@ -183,6 +193,11 @@ MIRROR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.BAD_BEAT:           AxisShift(heat= 0.00, respect=+0.05, likability=-0.05),
     RelationshipEvent.DOMINATED_SHOWDOWN: AxisShift(heat=-0.02, respect= 0.00, likability=-0.02),
     RelationshipEvent.STRONG_FOLD_SHOWN:  AxisShift(heat= 0.00, respect= 0.00, likability= 0.00),
+    # COOLER mirror: the winner had a monster too and ran over the
+    # loser's strong hand. Small respect bump (the loser put up a
+    # fight, not a passive loss); heat near zero (no animosity from
+    # the winner — they got there cleanly); likability roughly neutral.
+    RelationshipEvent.COOLER:             AxisShift(heat= 0.00, respect=+0.05, likability= 0.00),
 
     # Chat events. Mirror is the speaker's TARGET (who hears the
     # message). Trash-talk-toward-target moves target's heat against

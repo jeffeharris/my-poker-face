@@ -37,6 +37,7 @@ class TestEnumCoverage:
             "bad_beat",
             "dominated_showdown",
             "strong_fold_shown",
+            "cooler",
             # Chat events
             "chat_trash_talk",
             "chat_compliment",
@@ -130,6 +131,7 @@ class TestActorTableValues:
             (RelationshipEvent.BAD_BEAT,           AxisShift(+0.30, -0.15, -0.10)),
             (RelationshipEvent.DOMINATED_SHOWDOWN, AxisShift( 0.00, -0.15,  0.00)),
             (RelationshipEvent.STRONG_FOLD_SHOWN,  AxisShift( 0.00, +0.10,  0.00)),
+            (RelationshipEvent.COOLER,             AxisShift(+0.10, +0.10, -0.05)),
             (RelationshipEvent.TRASH_TALK,         AxisShift(+0.10,  0.00, -0.05)),
             (RelationshipEvent.COMPLIMENT,         AxisShift( 0.00, +0.03, +0.05)),
             (RelationshipEvent.TAUNT_POST_WIN,     AxisShift(+0.20,  0.00, -0.10)),

@@ -48,6 +48,14 @@ if TYPE_CHECKING:
 # axis movement in the whole event vocabulary) assumes this.
 BAD_BEAT_EQUITY_MIN = 0.70
 
+# COOLER threshold: both hands must be three-of-a-kind or better to
+# qualify (HandEvaluator hand_rank <= 7 — lower is better; 7 = three of
+# a kind, 6 = straight, 5 = flush, …, 1 = royal flush). Two pair (8)
+# is decent but doesn't read as a "monster" — coolers are the "I had
+# it, they had MORE" emotional event, which needs both sides to have
+# brought real strength. DOMINATED_SHOWDOWN handles weaker matchups.
+COOLER_STRONG_HAND_RANK_MAX = 7
+
 
 @dataclass(frozen=True)
 class DetectedEvent:
@@ -135,6 +143,7 @@ class HandOutcomeDetector:
         events.extend(self._detect_hero_calls(recorded_hand))
         events.extend(self._detect_bluffed_off(recorded_hand))
         events.extend(self._detect_dominated_showdown(recorded_hand))
+        events.extend(self._detect_coolers(recorded_hand))
         events.extend(self._detect_strong_fold_shown(recorded_hand))
         if equity_history is not None:
             events.extend(self._detect_bad_beats(recorded_hand, equity_history))
@@ -581,6 +590,12 @@ class HandOutcomeDetector:
         doesn't qualify — the loser didn't invest enough chips to feel
         outclassed.
 
+        Mutually exclusive with COOLER: when both sides held strong
+        hands (rank ≤ `COOLER_STRONG_HAND_RANK_MAX`), the matchup is a
+        cooler and `_detect_coolers` fires instead. This detector
+        excludes that case so the same outcome doesn't emit two
+        overlapping events with different emotional signatures.
+
         Reuses the same revealed-ranks scan as `_detect_hero_calls`;
         sharing the import path keeps the relationship module's
         load-time footprint small.
@@ -638,6 +653,16 @@ class HandOutcomeDetector:
                 if winner_rank >= loser_rank:
                     continue
 
+                # Cooler exclusion: when both sides are strong, the
+                # emotional signature is "I had it, they had more,"
+                # not "they outclassed me." Let `_detect_coolers`
+                # handle that subset.
+                if (
+                    winner_rank <= COOLER_STRONG_HAND_RANK_MAX
+                    and loser_rank <= COOLER_STRONG_HAND_RANK_MAX
+                ):
+                    continue
+
                 winner_id = self._resolve_id(winner)
                 loser_id = self._resolve_id(loser)
                 if winner_id is None or loser_id is None:
@@ -650,6 +675,97 @@ class HandOutcomeDetector:
                     narrative=(
                         f"{loser} called postflop and showed down "
                         f"a weaker hand than {winner}"
+                    ),
+                    hand_summary=summary,
+                ))
+
+        return events
+
+    def _detect_coolers(
+        self, hand: RecordedHand,
+    ) -> List[DetectedEvent]:
+        """Emit COOLER when both showdown hands are strong and the
+        category gap is real.
+
+        Semantic: postflop-committed loser shows down a strong hand
+        (rank ≤ `COOLER_STRONG_HAND_RANK_MAX`, i.e., three-of-a-kind
+        or better) and gets beat by a winner with a strictly stronger
+        category (also strong, also ≤ threshold). The "I had it, they
+        had more" event — distinct from DOMINATED_SHOWDOWN ("they
+        outclassed me, I had nothing") and from BAD_BEAT ("I was
+        favorite, they got there").
+
+        Does NOT depend on `equity_history` — the rank delta at
+        showdown is the only signal. BAD_BEAT needs equity history
+        because its semantic is "you were ahead, you ran bad"; COOLER
+        doesn't care who was ahead, just that both showed up with
+        real hands and one outflopped/outdrew the other.
+
+        Mutually exclusive with DOMINATED_SHOWDOWN by construction:
+        DOMINATED skips the both-strong case and lets this fire.
+        """
+        if not hand.was_showdown:
+            return []
+
+        from core.card import Card
+        from poker.hand_evaluator import HandEvaluator
+
+        try:
+            community = [Card.from_short(c) for c in hand.community_cards]
+        except Exception:
+            return []
+
+        revealed_ranks: Dict[str, int] = {}
+        for name, hole in hand.hole_cards.items():
+            try:
+                cards = [Card.from_short(c) for c in hole] + community
+                result = HandEvaluator(cards).evaluate_hand()
+                revealed_ranks[name] = result['hand_rank']
+            except Exception:
+                continue
+        if len(revealed_ranks) < 2:
+            return []
+
+        winner_names = {w.name for w in hand.winners}
+        postflop_committed = {
+            a.player_name
+            for a in hand.actions
+            if a.action == 'call'
+            and a.phase in ('FLOP', 'TURN', 'RIVER')
+            and a.player_name not in winner_names
+        }
+        if not postflop_committed:
+            return []
+
+        summary = hand.get_summary()
+        events: List[DetectedEvent] = []
+
+        for loser in postflop_committed:
+            loser_rank = revealed_ranks.get(loser)
+            if loser_rank is None or loser_rank > COOLER_STRONG_HAND_RANK_MAX:
+                # Loser didn't have a strong hand — not a cooler.
+                # If there's a category gap, DOMINATED_SHOWDOWN handles it.
+                continue
+            for winner in winner_names:
+                winner_rank = revealed_ranks.get(winner)
+                if winner_rank is None or winner_rank > COOLER_STRONG_HAND_RANK_MAX:
+                    continue
+                # Strict category jump within the strong-hand band.
+                if winner_rank >= loser_rank:
+                    continue
+
+                winner_id = self._resolve_id(winner)
+                loser_id = self._resolve_id(loser)
+                if winner_id is None or loser_id is None:
+                    continue
+
+                events.append(DetectedEvent(
+                    actor_id=loser_id,
+                    target_id=winner_id,
+                    event=RelationshipEvent.COOLER,
+                    narrative=(
+                        f"{loser} had a strong hand but ran into {winner}'s "
+                        f"stronger one"
                     ),
                     hand_summary=summary,
                 ))
