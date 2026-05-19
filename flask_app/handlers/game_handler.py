@@ -570,11 +570,19 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
     from flask_app.extensions import bankroll_repo
     owner_id_cash = current_game_data.get('owner_id')
     bankroll_chips = 0
+    active_loan = None
     if owner_id_cash:
         try:
             bankroll = bankroll_repo.load_player_bankroll(owner_id_cash)
             if bankroll is not None:
                 bankroll_chips = bankroll.chips
+                if bankroll.active_loan_amount > 0:
+                    active_loan = {
+                        'amount': bankroll.active_loan_amount,
+                        'floor': bankroll.active_loan_floor,
+                        'rate': bankroll.active_loan_rate,
+                        'lender_id': bankroll.active_loan_lender_id,
+                    }
         except Exception:
             pass
     big_blind = game_state.current_ante
@@ -584,6 +592,7 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
         'big_blind': big_blind,
         'min_buy_in': big_blind * 40,
         'max_buy_in': big_blind * 100,
+        'active_loan': active_loan,
     }
 
 

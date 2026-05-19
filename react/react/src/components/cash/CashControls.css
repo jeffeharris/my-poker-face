@@ -92,3 +92,53 @@
   padding: 0.25rem 0;
 }
 
+.cash-controls__breakdown {
+  margin-top: 0.25rem;
+  padding: 0.5rem 0.6rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.cash-controls__breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  color: rgba(255, 255, 255, 0.75);
+  font-variant-numeric: tabular-nums;
+}
+
+.cash-controls__breakdown-row.is-total {
+  margin-top: 0.25rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 600;
+}
+
+.cash-controls__breakdown-row.is-bankroll {
+  color: #4ade80;
+  font-weight: 600;
+}
+
+.cash-controls__breakdown-row.is-sponsor {
+  color: #fca5a5;
+}
+
+.cash-controls__breakdown-detail {
+  font-size: 0.7rem;
+  opacity: 0.65;
+  margin-left: 0.5rem;
+}
+
+.cash-controls__breakdown-note {
+  font-size: 0.7rem;
+  opacity: 0.7;
+  font-style: italic;
+}
+

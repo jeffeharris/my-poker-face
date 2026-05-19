@@ -14,6 +14,7 @@ import { X, LogOut } from 'lucide-react';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import type { CashModeInfo } from '../../types/game';
+import { computeLeaveBreakdown } from './loanSettlement';
 import './MobileCashSheet.css';
 
 interface MobileCashSheetProps {
@@ -23,6 +24,54 @@ interface MobileCashSheetProps {
   playerStack: number;
   handInProgress: boolean;
   playerFolded: boolean;
+}
+
+interface LeaveBreakdownPanelProps {
+  stack: number;
+  loan: NonNullable<CashModeInfo['active_loan']>;
+}
+
+function LeaveBreakdownPanel({ stack, loan }: LeaveBreakdownPanelProps) {
+  const b = computeLeaveBreakdown(stack, loan);
+  const floorPct = Math.round(loan.floor * 100);
+  const ratePct = Math.round(loan.rate * 100);
+  return (
+    <div className="mobile-cash-sheet__breakdown">
+      <div className="mobile-cash-sheet__breakdown-row">
+        <span>Stack at table</span>
+        <span>${b.stack.toLocaleString()}</span>
+      </div>
+      <div className="mobile-cash-sheet__breakdown-row is-sponsor">
+        <span>
+          Loan floor
+          <span className="mobile-cash-sheet__breakdown-detail">
+            ${loan.amount.toLocaleString()} × {floorPct}%
+          </span>
+        </span>
+        <span>−${b.floorPayment.toLocaleString()}</span>
+      </div>
+      {b.sponsorCut > 0 && (
+        <div className="mobile-cash-sheet__breakdown-row is-sponsor">
+          <span>
+            Sponsor cut
+            <span className="mobile-cash-sheet__breakdown-detail">
+              {ratePct}% of ${b.remainder.toLocaleString()}
+            </span>
+          </span>
+          <span>−${b.sponsorCut.toLocaleString()}</span>
+        </div>
+      )}
+      {b.forgiven > 0 && (
+        <div className="mobile-cash-sheet__breakdown-note">
+          Floor short by ${b.forgiven.toLocaleString()} — forgiven.
+        </div>
+      )}
+      <div className="mobile-cash-sheet__breakdown-row is-total is-bankroll">
+        <span>To your bankroll</span>
+        <span>${b.toBankroll.toLocaleString()}</span>
+      </div>
+    </div>
+  );
 }
 
 export function MobileCashSheet({
@@ -191,6 +240,12 @@ export function MobileCashSheet({
             </div>
           )}
 
+          {confirmLeave && cashMode.active_loan && (
+            <LeaveBreakdownPanel
+              stack={playerStack}
+              loan={cashMode.active_loan}
+            />
+          )}
           <button
             type="button"
             onClick={handleLeave}
@@ -201,7 +256,9 @@ export function MobileCashSheet({
             {busy && confirmLeave
               ? 'Leaving…'
               : confirmLeave
-                ? `Confirm leave — return $${playerStack.toLocaleString()} to bankroll`
+                ? cashMode.active_loan
+                  ? `Confirm — $${computeLeaveBreakdown(playerStack, cashMode.active_loan).toBankroll.toLocaleString()} to bankroll`
+                  : `Confirm leave — return $${playerStack.toLocaleString()} to bankroll`
                 : 'Leave table'}
           </button>
 

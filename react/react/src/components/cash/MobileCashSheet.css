@@ -211,3 +211,53 @@
   border-radius: 6px;
   font-size: 0.8125rem;
 }
+
+.mobile-cash-sheet__breakdown {
+  margin-top: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8125rem;
+}
+
+.mobile-cash-sheet__breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  color: rgba(255, 255, 255, 0.8);
+  font-variant-numeric: tabular-nums;
+}
+
+.mobile-cash-sheet__breakdown-row.is-total {
+  margin-top: 0.35rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 600;
+}
+
+.mobile-cash-sheet__breakdown-row.is-bankroll {
+  color: #4ade80;
+  font-weight: 600;
+}
+
+.mobile-cash-sheet__breakdown-row.is-sponsor {
+  color: #fca5a5;
+}
+
+.mobile-cash-sheet__breakdown-detail {
+  font-size: 0.75rem;
+  opacity: 0.65;
+  margin-left: 0.4rem;
+}
+
+.mobile-cash-sheet__breakdown-note {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  font-style: italic;
+}
