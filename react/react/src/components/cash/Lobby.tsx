@@ -26,7 +26,17 @@ import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
 import type { LobbyEvent, LobbyTable, StakeLabel } from './types';
 import { logger } from '../../utils/logger';
+import {
+  CharacterDetailCard,
+  type CharacterDossierData,
+} from '../character';
 import './CashMode.css';
+
+/** What TableCard fires up to the Lobby on AI-seat click. */
+export interface AiSeatClick {
+  dossier: CharacterDossierData;
+  origin: { x: number; y: number };
+}
 
 const LOBBY_REFRESH_INTERVAL_MS = 8000;
 
@@ -42,6 +52,7 @@ export function Lobby() {
     stakeLabel: StakeLabel;
     tableId: string;
   } | null>(null);
+  const [dossier, setDossier] = useState<AiSeatClick | null>(null);
 
   // On mount: check active session first (redirect if so), then load
   // the lobby. Pulling /state before /lobby avoids a flash of the
@@ -160,6 +171,7 @@ export function Lobby() {
                 table={t}
                 busy={busy}
                 onSeatTap={(seatIndex) => handleSeatTap(t, seatIndex)}
+                onAiSeatClick={setDossier}
               />
             ))}
           </div>
@@ -169,6 +181,12 @@ export function Lobby() {
         isOpen={sponsorState !== null}
         stakeLabel={sponsorState?.stakeLabel ?? null}
         onClose={() => setSponsorState(null)}
+      />
+      <CharacterDetailCard
+        isOpen={dossier !== null}
+        onClose={() => setDossier(null)}
+        character={dossier?.dossier ?? { name: '' }}
+        origin={dossier?.origin}
       />
     </PageLayout>
   );

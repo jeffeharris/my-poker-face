@@ -16,6 +16,8 @@
 import { useCallback } from 'react';
 import { config } from '../../config';
 import type { LobbyTable } from './types';
+// type-only import keeps the Lobby ↔ TableCard cycle erased at runtime
+import type { AiSeatClick } from './Lobby';
 
 /** Avatar URLs from the lobby route are returned as relative paths
  *  ("/api/avatar/<name>/<emotion>/full"). In dev, the frontend runs
@@ -35,9 +37,11 @@ interface TableCardProps {
   table: LobbyTable;
   busy: boolean;
   onSeatTap: (seatIndex: number) => void;
+  /** Fires when the player clicks an AI portrait — parent opens dossier. */
+  onAiSeatClick?: (click: AiSeatClick) => void;
 }
 
-export function TableCard({ table, busy, onSeatTap }: TableCardProps) {
+export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardProps) {
   const locked = table.affordability === 'locked';
   const sponsorOnly = table.affordability === 'sponsor_eligible';
 
@@ -73,17 +77,40 @@ export function TableCard({ table, busy, onSeatTap }: TableCardProps) {
         {table.seats.map((seat) => {
           if (seat.kind === 'ai') {
             const title = seat.relationship_hint
-              ? `${seat.name} — ${seat.relationship_hint} (${seat.emotion})`
-              : `${seat.name} (${seat.emotion})`;
+              ? `${seat.name} — ${seat.relationship_hint} (${seat.emotion}). Click for dossier.`
+              : `${seat.name} (${seat.emotion}). Click for dossier.`;
+            const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+              if (!onAiSeatClick) return;
+              const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+              onAiSeatClick({
+                dossier: {
+                  name: seat.name,
+                  avatarUrl: absolutizeAvatarUrl(seat.avatar_url) ?? undefined,
+                  emotion: seat.emotion,
+                  chips: { atTable: seat.chips },
+                  affiliation: seat.relationship_hint
+                    ? {
+                        relationship: 'neutral',
+                        relationshipNote: seat.relationship_hint,
+                      }
+                    : undefined,
+                },
+                origin: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+              });
+            };
             return (
-              <div
+              <button
                 key={seat.index}
+                type="button"
                 className={
                   'lobby-table-card__seat lobby-table-card__seat--ai' +
-                  ` lobby-table-card__seat--emotion-${seat.emotion}`
+                  ` lobby-table-card__seat--emotion-${seat.emotion}` +
+                  ' lobby-table-card__seat--clickable'
                 }
                 title={title}
                 data-emotion={seat.emotion}
+                onClick={handleClick}
+                aria-label={`Open dossier for ${seat.name}`}
               >
                 <div className="lobby-table-card__seat-image">
                   {(() => {
@@ -111,7 +138,7 @@ export function TableCard({ table, busy, onSeatTap }: TableCardProps) {
                     </div>
                   )}
                 </div>
-              </div>
+              </button>
             );
           }
           if (seat.kind === 'human') {

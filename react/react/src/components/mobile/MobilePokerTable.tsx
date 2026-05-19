@@ -21,6 +21,8 @@ import { CoachBubble } from './CoachBubble';
 import { MobileCashButton } from '../cash/MobileCashButton';
 import { MobileCashSheet } from '../cash/MobileCashSheet';
 import { BustModal } from '../cash/BustModal';
+import { CharacterDetailCard } from '../character';
+import { dossierFromPlayer } from '../character/dossierFromPlayer';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useGameStore } from '../../stores/gameStore';
@@ -75,6 +77,19 @@ export function MobilePokerTable({
 
   // LLM Debug modal state
   const [debugModalPlayer, setDebugModalPlayer] = useState<Player | null>(null);
+
+  // Character dossier state — opens on opponent avatar tap.
+  const [dossierPlayer, setDossierPlayer] = useState<Player | null>(null);
+  const [dossierOrigin, setDossierOrigin] = useState<{ x: number; y: number } | undefined>();
+  const closeDossier = useCallback(() => setDossierPlayer(null), []);
+  const openDossierForPlayer = useCallback(
+    (player: Player, target: HTMLElement) => {
+      const rect = target.getBoundingClientRect();
+      setDossierOrigin({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+      setDossierPlayer(player);
+    },
+    [],
+  );
 
   // Stable callbacks for child components to avoid re-renders
   const openChatSheet = useCallback(() => setShowChatSheet(true), []);
@@ -437,6 +452,17 @@ export function MobilePokerTable({
        *  can't dismiss it by tapping outside. */}
       <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
 
+      {/* Character dossier — opens when tapping an opponent avatar
+       *  (when LLM debug isn't enabled). Uses the live Player blob
+       *  for the basics; the personality block isn't loaded here so
+       *  trait sections drop silently. */}
+      <CharacterDetailCard
+        isOpen={dossierPlayer !== null}
+        onClose={closeDossier}
+        character={dossierPlayer ? dossierFromPlayer(dossierPlayer) : { name: '' }}
+        origin={dossierOrigin}
+      />
+
       {/* Cash mode: slide-up sheet — opens from the button inside
        *  the hero panel. Renders nothing for tournament games. */}
       {cashMode && humanPlayer && (
@@ -536,11 +562,19 @@ export function MobilePokerTable({
               data-testid="mobile-opponent"
             >
               <div
-                className={`opponent-avatar ${isDebugEnabled ? 'debug-enabled' : ''}`}
-                onClick={isDebugEnabled ? () => setDebugModalPlayer(opponent) : undefined}
-                role={isDebugEnabled ? 'button' : undefined}
-                tabIndex={isDebugEnabled ? 0 : undefined}
-                aria-label={isDebugEnabled ? `View ${opponent.name}'s AI model info` : undefined}
+                className={`opponent-avatar ${isDebugEnabled ? 'debug-enabled' : 'dossier-enabled'}`}
+                onClick={
+                  isDebugEnabled
+                    ? () => setDebugModalPlayer(opponent)
+                    : (e) => openDossierForPlayer(opponent, e.currentTarget as HTMLElement)
+                }
+                role="button"
+                tabIndex={0}
+                aria-label={
+                  isDebugEnabled
+                    ? `View ${opponent.name}'s AI model info`
+                    : `Open dossier for ${opponent.name}`
+                }
               >
                 {avatarUrl ? (
                   <img

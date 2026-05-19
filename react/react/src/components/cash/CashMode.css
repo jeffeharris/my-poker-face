@@ -393,7 +393,22 @@
   border-color: rgba(255, 255, 255, 0.18);
   padding: 0;
   position: relative;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease;
+  /* Reset button defaults when seat is rendered as <button> for dossier click. */
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.lobby-table-card__seat--ai.lobby-table-card__seat--clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45);
+  border-color: rgba(226, 191, 111, 0.55);
+}
+
+.lobby-table-card__seat--ai.lobby-table-card__seat--clickable:focus-visible {
+  outline: 2px solid #e2bf6f;
+  outline-offset: 2px;
 }
 
 .lobby-table-card__seat-image {

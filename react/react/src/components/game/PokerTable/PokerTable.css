@@ -176,6 +176,27 @@
     justify-content: center;
     overflow: hidden;
     z-index: 1;
+    /* Reset button defaults when rendered as <button> for dossier click. */
+    padding: 0;
+    border: none;
+    font: inherit;
+    color: inherit;
+}
+
+.player-avatar--clickable {
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+.player-avatar--clickable:hover {
+    transform: translateY(-1px) scale(1.02);
+    box-shadow: 0 4px 12px rgba(226, 191, 111, 0.35);
+}
+.player-avatar--clickable:active {
+    transform: scale(0.97);
+}
+.player-avatar--clickable:focus-visible {
+    outline: 2px solid #e2bf6f;
+    outline-offset: 2px;
 }
 
 .player-avatar .avatar-image {

@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { Bot } from 'lucide-react';
 import { CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
+import { CharacterDetailCard } from '../../character';
+import { dossierFromPlayer } from '../../character/dossierFromPlayer';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
 import { TournamentComplete } from '../TournamentComplete';
@@ -41,6 +43,19 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
   const lastKnownActions = useRef<Map<string, string>>(new Map());
   // Incrementing this state forces a re-render after the ref is mutated on fade completion
   const [, setFadeKey] = useState(0);
+
+  // Character dossier — opens when an opponent avatar is clicked.
+  const [dossierPlayer, setDossierPlayer] = useState<Player | null>(null);
+  const [dossierOrigin, setDossierOrigin] = useState<{ x: number; y: number } | undefined>();
+  const openDossierForPlayer = useCallback(
+    (player: Player, target: HTMLElement) => {
+      const rect = target.getBoundingClientRect();
+      setDossierOrigin({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+      setDossierPlayer(player);
+    },
+    [],
+  );
+  const closeDossier = useCallback(() => setDossierPlayer(null), []);
 
   // Use the shared hook for all socket/state management
   const {
@@ -365,7 +380,14 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
                     </div>
 
                     <div className="player-info">
-                      <div className="player-avatar">
+                      <button
+                        type="button"
+                        className="player-avatar player-avatar--clickable"
+                        onClick={(e) =>
+                          openDossierForPlayer(player, e.currentTarget as HTMLElement)
+                        }
+                        aria-label={`Open dossier for ${player.name}`}
+                      >
                         {avatarUrl ? (
                           <img
                             src={`${config.API_URL}${avatarUrl}`}
@@ -380,7 +402,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
                             <Bot size={14} aria-hidden />
                           </span>
                         )}
-                      </div>
+                      </button>
                       <div className="player-details">
                         <div className="player-name">{player.name}</div>
                         <div className="player-stack">${player.stack}</div>
@@ -419,6 +441,16 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
           </div>
         </div>
       </StadiumLayout>
+
+      {/* Character dossier — opens when an opponent avatar is clicked.
+       *  Uses the live Player blob for basics; the personality block
+       *  isn't loaded here so trait/playstyle sections drop silently. */}
+      <CharacterDetailCard
+        isOpen={dossierPlayer !== null}
+        onClose={closeDossier}
+        character={dossierPlayer ? dossierFromPlayer(dossierPlayer) : { name: '' }}
+        origin={dossierOrigin}
+      />
     </>
   );
 }
