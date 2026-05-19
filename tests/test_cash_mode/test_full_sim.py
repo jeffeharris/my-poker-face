@@ -168,7 +168,8 @@ class TestPlayOneHandDealerRotation:
     def test_default_dealer_is_first_seated_ai(self, warm_cache):
         """No hint → dealer is seat 0 (first seated AI). Calling code
         in the lobby relies on this for the very first hand at a
-        table where _dealer_indices has no cached entry."""
+        freshly seeded table (CashTableState.dealer_idx defaults to 0
+        and seat 0 is the first AI in the fixture)."""
         seats = _build_seats(5000, 4)
         result = play_one_hand(
             seats, big_blind=100, rng=random.Random(0),

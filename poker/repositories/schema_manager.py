@@ -96,7 +96,7 @@ logger = logging.getLogger(__name__)
 #      when empty so existing rows don't need a backfill. Cash mode is
 #      the surface for now; tournaments use the per-game opponent_models
 #      notes column for their own purposes.
-SCHEMA_VERSION = 95
+SCHEMA_VERSION = 96
 
 
 
@@ -1245,6 +1245,7 @@ class SchemaManager:
             93: (self._migrate_v93_add_chip_ledger, "Add chip_ledger_entries table for chip economy observability (v0: append-only ledger)"),
             94: (self._migrate_v94_seed_pre_ledger_universe, "Seed pre_ledger_universe entries so day-1 audit drift is 0"),
             95: (self._migrate_v95_add_relationship_notes, "Add notes column to relationship_states for player-authored opponent notes (cross-session, cash mode)"),
+            96: (self._migrate_v96_add_dealer_idx_to_cash_tables, "Add dealer_idx column to cash_tables so the lobby dealer button survives backend restart (full sim Commit 2)"),
         }
 
         with self._get_connection() as conn:
@@ -4333,3 +4334,30 @@ class SchemaManager:
             logger.debug("Added notes column to relationship_states")
 
         logger.info("Migration v95 complete: relationship_states.notes added")
+
+    def _migrate_v96_add_dealer_idx_to_cash_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v96: Add `dealer_idx` INTEGER to cash_tables.
+
+        The lobby's dealer-button indicator is load-bearing for seat-
+        choice UX (a player picking an open seat needs to know what
+        position — UTG / CO / BTN / blinds — that seat would be in
+        for the upcoming hand). Previously this lived in an in-memory
+        dict in `cash_mode/lobby.py`, which reset on every backend
+        restart. Persisting to the same row as `seats_json` makes the
+        rotation survive deploys.
+
+        Default 0 = seat index 0 holds the button — matches the
+        previous in-memory default for a freshly initialized table.
+
+        Idempotent: only adds the column if it doesn't already exist.
+        """
+        cursor = conn.execute("PRAGMA table_info(cash_tables)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'dealer_idx' not in existing_columns:
+            conn.execute(
+                "ALTER TABLE cash_tables ADD COLUMN dealer_idx INTEGER NOT NULL DEFAULT 0"
+            )
+            logger.debug("Added dealer_idx column to cash_tables")
+
+        logger.info("Migration v96 complete: cash_tables.dealer_idx added")

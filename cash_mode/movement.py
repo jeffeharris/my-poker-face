@@ -375,6 +375,12 @@ def refresh_table_roster(
         seats=new_seats,
         created_at=table.created_at,
         last_activity_at=now,
+        # Preserve the dealer-button position across the refresh.
+        # `get_dealer_index` self-heals when the seat at this index is
+        # no longer occupied (movement removed the AI), so we don't
+        # need to second-guess that here — passing the prior value
+        # through is the right default.
+        dealer_idx=table.dealer_idx,
     )
     return RosterRefreshResult(
         new_table=new_table,

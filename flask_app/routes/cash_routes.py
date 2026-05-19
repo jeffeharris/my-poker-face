@@ -1579,6 +1579,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 seats=new_seats,
                 created_at=table.created_at,
                 last_activity_at=table.last_activity_at,
+                dealer_idx=table.dealer_idx,
             )
             cash_table_repo.save_table(updated_table, now=now)
             logger.info(

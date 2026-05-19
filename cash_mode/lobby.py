@@ -61,15 +61,6 @@ from cash_mode.tables import (
 logger = logging.getLogger(__name__)
 
 
-# Dealer-button position per table — in-memory only. The button rotates
-# clockwise to the next occupied seat once per simulated hand in the
-# lobby's catch-up burst, which gives each table card a small "the world
-# is dealing right now" affordance without paying for a schema migration:
-# dealer state is purely cosmetic, so a reset on backend restart is fine
-# (the next /api/cash/lobby hit re-seeds it lazily).
-_dealer_indices: Dict[str, int] = {}
-
-
 def _next_occupied_seat(
     seats: List[Dict[str, Any]], start_after: int,
 ) -> Optional[int]:
@@ -89,44 +80,18 @@ def _next_occupied_seat(
 def get_dealer_index(table: CashTableState) -> Optional[int]:
     """Current dealer seat index for `table`, or `None` if all seats open.
 
-    Lazily initializes to the first occupied seat on first read and
-    self-heals when the cached index points to a now-open seat (an AI
-    left between refreshes — the button rolls forward).
+    Reads `table.dealer_idx` (schema v96+) and self-heals when that
+    points to a now-open seat (an AI left between refreshes — the
+    button rolls forward to the next occupied seat). The in-memory
+    mutation is a soft-correction for the read; the persistent value
+    isn't rewritten here, so the heal stays read-only until the next
+    refresh tick reseats the button via the engine path.
     """
-    cached = _dealer_indices.get(table.table_id)
     seats = table.seats
-    if (
-        cached is not None
-        and 0 <= cached < len(seats)
-        and seats[cached].get("kind") != "open"
-    ):
-        return cached
-    nxt = _next_occupied_seat(seats, start_after=-1)
-    if nxt is None:
-        _dealer_indices.pop(table.table_id, None)
-        return None
-    _dealer_indices[table.table_id] = nxt
-    return nxt
-
-
-def advance_dealer(table: CashTableState, steps: int = 1) -> None:
-    """Rotate the dealer button `steps` occupied seats clockwise.
-
-    Called per simulated hand in `refresh_unseated_tables` so the button
-    visibly walks the table over a burst. No-op when steps <= 0 or the
-    table is empty.
-    """
-    if steps <= 0:
-        return
-    current = get_dealer_index(table)
-    if current is None:
-        return
-    for _ in range(steps):
-        nxt = _next_occupied_seat(table.seats, start_after=current)
-        if nxt is None:
-            break
-        current = nxt
-    _dealer_indices[table.table_id] = current
+    idx = table.dealer_idx
+    if 0 <= idx < len(seats) and seats[idx].get("kind") != "open":
+        return idx
+    return _next_occupied_seat(seats, start_after=-1)
 
 
 def _table_id_for_stake(stake_label: str) -> str:
@@ -408,12 +373,15 @@ def refresh_unseated_tables(
             )
             if r.delta > 0:
                 table.seats = r.new_seats
-            # Pin the in-memory dealer to whoever just held the button.
-            # On a no-op hand (e.g. table dropped below 2 AIs mid-burst),
-            # `r.dealer_seat_idx` is None and we leave the cached value
-            # alone — the next refresh will re-seed via get_dealer_index.
+            # Persist the dealer position on the table state. The
+            # subsequent `cash_table_repo.save_table` writes it to the
+            # `cash_tables.dealer_idx` column (schema v96), so the
+            # rotation survives backend restart. On a no-op hand
+            # (table dropped below 2 AIs mid-burst), `dealer_seat_idx`
+            # is None — leave the prior value in place so we don't
+            # corrupt the position with a "no hand happened" marker.
             if r.dealer_seat_idx is not None:
-                _dealer_indices[table.table_id] = r.dealer_seat_idx
+                table.dealer_idx = r.dealer_seat_idx
             sim_results.append(r)
 
         result = refresh_table_roster(

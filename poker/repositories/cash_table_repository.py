@@ -93,34 +93,40 @@ class CashTableRepository(BaseRepository):
                 conn.execute(
                     """
                     UPDATE cash_tables
-                    SET stake_label = ?, seats_json = ?, last_activity_at = ?
+                    SET stake_label = ?, seats_json = ?, dealer_idx = ?,
+                        last_activity_at = ?
                     WHERE table_id = ?
                     """,
-                    (state.stake_label, seats_blob, now.isoformat(), state.table_id),
+                    (
+                        state.stake_label, seats_blob, int(state.dealer_idx),
+                        now.isoformat(), state.table_id,
+                    ),
                 )
             else:
                 if created_iso is None:
                     conn.execute(
                         """
                         INSERT INTO cash_tables
-                            (table_id, stake_label, seats_json, last_activity_at)
-                        VALUES (?, ?, ?, ?)
+                            (table_id, stake_label, seats_json, dealer_idx,
+                             last_activity_at)
+                        VALUES (?, ?, ?, ?, ?)
                         """,
-                        (state.table_id, state.stake_label, seats_blob, now.isoformat()),
+                        (
+                            state.table_id, state.stake_label, seats_blob,
+                            int(state.dealer_idx), now.isoformat(),
+                        ),
                     )
                 else:
                     conn.execute(
                         """
                         INSERT INTO cash_tables
-                            (table_id, stake_label, seats_json, created_at, last_activity_at)
-                        VALUES (?, ?, ?, ?, ?)
+                            (table_id, stake_label, seats_json, dealer_idx,
+                             created_at, last_activity_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            state.table_id,
-                            state.stake_label,
-                            seats_blob,
-                            created_iso,
-                            now.isoformat(),
+                            state.table_id, state.stake_label, seats_blob,
+                            int(state.dealer_idx), created_iso, now.isoformat(),
                         ),
                     )
 
@@ -129,7 +135,8 @@ class CashTableRepository(BaseRepository):
         with self._get_connection() as conn:
             row = conn.execute(
                 """
-                SELECT table_id, stake_label, seats_json, created_at, last_activity_at
+                SELECT table_id, stake_label, seats_json, dealer_idx,
+                       created_at, last_activity_at
                 FROM cash_tables
                 WHERE table_id = ?
                 """,
@@ -158,7 +165,8 @@ class CashTableRepository(BaseRepository):
         with self._get_connection() as conn:
             rows = conn.execute(
                 """
-                SELECT table_id, stake_label, seats_json, created_at, last_activity_at
+                SELECT table_id, stake_label, seats_json, dealer_idx,
+                       created_at, last_activity_at
                 FROM cash_tables
                 """,
             ).fetchall()
@@ -244,12 +252,20 @@ class CashTableRepository(BaseRepository):
 def _row_to_state(row) -> CashTableState:
     """Build a `CashTableState` from a `cash_tables` row."""
     seats = seats_from_json(row["seats_json"])
+    # `dealer_idx` was added in schema v96. The migration has DEFAULT 0
+    # so existing rows backfill cleanly; this guard handles any path
+    # where the row predates the migration in tests or partial restores.
+    try:
+        dealer_idx = int(row["dealer_idx"] or 0)
+    except (KeyError, IndexError):
+        dealer_idx = 0
     return CashTableState(
         table_id=row["table_id"],
         stake_label=row["stake_label"],
         seats=seats,
         created_at=_parse_timestamp(row["created_at"]),
         last_activity_at=_parse_timestamp(row["last_activity_at"]),
+        dealer_idx=dealer_idx,
     )
 
 

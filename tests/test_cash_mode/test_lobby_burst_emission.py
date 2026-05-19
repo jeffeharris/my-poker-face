@@ -237,46 +237,48 @@ class TestDealerRotationInBurst(unittest.TestCase):
     real engine order across a burst — one rotation per sim hand.
     This matters for seat-choice UX (UTG vs CO vs BTN positioning
     depends on the dealer location, not a cosmetic counter).
+
+    Storage is `CashTableState.dealer_idx` (schema v96+), persisted
+    via the `cash_tables.dealer_idx` column — see migration v96.
     """
 
-    def setUp(self):
-        from cash_mode.lobby import _dealer_indices
-        _dealer_indices.clear()
-
     def test_button_walks_one_seat_per_burst_hand(self):
-        from cash_mode.lobby import _dealer_indices, _next_occupied_seat
-        from cash_mode.tables import ai_slot, open_slot
+        from cash_mode.lobby import _next_occupied_seat
+        from cash_mode.tables import CashTableState, ai_slot, open_slot
 
         # Build a 4-AI table; track the button across 6 hands of burst.
-        seats = [
-            ai_slot(f"pid-{i}", 5_000) for i in range(4)
-        ] + [open_slot(), open_slot()]
+        table = CashTableState(
+            table_id="cash-table-2-001",
+            stake_label="$2",
+            seats=[ai_slot(f"pid-{i}", 5_000) for i in range(4)]
+            + [open_slot(), open_slot()],
+        )
 
         # Simulate the lobby's per-hand rotation by hand. We don't
         # need to run actual play_one_hand here — the unit under
         # test is "lobby advances the dealer in real engine order"
-        # which is fully captured by _next_occupied_seat.
-        table_id = "cash-table-2-001"
+        # which is fully captured by _next_occupied_seat plus the
+        # table.dealer_idx mutation.
         visited: List[int] = []
-        current: Optional[int] = None
         for _ in range(6):
-            current = _next_occupied_seat(
-                seats, start_after=current if current is not None else -1,
+            nxt = _next_occupied_seat(
+                table.seats, start_after=table.dealer_idx,
             )
-            assert current is not None
-            visited.append(current)
-            _dealer_indices[table_id] = current
+            assert nxt is not None
+            table.dealer_idx = nxt
+            visited.append(nxt)
 
-        # Across 4 occupied seats × 6 hands, the button should walk
-        # 0 -> 1 -> 2 -> 3 -> 0 -> 1 (wraps clockwise, skipping
+        # Starting at dealer_idx=0 (the default for a fresh table),
+        # _next_occupied_seat advances to 1 first. Six rotations:
+        # 1 -> 2 -> 3 -> 0 -> 1 -> 2 (wraps clockwise, skipping
         # open seats 4 and 5).
-        assert visited == [0, 1, 2, 3, 0, 1]
+        assert visited == [1, 2, 3, 0, 1, 2]
 
     def test_button_self_heals_when_dealer_seat_opens(self):
         """If an AI leaves the dealer seat between refreshes, the
         next get_dealer_index call should advance to the next
         occupied seat instead of pointing at an empty slot."""
-        from cash_mode.lobby import _dealer_indices, get_dealer_index
+        from cash_mode.lobby import get_dealer_index
         from cash_mode.tables import (
             CashTableState, ai_slot, open_slot,
         )
@@ -289,19 +291,55 @@ class TestDealerRotationInBurst(unittest.TestCase):
             open_slot(),
             open_slot(),
         ]
+        # Pin the button to seat 2, then "leave" — seat 2 becomes open.
         table = CashTableState(
             table_id="cash-table-2-001",
             stake_label="$2",
             seats=seats,
             created_at=datetime(2026, 5, 19, 12, 0, 0),
+            dealer_idx=2,
         )
-
-        # Pin the button to seat 2, then "leave" — seat 2 becomes open.
-        _dealer_indices[table.table_id] = 2
         table.seats[2] = open_slot()
 
         # Read should self-heal to the next occupied seat (which is
         # seat 3 since the cached one is no longer an AI).
         idx = get_dealer_index(table)
-        assert idx in {0, 1, 3}  # any remaining occupied seat is fine
+        assert idx in {0, 1, 3}
         assert table.seats[idx]["kind"] == "ai"
+
+
+class TestDealerIdxRoundTrip(unittest.TestCase):
+    """Pin the schema v96 round trip: dealer_idx written via save_table
+    surfaces back on the next load_table. The lobby relies on this so
+    the button position survives backend restart."""
+
+    def test_dealer_idx_persists_across_save_load(self):
+        import os
+        import tempfile
+
+        from cash_mode.tables import CashTableState, ai_slot, open_slot
+        from poker.repositories import create_repos
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        try:
+            repos = create_repos(db_path)
+            repo = repos["cash_table_repo"]
+
+            table = CashTableState(
+                table_id="cash-table-2-001",
+                stake_label="$2",
+                seats=[ai_slot(f"pid-{i}", 5_000) for i in range(4)]
+                + [open_slot(), open_slot()],
+                dealer_idx=3,
+            )
+            repo.save_table(table)
+
+            loaded = repo.load_table("cash-table-2-001")
+            assert loaded is not None
+            assert loaded.dealer_idx == 3
+        finally:
+            try:
+                os.unlink(db_path)
+            except FileNotFoundError:
+                pass

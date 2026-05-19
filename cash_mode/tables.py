@@ -79,6 +79,13 @@ class CashTableState:
     seats: List[Dict[str, Any]] = field(default_factory=list)
     created_at: Optional[datetime] = None
     last_activity_at: Optional[datetime] = None
+    # Seat index of the dealer button on this table. Rotates clockwise
+    # once per simulated hand (see cash_mode/full_sim.py). Persisted to
+    # the schema-v96 `cash_tables.dealer_idx` column so the rotation
+    # survives backend restart. Range [0, TABLE_SEAT_COUNT). Default 0
+    # matches the schema column's DEFAULT and the pre-v96 implicit
+    # behavior (first seat held the button on every refresh).
+    dealer_idx: int = 0
 
     def __post_init__(self) -> None:
         if not self.seats:

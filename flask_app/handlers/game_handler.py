@@ -935,6 +935,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         seats=synced_seats,
         created_at=table.created_at,
         last_activity_at=table.last_activity_at,
+        dealer_idx=table.dealer_idx,
     )
 
     # Pids in the persisted table after reconciliation, used below to
