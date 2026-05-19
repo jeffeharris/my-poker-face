@@ -460,6 +460,85 @@ class TestRefreshHumanSeatPreserved:
         assert result.decisions["napoleon"] == "forced_leave"
 
 
+class TestRefreshDeferFreshlyVacated:
+    """`defer_freshly_vacated_live_fill=True` makes a seat sit empty for
+    at least one refresh tick after its occupant leaves. Without this,
+    `_refresh_lobby_table_for_session` could vacate a slot (forced_leave
+    on a busted ghost) and immediately fill it with a different AI on
+    the same tick — the duplicate-seat bug.
+    """
+
+    def test_freshly_vacated_seat_not_filled_when_deferred(self):
+        # Napoleon busts this tick. Without defer he'd be replaced by
+        # zeus from the eligible pool; with defer, his seat stays open.
+        seats = [
+            ai_slot("napoleon", 0),   # busted → forced_leave
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        table = _make_table(seats)
+        # 1 movement roll (napoleon forced_leave is deterministic via
+        # chips=0, no roll consumed for that branch) + live-fill rolls
+        # for the open seats. With defer=True, seat 0 is excluded; with
+        # the others, force the first fill roll to fire.
+        rng = _force_rng([0.0] + [0.99] * 5)
+        result = refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[{"personality_id": "zeus", "name": "Zeus"}],
+            seated_globally={"napoleon"},
+            bankroll_lookup=_bankroll_lookup_factory({"zeus": 5000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 18, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            defer_freshly_vacated_live_fill=True,
+        )
+        # Napoleon's seat stays open this tick.
+        assert result.new_table.seats[0]["kind"] == "open"
+        # Zeus may have filled a *different* open seat (the first one
+        # the rng triggers on), but never seat 0.
+        for slot in result.new_table.seats:
+            if slot["kind"] == "ai":
+                assert slot["personality_id"] != "napoleon"
+
+    def test_freshly_vacated_seat_filled_when_not_deferred(self):
+        # Same setup, default behavior: napoleon vacates and the same
+        # seat may be filled by zeus on the same tick.
+        seats = [
+            ai_slot("napoleon", 0),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        table = _make_table(seats)
+        # First live-fill roll fires on seat 0 (napoleon's freshly
+        # vacated slot — not deferred).
+        rng = _force_rng([0.0] + [0.99] * 5)
+        result = refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[{"personality_id": "zeus", "name": "Zeus"}],
+            seated_globally={"napoleon"},
+            bankroll_lookup=_bankroll_lookup_factory({"zeus": 5000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 18, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+        )
+        assert result.new_table.seats[0]["kind"] == "ai"
+        assert result.new_table.seats[0]["personality_id"] == "zeus"
+
+
 class TestGlobalUniquenessInvariant:
     def test_one_personality_per_active_seat(self):
         """Hard invariant: a personality must not appear at two tables."""

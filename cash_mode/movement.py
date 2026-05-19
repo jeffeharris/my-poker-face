@@ -193,6 +193,7 @@ def refresh_table_roster(
     stake_up_prob: float = DEFAULT_STAKE_UP_PROB,
     take_break_prob: float = DEFAULT_TAKE_BREAK_PROB,
     bored_move_prob: float = DEFAULT_BORED_MOVE_PROB,
+    defer_freshly_vacated_live_fill: bool = False,
 ) -> RosterRefreshResult:
     """Apply movement decisions to a table's AI seats, then live-fill opens.
 
@@ -242,10 +243,17 @@ def refresh_table_roster(
 
       - If neither pool yields, the open seat stays open. That's fine
         — the next refresh tick rolls again.
+
+    When `defer_freshly_vacated_live_fill=True`, seats vacated in step 1
+    are skipped during step 2's live-fill pass. They stay open this
+    tick and become candidates on the next refresh — the "feels less
+    robotic" naturalism: a chair sits empty for at least one tick
+    before someone new sits down.
     """
     new_seats = list(table.seats)
     idle_changes: List[IdlePoolChange] = []
     decisions: Dict[str, MovementDecision] = {}
+    freshly_vacated: Set[int] = set()
 
     # Step 1: process AI seats.
     for i, slot in enumerate(new_seats):
@@ -271,6 +279,7 @@ def refresh_table_roster(
             continue
         # Vacate; record idle pool addition.
         new_seats[i] = open_slot()
+        freshly_vacated.add(i)
         seated_globally.discard(pid)
         target_stake = None
         if decision == "stake_up" and stake_idx + 1 < len(STAKES_ORDER):
@@ -288,7 +297,11 @@ def refresh_table_roster(
 
     # Step 2: live-fill open seats.
     freshly_seated: List[str] = []
-    open_indices = [i for i, s in enumerate(new_seats) if s["kind"] == "open"]
+    open_indices = [
+        i for i, s in enumerate(new_seats)
+        if s["kind"] == "open"
+        and not (defer_freshly_vacated_live_fill and i in freshly_vacated)
+    ]
 
     # Idle pool candidates (oldest first), filtered to those NOT
     # globally seated and whose `target_stake` allows this table.
