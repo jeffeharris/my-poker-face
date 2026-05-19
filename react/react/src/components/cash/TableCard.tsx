@@ -75,6 +75,8 @@ export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardPr
 
       <div className="lobby-table-card__roster">
         {table.seats.map((seat) => {
+          const isDealer =
+            table.dealer_index != null && seat.index === table.dealer_index;
           if (seat.kind === 'ai') {
             const title = seat.relationship_hint
               ? `${seat.name} — ${seat.relationship_hint} (${seat.emotion}). Click for dossier.`
@@ -113,6 +115,15 @@ export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardPr
                 onClick={handleClick}
                 aria-label={`Open dossier for ${seat.name}`}
               >
+                {isDealer && (
+                  <span
+                    className="lobby-table-card__dealer-button"
+                    title="Dealer button"
+                    aria-label="Dealer"
+                  >
+                    D
+                  </span>
+                )}
                 <div className="lobby-table-card__seat-image">
                   {(() => {
                     const src = absolutizeAvatarUrl(seat.avatar_url);
@@ -148,6 +159,15 @@ export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardPr
                 key={seat.index}
                 className="lobby-table-card__seat lobby-table-card__seat--human"
               >
+                {isDealer && (
+                  <span
+                    className="lobby-table-card__dealer-button"
+                    title="Dealer button"
+                    aria-label="Dealer"
+                  >
+                    D
+                  </span>
+                )}
                 <div className="lobby-table-card__seat-name">Seated</div>
                 <div className="lobby-table-card__seat-chips">
                   ${seat.chips.toLocaleString()}

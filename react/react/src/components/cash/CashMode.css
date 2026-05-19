@@ -367,7 +367,8 @@
 .lobby-table-card__seat {
   /* All seats are square portrait tiles. AI seats fill with an
      image; open/human seats use centered content. Aspect ratio
-     keeps the grid even across the 6 slots. */
+     keeps the grid even across the 6 slots. `position: relative`
+     so the dealer-button badge can absolute-position against it. */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -380,6 +381,32 @@
   aspect-ratio: 1 / 1;
   text-align: center;
   overflow: hidden;
+  position: relative;
+}
+
+/* Dealer-button badge — anchored to the seat's top-left. White disc
+   with a thin gold ring; the "D" sits centered. Sized so it reads at
+   the lobby card's small scale without crowding the avatar overlay. */
+.lobby-table-card__dealer-button {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #f8fafc;
+  color: #1f2937;
+  border: 1.5px solid #e2bf6f;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
 }
 
 /* AI seat = full-card portrait with text overlay at the bottom.
@@ -584,7 +611,7 @@
 
 .lobby-ticker__item {
   display: grid;
-  grid-template-columns: 8px 1fr auto;
+  grid-template-columns: 14px 1fr auto;
   align-items: baseline;
   gap: 0.5rem;
   padding: 0.2rem 0;
@@ -597,7 +624,15 @@
   height: 6px;
   border-radius: 50%;
   align-self: center;
+  justify-self: center;
   background: rgba(255, 255, 255, 0.4);
+}
+
+.lobby-ticker__icon {
+  align-self: center;
+  justify-self: center;
+  color: #fcd34d;
+  filter: drop-shadow(0 0 4px rgba(252, 211, 77, 0.4));
 }
 
 /* Colour-code event types. The chip events (big_win/big_loss) get

@@ -152,6 +152,11 @@ export interface LobbyTable {
   max_buy_in: number;
   affordability: AffordabilityState;
   seats: LobbySeat[];
+  /** Seat index of the dealer button on this table. Rotates clockwise
+   *  with each simulated hand in the lobby. `null` when the table has
+   *  no occupied seats. Server-side state is in-memory only — purely
+   *  cosmetic, expect it to reseed after a backend restart. */
+  dealer_index?: number | null;
 }
 
 /** One lobby movement event surfaced to the activity ticker.

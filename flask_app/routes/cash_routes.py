@@ -1746,7 +1746,7 @@ def get_lobby():
     )
     from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
     from flask_app.services import game_state_service
-    from cash_mode.lobby import refresh_unseated_tables
+    from cash_mode.lobby import get_dealer_index, refresh_unseated_tables
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
 
@@ -1861,6 +1861,7 @@ def get_lobby():
             "max_buy_in": max_buy_in,
             "affordability": affordability,
             "seats": serialized_seats,
+            "dealer_index": get_dealer_index(table),
         })
 
     from cash_mode.activity import recent_events, serialize_event
