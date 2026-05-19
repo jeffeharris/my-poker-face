@@ -34,7 +34,7 @@ setup is the load-bearing variable, not a "pure optimization."
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import Callable, Generic, TypeVar
+from typing import Callable, Generic, Tuple, TypeVar
 
 
 DEFAULT_MAX_SIZE = 50
@@ -93,11 +93,31 @@ class LruControllerCache(Generic[T]):
         on miss. Hits promote the entry to MRU; misses insert the new
         value and evict the LRU entry if the cache is over capacity.
         """
+        value, _was_miss = self.get_or_create_tracked(personality_id, factory)
+        return value
+
+    def get_or_create_tracked(
+        self,
+        personality_id: str,
+        factory: Callable[[], T],
+    ) -> Tuple[T, bool]:
+        """Same as `get_or_create`, but additionally returns whether
+        this was a cache miss.
+
+        The full-sim path uses the miss signal to drive its hydrate-
+        on-miss discipline: a freshly-built controller reads any
+        persisted emotional state from the bankroll repo and applies
+        it before the hand starts. Hits skip hydration — the live
+        state on the cached controller is already up-to-date.
+
+        Returns `(value, was_miss)`. `was_miss=True` means `factory`
+        was called; `was_miss=False` means the value came from cache.
+        """
         existing = self._items.get(personality_id)
         if existing is not None:
             # Promote to MRU.
             self._items.move_to_end(personality_id)
-            return existing
+            return existing, False
 
         value = factory()
         self._items[personality_id] = value
@@ -106,7 +126,7 @@ class LruControllerCache(Generic[T]):
         # iterations; using `while` keeps the invariant local to read.
         while len(self._items) > self._max_size:
             self._items.popitem(last=False)
-        return value
+        return value, True
 
     def clear(self) -> None:
         """Drop all entries. For tests and shutdown."""

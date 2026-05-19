@@ -26,11 +26,12 @@ cached controller path used here.
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 import threading
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from cash_mode.controller_cache import LruControllerCache
 from cash_mode.fake_sim import (
@@ -129,6 +130,19 @@ def _default_name_for(pid: str) -> str:
 # 200 is a defensive ceiling that catches stuck-loop bugs without
 # truncating any legitimate hand.
 _MAX_ACTIONS_PER_HAND = 200
+
+# Periodic psychology flush. Every N sim hands per AI we serialize
+# `controller.psychology` to `ai_bankroll_state.emotional_state_json`
+# so state survives backend restart and LRU eviction. N=10 caps the
+# loss window at ~10 hands × ~3 min per hand ≈ <30 min of tilt for
+# an AI that gets evicted before its next scheduled flush — small
+# enough that stale tilt isn't a UX hazard.
+PSYCHOLOGY_FLUSH_EVERY_HANDS = 10
+
+# Per-controller attribute name used to track flush cadence. Stored
+# on the controller object itself so it stays paired with the live
+# state and doesn't need a parallel dict keyed by personality_id.
+_SIM_HAND_COUNTER_ATTR = "_full_sim_hand_count"
 
 
 @dataclass(frozen=True)
@@ -264,6 +278,111 @@ def _build_controller(
     )
 
 
+def _hydrate_psychology(controller, personality_id: str, bankroll_repo) -> None:
+    """Apply persisted emotional state to a freshly-built controller.
+
+    Reads `ai_bankroll_state.emotional_state_json` (schema v97) and
+    deserializes via `PlayerPsychology.from_dict`. No-op when:
+      - `bankroll_repo` is None (test paths that don't care)
+      - the column is NULL (AI has never been touched by sim before)
+      - the JSON fails to parse (logged + skipped; controller stays
+        at fresh defaults — surfacing the error would block hands
+        on a column we can rewrite from the next flush)
+
+    The controller's `psychology` attribute is replaced in-place,
+    not its underlying class. Anchors carry over via the
+    `personality_config` arg to `from_dict`.
+    """
+    if bankroll_repo is None:
+        return
+    try:
+        blob = bankroll_repo.load_emotional_state_json(personality_id)
+    except Exception as exc:  # noqa: BLE001 — repo is best-effort here
+        logger.debug(
+            f"[FULL_SIM] {personality_id}: load_emotional_state_json failed: {exc}"
+        )
+        return
+    if not blob:
+        return
+    try:
+        state_dict = json.loads(blob)
+    except (json.JSONDecodeError, TypeError) as exc:
+        logger.warning(
+            f"[FULL_SIM] {personality_id}: emotional_state_json malformed "
+            f"({exc}); using fresh defaults"
+        )
+        return
+    if controller.psychology is None:
+        return
+    try:
+        from poker.player_psychology import PlayerPsychology
+
+        personality_config = getattr(
+            controller.ai_player, "personality_config", {}
+        )
+        controller.psychology = PlayerPsychology.from_dict(
+            state_dict, personality_config,
+        )
+    except Exception as exc:  # noqa: BLE001 — psychology is best-effort
+        logger.warning(
+            f"[FULL_SIM] {personality_id}: PlayerPsychology.from_dict failed "
+            f"({exc}); using fresh defaults"
+        )
+
+
+def _serialize_psychology(controller) -> Optional[str]:
+    """Return the controller's psychology as a JSON blob, or None.
+
+    Returns None if the controller has no psychology attached (some
+    test stubs or partial builds). Wrapped to_dict / json.dumps so a
+    serialization quirk on one field doesn't poison the rest.
+    """
+    psych = getattr(controller, "psychology", None)
+    if psych is None:
+        return None
+    try:
+        return json.dumps(psych.to_dict())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            f"[FULL_SIM] _serialize_psychology failed: {exc}"
+        )
+        return None
+
+
+def _flush_psychology(controller, personality_id: str, bankroll_repo) -> None:
+    """Write the controller's current emotional state to the repo.
+
+    Called by the periodic flush cadence and (in a future commit) on
+    cache eviction. Best-effort: a repo error logs at debug and
+    returns — the next flush will retry. State loss is bounded by
+    the flush cadence (PSYCHOLOGY_FLUSH_EVERY_HANDS).
+    """
+    if bankroll_repo is None:
+        return
+    blob = _serialize_psychology(controller)
+    if blob is None:
+        return
+    try:
+        bankroll_repo.save_emotional_state_json(personality_id, blob)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            f"[FULL_SIM] {personality_id}: save_emotional_state_json failed: {exc}"
+        )
+
+
+def _maybe_flush_psychology(
+    controller, personality_id: str, bankroll_repo,
+) -> None:
+    """Increment the per-controller sim-hand counter and flush every
+    PSYCHOLOGY_FLUSH_EVERY_HANDS hands."""
+    if bankroll_repo is None:
+        return
+    count = getattr(controller, _SIM_HAND_COUNTER_ATTR, 0) + 1
+    setattr(controller, _SIM_HAND_COUNTER_ATTR, count)
+    if count % PSYCHOLOGY_FLUSH_EVERY_HANDS == 0:
+        _flush_psychology(controller, personality_id, bankroll_repo)
+
+
 def _ai_seat_indices(seats: List[dict]) -> List[int]:
     return [
         i for i, s in enumerate(seats)
@@ -281,6 +400,7 @@ def play_one_hand(
     name_for: Callable[[str], str] = _default_name_for,
     controller_cache: Optional[LruControllerCache] = None,
     starting_dealer_seat_idx: Optional[int] = None,
+    bankroll_repo: Optional[Any] = None,
 ) -> HandSimResult:
     """Run one AI-only hand at the given cash-mode table.
 
@@ -306,6 +426,13 @@ def play_one_hand(
     when the index points at a seat that's no longer an AI, the
     engine defaults to the first seated AI as dealer. The result's
     `dealer_seat_idx` reports who actually held the button.
+
+    `bankroll_repo`, when provided, drives psychology persistence:
+    cache-miss controllers hydrate from `emotional_state_json` (per
+    schema v97), and every PSYCHOLOGY_FLUSH_EVERY_HANDS hands the
+    controller's live state is flushed back. Pass None in tests
+    that don't care about cross-call state; production (the lobby
+    refresh loop) wires this to the repo it already has in scope.
 
     Pure-ish: no DB writes, no SocketIO, no LLM. The state machine
     runs with `record_snapshots=False` so the snapshots tuple
@@ -344,6 +471,7 @@ def play_one_hand(
             name_for=name_for,
             controller_cache=controller_cache,
             starting_dealer_seat_idx=starting_dealer_seat_idx,
+            bankroll_repo=bankroll_repo,
         )
     finally:
         random.setstate(_saved_global_random_state)
@@ -359,6 +487,7 @@ def _play_one_hand_inner(
     name_for: Callable[[str], str],
     controller_cache: LruControllerCache,
     starting_dealer_seat_idx: Optional[int],
+    bankroll_repo: Optional[Any],
 ) -> HandSimResult:
     """Body of play_one_hand, run inside the hermetic random snapshot.
 
@@ -409,10 +538,17 @@ def _play_one_hand_inner(
     # the same outcome regardless of cache warmth. Without this,
     # cached controllers' internal rng state leaks across hands and
     # makes outcomes depend on cache hit order.
+    #
+    # Cache misses additionally hydrate the controller's psychology
+    # from `ai_bankroll_state.emotional_state_json` (schema v97) so
+    # tilt / confidence carry across backend restarts and LRU
+    # evictions. Hits skip hydration — the live state already
+    # reflects the most recent flush.
     controllers: Dict[str, object] = {}
+    cache_misses: List[Tuple[str, object]] = []
     for player in players:
         pid = seat_pid_by_name[player.name]
-        ctrl = controller_cache.get_or_create(
+        ctrl, was_miss = controller_cache.get_or_create_tracked(
             pid,
             lambda pid_local=pid, name_local=player.name: _build_controller(
                 personality_id=pid_local,
@@ -420,9 +556,16 @@ def _play_one_hand_inner(
                 state_machine=sm,
             ),
         )
+        if was_miss:
+            cache_misses.append((pid, ctrl))
         ctrl.state_machine = sm
         ctrl.rng = random.Random(rng.randrange(2**32))
         controllers[player.name] = ctrl
+
+    # Hydrate psychology AFTER all controllers are built — keeps the
+    # repo I/O in one cluster rather than interleaved with construction.
+    for pid, ctrl in cache_misses:
+        _hydrate_psychology(ctrl, pid, bankroll_repo)
 
     # Snapshot starting chips per pid so we can compute deltas.
     starting_chips: Dict[str, int] = {
@@ -430,6 +573,15 @@ def _play_one_hand_inner(
     }
 
     _run_hand(sm, controllers)
+
+    # Periodic psychology flush. Increment the per-controller hand
+    # counter; every PSYCHOLOGY_FLUSH_EVERY_HANDS hands we serialize
+    # state back to the repo so it survives backend restart + LRU
+    # eviction. Skipped silently when bankroll_repo is None.
+    for player in players:
+        pid = seat_pid_by_name[player.name]
+        ctrl = controllers[player.name]
+        _maybe_flush_psychology(ctrl, pid, bankroll_repo)
 
     # Awards already applied by _run_hand. Read final stacks.
     final_chips: Dict[str, int] = {

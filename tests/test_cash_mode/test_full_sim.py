@@ -371,6 +371,151 @@ class TestHandBurstCount:
         assert result == 0
 
 
+class TestPsychologyPersistence:
+    """Full-sim Commit 3 discipline: psychology hydrates from
+    `ai_bankroll_state.emotional_state_json` on cache miss, and
+    flushes back every PSYCHOLOGY_FLUSH_EVERY_HANDS hands so state
+    survives backend restart + LRU eviction.
+
+    These tests stub the bankroll_repo with a MagicMock so we can
+    assert on the read/write calls without standing up a tempdb.
+    """
+
+    def test_cache_miss_calls_load_emotional_state_json(self, warm_cache):
+        from unittest.mock import MagicMock
+
+        seats = _build_seats(5000, 4)
+        repo = MagicMock()
+        repo.load_emotional_state_json.return_value = None
+
+        # Fresh cache so every seat misses.
+        fresh_cache = LruControllerCache(max_size=10)
+        play_one_hand(
+            seats, big_blind=100, rng=random.Random(0),
+            name_for=_identity_name_for, controller_cache=fresh_cache,
+            bankroll_repo=repo,
+        )
+        # All four seated AIs are cache misses → one load per pid.
+        loaded_pids = {
+            call.args[0] for call in repo.load_emotional_state_json.call_args_list
+        }
+        assert loaded_pids == set(PERSONALITIES[:4])
+
+    def test_cache_hit_skips_hydrate(self, warm_cache):
+        """A second call with the same cache must NOT re-load — the
+        live state on the cached controller is authoritative."""
+        from unittest.mock import MagicMock
+
+        seats = _build_seats(5000, 4)
+        repo = MagicMock()
+        repo.load_emotional_state_json.return_value = None
+
+        cache = LruControllerCache(max_size=10)
+        # First call: all 4 misses → 4 loads.
+        play_one_hand(
+            seats, big_blind=100, rng=random.Random(0),
+            name_for=_identity_name_for, controller_cache=cache,
+            bankroll_repo=repo,
+        )
+        first_loads = repo.load_emotional_state_json.call_count
+
+        # Second call: all 4 hits → 0 additional loads.
+        play_one_hand(
+            seats, big_blind=100, rng=random.Random(1),
+            name_for=_identity_name_for, controller_cache=cache,
+            bankroll_repo=repo,
+        )
+        second_loads = repo.load_emotional_state_json.call_count
+        assert second_loads == first_loads
+
+    def test_periodic_flush_at_threshold(self):
+        """Every PSYCHOLOGY_FLUSH_EVERY_HANDS hands per AI, the
+        controller's psychology should be flushed back to the repo."""
+        from unittest.mock import MagicMock
+
+        from cash_mode.full_sim import PSYCHOLOGY_FLUSH_EVERY_HANDS
+
+        seats = _build_seats(5000, 4)
+        repo = MagicMock()
+        repo.load_emotional_state_json.return_value = None
+
+        cache = LruControllerCache(max_size=10)
+        for hand_i in range(PSYCHOLOGY_FLUSH_EVERY_HANDS):
+            play_one_hand(
+                seats, big_blind=100, rng=random.Random(hand_i),
+                name_for=_identity_name_for, controller_cache=cache,
+                bankroll_repo=repo,
+            )
+
+        # Hand N (counting from 1) is the flush trigger. After
+        # exactly N hands, every AI should have been flushed once.
+        flushed_pids = {
+            call.args[0] for call in repo.save_emotional_state_json.call_args_list
+        }
+        assert flushed_pids == set(PERSONALITIES[:4])
+
+    def test_no_flush_before_threshold(self):
+        from unittest.mock import MagicMock
+
+        from cash_mode.full_sim import PSYCHOLOGY_FLUSH_EVERY_HANDS
+
+        seats = _build_seats(5000, 4)
+        repo = MagicMock()
+        repo.load_emotional_state_json.return_value = None
+
+        cache = LruControllerCache(max_size=10)
+        # Run one fewer hand than the flush threshold.
+        for hand_i in range(PSYCHOLOGY_FLUSH_EVERY_HANDS - 1):
+            play_one_hand(
+                seats, big_blind=100, rng=random.Random(hand_i),
+                name_for=_identity_name_for, controller_cache=cache,
+                bankroll_repo=repo,
+            )
+        assert repo.save_emotional_state_json.call_count == 0
+
+    def test_no_bankroll_repo_means_no_persistence(self, warm_cache):
+        """When bankroll_repo is None (test paths), no repo calls
+        happen — the controller stays at whatever state the cache
+        has but nothing persists across calls."""
+        seats = _build_seats(5000, 4)
+        cache = LruControllerCache(max_size=10)
+        # Without a repo, this must not raise. There's no positive
+        # assertion to make here — just that the absence of a repo
+        # is handled gracefully throughout the call.
+        result = play_one_hand(
+            seats, big_blind=100, rng=random.Random(0),
+            name_for=_identity_name_for, controller_cache=cache,
+        )
+        assert result is not None
+
+    def test_hydrate_applies_persisted_state_on_miss(self, warm_cache):
+        """Verify the hydrate path reaches PlayerPsychology.from_dict
+        when the repo returns a valid JSON blob."""
+        from unittest.mock import MagicMock, patch
+
+        seats = _build_seats(5000, 4)
+        # A realistic-enough state dict — actual schema doesn't
+        # matter here; we're checking the wiring, and PlayerPsychology
+        # is patched.
+        repo = MagicMock()
+        repo.load_emotional_state_json.side_effect = lambda pid: (
+            '{"axes": {}}' if pid == "Napoleon" else None
+        )
+
+        cache = LruControllerCache(max_size=10)
+        with patch(
+            "poker.player_psychology.PlayerPsychology.from_dict"
+        ) as mock_from_dict:
+            mock_from_dict.return_value = MagicMock()
+            play_one_hand(
+                seats, big_blind=100, rng=random.Random(0),
+                name_for=_identity_name_for, controller_cache=cache,
+                bankroll_repo=repo,
+            )
+        # Only Napoleon had a JSON blob → from_dict called once.
+        assert mock_from_dict.call_count == 1
+
+
 class TestHandEventDataclass:
     """Lock the HandEvent / ShowdownHand shape that Commit 4 relies on."""
 

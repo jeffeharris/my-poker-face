@@ -370,6 +370,7 @@ def refresh_unseated_tables(
                 rng=rng,
                 name_for=_name_for_personality(personality_repo),
                 starting_dealer_seat_idx=next_dealer,
+                bankroll_repo=bankroll_repo,
             )
             if r.delta > 0:
                 table.seats = r.new_seats
