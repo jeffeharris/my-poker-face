@@ -90,14 +90,16 @@ def _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, now)
     return data
 
 
-def test_lobby_seed_drift_pin(repos):
-    """Pins the current behavior: drift shifts by `-cash_table_seats_ai`
-    when ensure_lobby_seeded creates fresh tables.
+def test_lobby_seed_preserves_drift(repos):
+    """`ensure_lobby_seeded` must leave the audit drift unchanged.
 
-    Once lobby seeding moves chips off the AI bankroll (or the audit
-    dedupes against active seats), this test will fail with drift
-    closer to zero — at which point the assertion should be tightened
-    to `drift_after == drift_before`.
+    Lobby seeding moves chips from AI bankrolls to fresh table seats
+    via `BankrollChange` (lobby-seed leak fix, commit f04e048b). Both
+    sides — `ai_bankrolls_stored` and `cash_table_seats_ai` — are
+    counted in `actual_outstanding`, so the seed is a pure transfer
+    that shouldn't shift drift. This test was previously named
+    `test_lobby_seed_drift_pin` and pinned the buggy pre-fix behavior;
+    tightened to `drift_after == drift_before` once the fix landed.
     """
     db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, personality_repo = repos
     now = datetime(2026, 5, 18, 12, 0, 0)
@@ -136,14 +138,13 @@ def test_lobby_seed_drift_pin(repos):
     seats_chips = after['actual_totals']['cash_table_seats_ai']
     assert seats_chips > 0, "lobby seed should have placed at least one AI seat"
 
-    # Pinned behavior: drift shifts down by exactly the seat-chip total.
-    # AI bankrolls weren't debited (per ensure_lobby_seeded's docstring),
-    # so the seat chips are phantom additions to actual_outstanding.
-    assert after['drift'] == before['drift'] - seats_chips, (
-        f"drift shift ({before['drift'] - after['drift']}) should equal "
-        f"cash_table_seats_ai ({seats_chips}); if this fails because they're "
-        "now equal (drift unchanged), great — lobby seeding has been fixed; "
-        "tighten the assertion to drift_after == drift_before"
+    # Post-fix: bankroll debits cancel the seat-chip credits, so drift
+    # is unchanged across the seed pass. Any non-zero shift means a
+    # bankroll → seat transfer skipped its debit and the leak is back.
+    assert after['drift'] == before['drift'], (
+        f"drift shifted by {after['drift'] - before['drift']} during lobby "
+        f"seed (expected 0); cash_table_seats_ai={seats_chips} chips were "
+        "credited to seats — were they correctly debited from AI bankrolls?"
     )
 
 
