@@ -137,21 +137,24 @@ def ensure_lobby_seeded(
     `now` defaults to `datetime.utcnow()`. Explicit `now` is useful in
     tests to pin the projection clock.
 
-    AI bankrolls are NOT debited at seed time — chips for the AI seats
-    are *placeholder* values that represent the AI's intended table
-    stack. The real debit happens at sit-down (`_build_cash_game`
-    debits each seated AI's persistent bankroll for `ai_buy_in`).
-    That way, re-seeding (idempotent boot pass) doesn't double-spend
-    AI bankrolls.
+    AI bankrolls ARE debited at seed time — `debit_bankroll_for_seat`
+    pulls `ai_buy_in` chips from each AI's bankroll into the seat,
+    keeping the chip-ledger audit's `actual_outstanding` invariant
+    intact (chips move from `ai_bankrolls_stored` to
+    `cash_table_seats_ai`, total unchanged, no ledger entry needed
+    because it's a pure transfer between two non-bank pools).
 
-    Side effect on chip-ledger audit (v0): because the AI bankrolls
-    are intact AND the seat chips are counted by `cash_table_seats_ai`,
-    the audit double-counts the placeholder amount and reports
-    `drift = -cash_table_seats_ai` after a fresh seed. This is a known
-    v0 limitation pinned by `tests/test_chip_ledger_lobby_seed.py`.
-    Fix path: either debit AI bankrolls at seed time (a pure transfer,
-    no ledger event needed) and credit back on table removal, or
-    teach the audit to dedupe table seats against AI bankrolls.
+    Idempotent boot pass: this function only debits when seating a
+    NEW AI into a freshly-created table. Existing tables are
+    preserved unchanged, so re-running ensure_lobby_seeded on a
+    second boot doesn't double-debit. Tables created in this pass
+    are recorded in `out_tables` so the boot hook can log them.
+
+    Symmetric credit: when an AI leaves a seat (movement decision
+    via `refresh_table_roster`), the corresponding `BankrollChange`
+    of direction `from_seat` returns those chips to the bankroll
+    via `credit_ai_cash_out`, which handles cap-clamp + ledger
+    entries for any overflow.
     """
     if now is None:
         now = datetime.utcnow()
@@ -226,6 +229,15 @@ def ensure_lobby_seeded(
             seats[seat_position] = ai_slot(pid, ai_buy_in)
             seated_globally.add(pid)
             filled += 1
+            # Debit the AI's bankroll to fund their initial seat
+            # chips. Without this debit the chip-ledger audit
+            # double-counts (the comment above this loop explained the
+            # original placeholder semantics). Pure transfer, no
+            # ledger entry — `ai_bankrolls_stored` and
+            # `cash_table_seats_ai` move in opposite directions by
+            # `ai_buy_in`, preserving `actual_outstanding`.
+            from cash_mode.bankroll import debit_bankroll_for_seat
+            debit_bankroll_for_seat(bankroll_repo, pid, ai_buy_in)
             logger.info(
                 "[CASH][LOBBY] seed %s: seated %r at seat %d chips=%d",
                 stake_label, pid, seat_position, ai_buy_in,
@@ -268,6 +280,7 @@ def refresh_unseated_tables(
     user_id: Optional[str] = None,
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
     hand_sim_prob: float = DEFAULT_HAND_SIM_PROB,
+    chip_ledger_repo=None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -413,6 +426,34 @@ def refresh_unseated_tables(
                 cash_table_repo.save_idle(change.entry)
             elif change.kind == "remove":
                 cash_table_repo.delete_idle(change.personality_id)
+
+        # Apply bankroll ↔ seat transfers (closes the v1.5 lobby-seed
+        # leak: live-fill used to mint chips on new seats without
+        # deducting from the AI's bankroll). `to_seat` is a pure
+        # transfer (no ledger entry); `from_seat` goes through
+        # `credit_ai_cash_out` so regen commits and cap-clamp overflow
+        # fires a ledger entry.
+        from cash_mode.bankroll import (
+            credit_ai_cash_out,
+            debit_bankroll_for_seat,
+        )
+        for bc in result.bankroll_changes:
+            if bc.direction == "to_seat":
+                debit_bankroll_for_seat(
+                    bankroll_repo, bc.personality_id, bc.amount,
+                )
+            elif bc.direction == "from_seat":
+                credit_ai_cash_out(
+                    bankroll_repo,
+                    bc.personality_id,
+                    bc.amount,
+                    now=now,
+                    chip_ledger_repo=chip_ledger_repo,
+                    ledger_context={
+                        "site": "refresh_table_roster_vacate",
+                        "table_id": result.new_table.table_id,
+                    },
+                )
 
         # Emit lobby activity events from the refresh result.
         # `decisions` covers AIs that were on the table at the start

@@ -257,3 +257,49 @@ def credit_ai_cash_out(
         personality_id, player_stack, projected, new_chips, knobs.bankroll_cap,
     )
     return new_state
+
+
+def debit_bankroll_for_seat(
+    bankroll_repo,
+    personality_id: str,
+    amount: int,
+) -> Optional[AIBankrollState]:
+    """Pure transfer: move chips from an AI's bankroll to a cash table seat.
+
+    No ledger entry — `ai_bankrolls_stored` decreases and
+    `cash_table_seats_ai` increases by the same amount, so the audit's
+    `actual_outstanding` is preserved. Symmetric pair to the
+    seat → bankroll credit path which goes through `credit_ai_cash_out`
+    (which DOES write ledger entries, because it commits regen and may
+    cap-clamp).
+
+    Preserves `last_regen_tick` — doesn't commit any pending regen at
+    debit time. Uncommitted regen catches up at the next credit-side
+    write or read.
+
+    Called when:
+      - Lobby seed fills a fresh AI seat at boot.
+      - `refresh_table_roster`'s live-fill step seats an AI from the
+        idle pool or eligible-never-seated pool.
+
+    Defensively clamps the new stored chip count at 0 — bankroll
+    eligibility checks (`bankroll_lookup` callbacks in
+    refresh_table_roster) should keep this from ever firing, but a
+    negative bankroll would silently break the audit invariant.
+    Returns the persisted state or None if no row exists.
+    """
+    stored = bankroll_repo.load_ai_bankroll(personality_id)
+    if stored is None:
+        logger.warning(
+            "[CASH] seat debit skipped — no bankroll row for %r",
+            personality_id,
+        )
+        return None
+    new_chips = max(0, stored.chips - amount)
+    new_state = AIBankrollState(
+        personality_id=personality_id,
+        chips=new_chips,
+        last_regen_tick=stored.last_regen_tick,
+    )
+    bankroll_repo.save_ai_bankroll(new_state)
+    return new_state

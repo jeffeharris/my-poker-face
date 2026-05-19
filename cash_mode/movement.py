@@ -142,6 +142,29 @@ class IdlePoolChange:
 
 
 @dataclass
+class BankrollChange:
+    """Describe a chip transfer between an AI's bankroll and a cash
+    table seat. Captured during refresh_table_roster (which is pure)
+    so the caller can persist the transfer in the right order.
+
+    `direction` is `'to_seat'` (chips leaving the AI's bankroll for a
+    newly-filled seat — pure transfer, no ledger entry) or
+    `'from_seat'` (chips returning from a vacated seat — goes through
+    `credit_ai_cash_out` so regen commits and cap-clamp overflow
+    fires a ledger entry).
+
+    Without these explicit transfers, the chip-ledger audit double-
+    counts seat chips against AI bankrolls and reports a growing drift
+    (~675 chips per lobby tick under full sim, per the v0 ledger
+    diagnostic).
+    """
+
+    direction: str  # 'to_seat' | 'from_seat'
+    personality_id: str
+    amount: int
+
+
+@dataclass
 class RosterRefreshResult:
     """Bundle the outputs of a refresh pass.
 
@@ -152,6 +175,10 @@ class RosterRefreshResult:
     AIs newly added to the table; the caller can use it to update the
     global "seated_globally" set if it tracks one.
 
+    `bankroll_changes` is the seat-side chip transfers the caller must
+    apply to keep the audit's `actual_outstanding` invariant. See
+    `BankrollChange` for the directions.
+
     `decisions` is keyed by personality_id for the AIs that were on
     the table at the start of the refresh, with their MovementDecision.
     Useful for tests and logs.
@@ -160,6 +187,7 @@ class RosterRefreshResult:
     new_table: CashTableState
     idle_changes: List[IdlePoolChange] = field(default_factory=list)
     freshly_seated_personality_ids: List[str] = field(default_factory=list)
+    bankroll_changes: List[BankrollChange] = field(default_factory=list)
     decisions: Dict[str, MovementDecision] = field(default_factory=dict)
 
 
@@ -252,6 +280,7 @@ def refresh_table_roster(
     """
     new_seats = list(table.seats)
     idle_changes: List[IdlePoolChange] = []
+    bankroll_changes: List[BankrollChange] = []
     decisions: Dict[str, MovementDecision] = {}
     freshly_vacated: Set[int] = set()
 
@@ -277,7 +306,18 @@ def refresh_table_roster(
         decisions[pid] = decision
         if decision == "stay":
             continue
-        # Vacate; record idle pool addition.
+        # Vacate; record idle pool addition + bankroll credit.
+        # The seat's chips return to the AI's bankroll (subject to
+        # cap-clamp on the credit side — handled by the caller via
+        # `credit_ai_cash_out`, which records the cap_clamp ledger
+        # entry for any overflow).
+        seat_chips = int(slot.get("chips", 0))
+        if seat_chips > 0:
+            bankroll_changes.append(BankrollChange(
+                direction="from_seat",
+                personality_id=pid,
+                amount=seat_chips,
+            ))
         new_seats[i] = open_slot()
         freshly_vacated.add(i)
         seated_globally.discard(pid)
@@ -363,6 +403,14 @@ def refresh_table_roster(
         new_seats[seat_idx_local] = ai_slot(pid, buy_in)
         seated_globally.add(pid)
         freshly_seated.append(pid)
+        # Pure transfer: AI's bankroll funds the new seat's chips.
+        # Without this, live-fill creates chips from nowhere (the leak
+        # the chip-ledger audit was catching at ~675 chips/tick).
+        bankroll_changes.append(BankrollChange(
+            direction="to_seat",
+            personality_id=pid,
+            amount=buy_in,
+        ))
         if source == "idle":
             idle_changes.append(IdlePoolChange(
                 kind="remove",
@@ -386,5 +434,6 @@ def refresh_table_roster(
         new_table=new_table,
         idle_changes=idle_changes,
         freshly_seated_personality_ids=freshly_seated,
+        bankroll_changes=bankroll_changes,
         decisions=decisions,
     )

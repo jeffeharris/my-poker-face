@@ -1694,12 +1694,14 @@ def _leave_table_locked(owner_id: str, game_id: str):
             # state (e.g., an AI who won big can now stake_up).
             try:
                 from cash_mode.lobby import refresh_unseated_tables
+                from flask_app.extensions import chip_ledger_repo
                 refresh_unseated_tables(
                     cash_table_repo=cash_table_repo,
                     personality_repo=personality_repo,
                     bankroll_repo=bankroll_repo,
                     user_id=owner_id,
                     now=now,
+                    chip_ledger_repo=chip_ledger_repo,
                 )
             except Exception as e:
                 logger.warning(
@@ -1900,11 +1902,13 @@ def get_lobby():
     # Read-side movement refresh on unseated tables. The handoff
     # documents this as intentional: lazy cadence vs. background ticker.
     try:
+        from flask_app.extensions import chip_ledger_repo
         refresh_unseated_tables(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
             user_id=owner_id,
+            chip_ledger_repo=chip_ledger_repo,
         )
     except Exception as e:
         logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)
