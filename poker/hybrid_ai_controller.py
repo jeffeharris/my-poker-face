@@ -322,6 +322,11 @@ class HybridAIController(AIPlayerController):
             'pot_total': pot_total,
             'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
             'cost_to_call': cost_to_call,
+            # Mirror under the key `_analyze_decision` reads (controllers.py:
+            # `context.get('call_amount', 0)`). Without this, the analyzer
+            # stored 0 for every hybrid decision, marking preflop folds
+            # facing a BB as "check would have been optimal" mistakes.
+            'call_amount': cost_to_call,
             'already_bet': player.bet,
             'highest_bet': game_state.highest_bet,
             'min_raise': min_raise_to,
