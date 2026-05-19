@@ -158,14 +158,17 @@ export interface LobbyTable {
  *  Sourced from `cash_mode/activity.py` in-memory ring buffer; reset
  *  on backend restart. `message` is the display string. */
 export interface LobbyEvent {
-  type: 'join' | 'leave';
+  type: 'join' | 'leave' | 'big_win' | 'big_loss';
   table_id: string;
   stake_label: string;
   personality_id: string;
   name: string;
-  /** Empty string for joins; movement decision name for leaves
-   *  (e.g., 'forced_leave', 'stake_up_queued', 'take_break',
-   *  'bored_move'). */
+  /** Semantics vary by event type:
+   *   - join: empty
+   *   - leave: movement decision name (`forced_leave`,
+   *     `stake_up_queued`, `take_break`, `bored_move`)
+   *   - big_win / big_loss: the opponent's personality_id (so the
+   *     frontend can group win+loss pairs or filter per AI) */
   reason: string;
   message: string;
   created_at: string;

@@ -585,14 +585,23 @@
   background: rgba(255, 255, 255, 0.4);
 }
 
-/* Colour-code event types — leaves are warmer (warning-ish),
-   joins cooler (steady). Keeps the eye drawn to disruptive
-   events first. */
+/* Colour-code event types. The chip events (big_win/big_loss) get
+   the brightest colors since they're the most narratively
+   interesting — "Napoleon won $1200 off Bezos" should pop. Joins
+   are a calm cool, leaves a warm amber, losses a red, wins a
+   bright gold. */
 .lobby-ticker__item--leave .lobby-ticker__dot {
   background: #ffd87d;
 }
 .lobby-ticker__item--join .lobby-ticker__dot {
   background: #4ade80;
+}
+.lobby-ticker__item--big_win .lobby-ticker__dot {
+  background: #fcd34d;
+  box-shadow: 0 0 6px rgba(252, 211, 77, 0.5);
+}
+.lobby-ticker__item--big_loss .lobby-ticker__dot {
+  background: #f87171;
 }
 
 .lobby-ticker__message {

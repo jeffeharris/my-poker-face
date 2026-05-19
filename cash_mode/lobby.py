@@ -33,6 +33,11 @@ from cash_mode.bankroll import (
     AIBankrollState,
     project_bankroll,
 )
+from cash_mode.fake_sim import (
+    DEFAULT_FAKE_HAND_PROB,
+    FakeHandResult,
+    roll_fake_hand,
+)
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
     RosterRefreshResult,
@@ -219,6 +224,7 @@ def refresh_unseated_tables(
     now: Optional[datetime] = None,
     user_id: Optional[str] = None,
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
+    fake_hand_prob: float = DEFAULT_FAKE_HAND_PROB,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -283,6 +289,20 @@ def refresh_unseated_tables(
             _current_table_buy_in[pid] = value
             return value
 
+        # Fake-sim: probability-gated roll BEFORE movement so a
+        # won-big result can cascade into a stake_up in the same tick.
+        # See cash_mode/fake_sim.py for the conservation + capping
+        # rules. Chips actually mutate; ratification happens via the
+        # existing leave-time AI cash-out (Path A) when a player
+        # eventually sits at this table.
+        fake_result: Optional[FakeHandResult] = None
+        if rng.random() < fake_hand_prob:
+            fake_result = roll_fake_hand(
+                table.seats, big_blind=big_blind, rng=rng,
+            )
+            if fake_result.delta > 0:
+                table.seats = fake_result.new_seats
+
         result = refresh_table_roster(
             table,
             idle_pool=idle_pool,
@@ -321,6 +341,18 @@ def refresh_unseated_tables(
             personality_repo=personality_repo,
             now=now,
         )
+
+        # Fake-sim big-win/loss events. Only emitted when the roll
+        # crossed the big-event threshold (see fake_sim.py defaults).
+        # Small chip drifts mutate state quietly without spamming
+        # the ticker.
+        if fake_result is not None and fake_result.big_event:
+            _emit_fake_sim_events(
+                table=result.new_table,
+                fake_result=fake_result,
+                personality_repo=personality_repo,
+                now=now,
+            )
 
         # Refresh idle_pool snapshot so the next iteration sees the
         # updated state (we may have added or removed entries).
@@ -409,30 +441,118 @@ def _emit_activity_events(
             pass
 
 
+def _emit_fake_sim_events(
+    *,
+    table,
+    fake_result,
+    personality_repo,
+    now: datetime,
+) -> None:
+    """Push paired big_win + big_loss events for a fake-sim roll.
+
+    Both sides are recorded so future filtering (per-personality
+    feeds, "show me losses only") works without re-deriving the
+    pair. The lobby ticker today shows the most recent N events,
+    so the user sees both rows next to each other ("Napoleon won
+    $X off Bezos" / "Bezos dropped $X to Napoleon"). If that reads
+    as duplicate noise in playtest, we can suppress the loss-side
+    at the route layer.
+    """
+    from cash_mode.activity import (
+        EVENT_BIG_LOSS,
+        EVENT_BIG_WIN,
+        LobbyEvent,
+        format_big_loss_message,
+        format_big_win_message,
+        record_event,
+    )
+
+    winner_pid = fake_result.winner_pid
+    loser_pid = fake_result.loser_pid
+    if not winner_pid or not loser_pid:
+        return
+
+    def _name_for(pid: str) -> Optional[str]:
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            return None
+        if not personality:
+            return None
+        return personality.get("name") or pid
+
+    winner_name = _name_for(winner_pid)
+    loser_name = _name_for(loser_pid)
+    if not winner_name or not loser_name:
+        return
+
+    stake = table.stake_label
+    ts = now.isoformat()
+    delta = int(fake_result.delta)
+
+    try:
+        record_event(LobbyEvent(
+            type=EVENT_BIG_WIN,
+            table_id=table.table_id,
+            stake_label=stake,
+            personality_id=winner_pid,
+            name=winner_name,
+            reason=loser_pid,  # opponent id for frontend grouping
+            message=format_big_win_message(winner_name, loser_name, stake, delta),
+            created_at=ts,
+        ))
+        record_event(LobbyEvent(
+            type=EVENT_BIG_LOSS,
+            table_id=table.table_id,
+            stake_label=stake,
+            personality_id=loser_pid,
+            name=loser_name,
+            reason=winner_pid,
+            message=format_big_loss_message(loser_name, winner_name, stake, delta),
+            created_at=ts,
+        ))
+    except Exception:
+        # Buffer is best-effort.
+        pass
+
+
 def kill_all_cash_sessions(
     *,
     game_state_service,
     game_repo,
+    cash_table_repo=None,
+    bankroll_repo=None,
 ) -> int:
-    """One-shot boot cleanup: drop every in-flight cash session.
+    """Boot reconcile: drop stale in-memory cash games; reset orphan seats.
 
-    Subsumes `cleanup_orphan_cash_games`. Two purges in one pass:
+    Cash sessions are now expected to *survive* a reboot — `progress_game`
+    auto-saves cash rows on every step, the cold-load path in
+    `/api/game-state/<id>` rehydrates them with cash-mode flags + AI
+    controllers, and the player reconnects to their frozen table just
+    like a tournament. This function used to wipe every `cash-*` row at
+    boot (a v1.5-deploy hygiene step from before resume worked); that
+    purge has been removed.
 
-      1. Every in-memory game with `cash_mode=True` → delete from
-         `game_state_service`. The state machine, controllers, memory
-         manager, and pressure stats go with it.
+    What this still does:
 
-      2. Every persisted `cash-*` row (regardless of owner) → delete
-         from `game_repo`. Cash games shouldn't even be persisted but
-         `progress_game`'s auto-save can write them; we don't want
-         them lingering across deploys.
+      1. Drop every in-memory `cash_mode=True` game from
+         `game_state_service`. A fresh process has no in-memory games,
+         so this is effectively a no-op at startup, but it stays here
+         so callers (e.g. tests) can use it to force-clear runtime
+         state.
 
-    Per handoff §"Locked decisions" (3): the deploy that lands the
-    lobby has zero production users to preserve, so killing every
-    in-flight session is the safe and simple option.
+      2. Reconcile orphan `"human"` seats on persistent `cash_tables`.
+         A seat is orphan when its `personality_id` (the owner) has no
+         surviving `cash-*` row — typically because some other process
+         deleted it. For each orphan: refund the seat's chips to the
+         owner's bankroll and revert the slot to `open_slot()`. Without
+         this, the lobby would render the player as still seated at a
+         vanished table. Skipped when `cash_table_repo` and
+         `bankroll_repo` are not provided (older test harnesses).
 
-    Returns the count of cash sessions dropped (memory + DB combined)
-    so the boot logger can report it.
+    Returns the count of in-memory cash sessions dropped (item 1) so
+    the boot logger can report it. Orphan-seat resets are logged at
+    INFO level individually.
     """
     dropped = 0
 
@@ -446,21 +566,59 @@ def kill_all_cash_sessions(
         dropped += 1
         logger.info("[CASH][LOBBY] kill_all_cash_sessions: dropped in-memory %r", gid)
 
-    # Persisted.
-    try:
-        rows = game_repo.list_games(owner_id=None, limit=10000, offset=0)
-    except Exception as e:
-        logger.warning("[CASH][LOBBY] list_games failed during cleanup: %s", e)
-        rows = []
-
-    persisted_to_delete = [row.game_id for row in rows if row.game_id.startswith("cash-")]
-    for gid in persisted_to_delete:
+    # Reconcile orphan human seats. A seat is orphan when its owner
+    # has no surviving `cash-*` row — the lobby would otherwise render
+    # the player as still seated at a vanished table.
+    if cash_table_repo is not None and bankroll_repo is not None:
+        from dataclasses import replace as _dc_replace
         try:
-            game_repo.delete_game(gid)
-            dropped += 1
-            logger.info("[CASH][LOBBY] kill_all_cash_sessions: dropped persisted %r", gid)
+            rows = game_repo.list_games(owner_id=None, limit=10000, offset=0)
         except Exception as e:
-            logger.warning("[CASH][LOBBY] delete_game(%r) failed: %s", gid, e)
+            logger.warning("[CASH][LOBBY] list_games failed during reconcile: %s", e)
+            rows = []
+        owners_with_cash_row: Set[str] = {
+            (row.owner_id or "")
+            for row in rows
+            if row.game_id.startswith("cash-") and row.owner_id
+        }
+
+        try:
+            tables = cash_table_repo.list_all_tables()
+        except Exception as e:
+            logger.warning("[CASH][LOBBY] list_all_tables failed during reconcile: %s", e)
+            tables = []
+
+        for table in tables:
+            for idx, slot in enumerate(table.seats):
+                if slot.get("kind") != "human":
+                    continue
+                owner_id = slot.get("personality_id")
+                if owner_id and owner_id in owners_with_cash_row:
+                    # Seat backed by a real cash row — leave it intact
+                    # so the player can resume on reconnect.
+                    continue
+                refund_chips = int(slot.get("chips", 0))
+                try:
+                    if owner_id and refund_chips > 0:
+                        br = bankroll_repo.load_player_bankroll(owner_id)
+                        if br is not None:
+                            bankroll_repo.save_player_bankroll(
+                                _dc_replace(br, chips=br.chips + refund_chips)
+                            )
+                    cash_table_repo.save_table(
+                        table.with_seat(idx, open_slot())
+                    )
+                    logger.info(
+                        "[CASH][LOBBY] kill_all_cash_sessions: reset orphan human seat "
+                        "table=%r seat=%d owner=%r refunded=%d",
+                        table.table_id, idx, owner_id, refund_chips,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "[CASH][LOBBY] failed to reset human seat "
+                        "table=%r seat=%d: %s",
+                        table.table_id, idx, e,
+                    )
 
     if dropped:
         logger.info(

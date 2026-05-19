@@ -41,6 +41,17 @@ EVENT_LEAVE = "leave"
 """An AI left a table. `reason` carries the movement decision
 (`forced_leave`, `stake_up_queued`, `take_break`, `bored_move`)."""
 
+EVENT_BIG_WIN = "big_win"
+"""An AI won a big pot at an unseated table (fake-sim — chips were
+mutated by `cash_mode/fake_sim.py:roll_fake_hand`, no real cards).
+Honest in the sense that chip counts at the table DO reflect the
+move; the AI's bankroll only credits when a player ratifies the
+session at that table. `reason` carries the loser's personality_id
+so the frontend can render "won $X from <opponent>"."""
+
+EVENT_BIG_LOSS = "big_loss"
+"""Symmetric pair to EVENT_BIG_WIN. Same fake-sim origin."""
+
 
 @dataclass(frozen=True)
 class LobbyEvent:
@@ -122,6 +133,26 @@ def format_leave_message(name: str, stake_label: str, reason: str) -> str:
 def format_join_message(name: str, stake_label: str) -> str:
     """Human-readable phrasing for a join event."""
     return f"{name} sat down at the {stake_label} table"
+
+
+def format_big_win_message(
+    winner: str, loser: str, stake_label: str, amount: int,
+) -> str:
+    """Phrasing for a fake-sim big-win event."""
+    return f"{winner} won ${amount:,} off {loser} at {stake_label}"
+
+
+def format_big_loss_message(
+    loser: str, winner: str, stake_label: str, amount: int,
+) -> str:
+    """Phrasing for a fake-sim big-loss event (the loser's POV).
+
+    Symmetric phrasing to the win event; emitted alongside so the
+    ticker can show whichever framing reads best. The lobby keeps
+    only one of the pair (win is the more dramatic verb), but both
+    are recorded so future filtering / per-personality feeds can
+    pick either side."""
+    return f"{loser} dropped ${amount:,} to {winner} at {stake_label}"
 
 
 def serialize_event(event: LobbyEvent) -> dict:
