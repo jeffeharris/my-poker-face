@@ -42,11 +42,13 @@ interface ChipLedgerPanelProps {
 
 const REFRESH_MS = 30_000;
 
-function fmt(n: number): string {
+function fmt(n: number | undefined | null): string {
+  if (n === undefined || n === null || Number.isNaN(n)) return '—';
   return n.toLocaleString();
 }
 
-function signed(n: number): string {
+function signed(n: number | undefined | null): string {
+  if (n === undefined || n === null || Number.isNaN(n)) return '—';
   return n > 0 ? `+${fmt(n)}` : fmt(n);
 }
 
@@ -104,7 +106,19 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
 
   if (!audit) return null;
 
-  const driftClass = audit.drift === 0 ? 'drift-zero' : audit.drift > 0 ? 'drift-pos' : 'drift-neg';
+  // Defend against an older backend that doesn't include all fields
+  // (e.g. the Flask process hasn't been restarted to pick up the new
+  // route, or a future schema rename). Render "—" for absent values
+  // rather than crashing the whole panel.
+  const ledgerTotals = audit.ledger_totals ?? {} as Partial<LedgerTotals>;
+  const actualTotals = audit.actual_totals ?? {} as Partial<ActualTotals>;
+  const byReason = audit.by_reason ?? {};
+  const byReason24h = audit.by_reason_window_24h ?? {};
+  const drift = audit.drift;
+  const isMissing = drift === undefined || drift === null;
+  const driftClass = isMissing
+    ? 'drift-missing'
+    : drift === 0 ? 'drift-zero' : drift > 0 ? 'drift-pos' : 'drift-neg';
 
   return (
     <div className={`chip-ledger-panel ${embedded ? 'embedded' : ''}`}>
@@ -116,11 +130,13 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
 
       <div className={`chip-ledger-drift ${driftClass}`}>
         <span className="drift-label">drift</span>
-        <span className="drift-value">{signed(audit.drift)}</span>
+        <span className="drift-value">{signed(drift)}</span>
         <span className="drift-help">
-          {audit.drift === 0
-            ? 'ledger and actuals agree'
-            : 'ledger ≠ actual — bypass somewhere; v0 baseline may include pre-ledger chips'}
+          {isMissing
+            ? 'response missing drift field — backend may be stale (restart Flask?)'
+            : drift === 0
+              ? 'ledger and actuals agree'
+              : 'ledger ≠ actual — bypass somewhere; v0 baseline may include pre-ledger chips'}
         </span>
       </div>
 
@@ -128,32 +144,32 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
         <section className="chip-ledger-card">
           <h3>Ledger view</h3>
           <dl>
-            <dt>Created</dt><dd>{fmt(audit.ledger_totals.chips_created)}</dd>
-            <dt>Destroyed</dt><dd>{fmt(audit.ledger_totals.chips_destroyed)}</dd>
-            <dt>Outstanding</dt><dd>{fmt(audit.ledger_totals.outstanding)}</dd>
+            <dt>Created</dt><dd>{fmt(ledgerTotals.chips_created)}</dd>
+            <dt>Destroyed</dt><dd>{fmt(ledgerTotals.chips_destroyed)}</dd>
+            <dt>Outstanding</dt><dd>{fmt(ledgerTotals.outstanding)}</dd>
           </dl>
         </section>
 
         <section className="chip-ledger-card">
           <h3>Actual view</h3>
           <dl>
-            <dt>Player bankrolls</dt><dd>{fmt(audit.actual_totals.player_bankrolls)}</dd>
-            <dt>AI bankrolls (projected)</dt><dd>{fmt(audit.actual_totals.ai_bankrolls_projected)}</dd>
-            <dt>Cash table AI seats</dt><dd>{fmt(audit.actual_totals.cash_table_seats_ai)}</dd>
-            <dt>Active loan principal</dt><dd>{fmt(audit.actual_totals.active_loans_principal)}</dd>
-            <dt>Live session AI stacks</dt><dd>{fmt(audit.actual_totals.live_session_ai_stacks)}</dd>
-            <dt><strong>Outstanding</strong></dt><dd><strong>{fmt(audit.actual_totals.actual_outstanding)}</strong></dd>
+            <dt>Player bankrolls</dt><dd>{fmt(actualTotals.player_bankrolls)}</dd>
+            <dt>AI bankrolls (projected)</dt><dd>{fmt(actualTotals.ai_bankrolls_projected)}</dd>
+            <dt>Cash table AI seats</dt><dd>{fmt(actualTotals.cash_table_seats_ai)}</dd>
+            <dt>Active loan principal</dt><dd>{fmt(actualTotals.active_loans_principal)}</dd>
+            <dt>Live session AI stacks</dt><dd>{fmt(actualTotals.live_session_ai_stacks)}</dd>
+            <dt><strong>Outstanding</strong></dt><dd><strong>{fmt(actualTotals.actual_outstanding)}</strong></dd>
           </dl>
         </section>
 
         <section className="chip-ledger-card">
           <h3>By reason (all-time)</h3>
-          <ReasonTable totals={audit.by_reason} />
+          <ReasonTable totals={byReason} />
         </section>
 
         <section className="chip-ledger-card">
           <h3>By reason (24h)</h3>
-          <ReasonTable totals={audit.by_reason_window_24h} />
+          <ReasonTable totals={byReason24h} />
         </section>
       </div>
 
