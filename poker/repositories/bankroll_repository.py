@@ -122,6 +122,72 @@ class BankrollRepository(BaseRepository):
                 last_regen_tick=_parse_timestamp(row["last_regen_tick"]),
             )
 
+    def save_emotional_state_json(
+        self,
+        personality_id: str,
+        state_json: Optional[str],
+    ) -> None:
+        """Persist the AI's emotional-state blob without touching chips.
+
+        Schema v97 added `emotional_state_json` to `ai_bankroll_state`
+        as a TEXT NULL column. The cash_mode controller cache (full-
+        sim Commit 3) calls this on LRU eviction and on the periodic
+        flush cadence, with `state_json` being the JSON-serialized
+        `EmotionalState` from the live controller.
+
+        `state_json=None` clears the persisted state — the next cache
+        miss will hydrate to defaults. Inserts a row when one doesn't
+        already exist (chips defaults to 0, last_regen_tick NULL) so
+        the column write doesn't silently drop on a fresh personality
+        the caller has only ever seen via sim.
+        """
+        with self._get_connection() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM ai_bankroll_state WHERE personality_id = ?",
+                (personality_id,),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE ai_bankroll_state
+                    SET emotional_state_json = ?
+                    WHERE personality_id = ?
+                    """,
+                    (state_json, personality_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO ai_bankroll_state
+                        (personality_id, chips, last_regen_tick,
+                         emotional_state_json)
+                    VALUES (?, 0, NULL, ?)
+                    """,
+                    (personality_id, state_json),
+                )
+
+    def load_emotional_state_json(self, personality_id: str) -> Optional[str]:
+        """Return the persisted emotional-state JSON blob, or None.
+
+        None means: (a) the AI has no `ai_bankroll_state` row yet,
+        or (b) the row exists but the column is NULL (never been
+        flushed by a sim hand). Callers (the controller cache's
+        hydrate path) treat both as "build a fresh-default
+        controller."
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT emotional_state_json
+                FROM ai_bankroll_state
+                WHERE personality_id = ?
+                """,
+                (personality_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return row["emotional_state_json"]
+
     def sum_ai_bankroll_chips_stored(self) -> int:
         """Return the sum of stored chips across every AI bankroll row.
 

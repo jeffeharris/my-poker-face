@@ -1,0 +1,81 @@
+"""Tests for the v97 emotional_state_json column + repo methods.
+
+Schema v97 added `ai_bankroll_state.emotional_state_json TEXT NULL`
+so sim-hand psychology survives cache evictions and backend restarts.
+This test file pins the column + repo round-trip; the cache
+discipline that uses it (hydrate-on-miss, serialize-on-evict) lives
+under cash_mode/controller_cache + its own tests in full-sim Commit 3.
+"""
+
+from __future__ import annotations
+
+import os
+import tempfile
+
+import pytest
+
+from cash_mode.bankroll import AIBankrollState
+from poker.repositories import create_repos
+
+
+@pytest.fixture
+def repo():
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        repos = create_repos(db_path)
+        yield repos["bankroll_repo"]
+    finally:
+        try:
+            os.unlink(db_path)
+        except FileNotFoundError:
+            pass
+
+
+class TestEmotionalStateRoundTrip:
+    def test_save_then_load_returns_same_blob(self, repo):
+        blob = '{"state": "tilted", "severity": "moderate", "intensity": 0.6}'
+        repo.save_emotional_state_json("napoleon", blob)
+        assert repo.load_emotional_state_json("napoleon") == blob
+
+    def test_load_missing_personality_returns_none(self, repo):
+        assert repo.load_emotional_state_json("nonexistent") is None
+
+    def test_save_with_none_clears_the_column(self, repo):
+        blob = '{"state": "tilted"}'
+        repo.save_emotional_state_json("napoleon", blob)
+        assert repo.load_emotional_state_json("napoleon") == blob
+        # Clear:
+        repo.save_emotional_state_json("napoleon", None)
+        assert repo.load_emotional_state_json("napoleon") is None
+
+    def test_save_creates_bankroll_row_if_missing(self, repo):
+        """Sim might touch a personality's psychology before any
+        chip-event has written a bankroll row. Save must still
+        succeed (inserting a placeholder row) rather than silently
+        dropping the state."""
+        repo.save_emotional_state_json("brand_new_pid", '{"state": "confident"}')
+        bankroll = repo.load_ai_bankroll("brand_new_pid")
+        assert bankroll is not None
+        assert bankroll.chips == 0   # placeholder
+        assert repo.load_emotional_state_json("brand_new_pid") == (
+            '{"state": "confident"}'
+        )
+
+    def test_save_does_not_clobber_existing_chips(self, repo):
+        """Writing the emotional-state column must leave chips +
+        last_regen_tick untouched — these are written by different
+        cadences (chip events vs sim hands)."""
+        from datetime import datetime
+        repo.save_ai_bankroll(AIBankrollState(
+            personality_id="napoleon",
+            chips=12_345,
+            last_regen_tick=datetime(2026, 5, 19, 0, 0, 0),
+        ))
+
+        repo.save_emotional_state_json("napoleon", '{"state": "tilted"}')
+
+        bankroll = repo.load_ai_bankroll("napoleon")
+        assert bankroll.chips == 12_345
+        assert bankroll.last_regen_tick == datetime(2026, 5, 19, 0, 0, 0)
+        assert repo.load_emotional_state_json("napoleon") == '{"state": "tilted"}'

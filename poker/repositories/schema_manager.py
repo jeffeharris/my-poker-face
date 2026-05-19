@@ -96,7 +96,7 @@ logger = logging.getLogger(__name__)
 #      when empty so existing rows don't need a backfill. Cash mode is
 #      the surface for now; tournaments use the per-game opponent_models
 #      notes column for their own purposes.
-SCHEMA_VERSION = 96
+SCHEMA_VERSION = 97
 
 
 
@@ -1246,6 +1246,7 @@ class SchemaManager:
             94: (self._migrate_v94_seed_pre_ledger_universe, "Seed pre_ledger_universe entries so day-1 audit drift is 0"),
             95: (self._migrate_v95_add_relationship_notes, "Add notes column to relationship_states for player-authored opponent notes (cross-session, cash mode)"),
             96: (self._migrate_v96_add_dealer_idx_to_cash_tables, "Add dealer_idx column to cash_tables so the lobby dealer button survives backend restart (full sim Commit 2)"),
+            97: (self._migrate_v97_add_emotional_state_to_ai_bankroll, "Add emotional_state_json column to ai_bankroll_state so sim-hand psychology persists across cache evictions and restarts (full sim Commit 3)"),
         }
 
         with self._get_connection() as conn:
@@ -4361,3 +4362,39 @@ class SchemaManager:
             logger.debug("Added dealer_idx column to cash_tables")
 
         logger.info("Migration v96 complete: cash_tables.dealer_idx added")
+
+    def _migrate_v97_add_emotional_state_to_ai_bankroll(self, conn: sqlite3.Connection) -> None:
+        """Migration v97: Add `emotional_state_json` TEXT NULL to ai_bankroll_state.
+
+        Sim hands at unseated tables mutate AI psychology — tilt after
+        a bad beat, confidence after a hot streak. Before this column
+        the state lived only on the in-memory TieredBotController
+        instance held by the cash_mode controller cache; LRU eviction
+        or a backend restart wiped the state and the AI re-entered as
+        "fresh confident" regardless of recent history.
+
+        Persisting here mirrors v83's `controller_state.psychology_json`
+        precedent (per-session psychology serialization), but keyed on
+        `personality_id` so the state survives sessions. The
+        controller-cache discipline (full-sim Commit 3) hydrates from
+        this column on miss and writes back on LRU eviction + a
+        periodic flush cadence.
+
+        NULL means "no persisted state yet" — the controller is built
+        from defaults, identical to pre-v97 behavior. Existing rows
+        backfill cleanly with NULL.
+
+        Idempotent: only adds the column if it doesn't already exist.
+        """
+        cursor = conn.execute("PRAGMA table_info(ai_bankroll_state)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'emotional_state_json' not in existing_columns:
+            conn.execute(
+                "ALTER TABLE ai_bankroll_state ADD COLUMN emotional_state_json TEXT"
+            )
+            logger.debug("Added emotional_state_json column to ai_bankroll_state")
+
+        logger.info(
+            "Migration v97 complete: ai_bankroll_state.emotional_state_json added"
+        )
