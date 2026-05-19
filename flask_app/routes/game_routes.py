@@ -38,6 +38,7 @@ from ..handlers.game_handler import (
 from ..handlers.message_handler import (
     send_message, format_action_message, record_action_in_memory, format_messages_for_api
 )
+from ..handlers.chat_relationship import dispatch_chat_relationship_event
 from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
 from ..validation import validate_player_action
@@ -1500,6 +1501,14 @@ def api_send_message(game_id):
     raw_addressing = data.get('addressing')
     addressing = [str(n) for n in raw_addressing if isinstance(n, str)] if isinstance(raw_addressing, list) else None
 
+    # Quick-chat metadata: when the message originated from a structured
+    # tone selector (mid-hand `ChatTone` or post-round `PostRoundTone`),
+    # the UI passes the tone string here. Drives the bilateral
+    # relationship-axis update via `chat_intent.map_tone` — see the
+    # post-send dispatch below.
+    tone = data.get('tone')
+    intensity = data.get('intensity')
+
     current_game_data = game_state_service.get_game(game_id)
     current_user, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
     if auth_error:
@@ -1521,6 +1530,9 @@ def api_send_message(game_id):
 
     if message.strip():
         send_message(game_id, sender, message.strip(), 'player', addressing=addressing)
+        dispatch_chat_relationship_event(
+            current_game_data, sender, addressing, tone, intensity,
+        )
         return jsonify({'success': True})
 
     return jsonify({'success': False, 'error': 'Empty message'})

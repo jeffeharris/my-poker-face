@@ -97,7 +97,12 @@ interface MobileChatSheetProps {
   isOpen: boolean;
   onClose: () => void;
   messages: ChatMessage[];
-  onSendMessage: (message: string, addressing?: string[]) => void;
+  onSendMessage: (
+    message: string,
+    addressing?: string[],
+    tone?: string,
+    intensity?: string,
+  ) => void;
   gameId: string;
   playerName: string;
   players: Player[];
@@ -264,8 +269,13 @@ export function MobileChatSheet({
     }
   };
 
-  const handleQuickChatSelect = (text: string, addressing?: string[]) => {
-    onSendMessage(text, addressing);
+  const handleQuickChatSelect = (
+    text: string,
+    addressing?: string[],
+    tone?: string,
+    intensity?: string,
+  ) => {
+    onSendMessage(text, addressing, tone, intensity);
     // Remount QuickChatSuggestions so it resets to expanded with fresh state.
     // Drop the preset target — a fresh chat starts back at "table".
     setAppliedTarget(null);

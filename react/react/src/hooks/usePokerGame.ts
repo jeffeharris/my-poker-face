@@ -840,7 +840,12 @@ export function usePokerGame({
   // Keep ref in sync for socket callback access (update synchronously)
   handlePlayerActionRef.current = handlePlayerAction;
 
-  const handleSendMessage = useCallback(async (message: string, addressing?: string[]) => {
+  const handleSendMessage = useCallback(async (
+    message: string,
+    addressing?: string[],
+    tone?: string,
+    intensity?: string,
+  ) => {
     if (!gameId) return;
 
     try {
@@ -853,6 +858,8 @@ export function usePokerGame({
           message,
           sender: playerName || 'Player',
           ...(addressing && addressing.length > 0 ? { addressing } : {}),
+          ...(tone ? { tone } : {}),
+          ...(intensity ? { intensity } : {}),
         }),
       });
     } catch (error) {

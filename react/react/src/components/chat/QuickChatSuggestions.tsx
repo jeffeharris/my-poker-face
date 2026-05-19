@@ -23,8 +23,18 @@ interface QuickChatSuggestionsProps {
    * Receives the suggestion text plus the explicit addressing list when a
    * specific opponent (not "table") is targeted. Drives the backend's
    * find_callouts detection for AI players.
+   *
+   * Also forwards the structured `tone` and `intensity` selected by the
+   * user — the backend uses these to map the message to a
+   * `RelationshipEvent` and update bilateral affinity axes. The fields
+   * are advisory: callers that don't care can ignore them.
    */
-  onSelectSuggestion: (text: string, addressing?: string[]) => void;
+  onSelectSuggestion: (
+    text: string,
+    addressing?: string[],
+    tone?: ChatTone,
+    intensity?: ChatIntensity,
+  ) => void;
   defaultExpanded?: boolean;
   hideHeader?: boolean;
   onSuggestionsLoaded?: () => void;
@@ -191,7 +201,16 @@ export function QuickChatSuggestions({
     const addressing = selectedTarget && selectedTarget !== 'table'
       ? [selectedTarget]
       : undefined;
-    onSelectSuggestion(text, addressing);
+    // Forward the user's structured tone choice and intensity so the
+    // backend can map this message to a RelationshipEvent. Both are
+    // null-safe — selectedTone is guaranteed truthy at click time (the
+    // suggestion list only renders after a tone is picked).
+    onSelectSuggestion(
+      text,
+      addressing,
+      selectedTone ?? undefined,
+      intensity,
+    );
     // Reset state after selection
     setSelectedTarget(null);
     setSelectedTone(null);

@@ -63,7 +63,12 @@ interface MobileWinnerAnnouncementProps {
     onComplete: () => void;
     gameId: string;
     playerName: string;
-    onSendMessage: (text: string) => void;
+    onSendMessage: (
+        text: string,
+        addressing?: string[],
+        tone?: string,
+        intensity?: string,
+    ) => void;
 }
 
 // Tone options for winners
@@ -143,8 +148,18 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
         fetchSuggestions(tone);
     };
 
-    const handleSuggestionClick = (text: string) => {
-        onSendMessage(text);
+    const handleSuggestionClick = (text: string, tone: PostRoundTone) => {
+        // Post-round addressing: a loser's reaction is naturally
+        // directed at the hand's winner — derive addressing from
+        // winnerInfo so the backend can route the relationship event
+        // to the right pair. The winner's reaction (gloat/humble) is
+        // broadcast — no easy "primary loser" inference from the
+        // current props, so we leave addressing empty and the
+        // backend will skip the relationship dispatch.
+        const addressing = !playerWon && winnerInfo?.winners?.[0]
+            ? [winnerInfo.winners[0]]
+            : undefined;
+        onSendMessage(text, addressing, tone);
         setMessageSent(true);
         setSuggestions([]);
         setIsInteracting(false); // Resume auto-dismiss possibility
@@ -338,7 +353,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
                                     <button
                                         key={index}
                                         className={`post-round-suggestion tone-${suggestion.tone}`}
-                                        onClick={() => handleSuggestionClick(suggestion.text)}
+                                        onClick={() => handleSuggestionClick(suggestion.text, suggestion.tone)}
                                     >
                                         {suggestion.text}
                                     </button>
