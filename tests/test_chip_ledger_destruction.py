@@ -1,6 +1,6 @@
 """Commit 3 chip-ledger instrumentation tests — destruction events.
 
-Covers `cap_clamp`, `house_loan_settle`, and the `forgive_balance`
+Covers `cap_clamp`, `house_stake_settle`, and the `forgive_balance`
 annotation. Same shape as `test_chip_ledger_instrumentation.py`:
 real repos against tempdb, dataclass inputs, assert against ledger
 contents.
@@ -113,13 +113,13 @@ class TestCapClampLedger:
         assert clamps == []
 
 
-# --- house_loan_settle + forgive_balance ---
+# --- house_stake_settle + forgive_balance ---
 
 
-class TestHouseLoanSettleLedger:
+class TestHouseStakeSettleLedger:
     def test_settle_records_sponsor_total(self, ledger_repo):
-        # Anonymous loan: 200 chips, floor=1.0 (full), rate=0.0.
-        # Player returns with 200 chips → to_floor=200, remaining=0,
+        # House-archetype stake: 200 chips, floor=1.0 (full), rate=0.0.
+        # Borrower returns with 200 chips → to_floor=200, remaining=0,
         # sponsor_total=200 (all back to bank).
         bankroll = PlayerBankrollState(
             player_id="alice",
@@ -139,7 +139,7 @@ class TestHouseLoanSettleLedger:
 
         settles = [
             e for e in ledger_repo.recent_entries()
-            if e['reason'] == 'house_loan_settle'
+            if e['reason'] == 'house_stake_settle'
         ]
         assert len(settles) == 1
         assert settles[0]['amount'] == 200
@@ -166,17 +166,17 @@ class TestHouseLoanSettleLedger:
 
         entries = ledger_repo.recent_entries()
         reasons = {e['reason']: e for e in entries}
-        assert 'house_loan_settle' in reasons
+        assert 'house_stake_settle' in reasons
         assert 'forgive_balance' in reasons
-        assert reasons['house_loan_settle']['amount'] == 50
+        assert reasons['house_stake_settle']['amount'] == 50
         assert reasons['forgive_balance']['amount'] == 0
         assert reasons['forgive_balance']['context']['forgiven_principal'] == 150
 
-    def test_personality_loan_does_not_fire_house_settle(
+    def test_personality_stake_does_not_fire_house_settle(
         self, bankroll_repo, ledger_repo, db_path,
     ):
-        # Path B: lender_id set → sponsor_total credits the AI's
-        # bankroll instead. No house_loan_settle, no forgive_balance.
+        # Personality staker: lender_id set → sponsor_total credits the
+        # AI's bankroll instead. No house_stake_settle, no forgive_balance.
         _insert_personality(db_path, "zeus", knobs={
             "bankroll_cap": 50_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
@@ -206,10 +206,10 @@ class TestHouseLoanSettleLedger:
         )
 
         reasons = {e['reason'] for e in ledger_repo.recent_entries()}
-        # ai_regen may fire for the lender bankroll write (no time
+        # ai_regen may fire for the staker's bankroll write (no time
         # elapsed here so it shouldn't), but neither destruction
-        # entry is allowed for Path B.
-        assert 'house_loan_settle' not in reasons
+        # entry is allowed for personality stakes.
+        assert 'house_stake_settle' not in reasons
         assert 'forgive_balance' not in reasons
 
     def test_full_payback_no_forgive(self, ledger_repo):
@@ -241,8 +241,8 @@ class TestDestructionHelpers:
         assert result is None
         assert ledger_repo.recent_entries() == []
 
-    def test_house_loan_settle_helper_no_op_when_amount_zero(self, ledger_repo):
-        result = chip_ledger.record_house_loan_settle(
+    def test_house_stake_settle_helper_no_op_when_amount_zero(self, ledger_repo):
+        result = chip_ledger.record_house_stake_settle(
             ledger_repo, owner_id="alice", amount=0,
         )
         assert result is None

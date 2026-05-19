@@ -94,13 +94,13 @@ class TestWrapperToAudit:
         assert data['by_reason']['cap_clamp'] == -300
         assert data['ledger_totals']['chips_destroyed'] == 300
 
-    def test_house_loan_lifecycle_through_wrapper(self, env):
-        """Full anonymous-loan lifecycle: issue + settle + forgive."""
+    def test_house_stake_lifecycle_through_wrapper(self, env):
+        """Full house-archetype stake lifecycle: issue + settle + forgive."""
         db_path, bankroll_repo, cash_table_repo, ledger_repo = env
-        chip_ledger.record_house_loan_issue(
+        chip_ledger.record_house_stake_issue(
             ledger_repo, owner_id='alice', amount=200,
         )
-        chip_ledger.record_house_loan_settle(
+        chip_ledger.record_house_stake_settle(
             ledger_repo, owner_id='alice', amount=50,
         )
         chip_ledger.record_forgive_balance(
@@ -109,8 +109,8 @@ class TestWrapperToAudit:
 
         data = _audit(db_path, bankroll_repo, cash_table_repo, ledger_repo,
                       datetime(2026, 5, 18, 12, 0, 0))
-        assert data['by_reason']['house_loan_issue'] == 200
-        assert data['by_reason']['house_loan_settle'] == -50
+        assert data['by_reason']['house_stake_issue'] == 200
+        assert data['by_reason']['house_stake_settle'] == -50
         # Annotation visible at zero (not eaten by SUM(amount=0)).
         assert data['by_reason']['forgive_balance'] == 0
         # Net created = 200 - 50 = 150 chips still in the universe;

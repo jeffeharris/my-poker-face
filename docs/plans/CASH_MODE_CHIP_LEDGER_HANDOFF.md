@@ -41,7 +41,7 @@ One append-only table. One row per chip event. Each row records:
 - `sink` — where they went (same vocabulary)
 - `amount` — positive integer
 - `reason` — categorization (`player_seed`, `ai_regen`,
-  `cap_clamp`, `house_loan_issue`, `house_loan_settle`,
+  `cap_clamp`, `house_stake_issue`, `house_stake_settle`,
   `forgive_balance`)
 - `created_at`, `context_json`
 
@@ -90,9 +90,9 @@ CREATE INDEX idx_chip_ledger_reason ON chip_ledger_entries(reason);
 | `player_seed` | `central_bank → player:<owner_id>` | First-time entry into cash mode (`_load_or_seed_player_bankroll` writes the seed row). |
 | `ai_regen` | `central_bank → ai:<pid>` | Any AI bankroll write where the projected value exceeds the stored value. The diff is the regen amount. |
 | `cap_clamp` | `ai:<pid> → central_bank` | Any AI bankroll write where the to-be-stored value would exceed `bankroll_cap`. The overflow goes to the bank. |
-| `house_loan_issue` | `central_bank → player:<owner_id>` | Player accepts a house-archetype sponsor offer. Loan amount is created. |
-| `house_loan_settle` | `player:<owner_id> → central_bank` | Leave-time settlement of a house loan: floor + cut amounts return to bank. (Personality-loan repayments are pure player→AI transfers; not ledger entries.) |
-| `forgive_balance` | (no transfer — annotation only) | When a player leaves with chips < loan floor and the balance is forgiven. The forgiven amount **never existed** in the player's bankroll, but the loan creation entry from earlier (`house_loan_issue`) recorded it. The forgiveness annotation lets us reconcile: total `house_loan_issue` minus total `house_loan_settle` should equal outstanding house-loan principal. If it doesn't, there's a leak. Reason exists for audit clarity, no actual chip movement. |
+| `house_stake_issue` | `central_bank → player:<owner_id>` | Borrower accepts a house-archetype stake offer. Principal amount is created. |
+| `house_stake_settle` | `player:<owner_id> → central_bank` | Leave-time settlement of a house stake: floor + cut amounts return to bank. (Personality and human stakes are pure borrower↔staker transfers; not ledger entries.) |
+| `forgive_balance` | (no transfer — annotation only) | When a borrower leaves with chips < stake floor and the balance is forgiven. The forgiven amount **never existed** in the borrower's bankroll, but the stake creation entry from earlier (`house_stake_issue`) recorded it. The forgiveness annotation lets us reconcile: total `house_stake_issue` minus total `house_stake_settle` should equal outstanding house-stake principal. If it doesn't, there's a leak. Reason exists for audit clarity, no actual chip movement. |
 
 For v0 we **don't** track personality-loan creations as ledger
 entries — those are pure transfers between two non-bank
@@ -121,9 +121,9 @@ on settle). No chips entered or left the universe.
   "by_reason": {
     "ai_regen": 102000,
     "player_seed": 200,
-    "house_loan_issue": 22100,
+    "house_stake_issue": 22100,
     "cap_clamp": -8400,
-    "house_loan_settle": -3700,
+    "house_stake_settle": -3700,
     "forgive_balance": 0            // annotation only; doesn't affect totals
   },
   "by_reason_window_24h": { ... }   // last 24h
@@ -157,8 +157,8 @@ if leaks are accumulating.
 - AI bankroll write path (find every `bankroll_repo.save_ai_bankroll`
   call): compute regen amount = `new.chips - (old?.chips or new.chips)`,
   write `ai_regen` if positive.
-- House sponsor route writes `house_loan_issue` when an archetype
-  offer is accepted.
+- House sponsor route writes `house_stake_issue` when a house-archetype
+  stake offer is accepted.
 - Tests: each call site fires the expected ledger entry; amounts
   match.
 
@@ -167,11 +167,11 @@ if leaks are accumulating.
   write `cap_clamp` if positive. Note: this needs the pre-clamp
   value to be available; tweak `credit_ai_cash_out` to return
   it, or compute inline.
-- Leave-time settlement: detect house-loan settle path
-  (`bankroll.active_loan_lender_id IS NULL` AND loan was active),
-  write `house_loan_settle` for the sponsor_total.
+- Leave-time settlement: detect house-stake settle path
+  (`bankroll.active_loan_lender_id IS NULL` AND stake was active),
+  write `house_stake_settle` for the sponsor_total.
 - Forgive-balance annotation: when `chips_at_table < floor` AND
-  it was a house loan, write a `forgive_balance` entry with
+  it was a house stake, write a `forgive_balance` entry with
   `amount = 0` (annotation only) and context recording the
   forgiven principal — purely for audit reconciliation.
 

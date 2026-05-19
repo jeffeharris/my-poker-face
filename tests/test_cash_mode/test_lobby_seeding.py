@@ -26,7 +26,7 @@ from cash_mode.lobby import (
     ensure_lobby_seeded,
     kill_all_cash_sessions,
 )
-from cash_mode.stakes import STAKES_ORDER
+from cash_mode.stakes_ladder import STAKES_ORDER
 from cash_mode.tables import CashTableState
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.cash_table_repository import CashTableRepository

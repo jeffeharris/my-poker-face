@@ -237,8 +237,8 @@ class TestComputeAudit:
 
     def test_annotation_rows_dont_skew_totals(self, repos, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
-        ledger_repo.record('central_bank', 'player:a', 200, 'house_loan_issue')
-        ledger_repo.record('player:a', 'central_bank', 50, 'house_loan_settle')
+        ledger_repo.record('central_bank', 'player:a', 200, 'house_stake_issue')
+        ledger_repo.record('player:a', 'central_bank', 50, 'house_stake_settle')
         ledger_repo.record('player:a', 'central_bank', 0, 'forgive_balance',
                            context={'forgiven_principal': 150})
 
@@ -258,7 +258,7 @@ class TestComputeAudit:
 
     def test_annotation_only_forgive_appears_in_by_reason(self, repos, db_path):
         """forgive_balance is the lone destruction-side reason with no
-        positive amounts. When it appears alone (no house_loan_settle
+        positive amounts. When it appears alone (no house_stake_settle
         rows alongside), `by_reason` must still surface it so the UI
         can show the annotation occurred. Catches a future merge/SQL
         change that silently drops zero-amount destructions."""

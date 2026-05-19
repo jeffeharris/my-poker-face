@@ -73,9 +73,9 @@ def classify_loan_outcome(
         (matches the "busted, sponsor gets 0" branch).
       - "repaid": chips_at_table covered the full floor; the lender
         was made whole (and possibly took a cut on the upside) — fire
-        LOAN_REPAID.
+        STAKE_REPAID.
       - "defaulted": chips_at_table fell short of the floor; the
-        lender is short — fire LOAN_DEFAULTED.
+        lender is short — fire STAKE_DEFAULTED.
 
     The route uses this label to know which RelationshipEvent to emit.
     Distinct from the math (`sponsor_total`, `returned_chips`); the
@@ -159,12 +159,12 @@ def settle_loan_on_leave(
                 bankroll.active_loan_lender_id, sponsor_total,
             )
 
-    # Path A: anonymous house loan. sponsor_total goes back to the
+    # Path A: house-archetype stake. sponsor_total goes back to the
     # bank (chips leave the universe). If chips_at_table < floor,
     # the remaining principal was effectively forgiven (those chips
     # were lost in play to other AI seats; they still exist in the
-    # universe, just not in player or bank). Annotate so the audit
-    # endpoint can reconcile house_loan_issue against the actual
+    # universe, just not in borrower or bank). Annotate so the audit
+    # endpoint can reconcile house_stake_issue against the actual
     # outstanding principal.
     if not bankroll.active_loan_lender_id and chip_ledger_repo is not None:
         from core.economy import ledger as chip_ledger
@@ -172,7 +172,7 @@ def settle_loan_on_leave(
         if ledger_context:
             ctx.update(ledger_context)
         if sponsor_total > 0:
-            chip_ledger.record_house_loan_settle(
+            chip_ledger.record_house_stake_settle(
                 chip_ledger_repo,
                 owner_id=bankroll.player_id,
                 amount=sponsor_total,

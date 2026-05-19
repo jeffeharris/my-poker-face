@@ -4,6 +4,11 @@ Extracted from the Flask route module so tests and other call sites
 can use these without pulling in `flask_app.routes` (and its import
 chain, which depends on a configured limiter).
 
+This module used to be `cash_mode/stakes.py`; renamed to make room
+for `cash_mode/stakes.py` to hold the `Stake` dataclass (Phase 1 of
+the backing system). Ladder + buy-in window helpers + sponsor
+eligibility rule moved here verbatim.
+
 Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 2.
 """
 

@@ -42,7 +42,7 @@ from cash_mode.sponsor_offers import (
 )
 from core.economy import ledger as chip_ledger
 from poker.memory.relationship_events import RelationshipEvent
-from cash_mode.stakes import (
+from cash_mode.stakes_ladder import (
     MAX_BUY_IN_BB,
     MIN_BUY_IN_BB,
     STAKES_LADDER,
@@ -250,13 +250,13 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
 
     TODO (chip-ledger v0 finding): this delete path skips the
     leave/cash-out / settle pipeline that would normally fire the
-    `ai_regen`, `cap_clamp`, and `house_loan_settle` ledger entries
+    `ai_regen`, `cap_clamp`, and `house_stake_settle` ledger entries
     for the abandoned session. Net effect on the audit:
       * AI chips still on the orphan game's live table stack are
         lost from the universe — they should have credited back
         to the AI's persistent bankroll via `credit_ai_cash_out`.
-      * Any house loan principal on the player's stack is also
-        silently dropped instead of getting a `house_loan_settle`
+      * Any house stake principal on the borrower's stack is also
+        silently dropped instead of getting a `house_stake_settle`
         or `forgive_balance` entry.
     The audit will surface this as drift (positive — ledger has
     more outstanding than actual) the first time a stale row is
@@ -1131,15 +1131,15 @@ def _record_relationship_event(
 ) -> None:
     """Fire a relationship event from outside hand flow.
 
-    Path B emits SPONSORSHIP_OFFERED at sit-down and LOAN_REPAID /
-    LOAN_DEFAULTED at leave. None of those happen inside hand flow
+    Cash mode emits STAKE_OFFERED at sit-down and STAKE_REPAID /
+    STAKE_DEFAULTED at leave. None of those happen inside hand flow
     where a `memory_manager` is already wired into the game; the
     route constructs a transient `OpponentModelManager` around the
     live `relationship_repo` so the projection-on-read / clamp /
     persist guarantees inside `record_event` still apply.
 
     Failures (missing repo, repo write error) log a warning and
-    return silently — the loan settlement is the load-bearing
+    return silently — the stake settlement is the load-bearing
     surface; relationship-state drift is a recoverable degradation,
     not a reason to fail the leave route.
     """
@@ -1338,7 +1338,7 @@ def sponsor_and_sit():
     # through here.
     if offer_lender_id is None:
         from flask_app.extensions import chip_ledger_repo
-        chip_ledger.record_house_loan_issue(
+        chip_ledger.record_house_stake_issue(
             chip_ledger_repo,
             owner_id=owner_id,
             amount=offer_amount,
@@ -1364,7 +1364,7 @@ def sponsor_and_sit():
         _record_relationship_event(
             actor_id=lender_id,
             target_id=owner_id,
-            event=RelationshipEvent.SPONSORSHIP_OFFERED,
+            event=RelationshipEvent.STAKE_OFFERED,
         )
     else:
         logger.info(
@@ -1659,7 +1659,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
     bankroll = _load_or_seed_player_bankroll(owner_id)
 
     # Snapshot the loan state before settle clears it — needed for the
-    # post-settlement event classification (LOAN_REPAID vs LOAN_DEFAULTED).
+    # post-settlement event classification (STAKE_REPAID vs STAKE_DEFAULTED).
     loan_outcome = classify_loan_outcome(bankroll, chips_at_table)
     lender_id_at_settle = bankroll.active_loan_lender_id
 
@@ -1682,13 +1682,13 @@ def _leave_table_locked(owner_id: str, game_id: str):
             _record_relationship_event(
                 actor_id=lender_id_at_settle,
                 target_id=owner_id,
-                event=RelationshipEvent.LOAN_REPAID,
+                event=RelationshipEvent.STAKE_REPAID,
             )
         elif loan_outcome == "defaulted":
             _record_relationship_event(
                 actor_id=lender_id_at_settle,
                 target_id=owner_id,
-                event=RelationshipEvent.LOAN_DEFAULTED,
+                event=RelationshipEvent.STAKE_DEFAULTED,
             )
         # "no_chips_no_event" / "no_loan" branches deliberately silent —
         # the v1 rule forgives full busts and no-loan leaves don't have

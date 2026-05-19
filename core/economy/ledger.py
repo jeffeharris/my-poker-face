@@ -35,15 +35,15 @@ LEDGER_REASONS = frozenset({
     # Creations: central_bank → X
     'player_seed',         # first-time player entry into cash mode
     'ai_regen',            # AI bankroll write where projected > stored
-    'house_loan_issue',    # anonymous-house sponsor loan accepted
+    'house_stake_issue',   # house-archetype stake principal issued to borrower
     'pre_ledger_universe', # one-shot seed at migration so day-1 drift is 0
 
     # Destructions: X → central_bank
     'cap_clamp',           # AI bankroll write where projected > bankroll_cap
-    'house_loan_settle',   # leave-time settlement of an anonymous loan
+    'house_stake_settle',  # leave-time settlement of a house-archetype stake
 
     # Annotation (amount=0, audit reconciliation only)
-    'forgive_balance',     # player left with chips < floor on a house loan
+    'forgive_balance',     # borrower left short of principal on a house stake
 })
 
 
@@ -203,18 +203,19 @@ def record_ai_regen(
     )
 
 
-def record_house_loan_issue(
+def record_house_stake_issue(
     repo: Optional[ChipLedgerRepository],
     *,
     owner_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
 ) -> Optional[int]:
-    """Anonymous-house sponsor loan acceptance: central_bank → player.
+    """House-archetype stake principal: central_bank → borrower.
 
-    Personality-loan principal is a pure transfer between non-bank
-    entities (AI lender's bankroll → player's table stack) and isn't
-    routed through here.
+    Personality and human stake principals are pure transfers between
+    non-bank entities (staker's bankroll → borrower's table stack) and
+    aren't routed through here. Only the house archetype path creates
+    chips out of the central bank.
     """
     if repo is None:
         return None
@@ -223,7 +224,7 @@ def record_house_loan_issue(
         source=bank(),
         sink=player(owner_id),
         amount=amount,
-        reason='house_loan_issue',
+        reason='house_stake_issue',
         context=context,
     )
 
@@ -253,19 +254,19 @@ def record_cap_clamp(
     )
 
 
-def record_house_loan_settle(
+def record_house_stake_settle(
     repo: Optional[ChipLedgerRepository],
     *,
     owner_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
 ) -> Optional[int]:
-    """player → central_bank for an anonymous house-loan settle.
+    """borrower → central_bank for a house-archetype stake settle.
 
-    Sponsor_total (floor + cut) goes back to the bank on leave-time
-    settlement. Path B (named personality lender) doesn't route here
-    — sponsor_total credits the lender's persistent bankroll instead,
-    a pure non-bank transfer.
+    The staker share (principal recovered + cut on upside) goes back
+    to the bank on leave-time settlement. Personality and human stakes
+    don't route here — the staker share credits the staker's persistent
+    bankroll instead, a pure non-bank transfer.
     """
     if repo is None or amount <= 0:
         return None
@@ -274,7 +275,7 @@ def record_house_loan_settle(
         source=player(owner_id),
         sink=bank(),
         amount=amount,
-        reason='house_loan_settle',
+        reason='house_stake_settle',
         context=context,
     )
 
@@ -286,23 +287,22 @@ def record_forgive_balance(
     forgiven_principal: int,
     context: Optional[Dict[str, Any]] = None,
 ) -> Optional[int]:
-    """Annotation row (amount=0) — house loan principal not recovered.
+    """Annotation row (amount=0) — house stake principal not recovered.
 
-    Fired when the player leaves a house-loan session with
-    `chips_at_table < floor`. The unrecovered principal already
-    exists in the universe (it flowed into other AI's table stacks
-    during play and gets caught at credit_ai_cash_out). This
-    annotation only exists so the audit endpoint can reconcile:
-    `sum(house_loan_issue) - sum(house_loan_settle) -
-    sum(forgive_balance.context.forgiven_principal)` equals
-    outstanding house-loan principal.
+    Fired when the borrower leaves a house-stake session short of the
+    principal. The unrecovered principal already exists in the universe
+    (it flowed into other AIs' table stacks during play and gets caught
+    at credit_ai_cash_out). This annotation only exists so the audit
+    endpoint can reconcile: `sum(house_stake_issue) -
+    sum(house_stake_settle) - sum(forgive_balance.context.forgiven_principal)`
+    equals outstanding house-stake principal.
 
     Always source=player, sink=bank to keep the central-bank-side
     rule simple. Amount is 0 by construction.
 
     Skips the write when `forgiven_principal <= 0` — the annotation
     is meaningful only when chips were actually forgiven. Without
-    this guard, every successful loan repayment would generate a
+    this guard, every successful stake settlement would generate a
     noise-row with amount=0 and forgiven_principal=0 that adds
     audit clutter for no signal.
     """

@@ -149,7 +149,7 @@ class CashTableRepository(BaseRepository):
     def list_all_tables(self) -> List[CashTableState]:
         """Return every persisted cash table, ordered by stake (ascending).
 
-        Ordering keys off `cash_mode.stakes.STAKES_ORDER` — the single
+        Ordering keys off `cash_mode.stakes_ladder.STAKES_ORDER` — the single
         source of truth for the stakes ladder. Adding a new stake (or
         reordering) only requires editing that list; this repo picks
         up the change with no edits here. Tables whose stake_label
@@ -160,7 +160,7 @@ class CashTableRepository(BaseRepository):
         multiple tables share a stake (v2 / Path C territory; v1.5
         invariant is one table per stake).
         """
-        from cash_mode.stakes import STAKES_ORDER
+        from cash_mode.stakes_ladder import STAKES_ORDER
 
         with self._get_connection() as conn:
             rows = conn.execute(

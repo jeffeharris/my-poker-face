@@ -197,14 +197,14 @@ class TestPlayerSeedLedger:
         assert ledger_repo.recent_entries() == []
 
 
-# --- house_loan_issue: sponsor route fires only for the anonymous-archetype branch ---
+# --- house_stake_issue: sponsor route fires only for the house-archetype branch ---
 
 
-class TestHouseLoanIssueLedger:
-    def test_record_house_loan_issue_helper(self, ledger_repo):
+class TestHouseStakeIssueLedger:
+    def test_record_house_stake_issue_helper(self, ledger_repo):
         from core.economy import ledger as chip_ledger
 
-        chip_ledger.record_house_loan_issue(
+        chip_ledger.record_house_stake_issue(
             ledger_repo,
             owner_id='alice',
             amount=200,
@@ -213,26 +213,26 @@ class TestHouseLoanIssueLedger:
 
         entries = ledger_repo.recent_entries()
         assert len(entries) == 1
-        assert entries[0]['reason'] == 'house_loan_issue'
+        assert entries[0]['reason'] == 'house_stake_issue'
         assert entries[0]['amount'] == 200
         assert entries[0]['source'] == 'central_bank'
         assert entries[0]['sink'] == 'player:alice'
         assert entries[0]['context']['archetype_id'] == 'shark_loan_500'
 
-    def test_personality_loans_dont_route_through_helper(self, cash_routes_module):
-        """The helper exists for house loans only; personality-loan
-        principal is a pure transfer between non-bank entities and
-        shouldn't reach this code path. The sponsor route guards the
-        call with `if offer_lender_id is None` — assert that contract
-        via a grep-style check on the route source."""
+    def test_personality_stakes_dont_route_through_helper(self, cash_routes_module):
+        """The helper exists for house-archetype stakes only;
+        personality-stake principal is a pure transfer between non-bank
+        entities and shouldn't reach this code path. The sponsor route
+        guards the call with `if offer_lender_id is None` — assert that
+        contract via a grep-style check on the route source."""
         import inspect
         src = inspect.getsource(cash_routes_module.sponsor_and_sit)
         guarded = (
             "if offer_lender_id is None:" in src
-            and "record_house_loan_issue" in src
+            and "record_house_stake_issue" in src
         )
         assert guarded, (
-            "sponsor_and_sit must guard record_house_loan_issue behind "
+            "sponsor_and_sit must guard record_house_stake_issue behind "
             "an `if offer_lender_id is None:` check"
         )
 

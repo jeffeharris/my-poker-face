@@ -356,8 +356,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertGreater(bankroll.active_loan_amount, 0)
 
     def test_personality_path_emits_sponsorship_offered_event(self):
-        # The route fires SPONSORSHIP_OFFERED via the relationship_repo
-        # when an AI lender extends a loan. The repo's projection-on-read
+        # The route fires STAKE_OFFERED via the relationship_repo
+        # when an AI staker extends a loan. The repo's projection-on-read
         # surface (load_relationship_state) reveals the bilateral update.
         with self._patch_build_cash_game():
             response = self.client.post(
@@ -388,7 +388,7 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertGreater(state_player_pov.likability, 0.5)
 
     def test_house_path_does_not_emit_event(self):
-        # Anonymous house loans have no actor to fire SPONSORSHIP_OFFERED.
+        # House-archetype stakes have no actor to fire STAKE_OFFERED.
         # No relationship row should land.
         with self._patch_build_cash_game():
             response = self.client.post(

@@ -57,10 +57,10 @@ class TestRepoRoundTrip:
     def test_sum_destructions_groups_by_reason(self, repo):
         repo.record('central_bank', 'player:a', 100, 'player_seed')  # creation
         repo.record('ai:c', 'central_bank', 40, 'cap_clamp')
-        repo.record('player:a', 'central_bank', 60, 'house_loan_settle')
+        repo.record('player:a', 'central_bank', 60, 'house_stake_settle')
 
         sums = repo.sum_destructions_by_reason()
-        assert sums == {'cap_clamp': 40, 'house_loan_settle': 60}
+        assert sums == {'cap_clamp': 40, 'house_stake_settle': 60}
 
     def test_zero_amount_round_trips(self, repo):
         """Annotation rows (forgive_balance, amount=0) survive the schema's

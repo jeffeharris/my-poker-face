@@ -90,7 +90,7 @@ Universe total: ~900k chips. The 53 personalities × median cap of
 | `pre_ledger_universe` | One-shot at schema v94 migration | `_migrate_v94_chip_ledger_pre_ledger_universe` in `schema_manager.py` |
 | `player_seed` | First-time player entry into cash mode (`load_player_bankroll` returns None) | `_load_or_seed_player_bankroll` in `flask_app/routes/cash_routes.py` |
 | `ai_regen` | Any `save_ai_bankroll` call where projected > previous stored | `credit_ai_cash_out` in `cash_mode/bankroll.py` (the canonical write surface that fires the ledger entry); raw `bankroll_repo.save_ai_bankroll` calls don't |
-| `house_loan_issue` | Player accepts an anonymous archetype sponsor offer | `sponsor_and_sit` route in `cash_routes.py` |
+| `house_stake_issue` | Borrower accepts a house-archetype stake offer | `sponsor_and_sit` route in `cash_routes.py` |
 
 **Notably absent:** initial bankroll seeding for AIs. AIs come into
 existence via `personalities.json` seeding and `ai_bankroll_state`
@@ -108,8 +108,8 @@ ledger entry. The audit's drift will surface it.
 | Reason | Trigger | Writer |
 |---|---|---|
 | `cap_clamp` | `credit_ai_cash_out` writes a bankroll where pre-clamp value > `bankroll_cap`; overflow is destroyed | `credit_ai_cash_out` in `cash_mode/bankroll.py` |
-| `house_loan_settle` | Leave-time settlement of an active house-archetype loan; both the floor repayment and the sponsor cut go to the bank | `leave_table` in `cash_routes.py` → `settle_loan_on_leave` in `cash_mode/loan_settlement.py` |
-| `forgive_balance` | Annotation only (amount=0). Recorded when a player leaves with chips < loan floor and the remaining house-loan principal is forgiven | `settle_loan_on_leave` |
+| `house_stake_settle` | Leave-time settlement of an active house-archetype stake; both the floor repayment and the staker cut go to the bank | `leave_table` in `cash_routes.py` → `settle_loan_on_leave` in `cash_mode/loan_settlement.py` |
+| `forgive_balance` | Annotation only (amount=0). Recorded when a borrower leaves with chips < stake floor and the remaining house-stake principal is forgiven | `settle_loan_on_leave` |
 
 ### Pure transfers (no ledger entry — universe unchanged)
 
@@ -305,10 +305,10 @@ The full vocabulary, with directions:
 |---|---|---|
 | `player_seed` | bank → player | First-time player entry |
 | `ai_regen` | bank → ai | Committed bankroll regen |
-| `house_loan_issue` | bank → player | Anonymous sponsor loan accepted |
+| `house_stake_issue` | bank → borrower | House-archetype stake principal issued |
 | `pre_ledger_universe` | bank → universe | One-shot v94 seed |
 | `cap_clamp` | ai → bank | Overflow above bankroll_cap |
-| `house_loan_settle` | player → bank | Leave-time house loan repayment + cut |
+| `house_stake_settle` | borrower → bank | Leave-time house-stake repayment + cut |
 | `forgive_balance` | n/a (amount=0) | Audit annotation only |
 
 Adding a new reason requires editing `LEDGER_REASONS` first — unknown

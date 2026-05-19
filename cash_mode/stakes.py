@@ -1,0 +1,102 @@
+"""Stake dataclass — one row per session's stake deal.
+
+A **stake** is a deal struck at sit-down and settled at leave-table.
+The staker puts up `principal` chips; the borrower plays them; at
+session end, total chips are split per the agreed `cut`. If the
+borrower busted without recovering the principal, the residual
+becomes `carry_amount` (status='carry') — a static debt that sits
+until the borrower works it down.
+
+This module holds the in-memory dataclass shape. Persistence lives
+in `poker/repositories/stake_repository.py` (schema v98). Settlement
+math lives in `cash_mode/stake_settlement.py` (Commit 4).
+
+Spec: `docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md` Phase 1.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+
+
+# --- Enumerations as string literals ---
+#
+# These are typed as `str` rather than `Enum` because the values
+# cross the DB boundary as TEXT columns and the audit / lobby paths
+# read them as raw strings. An enum would be wrapper churn.
+
+# `staker_kind` values
+STAKER_KIND_HOUSE = "house"
+STAKER_KIND_PERSONALITY = "personality"
+STAKER_KIND_HUMAN = "human"
+
+# `borrower_kind` values
+BORROWER_KIND_HUMAN = "human"
+BORROWER_KIND_PERSONALITY = "personality"
+
+# `format` values
+STAKE_FORMAT_PURE = "pure"
+STAKE_FORMAT_MATCH_SHARE = "match_share"
+STAKE_FORMAT_HOUSE = "house"
+
+# `status` values
+STAKE_STATUS_ACTIVE = "active"
+STAKE_STATUS_SETTLED = "settled"
+STAKE_STATUS_CARRY = "carry"
+STAKE_STATUS_DEFAULTED = "defaulted"
+
+
+@dataclass(frozen=True)
+class Stake:
+    """One row of the `stakes` table.
+
+    Frozen so equality is value-based and stake objects can be hashed
+    / used as dict keys in test fixtures. Mutations create new instances
+    via `dataclasses.replace`.
+
+    Field semantics:
+      - `staker_id`: NULL for house stakes; personality_id or owner_id
+        otherwise. The repository layer translates None ↔ NULL.
+      - `staker_kind`: drives settlement routing (house → ledger;
+        personality / human → pure bankroll transfer).
+      - `borrower_kind`: 'human' in Phase 1; 'personality' added in
+        Phase 4.
+      - `format`: 'pure' (staker funds full principal, borrower pays
+        origination_fee), 'match_share' (both contribute half, no fee,
+        higher cut), 'house' (lender of last resort, forgive on bust).
+      - `principal`: chips the staker put up.
+      - `match_amount`: chips the borrower put up (match_share only;
+        0 otherwise).
+      - `origination_fee`: borrower → staker bankroll at sit-down
+        (pure stakes only).
+      - `cut`: staker's share of net winnings as a fraction [0.0, 1.0].
+      - `status`: lifecycle marker. 'active' until leave-table;
+        then one of 'settled' (clean), 'carry' (residual debt rolls
+        forward), or 'defaulted' (explicit default action — Phase 2).
+      - `carry_amount`: residual principal owed when status='carry'.
+        Always 0 for other statuses.
+      - `stake_tier`: STAKES_LADDER key (`$2`, `$10`, etc.) the stake
+        was made at. Used by Phase 2 tier resolution and analytics on
+        default rates by stake size.
+      - `created_at`: stake-row creation timestamp.
+      - `settled_at`: leave-table timestamp; None while active.
+    """
+
+    stake_id: str
+    session_id: str
+    staker_id: Optional[str]
+    staker_kind: str
+    borrower_id: str
+    borrower_kind: str
+    format: str
+    principal: int
+    match_amount: int
+    origination_fee: int
+    cut: float
+    status: str
+    carry_amount: int
+    stake_tier: str
+    created_at: datetime
+    settled_at: Optional[datetime] = None

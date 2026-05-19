@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from cash_mode.stakes import is_sponsor_eligible as _is_sponsor_eligible
+from cash_mode.stakes_ladder import is_sponsor_eligible as _is_sponsor_eligible
 
 # Buy-in mins per stake (40 BB × big_blind):
 #   $2    → 80
