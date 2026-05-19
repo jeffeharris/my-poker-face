@@ -1936,6 +1936,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     if delay > 0:
         _ff_aware_sleep(game_id, delay)
 
+    # Clear fast-forward at the hand boundary. FF is a single-hand
+    # affordance — the player asked to skip *this* orbit, not commit to
+    # zooming through every future hand. The next hand starts with full
+    # personality-aware controllers and normal pacing. (The per-turn
+    # reset in progress_game still catches the within-hand case where
+    # action returns to the human mid-street.)
+    if game_data.get('fast_forward'):
+        game_data['fast_forward'] = False
+
     # Clear hole cards and set phase to HAND_OVER. Prevents stale cards
     # from flashing and triggers frontend exit animation + shuffle overlay.
     try:

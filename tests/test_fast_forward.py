@@ -106,6 +106,96 @@ class TestFFAwareSleep(unittest.TestCase):
             mock_sleep.assert_called_once_with(1.5)
 
 
+class TestHandBoundaryReset(unittest.TestCase):
+    """`handle_evaluating_hand_phase` clears the FF flag at the hand boundary.
+
+    FF is a single-hand affordance — if the human triggered it while
+    folded on hand N, the next hand should resume with normal pacing
+    and personality-aware controllers. Without this reset, FF would
+    persist into hand N+1 (and beyond) until action lands on the human.
+    """
+
+    def _build_game_state(self):
+        from core.card import Card
+        from poker.poker_game import Player, PokerGameState
+        alice = Player(
+            name='Alice', stack=970, is_human=True, bet=30,
+            hand=(Card('A', 'Spades'), Card('K', 'Hearts')), is_folded=False,
+        )
+        bob = Player(
+            name='Bob', stack=970, is_human=False, bet=30,
+            hand=(Card('2', 'Clubs'), Card('3', 'Diamonds')), is_folded=False,
+        )
+        return PokerGameState(
+            deck=(), players=(alice, bob),
+            community_cards=(
+                Card('7', 'Diamonds'), Card('8', 'Clubs'), Card('9', 'Spades'),
+                Card('Q', 'Hearts'), Card('2', 'Spades'),
+            ),
+            pot={'total': 60, 'Alice': 30, 'Bob': 30},
+            current_ante=10,
+        )
+
+    def test_clears_fast_forward_on_evaluating_hand_phase(self):
+        from flask_app.handlers import game_handler
+        from poker.memory.memory_manager import AIMemoryManager
+
+        game_id = 'ff-boundary-test'
+        game_state = self._build_game_state()
+        mm = AIMemoryManager(game_id)
+        mm.on_hand_start(game_state, hand_number=1)
+
+        state_machine = MagicMock()
+        state_machine.game_state = game_state
+        state_machine.current_phase = None
+        state_machine._state_machine = MagicMock()
+
+        game_data = {
+            'memory_manager': mm,
+            'ai_controllers': {},
+            'state_machine': state_machine,
+            'owner_id': '',
+            'hand_start_stacks': {},
+            'short_stack_players': set(),
+            'last_announced_phase': None,
+            'fast_forward': True,  # the precondition
+        }
+
+        patches = [
+            patch.object(game_handler, 'socketio', MagicMock(
+                emit=MagicMock(), start_background_task=MagicMock(),
+                sleep=MagicMock(),
+            )),
+            patch.object(game_handler, 'send_message', MagicMock()),
+            patch.object(game_handler, 'hand_history_repo', MagicMock()),
+            patch.object(game_handler, 'game_repo', MagicMock()),
+            patch.object(game_handler, 'event_repository', MagicMock()),
+            patch.object(game_handler, 'coach_repo', MagicMock()),
+            patch.object(game_handler, 'handle_eliminations',
+                         MagicMock(return_value=False)),
+            patch.object(game_handler, 'check_tournament_complete',
+                         MagicMock(return_value=False)),
+            patch.object(game_handler, 'update_and_emit_game_state', MagicMock()),
+            patch.object(game_handler.game_state_service, 'set_game', MagicMock()),
+            patch.object(game_handler.game_state_service, 'get_game_owner_info',
+                         MagicMock(return_value=('', ''))),
+            patch.object(game_handler, 'config', MagicMock(
+                ENABLE_AI_COMMENTARY=False, ANIMATION_SPEED=0,
+            )),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            game_handler.handle_evaluating_hand_phase(
+                game_id, game_data, state_machine, game_state,
+            )
+        finally:
+            for p in patches:
+                p.stop()
+
+        assert game_data['fast_forward'] is False
+
+
 class _FastForwardRouteBase(unittest.TestCase):
     """Shared tempdb + app instance for the FF route tests.
 
