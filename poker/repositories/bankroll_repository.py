@@ -309,6 +309,41 @@ class BankrollRepository(BaseRepository):
                 ),
             )
 
+    def iter_player_bankrolls_with_active_loan(self) -> List[PlayerBankrollState]:
+        """Return every player_bankroll_state row with active_loan_amount > 0.
+
+        Used by the Phase 1 backing-system migration (Commit 3) to walk
+        the legacy `active_loan_*` columns and produce equivalent
+        `stakes` table rows. Read-only enumeration; the caller is
+        responsible for the actual conversion.
+
+        Returns a materialized list rather than a generator so the
+        SQLite connection can be released before the caller starts
+        creating stake rows (which may want their own connection).
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT player_id, chips, starting_bankroll,
+                       active_loan_amount, active_loan_floor, active_loan_rate,
+                       active_loan_lender_id
+                FROM player_bankroll_state
+                WHERE active_loan_amount > 0
+                """,
+            ).fetchall()
+        return [
+            PlayerBankrollState(
+                player_id=row["player_id"],
+                chips=row["chips"],
+                starting_bankroll=row["starting_bankroll"],
+                active_loan_amount=row["active_loan_amount"],
+                active_loan_floor=row["active_loan_floor"],
+                active_loan_rate=row["active_loan_rate"],
+                active_loan_lender_id=row["active_loan_lender_id"],
+            )
+            for row in rows
+        ]
+
     def load_player_bankroll(self, player_id: str) -> Optional[PlayerBankrollState]:
         """Load the player bankroll row.
 

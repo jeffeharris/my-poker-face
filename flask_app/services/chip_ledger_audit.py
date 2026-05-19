@@ -86,9 +86,12 @@ def compute_audit(
     # calculation — otherwise drift would always include uncommitted
     # regen and never zero out.
     player_bankrolls = _sum_player_bankrolls(db_path)
-    # TODO(backing-system phase 1): when persistent loans move to
-    # their own table, this query needs updating to read from
-    # `player_loans` (or whatever the new table is called) instead.
+    # The legacy `active_loan_*` columns on player_bankroll_state are
+    # still the source-of-truth for the audit during Phase 1 of the
+    # backing system. The `stakes` table (v98) is the new persistence
+    # surface, but Phase 1 keeps the columns in place as a safety net
+    # — Phase 2 finishes the cutover and at that point this query
+    # should switch to summing `stakes.principal WHERE status='active'`.
     active_loans_principal = _sum_active_loans(db_path)
     ai_bankrolls_stored = _sum_ai_bankrolls_stored(bankroll_repo)
     ai_bankrolls_projected = _sum_ai_bankrolls_projected(bankroll_repo, now)

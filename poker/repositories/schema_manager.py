@@ -82,9 +82,10 @@ logger = logging.getLogger(__name__)
 #      credit sponsor_total back to the lender's persistent bankroll.
 # v93: Add chip_ledger_entries — observability for chip creation/destruction events.
 #      One row per central_bank ↔ X transfer (player_seed, ai_regen, cap_clamp,
-#      house_loan_issue, house_loan_settle, forgive_balance). Pure transfers
-#      between non-bank entities are NOT recorded. Append-only; no enforcement
-#      in v0. Spec: docs/plans/CASH_MODE_CHIP_LEDGER_HANDOFF.md.
+#      house_stake_issue, house_stake_settle, forgive_balance — reasons
+#      renamed from house_loan_* in Phase 1 of the backing-system handoff).
+#      Pure transfers between non-bank entities are NOT recorded. Append-only;
+#      no enforcement in v0. Spec: docs/plans/CASH_MODE_CHIP_LEDGER_HANDOFF.md.
 # v94: Seed chip_ledger_entries with `pre_ledger_universe` entries so the audit
 #      endpoint reports drift=0 at baseline. Without this, day-1 drift is the
 #      entire pre-existing chip universe and the "is the ledger consistent?"
@@ -96,7 +97,17 @@ logger = logging.getLogger(__name__)
 #      when empty so existing rows don't need a backfill. Cash mode is
 #      the surface for now; tournaments use the per-game opponent_models
 #      notes column for their own purposes.
-SCHEMA_VERSION = 97
+# v98: Add `stakes` table for the backing-system stake model
+#      (one row per session deal). Replaces the `active_loan_*` columns
+#      on `player_bankroll_state` as the persistence surface for stakes
+#      and their post-bust carries. Also runs a one-shot UPDATE that
+#      renames legacy `house_loan_issue` / `house_loan_settle` ledger
+#      reason strings to `house_stake_issue` / `house_stake_settle`
+#      (paired with the Phase 1 code-side vocabulary rename so the
+#      audit's per-reason buckets don't split between old and new
+#      names). Spec: docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md
+#      Phase 1.
+SCHEMA_VERSION = 98
 
 
 
@@ -1247,6 +1258,7 @@ class SchemaManager:
             95: (self._migrate_v95_add_relationship_notes, "Add notes column to relationship_states for player-authored opponent notes (cross-session, cash mode)"),
             96: (self._migrate_v96_add_dealer_idx_to_cash_tables, "Add dealer_idx column to cash_tables so the lobby dealer button survives backend restart (full sim Commit 2)"),
             97: (self._migrate_v97_add_emotional_state_to_ai_bankroll, "Add emotional_state_json column to ai_bankroll_state so sim-hand psychology persists across cache evictions and restarts (full sim Commit 3)"),
+            98: (self._migrate_v98_add_stakes_table, "Add stakes table for backing-system stake model (Phase 1) and rename legacy house_loan_* ledger reasons to house_stake_*"),
         }
 
         with self._get_connection() as conn:
@@ -4050,7 +4062,7 @@ class SchemaManager:
 
           - `table_id`: stable id, e.g., `cash-table-2-001`. Slug-safe
             (no dollar sign).
-          - `stake_label`: matches `cash_mode.stakes.STAKES_LADDER` keys.
+          - `stake_label`: matches `cash_mode.stakes_ladder.STAKES_LADDER` keys.
           - `seats_json`: JSON array of 6 slot dicts. Slot kinds are
             `open` (empty), `ai` (`{personality_id, chips}`), or
             `human` (set transiently while the player is seated).
@@ -4397,4 +4409,100 @@ class SchemaManager:
 
         logger.info(
             "Migration v97 complete: ai_bankroll_state.emotional_state_json added"
+        )
+
+    def _migrate_v98_add_stakes_table(self, conn: sqlite3.Connection) -> None:
+        """Migration v98: Create the `stakes` table and rename legacy
+        ledger reason strings to the stake vocabulary.
+
+        Two coupled changes ship together because they're both halves
+        of the Phase 1 vocabulary shift (handoff doc Commit 2):
+
+          1. CREATE TABLE stakes — one row per session-scoped stake
+             deal, replacing the `active_loan_*` columns on
+             `player_bankroll_state` as the persistence surface for
+             stakes and their post-bust carries. Phase 1 Commit 3
+             migrates `active_loan_*` data into rows here; the columns
+             themselves stick around through Phase 1 as a safety net
+             and get dropped in Phase 2 once the new settlement path
+             is live.
+
+          2. UPDATE chip_ledger_entries SET reason = ... — renames any
+             existing `house_loan_issue` / `house_loan_settle` ledger
+             rows to `house_stake_issue` / `house_stake_settle`. The
+             code-side vocabulary rename (Phase 1 Commit 1) replaced
+             these strings everywhere new writes happen; without this
+             one-shot UPDATE the audit's per-reason buckets would
+             split between old and new names. Pre-launch system — we
+             purge old names entirely rather than carry a compat shim.
+
+        The audit's drift math (`chips_created - chips_destroyed -
+        actual_outstanding`) is unaffected by the reason rename — it
+        sums all entries regardless of bucket. Only `by_reason` and
+        `by_reason_window_24h` shift, and those become correct.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS + INDEX IF NOT EXISTS;
+        the UPDATE is a no-op once the old strings are gone.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS stakes (
+                stake_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                staker_id TEXT,
+                staker_kind TEXT NOT NULL,
+                borrower_id TEXT NOT NULL,
+                borrower_kind TEXT NOT NULL,
+                format TEXT NOT NULL,
+                principal INTEGER NOT NULL,
+                match_amount INTEGER NOT NULL DEFAULT 0,
+                origination_fee INTEGER NOT NULL DEFAULT 0,
+                cut REAL NOT NULL,
+                status TEXT NOT NULL,
+                carry_amount INTEGER NOT NULL DEFAULT 0,
+                stake_tier TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                settled_at TIMESTAMP
+            )
+        """)
+        # Partial indexes on status='carry' so the per-borrower /
+        # per-staker carry lookups (Net Worth view in Phase 3, the
+        # tier-resolution pass in Phase 2) stay cheap as the table
+        # grows. The session index covers the active-stake-by-session
+        # lookup used at settlement time (Commit 4).
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stakes_borrower_carry
+                ON stakes(borrower_id, borrower_kind, status)
+                WHERE status = 'carry'
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stakes_staker_carry
+                ON stakes(staker_id, status)
+                WHERE status = 'carry'
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stakes_session
+                ON stakes(session_id)
+        """)
+
+        # Ledger reason rename — only needed for DBs that have legacy
+        # rows. Fresh installs (which never wrote the old names)
+        # no-op cleanly because zero rows match the WHERE clause.
+        try:
+            conn.execute(
+                "UPDATE chip_ledger_entries SET reason = 'house_stake_issue' "
+                "WHERE reason = 'house_loan_issue'"
+            )
+            conn.execute(
+                "UPDATE chip_ledger_entries SET reason = 'house_stake_settle' "
+                "WHERE reason = 'house_loan_settle'"
+            )
+        except sqlite3.OperationalError:
+            # chip_ledger_entries doesn't exist (pre-v93 install path
+            # that somehow skipped the table create). Defensive — the
+            # rename has nothing to operate on.
+            pass
+
+        logger.info(
+            "Migration v98 complete: stakes table created + indexes; "
+            "legacy house_loan_* ledger reasons renamed to house_stake_*"
         )
