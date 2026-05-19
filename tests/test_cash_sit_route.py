@@ -22,6 +22,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
 from cash_mode.tables import CashTableState, ai_slot, open_slot
 from flask_app import create_app
+from poker.personality_generator import PersonalityGenerator
+from poker.poker_player import AIPokerPlayer
 from poker.repositories import create_repos
 
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
@@ -153,12 +155,32 @@ class _CashSitRouteBase(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        # Restore the AIPokerPlayer class-level singleton so subsequent
+        # tests don't see our tempdb-pointed instance. See setUp for
+        # the rebind motivation.
+        AIPokerPlayer._personality_generator = cls._prior_personality_generator
         try:
             os.unlink(cls.test_db.name)
         except FileNotFoundError:
             pass
 
     def setUp(self):
+        # AIPokerPlayer._personality_generator is a class-level singleton
+        # that auto-initializes to /app/data/poker_games.db. Without
+        # explicit override, every controller built via _build_cash_game
+        # → AIPokerPlayer(name) → _load_personality_config() →
+        # get_personality(name) hits the **production** DB, and any
+        # name not already present there gets auto-generated via LLM
+        # and saved as a zombie row. Point the singleton at our tempdb
+        # for the duration of this test class so "AI N" lookups resolve
+        # against the test's own seeded personalities. Stored on the
+        # class so tearDownClass can restore it.
+        if not hasattr(type(self), '_prior_personality_generator'):
+            type(self)._prior_personality_generator = AIPokerPlayer._personality_generator
+        AIPokerPlayer._personality_generator = PersonalityGenerator(
+            personality_repo=self.personality_repo,
+        )
+
         user = {'id': PLAYER_OWNER_ID, 'name': 'Tester'}
         self._authz_patcher = patch(
             'poker.authorization.authorization_service',

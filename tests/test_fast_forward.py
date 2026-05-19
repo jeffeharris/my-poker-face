@@ -29,8 +29,34 @@ from flask_app.handlers.game_handler import (
     _ff_aware_sleep,
     _get_or_build_ff_controller,
 )
+from poker.poker_player import AIPokerPlayer
 from poker.repositories import create_repos
 from poker.tiered_bot_controller import TieredBotController
+
+
+def _stub_personality_generator():
+    """A MagicMock standing in for AIPokerPlayer's class-level singleton.
+
+    Without this, every test that builds a controller transitively
+    constructs AIPokerPlayer(name) → _load_personality_config() →
+    self.__class__._personality_generator (auto-init pointed at
+    /app/data/poker_games.db) → get_personality(name) → LLM auto-create
+    in the **production** DB. That's how zombie personalities like
+    "A" and "Villain" got seeded earlier. The stub returns a minimal
+    valid personality dict so the controller wiring proceeds, but no
+    DB writes happen.
+    """
+    stub = MagicMock()
+    stub.get_personality.return_value = {
+        'play_style': 'balanced',
+        'default_confidence': 'steady',
+        'default_attitude': 'friendly',
+        'personality_traits': {
+            'bluff_tendency': 0.3, 'aggression': 0.5,
+            'chattiness': 0.5, 'emoji_usage': 0.2,
+        },
+    }
+    return stub
 
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
@@ -38,6 +64,15 @@ pytestmark = [pytest.mark.flask, pytest.mark.integration]
 class TestFFControllerBuilder(unittest.TestCase):
     """`_get_or_build_ff_controller` builds the no-LLM tiered controller
     and caches it per game_data."""
+
+    def setUp(self):
+        # Pin the AIPokerPlayer singleton to a stub so no test ever
+        # auto-creates a personality in /app/data/poker_games.db.
+        self._prior_singleton = AIPokerPlayer._personality_generator
+        AIPokerPlayer._personality_generator = _stub_personality_generator()
+
+    def tearDown(self):
+        AIPokerPlayer._personality_generator = self._prior_singleton
 
     def test_builds_tiered_controller_with_no_expression_layer(self):
         state_machine = MagicMock()
