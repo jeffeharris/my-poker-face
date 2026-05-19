@@ -86,6 +86,12 @@ export interface CharacterDetailCardProps {
    * editable with debounced autosave).
    */
   identifier?: string;
+  /**
+   * Optional handler for the "Send chat" affordance. Receives the
+   * dossier subject's name so the caller can open the chat sheet
+   * pre-targeted to that player. When omitted the button is hidden.
+   */
+  onSendChat?: (targetName: string) => void;
 }
 
 const RELATIONSHIP_COPY: Record<RelationshipKind, { label: string; tone: string }> = {
@@ -169,6 +175,7 @@ export function CharacterDetailCard({
   character,
   origin,
   identifier,
+  onSendChat,
 }: CharacterDetailCardProps) {
   // ESC to close — felt-tabletop UX expects it.
   useEffect(() => {
@@ -434,6 +441,19 @@ export function CharacterDetailCard({
             >
               <span aria-hidden="true">×</span>
             </button>
+
+            {onSendChat && (
+              <button
+                type="button"
+                className="dossier__chat-btn"
+                onClick={() => onSendChat(merged.name)}
+                aria-label={`Send a message to ${merged.name}`}
+                title={`Send a message to ${merged.name}`}
+              >
+                <span aria-hidden="true">✉</span>
+                <span className="dossier__chat-btn-label">Send chat</span>
+              </button>
+            )}
 
             <header className="dossier__header">
               <div className="dossier__classification">

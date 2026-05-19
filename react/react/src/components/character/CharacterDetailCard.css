@@ -251,6 +251,45 @@
   outline-offset: 3px;
 }
 
+/* "Send chat" — sits to the left of the close dot, paper-tab style. */
+.dossier__chat-btn {
+  position: absolute;
+  top: 12px;
+  right: 54px;
+  z-index: 5;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 16px;
+  background: var(--ink);
+  color: var(--paper-hi);
+  font-family: 'Fraunces', 'Bodoni Moda', serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    0 0 0 3px rgba(255, 246, 220, 0.5);
+  transition: transform 0.18s ease-out, background 0.18s ease-out;
+}
+.dossier__chat-btn:hover {
+  background: var(--gold-bright, #c39034);
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+.dossier__chat-btn:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 3px;
+}
+.dossier__chat-btn-label {
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
 /* ───────────────────────────────────────────────────────────────
    Header
    ─────────────────────────────────────────────────────────────── */

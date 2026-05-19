@@ -1494,6 +1494,11 @@ def api_send_message(game_id):
     data = request.json or {}
     message = data.get('message', '')
     sender = data.get('sender', 'Player')
+    # Optional list of player names this message is directly addressed to.
+    # Drives the AI's find_callouts detection so targeted chat reliably
+    # reaches the intended opponent regardless of message wording.
+    raw_addressing = data.get('addressing')
+    addressing = [str(n) for n in raw_addressing if isinstance(n, str)] if isinstance(raw_addressing, list) else None
 
     current_game_data = game_state_service.get_game(game_id)
     current_user, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
@@ -1515,7 +1520,7 @@ def api_send_message(game_id):
         game_state_service.set_game(game_id, current_game_data)
 
     if message.strip():
-        send_message(game_id, sender, message.strip(), 'player')
+        send_message(game_id, sender, message.strip(), 'player', addressing=addressing)
         return jsonify({'success': True})
 
     return jsonify({'success': False, 'error': 'Empty message'})
@@ -1818,6 +1823,11 @@ def register_socket_events(sio):
         content = data.get('message')
         sender = data.get('sender', 'Player')
         message_type = data.get('message_type', 'user')
+        raw_addressing = data.get('addressing')
+        addressing = (
+            [str(n) for n in raw_addressing if isinstance(n, str)]
+            if isinstance(raw_addressing, list) else None
+        )
 
         if not game_id:
             logger.debug("[SOCKET] send_message missing game_id")
@@ -1837,7 +1847,7 @@ def register_socket_events(sio):
             emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
 
-        send_message(game_id, sender, content, message_type)
+        send_message(game_id, sender, content, message_type, addressing=addressing)
 
     @sio.on('progress_game')
     @socket_rate_limit(max_calls=5, window_seconds=10)

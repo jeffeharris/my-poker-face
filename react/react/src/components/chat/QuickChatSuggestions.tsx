@@ -19,11 +19,18 @@ interface QuickChatSuggestionsProps {
     player: string;
     amount?: number;
   };
-  onSelectSuggestion: (text: string) => void;
+  /**
+   * Receives the suggestion text plus the explicit addressing list when a
+   * specific opponent (not "table") is targeted. Drives the backend's
+   * find_callouts detection for AI players.
+   */
+  onSelectSuggestion: (text: string, addressing?: string[]) => void;
   defaultExpanded?: boolean;
   hideHeader?: boolean;
   onSuggestionsLoaded?: () => void;
   guestChatDisabled?: boolean;
+  /** Pre-select a player as the target on mount (e.g. opened from dossier). */
+  initialTarget?: string | null;
 }
 
 interface ToneOption {
@@ -50,9 +57,10 @@ export function QuickChatSuggestions({
   defaultExpanded = false,
   hideHeader = false,
   onSuggestionsLoaded,
-  guestChatDisabled = false
+  guestChatDisabled = false,
+  initialTarget = null,
 }: QuickChatSuggestionsProps) {
-  const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState<string | null>(initialTarget);
   const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
   const [suggestions, setSuggestions] = useState<TargetedSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -88,8 +96,11 @@ export function QuickChatSuggestions({
     localStorage.setItem('quickchat_intensity', intensity);
   }, [intensity]);
 
-  // Get AI players (non-human, not folded)
-  const aiPlayers = players.filter(p => !p.is_human && !p.is_folded);
+  // All AI players stay selectable as chat targets — including folded ones.
+  // Folded targets are still useful: the player can needle a busted opponent
+  // or reach out to a friend who just mucked. Folded state is reflected
+  // visually so the affordance is honest about who's still in the hand.
+  const aiPlayers = players.filter(p => !p.is_human);
   const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone, forceRefresh = false) => {
     // Block fetching when guest chat is disabled
     if (guestChatDisabled) return;
@@ -174,7 +185,13 @@ export function QuickChatSuggestions({
   };
 
   const handleSuggestionClick = (text: string) => {
-    onSelectSuggestion(text);
+    // Only attach addressing when targeting a specific opponent. The
+    // "table" pseudo-target is broadcast chat and should leave the
+    // addressing list empty so AIs don't treat it as a direct callout.
+    const addressing = selectedTarget && selectedTarget !== 'table'
+      ? [selectedTarget]
+      : undefined;
+    onSelectSuggestion(text, addressing);
     // Reset state after selection
     setSelectedTarget(null);
     setSelectedTone(null);
@@ -246,17 +263,19 @@ export function QuickChatSuggestions({
               : `/api/avatar/${player.name}/confident/full`;
             const encodedPath = rawPath.split('/').map(seg => encodeURIComponent(seg)).join('/');
             const avatarUrl = `${config.API_URL}${encodedPath}`;
+            const isFolded = !!player.is_folded;
             return (
               <button
                 key={player.name}
-                className={`target-btn target-btn-player ${selectedTarget === player.name ? 'selected' : ''} has-bg-image`}
+                className={`target-btn target-btn-player ${selectedTarget === player.name ? 'selected' : ''} ${isFolded ? 'folded' : ''} has-bg-image`}
                 onClick={() => handleTargetSelect(player.name)}
-                title={`Talk to ${player.name}`}
+                title={isFolded ? `Talk to ${player.name} (folded)` : `Talk to ${player.name}`}
                 style={{ backgroundImage: `url(${avatarUrl})` }}
               >
                 <span className="target-name">
                   {player.nickname || player.name}
                 </span>
+                {isFolded && <span className="target-folded-badge" aria-hidden="true">folded</span>}
               </button>
             );
           })}

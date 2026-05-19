@@ -97,12 +97,14 @@ interface MobileChatSheetProps {
   isOpen: boolean;
   onClose: () => void;
   messages: ChatMessage[];
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, addressing?: string[]) => void;
   gameId: string;
   playerName: string;
   players: Player[];
   guestChatDisabled?: boolean;
   isGuest?: boolean;
+  /** Pre-select an opponent as the quick-chat target on open. */
+  initialTarget?: string | null;
 }
 
 export function MobileChatSheet({
@@ -115,11 +117,26 @@ export function MobileChatSheet({
   players,
   guestChatDisabled = false,
   isGuest = false,
+  initialTarget = null,
 }: MobileChatSheetProps) {
   const [activeTab, setActiveTab] = useState<InputTab>(isGuest ? 'keyboard' : 'quick');
   const [inputValue, setInputValue] = useState('');
   const [isClosing, setIsClosing] = useState(false);
   const [quickChatKey, setQuickChatKey] = useState(0);
+  // Track which initialTarget value applies to the *current* QuickChat
+  // instance. When the sheet is reopened (or the parent supplies a new
+  // target), bump the key so the child mounts fresh with the new value.
+  // After a suggestion is sent (quickChatKey bumped via handleQuickChatSelect)
+  // we drop back to no preset target so the next chat starts at "table".
+  const [appliedTarget, setAppliedTarget] = useState<string | null>(initialTarget);
+  const lastInitialTargetRef = useRef<string | null>(initialTarget);
+  useEffect(() => {
+    if (initialTarget !== lastInitialTargetRef.current) {
+      lastInitialTargetRef.current = initialTarget;
+      setAppliedTarget(initialTarget);
+      setQuickChatKey(k => k + 1);
+    }
+  }, [initialTarget]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -233,6 +250,8 @@ export function MobileChatSheet({
   const handleSend = () => {
     const trimmed = inputValue.trim();
     if (trimmed) {
+      // Keyboard-typed messages don't have a UI target selector yet;
+      // they go to the table (no addressing).
       onSendMessage(trimmed);
       setInputValue('');
     }
@@ -245,9 +264,11 @@ export function MobileChatSheet({
     }
   };
 
-  const handleQuickChatSelect = (text: string) => {
-    onSendMessage(text);
-    // Remount QuickChatSuggestions so it resets to expanded with fresh state
+  const handleQuickChatSelect = (text: string, addressing?: string[]) => {
+    onSendMessage(text, addressing);
+    // Remount QuickChatSuggestions so it resets to expanded with fresh state.
+    // Drop the preset target — a fresh chat starts back at "table".
+    setAppliedTarget(null);
     setQuickChatKey(k => k + 1);
   };
 
@@ -377,6 +398,7 @@ export function MobileChatSheet({
                   onSelectSuggestion={handleQuickChatSelect}
                   onSuggestionsLoaded={handleSuggestionsLoaded}
                   guestChatDisabled={guestChatDisabled}
+                  initialTarget={appliedTarget}
                 />
               </div>
             ) : (

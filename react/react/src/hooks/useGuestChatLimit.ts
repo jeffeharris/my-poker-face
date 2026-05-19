@@ -7,7 +7,7 @@ import { useAuth } from './useAuth';
  */
 export function useGuestChatLimit(
   isHumanTurn: boolean | undefined,
-  handleSendMessage: (message: string) => Promise<void>,
+  handleSendMessage: (message: string, addressing?: string[]) => Promise<void>,
 ) {
   const { user } = useAuth();
   const isGuest = user?.is_guest ?? true;
@@ -21,9 +21,9 @@ export function useGuestChatLimit(
     wasAwaitingAction.current = !!isHumanTurn;
   }, [isHumanTurn]);
 
-  const wrappedSendMessage = useCallback(async (message: string) => {
+  const wrappedSendMessage = useCallback(async (message: string, addressing?: string[]) => {
     try {
-      await handleSendMessage(message);
+      await handleSendMessage(message, addressing);
       if (isGuest) {
         setGuestChatSentThisAction(true);
       }
