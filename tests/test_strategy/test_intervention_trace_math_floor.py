@@ -44,7 +44,10 @@ class TestMathFloorVetoTrace:
         assert trace.operation == InterventionOperation.VETO.value
         assert trace.effect == 'distribution_replaced'
         assert trace.reason_code == 'short_stack'
-        assert trace.inputs['target'] == 'all_in'
+        # math_floor emits the abstract action 'jam' for shoves so the
+        # downstream action_mapper resolves it correctly. Engine-level
+        # 'all_in' would crash the preflop / postflop resolver.
+        assert trace.inputs['target'] == 'jam'
         validate_trace(trace)
 
     def test_short_stack_falls_back_to_call_when_no_all_in(self):

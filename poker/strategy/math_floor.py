@@ -128,10 +128,16 @@ def apply_pot_odds_floor(
             reason_code='no_rule_triggered',
         )
 
-    # Pick the target action. Short-stack prefers all_in if legal so we
-    # actually realize the fold-equity-zero push; otherwise call.
+    # Pick the target action. Short-stack prefers a shove if the engine
+    # has 'all_in' legal so we actually realize the fold-equity-zero
+    # push; otherwise call. We emit the abstract action label 'jam' here
+    # — the action_mapper resolves 'jam' to ('all_in', stack). Emitting
+    # raw 'all_in' would crash both resolve_preflop_sizing and
+    # resolve_postflop_sizing (they only know 'jam' in the abstract
+    # vocabulary), which the tournament runner has been silently swallowing
+    # via fold-on-error.
     if rule == 'short_stack' and 'all_in' in legal_actions:
-        target = 'all_in'
+        target = 'jam'
     else:
         target = 'call'
 

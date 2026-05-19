@@ -79,9 +79,75 @@ class TestPromptTemplate(unittest.TestCase):
         self.assertEqual(len(sections), 3)
 
 
+class TestPromptManagerSharedObserver(unittest.TestCase):
+    """Pin the shared-observer behavior so many PromptManager instances
+    in one process don't each open their own inotify watcher.
+
+    Background: every AI controller and AIPokerPlayer constructs a
+    PromptManager. With per-instance watchers, a 6-handed game opened
+    12+ inotify instances and a tournament / sim run blew past the
+    default cap (~128) — visible as repeated 'inotify instance limit
+    reached' errors in dev logs.
+
+    These tests stub `_spawn_shared_observer` so the sharing logic
+    is exercised independently of the host's inotify state. Real
+    file-watching is covered by manual playtesting + the spike's
+    "no spam" verification.
+    """
+
+    def setUp(self):
+        # Defensive: drop any residual shared state from earlier tests
+        # so the invariants we assert hold from a known baseline.
+        PromptManager.stop_all_hot_reload()
+        # Stub the observer spawn so the tests don't depend on actual
+        # inotify availability (the dev container has tight inotify
+        # limits that other tests can exhaust). The MagicMock returned
+        # stands in for a real Observer for the sharing-logic assertions.
+        self._observer_factory_calls = 0
+
+        def fake_spawn(key):
+            self._observer_factory_calls += 1
+            obs = MagicMock()
+            obs.is_alive.return_value = True
+            return obs
+
+        self._spawn_patcher = patch.object(
+            PromptManager, "_spawn_shared_observer",
+            side_effect=fake_spawn,
+        )
+        self._spawn_patcher.start()
+
+    def tearDown(self):
+        self._spawn_patcher.stop()
+        PromptManager.stop_all_hot_reload()
+
+    def test_many_instances_share_one_observer(self):
+        managers = [PromptManager(enable_hot_reload=True) for _ in range(8)]
+        # All instances point at the same default prompts_dir, so they
+        # must share a single observer entry under that key.
+        self.assertEqual(len(PromptManager._shared_observers), 1)
+        # _spawn_shared_observer fires exactly once — not 8 times.
+        self.assertEqual(self._observer_factory_calls, 1)
+        # And every instance should be a subscriber of that one observer.
+        (subs,) = PromptManager._shared_subscribers.values()
+        for m in managers:
+            self.assertIn(m, subs)
+
+    def test_stop_hot_reload_unsubscribes_without_killing_observer(self):
+        a = PromptManager(enable_hot_reload=True)
+        b = PromptManager(enable_hot_reload=True)
+        self.assertEqual(len(PromptManager._shared_observers), 1)
+        a.stop_hot_reload()
+        # Observer still alive because `b` is still subscribed.
+        self.assertEqual(len(PromptManager._shared_observers), 1)
+        b.stop_hot_reload()
+        # Now that the last subscriber unsubscribed, the observer is gone.
+        self.assertEqual(len(PromptManager._shared_observers), 0)
+
+
 class TestPromptManager(unittest.TestCase):
     """Test the PromptManager class."""
-    
+
     def setUp(self):
         self.manager = PromptManager()
     

@@ -85,6 +85,14 @@ class ImmutableStateMachine:
     blind_config: BlindConfig = field(default_factory=BlindConfig)
     current_hand_seed: Optional[int] = None  # For deterministic deck seeding in A/B experiments
     hand_seed_provided: bool = False
+    # When False, advance_state_pure skips the snapshot append. The
+    # snapshots tuple otherwise grows monotonically (one entry per
+    # transition, no pruning), which is fine for short-lived game
+    # sessions but turns into a real memory leak for full-sim tables
+    # that live across thousands of hands. No production code outside
+    # of the state machine itself reads `.snapshots`; it's a dev-time
+    # debugging aid. Default True preserves existing behavior.
+    record_snapshots: bool = True
     
     def with_game_state(self, game_state: PokerGameState) -> 'ImmutableStateMachine':
         """Return new state with updated game state."""
@@ -330,8 +338,11 @@ def advance_state_pure(state: ImmutableStateMachine) -> ImmutableStateMachine:
     Pure function that advances the state machine by one step.
     Returns a new state with appropriate transitions applied.
     """
-    # Add snapshot
-    state = state.add_snapshot()
+    # Snapshot the pre-transition state for in-memory debugging. Skipped
+    # when record_snapshots=False (e.g. full-sim tables that live across
+    # thousands of hands).
+    if state.record_snapshots:
+        state = state.add_snapshot()
     
     # Map phases to their transition functions
     phase_transitions = {
@@ -367,7 +378,8 @@ class PokerStateMachine:
 
     def __init__(self, game_state: PokerGameState,
                  _internal_state: Optional[ImmutableStateMachine] = None,
-                 blind_config: Optional[dict] = None):
+                 blind_config: Optional[dict] = None,
+                 record_snapshots: bool = True):
         """
         Initialize state machine.
 
@@ -375,6 +387,10 @@ class PokerStateMachine:
             game_state: Initial game state (used for new games)
             _internal_state: Internal state (used for creating new instances)
             blind_config: Optional dict with 'growth', 'hands_per_level', 'max_blind'
+            record_snapshots: When False, advance_state_pure skips the
+                per-transition snapshot append. Use for long-lived sim
+                tables where the snapshots tuple would grow unbounded.
+                Default True preserves existing behavior.
         """
         if _internal_state is not None:
             self._state = _internal_state
@@ -392,18 +408,23 @@ class PokerStateMachine:
             self._state = ImmutableStateMachine(
                 game_state=game_state,
                 phase=PokerPhase.INITIALIZING_GAME,
-                blind_config=bc
+                blind_config=bc,
+                record_snapshots=record_snapshots,
             )
 
     @classmethod
     def from_saved_state(cls, game_state: PokerGameState, phase: PokerPhase,
                          blind_config: Optional[dict] = None,
-                         hand_count: int = 0) -> 'PokerStateMachine':
+                         hand_count: int = 0,
+                         record_snapshots: bool = True) -> 'PokerStateMachine':
         """Create a state machine from a saved game state with a specific phase.
 
         `hand_count` should be the count from the prior session — without it,
         stats resets to 0 on restore and the blind-escalation cadence
         (`hand_count % hands_per_level == 0`) restarts from scratch.
+
+        `record_snapshots=False` is for long-lived sim tables — see the
+        primary constructor.
         """
         if blind_config:
             bc = BlindConfig(
@@ -416,6 +437,7 @@ class PokerStateMachine:
         internal = ImmutableStateMachine(
             game_state=game_state, phase=phase, blind_config=bc,
             stats=StateMachineStats(hand_count=hand_count),
+            record_snapshots=record_snapshots,
         )
         return cls(game_state, _internal_state=internal)
 

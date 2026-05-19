@@ -9,6 +9,7 @@ import logging
 import re
 import threading
 import time
+import weakref
 from pathlib import Path
 from typing import Dict, Optional, Set
 from dataclasses import dataclass, field
@@ -160,10 +161,26 @@ class PromptManager:
         enable_hot_reload: If True, watches for file changes and reloads templates.
                           Should only be True in development mode.
         prompts_dir: Optional custom directory for YAML files. Defaults to poker/prompts/.
+
+    Hot-reload sharing: many components (each AI controller, each
+    AIPokerPlayer, each commentary generator) instantiate their own
+    PromptManager. With per-instance inotify watchers, a process running
+    a 6-handed game opens 12+ watchers, and a tournament / sim run blows
+    past the OS inotify-instance cap (~128 by default) trivially. The
+    Observer is shared at the class level, keyed by `prompts_dir` —
+    one watcher per directory per process, fanning out to every
+    PromptManager registered against that directory.
     """
 
     # Debounce delay for hot-reload (seconds)
     RELOAD_DEBOUNCE_SECONDS = 0.5
+
+    # Class-level singleton state for the shared hot-reload observers.
+    # Keyed by the resolved prompts directory so PromptManagers watching
+    # different directories don't collide.
+    _shared_observers: Dict[Path, "object"] = {}
+    _shared_subscribers: Dict[Path, "weakref.WeakSet"] = {}
+    _shared_observer_lock = threading.Lock()
 
     def __init__(self, enable_hot_reload: bool = False, prompts_dir: Optional[Path] = None):
         self.templates: Dict[str, PromptTemplate] = {}
@@ -267,33 +284,78 @@ class PromptManager:
             return False
 
     def _setup_hot_reload(self) -> None:
-        """Set up file watching for hot-reload."""
+        """Subscribe this instance to the shared observer for its prompts_dir.
+
+        The first PromptManager that requests hot-reload for a given
+        directory spins up the inotify Observer for that directory; every
+        subsequent PromptManager pointing at the same directory joins the
+        existing subscriber set. This keeps the watcher count bounded to
+        one-per-directory-per-process even when dozens of controllers are
+        instantiated in dev mode, avoiding "inotify instance limit
+        reached" failures that previously appeared once ~24 controllers
+        were created.
+        """
+        key = self.prompts_dir.resolve()
+        with PromptManager._shared_observer_lock:
+            subscribers = PromptManager._shared_subscribers.get(key)
+            if subscribers is None:
+                subscribers = weakref.WeakSet()
+                PromptManager._shared_subscribers[key] = subscribers
+            subscribers.add(self)
+
+            if key not in PromptManager._shared_observers:
+                observer = self._spawn_shared_observer(key)
+                if observer is None:
+                    # Setup failed (watchdog missing, inotify cap hit on
+                    # the FIRST attempt, etc.) — leave the entry absent
+                    # so a later instance can retry rather than getting
+                    # stuck on a None sentinel.
+                    return
+                PromptManager._shared_observers[key] = observer
+
+        # Per-instance handle for stop_hot_reload's compatibility surface.
+        # We don't own the observer — we share it — so stop() unsubscribes
+        # rather than tearing the watcher down.
+        self._observer = PromptManager._shared_observers.get(key)
+
+    @classmethod
+    def _spawn_shared_observer(cls, key: Path):
+        """Spin up the class-level Observer for `key`. Returns the
+        Observer instance or None on failure (already logged)."""
         try:
             from watchdog.observers import Observer
             from watchdog.events import FileSystemEventHandler
 
-            manager = self
-
-            class PromptFileHandler(FileSystemEventHandler):
+            class _SharedPromptFileHandler(FileSystemEventHandler):
                 def on_modified(self, event):
-                    if event.is_directory:
+                    if event.is_directory or not event.src_path.endswith('.yaml'):
                         return
-                    if event.src_path.endswith('.yaml'):
-                        template_name = Path(event.src_path).stem
-                        manager._schedule_reload(template_name)
+                    template_name = Path(event.src_path).stem
+                    # Snapshot subscribers under the lock; dispatch outside
+                    # to avoid holding it across user-facing reload work.
+                    with PromptManager._shared_observer_lock:
+                        snapshot = list(
+                            PromptManager._shared_subscribers.get(key, ())
+                        )
+                    for manager in snapshot:
+                        try:
+                            manager._schedule_reload(template_name)
+                        except Exception as inner:  # noqa: BLE001
+                            logger.debug(
+                                f"[PromptManager] subscriber reload failed: {inner}"
+                            )
 
-            self._observer = Observer()
-            self._observer.schedule(
-                PromptFileHandler(),
-                str(self.prompts_dir),
-                recursive=False
-            )
-            self._observer.start()
-            logger.info(f"[PromptManager] Hot-reload enabled, watching {self.prompts_dir}")
+            observer = Observer()
+            observer.schedule(_SharedPromptFileHandler(), str(key), recursive=False)
+            observer.start()
+            logger.info(f"[PromptManager] Hot-reload enabled (shared), watching {key}")
+            return observer
         except ImportError:
             logger.warning("watchdog not installed, hot-reload disabled")
+            return None
         except Exception as e:
             logger.error(f"Failed to set up hot-reload: {e}")
+            return None
 
     def _schedule_reload(self, template_name: str) -> None:
         """Schedule a template reload with debouncing.
@@ -325,22 +387,58 @@ class PromptManager:
             self._reload_template(template_name)
 
     def stop_hot_reload(self) -> None:
-        """Stop the file watcher. Call this on shutdown."""
-        if self._observer:
-            try:
-                self._observer.stop()
-                # Only join if the observer thread was actually started
-                if self._observer.is_alive():
-                    self._observer.join(timeout=2.0)
-                logger.info("[PromptManager] Hot-reload stopped")
-            except Exception as e:
-                logger.debug(f"[PromptManager] Error stopping hot-reload: {e}")
-            finally:
-                self._observer = None
+        """Unsubscribe this instance from the shared observer.
+
+        The observer is shared across all PromptManager instances pointing
+        at the same prompts_dir; we only tear it down once the last
+        subscriber unsubscribes. Callers that want to stop the watcher
+        for the whole process should call `PromptManager.stop_all_hot_reload()`.
+        """
+        if self._observer is not None:
+            key = self.prompts_dir.resolve()
+            with PromptManager._shared_observer_lock:
+                subscribers = PromptManager._shared_subscribers.get(key)
+                if subscribers is not None:
+                    subscribers.discard(self)
+                # When no subscribers remain, shut the watcher down.
+                if subscribers is not None and not subscribers:
+                    obs = PromptManager._shared_observers.pop(key, None)
+                    PromptManager._shared_subscribers.pop(key, None)
+                    if obs is not None:
+                        try:
+                            obs.stop()
+                            if obs.is_alive():
+                                obs.join(timeout=2.0)
+                            logger.info(
+                                f"[PromptManager] Hot-reload stopped (shared, {key})"
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            logger.debug(
+                                f"[PromptManager] Error stopping shared observer: {e}"
+                            )
+            self._observer = None
 
         if self._debounce_timer:
             self._debounce_timer.cancel()
             self._debounce_timer = None
+
+    @classmethod
+    def stop_all_hot_reload(cls) -> None:
+        """Stop every shared observer. Intended for process shutdown."""
+        with cls._shared_observer_lock:
+            observers = list(cls._shared_observers.items())
+            cls._shared_observers.clear()
+            cls._shared_subscribers.clear()
+        for key, obs in observers:
+            try:
+                obs.stop()
+                if obs.is_alive():
+                    obs.join(timeout=2.0)
+                logger.info(f"[PromptManager] Hot-reload stopped (shared, {key})")
+            except Exception as e:  # noqa: BLE001
+                logger.debug(
+                    f"[PromptManager] Error stopping shared observer at {key}: {e}"
+                )
 
     def __del__(self):
         """Clean up file watcher on destruction."""
