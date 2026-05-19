@@ -20,6 +20,7 @@ from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
 from poker.poker_game import determine_winner, play_turn, advance_to_next_active_player, award_pot_winnings
 from poker.poker_state_machine import PokerPhase
 from poker.hand_evaluator import HandEvaluator
+from poker.card_utils import card_to_string
 from .avatar_handler import get_avatar_url_with_fallback
 from poker.player_psychology import ComposureState
 from poker.emotional_state import EmotionalState
@@ -1247,10 +1248,20 @@ def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: l
                                    4: '4', 3: '3', 2: '2'}
                     kicker_names = [value_names.get(v, str(v)) for v in kicker_values if isinstance(v, int)]
 
+                    # eval7 score breaks ties within the same category (higher = stronger).
+                    hand_score = 0
+                    try:
+                        import eval7
+                        eval_cards = [eval7.Card(card_to_string(c)) for c in full_hand]
+                        hand_score = eval7.evaluate(eval_cards)
+                    except Exception as e:
+                        logger.warning(f"eval7 scoring failed for {player.name}: {e}")
+
                     players_showdown[player.name] = {
                         'cards': formatted_cards,
                         'hand_name': hand_result.get('hand_name', 'Unknown'),
                         'hand_rank': hand_result.get('hand_rank', 10),
+                        'hand_score': hand_score,
                         'kickers': kicker_names
                     }
                 except Exception as e:
@@ -1259,6 +1270,7 @@ def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: l
                         'cards': formatted_cards,
                         'hand_name': None,
                         'hand_rank': 99,
+                        'hand_score': 0,
                         'kickers': []
                     }
 
