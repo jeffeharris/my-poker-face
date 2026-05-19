@@ -15,7 +15,18 @@ import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import type { CashModeInfo } from '../../types/game';
 import { computeLeaveBreakdown } from './loanSettlement';
+import { CashOutSummary, type SessionSummary } from './CashOutSummary';
 import './CashControls.css';
+
+interface LeaveResponse {
+  session_ended: boolean;
+  chips_at_table: number;
+  had_active_loan: boolean;
+  sponsor_repaid: number;
+  returned_chips: number;
+  bankroll: number;
+  session_summary: SessionSummary | null;
+}
 
 interface CashControlsProps {
   cashMode: CashModeInfo;
@@ -82,6 +93,7 @@ export function CashControls({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [leaveResult, setLeaveResult] = useState<LeaveResponse | null>(null);
 
   // Headroom for a top-up: the gap between current stack and the
   // table's max_buy_in. If stack is at or above max, the button is
@@ -139,7 +151,15 @@ export function CashControls({
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `HTTP ${res.status}`);
       }
-      navigate('/menu');
+      const data: LeaveResponse = await res.json();
+      // Without a session_summary (e.g. server lost game_data
+      // mid-session), skip the modal and go straight to the menu so
+      // the user isn't stranded.
+      if (data.session_summary) {
+        setLeaveResult(data);
+      } else {
+        navigate('/menu');
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logger.error('Leave failed:', msg);
@@ -201,6 +221,15 @@ export function CashControls({
             : 'Leave table'}
       </button>
       {error && <div className="cash-controls__error">{error}</div>}
+      {leaveResult && leaveResult.session_summary && (
+        <CashOutSummary
+          summary={leaveResult.session_summary}
+          stakeLabel={cashMode.stake_label}
+          finalBankroll={leaveResult.bankroll}
+          sponsorRepaid={leaveResult.sponsor_repaid}
+          onContinue={() => navigate('/menu')}
+        />
+      )}
     </div>
   );
 }

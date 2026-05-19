@@ -15,7 +15,18 @@ import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import type { CashModeInfo } from '../../types/game';
 import { computeLeaveBreakdown } from './loanSettlement';
+import { CashOutSummary, type SessionSummary } from './CashOutSummary';
 import './MobileCashSheet.css';
+
+interface LeaveResponse {
+  session_ended: boolean;
+  chips_at_table: number;
+  had_active_loan: boolean;
+  sponsor_repaid: number;
+  returned_chips: number;
+  bankroll: number;
+  session_summary: SessionSummary | null;
+}
 
 interface MobileCashSheetProps {
   isOpen: boolean;
@@ -87,6 +98,7 @@ export function MobileCashSheet({
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [leaveResult, setLeaveResult] = useState<LeaveResponse | null>(null);
 
   // Reset error + confirmation state when sheet opens (a stale
   // message or partial-confirm from a previous open shouldn't
@@ -160,7 +172,12 @@ export function MobileCashSheet({
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `HTTP ${res.status}`);
       }
-      navigate('/menu');
+      const data: LeaveResponse = await res.json();
+      if (data.session_summary) {
+        setLeaveResult(data);
+      } else {
+        navigate('/menu');
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logger.error('Leave failed:', msg);
@@ -269,6 +286,15 @@ export function MobileCashSheet({
           )}
         </div>
       </div>
+      {leaveResult && leaveResult.session_summary && (
+        <CashOutSummary
+          summary={leaveResult.session_summary}
+          stakeLabel={cashMode.stake_label}
+          finalBankroll={leaveResult.bankroll}
+          sponsorRepaid={leaveResult.sponsor_repaid}
+          onContinue={() => navigate('/menu')}
+        />
+      )}
     </div>
   );
 }

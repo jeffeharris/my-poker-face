@@ -27,7 +27,11 @@
 
 .mobile-cash-sheet__sheet {
   width: 100%;
-  max-height: 60dvh;
+  /* Was 60dvh — too short when the loan-breakdown panel appears and
+     pushed the confirm button below the fold. 85dvh gives the body
+     room to grow; the inner __body is scrollable so anything past
+     that still reaches the user. */
+  max-height: 85dvh;
   display: flex;
   flex-direction: column;
   background: linear-gradient(
@@ -41,6 +45,10 @@
     0 -4px 40px rgba(0, 0, 0, 0.7),
     0 -1px 0 rgba(255, 255, 255, 0.04);
   animation: mcs-cash-sheet-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  /* `overflow: hidden` is what was clipping the leave-confirm button
+     when the loan-breakdown panel expanded the body past the sheet's
+     max-height. The body itself now owns the scroll (see below) so
+     long content stays reachable. */
   overflow: hidden;
 }
 
@@ -102,7 +110,16 @@
 }
 
 .mobile-cash-sheet__body {
+  /* Take all remaining vertical space inside the sheet and own the
+     scroll so the leave-confirm button stays reachable when the loan
+     breakdown panel inflates the body. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 16px;
+  /* Keep the last button above the iOS home indicator gesture area. */
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 0.625rem;
