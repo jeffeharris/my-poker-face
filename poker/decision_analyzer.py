@@ -471,7 +471,8 @@ class DecisionAnalyzer:
         self,
         player_hand: List[str],
         community_cards: List[str],
-        num_opponents: int
+        num_opponents: int,
+        seed: Optional[int] = None,
     ) -> Optional[float]:
         """Calculate equity vs random opponent hands using Monte Carlo.
 
@@ -479,6 +480,14 @@ class DecisionAnalyzer:
             player_hand: Hero's hole cards as strings ['Ah', 'Kd']
             community_cards: Board cards as strings
             num_opponents: Number of opponents to simulate
+            seed: Optional seed for the local Monte Carlo RNG. When
+                provided, the result is reproducible. When None
+                (default), the RNG is unseeded — same behavior as
+                pre-existing callers in production code paths where
+                each computation is a one-shot snapshot and
+                reproducibility is not required. Sim callers that
+                need determinism across runs (e.g. simulate_bb100's
+                Phase A equity recording) should pass a stable seed.
 
         Returns:
             Win probability (0.0-1.0) or None if calculation fails
@@ -497,10 +506,14 @@ class DecisionAnalyzer:
 
             wins = 0
             iterations = self.iterations
+            # Local Random instance — sibling calculate_equity_vs_ranges
+            # uses the same pattern. Avoids mutating global random state.
+            # Seeded for reproducibility when caller provides `seed`.
+            rng = random.Random(seed)
 
             for _ in range(iterations):
                 # Shuffle remaining deck
-                random.shuffle(deck)
+                rng.shuffle(deck)
                 deck_idx = 0
 
                 # Deal random hands to opponents

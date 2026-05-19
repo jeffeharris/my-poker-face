@@ -19,13 +19,18 @@ def _rank_index(rank: str) -> int:
 
 
 def _extract_rank(card: str) -> str:
-    """Extract rank from card string like 'Ah' or 'Td'."""
-    return card[0]
+    """Extract rank from card string like 'Ah', 'Td', or '10h'.
+
+    The suit is always a single character — anything before it is the
+    rank. Slicing card[:-1] correctly handles two-character ranks
+    ('10h' → '10') instead of returning '1' from card[0].
+    """
+    return card[:-1]
 
 
 def _extract_suit(card: str) -> str:
-    """Extract suit from card string like 'Ah' or 'Td'."""
-    return card[1]
+    """Extract suit from card string like 'Ah', 'Td', or '10h'."""
+    return card[-1]
 
 
 def analyze_board_texture(community_cards: List[str]) -> Dict:

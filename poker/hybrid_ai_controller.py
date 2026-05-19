@@ -32,6 +32,7 @@ from .bounded_options import (
     apply_emotional_window_shift,
     get_emotional_shift,
 )
+from .nudge_phrases import apply_composed_nudges
 from .hand_ranges import (
     calculate_equity_vs_ranges,
     build_opponent_info,
@@ -175,11 +176,19 @@ class HybridAIController(AIPlayerController):
             in_range=range_data.get('in_range', True),
             range_pct=range_data.get('range_pct'),
             position_display=range_data.get('position_display'),
+            apply_hu_equity_offset=getattr(self.prompt_config, 'hu_equity_offset', False),
         )
 
         if not options:
             logger.warning(f"[HYBRID] No options generated for {self.player_name}, using fallback")
             return self._create_fallback_response('check' if 'check' in context.get('valid_actions', []) else 'fold')
+
+        # Step 2a: Composed nudges (replace raw rationale with playstyle phrases).
+        # Mirrors the lean controller's wiring so the standard bot honours
+        # PromptConfig.composed_nudges instead of silently ignoring it.
+        if getattr(self.prompt_config, 'composed_nudges', False):
+            is_heads_up = rule_context.get('num_opponents', 2) <= 1
+            options = apply_composed_nudges(options, profile_key, is_heads_up=is_heads_up)
 
         # Step 2b: Emotional window shift
         emotional_shift = get_emotional_shift(self.psychology)
@@ -341,7 +350,9 @@ class HybridAIController(AIPlayerController):
         equity = context.get('equity', 0.5)
         pot_odds = context.get('pot_odds', 0)
 
-        options_text = format_options_for_prompt(options, equity, pot_odds)
+        options_text = format_options_for_prompt(
+            options, equity, pot_odds, big_blind=context.get('big_blind'),
+        )
 
         choice_template = """
 {base_message}
@@ -493,7 +504,6 @@ CRITICAL RULES:
 
         # Capture emotional shift state at enricher creation time
         emotional_shift = get_emotional_shift(self.psychology)
-        rd = range_data or {}
 
         def enrich_capture(capture_data: Dict) -> Dict:
             # Core hybrid data

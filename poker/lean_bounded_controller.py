@@ -125,6 +125,7 @@ class LeanBoundedController(HybridAIController):
             in_range=range_data.get('in_range', True),
             range_pct=range_data.get('range_pct'),
             position_display=range_data.get('position_display'),
+            apply_hu_equity_offset=getattr(self.prompt_config, 'hu_equity_offset', False),
         )
 
         if not options:

@@ -70,18 +70,34 @@ class StateMachineAdapter:
     def current_phase(self, value):
         self._state_machine = self._state_machine.with_phase(value)
     
-    def run_until(self, phases: List[PokerPhase]):
-        """Run the state machine until one of the given phases."""
+    def run_until(self, phases: List[PokerPhase], max_iterations: int = 50):
+        """Run the state machine until one of the given phases.
+
+        ``max_iterations`` bounds the loop so a stuck pipeline can't
+        pin the worker thread (mirrors PokerStateMachine.run_until_player_action).
+        """
+        iterations = 0
         while self._state_machine.current_phase not in phases:
             self._state_machine = self._state_machine.advance()
-            
+
             # Break if waiting for player action
             if self._state_machine.game_state.awaiting_action:
                 break
-    
-    def run_until_player_action(self):
+
+            iterations += 1
+            if iterations >= max_iterations:
+                import logging
+                logging.getLogger(__name__).error(
+                    f"[RUNOUT] StateMachineAdapter.run_until hit cap "
+                    f"({max_iterations}) at phase={self._state_machine.current_phase.name}"
+                )
+                break
+
+    def run_until_player_action(self, max_iterations: int = 50):
         """Run until player action is needed."""
-        self._state_machine = self._state_machine.run_until_player_action()
+        self._state_machine = self._state_machine.run_until_player_action(
+            max_iterations=max_iterations
+        )
     
     def update_phase(self):
         """Update to the next phase - handled automatically by advance()."""

@@ -9,6 +9,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Deque, List, Dict, Optional, Any, Tuple
 
+from .relationship_events import (
+    RelationshipEvent,
+    actor_shift,
+    mirror_shift,
+)
 from ..archetypes import (
     VPIP_TIGHT as VPIP_TIGHT_THRESHOLD,
     VPIP_LOOSE as VPIP_LOOSE_THRESHOLD,
@@ -168,6 +173,28 @@ class OpponentTendencies:
     _preflop_open_opportunities: int = 0
     _preflop_open_raise_count: int = 0
     _preflop_voluntary_action_count: int = 0
+
+    # Polarization Phase A: equity-at-action tracking. Populated at
+    # showdown when hole cards are revealed; the showdown caller walks
+    # the player's postflop actions and records the equity-they-had-at-
+    # that-decision into the matching action bucket. The derived means
+    # let downstream rules distinguish polarized opponents (raise with
+    # nuts) from noisy callers (raise with anything).
+    #
+    # Per-action means start at neutral 0.5 prior and only become
+    # meaningful once their corresponding _count exceeds a minimum
+    # sample threshold (defined in the polarization detection spec).
+    # Sums are running totals to support incremental mean update without
+    # storing the full sample history.
+    equity_when_betting_postflop: float = 0.5    # mean equity on bets
+    equity_when_raising_postflop: float = 0.5    # mean equity on raises
+    equity_when_calling_postflop: float = 0.5    # mean equity on calls
+    _equity_betting_sum: float = 0.0
+    _equity_raising_sum: float = 0.0
+    _equity_calling_sum: float = 0.0
+    _equity_betting_count: int = 0
+    _equity_raising_count: int = 0
+    _equity_calling_count: int = 0
 
     # Per-hand opportunity flags (reset on new hand, mirror _vpip_this_hand /
     # _pfr_this_hand).
@@ -495,6 +522,51 @@ class OpponentTendencies:
             self._third_barrel_count += 1
         self._recalculate_stats()
 
+    def update_equity_at_action(self, action: str, equity: float) -> None:
+        """Polarization Phase A: record observed equity at the moment of a
+        postflop action by this opponent.
+
+        Args:
+            action: The action taken at the moment of the observation.
+                One of 'bet', 'raise', 'call'. Other actions (fold,
+                check, all_in) are no-ops here — fold/check don't reveal
+                strength, and all_in is bucketed into raise by the
+                caller when it's a raising shove (and ignored when it's
+                a call-shove). Caller is responsible for the bucket choice.
+            equity: Estimated win probability vs. uniform random / vs.
+                live opponent at the moment of the action, in [0, 1].
+                Same definition as `player_decision_analysis.equity`.
+
+        Updates the running sum + count for the matching action bucket
+        and refreshes the per-action mean. No-op for action types that
+        don't map to a tracked bucket so the caller can pass through
+        without filtering.
+        """
+        if not (0.0 <= equity <= 1.0):
+            # Silently skip nonsense values — better than corrupting
+            # the running average with a guard rail at the seam.
+            return
+
+        if action == 'bet':
+            self._equity_betting_sum += equity
+            self._equity_betting_count += 1
+            self.equity_when_betting_postflop = (
+                self._equity_betting_sum / self._equity_betting_count
+            )
+        elif action == 'raise':
+            self._equity_raising_sum += equity
+            self._equity_raising_count += 1
+            self.equity_when_raising_postflop = (
+                self._equity_raising_sum / self._equity_raising_count
+            )
+        elif action == 'call':
+            self._equity_calling_sum += equity
+            self._equity_calling_count += 1
+            self.equity_when_calling_postflop = (
+                self._equity_calling_sum / self._equity_calling_count
+            )
+        # action types outside {bet, raise, call} intentionally ignored
+
     def _recalculate_stats(self):
         """Recalculate derived statistics.
 
@@ -628,7 +700,12 @@ class OpponentTendencies:
         - 'loose-passive' (Calling Station)
         - 'unknown'
         """
-        if self.hands_observed < MIN_HANDS_FOR_STYLE_LABEL:
+        # VPIP uses hands_dealt as the denominator after the
+        # opportunity-normalized rework, so gating on hands_observed
+        # would label tight-passive players from a too-small pool of
+        # voluntary entries.
+        sample = self.hands_dealt if self.hands_dealt > 0 else self.hands_observed
+        if sample < MIN_HANDS_FOR_STYLE_LABEL:
             return 'unknown'
 
         is_tight = self.vpip < VPIP_TIGHT_THRESHOLD
@@ -724,6 +801,16 @@ class OpponentTendencies:
             '_preflop_open_opportunities': self._preflop_open_opportunities,
             '_preflop_open_raise_count': self._preflop_open_raise_count,
             '_preflop_voluntary_action_count': self._preflop_voluntary_action_count,
+            # Polarization Phase A: equity-at-action fields
+            'equity_when_betting_postflop': self.equity_when_betting_postflop,
+            'equity_when_raising_postflop': self.equity_when_raising_postflop,
+            'equity_when_calling_postflop': self.equity_when_calling_postflop,
+            '_equity_betting_sum': self._equity_betting_sum,
+            '_equity_raising_sum': self._equity_raising_sum,
+            '_equity_calling_sum': self._equity_calling_sum,
+            '_equity_betting_count': self._equity_betting_count,
+            '_equity_raising_count': self._equity_raising_count,
+            '_equity_calling_count': self._equity_calling_count,
             # Phase 7.5 Item 2b: sliding-window events (list-serialized)
             '_recent_postflop_events': list(self._recent_postflop_events),
         }
@@ -797,6 +884,24 @@ class OpponentTendencies:
         tendencies._preflop_voluntary_action_count = data.get(
             '_preflop_voluntary_action_count', 0,
         )
+        # Polarization Phase A: equity-at-action fields. Default to
+        # neutral 0.5 mean and 0 count/sum so legacy records pre-Phase A
+        # restore cleanly with no observed equity history.
+        tendencies.equity_when_betting_postflop = data.get(
+            'equity_when_betting_postflop', 0.5,
+        )
+        tendencies.equity_when_raising_postflop = data.get(
+            'equity_when_raising_postflop', 0.5,
+        )
+        tendencies.equity_when_calling_postflop = data.get(
+            'equity_when_calling_postflop', 0.5,
+        )
+        tendencies._equity_betting_sum = data.get('_equity_betting_sum', 0.0)
+        tendencies._equity_raising_sum = data.get('_equity_raising_sum', 0.0)
+        tendencies._equity_calling_sum = data.get('_equity_calling_sum', 0.0)
+        tendencies._equity_betting_count = data.get('_equity_betting_count', 0)
+        tendencies._equity_raising_count = data.get('_equity_raising_count', 0)
+        tendencies._equity_calling_count = data.get('_equity_calling_count', 0)
         # Phase 7.5 Item 2b: restore sliding-window events. Old records
         # without this field get an empty window — the tier-decay logic
         # treats sub-threshold windows as "no recent data," falling back
@@ -816,11 +921,141 @@ class OpponentTendencies:
         return tendencies
 
 
+# --- Relationship state ---
+
+
+# Decay tuning constants. Match the design doc starting calibration
+# in `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 1 §"Decay". They
+# live in code so tests can lock them in; future tuning passes update
+# both the constants here and the tests that assert on them.
+HEAT_DECAY_PLATEAU_DAYS = 7
+HEAT_DECAY_HALF_LIFE_DAYS = 14
+HEAT_DECAY_SNAP_THRESHOLD = 0.05
+
+
+@dataclass
+class RelationshipState:
+    """Cross-session, per-(observer, opponent) affinity axes.
+
+    Three durable axes plus two presence timestamps. Stored in a
+    separate `relationship_states` table (cross-session, cross-game)
+    rather than on `opponent_models` (which is per-game-id). Read
+    paths apply projection on `heat` via `project_heat` — the stored
+    `heat` is the "heat as of last_decay_tick" snapshot; the live
+    value is computed on demand from elapsed time. Respect and
+    likability are earned state and don't decay.
+
+    NOT on this object (intentionally):
+      - session_pnl — lives in CashSessionState per (player, table_id)
+      - cumulative_pnl — lives in cash_pair_stats table (cash-mode
+        specific, meaningless in tournaments where chips reset)
+      - sessions_together — derivable from tendencies.hands_observed
+      - familiarity — derived on demand, never stored
+
+    Persistence (Phase 1 commit 4): the schema migration adds the
+    `relationship_states` table; this commit only defines the
+    dataclass and the projection helper. No repository wiring yet.
+    """
+
+    respect: float = 0.5
+    heat: float = 0.0           # one-sided: 0 = neutral, 1 = nemesis
+    likability: float = 0.5
+
+    # Cross-session presence
+    last_seen: Optional[datetime] = None
+    last_decay_tick: Optional[datetime] = None
+
+
+@dataclass
+class CashPairStats:
+    """Cumulative cash-mode statistics for a (observer, opponent) pair.
+
+    Distinct from `RelationshipState` because PnL is meaningless in
+    tournaments (chips reset) — cash-mode-specific concepts don't
+    pollute the affinity layer. Persisted in its own
+    `cash_pair_stats` table (schema v87).
+
+    `cumulative_pnl` is **observer-POV**: chips this observer has won
+    net from this opponent across every cash-mode hand they've shared.
+    The mirror pair (`stats[opponent][observer]`) gets the negation.
+    Write transactions update both rows so the views can't drift.
+
+    Side-pot allocation rule (cash-mode hand resolution):
+      For each (winner, loser) pair the winner's net gain is split
+      proportionally to each loser's chip contribution to the pots
+      the winner collected. Side pots resolve independently — each
+      side pot has its own (winner, loser) PnL pairs. Spec at
+      `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 1 §"Cash pair
+      stats".
+    """
+
+    observer_id: str
+    opponent_id: str
+    cumulative_pnl: int = 0     # chips, observer's lifetime net vs opponent
+    hands_played_cash: int = 0
+
+
+def project_heat(
+    state: RelationshipState,
+    now: datetime,
+    *,
+    plateau_days: int = HEAT_DECAY_PLATEAU_DAYS,
+    half_life_days: int = HEAT_DECAY_HALF_LIFE_DAYS,
+    snap_threshold: float = HEAT_DECAY_SNAP_THRESHOLD,
+) -> float:
+    """Project the heat axis through plateau-then-exponential decay.
+
+    Pure function. Reads `state.heat` and `state.last_decay_tick`;
+    returns the value `heat` would currently have given elapsed time
+    since the last mutation. Does NOT mutate the state.
+
+    Schedule:
+      - Plateau at the stored value for `plateau_days` after the last
+        event (heat peaks and stays there briefly — fresh rivalries
+        feel hot for about a week).
+      - Exponential decay with `half_life_days` half-life afterward.
+      - Snap to 0.0 below `snap_threshold` to keep tiny residuals
+        from polluting reads (and to let `> 0` predicates stay
+        meaningful).
+
+    `last_decay_tick == None` means no event has ever been recorded
+    — returns the stored heat verbatim (which is 0 for new states).
+
+    Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 1 §"Decay".
+    """
+    if state.last_decay_tick is None:
+        return state.heat
+    days = (now - state.last_decay_tick).total_seconds() / 86400.0
+    if days <= plateau_days:
+        return state.heat
+    decay_days = days - plateau_days
+    projected = state.heat * (0.5 ** (decay_days / half_life_days))
+    return 0.0 if projected < snap_threshold else projected
+
+
 @dataclass
 class MemorableHand:
-    """A specific hand worth remembering."""
+    """A specific hand worth remembering.
+
+    The `event` field is the canonical typed surface — it's a
+    `RelationshipEvent` enum member that downstream consumers
+    (relationship-axis dispatch tables, future chat categorizer,
+    diagnostics replays) can branch on without string-matching.
+
+    DB compatibility: the persistence layer's column is still named
+    `memory_type` (existing schema at
+    `poker/repositories/schema_manager.py`). `to_dict` writes the
+    enum's `.value` string to a `"memory_type"` key for that column;
+    `from_dict` reads that key and parses it back via
+    `RelationshipEvent.from_string`, which coerces unrecognized
+    legacy strings to `RelationshipEvent.UNKNOWN` rather than
+    raising. Old `memorable_hands` rows load cleanly with the
+    quarantine sentinel; a one-shot offline migration script can
+    enumerate the corpus and map unknowns to known events
+    out-of-band.
+    """
     hand_id: int
-    memory_type: str          # 'bluff_caught', 'hero_call', 'big_loss', 'bad_beat', etc.
+    event: RelationshipEvent  # was `memory_type: str` before Phase 1
     opponent_name: str
     impact_score: float       # 0-1, how memorable
     narrative: str            # AI-generated or template description
@@ -830,7 +1065,9 @@ class MemorableHand:
     def to_dict(self) -> Dict[str, Any]:
         return {
             'hand_id': self.hand_id,
-            'memory_type': self.memory_type,
+            # DB column name stays `memory_type` — value is now the
+            # enum's `.value` string, not an ad-hoc raw label.
+            'memory_type': self.event.value,
             'opponent_name': self.opponent_name,
             'impact_score': self.impact_score,
             'narrative': self.narrative,
@@ -840,9 +1077,17 @@ class MemorableHand:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'MemorableHand':
+        # Legacy rows may carry strings not in the current enum;
+        # `from_string` returns UNKNOWN for those rather than raising,
+        # so the load path stays robust without sweeping the DB first.
+        raw_type = data['memory_type']
+        if isinstance(raw_type, RelationshipEvent):
+            event = raw_type
+        else:
+            event = RelationshipEvent.from_string(raw_type)
         return cls(
             hand_id=data['hand_id'],
-            memory_type=data['memory_type'],
+            event=event,
             opponent_name=data['opponent_name'],
             impact_score=data['impact_score'],
             narrative=data['narrative'],
@@ -858,9 +1103,25 @@ class OpponentModel:
     for richer opponent modeling.
     """
 
-    def __init__(self, observer: str, opponent: str):
+    def __init__(self, observer: str, opponent: str,
+                 observer_id: Optional[str] = None,
+                 opponent_id: Optional[str] = None):
+        """Args:
+            observer: Display name of the observing player
+            opponent: Display name of the observed player
+            observer_id: Stable personality_id of the observer (slug),
+                None for human-player observers or pre-v85 restore.
+            opponent_id: Stable personality_id of the opponent (slug),
+                None for human-player opponents or pre-v85 restore.
+
+        Both ids are display-name-independent and survive renames. The
+        relationship layer, AI bankrolls, and any cross-session callers
+        should key on the ids. Display names remain for UI rendering.
+        """
         self.observer = observer
         self.opponent = opponent
+        self.observer_id = observer_id
+        self.opponent_id = opponent_id
         self.tendencies = OpponentTendencies()
         self.memorable_hands: List[MemorableHand] = []
         self.narrative_observations: List[str] = []  # AI-generated insights about this opponent
@@ -870,14 +1131,19 @@ class OpponentModel:
         """Record that the opponent was at the table for one more hand.
 
         Idempotent within a hand: tracks `_last_hand_dealt` so calling
-        twice with the same `hand_number` only increments once. Required
+        twice with the same ``hand_number`` only increments once. Required
         for correct VPIP/PFR/all_in_frequency ratios, since folds before
         action mean the opponent never gets observe_action() called for
         that hand.
+
+        Callers passing ``hand_number=None`` are responsible for ensuring
+        they don't double-call within a logical hand — without an id we
+        can't dedup, and silently swallowing every None call would hide
+        real hands from new tables that don't yet number their hands.
         """
-        if hand_number is not None and hand_number == getattr(self, '_last_hand_dealt', None):
-            return
         if hand_number is not None:
+            if hand_number == getattr(self, '_last_hand_dealt', None):
+                return
             self._last_hand_dealt = hand_number
         self.tendencies.record_hand_dealt()
 
@@ -951,13 +1217,30 @@ class OpponentModel:
         # Return most recent observation for prompt efficiency
         return self.narrative_observations[-1]
 
-    def add_memorable_hand(self, hand_id: int, memory_type: str,
-                          impact_score: float, narrative: str, hand_summary: str):
-        """Add a memorable hand if impact is high enough."""
+    def add_memorable_hand(
+        self,
+        hand_id: int,
+        event,  # RelationshipEvent | str — see below
+        impact_score: float,
+        narrative: str,
+        hand_summary: str,
+    ):
+        """Add a memorable hand if impact is high enough.
+
+        `event` accepts either a `RelationshipEvent` enum member (the
+        canonical form for new callers) or a legacy string. Strings
+        coerce via `RelationshipEvent.from_string` so older call sites
+        that haven't been migrated yet still work, with unrecognized
+        strings landing in `RelationshipEvent.UNKNOWN` — the same
+        quarantine path the load layer uses. (When everything's been
+        migrated to enum, the `str` branch can be removed.)
+        """
         if impact_score >= MEMORABLE_HAND_THRESHOLD:
+            if isinstance(event, str):
+                event = RelationshipEvent.from_string(event)
             self.memorable_hands.append(MemorableHand(
                 hand_id=hand_id,
-                memory_type=memory_type,
+                event=event,
                 opponent_name=self.opponent,
                 impact_score=impact_score,
                 narrative=narrative,
@@ -1007,19 +1290,33 @@ class OpponentModel:
         return {
             'observer': self.observer,
             'opponent': self.opponent,
+            'observer_id': self.observer_id,
+            'opponent_id': self.opponent_id,
             'tendencies': self.tendencies.to_dict(),
             'memorable_hands': [h.to_dict() for h in self.memorable_hands],
-            'narrative_observations': self.narrative_observations
+            'narrative_observations': self.narrative_observations,
+            # Idempotency cursors (T1-31): without these, restoring a
+            # snapshot mid-session would double-count the next action's
+            # hand_dealt / hands_observed and deflate VPIP/PFR.
+            'last_hand_dealt': getattr(self, '_last_hand_dealt', None),
+            'last_hand_counted': self._last_hand_counted,
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'OpponentModel':
-        model = cls(observer=data['observer'], opponent=data['opponent'])
+        model = cls(
+            observer=data['observer'],
+            opponent=data['opponent'],
+            observer_id=data.get('observer_id'),
+            opponent_id=data.get('opponent_id'),
+        )
         model.tendencies = OpponentTendencies.from_dict(data.get('tendencies', {}))
         model.memorable_hands = [
             MemorableHand.from_dict(h) for h in data.get('memorable_hands', [])
         ]
         model.narrative_observations = data.get('narrative_observations', [])
+        model._last_hand_dealt = data.get('last_hand_dealt')
+        model._last_hand_counted = data.get('last_hand_counted')
         return model
 
 
@@ -1056,6 +1353,13 @@ def _build_aggregate_from_single(t: OpponentTendencies):
         vpip_per_voluntary_opportunity=t.vpip_per_voluntary_opportunity,
         preflop_open_opportunities=t._preflop_open_opportunities,
         preflop_voluntary_opportunities=t._preflop_voluntary_opportunities,
+        # Polarization Phase A equity-at-action fields
+        equity_when_betting_postflop=t.equity_when_betting_postflop,
+        equity_when_raising_postflop=t.equity_when_raising_postflop,
+        equity_when_calling_postflop=t.equity_when_calling_postflop,
+        _equity_betting_count=t._equity_betting_count,
+        _equity_raising_count=t._equity_raising_count,
+        _equity_calling_count=t._equity_calling_count,
     )
 
 
@@ -1123,6 +1427,28 @@ def _build_aggregate_from_multi(tendencies_list):
         t._preflop_voluntary_opportunities for t in tendencies_list
     )
 
+    # Polarization Phase A equity-at-action fields — same policy:
+    # rates average across the list (legacy equal-weight path; the
+    # spot-aware aggregate_from_spots stake-weights), counters MIN.
+    avg_eq_betting = sum(
+        t.equity_when_betting_postflop for t in tendencies_list
+    ) / n
+    avg_eq_raising = sum(
+        t.equity_when_raising_postflop for t in tendencies_list
+    ) / n
+    avg_eq_calling = sum(
+        t.equity_when_calling_postflop for t in tendencies_list
+    ) / n
+    min_eq_betting_count = min(
+        t._equity_betting_count for t in tendencies_list
+    )
+    min_eq_raising_count = min(
+        t._equity_raising_count for t in tendencies_list
+    )
+    min_eq_calling_count = min(
+        t._equity_calling_count for t in tendencies_list
+    )
+
     return AggregatedOpponentStats(
         hands_observed=min_hands,
         vpip=avg_vpip,
@@ -1146,15 +1472,79 @@ def _build_aggregate_from_multi(tendencies_list):
         vpip_per_voluntary_opportunity=avg_vpip_per_vol,
         preflop_open_opportunities=min_pre_open_opps,
         preflop_voluntary_opportunities=min_pre_vol_opps,
+        equity_when_betting_postflop=avg_eq_betting,
+        equity_when_raising_postflop=avg_eq_raising,
+        equity_when_calling_postflop=avg_eq_calling,
+        _equity_betting_count=min_eq_betting_count,
+        _equity_raising_count=min_eq_raising_count,
+        _equity_calling_count=min_eq_calling_count,
     )
 
 
 class OpponentModelManager:
-    """Manages opponent models for all AI players."""
+    """Manages opponent models for all AI players.
 
-    def __init__(self):
+    Models are keyed in-memory by display name (observer name → opponent
+    name → OpponentModel) for back-compat with the historical lookup
+    surface. Each OpponentModel additionally carries observer_id +
+    opponent_id (stable personality_ids, populated when the manager
+    can resolve them); cross-session callers (relationship layer, cash
+    mode bankrolls, repository persistence) consume the ids, not the
+    keys.
+
+    Use `register_player_id` at game startup to associate display names
+    with their stable personality_ids; subsequent get_model calls will
+    annotate new OpponentModel instances with the registered ids.
+    """
+
+    def __init__(self, relationship_repo=None):
+        """Construct the manager.
+
+        Args:
+            relationship_repo: Optional RelationshipRepository for the
+                cross-session axis state (heat / respect / likability).
+                Required by `record_event`; not required for in-memory
+                tendency tracking. Pass None in unit tests that don't
+                exercise record_event.
+        """
         # observer_name -> opponent_name -> OpponentModel
         self.models: Dict[str, Dict[str, OpponentModel]] = {}
+        # display_name -> personality_id (None for players without one)
+        self._name_to_id: Dict[str, Optional[str]] = {}
+        # Repository for cross-session relationship state. Optional at
+        # construction (in-memory unit tests don't need it); required
+        # when record_event is invoked. A clear error fires at call
+        # time if it's missing rather than at __init__ — keeps test
+        # ergonomics light.
+        self._relationship_repo = relationship_repo
+
+    def register_player_id(self, name: str, personality_id: Optional[str]) -> None:
+        """Register the stable personality_id for a display name.
+
+        Called at game startup (and on personality changes) so that
+        OpponentModel rows get their observer_id / opponent_id populated
+        at creation time. Existing models for this name are back-filled
+        too — both in their observer slot and as an opponent slot
+        across every other observer's mapping.
+
+        Passing None is meaningful: it explicitly registers a name as
+        "known not to have a personality_id" (human guests, etc.).
+        Future get_model calls won't re-attempt resolution.
+        """
+        self._name_to_id[name] = personality_id
+
+        # Back-fill existing models. Observer slot:
+        if name in self.models:
+            for model in self.models[name].values():
+                if model.observer_id is None and personality_id is not None:
+                    model.observer_id = personality_id
+
+        # Opponent slot across all observers:
+        for observer_name, opp_map in self.models.items():
+            if name in opp_map:
+                model = opp_map[name]
+                if model.opponent_id is None and personality_id is not None:
+                    model.opponent_id = personality_id
 
     def get_model(self, observer: str, opponent: str) -> OpponentModel:
         """Get or create an opponent model."""
@@ -1162,7 +1552,11 @@ class OpponentModelManager:
             self.models[observer] = {}
 
         if opponent not in self.models[observer]:
-            self.models[observer][opponent] = OpponentModel(observer, opponent)
+            self.models[observer][opponent] = OpponentModel(
+                observer, opponent,
+                observer_id=self._name_to_id.get(observer),
+                opponent_id=self._name_to_id.get(opponent),
+            )
 
         return self.models[observer][opponent]
 
@@ -1225,6 +1619,113 @@ class OpponentModelManager:
                     summaries.append(model.get_prompt_summary(tokens_per_opponent))
 
         return "\n".join(summaries)
+
+    def select_opponent_observations(
+        self,
+        observer: str,
+        active_opponents: List[str],
+        facing_opponent: Optional[str] = None,
+        max_observations: int = 2,
+        now: Optional[datetime] = None,
+    ) -> List[Tuple[str, str]]:
+        """Pick the most relevant narrative observations to surface to the LLM.
+
+        Each `OpponentModel` keeps up to 5 narrative observations as a
+        sliding window, but only the LATEST is currently injected into
+        prompts (via `get_prompt_summary`). This helper selects up to
+        `max_observations` total across all active opponents, weighted
+        by relevance, for the LLM to key on (or ignore).
+
+        Scoring per (opponent, observation):
+          - recency:        +0.0..+0.3 (newest = highest)
+          - facing bonus:   +2.0 if opponent is the current `facing_opponent`
+                            (typically the recent aggressor — the player
+                            hero is actively reacting to)
+          - nemesis bonus:  +1.0 if relationship heat > rival threshold
+                            (graceful no-op when relationship state isn't
+                            wired up — manager._relationship_repo is None
+                            or no row exists for the pair)
+
+        Args:
+            observer: The AI player whose memory we're reading.
+            active_opponents: Opponents still in the hand (not folded).
+                Folded opponents are filtered upstream by the caller.
+            facing_opponent: Name of the opponent hero is directly facing
+                (aggressor, raiser, current bet source). When provided,
+                their observation gets the largest bonus. Optional —
+                callers without spot-level aggressor info can omit it.
+            max_observations: Cap on the returned list. Default 2 — small
+                enough that the LLM can latch onto them, large enough to
+                cover both an active-opponent read and a nemesis read.
+            now: Projection point for relationship heat decay. Defaults to
+                `datetime.utcnow()` when None.
+
+        Returns:
+            Up to `max_observations` (opponent_name, observation_text)
+            tuples, sorted by score descending. Empty list when no active
+            opponent has stored observations.
+        """
+        if observer not in self.models or not active_opponents:
+            return []
+
+        # Resolve nemesis lookups lazily — relationship_repo may be None.
+        from .relationship_modifier import HEAT_RIVAL_THRESHOLD
+
+        if now is None:
+            now = datetime.utcnow()
+
+        scored: List[Tuple[float, str, str]] = []
+        for opp_name in active_opponents:
+            model = self.models[observer].get(opp_name)
+            if model is None or not model.narrative_observations:
+                continue
+
+            # Nemesis bonus — look up heat once per opponent. Graceful
+            # when relationship_repo isn't wired (heat defaults to 0).
+            nemesis_bonus = 0.0
+            if self._relationship_repo is not None:
+                opp_id = self._name_to_id.get(opp_name)
+                observer_id = self._name_to_id.get(observer)
+                if opp_id is not None and observer_id is not None:
+                    try:
+                        state = self._relationship_repo.load_relationship_state(
+                            observer_id, opp_id, now=now,
+                        )
+                        if state is not None and state.heat > HEAT_RIVAL_THRESHOLD:
+                            nemesis_bonus = 1.0
+                    except Exception:
+                        # Relationship lookup failure is non-fatal —
+                        # observation selection should never block a
+                        # decision.
+                        pass
+
+            facing_bonus = 2.0 if opp_name == facing_opponent else 0.0
+
+            # Recency bonus — last entry in the deque is newest.
+            observations = list(model.narrative_observations)
+            n = len(observations)
+            for idx, obs in enumerate(observations):
+                recency = 0.3 * (idx + 1) / n  # 0.0..0.3, newer is higher
+                score = recency + facing_bonus + nemesis_bonus
+                scored.append((score, opp_name, obs))
+
+        if not scored:
+            return []
+
+        # Take the highest-scoring observation per opponent (one per
+        # opponent to avoid two reads on the same player crowding out
+        # other opponents' observations).
+        scored.sort(reverse=True)
+        seen_opps = set()
+        deduped: List[Tuple[str, str]] = []
+        for score, opp, obs in scored:
+            if opp in seen_opps:
+                continue
+            seen_opps.add(opp)
+            deduped.append((opp, obs))
+            if len(deduped) >= max_observations:
+                break
+        return deduped
 
     def get_all_models_for_observer(self, observer: str) -> Dict[str, OpponentModel]:
         """Get all opponent models for an observer."""
@@ -1299,20 +1800,231 @@ class OpponentModelManager:
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        result = {}
+        # Back-compat shape: top-level keys are observer names. Add an
+        # underscored sidecar entry for the name→id map so existing
+        # consumers that index by observer name continue working,
+        # while the round-trip preserves the id registry.
+        result: Dict[str, Any] = {}
         for observer, opponents in self.models.items():
             result[observer] = {
                 opponent: model.to_dict()
                 for opponent, model in opponents.items()
             }
+        if self._name_to_id:
+            result['__name_to_id__'] = dict(self._name_to_id)
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'OpponentModelManager':
         manager = cls()
         for observer, opponents in data.items():
+            if observer == '__name_to_id__':
+                manager._name_to_id = dict(opponents) if opponents else {}
+                continue
             manager.models[observer] = {
                 opponent: OpponentModel.from_dict(model_data)
                 for opponent, model_data in opponents.items()
             }
         return manager
+
+    # --- Relationship layer (Track B step 2) ---
+
+    def record_event(
+        self,
+        actor_id: str,
+        target_id: str,
+        event: RelationshipEvent,
+        *,
+        impact_score: float = 1.0,
+        context_multiplier: float = 1.0,
+        narrative: str = "",
+        hand_summary: str = "",
+        hand_id: Optional[int] = None,
+        now: Optional[datetime] = None,
+    ) -> None:
+        """Single entry point for all RelationshipState axis mutations.
+
+        IDs only — never display names. This invariant lives at one
+        location (this method); every consumer that mutates affinity
+        state goes through here, so the projection-on-read pattern
+        and bilateral-update guarantee can't be bypassed by reading
+        and writing column-level state elsewhere.
+
+        Project-first-then-apply ordering (load-bearing — a refresh
+        event 30 days after a peak must not reset stale heat back to
+        its day-zero value):
+
+          1. Resolve `now` (defaults to datetime.utcnow()).
+          2. For each pair entry to update:
+             a. Load or default-construct the state from the repo.
+             b. Project the stored `heat` through decay to `now` —
+                state.heat is now the live value, not the snapshot.
+             c. Apply the event-table shift (× context_multiplier).
+             d. Clamp each axis to its valid range [0,1].
+             e. Set last_decay_tick = last_seen = now.
+             f. Persist via repository.
+          3. Apply actor's-POV shifts to relationship[actor_id][target_id].
+          4. Apply mirror shifts to relationship[target_id][actor_id].
+          5. If impact_score >= MEMORABLE_HAND_THRESHOLD, also append a
+             MemorableHand on the actor's in-memory PlayerModel (when
+             one exists) — the memorable hand persists via the
+             existing opponent_models save path the next time
+             save_opponent_models runs. If no PlayerModel exists for
+             the actor (e.g. the actor isn't currently seated), the
+             relationship axis update still persists; the memorable
+             hand entry is skipped silently. The relationship state is
+             the load-bearing surface here.
+
+        Does NOT mutate anything outside RelationshipState and (best-
+        effort) MemorableHand. Decay reads, cash-session state,
+        cash_pair_stats, and economy events use their own APIs.
+
+        Raises:
+            RuntimeError: if `relationship_repo` was not provided at
+                construction. Tests that exercise record_event must
+                pass a repository (see RelationshipRepository).
+        """
+        if self._relationship_repo is None:
+            raise RuntimeError(
+                "OpponentModelManager.record_event requires a "
+                "relationship_repo at construction"
+            )
+        if event is RelationshipEvent.UNKNOWN:
+            # Documented no-op: quarantined events from legacy strings
+            # never move axes. Return silently rather than walking the
+            # full apply path with all-zero shifts.
+            return
+
+        if now is None:
+            now = datetime.utcnow()
+
+        # Bilateral pair updates. Each side has its own state row,
+        # its own shift lookup, and its own clamp / persist. Both
+        # writes go through the same repo so the views can't drift.
+        self._apply_one_side(
+            observer_id=actor_id,
+            other_id=target_id,
+            shift=actor_shift(event),
+            context_multiplier=context_multiplier,
+            now=now,
+        )
+        self._apply_one_side(
+            observer_id=target_id,
+            other_id=actor_id,
+            shift=mirror_shift(event),
+            context_multiplier=context_multiplier,
+            now=now,
+        )
+
+        # Best-effort MemorableHand on the actor's in-memory model.
+        # We look up the actor's display name from the reverse map;
+        # if no PlayerModel exists for the actor (or no display name
+        # resolves to this id), skip silently — relationship axis
+        # state is the load-bearing surface.
+        if hand_id is None or impact_score < MEMORABLE_HAND_THRESHOLD:
+            return
+        actor_name = self._resolve_id_to_name(actor_id)
+        target_name = self._resolve_id_to_name(target_id)
+        if actor_name is None or target_name is None:
+            return
+        opponent_map = self.models.get(actor_name)
+        if opponent_map is None:
+            return
+        player_model = opponent_map.get(target_name)
+        if player_model is None:
+            return
+        player_model.add_memorable_hand(
+            hand_id=hand_id,
+            event=event,
+            impact_score=impact_score,
+            narrative=narrative,
+            hand_summary=hand_summary,
+        )
+
+    def _apply_one_side(
+        self,
+        observer_id: str,
+        other_id: str,
+        shift,  # AxisShift
+        context_multiplier: float,
+        now: datetime,
+    ) -> None:
+        """Apply one side of a bilateral relationship update.
+
+        Internal helper for record_event. Loads → projects → applies
+        shift → clamps → persists, all in one place so the ordering
+        invariant holds even when one side comes from the mirror
+        table.
+        """
+        # Step 2a: load or default. Use load_raw so we get the stored
+        # snapshot — step 2b explicitly projects it.
+        state = self._relationship_repo.load_raw_relationship_state(
+            observer_id, other_id
+        )
+        if state is None:
+            state = RelationshipState()
+
+        # Step 2b: project stored heat through decay to `now`. Stale
+        # heat from 30+ days ago is decayed BEFORE the event shift
+        # applies — a refresh event won't reset stale heat back to
+        # its day-zero peak.
+        state.heat = project_heat(state, now)
+
+        # Step 2c: apply event-table shifts, scaled by context.
+        state.heat += shift.heat * context_multiplier
+        state.respect += shift.respect * context_multiplier
+        state.likability += shift.likability * context_multiplier
+
+        # Step 2d: clamp to [0, 1]. heat and likability and respect
+        # all use this range; design doc treats heat as one-sided
+        # (0 = neutral, 1 = nemesis) and respect/likability as
+        # 0.5-default neutrality with [0, 1] bounds.
+        state.heat = max(0.0, min(1.0, state.heat))
+        state.respect = max(0.0, min(1.0, state.respect))
+        state.likability = max(0.0, min(1.0, state.likability))
+
+        # Step 2e: presence timestamps. last_seen and last_decay_tick
+        # both anchor to `now` after a write — the next decay window
+        # restarts from this point.
+        state.last_seen = now
+        state.last_decay_tick = now
+
+        # Step 2f: persist.
+        self._relationship_repo.save_relationship_state(
+            observer_id, other_id, state
+        )
+
+    def _resolve_id_to_name(self, personality_id: str) -> Optional[str]:
+        """Reverse lookup from personality_id → display name.
+
+        Used by the MemorableHand best-effort path in record_event.
+        Returns None if no registered name resolves to this id — that
+        case is silent (relationship state still persists; only the
+        memorable-hand sidecar is skipped).
+        """
+        for name, pid in self._name_to_id.items():
+            if pid == personality_id:
+                return name
+        return None
+
+
+def format_opponent_observations(pairs: List[Tuple[str, str]]) -> str:
+    """Render a selected-observations list as a prompt block.
+
+    Companion to `OpponentModelManager.select_opponent_observations`.
+    Pure formatter — no I/O, no manager dependency.
+
+    Returns the empty string when `pairs` is empty so callers can
+    conditionally skip the section. When non-empty, returns a labeled
+    block the LLM can key on (or ignore):
+
+        Your reads on opponents:
+        - {name}: {observation}
+        - {name}: {observation}
+    """
+    if not pairs:
+        return ''
+    lines = ['Your reads on opponents:']
+    for opp, obs in pairs:
+        lines.append(f'- {opp}: {obs}')
+    return '\n'.join(lines)

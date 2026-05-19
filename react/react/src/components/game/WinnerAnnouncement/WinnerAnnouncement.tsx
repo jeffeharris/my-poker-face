@@ -8,6 +8,7 @@ interface PlayerShowdownInfo {
   cards: string[] | BackendCard[];
   hand_name: string;
   hand_rank: number;
+  hand_score?: number;
   kickers?: string[];
 }
 
@@ -156,7 +157,7 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
             {winnerInfo.players_showdown && (
               <div className="players-section">
                 {Object.entries(winnerInfo.players_showdown)
-                  .sort(([, infoA], [, infoB]) => infoA.hand_rank - infoB.hand_rank)
+                  .sort(([, a], [, b]) => (b.hand_score ?? 0) - (a.hand_score ?? 0))
                   .map(([player, playerInfo]) => {
                     const isWinner = winnerInfo.winners.includes(player);
                     const hasKickers = playerInfo.kickers && playerInfo.kickers.length > 0;

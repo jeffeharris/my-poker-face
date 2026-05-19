@@ -93,6 +93,14 @@ function TraceRow({ trace }: { trace: InterventionTrace }) {
       <tr
         className={`trace-row tone-${tone} ${dimmed ? 'dimmed' : ''}`}
         onClick={() => setExpanded((v) => !v)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
       >
         <td className="trace-toggle">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -105,7 +113,7 @@ function TraceRow({ trace }: { trace: InterventionTrace }) {
           <span className={`trace-op-chip tone-${tone}`}>{trace.operation}</span>
         </td>
         <td className="trace-action">{formatActionTransition(trace)}</td>
-        <td className="trace-effect">{trace.effect_size.toFixed(3)}</td>
+        <td className="trace-effect">{(trace.effect_size ?? 0).toFixed(3)}</td>
         <td className="trace-reason">{trace.reason_code || '—'}</td>
       </tr>
       {expanded && (
@@ -114,22 +122,22 @@ function TraceRow({ trace }: { trace: InterventionTrace }) {
           <td colSpan={5}>
             {trace.rationale && <p className="trace-rationale">{trace.rationale}</p>}
             <StrategyDiff
-              before={trace.input_strategy_summary}
-              after={trace.output_strategy_summary}
+              before={trace.input_strategy_summary ?? {}}
+              after={trace.output_strategy_summary ?? {}}
             />
-            {Object.keys(trace.inputs).length > 0 && (
+            {Object.keys(trace.inputs ?? {}).length > 0 && (
               <details className="trace-extra">
                 <summary>inputs</summary>
                 <pre>{JSON.stringify(trace.inputs, null, 2)}</pre>
               </details>
             )}
-            {Object.keys(trace.config_snapshot).length > 0 && (
+            {Object.keys(trace.config_snapshot ?? {}).length > 0 && (
               <details className="trace-extra">
                 <summary>config snapshot</summary>
                 <pre>{JSON.stringify(trace.config_snapshot, null, 2)}</pre>
               </details>
             )}
-            {Object.keys(trace.extra).length > 0 && (
+            {Object.keys(trace.extra ?? {}).length > 0 && (
               <details className="trace-extra">
                 <summary>extra</summary>
                 <pre>{JSON.stringify(trace.extra, null, 2)}</pre>

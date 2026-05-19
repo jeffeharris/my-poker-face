@@ -28,6 +28,14 @@ export interface BettingContext {
   opponent_covers?: OpponentCover[];
 }
 
+export interface CashModeInfo {
+  stake_label: string;
+  bankroll: number;
+  big_blind: number;
+  min_buy_in: number;
+  max_buy_in: number;
+}
+
 export interface GameState {
   players: Player[];
   community_cards: string[];
@@ -48,6 +56,9 @@ export interface GameState {
   newly_dealt_count?: number;
   awaiting_action?: boolean;
   run_it_out?: boolean;
+  /** Present only for cash-mode games; surfaces bankroll + buy-in
+   *  caps for the rebuy/topup UI. Tournament games omit this. */
+  cash_mode?: CashModeInfo;
 }
 
 /** Player's showdown hand information */

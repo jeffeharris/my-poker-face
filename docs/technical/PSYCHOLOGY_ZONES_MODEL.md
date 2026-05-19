@@ -2,7 +2,7 @@
 purpose: Zone geometry, effects, blending rules, and experiment infrastructure for the psychology system
 type: spec
 created: 2025-10-15
-last_updated: 2026-02-07
+last_updated: 2026-05-15
 ---
 
 # Psychology System: Zones Model v3
@@ -12,7 +12,10 @@ This document describes the zone-based mental model for the poker AI psychology 
 **Implementation Status:**
 - ✅ Zone detection (sweet spots + penalties)
 - ✅ Zone effects (strategy guidance, intrusive thoughts)
-- ✅ Zone gravity (stickiness) - implemented 2026-02-06
+- ❌ Zone gravity (stickiness) — scaffolded but not implemented; the
+  detection helpers exist but the compute step that turns them into
+  per-axis deltas in `recover()` was never written. Removed from the
+  code path 2026-05-15. See `docs/triage/ZONE_GRAVITY_DECISION.md`.
 
 ## Core Concept
 
@@ -359,12 +362,17 @@ confidence_sensitivity = 0.30 + 0.70 * ego
 
 ## Movement Model
 
-Player position in the 2D space changes through three forces that combine each tick (between hands):
+Player position in the 2D space changes through two forces that combine each tick (between hands):
 
 ```
-movement = event_force + recovery_force + zone_gravity_force
+movement = event_force + recovery_force
 new_position = current_position + movement
 ```
+
+> Zone gravity was originally designed as a third force but never made
+> it past the detection scaffolding (see Implementation Status above).
+> The section that previously described its math is preserved below as
+> a design reference but is not currently active.
 
 ### 1. Event Force (Instant Pushes)
 
@@ -433,7 +441,15 @@ recovery_force = direction * magnitude
 - When riding high (above anchor), decay is slower → positive states last longer
 - The further from anchor, the more asymmetry matters
 
-### 3. Zone Gravity Force (Zone Stickiness)
+### 3. Zone Gravity Force (Zone Stickiness) — DESIGN REFERENCE ONLY
+
+> **Not active in the codebase.** This section describes the original
+> design. The compute step that turns zone detection into per-axis
+> deltas in `recover()` was never written; the helper config
+> (`GRAVITY_STRENGTH`) and the persistence wiring were removed in
+> 2026-05-15. Re-open `docs/triage/ZONE_GRAVITY_DECISION.md` if you
+> revisit the idea — re-tuning event magnitudes against an active
+> gravity force is a separate experiment campaign.
 
 Zones exert a weak gravitational pull that makes them "sticky" - harder to leave once you're in them.
 
@@ -503,7 +519,6 @@ Player with anchor (0.5, 0.7), currently at (0.68, 0.48) - in Aggro zone at 60% 
 
 | Constant | Default | Range | Purpose |
 |----------|---------|-------|---------|
-| `GRAVITY_STRENGTH` | 0.03 | 0.02-0.05 | Zone stickiness |
 | Below-anchor floor | 0.6 | 0.4-0.7 | How sticky deep tilt is |
 | Above-anchor ceiling | 0.8 | 0.6-0.9 | Initial hot streak decay |
 | Above-anchor floor | 0.4 | 0.3-0.5 | Peak hot streak decay |
@@ -1347,7 +1362,10 @@ def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
 1. **Zone geometry** - Sweet spots are circular with centers; penalty zones are edge-based
 2. **Overlap behavior** - Weighted blend for sweet spots, two-layer model (sweet + penalty separate)
 3. **Asymmetric recovery** - Dynamic formulas for both below-anchor and above-anchor
-4. **Zone gravity** - Zones exert weak pull as a force vector, not special-case rules
+4. **Zone gravity** - Designed as a weak pull force vector, but only the
+   detection scaffolding ever shipped; the compute step in `recover()`
+   was never written and the dead config was removed in 2026-05-15. See
+   `docs/triage/ZONE_GRAVITY_DECISION.md` if revisiting.
 5. **Formula reconciliation** - Complex blend with translation layer (0-1 input → 0.35-0.85 safe range)
 6. **Anchor caps** - Floor 0.35, ceiling 0.85 ensures no baseline lands in penalty zones
 7. **Zone benefits design** - What each zone shows/hides, intrusive thoughts, tone, blending rules (see Zone Benefits System section)
@@ -1357,9 +1375,13 @@ def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
 
 1. **Zone-specific radii tuning** - Validated through zone validation experiments
 2. **Penalty threshold tuning** - 0.35 composure and 0.90 confidence confirmed via PRD target analysis
-3. **Gravity strength tuning** - 0.03 validated; tunable range 0.02-0.05 via `zone_params`
-4. **Asymmetric recovery constants** - 0.6/0.4/0.8 validated through experiment metrics
-5. **Trait weight tuning** - Confidence/composure blend weights confirmed via archetype personality validation
+3. **Asymmetric recovery constants** - 0.6/0.4/0.8 validated through experiment metrics
+4. **Trait weight tuning** - Confidence/composure blend weights confirmed via archetype personality validation
+
+> The earlier "Gravity strength tuning — 0.03 validated" entry was
+> retracted in 2026-05-15: the WITH/NO_gravity experiments ran with
+> gravity inactive in both arms (the compute step never landed), so
+> any conclusion drawn from the comparison is invalid.
 
 ### Still Open
 

@@ -43,6 +43,53 @@ function formatCardsCanonical(cards: string[] | null | undefined): string {
   return cards.map(formatCardCanonical).join(' ');
 }
 
+// Safe JSON parser for stored fields rendered inside JSX. Bare JSON.parse()
+// in a render path crashes the entire panel to a white screen on malformed
+// or legacy data — this returns a fallback instead.
+function safeJsonParse<T>(s: string | null | undefined, fallback: T): T {
+  if (!s) return fallback;
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+// Map the engine's full position name to a poker-table abbreviation. Falls
+// back to the raw string for unknown values so we don't silently hide data.
+const POSITION_ABBREVIATIONS: Record<string, string> = {
+  small_blind_player: 'SB',
+  big_blind_player: 'BB',
+  button: 'BTN',
+  under_the_gun: 'UTG',
+  cutoff: 'CO',
+  middle: 'MP',
+  early: 'EP',
+  late: 'LP',
+};
+function formatPosition(pos: string | null | undefined): string {
+  if (!pos) return '';
+  return POSITION_ABBREVIATIONS[pos] ?? pos;
+}
+
+// Pair opponent positions with their names. Both lists are written together
+// by the analyzer (same `opponents_in_hand` iteration), so positions[i]
+// belongs to the i-th key in the ranges dict — relying on JS Map / dict
+// insertion order. If ranges is missing or shorter, we fall back to
+// position-only entries so the panel still renders something useful.
+function pairOpponentSeats(
+  positionsJson: string | null | undefined,
+  rangesJson: string | null | undefined,
+): Array<{ position: string; name: string | null }> {
+  const positions = safeJsonParse<string[]>(positionsJson, []);
+  const ranges = safeJsonParse<Record<string, unknown>>(rangesJson, {});
+  const names = Object.keys(ranges);
+  return positions.map((position, i) => ({
+    position,
+    name: i < names.length ? names[i] : null,
+  }));
+}
+
 interface DecisionAnalyzerProps {
   onBack?: () => void;
   embedded?: boolean;
@@ -628,6 +675,14 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
           key={capture.id}
           className={`capture-item ${selectedCapture?.id === capture.id ? 'selected' : ''} ${isSuspiciousFold(capture) ? 'suspicious' : ''}`}
           onClick={() => fetchCaptureDetail(capture.id)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              fetchCaptureDetail(capture.id);
+            }
+          }}
         >
           <div className="capture-header">
             <span className="capture-player">{capture.player_name}</span>
@@ -1054,6 +1109,40 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                   <div className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}>
                     <h4>Decision Analysis</h4>
                     <div className="analysis-grid">
+                      {(selectedAnalysis.player_position || selectedAnalysis.opponent_positions) && (
+                        <div className="analysis-item analysis-item--full">
+                          <label>Players in hand:</label>
+                          <span>
+                            {selectedAnalysis.player_position && (
+                              <>
+                                <strong>{formatPosition(selectedAnalysis.player_position)}</strong>
+                                {' ('}
+                                {selectedAnalysis.player_name}
+                                {' — acting)'}
+                              </>
+                            )}
+                            {(() => {
+                              const seats = pairOpponentSeats(
+                                selectedAnalysis.opponent_positions,
+                                selectedAnalysis.opponent_ranges_json,
+                              );
+                              if (seats.length === 0) return null;
+                              return (
+                                <>
+                                  {selectedAnalysis.player_position && '; '}
+                                  {seats.map((s, i) => (
+                                    <span key={i}>
+                                      {i > 0 && ', '}
+                                      {formatPosition(s.position)}
+                                      {s.name && ` (${s.name})`}
+                                    </span>
+                                  ))}
+                                </>
+                              );
+                            })()}
+                          </span>
+                        </div>
+                      )}
                       {selectedAnalysis.equity != null && (
                         <div className="analysis-item">
                           <label>Equity:</label>
@@ -1067,7 +1156,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                             {(selectedAnalysis.equity_vs_ranges * 100).toFixed(1)}%
                             {selectedAnalysis.opponent_positions && (
                               <span className="opponent-positions">
-                                {' '}(vs {JSON.parse(selectedAnalysis.opponent_positions).join(', ')})
+                                {' '}(vs {safeJsonParse<string[]>(selectedAnalysis.opponent_positions, []).map(formatPosition).join(', ')})
                               </span>
                             )}
                           </span>
@@ -1249,7 +1338,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                         <summary>
                           <h4>Raw API Response (click to expand)</h4>
                         </summary>
-                        <pre>{JSON.stringify(JSON.parse(selectedCapture.raw_api_response), null, 2)}</pre>
+                        <pre>{JSON.stringify(safeJsonParse<unknown>(selectedCapture.raw_api_response, selectedCapture.raw_api_response), null, 2)}</pre>
                       </details>
                     )}
                   </div>
@@ -1532,7 +1621,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                           {(selectedAnalysis.equity_vs_ranges * 100).toFixed(1)}%
                           {selectedAnalysis.opponent_positions && (
                             <span className="opponent-positions">
-                              {' '}(vs {JSON.parse(selectedAnalysis.opponent_positions).join(', ')})
+                              {' '}(vs {safeJsonParse<string[]>(selectedAnalysis.opponent_positions, []).join(', ')})
                             </span>
                           )}
                         </span>
@@ -1718,7 +1807,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                       <summary>
                         <h4>Raw API Response (click to expand)</h4>
                       </summary>
-                      <pre>{JSON.stringify(JSON.parse(selectedCapture.raw_api_response), null, 2)}</pre>
+                      <pre>{JSON.stringify(safeJsonParse<unknown>(selectedCapture.raw_api_response, selectedCapture.raw_api_response), null, 2)}</pre>
                     </details>
                   )}
                 </div>

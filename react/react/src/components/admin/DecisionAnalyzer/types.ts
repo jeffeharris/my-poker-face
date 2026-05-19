@@ -121,6 +121,10 @@ export interface DecisionAnalysis {
   equity: number | null;
   equity_vs_ranges: number | null;  // Equity vs position-based ranges
   opponent_positions: string | null; // JSON array of opponent positions
+  // JSON object {name -> range[]}. Keys give us opponent names (insertion-
+  // ordered to match opponent_positions) so we can render "BTN (Tesla)"
+  // pairs. Stays a raw string here; the analyzer detail panel parses it.
+  opponent_ranges_json?: string | null;
   required_equity: number | null;
   ev_call: number | null;
   optimal_action: string | null;
@@ -170,7 +174,10 @@ export interface InterventionTrace {
   fired: boolean;
   operation: InterventionOperation;
   effect: string;
-  effect_size: number;
+  // Optional: legacy DB rows or partial backend payloads may omit
+  // numeric/object fields. The renderer treats absent values as zero
+  // / empty rather than crashing the panel.
+  effect_size?: number | null;
 
   action_changed: boolean;
   primary_action_before: string;
@@ -186,11 +193,11 @@ export interface InterventionTrace {
   rationale: string;
   confidence: number;
 
-  inputs: Record<string, unknown>;
-  input_strategy_summary: Record<string, number>;
-  output_strategy_summary: Record<string, number>;
-  config_snapshot: Record<string, unknown>;
-  extra: Record<string, unknown>;
+  inputs?: Record<string, unknown> | null;
+  input_strategy_summary?: Record<string, number> | null;
+  output_strategy_summary?: Record<string, number> | null;
+  config_snapshot?: Record<string, unknown> | null;
+  extra?: Record<string, unknown> | null;
 }
 
 // Free-form snapshot of pipeline state captured for shadow-eval / replay.

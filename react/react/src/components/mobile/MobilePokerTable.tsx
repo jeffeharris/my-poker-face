@@ -18,6 +18,9 @@ import { LLMDebugModal } from './LLMDebugModal';
 import { CoachButton } from './CoachButton';
 import { CoachPanel } from './CoachPanel';
 import { CoachBubble } from './CoachBubble';
+import { MobileCashButton } from '../cash/MobileCashButton';
+import { MobileCashSheet } from '../cash/MobileCashSheet';
+import { BustModal } from '../cash/BustModal';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useGameStore } from '../../stores/gameStore';
@@ -36,16 +39,19 @@ interface MobilePokerTableProps {
   playerName?: string;
   onGameCreated?: (gameId: string) => void;
   onBack?: () => void;
+  onGameLoadFailed?: () => void;
 }
 
 export function MobilePokerTable({
   gameId: providedGameId,
   playerName,
   onGameCreated,
-  onBack
+  onBack,
+  onGameLoadFailed
 }: MobilePokerTableProps) {
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
+  const [showCashSheet, setShowCashSheet] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
   const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -73,6 +79,8 @@ export function MobilePokerTable({
   // Stable callbacks for child components to avoid re-renders
   const openChatSheet = useCallback(() => setShowChatSheet(true), []);
   const closeChatSheet = useCallback(() => setShowChatSheet(false), []);
+  const openCashSheet = useCallback(() => setShowCashSheet(true), []);
+  const closeCashSheet = useCallback(() => setShowCashSheet(false), []);
   const openCoachPanel = useCallback(() => setShowCoachPanel(true), []);
   const closeCoachPanel = useCallback(() => setShowCoachPanel(false), []);
   const closeDebugModal = useCallback(() => setDebugModalPlayer(null), []);
@@ -96,6 +104,7 @@ export function MobilePokerTable({
   const newlyDealtCount = useGameStore(state => state.newlyDealtCount);
   const awaitingAction = useGameStore(state => state.awaitingAction);
   const runItOut = useGameStore(state => state.runItOut);
+  const cashMode = useGameStore(state => state.cashMode);
 
   // Non-game-state from the hook (socket, overlays, actions)
   const {
@@ -115,11 +124,14 @@ export function MobilePokerTable({
     clearWinnerInfo,
     clearTournamentResult,
     guestLimitReached,
+    cashBustEvent,
+    clearCashBustEvent,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
+    onGameLoadFailed,
   });
 
   const { wrappedSendMessage, guestChatDisabled, isGuest } = useGuestChatLimit(
@@ -420,6 +432,28 @@ export function MobilePokerTable({
       {/* Spacer for fixed MenuBar */}
       <div className="menu-bar-spacer" />
 
+      {/* Cash mode bust modal — fires when server emits cash_bust /
+       *  cash_rebuy_needed. Sits above MobileCashSheet so the player
+       *  can't dismiss it by tapping outside. */}
+      <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
+
+      {/* Cash mode: slide-up sheet — opens from the button inside
+       *  the hero panel. Renders nothing for tournament games. */}
+      {cashMode && humanPlayer && (
+        <MobileCashSheet
+          isOpen={showCashSheet}
+          onClose={closeCashSheet}
+          cashMode={cashMode}
+          playerStack={humanPlayer.stack}
+          handInProgress={
+            phase !== 'INITIALIZING_HAND'
+            && phase !== 'HAND_OVER'
+            && phase !== 'EVALUATING_HAND'
+          }
+          playerFolded={!!humanPlayer.is_folded}
+        />
+      )}
+
       {/* Opponents Section */}
       <div className={`opponents-wrapper ${isInShowdown ? 'showdown-mode' : ''}`}>
         {/* Ghost Rail - folded players as small circles during showdown */}
@@ -637,6 +671,13 @@ export function MobilePokerTable({
         currentPlayer?.is_human && 'active-turn',
         humanPlayer?.is_folded && 'folded',
       ].filter(Boolean).join(' ')} data-testid="mobile-hero">
+        {/* Cash button - positioned in upper left of hero panel */}
+        {cashMode && (
+          <MobileCashButton
+            bankroll={cashMode.bankroll}
+            onClick={openCashSheet}
+          />
+        )}
         {/* Dealer chip - positioned in upper right */}
         {storePlayers?.findIndex(p => p.is_human) === dealerIdx && (
           <span className="dealer-chip">D</span>

@@ -1,10 +1,11 @@
 """Tests for BaseRepository connection management."""
 import os
+import sqlite3
 import tempfile
 import threading
 import unittest
 
-from poker.repositories.base_repository import BaseRepository
+from poker.repositories.base_repository import BaseRepository, retry_on_lock
 from poker.repositories.schema_manager import SchemaManager
 
 
@@ -115,6 +116,47 @@ class TestBaseRepository(unittest.TestCase):
         self.repo.close()
         self.repo.close()
         self.repo.close()
+
+
+class TestRetryOnLockDecorator(unittest.TestCase):
+    """T1-32: @retry_on_lock retries on lock errors and propagates others."""
+
+    def test_retries_on_locked_then_succeeds(self):
+        attempts = {'count': 0}
+
+        @retry_on_lock(max_retries=3, base_delay=0.001)
+        def flaky():
+            attempts['count'] += 1
+            if attempts['count'] < 3:
+                raise sqlite3.OperationalError("database is locked")
+            return 'ok'
+
+        self.assertEqual(flaky(), 'ok')
+        self.assertEqual(attempts['count'], 3)
+
+    def test_exhausts_then_raises(self):
+        attempts = {'count': 0}
+
+        @retry_on_lock(max_retries=2, base_delay=0.001)
+        def always_locked():
+            attempts['count'] += 1
+            raise sqlite3.OperationalError("database is locked")
+
+        with self.assertRaises(sqlite3.OperationalError):
+            always_locked()
+        self.assertEqual(attempts['count'], 3)  # initial + 2 retries
+
+    def test_non_lock_error_not_retried(self):
+        attempts = {'count': 0}
+
+        @retry_on_lock(max_retries=3, base_delay=0.001)
+        def schema_error():
+            attempts['count'] += 1
+            raise sqlite3.OperationalError("no such table: foo")
+
+        with self.assertRaises(sqlite3.OperationalError):
+            schema_error()
+        self.assertEqual(attempts['count'], 1)
 
 
 if __name__ == '__main__':

@@ -97,7 +97,12 @@ def restore_state_from_dict(state_dict: Dict[str, Any]) -> PokerGameState:
         logger.warning(f"Error deserializing community cards: {e}")
         community_cards = tuple()
 
-    # Create the game state
+    # Older saves predate these fields; fall back to safe defaults so loads
+    # don't crash and don't silently revert to dataclass defaults that don't
+    # match the table's blinds (e.g. last_raise_amount → ANTE=50 at a $2 table).
+    current_ante = state_dict['current_ante']
+    last_raise_amount = state_dict.get('last_raise_amount', current_ante)
+
     return PokerGameState(
         players=tuple(players),
         deck=deck,
@@ -106,8 +111,12 @@ def restore_state_from_dict(state_dict: Dict[str, Any]) -> PokerGameState:
         current_player_idx=state_dict['current_player_idx'],
         current_dealer_idx=state_dict['current_dealer_idx'],
         community_cards=community_cards,
-        current_ante=state_dict['current_ante'],
+        current_ante=current_ante,
+        last_raise_amount=last_raise_amount,
+        raises_this_round=state_dict.get('raises_this_round', 0),
         pre_flop_action_taken=state_dict['pre_flop_action_taken'],
         awaiting_action=state_dict['awaiting_action'],
-        run_it_out=state_dict.get('run_it_out', False)
+        run_it_out=state_dict.get('run_it_out', False),
+        has_revealed_cards=state_dict.get('has_revealed_cards', False),
+        newly_dealt_count=state_dict.get('newly_dealt_count', 0),
     )

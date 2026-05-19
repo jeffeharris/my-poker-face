@@ -11,6 +11,7 @@ import logging
 import os
 import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
@@ -127,9 +128,13 @@ class CharacterImageService:
         if emotion not in EMOTIONS:
             emotion = "confident"
 
-        # Check database first (source of truth)
+        # Check database first (source of truth). URL-encode the
+        # personality name — many seeded names contain spaces ("A Mime",
+        # "Donald Trump") which browsers handle inconsistently when
+        # embedded raw in an <img src>.
         if self._persistence.has_avatar_image(personality_name, emotion):
-            return f"/api/avatar/{personality_name}/{emotion}"
+            encoded = urllib.parse.quote(personality_name, safe="")
+            return f"/api/avatar/{encoded}/{emotion}"
 
         # Fallback to filesystem during migration
         icon_filename = self._get_icon_filename(personality_name, emotion)
@@ -224,9 +229,11 @@ class CharacterImageService:
         if emotion not in EMOTIONS:
             emotion = "confident"
 
-        # Check if full image exists in database
+        # Check if full image exists in database. URL-encode the
+        # personality name (see get_avatar_url for rationale).
         if self._persistence.has_full_avatar_image(personality_name, emotion):
-            return f"/api/avatar/{personality_name}/{emotion}/full"
+            encoded = urllib.parse.quote(personality_name, safe="")
+            return f"/api/avatar/{encoded}/{emotion}/full"
 
         return None
 

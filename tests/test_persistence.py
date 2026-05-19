@@ -337,6 +337,35 @@ class TestAIStatePersistence(unittest.TestCase):
         ai_states = self.game_repo.load_ai_player_states("nonexistent_game")
         self.assertEqual(ai_states, {})
 
+    def test_player_psychology_round_trip_via_controller_state(self):
+        """T1-29: PlayerPsychology saved through save_controller_state and
+        loaded back via load_all_controller_states should preserve axes
+        within float tolerance after applying a pressure event.
+        """
+        from poker.player_psychology import PlayerPsychology
+
+        config = {'anchors': {
+            'baseline_aggression': 0.7, 'baseline_looseness': 0.4,
+            'ego': 0.8, 'poise': 0.6, 'expressiveness': 0.5,
+            'risk_identity': 0.6, 'adaptation_bias': 0.5,
+            'baseline_energy': 0.6, 'recovery_rate': 0.15,
+        }}
+        psych = PlayerPsychology.from_personality_config('Batman', config, game_id=self.game_id)
+        psych.apply_pressure_event('bad_beat')
+
+        self.game_repo.save_controller_state(self.game_id, 'Batman', psych.to_dict())
+
+        loaded_states = self.game_repo.load_all_controller_states(self.game_id)
+        self.assertIn('Batman', loaded_states)
+        loaded_psych_dict = loaded_states['Batman']['psychology']
+        self.assertIsNotNone(loaded_psych_dict)
+
+        restored = PlayerPsychology.from_dict(loaded_psych_dict, config)
+        self.assertAlmostEqual(restored.axes.confidence, psych.axes.confidence, places=4)
+        self.assertAlmostEqual(restored.axes.composure, psych.axes.composure, places=4)
+        self.assertAlmostEqual(restored.axes.energy, psych.axes.energy, places=4)
+        self.assertEqual(restored.composure_state.losing_streak, psych.composure_state.losing_streak)
+
 
 class TestPersonalitySnapshots(unittest.TestCase):
     """Test personality snapshot functionality."""

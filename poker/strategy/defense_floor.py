@@ -113,8 +113,10 @@ def _floor_target_call_prob(
     required_equity: float,
 ) -> float:
     """Apply the §2 matrix. Returns 0.0 when no row matches."""
-    # Row 1: air — no floor
-    if hand_class == 'air':
+    # Row 1: air — no floor. simplify_hand_class() emits 'air_no_draw'
+    # and 'air_strong_draw'; check both plus the legacy 'air' label so
+    # the row isn't dead code that the bluff_catcher check has to cover.
+    if hand_class in {'air', 'air_no_draw', 'air_strong_draw'}:
         return 0.0
 
     # Row 2: bluff_catcher — defer to §7.5 bluff_catch_override
@@ -268,7 +270,7 @@ def _matrix_row_label(
 
     Mirrors `_floor_target_call_prob`'s branching order — keep in sync.
     """
-    if hand_class == 'air' or nut_status == NUT_BLUFF_CATCHER:
+    if hand_class in {'air', 'air_no_draw', 'air_strong_draw'} or nut_status == NUT_BLUFF_CATCHER:
         return None
     if (
         required_equity <= ROW_STRONG_MAX_REQ

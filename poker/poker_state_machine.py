@@ -397,8 +397,14 @@ class PokerStateMachine:
 
     @classmethod
     def from_saved_state(cls, game_state: PokerGameState, phase: PokerPhase,
-                         blind_config: Optional[dict] = None) -> 'PokerStateMachine':
-        """Create a state machine from a saved game state with a specific phase."""
+                         blind_config: Optional[dict] = None,
+                         hand_count: int = 0) -> 'PokerStateMachine':
+        """Create a state machine from a saved game state with a specific phase.
+
+        `hand_count` should be the count from the prior session — without it,
+        stats resets to 0 on restore and the blind-escalation cadence
+        (`hand_count % hands_per_level == 0`) restarts from scratch.
+        """
         if blind_config:
             bc = BlindConfig(
                 growth=blind_config.get('growth', 2.0),
@@ -407,7 +413,10 @@ class PokerStateMachine:
             )
         else:
             bc = BlindConfig()
-        internal = ImmutableStateMachine(game_state=game_state, phase=phase, blind_config=bc)
+        internal = ImmutableStateMachine(
+            game_state=game_state, phase=phase, blind_config=bc,
+            stats=StateMachineStats(hand_count=hand_count),
+        )
         return cls(game_state, _internal_state=internal)
 
     # ========================================================================
@@ -525,13 +534,26 @@ class PokerStateMachine:
         """
         self._state = self._state.with_phase(new_phase)
 
-    def run_until_player_action(self) -> 'PokerStateMachine':
+    def run_until_player_action(self, max_iterations: int = 50) -> 'PokerStateMachine':
         """
         Run until player action needed (mutable-style).
         Mutates internal state and returns self for chaining.
+
+        ``max_iterations`` bounds the loop so a stuck pipeline (e.g. a
+        recovered all-in run-out that never reaches a settle point) can't
+        pin the worker thread. ~15 advances is the worst-case path from
+        INITIALIZING_HAND to first action; 50 is generous headroom.
         """
+        iterations = 0
         while not self.awaiting_action:
             self.advance_state()
+            iterations += 1
+            if iterations >= max_iterations:
+                logger.error(
+                    f"[RUNOUT] run_until_player_action hit cap ({max_iterations}) "
+                    f"at phase={self.current_phase.name}. State may be stuck."
+                )
+                break
         return self
     
     def run_until(self, phases: List[PokerPhase]) -> 'PokerStateMachine':

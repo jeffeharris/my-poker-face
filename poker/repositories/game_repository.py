@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
-from poker.repositories.base_repository import BaseRepository
+from poker.repositories.base_repository import BaseRepository, retry_on_lock
 from poker.repositories.serialization import restore_state_from_dict
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,7 @@ class GameRepository(BaseRepository):
 
     # --- Game CRUD ---
 
+    @retry_on_lock()
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -72,11 +73,22 @@ class GameRepository(BaseRepository):
         state_dict = game_state.to_dict()
         state_dict['current_phase'] = state_machine.current_phase.value
         state_dict['current_hand_seed'] = state_machine.current_hand_seed
+        # Persist state-machine fields that aren't on game_state — losing them
+        # used to reset hand_count to 0 (re-running blind escalation from
+        # scratch) and revert blind_config to its defaults (silently dropping
+        # the user's max_blind cap from custom game settings).
+        state_dict['stats_hand_count'] = state_machine._state.stats.hand_count
+        bc = state_machine._state.blind_config
+        state_dict['blind_config'] = {
+            'growth': bc.growth,
+            'hands_per_level': bc.hands_per_level,
+            'max_blind': bc.max_blind,
+        }
 
         game_json = json.dumps(state_dict)
         llm_configs_json = json.dumps(llm_configs) if llm_configs else None
 
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             # Use ON CONFLICT DO UPDATE to preserve columns not being updated
             # (like debug_capture_enabled) instead of INSERT OR REPLACE which
             # deletes and re-inserts, resetting unspecified columns to defaults
@@ -131,12 +143,21 @@ class GameRepository(BaseRepository):
                 phase = PokerPhase.INITIALIZING_HAND
 
             # Create state machine with the loaded state and phase
-            sm = PokerStateMachine.from_saved_state(game_state, phase)
+            sm = PokerStateMachine.from_saved_state(
+                game_state, phase,
+                blind_config=state_dict.get('blind_config'),
+                hand_count=state_dict.get('stats_hand_count', 0),
+            )
 
-            # Restore deck seed so in-progress hand can be recorded with its seed
+            # Restore deck seed so the in-progress hand can be recorded with
+            # its seed. Mark provided=False so the seed is treated as already
+            # consumed — without this, the next hand_over_transition would
+            # see hand_seed_provided=True and reuse this seed for a fresh
+            # deal, producing back-to-back hands with the same shuffle but a
+            # rotated dealer (visible as "same hand, shifted hole cards").
             saved_seed = state_dict.get('current_hand_seed')
             if saved_seed is not None:
-                sm.current_hand_seed = saved_seed
+                sm._state = sm._state.with_hand_seed(saved_seed, provided=False)
 
             return sm
 
@@ -185,6 +206,7 @@ class GameRepository(BaseRepository):
                 'owner_name': row['owner_name'],
             }
 
+    @retry_on_lock()
     def save_tournament_tracker(self, game_id: str, tracker) -> None:
         """Save tournament tracker state to the database.
 
@@ -199,7 +221,7 @@ class GameRepository(BaseRepository):
 
         tracker_json = json.dumps(tracker_dict)
 
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO tournament_tracker (game_id, tracker_json, updated_at)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -265,13 +287,18 @@ class GameRepository(BaseRepository):
     def delete_game(self, game_id: str) -> None:
         """Delete a game's active state (save data, snapshots, AI state, messages).
 
-        Historical data (hand_history, tournament_results, etc.) is intentionally preserved.
+        Historical data (hand_history, tournament_results, etc.) is intentionally
+        preserved. PRAGMA foreign_keys is not set on these connections, so each
+        per-game table is cleared explicitly to avoid orphan rows.
         """
         with self._get_connection() as conn:
-            # Delete all associated data (order matters for foreign keys)
             conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM ai_player_state WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM game_messages WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM tournament_tracker WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM pressure_events WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM emotional_state WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM controller_state WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM games WHERE game_id = ?", (game_id,))
 
     # --- Messages ---
@@ -316,11 +343,12 @@ class GameRepository(BaseRepository):
 
     # --- AI Player State ---
 
+    @retry_on_lock()
     def save_ai_player_state(self, game_id: str, player_name: str,
                             messages: List[Dict[str, str]],
                             personality_state: Dict[str, Any]) -> None:
         """Save AI player conversation history and personality state."""
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             conversation_history = json.dumps(messages)
             personality_json = json.dumps(personality_state)
 
@@ -349,13 +377,20 @@ class GameRepository(BaseRepository):
 
             return ai_states
 
+    @retry_on_lock()
     def save_personality_snapshot(self, game_id: str, player_name: str,
                                  hand_number: int, traits: Dict[str, Any],
                                  pressure_levels: Optional[Dict[str, float]] = None) -> None:
-        """Save a snapshot of personality state for elasticity tracking."""
-        with self._get_connection_with_retry() as conn:
+        """Save a snapshot of personality state for elasticity tracking.
+
+        Uses INSERT OR IGNORE so a retry after a successful-but-uncommitted
+        write doesn't insert a duplicate snapshot row (the table has no
+        UNIQUE constraint on (game_id, player_name, hand_number) and an
+        autoincrement PK).
+        """
+        with self._get_connection() as conn:
             conn.execute("""
-                INSERT INTO personality_snapshots
+                INSERT OR IGNORE INTO personality_snapshots
                 (player_name, game_id, hand_number, personality_traits, pressure_levels)
                 VALUES (?, ?, ?, ?, ?)
             """, (
@@ -368,6 +403,7 @@ class GameRepository(BaseRepository):
 
     # --- Emotional State ---
 
+    @retry_on_lock()
     def save_emotional_state(self, game_id: str, player_name: str,
                              emotional_state) -> None:
         """Save emotional state for a player.
@@ -382,7 +418,7 @@ class GameRepository(BaseRepository):
         else:
             state_dict = emotional_state
 
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO emotional_state
                 (game_id, player_name, valence, arousal, control, focus,
@@ -470,6 +506,7 @@ class GameRepository(BaseRepository):
 
     # --- Controller State ---
 
+    @retry_on_lock()
     def save_controller_state(self, game_id: str, player_name: str,
                               psychology: Dict[str, Any],
                               prompt_config: Optional[Dict[str, Any]] = None) -> None:
@@ -481,26 +518,38 @@ class GameRepository(BaseRepository):
             psychology: Dict from PlayerPsychology.to_dict()
             prompt_config: Dict from PromptConfig.to_dict() (optional)
         """
-        # Extract components from unified psychology
-        tilt_state = psychology.get('tilt')
-        elastic_personality = psychology.get('elastic')
-
-        with self._get_connection_with_retry() as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO controller_state
-                (game_id, player_name, tilt_state_json, elastic_personality_json, prompt_config_json, updated_at)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                (game_id, player_name, psychology_json, prompt_config_json, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 game_id,
                 player_name,
-                json.dumps(tilt_state) if tilt_state else None,
-                json.dumps(elastic_personality) if elastic_personality else None,
-                json.dumps(prompt_config) if prompt_config else None
+                json.dumps(psychology) if psychology else None,
+                json.dumps(prompt_config) if prompt_config else None,
             ))
 
     @staticmethod
     def _build_controller_state_dict(row, player_name: str = '') -> Dict[str, Any]:
-        """Build a controller state dict from a database row."""
+        """Build a controller state dict from a database row.
+
+        Pre-v83 rows lack `psychology_json` (NULL) and may have populated
+        `tilt_state_json` / `elastic_personality_json`. The legacy fields
+        are exposed unchanged so any downstream caller that still consumes
+        them can keep working; new code should read `psychology`.
+        """
+        psychology = None
+        try:
+            if row['psychology_json']:
+                psychology = json.loads(row['psychology_json'])
+        except (KeyError, IndexError):
+            if player_name:
+                logger.debug(
+                    f"psychology_json column not found for {player_name}; "
+                    "fresh-init fallback"
+                )
+
         prompt_config = None
         try:
             if row['prompt_config_json']:
@@ -510,20 +559,23 @@ class GameRepository(BaseRepository):
                 logger.warning(f"prompt_config_json column not found for {player_name}, using defaults")
 
         return {
+            'psychology': psychology,
             'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
             'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None,
-            'prompt_config': prompt_config
+            'prompt_config': prompt_config,
         }
 
     def load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load controller state for a player.
 
         Returns:
-            Dict with 'tilt_state', 'elastic_personality', and 'prompt_config' keys, or None if not found
+            Dict with 'psychology' (v2.1 unified state), legacy
+            'tilt_state' / 'elastic_personality' (NULL on new writes),
+            and 'prompt_config' keys, or None if not found.
         """
         with self._get_connection() as conn:
             cursor = conn.execute("""
-                SELECT tilt_state_json, elastic_personality_json, prompt_config_json
+                SELECT tilt_state_json, elastic_personality_json, prompt_config_json, psychology_json
                 FROM controller_state
                 WHERE game_id = ? AND player_name = ?
             """, (game_id, player_name))
@@ -542,7 +594,7 @@ class GameRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             cursor = conn.execute("""
-                SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json
+                SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json, psychology_json
                 FROM controller_state
                 WHERE game_id = ?
             """, (game_id,))
@@ -554,6 +606,7 @@ class GameRepository(BaseRepository):
 
     # --- Opponent Models ---
 
+    @retry_on_lock()
     def save_opponent_models(self, game_id: str, opponent_model_manager) -> None:
         """Save opponent models for a game.
 
@@ -569,7 +622,41 @@ class GameRepository(BaseRepository):
         if not models_dict:
             return
 
-        with self._get_connection_with_retry() as conn:
+        # The manager's to_dict() injects a __name_to_id__ sidecar key
+        # at the top level for round-trip preservation. Extract it
+        # before iterating observer entries so we have a name→id map
+        # to fall back on for rows where the model row itself doesn't
+        # carry an id (legacy snapshots written before commit 5e74854b).
+        name_to_id = models_dict.pop('__name_to_id__', None) if isinstance(
+            models_dict, dict
+        ) else None
+
+        def _resolve_id(model_data, name):
+            # Prefer per-row id (set when register_player_id ran) and
+            # fall back to the manager-level registry when present.
+            row_id = None
+            if isinstance(model_data, dict):
+                # For opponent_id: model_data['opponent_id'] is the row's opp id
+                # We use this helper for both observer + opponent slots, so
+                # the caller passes the explicit per-row field.
+                row_id = model_data
+            if row_id:
+                return row_id
+            if name_to_id:
+                return name_to_id.get(name)
+            return None
+
+        with self._get_connection() as conn:
+            # Detect whether the v86 id columns are present so this save
+            # path stays compatible with pre-v86 schemas during a rolling
+            # migration window.
+            opp_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(opponent_models)")
+            }
+            has_id_cols = (
+                'observer_id' in opp_cols and 'opponent_id' in opp_cols
+            )
+
             # Clear existing models for this game
             conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM memorable_hands WHERE game_id = ?", (game_id,))
@@ -583,28 +670,66 @@ class GameRepository(BaseRepository):
                     narrative_obs = model_data.get('narrative_observations', [])
                     notes = json.dumps(narrative_obs) if narrative_obs else None
 
-                    conn.execute("""
-                        INSERT OR REPLACE INTO opponent_models
-                        (game_id, observer_name, opponent_name, hands_observed,
-                         vpip, pfr, aggression_factor, fold_to_cbet,
-                         bluff_frequency, showdown_win_rate, recent_trend, notes,
-                         tendencies_json, last_updated)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    """, (
-                        game_id,
-                        observer_name,
-                        opponent_name,
-                        tendencies.get('hands_observed', 0),
-                        tendencies.get('vpip', 0.5),
-                        tendencies.get('pfr', 0.5),
-                        tendencies.get('aggression_factor', 1.0),
-                        tendencies.get('fold_to_cbet', 0.5),
-                        tendencies.get('bluff_frequency', 0.3),
-                        tendencies.get('showdown_win_rate', 0.5),
-                        tendencies.get('recent_trend', 'stable'),
-                        notes,
-                        json.dumps(tendencies)
-                    ))
+                    # Resolve ids: prefer values written on the model dict
+                    # (set when OpponentModel was created with personality
+                    # ids known), fall back to the manager-level registry.
+                    observer_id = model_data.get('observer_id')
+                    opponent_id = model_data.get('opponent_id')
+                    if observer_id is None and name_to_id:
+                        observer_id = name_to_id.get(observer_name)
+                    if opponent_id is None and name_to_id:
+                        opponent_id = name_to_id.get(opponent_name)
+
+                    if has_id_cols:
+                        conn.execute("""
+                            INSERT OR REPLACE INTO opponent_models
+                            (game_id, observer_name, opponent_name,
+                             observer_id, opponent_id,
+                             hands_observed,
+                             vpip, pfr, aggression_factor, fold_to_cbet,
+                             bluff_frequency, showdown_win_rate, recent_trend, notes,
+                             tendencies_json, last_updated)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """, (
+                            game_id,
+                            observer_name,
+                            opponent_name,
+                            observer_id,
+                            opponent_id,
+                            tendencies.get('hands_observed', 0),
+                            tendencies.get('vpip', 0.5),
+                            tendencies.get('pfr', 0.5),
+                            tendencies.get('aggression_factor', 1.0),
+                            tendencies.get('fold_to_cbet', 0.5),
+                            tendencies.get('bluff_frequency', 0.3),
+                            tendencies.get('showdown_win_rate', 0.5),
+                            tendencies.get('recent_trend', 'stable'),
+                            notes,
+                            json.dumps(tendencies)
+                        ))
+                    else:
+                        conn.execute("""
+                            INSERT OR REPLACE INTO opponent_models
+                            (game_id, observer_name, opponent_name, hands_observed,
+                             vpip, pfr, aggression_factor, fold_to_cbet,
+                             bluff_frequency, showdown_win_rate, recent_trend, notes,
+                             tendencies_json, last_updated)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """, (
+                            game_id,
+                            observer_name,
+                            opponent_name,
+                            tendencies.get('hands_observed', 0),
+                            tendencies.get('vpip', 0.5),
+                            tendencies.get('pfr', 0.5),
+                            tendencies.get('aggression_factor', 1.0),
+                            tendencies.get('fold_to_cbet', 0.5),
+                            tendencies.get('bluff_frequency', 0.3),
+                            tendencies.get('showdown_win_rate', 0.5),
+                            tendencies.get('recent_trend', 'stable'),
+                            notes,
+                            json.dumps(tendencies)
+                        ))
 
                     # Save memorable hands
                     memorable_hands = model_data.get('memorable_hands', [])
@@ -695,9 +820,20 @@ class GameRepository(BaseRepository):
                         # Legacy format: plain text note
                         narrative_observations = [notes_json]
 
+                # Pull v86 id columns if present (None on pre-v86 rows).
+                row_keys = row.keys()
+                observer_id = (
+                    row['observer_id'] if 'observer_id' in row_keys else None
+                )
+                opponent_id = (
+                    row['opponent_id'] if 'opponent_id' in row_keys else None
+                )
+
                 models_dict[observer_name][opponent_name] = {
                     'observer': observer_name,
                     'opponent': opponent_name,
+                    'observer_id': observer_id,
+                    'opponent_id': opponent_id,
                     'tendencies': tendencies,
                     'memorable_hands': [],
                     'narrative_observations': narrative_observations
@@ -725,6 +861,24 @@ class GameRepository(BaseRepository):
 
         if models_dict:
             logger.debug(f"Loaded opponent models for game {game_id}: {len(models_dict)} observers")
+
+            # Rebuild the OpponentModelManager.__name_to_id__ sidecar
+            # from the per-row ids we just loaded. This lets the
+            # manager's registry pick up populated rows after a load
+            # without requiring the column shape to round-trip a
+            # separate table. Any name that appears with a non-None id
+            # in any row contributes to the registry.
+            name_to_id: Dict[str, Optional[str]] = {}
+            for observer_name, opponents in models_dict.items():
+                for opponent_name, model_data in opponents.items():
+                    obs_id = model_data.get('observer_id')
+                    opp_id = model_data.get('opponent_id')
+                    if obs_id and observer_name not in name_to_id:
+                        name_to_id[observer_name] = obs_id
+                    if opp_id and opponent_name not in name_to_id:
+                        name_to_id[opponent_name] = opp_id
+            if name_to_id:
+                models_dict['__name_to_id__'] = name_to_id
 
         return models_dict
 

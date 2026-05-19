@@ -5,6 +5,11 @@ created: 2026-05-15
 last_updated: 2026-05-15
 ---
 
+> **STATUS (2026-05-15): COMPLETE.** Implementation shipped in commits
+> c450a359..9f585182. Per-item status lives in `docs/TRIAGE.md` (each
+> row's Status column). 3714 tests passing, TypeScript clean. T1-34
+> demoted + gated. Deferred post-release: T3-70..T3-72, T3-74.
+
 # Pre-main TRIAGE scoping
 
 This is the action plan for the 55 findings added 2026-05-15 in the pre-main batch review. Each item is scoped by:

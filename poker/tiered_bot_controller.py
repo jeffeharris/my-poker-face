@@ -26,6 +26,8 @@ from .strategy.postflop_classifier import build_postflop_node
 from .strategy.personality_modifier import modify_strategy, apply_river_bluff_guardrail
 from .strategy.deviation_profiles import select_deviation_profile, DeviationProfile
 from .strategy.action_mapper import resolve_preflop_sizing, resolve_postflop_sizing
+from .strategy.push_fold import lookup_push_fold_action, PUSH_FOLD_THRESHOLD_BB
+from .strategy.strategy_profile import StrategyProfile
 from .strategy.hand_classification import simplify_hand_class
 from .strategy.multiway import apply_multiway_adjustment
 from .strategy.math_floor import apply_pot_odds_floor
@@ -114,15 +116,10 @@ def _coarse_strength_tier(hand_name: str) -> str:
 # with_traces. Kept in one place so the controller-level early-out (when
 # manager / anchors unavailable) emits the same rule_id surface as a
 # normal-path evaluation that gated each rule out individually.
-_EXPLOITATION_RULE_ORDER: Tuple[Tuple[str, str], ...] = (
-    ('exploitation', 'hyper_aggressive'),
-    ('exploitation', 'hyper_passive'),
-    ('exploitation', 'tight_nit'),
-    ('exploitation', 'high_fold_to_cbet'),
-    ('exploitation', 'multiway_cbet'),
-    ('value_vs_station', 'default'),
-    ('steal_pressure', 'default'),
-)
+# Re-export from strategy.exploitation so the early-out path emits the
+# same trace surface as the hot path. T3-62 — was previously duplicated
+# locally and the two definitions had already drifted.
+from .strategy.exploitation import RULE_ORDER as _EXPLOITATION_RULE_ORDER  # noqa: E402
 
 
 def _exploitation_no_op_traces(
@@ -228,6 +225,32 @@ class TieredBotController(AIPlayerController):
         self.hu_strategy_table = hu_strategy_table
         self.debug_logging = debug_logging
         self.rng = random.Random(rng_seed)
+        # Competitive feel: bet sizing jitter band. When > 0, the action
+        # mapper samples the raise-to amount uniformly from
+        # [target * (1 - sizing_jitter), target * (1 + sizing_jitter)]
+        # instead of always emitting the exact table-derived value.
+        # Default 0.0 preserves deterministic sizing — controllers /
+        # experiment configs that want the variance enable it explicitly.
+        # Zero EV cost (band is symmetric around the table's intent),
+        # but breaks sizing tells like "always bets 67% on the flop."
+        self.sizing_jitter: float = 0.0
+        # Relationship layer (Track B Phase 2): when True (default),
+        # _apply_exploitation reads get_relationship_modifier() for the
+        # selected target opponent and scales pattern-derived offsets
+        # accordingly. Set to False to back the modifier seam out at
+        # runtime without redeploying — the only feature flag justified
+        # in Phase 1 per the consultancy review, given the seam touches
+        # the load-bearing exploitation path and a regression there is
+        # slow to debug under sim runtime pressure. Sim A/B runs can
+        # compare flag-on vs flag-off to isolate any modifier-driven
+        # regression to this one boolean.
+        self.apply_relationship_modifier: bool = True
+        # Stashed at the end of each _apply_exploitation call for
+        # diagnostics / Mode 1 replay. None when the modifier seam
+        # didn't fire (flag off, no observer_id, no target, identity
+        # modifier).
+        self._last_relationship_modifier = None
+        self._last_relationship_target_id: Optional[str] = None
         self._deviation_profile: Optional[DeviationProfile] = None
         self.skip_personality_distortion = skip_personality_distortion
         self.expression_generator = expression_generator
@@ -500,8 +523,27 @@ class TieredBotController(AIPlayerController):
                 f"chart={'HU' if preflop_table is self.hu_strategy_table else '6max'}"
             )
 
-        # Layer 1: Lookup base strategy
-        base_strategy = preflop_table.lookup_with_fallback(node, valid_actions)
+        # Layer 1: Lookup base strategy. Short-stack HU spots bypass the
+        # deep-stack table and use the dedicated push/fold chart instead;
+        # the deep-stack ranges are mis-calibrated below ~15 BB because
+        # standard raise sizes commit too much of the stack to be coherent
+        # short of jamming.
+        push_fold_action = self._try_push_fold_lookup(
+            canonical_hand, game_state, player_idx, num_seated,
+        )
+        if push_fold_action is not None:
+            base_strategy = StrategyProfile(
+                action_probabilities={push_fold_action: 1.0}
+            )
+            if self.debug_logging:
+                logger.info(
+                    f"[TIERED_BOT] {self.player_name}: "
+                    f"push_fold={push_fold_action} hand={canonical_hand}"
+                )
+            self._last_pipeline_snapshot['push_fold_routed'] = True
+        else:
+            base_strategy = preflop_table.lookup_with_fallback(node, valid_actions)
+            self._last_pipeline_snapshot['push_fold_routed'] = False
 
         if self.debug_logging:
             logger.info(
@@ -609,7 +651,9 @@ class TieredBotController(AIPlayerController):
             )
 
         game_action, raise_to = resolve_preflop_sizing(
-            abstract_action, game_state, player_idx
+            abstract_action, game_state, player_idx,
+            rng=self.rng,
+            sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
         )
 
         if game_action not in valid_actions:
@@ -938,7 +982,9 @@ class TieredBotController(AIPlayerController):
 
         # 8. Resolve sizing
         game_action, raise_to = resolve_postflop_sizing(
-            abstract_action, game_state, player_idx
+            abstract_action, game_state, player_idx,
+            rng=self.rng,
+            sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
         )
 
         # 9. Validate action is legal
@@ -1095,6 +1141,16 @@ class TieredBotController(AIPlayerController):
         )
 
         exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
+        # Phase 8.1c: pass through whether at least one continuing
+        # non-all-in opponent is station-like. Gates the base
+        # hyper_passive rule against misfiring when the stake-weighted
+        # aggregate looks station-y purely because an all-in station
+        # dominated the weight. Reuses compute_value_vs_station_intensity
+        # — it returns >0 iff a continuing non-all-in opponent passes
+        # _is_hyper_passive with adequate sample.
+        non_all_in_station_continuing = (
+            compute_value_vs_station_intensity(spots) > 0.0
+        )
         offsets, exploitation_traces = compute_exploitation_offsets_with_traces(
             stats=stats,
             adaptation_bias=anchors.adaptation_bias,
@@ -1106,6 +1162,7 @@ class TieredBotController(AIPlayerController):
             value_vs_station_intensity=vvs_intensity_used,
             steal_pressure_intensity=steal_intensity_used,
             bluff_reduction_intensity=bluff_reduction_intensity_used,
+            non_all_in_station_continuing=non_all_in_station_continuing,
             disable_rules=getattr(self, "disable_rules", frozenset()),
         )
 
@@ -1134,6 +1191,22 @@ class TieredBotController(AIPlayerController):
             ambiguous_aggressor=ambiguous,
             multiway_cbet_intensity=multiway_cbet_intensity,
         )
+
+        # Track B Phase 2: relationship-modifier scaling. Composes with
+        # the pattern-derived offsets above; runs before clamp/gating
+        # so the existing safety rails still bound the final shift.
+        # Behind self.apply_relationship_modifier so the seam can be
+        # backed out at runtime if a regression surfaces — see the
+        # constructor docstring on that flag.
+        self._last_relationship_modifier = None
+        self._last_relationship_target_id = None
+        if offsets and self.apply_relationship_modifier:
+            offsets = self._apply_relationship_modifier_to_offsets(
+                offsets=offsets,
+                manager=manager,
+                spots=spots,
+                primary_spot=primary_spot,
+            )
 
         if not offsets:
             return strategy, exploitation_traces
@@ -1180,6 +1253,209 @@ class TieredBotController(AIPlayerController):
             max_total_shift=clamp_value,
         )
         return updated_strategy, exploitation_traces
+
+    def _apply_relationship_modifier_to_offsets(
+        self,
+        offsets: Dict[str, float],
+        manager,
+        spots,
+        primary_spot,
+    ) -> Dict[str, float]:
+        """Scale pattern-derived exploitation offsets by the relationship
+        modifier for the selected target opponent.
+
+        Composition (per the design doc's Phase 2 spec):
+          1. Pattern detection produced the `offsets` dict above
+             (unchanged).
+          2. Resolve hero observer_id and the target opponent_id —
+             aggressor when there is one, heat-max fallback otherwise.
+          3. Read get_relationship_modifier(observer, target, now).
+          4. Scale: bluff_freq_mult multiplies positive offsets on
+             aggressive actions (bet_*, raise_*, all_in);
+             fold_to_pressure_mult scales negative `fold` offsets.
+          5. (call_threshold_offset is stashed on the controller for
+             diagnostics — wiring it into the value-vs-station
+             threshold path is a follow-up refinement.)
+          6. Return the scaled offsets so existing clamp/gating runs
+             unchanged.
+
+        Returns the offsets dict (possibly mutated). Stashes the
+        applied modifier + target id on the controller for replay
+        diagnostics. Early-outs gracefully when:
+          - No relationship_repo is attached to the manager
+          - Hero has no resolved personality_id (display name not
+            registered)
+          - No suitable target can be picked
+          - The computed modifier is the identity (no behavior change)
+
+        In all early-out paths, returns the offsets dict verbatim.
+        """
+        from datetime import datetime
+        from poker.memory.relationship_modifier import get_relationship_modifier
+
+        # Manager must carry a relationship_repo for this to do anything.
+        if getattr(manager, '_relationship_repo', None) is None:
+            return offsets
+
+        # Hero's stable personality_id. The opponent_model_manager
+        # tracks display_name → personality_id via register_player_id;
+        # if the hero hasn't been registered (e.g. sim runs without
+        # full personality wiring), the modifier seam no-ops.
+        name_to_id = getattr(manager, '_name_to_id', {})
+        observer_id = name_to_id.get(self.player_name)
+        if observer_id is None:
+            return offsets
+
+        # Target selection. Prefer the primary aggressor when one
+        # exists (reuses _select_exploitation_stats_from_spots' work).
+        # Fall back to heat-max for open / checked-around spots.
+        target_id = self._select_relationship_target_id(
+            manager=manager,
+            spots=spots,
+            primary_spot=primary_spot,
+            observer_id=observer_id,
+        )
+        if target_id is None:
+            return offsets
+
+        modifier = get_relationship_modifier(
+            manager=manager,
+            observer_id=observer_id,
+            target_opponent_id=target_id,
+            now=datetime.utcnow(),
+        )
+        if modifier.is_identity:
+            # Stash for diagnostics even though it doesn't change offsets —
+            # makes "we considered the modifier and it was a no-op" visible
+            # in replay traces.
+            self._last_relationship_modifier = modifier
+            self._last_relationship_target_id = target_id
+            return offsets
+
+        # Apply the multipliers. Composition is per-action:
+        #   bluff_freq_mult     scales aggressive-action positive offsets
+        #   fold_to_pressure_mult scales `fold`'s negative offset magnitude
+        scaled = dict(offsets)
+        for action, delta in offsets.items():
+            if delta > 0 and self._is_aggressive_action_label(action):
+                scaled[action] = delta * modifier.bluff_freq_mult
+            elif action == 'fold' and delta < 0:
+                # Scale the magnitude. modifier.fold_to_pressure_mult < 1
+                # means "don't fold as much vs respected opponents" — i.e.
+                # the original `fold -=` reduction gets dampened. So we
+                # multiply the negative delta by the modifier.
+                scaled[action] = delta * modifier.fold_to_pressure_mult
+
+        self._last_relationship_modifier = modifier
+        self._last_relationship_target_id = target_id
+
+        if self.debug_logging:
+            logger.info(
+                f"[TIERED_BOT] {self.player_name}: relationship modifier "
+                f"target={target_id} mod={modifier} offsets={scaled}"
+            )
+
+        return scaled
+
+    @staticmethod
+    def _is_aggressive_action_label(label: str) -> bool:
+        """True for action labels that represent aggressive moves
+        (bet, raise, all_in). The exploitation rules emit these with
+        named suffixes (bet_67, raise_3x, etc.) so we match by prefix."""
+        return (
+            label == 'bet'
+            or label.startswith('bet_')
+            or label == 'raise'
+            or label.startswith('raise_')
+            or label == 'jam'
+            or label == 'all_in'
+        )
+
+    def _select_relationship_target_id(
+        self,
+        manager,
+        spots,
+        primary_spot,
+        observer_id: str,
+    ) -> Optional[str]:
+        """Pick the (observer, target) pair for the relationship read.
+
+        Rules (from design doc):
+          - Eligible opponents = active, not all-in, in the hand.
+          - If primary_spot is set (clear aggressor on this street),
+            use it. Reuses _select_exploitation_stats_from_spots'
+            existing aggressor selection — no parallel implementation.
+          - Else, heat-max fallback: among eligible spots, pick the
+            one with the highest projected heat from observer's POV.
+            Ties: max respect, then alphabetical opponent_id.
+          - If no eligible opponents have any relationship state, or
+            no spot's name resolves to a personality_id, returns None
+            and the modifier seam no-ops.
+
+        All-in opponents are excluded because the bluff-frequency
+        and fold-to-pressure multipliers have no meaningful effect
+        against opponents who can't call further bets or apply more
+        pressure. (Same rationale as compute_value_vs_station_intensity.)
+        """
+        name_to_id = getattr(manager, '_name_to_id', {})
+
+        # Primary aggressor path
+        if primary_spot is not None:
+            target_id = name_to_id.get(primary_spot.name)
+            return target_id  # may be None if name wasn't registered
+
+        # Heat-max fallback. Only fires when there's no clear aggressor.
+        eligible = [
+            s for s in spots
+            if s.is_active and not s.is_all_in
+        ]
+        if not eligible:
+            return None
+
+        repo = getattr(manager, '_relationship_repo', None)
+        if repo is None:
+            return None
+
+        from datetime import datetime
+        now = datetime.utcnow()
+        best: Optional[Tuple[float, float, str]] = None  # (heat, respect, opp_id)
+        for spot in eligible:
+            opp_id = name_to_id.get(spot.name)
+            if opp_id is None:
+                continue
+            state = repo.load_relationship_state(observer_id, opp_id, now=now)
+            if state is None:
+                continue
+            key = (state.heat, state.respect, opp_id)
+            if best is None or key > best:
+                # Sort key: heat desc → respect desc → opp_id asc
+                # (we negate by using tuple comparison; since we want
+                # max-heat, max-respect, and alphabetical opp_id tie-
+                # break, we compare on (heat, respect, -ord_of_opp_id)
+                # equivalent via reverse-sort or via picking the max).
+                # Simpler: just pick the lex-greatest tuple where
+                # heat/respect are positively valued and opp_id is
+                # tiebreaker — but we want SMALLEST opp_id for ties.
+                # Use a normalized key.
+                best = key
+        if best is None:
+            return None
+
+        # Adjust tiebreaker: among all eligible with state, find
+        # max (heat, respect); among those tied, the smallest opp_id.
+        max_heat_respect = (best[0], best[1])
+        # Collect all eligible matching max (heat, respect)
+        candidates = []
+        for spot in eligible:
+            opp_id = name_to_id.get(spot.name)
+            if opp_id is None:
+                continue
+            state = repo.load_relationship_state(observer_id, opp_id, now=now)
+            if state is None:
+                continue
+            if (state.heat, state.respect) == max_heat_respect:
+                candidates.append(opp_id)
+        return min(candidates) if candidates else None
 
     def _compute_clamp(
         self, stats, manager, primary_spot,
@@ -2009,6 +2285,27 @@ class TieredBotController(AIPlayerController):
                             preflop_voluntary_opportunities=getattr(
                                 t, '_preflop_voluntary_opportunities', 0,
                             ),
+                            # Polarization Phase A equity-at-action fields.
+                            # getattr-with-default for SimpleNamespace
+                            # tests predating the field.
+                            equity_when_betting_postflop=getattr(
+                                t, 'equity_when_betting_postflop', 0.5,
+                            ),
+                            equity_when_raising_postflop=getattr(
+                                t, 'equity_when_raising_postflop', 0.5,
+                            ),
+                            equity_when_calling_postflop=getattr(
+                                t, 'equity_when_calling_postflop', 0.5,
+                            ),
+                            _equity_betting_count=getattr(
+                                t, '_equity_betting_count', 0,
+                            ),
+                            _equity_raising_count=getattr(
+                                t, '_equity_raising_count', 0,
+                            ),
+                            _equity_calling_count=getattr(
+                                t, '_equity_calling_count', 0,
+                            ),
                         )
 
             spots.append(OpponentSpot(
@@ -2364,6 +2661,85 @@ class TieredBotController(AIPlayerController):
             required_equity=bet_class.required_equity,
         )
 
+    def _try_push_fold_lookup(
+        self,
+        canonical_hand: str,
+        game_state,
+        player_idx: int,
+        num_seated: int,
+    ) -> Optional[str]:
+        """Try to resolve this preflop decision via the short-stack
+        push/fold chart instead of the deep-stack table.
+
+        Returns the abstract action ('jam', 'fold', or 'call') when the
+        situation is in scope for push/fold; None when the deep-stack
+        table should handle it (deep stacks, multi-way, not HU, etc.).
+
+        v1 scope: HU only (num_seated == 2), stack <= 15 BB effective.
+        Multi-way short-stack falls through to the existing short_stack.py
+        heuristic which suppresses medium raises rather than enforcing
+        a strict push/fold.
+        """
+        # HU-only for v1
+        if num_seated != 2:
+            return None
+
+        # Compute effective stack in big blinds
+        try:
+            big_blind = game_state.current_ante or 0
+            if big_blind <= 0:
+                return None
+            player = game_state.players[player_idx]
+            hero_stack = player.stack + player.bet
+            # Effective stack: smaller of hero and the single opponent
+            opp_stacks = [
+                p.stack + p.bet
+                for i, p in enumerate(game_state.players)
+                if i != player_idx and not getattr(p, 'is_folded', False)
+            ]
+            if not opp_stacks:
+                return None
+            effective_stack = min(hero_stack, max(opp_stacks))
+            effective_stack_bb = effective_stack / big_blind
+        except (AttributeError, ZeroDivisionError, TypeError):
+            return None
+
+        if effective_stack_bb > PUSH_FOLD_THRESHOLD_BB:
+            return None
+
+        # Determine hero position (SB or BB only for HU)
+        try:
+            if player_idx == game_state.small_blind_idx:
+                position = 'SB'
+            elif player_idx == game_state.big_blind_idx:
+                position = 'BB'
+            else:
+                return None
+        except AttributeError:
+            return None
+
+        # Is hero facing a jam? BB facing an SB all-in is the only
+        # situation where the push/fold chart's bb_vs_jam scenario fires.
+        facing_jam = False
+        if position == 'BB':
+            # Check if SB has gone all-in on this street
+            sb_idx = game_state.small_blind_idx
+            sb_player = game_state.players[sb_idx]
+            sb_stack_remaining = getattr(sb_player, 'stack', 1)
+            if sb_stack_remaining == 0 and getattr(sb_player, 'bet', 0) > big_blind:
+                facing_jam = True
+            else:
+                # BB with no jam to face → no push/fold decision yet
+                return None
+
+        return lookup_push_fold_action(
+            hand=canonical_hand,
+            position=position,
+            effective_stack_bb=effective_stack_bb,
+            num_opponents=1,
+            facing_jam=facing_jam,
+        )
+
     def _zone_to_tilt_factor(self, emotional_state) -> float:
         """Map emotional_state.state -> 3-phase tilt_factor.
 
@@ -2410,7 +2786,11 @@ class TieredBotController(AIPlayerController):
         """
         try:
             player = game_state.players[player_idx]
-            big_blind = getattr(game_state, 'current_ante', 0) or 0
+            # Use shared helper so a missing current_ante falls back to a
+            # sane default (50) instead of zero. With 0, stack_bb becomes
+            # inf and the short-stack rule never fires — inconsistent
+            # with _build_decision_context elsewhere in this class.
+            big_blind = big_blind_of(game_state)
             pot_total = (
                 game_state.pot.get('total', 0)
                 if isinstance(getattr(game_state, 'pot', None), dict) else 0
@@ -2538,6 +2918,14 @@ class TieredBotController(AIPlayerController):
             # standard prompt template).
             narration_facts = self._build_narration_facts(phase)
 
+            # Opponent narrative observations — surfaced so Layer 3
+            # narration can riff on accumulated reads from prior hands.
+            # Best-effort: any failure produces an empty list and the
+            # generator's prompt template skips the corresponding block.
+            opponent_observations = self._select_opponent_observations(
+                game_state, player,
+            )
+
             context = ExpressionContext(
                 action_taken=decision['action'],
                 raise_to=decision.get('raise_to', 0) or 0,
@@ -2575,6 +2963,7 @@ class TieredBotController(AIPlayerController):
                 should_speak=should_speak,
                 should_gesture=should_gesture,
                 narration_facts=narration_facts,
+                opponent_observations=opponent_observations,
             )
 
             capture_id_holder = [None]
@@ -2638,6 +3027,48 @@ class TieredBotController(AIPlayerController):
                 f"[TIERED_BOT] {self.player_name}: "
                 f"decision_analysis persistence failed: {e}"
             )
+
+    def _select_opponent_observations(
+        self, game_state, player,
+    ) -> List[Tuple[str, str]]:
+        """Best-effort selection of narrative observations for Layer 3.
+
+        Returns up to 2 (opponent_name, observation_text) tuples,
+        weighted toward the opponent hero is facing and any nemesis.
+        Empty list when the controller has no opponent_model_manager,
+        no active opponents, or no stored observations.
+        """
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return []
+        try:
+            active_opponents = [
+                p.name for p in game_state.players
+                if p.name != player.name and not p.is_folded
+            ]
+            if not active_opponents:
+                return []
+            # Facing opponent: highest current bet among actives. Same
+            # heuristic as AIPlayerController._infer_facing_opponent —
+            # not extracted to a shared utility because the controllers
+            # don't share a memory mixin and this is a 6-line guess.
+            facing_opponent: Optional[str] = None
+            opp_bets = [
+                (p.name, getattr(p, 'bet', 0) or 0)
+                for p in game_state.players
+                if p.name in active_opponents
+            ]
+            if opp_bets:
+                best_name, best_bet = max(opp_bets, key=lambda nb: nb[1])
+                if best_bet > 0:
+                    facing_opponent = best_name
+            return manager.select_opponent_observations(
+                player.name,
+                active_opponents=active_opponents,
+                facing_opponent=facing_opponent,
+            )
+        except Exception:
+            return []
 
     def _build_expression_extras(
         self, game_state, player, hand_cards: List[str], community_cards: List[str],

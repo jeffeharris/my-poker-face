@@ -8,12 +8,25 @@ interface UseSocketOptions {
   autoConnect?: boolean;
 }
 
+// In dev, the Flask backend runs under Werkzeug with
+// `async_mode='threading'`. That combo doesn't speak WebSocket
+// cleanly — long-polling works fine, but the polling→WS upgrade
+// probe sometimes fires with malformed frames ("Invalid frame header"
+// in the browser console). Pinning transport to 'polling' in dev
+// avoids the failed upgrade attempts entirely. Production runs
+// gunicorn + GeventWebSocketWorker behind Caddy, which handles WS
+// properly — there we let socket.io negotiate transports normally.
+const SOCKET_TRANSPORTS = import.meta.env.PROD ? undefined : ['polling'];
+
 export function useSocket(url: string = config.SOCKET_URL, options: UseSocketOptions = {}) {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     if (options.autoConnect !== false) {
-      const socket = io(url, { withCredentials: true });
+      const socket = io(url, {
+        withCredentials: true,
+        ...(SOCKET_TRANSPORTS ? { transports: SOCKET_TRANSPORTS } : {}),
+      });
       socketRef.current = socket;
 
       if (options.onConnect) {
@@ -34,7 +47,10 @@ export function useSocket(url: string = config.SOCKET_URL, options: UseSocketOpt
 
   const connect = () => {
     if (!socketRef.current || !socketRef.current.connected) {
-      socketRef.current = io(url, { withCredentials: true });
+      socketRef.current = io(url, {
+        withCredentials: true,
+        ...(SOCKET_TRANSPORTS ? { transports: SOCKET_TRANSPORTS } : {}),
+      });
     }
   };
 

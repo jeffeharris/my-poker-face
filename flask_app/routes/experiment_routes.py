@@ -14,7 +14,7 @@ from flask import Blueprint, jsonify, request, session, Response
 
 from core.llm import LLMClient, CallType
 from poker.prompt_config import PromptConfig
-from ..extensions import limiter, experiment_repo, game_repo, personality_repo, persistence_db_path, hand_history_repo, auth_manager
+from ..extensions import limiter, experiment_repo, game_repo, personality_repo, persistence_db_path, hand_history_repo, relationship_repo, auth_manager
 from .. import config
 from experiments.pause_coordinator import pause_coordinator
 from datetime import datetime, timedelta
@@ -449,6 +449,7 @@ def _execute_sql_query(sql: str) -> str:
     try:
         with sqlite3.connect(persistence_db_path) as conn:
             conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=5000")
             # Add LIMIT if SELECT and not present
             if is_select and 'LIMIT' not in normalized:
                 # Strip comments before adding LIMIT to prevent bypass
@@ -488,6 +489,7 @@ def _execute_experiment_tool(name: str, args: Dict[str, Any]) -> str:
         # Query personalities directly from database to get configs
         with sqlite3.connect(persistence_db_path) as conn:
             conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.execute("""
                 SELECT name, config_json
                 FROM personalities
@@ -1414,8 +1416,12 @@ def chat_experiment_design():
                 'experiment_type': experiment_type,
             }
         elif session_id not in _chat_sessions:
-            # Session exists but not in memory - try to restore from database
-            db_session = experiment_repo.get_chat_session(session_id)
+            # Session exists but not in memory - try to restore from database.
+            # T1-27: scope the lookup to the current owner so an attacker
+            # can't load someone else's chat by guessing the session_id.
+            db_session = experiment_repo.get_chat_session(
+                session_id, expected_owner_id=_get_chat_owner_id(),
+            )
             if db_session:
                 # Convert UI messages back to history format
                 # Preserve reasoning_content for DeepSeek API compatibility
@@ -1727,6 +1733,9 @@ def archive_chat_session():
     """Archive a chat session so it won't be returned as the latest session.
 
     Called when the user chooses to start fresh instead of resuming.
+
+    T1-27: gated on owner match so any authenticated user can only
+    archive their own sessions, not someone else's by guessing the id.
     """
     try:
         data = request.get_json()
@@ -1735,13 +1744,23 @@ def archive_chat_session():
         if not session_id:
             return jsonify({'error': 'session_id is required'}), 400
 
-        experiment_repo.archive_chat_session(session_id)
+        owner_id = _get_chat_owner_id()
+        archived = experiment_repo.archive_chat_session(
+            session_id, expected_owner_id=owner_id,
+        )
+
+        if not archived:
+            # Either session doesn't exist or doesn't belong to caller.
+            # Return 404 either way — don't leak the distinction.
+            return jsonify({'error': 'session not found'}), 404
 
         return jsonify({
             'success': True,
             'archived': True,
         })
 
+    except PermissionError:
+        return jsonify({'error': 'Authentication required'}), 401
     except Exception as e:
         logger.error(f"Error archiving chat session: {e}")
         return jsonify({'error': str(e)}), 500
@@ -2279,8 +2298,16 @@ def create_experiment():
                     'content': clean_response_text(msg.get('content', '')),
                 })
             experiment_repo.save_experiment_design_chat(experiment_id, design_chat)
-            # Archive the design session so it won't be returned as latest
-            experiment_repo.archive_chat_session(design_session_id)
+            # Archive the design session so it won't be returned as latest.
+            # T1-27: scope to caller's owner_id for defense in depth even
+            # though _chat_sessions presence implies the user was
+            # authenticated when the session was created.
+            try:
+                experiment_repo.archive_chat_session(
+                    design_session_id, expected_owner_id=_get_chat_owner_id(),
+                )
+            except PermissionError:
+                pass  # Best effort; the experiment launch already succeeded.
 
         # Launch in background
         thread = threading.Thread(
@@ -2441,6 +2468,7 @@ def get_experiment_cost_trends(experiment_id: int):
         bucket_minutes = request.args.get('bucket', 5, type=int)
 
         with sqlite3.connect(persistence_db_path) as conn:
+            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.execute("""
                 SELECT
                     strftime('%Y-%m-%d %H:%M', au.created_at, 'start of minute',
@@ -2789,6 +2817,11 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                     owner_id=f"experiment_{exp_config.name}"
                 )
                 memory_manager.set_hand_history_repo(hand_history_repo)
+                # Phase 3: relationship state populates from hand
+                # outcomes. Tournament path → cash_mode=False.
+                memory_manager.set_relationship_repo(
+                    relationship_repo, cash_mode=False,
+                )
 
                 # Initialize memory manager for players
                 for player in state_machine.game_state.players:
@@ -2943,6 +2976,7 @@ def resume_variant(experiment_id: int, game_id: int):
 
         # Get the experiment game record
         with sqlite3.connect(persistence_db_path) as conn:
+            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.execute("""
                 SELECT game_id, variant, variant_config_json, tournament_number
                 FROM experiment_games WHERE id = ?

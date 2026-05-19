@@ -534,6 +534,7 @@ def generate_bounded_options(
     emotional_state: Optional[str] = None,
     emotional_severity: Optional[str] = None,
     rng: 'random.Random' = None,
+    apply_hu_equity_offset: bool = False,
 ) -> List[BoundedOption]:
     """Generate 2-4 sensible options based on game state.
 
@@ -602,10 +603,32 @@ def generate_bounded_options(
 
     options = []
     valid_actions = context.get('valid_actions', [])
-    equity = context.get('equity', 0.5)
+    raw_equity = context.get('equity', 0.5)
     cost_to_call = context.get('cost_to_call', 0)
     pot_total = context.get('pot_total', 0)
     stack_bb = context.get('stack_bb', 100)
+
+    # Heads-up positional equity offset (T1-34, gated). When opted in via
+    # apply_hu_equity_offset=True, add HEADS_UP_POSITION_OFFSETS to the
+    # equity used for EV labelling. Default off — magnitudes are 3-7x
+    # larger than the actual positional equity edge in HU and the
+    # constants were originally designed as range-percentage offsets.
+    # Use eff_context for the three callees that read context['equity']
+    # so the offset reaches them without mutating the caller's dict.
+    equity = raw_equity
+    eff_context = context
+    if apply_hu_equity_offset and is_heads_up:
+        from .range_guidance import HEADS_UP_POSITION_OFFSETS, _game_position_to_range_key
+        pos = context.get('position') or ''
+        pos_key = _game_position_to_range_key(pos) if pos else ''
+        hu_offset = HEADS_UP_POSITION_OFFSETS.get(pos_key, 0.0)
+        if hu_offset != 0.0:
+            equity = max(0.0, min(1.0, raw_equity + hu_offset))
+            eff_context = {**context, 'equity': equity}
+            logger.debug(
+                f"[BOUNDED] HU equity offset: {raw_equity:.2f} + {hu_offset:+.2f} "
+                f"= {equity:.2f} (pos={pos_key})"
+            )
 
     # Range biasing: out-of-range preflop hands get biased EV labels
     # Disabled for HU — ranges are too wide for bias to be meaningful
@@ -614,8 +637,8 @@ def generate_bounded_options(
     else:
         apply_range_bias = (not in_range and phase == 'PRE_FLOP' and cost_to_call > 0)
 
-    block_fold = _should_block_fold(context, profile)
-    block_call = _should_block_call(context)
+    block_fold = _should_block_fold(eff_context, profile)
+    block_call = _should_block_call(eff_context)
 
     # Calculate required equity for pot odds
     required_equity = calculate_required_equity(pot_total, cost_to_call)
@@ -720,7 +743,7 @@ def generate_bounded_options(
 
     # === RAISE options ===
     if 'raise' in valid_actions:
-        raise_options = _get_raise_options(context, profile, eff_value_bet_threshold)
+        raise_options = _get_raise_options(eff_context, profile, eff_value_bet_threshold)
 
         # Range bias: limit to at most 1 raise option when out-of-range preflop
         if apply_range_bias:
@@ -752,7 +775,7 @@ def generate_bounded_options(
     # === Raise escalation annotation ===
     raises_this_round = context.get('raises_this_round', 0)
     if raises_this_round >= 1:
-        from poker.controllers import _classify_raise_action
+        from .raise_utils import _classify_raise_action
         level = _classify_raise_action(raises_this_round)
         options = [
             replace(o, rationale=f"{level}: {o.rationale}") if o.action == 'raise' else o
@@ -840,7 +863,12 @@ def generate_bounded_options(
                     action=best.action,
                     raise_to=best.raise_to,
                     rationale=promoted_rationale,
-                    ev_estimate="+EV" if block_fold else best.ev_estimate,
+                    # T1-35: this branch only runs when no option already has
+                    # "+EV" AND we've decided to promote one — always tag the
+                    # promoted option as "+EV" so the guarantee actually
+                    # holds (previously moderate-equity hands without
+                    # block_fold kept their neutral/-EV label).
+                    ev_estimate="+EV",
                     style_tag=best.style_tag
                 )
                 # Replace in-place to preserve original position
@@ -977,9 +1005,11 @@ def _option_spectrum_position(option: BoundedOption) -> int:
     if option.action == 'call':
         return 2
     if option.action == 'raise':
-        return 3 + option.raise_to  # bigger raises are more aggressive
+        # Cap raise position so deep-stack sizes can't approach the all-in
+        # sentinel and break ordering.
+        return 3 + min(option.raise_to, 99_000)
     if option.action == 'all_in':
-        return 100000  # most aggressive
+        return 1_000_000  # most aggressive — well above any capped raise
     return 2  # fallback
 
 
@@ -1170,15 +1200,12 @@ def _reapply_math_blocking(options: List[BoundedOption], context: Dict,
     if profile is None:
         profile = OptionProfile()
 
+    # Use the profile-aware threshold rather than the hardcoded 1.7x
+    # ratio that previously also applied here — for tight profiles
+    # (fold_equity_multiplier=2.5) the 1.7x cutoff would silently
+    # remove an emotional fold the profile didn't intend to block.
     block_fold = _should_block_fold(context, profile)
-    # B2 (Crushing): always block fold, regardless of profile multiplier
     cost_to_call = context.get('cost_to_call', 0)
-    if cost_to_call > 0:
-        equity = context.get('equity', 0.5)
-        pot_total = context.get('pot_total', 0)
-        req = calculate_required_equity(pot_total, cost_to_call)
-        if equity >= 0.90 or (req > 0 and equity / req >= 1.7):
-            block_fold = True
     block_call = _should_block_call(context)
     valid_actions = context.get('valid_actions', [])
 
@@ -1279,8 +1306,9 @@ def apply_emotional_window_shift(
         new_opt = _make_passive_option(modified, context, emotional_shift.state)
 
     if new_opt:
-        # For moderate+ severity: if at cap, remove from opposite end to make room
-        # For mild: allow expansion (add without removing)
+        # Only `extreme` severity removes the opposite-end option to make
+        # room when the menu is already at cap (4 options). `mild` and
+        # `moderate` always expand the menu instead.
         if severity == 'extreme' and len(modified) >= 4:
             sorted_opts = sorted(modified, key=_option_spectrum_position)
             if direction == 'aggressive':
@@ -1386,7 +1414,12 @@ def get_emotional_shift(psychology) -> EmotionalShift:
     return EmotionalShift(state=best_state, severity=severity, intensity=best_intensity)
 
 
-def format_options_for_prompt(options: List[BoundedOption], equity: float, pot_odds: float) -> str:
+def format_options_for_prompt(
+    options: List[BoundedOption],
+    equity: float,
+    pot_odds: float,
+    big_blind: Optional[int] = None,
+) -> str:
     """Format bounded options for inclusion in LLM prompt.
 
     Args:
@@ -1395,6 +1428,10 @@ def format_options_for_prompt(options: List[BoundedOption], equity: float, pot_o
         pot_odds: Current pot odds ratio. None or 0 means the player can
             act for free (no cost to call) — pot odds are undefined so
             the line is reworded to avoid emitting a misleading "0.0:1".
+        big_blind: Big blind size in chips. When provided and > 0, raise_to
+            amounts render as BB ("RAISE to 92.1 BB") to match the rest of
+            the BB-mode prompt; the LLM is instructed to set raise_to in BB,
+            so showing chip amounts here is misleading.
 
     Returns:
         Formatted string for prompt inclusion
@@ -1412,10 +1449,15 @@ def format_options_for_prompt(options: List[BoundedOption], equity: float, pot_o
         ""
     ]
 
+    use_bb = big_blind is not None and big_blind > 0
+
     for i, opt in enumerate(options, 1):
         action_str = opt.action.upper()
         if opt.action == 'raise' and opt.raise_to > 0:
-            action_str += f" to {opt.raise_to}"
+            if use_bb:
+                action_str += f" to {opt.raise_to / big_blind:.1f} BB"
+            else:
+                action_str += f" to {opt.raise_to}"
 
         lines.append(f"{i}. {action_str}")
         lines.append(f"   {opt.rationale}")

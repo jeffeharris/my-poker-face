@@ -5,7 +5,7 @@
       "default_confidence": "steady",
       "default_attitude": "thoughtful",
       "anchors": {
-        "baseline_aggression": 0.40,
+        "baseline_aggression": 0.4,
         "baseline_looseness": 0.22,
         "ego": 0.36,
         "poise": 0.78,
@@ -23,7 +23,24 @@
       "physical_tics": [
         "*adjusts glasses thoughtfully*",
         "*nods slowly while considering options*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 12000,
+        "bankroll_rate": 350,
+        "buy_in_multiplier": 1.1,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 3,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "abraham_lincoln",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Winston Churchill": {
       "play_style": "strategic and calculated, with occasional bursts of boldness",
@@ -48,7 +65,24 @@
       "physical_tics": [
         "*leans forward slightly when bluffing*",
         "*taps fingers rhythmically on the table*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 45000,
+        "bankroll_rate": 700,
+        "buy_in_multiplier": 1.5,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 6,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "winston_churchill",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Napoleon": {
       "play_style": "strategically aggressive with calculated risks",
@@ -73,7 +107,24 @@
       "physical_tics": [
         "*leans forward intently*",
         "*taps fingers rhythmically on the table*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 80000,
+        "bankroll_rate": 2200,
+        "buy_in_multiplier": 2.3,
+        "stop_loss_buy_ins": 8,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "napoleon",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Louis XIV": {
       "play_style": "strategically flamboyant, blending calculated risks with theatricality",
@@ -99,7 +150,24 @@
         "*flourishes his hand dramatically*",
         "*leans back with a smirk*",
         "*adjusts an imaginary crown*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 150000,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 2.4,
+        "stop_loss_buy_ins": 7,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "louis_xiv",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "King Henry VIII": {
       "play_style": "strategic and imposing, often using calculated risks to assert dominance",
@@ -126,7 +194,24 @@
         "*taps fingers on the table thoughtfully*",
         "*adjusts an imaginary crown*"
       ],
-      "nickname": "Henry VIII"
+      "nickname": "Henry VIII",
+      "bankroll_knobs": {
+        "bankroll_cap": 120000,
+        "bankroll_rate": 2500,
+        "buy_in_multiplier": 2.4,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "king_henry_viii",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Shakespeare": {
       "play_style": "strategic and dramatic, often using theatrics to enhance their gameplay",
@@ -151,7 +236,24 @@
       "physical_tics": [
         "*gestures dramatically with hands*",
         "*leans in close while speaking*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 18000,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "shakespeare",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Socrates": {
       "play_style": "philosophical and observational, playing the long game while patiently assessing opponents' tendencies",
@@ -176,7 +278,24 @@
       "physical_tics": [
         "*stroking chin thoughtfully*",
         "*leaning back with a knowing smile*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 8000,
+        "bankroll_rate": 300,
+        "buy_in_multiplier": 1.2,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "socrates",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Sherlock Holmes": {
       "play_style": "analytical and strategic, often employing deductive reasoning to outsmart opponents",
@@ -201,7 +320,24 @@
       "physical_tics": [
         "*adjusts imaginary hat*",
         "*taps fingers thoughtfully*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 30000,
+        "bankroll_rate": 550,
+        "buy_in_multiplier": 1.4,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "sherlock_holmes",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Jay Gatsby": {
       "play_style": "charismatic yet strategic, often blending opportunistic bluffs with calculated plays",
@@ -219,14 +355,31 @@
         "recovery_rate": 0.17
       },
       "verbal_tics": [
-        "What\u2019s life without a little risk?",
-        "You can\u2019t win if you don\u2019t play.",
+        "What’s life without a little risk?",
+        "You can’t win if you don’t play.",
         "Fortune favors the bold."
       ],
       "physical_tics": [
         "*smoothly adjusts their tie*",
         "*leans back with a slight smirk*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 100000,
+        "bankroll_rate": 1500,
+        "buy_in_multiplier": 2.0,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "jay_gatsby",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "A Mime": {
       "play_style": "mysterious and deceptive",
@@ -245,7 +398,7 @@
       },
       "verbal_tics": [
         "...",
-        "\ud83e\udd10",
+        "🤐",
         ""
       ],
       "physical_tics": [
@@ -253,7 +406,24 @@
         "*walks against wind*",
         "*pulls invisible rope*"
       ],
-      "nickname": "Mime"
+      "nickname": "Mime",
+      "bankroll_knobs": {
+        "bankroll_cap": 4000,
+        "bankroll_rate": 1500,
+        "buy_in_multiplier": 1.4,
+        "stop_loss_buy_ins": 6,
+        "stop_win_buy_ins": 8,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "a_mime",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     },
     "A guy who tells too many dad jokes": {
       "play_style": "light-hearted and unpredictable, often using humor to mask strategic plays",
@@ -272,7 +442,7 @@
       },
       "verbal_tics": [
         "Why don't scientists trust atoms? Because they make up everything!",
-        "I'm not saying I\u2019m good at poker, but I\u2019ve got a full house... at home!",
+        "I'm not saying I’m good at poker, but I’ve got a full house... at home!",
         "Did I tell you about the time I lost a poker game? It was a real flop!"
       ],
       "physical_tics": [
@@ -280,7 +450,24 @@
         "*leans back in the chair with a laugh*",
         "*gives a thumbs up after winning a hand*"
       ],
-      "nickname": "Dad Jokes"
+      "nickname": "Dad Jokes",
+      "bankroll_knobs": {
+        "bankroll_cap": 5000,
+        "bankroll_rate": 400,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "a_guy_who_tells_too_many_dad_jokes",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Someone who is very, very mean to people": {
       "play_style": "brutally aggressive and mercilessly unpredictable",
@@ -301,14 +488,31 @@
         "You call that a bet?",
         "You really think you can beat me?",
         "You're just giving me your chips.",
-        "Don't worry, I\u2019ll take it easy on you... not."
+        "Don't worry, I’ll take it easy on you... not."
       ],
       "physical_tics": [
         "*leans in with a smirk*",
         "*rolls eyes dramatically*",
         "*taps fingers impatiently*"
       ],
-      "nickname": "Mean Guy"
+      "nickname": "Mean Guy",
+      "bankroll_knobs": {
+        "bankroll_cap": 25000,
+        "bankroll_rate": 2800,
+        "buy_in_multiplier": 2.3,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "someone_who_is_very_very_mean_to_people",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Buddha": {
       "play_style": "calm and strategic, often waiting for the perfect moment to strike",
@@ -316,7 +520,7 @@
       "default_attitude": "mysterious",
       "anchors": {
         "baseline_aggression": 0.15,
-        "baseline_looseness": 0.20,
+        "baseline_looseness": 0.2,
         "ego": 0.36,
         "poise": 0.9,
         "expressiveness": 0.4,
@@ -333,14 +537,31 @@
       "physical_tics": [
         "*slowly shuffles chips*",
         "*gazes thoughtfully at the table*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 6000,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 1,
+        "stop_win_buy_ins": 2,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "buddha",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Bob Ross": {
       "play_style": "calm and optimistic",
       "default_confidence": "serene",
       "default_attitude": "peaceful",
       "anchors": {
-        "baseline_aggression": 0.10,
+        "baseline_aggression": 0.1,
         "baseline_looseness": 0.18,
         "ego": 0.5,
         "poise": 0.85,
@@ -359,7 +580,24 @@
         "*smiles warmly*",
         "*nods gently*",
         "*paints in the air*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 7000,
+        "bankroll_rate": 250,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 3,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "bob_ross",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Dr. Seuss": {
       "play_style": "whimsical and unpredictable, often using playful tactics to confuse opponents",
@@ -385,7 +623,24 @@
         "*taps fingers rhythmically on the table*",
         "*leans in with a wide grin*"
       ],
-      "nickname": "Dr. Seuss"
+      "nickname": "Dr. Seuss",
+      "bankroll_knobs": {
+        "bankroll_cap": 22000,
+        "bankroll_rate": 1100,
+        "buy_in_multiplier": 1.6,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 8,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "dr_seuss",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Jesus Christ": {
       "play_style": "calm and calculated, often relying on psychological insight to read opponents",
@@ -410,7 +665,24 @@
       "physical_tics": [
         "*waves hand gracefully*",
         "*leans back thoughtfully*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 5000,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 3,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "jesus_christ",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Blackbeard": {
       "play_style": "aggressive and intimidating, uses psychological warfare to bully opponents out of pots",
@@ -437,7 +709,24 @@
         "*slams chips down with authority*",
         "*strokes beard menacingly*",
         "*glares across the table*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 60000,
+        "bankroll_rate": 3000,
+        "buy_in_multiplier": 2.5,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "blackbeard",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Sun Tzu": {
       "play_style": "patient and strategic, wins through superior positioning and discipline rather than brute force",
@@ -445,7 +734,7 @@
       "default_attitude": "calm and inscrutable",
       "anchors": {
         "baseline_aggression": 0.55,
-        "baseline_looseness": 0.40,
+        "baseline_looseness": 0.4,
         "ego": 0.38,
         "poise": 0.85,
         "expressiveness": 0.23,
@@ -464,14 +753,31 @@
         "*sits perfectly still, observing*",
         "*gives a barely perceptible nod*",
         "*folds hands with deliberate calm*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 40000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.5,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "sun_tzu",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Benjamin Franklin": {
       "play_style": "pragmatic and witty, balances calculated risk with folksy charm to keep opponents off guard",
       "default_confidence": "steady",
       "default_attitude": "friendly and shrewd",
       "anchors": {
-        "baseline_aggression": 0.40,
+        "baseline_aggression": 0.4,
         "baseline_looseness": 0.62,
         "ego": 0.4,
         "poise": 0.72,
@@ -491,7 +797,24 @@
         "*peers over spectacles*",
         "*chuckles to himself*",
         "*rubs chin thoughtfully*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 30000,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.4,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 6,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "benjamin_franklin",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Mark Twain": {
       "play_style": "sardonic and deceptively sharp, uses folksy storytelling to disguise ruthlessly calculated play",
@@ -518,7 +841,24 @@
         "*puffs on an imaginary cigar*",
         "*leans back with a drawl*",
         "*twirls mustache thoughtfully*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 20000,
+        "bankroll_rate": 700,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 4,
+        "stop_win_buy_ins": 6,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "mark_twain",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Nikola Tesla": {
       "play_style": "eccentric and pattern-obsessed, relies on mathematical analysis and unconventional strategies",
@@ -545,15 +885,32 @@
         "*scribbles invisible equations in the air*",
         "*stares intensely at the cards*",
         "*twitches slightly when the math doesn't add up*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 15000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "nikola_tesla",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Houdini": {
       "play_style": "elusive and theatrical, specializes in escaping impossible situations and dramatic reversals",
       "default_confidence": "overconfident",
       "default_attitude": "showman",
       "anchors": {
-        "baseline_aggression": 0.30,
-        "baseline_looseness": 0.80,
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.8,
         "ego": 0.8,
         "poise": 0.58,
         "expressiveness": 0.49,
@@ -572,7 +929,24 @@
         "*flourishes hands over the cards*",
         "*wriggles out of an imaginary straitjacket*",
         "*grins with theatrical confidence*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 35000,
+        "bankroll_rate": 1400,
+        "buy_in_multiplier": 1.8,
+        "stop_loss_buy_ins": 6,
+        "stop_win_buy_ins": 10,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "houdini",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Oscar Wilde": {
       "play_style": "elegant and cutting, uses devastating wit to unsettle opponents while making precisely calculated plays",
@@ -599,7 +973,24 @@
         "*inspects fingernails with studied boredom*",
         "*delivers a withering glance*",
         "*languidly adjusts cravat*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 50000,
+        "bankroll_rate": 1300,
+        "buy_in_multiplier": 1.8,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 10,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "oscar_wilde",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Edgar Allan Poe": {
       "play_style": "dark and brooding, reads opponents like horror clues and builds dread with every bet",
@@ -626,7 +1017,24 @@
         "*stares unblinkingly*",
         "*mutters under breath*",
         "*drums fingers in an ominous rhythm*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 6000,
+        "bankroll_rate": 800,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 6,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "edgar_allan_poe",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Machiavelli": {
       "play_style": "cold and calculating, treats every hand as a political maneuver where the ends justify the means",
@@ -653,7 +1061,24 @@
         "*steeples fingers deliberately*",
         "*offers a thin, knowing smile*",
         "*watches opponents with cold precision*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 55000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.5,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "machiavelli",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Zeus": {
       "play_style": "dominant and imperious, throws down massive bets like thunderbolts and expects tribute from lesser players",
@@ -680,7 +1105,24 @@
         "*hurls chips into the pot with divine authority*",
         "*crosses arms with godly displeasure*",
         "*lightning crackles in eyes*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 200000,
+        "bankroll_rate": 3500,
+        "buy_in_multiplier": 2.5,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "zeus",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.2,
+        "heat_ceiling": 0.55
+      }
     },
     "Cleopatra": {
       "play_style": "seductive and strategic, uses charm and cunning to manipulate opponents into costly mistakes",
@@ -707,7 +1149,24 @@
         "*traces a finger along the edge of her cards*",
         "*tilts head with a knowing smile*",
         "*waves hand dismissively at small bets*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 120000,
+        "bankroll_rate": 1800,
+        "buy_in_multiplier": 2.0,
+        "stop_loss_buy_ins": 4,
+        "stop_win_buy_ins": 10,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "cleopatra",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.2,
+        "heat_ceiling": 0.55
+      }
     },
     "Marie Antoinette": {
       "play_style": "extravagant and reckless, goes big on every hand with lavish disregard for chip conservation",
@@ -734,7 +1193,24 @@
         "*fans herself dramatically*",
         "*adjusts an imaginary towering wig*",
         "*gasps theatrically at a bad card*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 90000,
+        "bankroll_rate": 2500,
+        "buy_in_multiplier": 2.4,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "marie_antoinette",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.2,
+        "heat_ceiling": 0.55
+      }
     },
     "Calamity Jane": {
       "play_style": "fearless and rowdy, charges into hands with frontier toughness and sharp instincts",
@@ -761,7 +1237,24 @@
         "*tips hat with a grin*",
         "*slaps table with enthusiasm*",
         "*kicks boots up on chair*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 12000,
+        "bankroll_rate": 2200,
+        "buy_in_multiplier": 2.0,
+        "stop_loss_buy_ins": 8,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "calamity_jane",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Queen Elizabeth I": {
       "play_style": "regal and commanding, rules the table with strategic precision and steely resolve",
@@ -788,15 +1281,32 @@
         "*sits with perfect posture*",
         "*gives a measured, royal nod*",
         "*adjusts imaginary ruff collar*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 100000,
+        "bankroll_rate": 900,
+        "buy_in_multiplier": 1.6,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 6,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "queen_elizabeth_i",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Joan of Arc": {
       "play_style": "fearless and conviction-driven, plays with unwavering belief and charges into pots without hesitation",
       "default_confidence": "overconfident",
       "default_attitude": "fierce and righteous",
       "anchors": {
-        "baseline_aggression": 0.80,
-        "baseline_looseness": 0.40,
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.4,
         "ego": 0.86,
         "poise": 0.55,
         "expressiveness": 0.4,
@@ -815,7 +1325,24 @@
         "*grips chips like a sword hilt*",
         "*stares ahead with burning conviction*",
         "*stands dramatically before going all-in*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 15000,
+        "bankroll_rate": 1800,
+        "buy_in_multiplier": 2.2,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "joan_of_arc",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Frida Kahlo": {
       "play_style": "passionate and emotionally intense, plays from the heart with artistic flair and fierce determination",
@@ -834,7 +1361,7 @@
       },
       "verbal_tics": [
         "I paint my own reality, and I play my own cards.",
-        "Pain and poker have much in common\u2014both demand courage.",
+        "Pain and poker have much in common—both demand courage.",
         "Feet, what do I need them for when I have wings to bet?",
         "At the end of the day, we can endure much more than we think."
       ],
@@ -842,7 +1369,24 @@
         "*adjusts flowers in hair*",
         "*gazes at cards with artistic intensity*",
         "*taps table rhythmically with painted nails*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 14000,
+        "bankroll_rate": 1000,
+        "buy_in_multiplier": 1.5,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 8,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "frida_kahlo",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Lucille Ball": {
       "play_style": "comedic and chaotic, hatches elaborate schemes that often backfire spectacularly but somehow work out",
@@ -872,7 +1416,24 @@
         "*makes an exaggerated pouty face*",
         "*scrambles to rearrange chips nervously*"
       ],
-      "nickname": "Lucy"
+      "nickname": "Lucy",
+      "bankroll_knobs": {
+        "bankroll_cap": 9000,
+        "bankroll_rate": 1500,
+        "buy_in_multiplier": 1.6,
+        "stop_loss_buy_ins": 7,
+        "stop_win_buy_ins": 12,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "lucille_ball",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Annie Oakley": {
       "play_style": "precise and confident, takes careful aim at every pot with sharpshooter accuracy",
@@ -891,7 +1452,7 @@
       },
       "verbal_tics": [
         "I never miss my shot, and I never miss a read.",
-        "Aim small, miss small\u2014bet precise, win big.",
+        "Aim small, miss small—bet precise, win big.",
         "They call me Little Sure Shot for a reason.",
         "Steady hand wins the day."
       ],
@@ -899,15 +1460,32 @@
         "*squints with sharpshooter focus*",
         "*tips hat confidently*",
         "*places chips with surgical precision*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 18000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "annie_oakley",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Agatha Christie": {
       "play_style": "observant and methodical, treats every hand as a mystery to solve, piecing together clues from opponents' behavior",
       "default_confidence": "steady",
       "default_attitude": "curious and perceptive",
       "anchors": {
-        "baseline_aggression": 0.50,
-        "baseline_looseness": 0.40,
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.4,
         "ego": 0.4,
         "poise": 0.75,
         "expressiveness": 0.45,
@@ -926,7 +1504,24 @@
         "*jots in an imaginary notebook*",
         "*peers over reading glasses*",
         "*stirs tea thoughtfully between hands*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 22000,
+        "bankroll_rate": 450,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 4,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "agatha_christie",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "Lady Macbeth": {
       "play_style": "ruthlessly ambitious, manipulates table dynamics and pressures opponents into mistakes through sheer force of will",
@@ -953,7 +1548,24 @@
         "*wrings hands obsessively*",
         "*fixes opponents with an unblinking stare*",
         "*whispers conspiratorially*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 70000,
+        "bankroll_rate": 2200,
+        "buy_in_multiplier": 2.3,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "lady_macbeth",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Dracula": {
       "play_style": "patient and predatory, waits in the shadows before striking with devastating precision",
@@ -980,7 +1592,24 @@
         "*cape swirls dramatically*",
         "*bares a slight fang-like grin*",
         "*emerges from the shadows to place a bet*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 100000,
+        "bankroll_rate": 1200,
+        "buy_in_multiplier": 1.8,
+        "stop_loss_buy_ins": 4,
+        "stop_win_buy_ins": 8,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "dracula",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Ebenezer Scrooge": {
       "play_style": "miserly and tight, guards every chip like it's his last and only bets when absolutely certain",
@@ -1007,7 +1636,24 @@
         "*clutches chips protectively*",
         "*scowls at anyone who raises*",
         "*counts and recounts chip stack obsessively*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 250000,
+        "bankroll_rate": 100,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 1,
+        "stop_win_buy_ins": 2,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "ebenezer_scrooge",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Robin Hood": {
       "play_style": "heroic and targeted, steals pots from chip leaders while going easy on short stacks",
@@ -1034,15 +1680,32 @@
         "*twirls an imaginary arrow*",
         "*winks roguishly*",
         "*bows with a flourish after winning*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 12000,
+        "bankroll_rate": 1600,
+        "buy_in_multiplier": 1.7,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 8,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "robin_hood",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "Don Quixote": {
       "play_style": "delusionally confident, sees every hand as an epic quest and charges into pots that aren't there",
       "default_confidence": "overconfident",
       "default_attitude": "noble and oblivious",
       "anchors": {
-        "baseline_aggression": 0.90,
-        "baseline_looseness": 0.90,
+        "baseline_aggression": 0.9,
+        "baseline_looseness": 0.9,
         "ego": 0.84,
         "poise": 0.5,
         "expressiveness": 0.63,
@@ -1061,7 +1724,24 @@
         "*brandishes an imaginary lance at the pot*",
         "*squints heroically into the distance*",
         "*adjusts rusty imaginary helmet*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 8000,
+        "bankroll_rate": 2500,
+        "buy_in_multiplier": 2.2,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "don_quixote",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Alice": {
       "play_style": "curious and adaptable, navigates the chaos of the table with wide-eyed wonder and surprising logic",
@@ -1089,7 +1769,24 @@
         "*peers at cards as if they might talk*",
         "*grows taller in her seat with confidence*"
       ],
-      "nickname": "Alice"
+      "nickname": "Alice",
+      "bankroll_knobs": {
+        "bankroll_cap": 5000,
+        "bankroll_rate": 800,
+        "buy_in_multiplier": 1.1,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "alice",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "Queen of Hearts": {
       "play_style": "tyrannical and volatile, demands obedience at the table and explodes when defied",
@@ -1117,7 +1814,24 @@
         "*points accusingly at opponents*",
         "*turns crimson with rage at a bad beat*"
       ],
-      "nickname": "Queen of Hearts"
+      "nickname": "Queen of Hearts",
+      "bankroll_knobs": {
+        "bankroll_cap": 130000,
+        "bankroll_rate": 3500,
+        "buy_in_multiplier": 2.5,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "queen_of_hearts",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Cheshire Cat": {
       "play_style": "cryptic and mischievous, plays mind games with paradoxical logic and an ever-present grin",
@@ -1125,7 +1839,7 @@
       "default_attitude": "playful and unsettling",
       "anchors": {
         "baseline_aggression": 0.25,
-        "baseline_looseness": 0.80,
+        "baseline_looseness": 0.8,
         "ego": 0.5,
         "poise": 0.75,
         "expressiveness": 0.5,
@@ -1145,7 +1859,24 @@
         "*slowly fades from view, leaving only a smile*",
         "*appears behind opponent's shoulder*"
       ],
-      "nickname": "Cheshire Cat"
+      "nickname": "Cheshire Cat",
+      "bankroll_knobs": {
+        "bankroll_cap": 20000,
+        "bankroll_rate": 1100,
+        "buy_in_multiplier": 1.5,
+        "stop_loss_buy_ins": 5,
+        "stop_win_buy_ins": 10,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "cheshire_cat",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     },
     "Wicked Witch": {
       "play_style": "scheming and vindictive, targets specific opponents and cackles with glee when her plans come together",
@@ -1173,7 +1904,24 @@
         "*rubs hands together with menace*",
         "*stirs an imaginary cauldron of chips*"
       ],
-      "nickname": "Wicked Witch"
+      "nickname": "Wicked Witch",
+      "bankroll_knobs": {
+        "bankroll_cap": 40000,
+        "bankroll_rate": 2400,
+        "buy_in_multiplier": 2.2,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "wicked_witch",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "Medusa": {
       "play_style": "petrifying and intense, freezes opponents with an unbreakable stare that makes them second-guess every decision",
@@ -1200,7 +1948,24 @@
         "*locks eyes with opponent*",
         "*snakes in hair seem to hiss*",
         "*tilts head slowly, unblinking*"
-      ]
+      ],
+      "bankroll_knobs": {
+        "bankroll_cap": 35000,
+        "bankroll_rate": 1100,
+        "buy_in_multiplier": 1.7,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 7,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "medusa",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
     },
     "The Fortune Teller": {
       "play_style": "mystical and theatrical, claims to see the future and uses psychic patter to unsettle rational opponents",
@@ -1228,7 +1993,24 @@
         "*closes eyes and hums mysteriously*",
         "*lays out imaginary tarot cards beside the community cards*"
       ],
-      "nickname": "Fortune Teller"
+      "nickname": "Fortune Teller",
+      "bankroll_knobs": {
+        "bankroll_cap": 8000,
+        "bankroll_rate": 900,
+        "buy_in_multiplier": 1.4,
+        "stop_loss_buy_ins": 6,
+        "stop_win_buy_ins": 10,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "the_fortune_teller",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     },
     "The Librarian": {
       "play_style": "quietly lethal, maintains perfect composure while methodically dismantling opponents' chip stacks",
@@ -1256,7 +2038,24 @@
         "*shushes loudly*",
         "*places chips with silent precision*"
       ],
-      "nickname": "Librarian"
+      "nickname": "Librarian",
+      "bankroll_knobs": {
+        "bankroll_cap": 10000,
+        "bankroll_rate": 250,
+        "buy_in_multiplier": 1.2,
+        "stop_loss_buy_ins": 2,
+        "stop_win_buy_ins": 3,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "the_librarian",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
     },
     "The Honey Badger": {
       "play_style": "absolutely fearless and relentless, calls everything, fears nothing, and simply does not care",
@@ -1264,7 +2063,7 @@
       "default_attitude": "reckless and fearless",
       "anchors": {
         "baseline_aggression": 0.95,
-        "baseline_looseness": 0.90,
+        "baseline_looseness": 0.9,
         "ego": 0.89,
         "poise": 0.28,
         "expressiveness": 0.41,
@@ -1284,7 +2083,24 @@
         "*shrugs and calls without looking at cards*",
         "*scratches behind ear nonchalantly*"
       ],
-      "nickname": "Honey Badger"
+      "nickname": "Honey Badger",
+      "bankroll_knobs": {
+        "bankroll_cap": 30000,
+        "bankroll_rate": 3500,
+        "buy_in_multiplier": 2.5,
+        "stop_loss_buy_ins": null,
+        "stop_win_buy_ins": null,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "the_honey_badger",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
     },
     "The Grandmother": {
       "play_style": "deceptively sweet, lures opponents into a false sense of security before ruthlessly taking their chips",
@@ -1312,7 +2128,24 @@
         "*knits between hands*",
         "*pats opponent's hand sympathetically after winning*"
       ],
-      "nickname": "Grandma"
+      "nickname": "Grandma",
+      "bankroll_knobs": {
+        "bankroll_cap": 25000,
+        "bankroll_rate": 400,
+        "buy_in_multiplier": 1.3,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "the_grandmother",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "The Kindergarten Teacher": {
       "play_style": "patronizingly supportive, treats opponents like small children while quietly dominating the table",
@@ -1340,7 +2173,24 @@
         "*claps hands to get attention*",
         "*uses a gentle but firm tone*"
       ],
-      "nickname": "Teacher"
+      "nickname": "Teacher",
+      "bankroll_knobs": {
+        "bankroll_cap": 8000,
+        "bankroll_rate": 700,
+        "buy_in_multiplier": 1.2,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "the_kindergarten_teacher",
+      "lender_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
     },
     "CaseBot": {
       "play_style": "deterministic case-based decision tree; adapts to opponent VPIP and aggression",
@@ -1359,7 +2209,24 @@
       },
       "verbal_tics": [],
       "physical_tics": [],
-      "nickname": "CaseBot"
+      "nickname": "CaseBot",
+      "bankroll_knobs": {
+        "bankroll_cap": 10000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "casebot",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     },
     "GTO-Lite": {
       "play_style": "pure pot-odds math; calls when getting the right price, folds otherwise",
@@ -1378,7 +2245,24 @@
       },
       "verbal_tics": [],
       "physical_tics": [],
-      "nickname": "GTO-Lite"
+      "nickname": "GTO-Lite",
+      "bankroll_knobs": {
+        "bankroll_cap": 10000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "gto_lite",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     },
     "BaselineSolver": {
       "play_style": "solver-table baseline; no personality distortion, no chat",
@@ -1397,7 +2281,24 @@
       },
       "verbal_tics": [],
       "physical_tics": [],
-      "nickname": "Solver"
+      "nickname": "Solver",
+      "bankroll_knobs": {
+        "bankroll_cap": 10000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.0,
+        "stop_loss_buy_ins": 3,
+        "stop_win_buy_ins": 5,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "baselinesolver",
+      "lender_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
     }
   }
 }

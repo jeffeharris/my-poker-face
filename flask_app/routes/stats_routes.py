@@ -10,13 +10,16 @@ from openai import OpenAI
 
 from core.llm import LLMClient, CallType
 
-from ..extensions import tournament_repo, hand_history_repo, auth_manager, limiter, personality_generator
+from ..extensions import tournament_repo, hand_history_repo, auth_manager, limiter, personality_generator, game_repo
+from poker.authorization import get_authorization_service
 from poker.prompt_manager import PromptManager
 from poker.memory.hand_history import RecordedHand
-from poker.hand_narrator import evaluate_hand_label, format_action_phrase
+from flask_app.utils.hand_context import (
+    build_hand_context_from_recorded_hand,
+    format_hand_context_for_prompt,
+)
 from poker.config import is_development_mode
 from typing import Dict, Any
-from collections import defaultdict
 
 # Module-level prompt manager instance (with hot-reload in dev mode)
 _prompt_manager = PromptManager(enable_hot_reload=is_development_mode())
@@ -26,6 +29,40 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 stats_bp = Blueprint('stats', __name__)
+
+
+def _is_admin(user_id: str) -> bool:
+    """Check whether a user has admin tools permission."""
+    auth_service = get_authorization_service()
+    return bool(auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools'))
+
+
+def _require_game_owner(game_id: str, game_data: dict):
+    """Reject if caller doesn't own ``game_id`` and isn't an admin.
+
+    Mirrors the deny semantics of game_routes._authorize_game_access:
+    a NULL ``owner_id`` is treated as "not owned by this user" and
+    rejected with 403 unless the caller is an admin. Returns a Flask
+    response tuple on rejection, or ``None`` to continue.
+    """
+    user = auth_manager.get_current_user() if auth_manager else None
+    user_id = user.get('id') if user else ''
+    if not user_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    owner_id = (game_data or {}).get('owner_id')
+    if owner_id is None:
+        owner_info = game_repo.get_game_owner_info(game_id)
+        if owner_info is not None:
+            owner_id = owner_info.get('owner_id')
+            if game_data is not None and owner_id is not None:
+                game_data['owner_id'] = owner_id
+                game_data.setdefault('owner_name', owner_info.get('owner_name'))
+
+    if owner_id != user_id and not _is_admin(user_id):
+        return jsonify({'error': 'Permission denied'}), 403
+    return None
+
 
 # Module-level constants for prompt guidance
 LENGTH_GUIDANCE = {
@@ -77,188 +114,6 @@ def format_message_history(messages: list, max_messages: int = 10, text_limit: i
     if chat_lines:
         return "\n".join(chat_lines[-max_messages:])
     return ""
-
-
-def build_hand_context_from_recorded_hand(
-    hand: RecordedHand,
-    player_name: str
-) -> Dict[str, Any]:
-    """
-    Build comprehensive hand context for post-round chat suggestions.
-
-    Returns a dict with:
-        - outcome: 'WON_SHOWDOWN', 'WON_BY_FOLD', 'LOST_SHOWDOWN', or 'FOLDED'
-        - player_cards: player's hole cards (if available)
-        - opponent_name: main opponent's name
-        - opponent_cards: opponent's hole cards (if showdown)
-        - opponent_hand_name: opponent's hand name (if showdown)
-        - player_hand_name: player's hand name (if showdown and available)
-        - timeline: formatted string of actions by street
-        - community_cards: the board
-        - pot_size: final pot
-    """
-    result = {
-        'outcome': None,
-        'player_cards': None,
-        'opponent_name': None,
-        'opponent_cards': None,
-        'opponent_hand_name': None,
-        'player_hand_name': None,
-        'timeline': '',
-        'community_cards': list(hand.community_cards) if hand.community_cards else [],
-        'pot_size': hand.pot_size,
-    }
-
-    # Determine player outcome
-    player_outcome = hand.get_player_outcome(player_name)  # 'won', 'lost', 'folded'
-
-    # Determine full outcome type (4 scenarios)
-    if player_outcome == 'won':
-        if hand.was_showdown:
-            result['outcome'] = 'WON_SHOWDOWN'
-        else:
-            result['outcome'] = 'WON_BY_FOLD'
-    elif player_outcome == 'folded':
-        result['outcome'] = 'FOLDED'
-    else:  # lost
-        result['outcome'] = 'LOST_SHOWDOWN'
-
-    # Get player's cards
-    if player_name in hand.hole_cards:
-        result['player_cards'] = hand.hole_cards[player_name]
-    else:
-        logger.warning(f"[PostRound] Player '{player_name}' not found in hole_cards!")
-
-    # Get opponent info based on outcome
-    # Build pot contributions for opponent selection
-    pot_contributions = defaultdict(int)
-    for action in hand.actions:
-        if action.player_name != player_name:
-            pot_contributions[action.player_name] += action.amount
-
-    if player_outcome == 'won':
-        # Pick opponent who contributed most to pot (showdown or fold win)
-        if pot_contributions:
-            result['opponent_name'] = max(pot_contributions, key=pot_contributions.get)
-    else:
-        # Player lost or folded - opponent is the winner
-        for w in hand.winners:
-            if w.name != player_name:
-                result['opponent_name'] = w.name
-                result['opponent_hand_name'] = w.hand_name
-                break
-
-    # Get opponent cards if showdown
-    if result['opponent_name'] and result['opponent_name'] in hand.hole_cards:
-        result['opponent_cards'] = hand.hole_cards[result['opponent_name']]
-
-    # Get player's hand name if they won at showdown
-    if player_outcome == 'won' and hand.was_showdown:
-        for w in hand.winners:
-            if w.name == player_name:
-                result['player_hand_name'] = w.hand_name
-                break
-
-    # Fill in opponent_hand_name when missing (e.g. player won at
-    # showdown — winners' hand names come from WinnerInfo, but the
-    # opponent is a loser, so evaluate live from their cards.)
-    if (
-        not result['opponent_hand_name']
-        and result['opponent_cards']
-        and hand.was_showdown
-    ):
-        result['opponent_hand_name'] = evaluate_hand_label(
-            result['opponent_cards'], result['community_cards']
-        )
-
-    # Build timeline by phase
-    phases = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER']
-    actions_by_phase = defaultdict(list)
-    for action in hand.actions:
-        actions_by_phase[action.phase].append(action)
-
-    # Map community cards to phases
-    community = list(hand.community_cards) if hand.community_cards else []
-    phase_cards = {
-        'FLOP': community[0:3] if len(community) >= 3 else [],
-        'TURN': [community[3]] if len(community) >= 4 else [],
-        'RIVER': [community[4]] if len(community) >= 5 else [],
-    }
-
-    timeline_parts = []
-    for phase in phases:
-        phase_actions = actions_by_phase.get(phase, [])
-        if not phase_actions:
-            continue
-
-        # Format phase header with cards
-        cards = phase_cards.get(phase, [])
-        if cards:
-            phase_header = f"{phase} [{', '.join(cards)}]"
-        else:
-            phase_header = phase
-
-        # Format actions — one per indented line so the LLM can parse
-        # each event cleanly rather than scanning a comma-joined run.
-        # Action wording (raise-TO semantics, "You" substitution) is
-        # delegated to the shared helper in poker.hand_narrator.
-        action_lines = [
-            format_action_phrase(a, perspective=player_name)
-            for a in phase_actions
-        ]
-        indented = "\n".join(f"  {line}" for line in action_lines)
-        timeline_parts.append(f"{phase_header}:\n{indented}")
-
-    result['timeline'] = '\n'.join(timeline_parts)
-
-    return result
-
-
-def format_hand_context_for_prompt(context: Dict[str, Any], player_name: str) -> str:
-    """Format the hand context dict into a string for the AI prompt."""
-    parts = []
-
-    # Outcome description
-    outcome_descriptions = {
-        'WON_SHOWDOWN': f"You WON this hand at showdown",
-        'WON_BY_FOLD': f"You WON this hand - everyone folded to you",
-        'LOST_SHOWDOWN': f"You LOST this hand at showdown",
-        'FOLDED': f"You FOLDED this hand",
-    }
-    parts.append(f"OUTCOME: {outcome_descriptions.get(context['outcome'], context['outcome'])}")
-
-    # Cards section
-    if context['player_cards']:
-        cards_str = ', '.join(context['player_cards'])
-        if context.get('player_hand_name'):
-            parts.append(f"YOUR CARDS: {cards_str} ({context['player_hand_name']})")
-        else:
-            parts.append(f"YOUR CARDS: {cards_str}")
-
-    if context['opponent_name']:
-        opp_str = f"OPPONENT: {context['opponent_name']}"
-        if context['opponent_cards']:
-            opp_str += f" - {', '.join(context['opponent_cards'])}"
-        if context['opponent_hand_name']:
-            opp_str += f" ({context['opponent_hand_name']})"
-        parts.append(opp_str)
-
-    # Board
-    if context['community_cards']:
-        parts.append(f"BOARD: {', '.join(context['community_cards'])}")
-
-    # Timeline
-    if context['timeline']:
-        parts.append(f"\nHAND TIMELINE:\n{context['timeline']}")
-
-    # Pot
-    parts.append(f"\nFinal pot: ${context['pot_size']}")
-
-    # Drama note
-    if context.get('drama_note'):
-        parts.append(f"\n{context['drama_note']}")
-
-    return '\n'.join(parts)
 
 
 @stats_bp.route('/api/career-stats', methods=['GET'])
@@ -323,8 +178,13 @@ def settings(game_id):
 @limiter.limit(config.RATE_LIMIT_CHAT_SUGGESTIONS)
 def get_chat_suggestions(game_id):
     """Generate smart chat suggestions based on game context."""
-    if not game_state_service.get_game(game_id):
+    game_data = game_state_service.get_game(game_id)
+    if not game_data:
         return jsonify({"error": "Game not found"}), 404
+
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
 
     # Get owner_id for tracking
     current_user = auth_manager.get_current_user()
@@ -429,8 +289,13 @@ Return as JSON with this format:
 @limiter.limit(config.RATE_LIMIT_CHAT_SUGGESTIONS)
 def get_targeted_chat_suggestions(game_id):
     """Generate targeted chat suggestions to engage specific AI players."""
-    if not game_state_service.get_game(game_id):
+    game_data = game_state_service.get_game(game_id)
+    if not game_data:
         return jsonify({"error": "Game not found"}), 404
+
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
 
     # Get owner_id for tracking
     current_user = auth_manager.get_current_user()
@@ -618,8 +483,13 @@ def get_post_round_chat_suggestions(game_id):
     - playerName: human player's name
     - tone: 'gloat', 'humble', 'salty', or 'gracious'
     """
-    if not game_state_service.get_game(game_id):
+    game_data = game_state_service.get_game(game_id)
+    if not game_data:
         return jsonify({"error": "Game not found"}), 404
+
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
 
     # Get owner_id for tracking
     current_user = auth_manager.get_current_user()
@@ -672,7 +542,21 @@ def get_post_round_chat_suggestions(game_id):
 
         if recorded_hand:
             hand_context = build_hand_context_from_recorded_hand(recorded_hand, player_name)
-            hand_context_str = format_hand_context_for_prompt(hand_context, player_name)
+            # Pull big_blind from the live game state when available so amounts
+            # render in BB (matches hybrid-bot decision prompts); the narrator
+            # falls back to dollars when omitted.
+            big_blind = None
+            state_machine = game_data.get('state_machine') if game_data else None
+            if state_machine is not None:
+                live_state = getattr(state_machine, 'game_state', None)
+                if live_state is not None:
+                    big_blind = getattr(live_state, 'current_ante', None)
+            hand_context_str = format_hand_context_for_prompt(
+                hand_context,
+                player_name,
+                recorded_hand=recorded_hand,
+                big_blind=big_blind,
+            )
             outcome = hand_context.get('outcome')
         else:
             logger.warning(f"[PostRound] No recorded hand available for game {game_id}")

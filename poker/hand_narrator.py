@@ -173,10 +173,12 @@ def narrate_hand_recap(
             w = hand.winners[0]
             amount = _fmt_amount(w.amount_won, big_blind)
             name = display_winners[0]
-            if w.hand_name:
+            if hand.was_showdown and w.hand_name:
                 lines.append(f"RESULT: {name} won {amount} with {w.hand_name}.")
-            else:
+            elif hand.was_showdown:
                 lines.append(f"RESULT: {name} won {amount}.")
+            else:
+                lines.append(f"RESULT: {name} won {amount} (opponents folded).")
 
         # Show showdown cards for every player who actually reached
         # showdown — they must have a recorded action AND not have folded.

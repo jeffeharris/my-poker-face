@@ -83,6 +83,19 @@ class TestCbetDetectionAndResponses:
         )
         assert det.cbet_made is True
 
+    def test_cbet_fires_on_all_in_shove(self):
+        """T1-30 regression: PFR shoving the flop counts as a c-bet so
+        opponent fold-to-cbet stats stay accurate at low SPR."""
+        det = self._hero_raises_preflop()
+        det.record_action('Villain', 'call', 'PRE_FLOP')
+        det.record_action(
+            'Hero', 'all_in', 'FLOP',
+            active_players=['Hero', 'Villain'],
+        )
+        assert det.cbet_made is True
+        responses = det.record_action('Villain', 'fold', 'FLOP')
+        assert responses == [('Villain', True)]
+
     def test_cbet_also_fires_on_raise(self):
         det = self._hero_raises_preflop()
         # Donker leads first, then preflop raiser raises — that's a c-bet

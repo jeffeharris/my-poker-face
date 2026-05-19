@@ -208,6 +208,7 @@ interface GameMenuProps {
   onCustomGame: () => void;
   onThemedGame: () => void;
   onContinueGame: () => void;
+  onCashMode?: () => void;
   onViewStats?: () => void;
   onAdminDashboard?: () => void;
   savedGamesCount: number;
@@ -220,6 +221,7 @@ export function GameMenu({
   onCustomGame,
   onThemedGame,
   onContinueGame,
+  onCashMode,
   onViewStats,
   onAdminDashboard,
   savedGamesCount,
@@ -335,6 +337,22 @@ export function GameMenu({
             </div>
             {savedGamesCount > 0 && <ChevronRight className="option-arrow" size={20} />}
           </button>
+
+          {/* Cash Game */}
+          {onCashMode && (
+            <button
+              className="menu-option cash-game"
+              onClick={onCashMode}
+              {...getHoverHandlers('cash')}
+            >
+              <TrendingUp className="option-icon" size={24} />
+              <div className="option-content">
+                <h3>Cash Game</h3>
+                <p>Pick your stakes, sit at a table, play hands</p>
+              </div>
+              <ChevronRight className="option-arrow" size={20} />
+            </button>
+          )}
 
           {/* My Stats */}
           {onViewStats && (

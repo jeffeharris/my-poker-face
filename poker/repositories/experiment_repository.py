@@ -712,25 +712,48 @@ class ExperimentRepository(BaseRepository):
             ))
             logger.debug(f"Saved chat session {session_id} for owner {owner_id}")
 
-    def get_chat_session(self, session_id: str) -> Optional[Dict]:
+    def get_chat_session(
+        self, session_id: str, expected_owner_id: Optional[str] = None,
+    ) -> Optional[Dict]:
         """Get a chat session by its ID.
 
         Args:
             session_id: The session ID to retrieve
 
+        Args:
+            session_id: The chat session ID to look up.
+            expected_owner_id: When provided, only return the session if
+                the row's owner_id matches. T1-27: previously
+                get_chat_session was owner-blind, so anyone who knew or
+                guessed a session_id could read another user's chat.
+                The route layer's `_get_chat_owner_id()` returns the
+                caller's authenticated id; passing it through to this
+                helper enforces the ownership check at the data layer.
+                None (the default) preserves the legacy unscoped lookup
+                for any internal caller that genuinely needs it (e.g.,
+                admin tools).
+
         Returns:
-            Dict with session data or None if not found
+            Dict with session data or None if not found / wrong owner.
         """
         with self._get_connection() as conn:
 
             cursor = conn.execute("""
-                SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
+                SELECT id, owner_id, messages_json, config_snapshot_json, config_versions_json, updated_at
                 FROM experiment_chat_sessions
                 WHERE id = ?
             """, (session_id,))
             row = cursor.fetchone()
 
             if not row:
+                return None
+
+            if expected_owner_id is not None and row['owner_id'] != expected_owner_id:
+                logger.warning(
+                    "get_chat_session: owner mismatch (session=%s "
+                    "expected=%s found=%s) — denying read",
+                    session_id, expected_owner_id, row['owner_id'],
+                )
                 return None
 
             return {
@@ -772,18 +795,47 @@ class ExperimentRepository(BaseRepository):
                 'updated_at': row['updated_at'],
             }
 
-    def archive_chat_session(self, session_id: str) -> None:
+    def archive_chat_session(
+        self, session_id: str, expected_owner_id: Optional[str] = None,
+    ) -> bool:
         """Archive a chat session so it won't be returned by get_latest_chat_session.
 
         Args:
             session_id: The session ID to archive
+            expected_owner_id: When provided, only archives if the row's
+                owner_id matches. T1-27: previously any authenticated user
+                could archive any session by guessing the ID. The route
+                layer passes the caller's authenticated owner_id to
+                enforce the check at the data layer.
+
+        Returns:
+            True if a row was archived; False when no matching row exists
+            (either wrong session_id or owner mismatch).
         """
         with self._get_connection() as conn:
-            conn.execute(
-                "UPDATE experiment_chat_sessions SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (session_id,)
-            )
-            logger.debug(f"Archived chat session {session_id}")
+            if expected_owner_id is None:
+                cursor = conn.execute(
+                    "UPDATE experiment_chat_sessions SET is_archived = 1, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (session_id,)
+                )
+            else:
+                cursor = conn.execute(
+                    "UPDATE experiment_chat_sessions SET is_archived = 1, "
+                    "updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = ? AND owner_id = ?",
+                    (session_id, expected_owner_id),
+                )
+            archived = cursor.rowcount > 0
+            if archived:
+                logger.debug(f"Archived chat session {session_id}")
+            elif expected_owner_id is not None:
+                logger.warning(
+                    "archive_chat_session: no-op (session=%s expected_owner=%s) "
+                    "— either missing or owner mismatch",
+                    session_id, expected_owner_id,
+                )
+            return archived
 
     def delete_chat_session(self, session_id: str) -> None:
         """Delete a chat session entirely.

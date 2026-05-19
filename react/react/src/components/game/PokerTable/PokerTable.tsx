@@ -8,6 +8,8 @@ import { StadiumLayout } from '../StadiumLayout';
 import { GameHeader } from '../GameHeader';
 import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
+import { CashControls } from '../../cash/CashControls';
+import { BustModal } from '../../cash/BustModal';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
 import { ShuffleLoading } from '../../shared/ShuffleLoading';
@@ -24,9 +26,16 @@ interface PokerTableProps {
   gameId?: string | null;
   playerName?: string;
   onGameCreated?: (gameId: string) => void;
+  /** Parent's back handler. Falls back to `window.location.href = '/'`
+   *  if omitted, matching the legacy desktop behavior. */
+  onBack?: () => void;
+  /** Fired when the backend reports the game is gone (HTTP 404). Page
+   *  level decides where to redirect — cash sessions go to /cash,
+   *  tournaments to /menu. */
+  onGameLoadFailed?: () => void;
 }
 
-export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }: PokerTableProps) {
+export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, onBack, onGameLoadFailed }: PokerTableProps) {
 
   // Track last known actions for fade-out animation
   const lastKnownActions = useRef<Map<string, string>>(new Map());
@@ -50,10 +59,13 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
+    cashBustEvent,
+    clearCashBustEvent,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
     onGameCreated,
+    onGameLoadFailed,
   });
 
   const { wrappedSendMessage, guestChatDisabled } = useGuestChatLimit(
@@ -236,23 +248,39 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
 
   // Stadium Layout - used for all desktop screen sizes
   return (
+    <>
+    <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
     <StadiumLayout
         header={
           <GameHeader
             handNumber={gameState.hand_number}
             blinds={{ small: gameState.small_blind, big: gameState.big_blind }}
             phase={gameState.phase}
-            onBackClick={() => { window.location.href = '/'; }}
+            onBackClick={onBack ?? (() => { window.location.href = '/'; })}
           />
         }
         leftPanel={
           humanPlayer && (
-            <StatsPanel
-              humanPlayer={humanPlayer}
-              players={gameState.players}
-              potTotal={gameState.pot.total}
-              handNumber={gameState.hand_number}
-            />
+            <>
+              {gameState.cash_mode && (
+                <CashControls
+                  cashMode={gameState.cash_mode}
+                  playerStack={humanPlayer.stack}
+                  handInProgress={
+                    gameState.phase !== 'INITIALIZING_HAND'
+                    && gameState.phase !== 'HAND_OVER'
+                    && gameState.phase !== 'EVALUATING_HAND'
+                  }
+                  playerFolded={!!humanPlayer.is_folded}
+                />
+              )}
+              <StatsPanel
+                humanPlayer={humanPlayer}
+                players={gameState.players}
+                potTotal={gameState.pot.total}
+                handNumber={gameState.hand_number}
+              />
+            </>
           )
         }
         bottomCenter={
@@ -391,5 +419,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           </div>
         </div>
       </StadiumLayout>
+    </>
   );
 }

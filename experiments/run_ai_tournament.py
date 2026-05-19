@@ -588,6 +588,7 @@ class AITournamentRunner:
         self.capture_label_repo = repos['capture_label_repo']
         self.tournament_repo = repos['tournament_repo']
         self.hand_history_repo = repos['hand_history_repo']
+        self.relationship_repo = repos['relationship_repo']
         self.all_personalities = get_celebrities()
 
         # Pressure event detection and persistence for psychology system
@@ -769,6 +770,13 @@ class AITournamentRunner:
         )
         # Set persistence so hand history is saved to database
         memory_manager.set_hand_history_repo(self.hand_history_repo)
+        # Phase 3: wire relationship persistence so HandOutcomeDetector
+        # populates relationship_states from real play. Tournament
+        # games — `cash_mode=False` keeps `cash_pair_stats` empty
+        # (PnL is meaningless when chips reset).
+        memory_manager.set_relationship_repo(
+            self.relationship_repo, cash_mode=False,
+        )
 
         # Determine LLM config: use variant_config if provided, else use experiment defaults
         if variant_config:
@@ -1382,7 +1390,17 @@ class AITournamentRunner:
                             hand_in_progress.add_community_cards('TURN', cc[3:4])
                         if len(cc) >= 5:
                             hand_in_progress.add_community_cards('RIVER', cc[4:5])
-                    # Remove folded players to avoid false equity events
+                    # Snapshot then strip-then-restore so folded
+                    # players' cards survive into the RecordedHand
+                    # built by on_hand_complete below. The strip
+                    # itself is defensive against false equity-shock
+                    # events (see commit 9b7dcc7c "fix: enable equity
+                    # shock detection in experiment runner") — keeping
+                    # it bracketed in a snapshot/restore preserves
+                    # that protection while letting Phase 3's
+                    # HandOutcomeDetector see folder cards for
+                    # BLUFFED_OFF detection in on_hand_complete.
+                    original_hole_cards = dict(hand_in_progress.hole_cards)
                     folded_names = {p.name for p in game_state.players if p.is_folded}
                     for name in folded_names:
                         hand_in_progress.hole_cards.pop(name, None)
@@ -1392,14 +1410,21 @@ class AITournamentRunner:
                         equity_history = equity_tracker.calculate_hand_equity_history(hand_in_progress)
                     except Exception as e:
                         logger.warning(f"Equity calculation failed: {e}")
+                    finally:
+                        hand_in_progress.hole_cards = original_hole_cards
 
             # Record hand history to database (always, for outcome metrics)
-            # This persists to hand_history table via memory_manager's persistence layer
+            # This persists to hand_history table via memory_manager's persistence layer.
+            # equity_history (computed just above) is forwarded so the
+            # Phase 3 relationship detector can fire BAD_BEAT events
+            # — needs pre-river equity data to identify favorites
+            # who lost.
             memory_manager.on_hand_complete(
                 winner_info=winner_info,
                 game_state=game_state,
                 ai_players={},  # No AI player context needed for hand recording
-                skip_commentary=True  # Commentary handled separately below if enabled
+                skip_commentary=True,  # Commentary handled separately below if enabled
+                equity_history=equity_history,
             )
 
             # Save equity history to database for telemetry/analytics

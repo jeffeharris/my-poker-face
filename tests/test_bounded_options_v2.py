@@ -209,6 +209,27 @@ class TestCaseF3DecentFreeToAct:
         assert _has_action(options, 'raise')
 
 
+class TestPlusEVGuarantee:
+    """T1-35 regression: when no option is naturally +EV but equity is
+    above 0.40 (or block_fold fires), the generator must promote one and
+    actually tag it as +EV. Previous bug kept best.ev_estimate when
+    block_fold was False, so moderate-equity hands violated the
+    guarantee in the code comment."""
+
+    def test_moderate_equity_free_to_act_has_plus_ev(self):
+        ctx = _free_context(equity=0.42)
+        options = generate_bounded_options(ctx)
+        ev_labels = [o.ev_estimate for o in options]
+        assert '+EV' in ev_labels, f"+EV guarantee violated: labels={ev_labels}"
+
+    def test_moderate_equity_facing_bet_has_plus_ev(self):
+        # Equity 0.42 facing 100 into 300 (required ~25%). 1.7x required → not block_fold yet.
+        ctx = _base_context(equity=0.42, pot_total=300, cost_to_call=100)
+        options = generate_bounded_options(ctx)
+        ev_labels = [o.ev_estimate for o in options]
+        assert '+EV' in ev_labels, f"+EV guarantee violated: labels={ev_labels}"
+
+
 class TestCaseF4WeakFreeToAct:
     """F4: Weak hand (<40%), free to act. Take the free card."""
 
@@ -1937,13 +1958,24 @@ class TestRaiseEscalationAnnotation:
                 f"Raise rationale should start with '3bet:', got: {r.rationale}"
 
     def test_4bet_annotation(self):
-        """When raises_this_round=2, raises should be annotated as 4bet+."""
+        """raises_this_round=2 → annotated as 4bet (T3-73 added the explicit
+        entry; 4bet+ now applies only for ≥3 escalations)."""
         ctx = _base_context(equity=0.65, raises_this_round=2)
         options = generate_bounded_options(ctx)
         raises = [o for o in options if o.action == 'raise']
         assert len(raises) > 0, "Should have raise options"
         for r in raises:
-            assert '4bet+:' in r.rationale, \
+            assert r.rationale.startswith('4bet:'), \
+                f"Raise rationale should start with '4bet:', got: {r.rationale}"
+
+    def test_5bet_plus_annotation(self):
+        """T3-73: raises_this_round >= 3 still produces '4bet+'."""
+        ctx = _base_context(equity=0.65, raises_this_round=3)
+        options = generate_bounded_options(ctx)
+        raises = [o for o in options if o.action == 'raise']
+        assert len(raises) > 0
+        for r in raises:
+            assert r.rationale.startswith('4bet+:'), \
                 f"Raise rationale should start with '4bet+:', got: {r.rationale}"
 
     def test_no_annotation_when_opening(self):

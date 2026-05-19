@@ -9,7 +9,7 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_from_directory, Response
 
-from ..extensions import limiter
+from ..extensions import limiter, auth_manager
 from .. import config
 
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
@@ -495,6 +495,10 @@ def get_avatar_stats():
 @limiter.limit(config.RATE_LIMIT_GENERATE_IMAGES)
 def generate_character_images_endpoint(personality_name):
     """Generate images for a personality on-demand."""
+    user = auth_manager.get_current_user() if auth_manager else None
+    if not user or not user.get('id'):
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
     try:
         data = request.get_json() or {}
         emotions = data.get('emotions')

@@ -96,6 +96,8 @@ def _make_game_state(
         current_ante=current_ante,
         highest_bet=highest_bet,
         last_raise_amount=current_ante,
+        # Engine property — kept consistent with last_raise_amount for tests.
+        min_raise_amount=current_ante,
         raises_this_round=raises,
         community_cards=(),
         pot={'total': 150},

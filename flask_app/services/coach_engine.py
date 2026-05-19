@@ -419,6 +419,9 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
         except Exception as e:
             logger.warning(f"Failed to load historical opponent data: {e}")
 
+    from poker.hand_ranges import EquityConfig
+    min_hands = EquityConfig().min_hands_for_stats
+
     memory_manager = game_data.get('memory_manager')
     omm = None
     if memory_manager:
@@ -467,18 +470,21 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
                 except (AttributeError, KeyError) as e:
                     logger.warning(f"_get_opponent_stats: failed to get tendencies for {player.name}: {e}")
 
-            # Add historical data if available
+            # Add historical data when available AND has enough samples
+            # to render meaningful stats — empty placeholders coach prompts
+            # 0%/0%/0.0 numbers that look like real reads.
             if player.name in historical_data:
                 hist = historical_data[player.name]
-                opp_data['historical'] = {
-                    'session_count': hist['session_count'],
-                    'total_hands': hist['total_hands'],
-                    'vpip': hist['vpip'],
-                    'pfr': hist['pfr'],
-                    'aggression': hist['aggression_factor'],
-                    'style': _get_style_label(hist['vpip'], hist['aggression_factor']),
-                    'notes': hist['notes'][-5:],  # Most recent 5 notes
-                }
+                if hist.get('total_hands', 0) >= min_hands:
+                    opp_data['historical'] = {
+                        'session_count': hist['session_count'],
+                        'total_hands': hist['total_hands'],
+                        'vpip': hist['vpip'],
+                        'pfr': hist['pfr'],
+                        'aggression': hist['aggression_factor'],
+                        'style': _get_style_label(hist['vpip'], hist['aggression_factor']),
+                        'notes': hist['notes'][-5:],  # Most recent 5 notes
+                    }
 
             stats.append(opp_data)
     except (AttributeError, TypeError) as e:

@@ -19,6 +19,7 @@ from .opponent_model import OpponentModelManager
 from .commentary_generator import CommentaryGenerator, HandCommentary
 from .commentary_filter import should_player_comment
 from .cbet_detector import CbetDetector
+from .hand_outcome_detector import HandOutcomeDetector, dispatch_events
 from ..hand_narrator import narrate_key_moments
 from ..config import COMMENTARY_ENABLED
 
@@ -49,6 +50,19 @@ class AIMemoryManager:
         self.hand_recorder = HandHistoryRecorder(game_id)
         self.opponent_model_manager = OpponentModelManager()
         self.commentary_generator = CommentaryGenerator(game_id=game_id, owner_id=owner_id)
+
+        # Phase 3 (relationship layer): detector fires per completed
+        # hand. Shares the manager's `_name_to_id` dict by reference
+        # so a later `register_player_id` call surfaces the new id to
+        # the detector on the next emission without an explicit sync.
+        # `_relationship_repo` defaults to None — `set_relationship_repo`
+        # below activates the dispatch path. Without it the detector
+        # is silent.
+        self.hand_outcome_detector = HandOutcomeDetector(
+            name_to_id=self.opponent_model_manager._name_to_id,
+        )
+        self._relationship_repo = None
+        self._cash_mode: bool = False
 
         # Per-player session memories
         self.session_memories: Dict[str, SessionMemory] = {}
@@ -83,6 +97,78 @@ class AIMemoryManager:
             hand_history_repo: HandHistoryRepository instance
         """
         self._persistence = hand_history_repo
+
+    def _process_relationship_events(
+        self,
+        recorded_hand: RecordedHand,
+        equity_history=None,
+    ) -> None:
+        """Run the hand-outcome detector and dispatch its events.
+
+        Silent no-op when no relationship_repo is wired
+        (`set_relationship_repo` wasn't called). Otherwise: ask the
+        detector for events triggered by this hand, then dispatch
+        each through `record_event` (relationship axis updates) and,
+        in cash mode, through `apply_cash_pair_pnl` (cumulative_pnl
+        + hands_played_cash bilateral writes).
+
+        `equity_history` (optional `HandEquityHistory`): when
+        supplied, BAD_BEAT detection runs. Built by `EquityTracker`
+        in both production paths (experiment runner + Flask game
+        handler) before `on_hand_complete` runs. Passes None when a
+        caller hasn't computed equity (e.g., custom integrations);
+        in that case BAD_BEAT silently no-ops.
+
+        Wrapped in a broad try/except: a detector or dispatch
+        failure must not block the downstream session_memory and
+        commentary paths. Errors are logged and swallowed; the
+        relationship layer simply misses this hand's events.
+        """
+        if self._relationship_repo is None:
+            return
+        try:
+            events = self.hand_outcome_detector.detect_events(
+                recorded_hand, equity_history=equity_history,
+            )
+            if not events:
+                return
+            dispatch_events(
+                events,
+                self.opponent_model_manager,
+                cash_pair_repo=(
+                    self._relationship_repo if self._cash_mode else None
+                ),
+                hand_id=recorded_hand.hand_number,
+            )
+        except Exception as e:
+            logger.warning(f"HandOutcomeDetector dispatch failed: {e}")
+
+    def set_relationship_repo(
+        self, relationship_repo, *, cash_mode: bool = False,
+    ) -> None:
+        """Wire the relationship repository into the manager + detector.
+
+        Required for Phase 3 relationship-event population. Without
+        this call the detector is silent: `on_hand_complete` skips
+        the dispatch entirely, so games without relationship
+        persistence accumulate no axis state from gameplay.
+
+        Args:
+            relationship_repo: `RelationshipRepository` instance for
+                both `record_event` (used internally by
+                `OpponentModelManager`) and `cash_pair_stats`
+                writes when `cash_mode=True`.
+            cash_mode: When True, the per-hand dispatch also updates
+                `cash_pair_stats` (cumulative_pnl + hands_played_cash).
+                Tournament games keep this False — chips reset, PnL
+                is meaningless.
+        """
+        self._relationship_repo = relationship_repo
+        # OpponentModelManager.record_event requires this attribute.
+        # Mutating directly is the documented contract — the repo is
+        # an optional construction param and there's no setter yet.
+        self.opponent_model_manager._relationship_repo = relationship_repo
+        self._cash_mode = cash_mode
 
     @property
     def last_preflop_aggressor(self) -> Optional[str]:
@@ -134,11 +220,16 @@ class AIMemoryManager:
             self._recent_aggressor_name = player_name
             self._current_street = phase
 
-    def initialize_for_player(self, player_name: str) -> None:
+    def initialize_for_player(self, player_name: str, personality_id: Optional[str] = None) -> None:
         """Set up memory systems for an AI player.
 
         Args:
             player_name: Name of the AI player
+            personality_id: Stable personality_id (slug) for this player.
+                Passed through to the opponent_model_manager so cross-session
+                callers (relationship layer, AI bankrolls) can key on the
+                id rather than the display name. None for AI players whose
+                personality predates v85 or wasn't resolved at startup.
         """
         if player_name in self.initialized_players:
             return
@@ -149,10 +240,20 @@ class AIMemoryManager:
             session_memory.set_hand_history_repo(self._persistence, self.game_id)
         self.session_memories[player_name] = session_memory
 
-        self.initialized_players.add(player_name)
-        logger.info(f"Initialized memory systems for {player_name}")
+        # Register the player's stable personality_id with the opponent
+        # model manager so newly-created OpponentModels carry it and
+        # save_opponent_models persists it. Always call even when None,
+        # so the registry distinguishes "known no id" (human guests,
+        # pre-v85 personalities) from "never registered."
+        self.opponent_model_manager.register_player_id(player_name, personality_id)
 
-    def initialize_human_observer(self, player_name: str) -> None:
+        self.initialized_players.add(player_name)
+        logger.info(
+            f"Initialized memory systems for {player_name} "
+            f"(personality_id={personality_id!r})"
+        )
+
+    def initialize_human_observer(self, player_name: str, personality_id: Optional[str] = None) -> None:
         """Add human player as an observer for opponent modeling.
 
         Unlike AI players, humans don't need session memory or other AI systems,
@@ -160,12 +261,23 @@ class AIMemoryManager:
 
         Args:
             player_name: Name of the human player
+            personality_id: Almost always None for humans (they aren't
+                personalities). Plumbed through anyway so callers can
+                use a single uniform path for both player types.
         """
         if player_name in self.initialized_players:
             return
 
+        # Register with the opponent model manager. Most human players
+        # have personality_id=None; explicitly recording that prevents
+        # repeated name-lookup attempts.
+        self.opponent_model_manager.register_player_id(player_name, personality_id)
+
         self.initialized_players.add(player_name)
-        logger.info(f"Initialized human observer: {player_name}")
+        logger.info(
+            f"Initialized human observer: {player_name} "
+            f"(personality_id={personality_id!r})"
+        )
 
     def on_hand_start(self, game_state: Any, hand_number: int, deck_seed: Optional[int] = None) -> None:
         """Called when a new hand begins.
@@ -376,7 +488,8 @@ class AIMemoryManager:
     def on_hand_complete(self, winner_info: Dict[str, Any],
                         game_state: Any,
                         ai_players: Dict[str, Any] = None,
-                        skip_commentary: bool = False) -> Dict[str, HandCommentary]:
+                        skip_commentary: bool = False,
+                        equity_history=None) -> Dict[str, HandCommentary]:
         """Process end of hand - record history, update models, optionally generate commentary.
 
         Args:
@@ -384,6 +497,12 @@ class AIMemoryManager:
             game_state: Current game state
             ai_players: Dict mapping player names to their AIPokerPlayer objects
             skip_commentary: If True, skip commentary generation (for async flow)
+            equity_history: Optional HandEquityHistory built by the
+                caller before this method runs. Forwarded to the
+                relationship detector to enable BAD_BEAT detection.
+                Both production paths (experiment runner + Flask
+                game handler) wire this; custom integrations may
+                pass None to skip BAD_BEAT.
 
         Returns:
             Dict mapping player names to their HandCommentary (or None if skip_commentary)
@@ -422,6 +541,35 @@ class AIMemoryManager:
                     if observer != player.name:
                         model = self.opponent_model_manager.get_model(observer, player.name)
                         model.observe_showdown(won=(outcome == 'won'))
+
+            # Polarization Phase A: record equity-at-action for each
+            # postflop bet/raise/call by every showdown player. Walks
+            # each player's postflop action history; for each action,
+            # computes the equity they had at that moment (their hole
+            # cards vs the board snapshot for that street) and records
+            # it into the matching action bucket on every observer's
+            # model of them.
+            #
+            # Wrapped in a broad try/except: the equity calculation is
+            # an enrichment, not a hard requirement for showdown bookkeeping.
+            # If eval7 is unavailable or the cards/board can't be parsed
+            # for any reason, fall through silently so the rest of the
+            # showdown path stays unaffected.
+            try:
+                self._record_showdown_equity_at_actions(recorded_hand)
+            except Exception as e:
+                logger.warning(
+                    f"Polarization Phase A equity recording failed: {e}"
+                )
+
+        # Phase 3: relationship event detection + dispatch. Runs only
+        # when a relationship_repo is wired; tournament-only games
+        # without persistence stay detector-silent. Wrapped in
+        # try/except so detector failures (e.g., transient DB lock)
+        # don't block commentary / session_memory updates downstream.
+        self._process_relationship_events(
+            recorded_hand, equity_history=equity_history,
+        )
 
         # Update session memories
         for player_name, session_memory in self.session_memories.items():
@@ -651,6 +799,138 @@ class AIMemoryManager:
             parts.append(f"=== Opponent Intel ===\n{opponent_ctx}")
 
         return "\n\n".join(parts)
+
+    def _record_showdown_equity_at_actions(self, recorded_hand) -> None:
+        """Polarization Phase A: walk every showdown player's postflop
+        actions and credit the equity-they-had-at-that-decision into
+        the matching bet / raise / call bucket on every observer's
+        OpponentModel of them.
+
+        Equity is computed using EquityCalculator vs uniform random for
+        each player's hole cards at the board snapshot for that street.
+        Same equity definition as `player_decision_analysis.equity` so
+        downstream consumers see consistent numbers across the codebase.
+
+        Only fires for postflop actions (PRE_FLOP actions are skipped).
+        Only bet / raise / call bucket; check / fold / all_in are no-ops
+        in the per-action tracker (fold/check don't reveal strength,
+        all_in is bucketed by the existing aggression_factor signal —
+        adding it to the equity tracker would double-count when an
+        all-in is also a raise, and miscount when it's a call-shove).
+
+        Best effort: any failure to compute equity for a particular
+        action (cards unparseable, board missing for that phase, etc.)
+        silently skips that action without affecting the rest.
+        """
+        from poker.decision_analyzer import DecisionAnalyzer
+        # Lower iteration count: this runs N times per showdown, the
+        # result feeds a running mean, and we don't need solver-grade
+        # precision for archetype classification.
+        analyzer = DecisionAnalyzer(iterations=400)
+
+        # Count active (non-folded) opponents per phase. Equity vs N
+        # uniform random opponents is what `player_decision_analysis.equity`
+        # uses, so the per-action stat ends up comparable to the live
+        # decision-time equity field.
+        non_folded_at_phase = self._count_non_folded_per_phase(recorded_hand)
+
+        # Showdown players whose cards we know
+        revealed_players = {
+            p.name for p in recorded_hand.players
+            if recorded_hand.get_player_outcome(p.name) != 'folded'
+        }
+        if not revealed_players:
+            return
+
+        # Phase → board snapshot. The recorder may store these either
+        # as community_cards_by_phase (preferred) or we reconstruct
+        # from the running community_cards list (fallback). Phase
+        # naming follows the engine: 'FLOP' = first 3 cards, 'TURN'
+        # = +1, 'RIVER' = +1.
+        phase_boards = dict(recorded_hand.community_cards_by_phase or {})
+        if not phase_boards:
+            # Reconstruct from full community_cards if per-phase data
+            # is missing. Use whatever cards are visible — better an
+            # approximation than nothing.
+            community = list(recorded_hand.community_cards or [])
+            if len(community) >= 3:
+                phase_boards['FLOP'] = community[:3]
+            if len(community) >= 4:
+                phase_boards['TURN'] = community[:4]
+            if len(community) >= 5:
+                phase_boards['RIVER'] = community[:5]
+
+        # Walk each revealed player's postflop actions
+        for player_name in revealed_players:
+            hole_cards = recorded_hand.hole_cards.get(player_name)
+            if not hole_cards:
+                continue
+            player_actions = recorded_hand.get_player_actions(player_name)
+
+            for action in player_actions:
+                phase = action.phase
+                if phase == 'PRE_FLOP':
+                    continue
+                if action.action not in ('bet', 'raise', 'call'):
+                    continue
+
+                board = phase_boards.get(phase)
+                if not board:
+                    continue
+
+                # Estimate opponent count at the moment of this action.
+                # Use the count of non-folded other players at the start
+                # of this phase as a proxy. Default to 1 if we can't
+                # determine — equity vs 1 random opponent is the standard
+                # Phase A definition.
+                num_opp = max(1, non_folded_at_phase.get(phase, 1) - 1)
+
+                try:
+                    equity = analyzer.calculate_equity_vs_random(
+                        player_hand=hole_cards,
+                        community_cards=board,
+                        num_opponents=num_opp,
+                    )
+                except Exception:
+                    continue
+                if equity is None:
+                    continue
+
+                # Credit the equity into every observer's model of this player
+                for observer in self.initialized_players:
+                    if observer == player_name:
+                        continue
+                    model = self.opponent_model_manager.get_model(observer, player_name)
+                    model.tendencies.update_equity_at_action(action.action, equity)
+
+    def _count_non_folded_per_phase(self, recorded_hand) -> Dict[str, int]:
+        """For each postflop phase, count players who hadn't folded yet
+        at the START of that phase. Used by the equity-at-action recorder
+        to estimate how many random-opponent equity slots to simulate.
+
+        Returns a dict like {'FLOP': 3, 'TURN': 2, 'RIVER': 2}. Missing
+        phases default to 0; callers should treat 0 as 'unknown' and
+        fall back to a sensible default (probably 1).
+        """
+        # Track who has folded by walking actions in order. A player who
+        # folds preflop doesn't see the flop; one who folds on the flop
+        # doesn't see the turn; etc.
+        folded_before: Dict[str, bool] = {p.name: False for p in recorded_hand.players}
+        # Phase ordering: count is captured at start of each phase.
+        result: Dict[str, int] = {}
+
+        # Total seated players minus pre-existing folders gives the
+        # count at the start of preflop. For postflop phases, decrement
+        # as folds happen during prior phases.
+        phase_order = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER']
+        for phase in phase_order:
+            non_folded = sum(1 for v in folded_before.values() if not v)
+            result[phase] = non_folded
+            # Apply this phase's folds for the next iteration
+            for action in recorded_hand.actions:
+                if action.phase == phase and action.action == 'fold':
+                    folded_before[action.player_name] = True
+        return result
 
     def get_session_memory(self, player_name: str) -> Optional[SessionMemory]:
         """Get session memory for a player."""

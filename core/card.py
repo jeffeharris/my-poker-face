@@ -64,7 +64,12 @@ class Card:
 
     @classmethod
     def from_short(cls, s: str) -> 'Card':
-        """Build a Card from short notation: 'As', 'Td', '10h'."""
+        """Build a Card from short notation.
+
+        Accepts both ASCII suits ('As', 'Td', '10h') and Unicode suit
+        symbols ('A♠', 'T♦', '10♥') — the latter is what ``str(Card)``
+        emits, and the hand recorder stores cards via that path.
+        """
         s = s.strip()
         if len(s) == 3 and s[:2] == '10':
             rank, suit_ch = '10', s[2]
@@ -72,7 +77,8 @@ class Card:
             rank, suit_ch = '10', s[1]
         else:
             rank, suit_ch = s[0], s[1]
-        return cls(rank, cls.SHORT_TO_SUIT.get(suit_ch, suit_ch))
+        suit = cls.SHORT_TO_SUIT.get(suit_ch) or cls.ASCII_TO_SUIT.get(suit_ch, suit_ch)
+        return cls(rank, suit)
 
     def get_rank_value(self) -> int:
         return Card.RANK_VALUES[self.rank]

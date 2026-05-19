@@ -94,6 +94,14 @@ class PromptConfig:
     # Preflop range gate — bias option EV labels based on hand-in-range check
     preflop_range_gate: bool = False
 
+    # Heads-up positional equity offset (T1-34, gated). When True, applies
+    # HEADS_UP_POSITION_OFFSETS to the equity used for EV labelling in HU
+    # spots. Default off — the offsets were originally designed as
+    # range-percentage offsets and the magnitudes (BTN +0.30, BB +0.20)
+    # are 3-7x larger than actual positional equity advantage. Enable
+    # only as part of an A/B experiment with a known hypothesis.
+    hu_equity_offset: bool = False
+
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts
 

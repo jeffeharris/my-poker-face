@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import type { ChatMessage, GameState, WinnerInfo, BackendChatMessage } from '../types';
 import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
+import type { CashBustEvent } from '../components/cash/types';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
@@ -59,6 +60,11 @@ interface UsePokerGameResult {
   clearRevealedCards: () => void;
   refreshGameState: (gId: string, silent?: boolean) => Promise<boolean>;
   guestLimitReached: boolean;
+  // Cash mode bust state — populated by SocketIO `cash_bust` /
+  // `cash_rebuy_needed` events from the backend. `null` means no
+  // bust is currently active.
+  cashBustEvent: (CashBustEvent & { kind: 'bust' | 'rebuy_needed' }) | null;
+  clearCashBustEvent: () => void;
   // Debug functions
   debugTriggerSplitPot: () => void;
   debugTriggerSidePot: () => void;
@@ -102,6 +108,10 @@ export function usePokerGame({
   const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
   const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
+  const [cashBustEvent, setCashBustEvent] = useState<
+    (CashBustEvent & { kind: 'bust' | 'rebuy_needed' }) | null
+  >(null);
+  const clearCashBustEvent = useCallback(() => setCashBustEvent(null), []);
   const [isConnected, setIsConnected] = useState(false);
   // Cache avatar URLs by player/emotion so background generation results aren't lost
   const avatarCacheRef = useRef<Record<string, Record<string, string>>>({});
@@ -113,6 +123,13 @@ export function usePokerGame({
   const aiThinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gameIdRef = useRef<string | null>(null);
   const lastErrorRefreshRef = useRef<number>(0);
+  // Latches when the backend has reported the game is gone (HTTP 404
+  // on game-state). Cash sessions are in-memory-only, so a backend
+  // restart drops the room and the frontend would otherwise reconnect-
+  // spam socket.io with the stale sid forever. Once this is true we
+  // disconnect the socket, fire onGameLoadFailed exactly once, and
+  // skip subsequent refreshes.
+  const gameGoneRef = useRef(false);
 
   // State buffer for card animation gating
   // Use refs (not useState) because socket callbacks capture values at registration time,
@@ -517,6 +534,17 @@ export function usePokerGame({
       toast.error(data.message);
     });
 
+    // Cash mode: server-driven bust detection. `cash_rebuy_needed`
+    // fires when the human's stack hits 0 but bankroll can still
+    // afford a rebuy at this table; `cash_bust` fires when bankroll
+    // is too low (player must leave and find a sponsor at /cash).
+    socket.on('cash_rebuy_needed', (data: CashBustEvent) => {
+      setCashBustEvent({ ...data, kind: 'rebuy_needed' });
+    });
+    socket.on('cash_bust', (data: CashBustEvent) => {
+      setCashBustEvent({ ...data, kind: 'bust' });
+    });
+
     // Listen for avatar updates (when background generation completes)
     // Always cache the URL so it's available when needed later.
     // Only update the displayed avatar if:
@@ -552,14 +580,38 @@ export function usePokerGame({
     });
   }, [onNewAiMessage, clearAiThinkingTimeout, updateStorePlayers, updateStorePlayerOptions, resetBuffer, processStateUpdate]);
 
+  // Fires exactly once when the backend confirms the game no longer
+  // exists. Disconnects the socket so the reconnect loop stops, then
+  // hands control back to the caller (page-level routing decides
+  // where to redirect — cash menu vs main menu).
+  const handleGameGone = useCallback(() => {
+    if (gameGoneRef.current) return;
+    gameGoneRef.current = true;
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
+    if (onGameLoadFailed) {
+      onGameLoadFailed();
+    }
+  }, [onGameLoadFailed]);
+
   // refreshGameState: silent=true means don't touch loading state (for reconnections)
   const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
+    if (gameGoneRef.current) return false;
     try {
       clearAiThinkingTimeout();
       // Reset buffer on full refresh to prevent stale queued state
       resetBuffer();
 
       const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+      if (res.status === 404) {
+        // Game is gone from the backend (cash sessions don't survive
+        // a backend restart; tournament games could be evicted from
+        // memory). Stop trying.
+        logger.warn(`Game ${gId} not found — backend has no record`);
+        handleGameGone();
+        return false;
+      }
       if (!res.ok) {
         logger.error(`Failed to fetch game state: HTTP ${res.status}`);
         return false;
@@ -596,12 +648,17 @@ export function usePokerGame({
       logger.error('Failed to refresh game state:', err);
       return false;
     }
-  }, [clearAiThinkingTimeout, applyGameState, resetBuffer]);
+  }, [clearAiThinkingTimeout, applyGameState, resetBuffer, handleGameGone]);
 
   // Keep ref in sync for socket callback access
   refreshGameStateRef.current = refreshGameState;
 
   const createSocket = useCallback((gId: string) => {
+    // Pin to polling in dev — Werkzeug + Flask-SocketIO threading
+    // mode can't reliably hold a WS upgrade and emits malformed
+    // frames during the upgrade probe. Production (gunicorn +
+    // GeventWebSocketWorker behind Caddy) handles WS fine, so let
+    // socket.io negotiate normally there.
     const socket = io(config.SOCKET_URL, {
       reconnection: true,
       reconnectionAttempts: Infinity,
@@ -609,6 +666,7 @@ export function usePokerGame({
       reconnectionDelayMax: 5000,
       timeout: 20000,
       withCredentials: true,  // Send cookies for auth
+      ...(import.meta.env.PROD ? {} : { transports: ['polling'] }),
     });
 
     socketRef.current = socket;
@@ -647,10 +705,14 @@ export function usePokerGame({
           if (onGameCreated) {
             onGameCreated('');
           }
-          if (onGameLoadFailed) {
+          // 404s already fired onGameLoadFailed via handleGameGone.
+          // For other transient failures, hand control to the page-
+          // level callback; if none was provided, stay put — a
+          // location.reload() here used to create an infinite loop
+          // when the game was permanently gone (cash session after
+          // backend restart).
+          if (!gameGoneRef.current && onGameLoadFailed) {
             onGameLoadFailed();
-          } else {
-            window.location.reload();
           }
         }
       });
@@ -693,7 +755,7 @@ export function usePokerGame({
   // Handle visibility changes (browser wake from sleep)
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && gameId) {
+      if (document.visibilityState === 'visible' && gameId && !gameGoneRef.current) {
         const socket = socketRef.current;
 
         if (!socket || !socket.connected) {
@@ -936,6 +998,8 @@ export function usePokerGame({
     clearRevealedCards,
     refreshGameState,
     guestLimitReached,
+    cashBustEvent,
+    clearCashBustEvent,
     // Debug functions
     debugTriggerSplitPot,
     debugTriggerSidePot,

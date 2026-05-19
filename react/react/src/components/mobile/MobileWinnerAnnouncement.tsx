@@ -11,6 +11,7 @@ interface PlayerShowdownInfo {
     cards: string[] | BackendCard[];
     hand_name: string;
     hand_rank: number;
+    hand_score?: number;
     kickers?: string[];
 }
 
@@ -270,7 +271,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
                         {winnerInfo.players_showdown && (
                             <div className="players-hands-section">
                                 {Object.entries(winnerInfo.players_showdown)
-                                    .sort(([, infoA], [, infoB]) => infoA.hand_rank - infoB.hand_rank)
+                                    .sort(([, a], [, b]) => (b.hand_score ?? 0) - (a.hand_score ?? 0))
                                     .map(([showdownPlayerName, playerInfo]) => {
                                         const isWinner = winnerInfo.winners.includes(showdownPlayerName);
                                         const winAmount = playerWinnings[showdownPlayerName];

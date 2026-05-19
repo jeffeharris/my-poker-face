@@ -1,5 +1,5 @@
 name: post_round_gloat
-version: 1.0.0
+version: 1.1.0
 sections:
   instruction: |-
     Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
@@ -7,7 +7,9 @@ sections:
     HAND INFO:
     {hand_context}
 
-    GOAL: GLOAT! Trash talk. Rub it in. Be playful but cutting. Reference the actual hand/cards from the HAND INFO above.
+    Read the HAND INFO carefully. The OUTCOME line says you WON. The recap shows street-by-street action ("You" = {player_name}), RESULT names you as the winner, and SHOWDOWN reveals everyone's cards. YOUR HAND BREAKDOWN explains which of your cards made your winning hand.
+
+    GOAL: GLOAT! Trash talk. Rub it in. Be playful but cutting. Reference real details from the HAND INFO — your actual cards, the hand you made (e.g. "two pair"), or the loser named in SHOWDOWN. Do NOT invent opponents or cards.
 
     Keep it SHORT (10-15 words max). First person. Confident.
 

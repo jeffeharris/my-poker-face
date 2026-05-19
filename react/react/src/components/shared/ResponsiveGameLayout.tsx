@@ -7,6 +7,7 @@ export interface ResponsiveGameLayoutProps {
   playerName?: string;
   onGameCreated?: (gameId: string) => void;
   onBack?: () => void;
+  onGameLoadFailed?: () => void;
 }
 
 /**
@@ -17,7 +18,8 @@ export function ResponsiveGameLayout({
   gameId,
   playerName,
   onGameCreated,
-  onBack
+  onBack,
+  onGameLoadFailed
 }: ResponsiveGameLayoutProps) {
   const { isMobile } = useViewport();
 
@@ -28,6 +30,7 @@ export function ResponsiveGameLayout({
         playerName={playerName}
         onGameCreated={onGameCreated}
         onBack={onBack}
+        onGameLoadFailed={onGameLoadFailed}
       />
     );
   }
@@ -37,6 +40,8 @@ export function ResponsiveGameLayout({
       gameId={gameId}
       playerName={playerName}
       onGameCreated={onGameCreated}
+      onBack={onBack}
+      onGameLoadFailed={onGameLoadFailed}
     />
   );
 }

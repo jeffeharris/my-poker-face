@@ -7,6 +7,11 @@ import json
 import random
 import logging
 
+from poker.personality_id import (
+    slugify_personality_name as _slugify_personality_name,
+    assign_unique_personality_id as _assign_unique_personality_id,
+)
+
 logger = logging.getLogger(__name__)
 
 # v42: Schema consolidation - all tables now created in _init_db(), migrations are no-ops
@@ -51,7 +56,31 @@ logger = logging.getLogger(__name__)
 # v80: Add community_cards_by_phase_json to hand_history for phase-level card tracking
 # v81: Add intervention_trace_json to player_decision_analysis for Phase 7.6 per-decision attribution
 # v82: Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1 (shadow-eval) replay
-SCHEMA_VERSION = 82
+# v83: Add psychology_json to controller_state for v2.1 unified psychology persistence (T1-29)
+# v84: Add UNIQUE(game_id, player_name, hand_number) on personality_snapshots so the
+#      INSERT OR IGNORE in save_personality_snapshot can actually deduplicate retried writes (T1-32 follow-up)
+# v85: Add personality_id TEXT UNIQUE to personalities for stable cross-session identity.
+#      Backfills existing rows with slugified names. Display name becomes UI-only; personality_id
+#      is the persistence key the relationship layer and cash-mode bankrolls key on.
+# v86: Add observer_id + opponent_id TEXT columns to opponent_models. Backfills via name lookup
+#      against personalities.personality_id. Display names stay (still UNIQUE lookup key for now)
+#      so the migration is non-destructive; future work can transition the lookup constraint to
+#      key on ids once all writers populate them.
+# v87: Add relationship_states + cash_pair_stats tables. Cross-session/cross-game affinity axes
+#      (heat/respect/likability) and cash-mode-specific PnL pair stats, both keyed on
+#      (observer_id, opponent_id). Foundation for Relationship layer (Track B step 2) and Cash
+#      mode v1 (Track B step 3). Pure additions — no changes to existing tables.
+# v88: Add bankroll persistence for cash mode v1. Creates ai_bankroll_state (per personality_id)
+#      and player_bankroll_state (per player_id) tables. Per-personality bankroll knobs
+#      (bankroll_cap, bankroll_rate, buy_in_multiplier, stop_loss_buy_ins, stop_win_buy_ins,
+#      stake_comfort_zone) live inside config_json as a `bankroll_knobs` sub-dict — same
+#      convention as `anchors`. The BankrollRepository falls back to BANKROLL_KNOB_DEFAULTS
+#      per-field, so personalities without bankroll_knobs in their JSON land at sane defaults.
+# v90: Add active_loan_lender_id column to player_bankroll_state for cash-mode Path B
+#      (AI-personality sponsorship). NULL = anonymous house loan (v1 sponsorship);
+#      non-NULL = personality_id of the named AI lender. Used by leave-time settlement to
+#      credit sponsor_total back to the lender's persistent bankroll.
+SCHEMA_VERSION = 92
 
 
 
@@ -66,8 +95,15 @@ class SchemaManager:
         self.db_path = db_path
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Create a database connection."""
-        return sqlite3.connect(self.db_path, timeout=5.0)
+        """Create a database connection.
+
+        Sets busy_timeout to 5s so _init_db and migrations queue behind a
+        WAL writer instead of failing immediately with `database is locked`
+        when a Flask worker is already holding the write lock at startup.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=5.0)
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
 
     def _enable_wal_mode(self):
         """Enable WAL mode for concurrent read/write."""
@@ -176,7 +212,8 @@ class SchemaManager:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_player_game ON ai_player_state(game_id, player_name)")
 
-            # 5. Personality snapshots
+            # 5. Personality snapshots (v84 added UNIQUE constraint so retried
+            #    save_personality_snapshot writes can be deduplicated by INSERT OR IGNORE)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS personality_snapshots (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,7 +223,8 @@ class SchemaManager:
                     personality_traits TEXT,
                     pressure_levels TEXT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (game_id) REFERENCES games(game_id)
+                    FOREIGN KEY (game_id) REFERENCES games(game_id),
+                    UNIQUE (game_id, player_name, hand_number)
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_personality_snapshots ON personality_snapshots(game_id, hand_number)")
@@ -207,7 +245,9 @@ class SchemaManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_player ON pressure_events(player_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_type ON pressure_events(event_type)")
 
-            # 7. Personalities (v5 added elasticity_config)
+            # 7. Personalities (v5 added elasticity_config, v85 added personality_id;
+            #    bankroll knobs live inside config_json as a `bankroll_knobs` sub-dict,
+            #    matching how `anchors` already nests inside config_json)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS personalities (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -218,7 +258,8 @@ class SchemaManager:
                     is_generated BOOLEAN DEFAULT 1,
                     source TEXT DEFAULT 'ai_generated',
                     times_used INTEGER DEFAULT 0,
-                    elasticity_config TEXT
+                    elasticity_config TEXT,
+                    personality_id TEXT UNIQUE
                 )
             """)
 
@@ -275,6 +316,8 @@ class SchemaManager:
                     game_id TEXT,
                     observer_name TEXT NOT NULL,
                     opponent_name TEXT NOT NULL,
+                    observer_id TEXT,
+                    opponent_id TEXT,
                     hands_observed INTEGER DEFAULT 0,
                     vpip REAL DEFAULT 0.5,
                     pfr REAL DEFAULT 0.5,
@@ -291,6 +334,15 @@ class SchemaManager:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_observer ON opponent_models(observer_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_game ON opponent_models(game_id)")
+            # The observer_id / opponent_id indexes are created by the
+            # v86 migration. We deliberately do NOT create them here:
+            # _init_db() runs before migrations, so on a pre-v86 database
+            # the columns don't exist yet — and creating indexes on
+            # missing columns fails. The v86 migration (a) is idempotent,
+            # (b) checks column existence via PRAGMA table_info before
+            # ALTER, and (c) creates the indexes with CREATE INDEX IF
+            # NOT EXISTS, so it correctly handles both fresh installs
+            # (columns present from CREATE TABLE above) and upgrades.
 
             # 10. Memorable hands (v21 added game_id)
             conn.execute("""
@@ -310,6 +362,77 @@ class SchemaManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_observer ON memorable_hands(observer_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_opponent ON memorable_hands(opponent_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_hands_game ON memorable_hands(game_id)")
+
+            # 10b. Relationship states (v87) — cross-session, cross-game affinity axes.
+            #      Keyed on (observer_id, opponent_id) which come from
+            #      personalities.personality_id (or, for human players, the user-id
+            #      surface). Read-paths apply project_heat on the `heat` column;
+            #      respect and likability don't decay.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS relationship_states (
+                    observer_id TEXT NOT NULL,
+                    opponent_id TEXT NOT NULL,
+                    heat REAL NOT NULL DEFAULT 0.0,
+                    respect REAL NOT NULL DEFAULT 0.5,
+                    likability REAL NOT NULL DEFAULT 0.5,
+                    last_seen TIMESTAMP,
+                    last_decay_tick TIMESTAMP,
+                    PRIMARY KEY (observer_id, opponent_id)
+                )
+            """)
+
+            # 10c. Cash pair stats (v87) — cumulative cash-mode PnL between two
+            #      personalities. Distinct from relationship_states because PnL
+            #      is cash-mode-specific (resets in tournaments). Observer-POV
+            #      cumulative_pnl; the mirror pair gets the negation in a single
+            #      write transaction so views can't drift.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS cash_pair_stats (
+                    observer_id TEXT NOT NULL,
+                    opponent_id TEXT NOT NULL,
+                    cumulative_pnl INTEGER NOT NULL DEFAULT 0,
+                    hands_played_cash INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (observer_id, opponent_id)
+                )
+            """)
+
+            # 10d. AI bankroll state (v88) — per-personality persistent bankroll.
+            #      Keyed on personalities.personality_id (stable v85 slug, not
+            #      display name). `chips` is the "as of last_regen_tick"
+            #      snapshot; live reads project through elapsed wall-clock
+            #      time via `cash_mode.project_bankroll`. Writes only happen
+            #      on real events (sit-down, win, loss).
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS ai_bankroll_state (
+                    personality_id TEXT PRIMARY KEY,
+                    chips INTEGER NOT NULL DEFAULT 0,
+                    last_regen_tick TIMESTAMP
+                )
+            """)
+
+            # 10e. Player bankroll state (v88, loan fields added v89,
+            #      lender_id added v90) — per-player persistent bankroll.
+            #      `starting_bankroll` is the seed grant on first entry.
+            #      The `active_loan_*` columns (v89) encode a session-
+            #      scoped sponsor loan; all reset to 0/0.0/0.0 on
+            #      `/api/cash/leave` after the leave-time math settles the
+            #      loan. `active_loan_lender_id` (v90) is the optional
+            #      personality_id of an AI lender — NULL means anonymous
+            #      house loan (v1 sponsorship), non-NULL means a named AI
+            #      lender whose persistent bankroll receives sponsor_total
+            #      at leave-time. Loans do NOT persist across sessions in
+            #      v1.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS player_bankroll_state (
+                    player_id TEXT PRIMARY KEY,
+                    chips INTEGER NOT NULL DEFAULT 0,
+                    starting_bankroll INTEGER NOT NULL DEFAULT 0,
+                    active_loan_amount INTEGER NOT NULL DEFAULT 0,
+                    active_loan_floor REAL NOT NULL DEFAULT 0.0,
+                    active_loan_rate REAL NOT NULL DEFAULT 0.0,
+                    active_loan_lender_id TEXT DEFAULT NULL
+                )
+            """)
 
             # 11. Hand commentary (v41)
             conn.execute("""
@@ -354,7 +477,8 @@ class SchemaManager:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_emotional_state_game ON emotional_state(game_id, player_name)")
 
-            # 13. Controller state (v3, v40 added prompt_config_json)
+            # 13. Controller state (v3, v40 added prompt_config_json,
+            #     v83 added psychology_json for v2.1 unified PlayerPsychology)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS controller_state (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -363,6 +487,7 @@ class SchemaManager:
                     tilt_state_json TEXT,
                     elastic_personality_json TEXT,
                     prompt_config_json TEXT,
+                    psychology_json TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (game_id) REFERENCES games(game_id),
                     UNIQUE(game_id, player_name)
@@ -1090,6 +1215,16 @@ class SchemaManager:
             80: (self._migrate_v80_add_community_cards_by_phase, "Add community_cards_by_phase_json column to hand_history"),
             81: (self._migrate_v81_add_intervention_trace_json, "Add intervention_trace_json to player_decision_analysis for Phase 7.6"),
             82: (self._migrate_v82_add_strategy_pipeline_snapshot_json, "Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1"),
+            83: (self._migrate_v83_add_psychology_json, "Add psychology_json to controller_state for v2.1 unified psychology persistence"),
+            84: (self._migrate_v84_add_personality_snapshots_unique, "Add UNIQUE(game_id, player_name, hand_number) to personality_snapshots so INSERT OR IGNORE deduplicates retries"),
+            85: (self._migrate_v85_add_personality_id, "Add personality_id TEXT UNIQUE to personalities and backfill with slugified names"),
+            86: (self._migrate_v86_add_opponent_model_ids, "Add observer_id + opponent_id to opponent_models and backfill via personality name lookup"),
+            87: (self._migrate_v87_add_relationship_tables, "Add relationship_states + cash_pair_stats tables for cross-session affinity and cash-mode PnL"),
+            88: (self._migrate_v88_add_bankroll_tables, "Add ai_bankroll_state + player_bankroll_state tables and bankroll knob columns on personalities for cash mode v1"),
+            89: (self._migrate_v89_add_loan_fields_to_player_bankroll, "Add active_loan_amount, active_loan_floor, active_loan_rate to player_bankroll_state for cash mode sponsorship"),
+            90: (self._migrate_v90_add_lender_id_to_player_bankroll, "Add active_loan_lender_id to player_bankroll_state for cash mode Path B (AI sponsorship)"),
+            91: (self._migrate_v91_add_cash_tables, "Add cash_tables table for persistent multi-table lobby (cash mode v1.5)"),
+            92: (self._migrate_v92_add_cash_idle_pool, "Add cash_idle_pool table for AIs between cash sessions (cash mode v1.5)"),
         }
 
         with self._get_connection() as conn:
@@ -3504,3 +3639,447 @@ class SchemaManager:
         logger.info(
             "Migration v82 complete: strategy_pipeline_snapshot_json added"
         )
+
+    def _migrate_v83_add_psychology_json(self, conn: sqlite3.Connection) -> None:
+        """Migration v83: Add psychology_json to controller_state.
+
+        Stores the full v2.1 PlayerPsychology snapshot (anchors, axes,
+        composure_state, hand_count, optional emotional + playstyle
+        substates). Replaces the legacy split between tilt_state_json
+        and elastic_personality_json — both columns remain in place so
+        existing rows continue to load, but new writes only populate
+        psychology_json.
+        """
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(controller_state)")}
+        if 'psychology_json' not in existing:
+            conn.execute("ALTER TABLE controller_state ADD COLUMN psychology_json TEXT")
+            logger.info("Added psychology_json column to controller_state")
+
+    def _migrate_v84_add_personality_snapshots_unique(self, conn: sqlite3.Connection) -> None:
+        """Migration v84: enforce uniqueness on personality_snapshots.
+
+        ``save_personality_snapshot`` uses INSERT OR IGNORE so retried
+        writes after a database-locked failure don't duplicate the
+        elasticity snapshot timeline. SQLite needs an actual UNIQUE
+        constraint to enforce IGNORE semantics; without it the OR IGNORE
+        clause is a no-op.
+
+        SQLite can't add a UNIQUE constraint via ALTER TABLE. Use the
+        documented table-rebuild dance: drop pre-existing duplicates,
+        then rebuild via temp table + rename. Only one duplicate per
+        ``(game_id, player_name, hand_number)`` is preserved (the row
+        with the lowest id, i.e. the first write).
+        """
+        # Pre-deduplicate so the rebuild can apply UNIQUE without conflict.
+        conn.execute(
+            """
+            DELETE FROM personality_snapshots
+            WHERE id NOT IN (
+                SELECT MIN(id) FROM personality_snapshots
+                GROUP BY game_id, player_name, hand_number
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE personality_snapshots_v84 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_name TEXT NOT NULL,
+                game_id TEXT NOT NULL,
+                hand_number INTEGER,
+                personality_traits TEXT,
+                pressure_levels TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(game_id),
+                UNIQUE (game_id, player_name, hand_number)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO personality_snapshots_v84
+                (id, player_name, game_id, hand_number, personality_traits, pressure_levels, timestamp)
+            SELECT id, player_name, game_id, hand_number, personality_traits, pressure_levels, timestamp
+            FROM personality_snapshots
+            """
+        )
+        conn.execute("DROP TABLE personality_snapshots")
+        conn.execute("ALTER TABLE personality_snapshots_v84 RENAME TO personality_snapshots")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_personality_snapshots "
+            "ON personality_snapshots(game_id, hand_number)"
+        )
+        logger.info(
+            "Migration v84 complete: personality_snapshots now has "
+            "UNIQUE(game_id, player_name, hand_number)"
+        )
+
+    def _migrate_v85_add_personality_id(self, conn: sqlite3.Connection) -> None:
+        """Migration v85: Add personality_id TEXT UNIQUE to personalities.
+
+        Display names are human-facing, can be edited, and have historically
+        been used as persistence keys. That's brittle for cross-session
+        state (the relationship layer's heat/respect/likability axes, cash
+        mode's per-personality AI bankrolls). A separate `personality_id`
+        column gives each personality a stable, immutable identifier that
+        survives renames.
+
+        Identifier scheme: slugified display name at the time of backfill.
+        Collisions resolve via `_v2`, `_v3` suffix. Once assigned to a row,
+        the `personality_id` never changes — even if `name` is later edited.
+
+        Future inserts (AI-generated personalities, user-created via the
+        create_personality endpoint) populate this column at row creation
+        time via PersonalityRepository.save_personality. The
+        seed_personalities_from_json bridge reads `id` from the JSON
+        entries (set by scripts/backfill_personality_ids.py) so the seed
+        path stays consistent with the DB.
+
+        Schema change: adds nullable `personality_id` column then backfills
+        the existing rows. Adds a UNIQUE index on personality_id once
+        backfill completes. The column is added as nullable rather than
+        NOT NULL so the migration is robust against partial states; the
+        UNIQUE index enforces uniqueness without forbidding NULL (SQLite
+        treats NULLs as distinct in UNIQUE indexes).
+        """
+        # 1. Add the column if missing.
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(personalities)")}
+        if 'personality_id' not in existing:
+            conn.execute("ALTER TABLE personalities ADD COLUMN personality_id TEXT")
+            logger.info("v85: added personality_id column to personalities")
+
+        # 2. Backfill rows where personality_id IS NULL.
+        #    Uses the same slugify rule as scripts/backfill_personality_ids.py
+        #    so the JSON seed source and DB-stored IDs stay aligned.
+        rows = conn.execute(
+            "SELECT id, name FROM personalities WHERE personality_id IS NULL"
+        ).fetchall()
+        if rows:
+            taken = {
+                row[0] for row in conn.execute(
+                    "SELECT personality_id FROM personalities "
+                    "WHERE personality_id IS NOT NULL"
+                ).fetchall()
+            }
+            assigned = 0
+            for row in rows:
+                row_id, name = row[0], row[1]
+                base_slug = _slugify_personality_name(name)
+                if not base_slug:
+                    logger.warning(
+                        "v85: personality id=%s name=%r slugifies to empty; "
+                        "leaving personality_id NULL — needs manual fix",
+                        row_id, name,
+                    )
+                    continue
+                new_id = _assign_unique_personality_id(base_slug, taken)
+                taken.add(new_id)
+                conn.execute(
+                    "UPDATE personalities SET personality_id = ? WHERE id = ?",
+                    (new_id, row_id),
+                )
+                assigned += 1
+            logger.info(f"v85: backfilled personality_id for {assigned} rows")
+
+        # 3. Create a UNIQUE index (idempotent — IF NOT EXISTS).
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_personalities_personality_id "
+            "ON personalities(personality_id)"
+        )
+        logger.info("v85: UNIQUE index on personalities.personality_id ensured")
+
+    def _migrate_v86_add_opponent_model_ids(self, conn: sqlite3.Connection) -> None:
+        """Migration v86: Add observer_id + opponent_id to opponent_models.
+
+        Adds stable personality_id surfaces to the in-game-relative
+        opponent model rows. Each row already has observer_name +
+        opponent_name (display names); v86 adds observer_id +
+        opponent_id (stable slugs from the personalities table).
+
+        Backfill strategy: for every existing row, try to look up the
+        opponent's personality_id by matching opponent_name to
+        personalities.name. Same for observer_name. Rows whose names
+        don't map to any personality (e.g. ad-hoc names, deleted
+        personalities, human-player names like guests) stay with NULL
+        ids; the join is opportunistic, not enforced. The UNIQUE
+        constraint on (game_id, observer_name, opponent_name) stays as
+        the authoritative lookup key for now — adding a NOT NULL or
+        UNIQUE on the new columns would block live games that have
+        names without DB-side personalities.
+
+        Idempotent: re-running the migration is a no-op (existing ids
+        preserved; NULL rows attempt backfill again, harmless if the
+        name lookup still fails).
+
+        Indexes: separate non-unique indexes on observer_id and
+        opponent_id support future relationship/cash-mode queries
+        without forcing data shape changes here.
+        """
+        # 1. Add the columns if missing.
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(opponent_models)")}
+        for col in ("observer_id", "opponent_id"):
+            if col not in existing:
+                conn.execute(f"ALTER TABLE opponent_models ADD COLUMN {col} TEXT")
+                logger.info(f"v86: added {col} column to opponent_models")
+
+        # 2. Backfill via name lookup against personalities.personality_id.
+        #    Only updates rows where the new id column is currently NULL.
+        backfilled = conn.execute(
+            """
+            UPDATE opponent_models
+            SET opponent_id = (
+                SELECT personality_id FROM personalities
+                WHERE personalities.name = opponent_models.opponent_name
+                  AND personalities.personality_id IS NOT NULL
+            )
+            WHERE opponent_id IS NULL
+            """
+        ).rowcount
+        logger.info(f"v86: backfilled opponent_id for {backfilled} rows via name lookup")
+
+        backfilled_obs = conn.execute(
+            """
+            UPDATE opponent_models
+            SET observer_id = (
+                SELECT personality_id FROM personalities
+                WHERE personalities.name = opponent_models.observer_name
+                  AND personalities.personality_id IS NOT NULL
+            )
+            WHERE observer_id IS NULL
+            """
+        ).rowcount
+        logger.info(f"v86: backfilled observer_id for {backfilled_obs} rows via name lookup")
+
+        # 3. Indexes (idempotent).
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_opponent_models_observer_id "
+            "ON opponent_models(observer_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_opponent_models_opponent_id "
+            "ON opponent_models(opponent_id)"
+        )
+        logger.info("v86: opponent_models id indexes ensured")
+
+    def _migrate_v87_add_relationship_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v87: Add relationship_states + cash_pair_stats tables.
+
+        Foundation tables for the relationship layer (Track B step 2)
+        and cash mode v1 (Track B step 3). Both tables key on
+        (observer_id, opponent_id) — stable personality_ids from v85
+        — and persist cross-session / cross-game state that doesn't
+        belong on `opponent_models` (which is per-game-id).
+
+        relationship_states
+          Per-pair affinity axes. `heat` decays per `project_heat`
+          on read; `respect` and `likability` are earned state and
+          don't decay. `last_decay_tick` anchors the decay schedule;
+          set to the timestamp of the most recent record_event apply.
+
+        cash_pair_stats
+          Cumulative cash-mode PnL between two personalities.
+          Observer-POV `cumulative_pnl` — chips this observer has won
+          net from this opponent over every cash-mode hand. Distinct
+          from relationship_states because PnL is meaningless in
+          tournaments where chips reset; the split keeps tournament-
+          mode reads clean.
+
+        Pure additions — no existing tables touched. Idempotent.
+        CREATE TABLE IF NOT EXISTS is the standard pattern for new
+        tables; running this migration on a DB that already has them
+        (fresh install path) is a no-op.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS relationship_states (
+                observer_id TEXT NOT NULL,
+                opponent_id TEXT NOT NULL,
+                heat REAL NOT NULL DEFAULT 0.0,
+                respect REAL NOT NULL DEFAULT 0.5,
+                likability REAL NOT NULL DEFAULT 0.5,
+                last_seen TIMESTAMP,
+                last_decay_tick TIMESTAMP,
+                PRIMARY KEY (observer_id, opponent_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_pair_stats (
+                observer_id TEXT NOT NULL,
+                opponent_id TEXT NOT NULL,
+                cumulative_pnl INTEGER NOT NULL DEFAULT 0,
+                hands_played_cash INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (observer_id, opponent_id)
+            )
+        """)
+        logger.info("v87: created relationship_states + cash_pair_stats tables")
+
+    def _migrate_v88_add_bankroll_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v88: Add bankroll persistence tables for cash mode v1.
+
+        Two new tables. All additions; nothing existing is modified.
+        Per-personality bankroll knobs are NOT new columns — they
+        live inside `config_json` as a `bankroll_knobs` sub-dict
+        (matching how `anchors` and other knob bundles already nest
+        inside config_json). BankrollRepository reads them with
+        per-field fallback to BANKROLL_KNOB_DEFAULTS, so a
+        personality whose JSON doesn't carry `bankroll_knobs` lands
+        at sane defaults without any migration step.
+
+        ai_bankroll_state
+          Per-personality persistent bankroll. Keyed on
+          personality_id (stable v85 slug). `chips` is the snapshot
+          at `last_regen_tick`; live reads project through
+          `cash_mode.project_bankroll`. No rows are created here —
+          the BankrollRepository inserts on first sit-down with a
+          starting grant.
+
+        player_bankroll_state
+          Per-player persistent bankroll. `starting_bankroll` is the
+          fresh-grant value on full bust. No rows created here —
+          BankrollRepository inserts on first sit-down with a
+          starting grant (Part 2 §"Bust semantics" — player gets a
+          fresh bankroll automatically).
+
+        Idempotent: CREATE TABLE IF NOT EXISTS. Safe to re-run.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_bankroll_state (
+                personality_id TEXT PRIMARY KEY,
+                chips INTEGER NOT NULL DEFAULT 0,
+                last_regen_tick TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_bankroll_state (
+                player_id TEXT PRIMARY KEY,
+                chips INTEGER NOT NULL DEFAULT 0,
+                starting_bankroll INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        logger.info("v88: created ai_bankroll_state + player_bankroll_state")
+
+    def _migrate_v89_add_loan_fields_to_player_bankroll(self, conn: sqlite3.Connection) -> None:
+        """Migration v89: Add sponsor-loan columns to player_bankroll_state.
+
+        Three columns added for the cash-mode sponsorship mechanic:
+          - active_loan_amount: principal in chips (0 = no active loan)
+          - active_loan_floor:  repayment multiplier on principal
+                                (e.g., 1.30 = repay 130% before split)
+          - active_loan_rate:   sponsor's cut of post-floor remaining
+
+        All session-scoped; reset to defaults on `/api/cash/leave`.
+        Legacy rows default cleanly (0 amount → no loan flow triggers).
+
+        Idempotent: each ALTER is PRAGMA-guarded so re-running is safe.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_bankroll_state)")
+        cols = {row[1] for row in cursor}
+        if "active_loan_amount" not in cols:
+            conn.execute(
+                "ALTER TABLE player_bankroll_state "
+                "ADD COLUMN active_loan_amount INTEGER NOT NULL DEFAULT 0"
+            )
+        if "active_loan_floor" not in cols:
+            conn.execute(
+                "ALTER TABLE player_bankroll_state "
+                "ADD COLUMN active_loan_floor REAL NOT NULL DEFAULT 0.0"
+            )
+        if "active_loan_rate" not in cols:
+            conn.execute(
+                "ALTER TABLE player_bankroll_state "
+                "ADD COLUMN active_loan_rate REAL NOT NULL DEFAULT 0.0"
+            )
+        logger.info("v89: added active_loan_* columns to player_bankroll_state")
+
+    def _migrate_v90_add_lender_id_to_player_bankroll(self, conn: sqlite3.Connection) -> None:
+        """Migration v90: Add `active_loan_lender_id` to player_bankroll_state.
+
+        Path B (AI sponsorship) extension: when a player accepts a loan
+        from a named AI personality (vs. the anonymous house sponsor pool),
+        the personality_id of the lender lands here. NULL means anonymous
+        house loan — backward-compatible with v1 sponsorship rows.
+
+        At leave-time, `settle_loan_on_leave` reads this column; when
+        non-NULL, it credits `sponsor_total` back to the lender's
+        persistent AI bankroll via `credit_ai_cash_out` (Path A helper).
+        NULL routes sponsor_total to the ether (anonymous house).
+
+        Reset to NULL on `/api/cash/leave` after settlement — same
+        session-scoping invariant as the rest of the loan fields.
+
+        Idempotent: ALTER is PRAGMA-guarded so re-running is safe.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_bankroll_state)")
+        cols = {row[1] for row in cursor}
+        if "active_loan_lender_id" not in cols:
+            conn.execute(
+                "ALTER TABLE player_bankroll_state "
+                "ADD COLUMN active_loan_lender_id TEXT DEFAULT NULL"
+            )
+        logger.info("v90: added active_loan_lender_id column to player_bankroll_state")
+
+    def _migrate_v91_add_cash_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v91: Add `cash_tables` for the persistent lobby (v1.5).
+
+        One row per "named" cash table. v1.5 ships one table per stake
+        (5 rows total — `$2`, `$10`, `$50`, `$200`, `$1000`); the schema
+        admits more without redesign so future "two $10 tables when the
+        lobby looks quiet" growth doesn't need a migration step.
+
+          - `table_id`: stable id, e.g., `cash-table-2-001`. Slug-safe
+            (no dollar sign).
+          - `stake_label`: matches `cash_mode.stakes.STAKES_LADDER` keys.
+          - `seats_json`: JSON array of 6 slot dicts. Slot kinds are
+            `open` (empty), `ai` (`{personality_id, chips}`), or
+            `human` (set transiently while the player is seated).
+          - `created_at` / `last_activity_at`: bumped by the lobby
+            refresh hook so stale-table admin views work.
+
+        No rows are seeded here — `cash_mode.lobby.ensure_lobby_seeded`
+        creates them at app boot.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS. Safe to re-run.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_tables (
+                table_id TEXT PRIMARY KEY,
+                stake_label TEXT NOT NULL,
+                seats_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        logger.info("v91: created cash_tables for persistent multi-table lobby")
+
+    def _migrate_v92_add_cash_idle_pool(self, conn: sqlite3.Connection) -> None:
+        """Migration v92: Add `cash_idle_pool` for AIs between cash sessions (v1.5).
+
+        Personalities not currently seated at any cash table land here.
+        Their re-entry tick (called from the lobby read endpoint) decides
+        when they walk back up to a table.
+
+          - `personality_id`: stable v85 slug. Primary key — an AI is
+            either at one table or in the idle pool, never both.
+          - `left_at`: wall-clock timestamp of when they left a table
+            (or were seeded into the pool at boot). Read by the
+            re-entry tick to enforce the 3-10 minute idle window.
+          - `reason`: why they're idle. One of
+            `forced_leave` | `stake_up_queued` | `take_break` |
+            `bored_move`. The re-entry tick uses this to bias the
+            target stake (stake_up_queued → walk up a tier).
+          - `target_stake`: optional preferred stake label for
+            re-entry. Set when `reason == 'stake_up_queued'` to
+            preserve the AI's intent; otherwise NULL and re-entry
+            picks the highest stake their bankroll affords.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS. Safe to re-run.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_idle_pool (
+                personality_id TEXT PRIMARY KEY,
+                left_at TIMESTAMP NOT NULL,
+                reason TEXT NOT NULL,
+                target_stake TEXT
+            )
+        """)
+        logger.info("v92: created cash_idle_pool for AIs between cash sessions")

@@ -48,6 +48,19 @@ class TestCard(unittest.TestCase):
         other_card = Card('A', 'Hearts')
         self.assertEqual(self.test_card, other_card)
 
+    def test_from_short_ascii_suits(self):
+        self.assertEqual(Card.from_short('As'), Card('A', 'Spades'))
+        self.assertEqual(Card.from_short('Td'), Card('10', 'Diamonds'))
+        self.assertEqual(Card.from_short('10h'), Card('10', 'Hearts'))
+        self.assertEqual(Card.from_short('2c'), Card('2', 'Clubs'))
+
+    def test_from_short_unicode_suits(self):
+        # str(Card) emits Unicode-suited shorthand; from_short must round-trip it
+        # so that hand-recorder strings parse back to Card objects.
+        for card in [Card('A', 'Spades'), Card('10', 'Diamonds'),
+                     Card('K', 'Hearts'), Card('2', 'Clubs')]:
+            self.assertEqual(Card.from_short(str(card)), card)
+
 
 if __name__ == "__main__":
     unittest.main()

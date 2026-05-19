@@ -12,8 +12,11 @@ from ..services import game_state_service
 from ..services.coach_engine import compute_coaching_data_with_progression
 from ..services.coach_assistant import get_or_create_coach_with_mode
 from ..services.coach_progression import CoachProgressionService
-from .stats_routes import build_hand_context_from_recorded_hand, format_hand_context_for_prompt
-from poker.authorization import require_permission
+from flask_app.utils.hand_context import (
+    build_hand_context_from_recorded_hand,
+    format_hand_context_for_prompt,
+)
+from poker.authorization import require_permission, get_authorization_service
 from ..services.skill_definitions import ALL_SKILLS, ALL_GATES
 
 logger = logging.getLogger(__name__)
@@ -45,6 +48,38 @@ def _get_current_user_id() -> str:
     return getattr(user, 'id', '')
 
 
+def _is_admin(user_id: str) -> bool:
+    """Check whether a user has admin tools permission."""
+    auth_service = get_authorization_service()
+    return bool(auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools'))
+
+
+def _require_game_owner(game_id: str, game_data: dict):
+    """Reject access if the caller doesn't own ``game_id`` and isn't an admin.
+
+    Mirrors the deny semantics of game_routes._authorize_game_access:
+    a NULL ``owner_id`` is treated as "not owned by this user" and
+    rejected with 403 unless the caller is an admin. Returns a Flask
+    response tuple on rejection, or ``None`` to continue.
+    """
+    user_id = _get_current_user_id()
+    if not user_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    owner_id = (game_data or {}).get('owner_id')
+    if owner_id is None:
+        owner_info = game_repo.get_game_owner_info(game_id)
+        if owner_info is not None:
+            owner_id = owner_info.get('owner_id')
+            if game_data is not None and owner_id is not None:
+                game_data['owner_id'] = owner_id
+                game_data.setdefault('owner_name', owner_info.get('owner_name'))
+
+    if owner_id != user_id and not _is_admin(user_id):
+        return jsonify({'error': 'Permission denied'}), 403
+    return None
+
+
 @coach_bp.route('/api/coach/<game_id>/stats')
 @limiter.limit("30/minute")
 @_coach_required
@@ -53,6 +88,10 @@ def coach_stats(game_id: str):
     game_data = game_state_service.get_game(game_id)
     if not game_data:
         return jsonify({'error': 'Game not found'}), 404
+
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
 
     player_name = _get_human_player_name(game_data)
     if not player_name:
@@ -77,6 +116,10 @@ def coach_ask(game_id: str):
     game_data = game_state_service.get_game(game_id)
     if not game_data:
         return jsonify({'error': 'Game not found'}), 404
+
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
 
     player_name = _get_human_player_name(game_data)
     if not player_name:
@@ -151,6 +194,10 @@ def coach_ask(game_id: str):
 def coach_config_get(game_id: str):
     """Load coach mode preference for the game."""
     game_data = game_state_service.get_game(game_id)
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
+
     if game_data:
         config = game_data.get('coach_config', {})
         mode = config.get('mode')
@@ -170,6 +217,10 @@ def coach_config(game_id: str):
     if not game_data:
         return jsonify({'error': 'Game not found'}), 404
 
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
+
     body = request.get_json(silent=True) or {}
     mode = body.get('mode')
     if mode not in ('proactive', 'reactive', 'off'):
@@ -188,6 +239,10 @@ def coach_hand_review(game_id: str):
     game_data = game_state_service.get_game(game_id)
     if not game_data:
         return jsonify({'error': 'Game not found'}), 404
+
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
 
     player_name = _get_human_player_name(game_data)
     if not player_name:
@@ -212,7 +267,17 @@ def coach_hand_review(game_id: str):
 
     # Build context and format for LLM
     context = build_hand_context_from_recorded_hand(hand, player_name)
-    hand_text = format_hand_context_for_prompt(context, player_name)
+    # Use the rich narrator-based format (matches hybrid-bot decision prompts:
+    # street-by-street action with "You" substitution + per-card hand breakdown).
+    big_blind = None
+    state_machine = game_data.get('state_machine')
+    if state_machine is not None:
+        live_state = getattr(state_machine, 'game_state', None)
+        if live_state is not None:
+            big_blind = getattr(live_state, 'current_ante', None)
+    hand_text = format_hand_context_for_prompt(
+        context, player_name, recorded_hand=hand, big_blind=big_blind,
+    )
 
     # Append skill evaluations from SessionMemory (if available)
     session_memory = game_data.get('coach_session_memory')
@@ -254,6 +319,11 @@ def coach_hand_review(game_id: str):
 @_coach_required
 def coach_progression(game_id: str):
     """Return the player's skill progression state."""
+    game_data = game_state_service.get_game(game_id)
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
+
     user_id = _get_current_user_id()
 
     try:
@@ -302,6 +372,11 @@ def coach_onboarding(game_id: str):
     If the player already has a profile (with accumulated stats),
     only updates the level and unlocks new gates without wiping stats.
     """
+    game_data = game_state_service.get_game(game_id)
+    forbidden = _require_game_owner(game_id, game_data)
+    if forbidden:
+        return forbidden
+
     user_id = _get_current_user_id()
 
     body = request.get_json(silent=True) or {}

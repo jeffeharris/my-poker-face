@@ -509,10 +509,12 @@ class CommentaryGenerator:
 
             table_comment = self._format_beats_for_chat(raw_dramatic_sequence)
 
-            # Direct-callout targets from the LLM. Same field shape used
-            # by the in-hand narration path; downstream find_callouts
-            # treats it as authoritative.
-            addressing_raw = commentary_data.get('addressing', [])
+            # Direct-callout targets from the LLM. Suppressed when the
+            # speak gate is closed — otherwise a "ghost callout" can land
+            # in HandCommentary.addressing while table_comment is None
+            # (the YAML tells the model to stay quiet but addressing was
+            # parsed unconditionally).
+            addressing_raw = commentary_data.get('addressing', []) if should_speak else []
             addressing = [
                 str(n).strip() for n in addressing_raw
                 if isinstance(addressing_raw, list)
@@ -580,9 +582,9 @@ class CommentaryGenerator:
                     "Ouch.",
                 ])
 
-        # Simple random selection (avoid importing random just for this)
+        # Local Random instance — avoids mutating the global state.
         import random
-        return random.choice(reactions) if reactions else None
+        return random.Random().choice(reactions) if reactions else None
 
     def _build_hand_summary(
         self,

@@ -49,6 +49,47 @@ def test_load_game_not_found(repo):
     assert repo.load_game("nonexistent") is None
 
 
+def test_load_game_marks_seed_consumed(repo):
+    """Restored seed must not leak into the next hand's deck.
+
+    Regression: load_game previously set the seed via the public setter,
+    which defaulted hand_seed_provided=True. The next hand_over_transition
+    then re-resolved the seed and reused the saved one, producing back-to-
+    back hands with the same shuffle but a rotated dealer.
+    """
+    sm = _make_state_machine()
+    sm._state = sm._state.with_hand_seed(98765, provided=False)
+    repo.save_game("seed_consumed", sm, owner_id="o", owner_name="N")
+
+    loaded = repo.load_game("seed_consumed")
+    assert loaded.current_hand_seed == 98765
+    assert loaded._state.hand_seed_provided is False
+
+
+def test_load_game_preserves_hand_count_and_blind_config(repo):
+    """hand_count and blind_config must round-trip through save/load.
+
+    Regression: state_machine.stats and blind_config used to be dropped on
+    save, so restored games re-ran blind escalation from hand 0 and lost
+    the user's max_blind cap from custom game settings.
+    """
+    from poker.poker_state_machine import PokerStateMachine, ImmutableStateMachine, StateMachineStats, BlindConfig
+    sm = _make_state_machine()
+    sm._state = ImmutableStateMachine(
+        game_state=sm._state.game_state,
+        phase=sm._state.phase,
+        stats=StateMachineStats(hand_count=17),
+        blind_config=BlindConfig(growth=1.5, hands_per_level=10, max_blind=2000),
+    )
+    repo.save_game("blind_cfg_test", sm, owner_id="o", owner_name="N")
+
+    loaded = repo.load_game("blind_cfg_test")
+    assert loaded._state.stats.hand_count == 17
+    assert loaded._state.blind_config.growth == 1.5
+    assert loaded._state.blind_config.hands_per_level == 10
+    assert loaded._state.blind_config.max_blind == 2000
+
+
 def test_save_game_with_llm_configs(repo):
     sm = _make_state_machine()
     configs = {"default_llm_config": {"provider": "openai", "model": "gpt-4o"}}
@@ -200,6 +241,29 @@ def test_personality_snapshot(repo):
     assert json.loads(row["pressure_levels"]) == pressure
 
 
+def test_save_personality_snapshot_idempotent(repo):
+    """T1-32 follow-up: schema v84 added UNIQUE(game_id, player_name,
+    hand_number) so retried INSERTs (after a database-locked failure)
+    produce exactly one row instead of duplicating the elasticity
+    snapshot timeline."""
+    traits = {"aggression": 0.7}
+    pressure = {"stack_pressure": 0.3}
+
+    repo.save_personality_snapshot("game1", "Batman", 5, traits, pressure)
+    repo.save_personality_snapshot("game1", "Batman", 5, traits, pressure)
+    repo.save_personality_snapshot("game1", "Batman", 5, traits, pressure)
+
+    import sqlite3
+    conn = sqlite3.connect(repo.db_path)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM personality_snapshots "
+        "WHERE game_id = ? AND player_name = ? AND hand_number = ?",
+        ("game1", "Batman", 5),
+    ).fetchone()[0]
+    conn.close()
+    assert count == 1, f"expected exactly 1 row, got {count}"
+
+
 # --- Emotional State ---
 
 def test_emotional_state_save_load(repo):
@@ -248,20 +312,42 @@ def test_delete_emotional_state(repo):
 
 # --- Controller State ---
 
+# v83 PlayerPsychology snapshot shape — anchors + axes + composure_state
+# + book-keeping fields. Mirrors PlayerPsychology.to_dict().
+SAMPLE_PSYCHOLOGY_V2 = {
+    'player_name': 'Batman',
+    'anchors': {
+        'baseline_aggression': 0.7, 'baseline_looseness': 0.4,
+        'ego': 0.8, 'poise': 0.6, 'expressiveness': 0.5,
+        'risk_identity': 0.6, 'adaptation_bias': 0.5,
+        'baseline_energy': 0.6, 'recovery_rate': 0.15,
+    },
+    'axes': {'confidence': 0.65, 'composure': 0.45, 'energy': 0.70},
+    'composure_state': {
+        'pressure_source': 'bad_beat', 'nemesis': 'Joker',
+        'recent_losses': [], 'losing_streak': 2,
+    },
+    'hand_count': 12,
+    'consecutive_folds': 1,
+    'emotional': None,
+    'playstyle_state': None,
+}
+
+
 def test_controller_state_save_load(repo):
-    psychology = {
-        'tilt': {'level': 0.3, 'type': 'frustration'},
-        'elastic': {'aggression_modifier': 1.2},
-    }
     prompt_config = {'temperature': 0.7}
 
-    repo.save_controller_state("game1", "Batman", psychology, prompt_config)
+    repo.save_controller_state("game1", "Batman", SAMPLE_PSYCHOLOGY_V2, prompt_config)
     loaded = repo.load_controller_state("game1", "Batman")
 
     assert loaded is not None
-    assert loaded['tilt_state']['level'] == 0.3
-    assert loaded['elastic_personality']['aggression_modifier'] == 1.2
+    assert loaded['psychology']['axes']['confidence'] == 0.65
+    assert loaded['psychology']['composure_state']['nemesis'] == 'Joker'
+    assert loaded['psychology']['hand_count'] == 12
     assert loaded['prompt_config']['temperature'] == 0.7
+    # Legacy columns are NULL on new writes (kept for backwards-compat).
+    assert loaded['tilt_state'] is None
+    assert loaded['elastic_personality'] is None
 
 
 def test_controller_state_not_found(repo):
@@ -269,19 +355,43 @@ def test_controller_state_not_found(repo):
 
 
 def test_load_all_controller_states(repo):
-    repo.save_controller_state("game1", "Alice", {'tilt': None, 'elastic': None})
-    repo.save_controller_state("game1", "Bob", {'tilt': {'level': 0.5}, 'elastic': None})
+    repo.save_controller_state("game1", "Alice", SAMPLE_PSYCHOLOGY_V2)
+    repo.save_controller_state("game1", "Bob", SAMPLE_PSYCHOLOGY_V2)
 
     states = repo.load_all_controller_states("game1")
     assert len(states) == 2
     assert "Alice" in states
     assert "Bob" in states
+    assert states['Alice']['psychology']['axes']['confidence'] == 0.65
 
 
 def test_delete_controller_state(repo):
-    repo.save_controller_state("game1", "Alice", {'tilt': None, 'elastic': None})
+    repo.save_controller_state("game1", "Alice", SAMPLE_PSYCHOLOGY_V2)
     repo.delete_controller_state_for_game("game1")
     assert repo.load_all_controller_states("game1") == {}
+
+
+def test_controller_state_null_psychology_loads_as_none(repo):
+    """T1-29: pre-v83 rows have NULL psychology_json; restore must return
+    None so the controller falls back to fresh-init rather than crashing."""
+    # Insert directly to simulate a pre-v83 row.
+    with repo._get_connection() as conn:
+        conn.execute(
+            "INSERT INTO controller_state (game_id, player_name, psychology_json) "
+            "VALUES (?, ?, NULL)",
+            ("game1", "Legacy"),
+        )
+    loaded = repo.load_controller_state("game1", "Legacy")
+    assert loaded is not None
+    assert loaded['psychology'] is None
+
+
+def test_controller_state_psychology_round_trip(repo):
+    """T1-29: a saved psychology dict round-trips byte-for-byte through
+    JSON serialization."""
+    repo.save_controller_state("game1", "Batman", SAMPLE_PSYCHOLOGY_V2)
+    loaded = repo.load_controller_state("game1", "Batman")
+    assert loaded['psychology'] == SAMPLE_PSYCHOLOGY_V2
 
 
 # --- Opponent Models ---

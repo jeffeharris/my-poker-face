@@ -129,6 +129,7 @@ class TestAggregateFromSpots60Rule:
 
     def test_below_60_percent_uses_weighted_average(self):
         # A has 50% of hand-level total; below the 60% threshold.
+        # Stakes: A=500, B=300, C=200 → weights 0.5, 0.3, 0.2.
         spots = [
             _spot(
                 'A', committed_this_hand=500,
@@ -156,9 +157,13 @@ class TestAggregateFromSpots60Rule:
             ),
         ]
         result = aggregate_from_spots(spots)
-        assert result.vpip == pytest.approx((0.6 + 0.3 + 0.3) / 3)
-        assert result.aggression_factor == pytest.approx((3.0 + 1.5 + 1.5) / 3)
-        assert result.fold_to_cbet == pytest.approx((0.4 + 0.7 + 0.6) / 3)
+        assert result.vpip == pytest.approx(0.5 * 0.6 + 0.3 * 0.3 + 0.2 * 0.3)
+        assert result.aggression_factor == pytest.approx(
+            0.5 * 3.0 + 0.3 * 1.5 + 0.2 * 1.5
+        )
+        assert result.fold_to_cbet == pytest.approx(
+            0.5 * 0.4 + 0.3 * 0.7 + 0.2 * 0.6
+        )
         # hands_observed and cbet_faced_count use MIN
         assert result.hands_observed == 100
         assert result.cbet_faced_count == 8
@@ -174,14 +179,56 @@ class TestAggregateFromSpots60Rule:
 
     def test_zero_total_committed_uses_average(self):
         """When no money is committed yet (e.g. preflop pre-blinds), the 60%
-        check has nothing to evaluate and the helper falls through to the
-        weighted-average path."""
+        check has nothing to evaluate and the helper falls through to
+        equal-weight (stake-weighted with all-zero weights collapses to
+        equal weight by design)."""
         spots = [
             _spot('A', committed_this_hand=0, stats=_stats(vpip=0.4)),
             _spot('B', committed_this_hand=0, stats=_stats(vpip=0.6)),
         ]
         result = aggregate_from_spots(spots)
         assert result.vpip == pytest.approx(0.5)
+
+    def test_single_station_dominates_when_betting_most(self):
+        """Regression: a single calling station that has put in the bulk
+        of the non-hero money should drive the aggregate VPIP past the
+        hyper_passive threshold (0.70), even when below the 60% cliff.
+
+        Stakes 50% / 25% / 25% with one station (VPIP 0.98) and two
+        TAGs (VPIP 0.20) — equal-weight average lands at ~0.46 and
+        misses the station entirely. Stake-weighted lands at ~0.59 if
+        weights were 50/25/25, but here the station has put in 55%
+        (just under 60%) so the stake-weighted aggregate rises to
+        0.55*0.98 + 0.225*0.20 + 0.225*0.20 ≈ 0.629. Stronger station
+        share (75%) pushes the aggregate over the 0.70 threshold.
+        """
+        station_stats = _stats(
+            hands_observed=50,
+            vpip_per_voluntary_opportunity=0.98,
+            aggression_factor=0.5,
+        )
+        tag_stats = _stats(
+            hands_observed=50,
+            vpip_per_voluntary_opportunity=0.20,
+            aggression_factor=2.5,
+        )
+        # 75/12.5/12.5 — under the 60% cliff would not apply here (since
+        # the cliff IS 60%), so we use exactly 55% on station to keep the
+        # weighted-path code under test rather than the dominant cliff.
+        spots = [
+            _spot('Station', committed_this_hand=550, stats=station_stats),
+            _spot('TAG1',    committed_this_hand=225, stats=tag_stats),
+            _spot('TAG2',    committed_this_hand=225, stats=tag_stats),
+        ]
+        result = aggregate_from_spots(spots)
+        # Equal-weight would be (0.98 + 0.20 + 0.20)/3 = 0.46.
+        # Stake-weighted is 0.55*0.98 + 0.225*0.20 + 0.225*0.20 = 0.629.
+        assert result.vpip_per_voluntary_opportunity == pytest.approx(
+            0.55 * 0.98 + 0.225 * 0.20 + 0.225 * 0.20
+        )
+        assert result.aggression_factor == pytest.approx(
+            0.55 * 0.5 + 0.225 * 2.5 + 0.225 * 2.5
+        )
 
 
 # ── select_primary_aggressor ────────────────────────────────────────────

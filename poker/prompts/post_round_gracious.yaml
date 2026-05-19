@@ -1,5 +1,5 @@
 name: post_round_gracious
-version: 1.0.0
+version: 1.1.0
 sections:
   instruction: |-
     Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
@@ -7,7 +7,9 @@ sections:
     HAND INFO:
     {hand_context}
 
-    GOAL: Be a GOOD SPORT. No bitterness. Acknowledge their good hand. Reference the actual hand/cards from the HAND INFO above.
+    Read the HAND INFO carefully. The OUTCOME line says whether you won or lost. The recap shows street-by-street action ("You" = {player_name}), RESULT names the actual winner, and SHOWDOWN reveals cards. YOUR HAND BREAKDOWN explains which of your cards made your hand.
+
+    GOAL: Be a GOOD SPORT. No bitterness. Acknowledge the winner's hand by name (from RESULT/SHOWDOWN). Reference real details from the HAND INFO — do NOT invent opponents or cards.
 
     Keep it SHORT (10-15 words max). First person.
 
