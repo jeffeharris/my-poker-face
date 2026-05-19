@@ -304,7 +304,7 @@ def _build_cash_game(
     big_blind, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
 
     from flask_app.extensions import (
-        bankroll_repo, hand_history_repo, personality_repo,
+        bankroll_repo, game_repo, hand_history_repo, personality_repo,
         persistence_db_path, relationship_repo,
         capture_label_repo, decision_analysis_repo,
     )
@@ -549,9 +549,29 @@ def _build_cash_game(
 
     from flask_app.services import game_state_service
     game_state_service.set_game(game_id, game_data)
-    logger.info("[CASH] Created game_id=%r owner=%r stake=%r player_stack=%d ai=%r",
+
+    # Persist `llm_configs_json` so cold-load (post-reboot, post-eviction)
+    # restores each AI to its assigned bot_type. Without this the column
+    # stays NULL and `restore_ai_controllers` defaults every seat to
+    # `standard` (HybridAIController) — silently downgrading `sharp`
+    # personalities (tiered solver + expression) on the next reboot.
+    # Mirrors the tournament path in game_routes.py:1314.
+    saved_bot_types = dict(bot_types)
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            saved_bot_types.setdefault(player.name, "standard")
+    game_repo.save_game(
+        game_id, state_machine._state_machine, owner_id, human_name,
+        llm_configs={
+            "player_llm_configs": player_llm_configs,
+            "default_llm_config": default_llm_config,
+            "bot_types": saved_bot_types,
+        },
+    )
+
+    logger.info("[CASH] Created game_id=%r owner=%r stake=%r player_stack=%d ai=%r bot_types=%r",
                 game_id, owner_id, stake_label, player_starting_stack,
-                [a["name"] for a in selected_ai])
+                [a["name"] for a in selected_ai], saved_bot_types)
     return game_id, None
 
 
@@ -1517,9 +1537,10 @@ def leave_table():
 def top_up():
     """POST /api/cash/topup body: {amount: int}
 
-    Top up the human player's stack from bankroll. v1 hard rule:
-    between hands only — checks `state_machine.current_phase` is
-    not in the middle of betting.
+    Top up the human player's stack from bankroll. Allowed between
+    hands, OR mid-hand once the human has folded — a folded player
+    is no longer acting in the current hand, so adding chips to
+    their stack can't influence in-flight betting.
     """
     try:
         owner_id = _resolve_owner_id()
@@ -1542,15 +1563,27 @@ def top_up():
     game_data = game_state_service.get_game(game_id)
     state_machine = game_data["state_machine"]
 
-    # Hard rule: only between hands. INITIALIZING_HAND / HAND_OVER are
-    # the safe phases; anything mid-hand we reject.
-    if state_machine.current_phase not in (
+    human_idx = next(
+        (i for i, p in enumerate(state_machine.game_state.players) if p.is_human),
+        None,
+    )
+    if human_idx is None:
+        return jsonify({"error": "Player not seated"}), 400
+    human_player = state_machine.game_state.players[human_idx]
+
+    # Phase gate: between-hands phases are always safe. Mid-hand we
+    # only allow it once the human has folded — they can't act this
+    # hand, so the new chips just sit on the stack until the next
+    # deal. A still-active player topping up mid-hand would shift
+    # call/raise math underneath the AI opponents.
+    between_hands = state_machine.current_phase in (
         PokerPhase.INITIALIZING_GAME,
         PokerPhase.INITIALIZING_HAND,
         PokerPhase.HAND_OVER,
-    ):
+    )
+    if not between_hands and not human_player.is_folded:
         return jsonify({
-            "error": "Top up is only allowed between hands",
+            "error": "Top up is only allowed between hands or after folding",
         }), 400
 
     bankroll = bankroll_repo.load_player_bankroll(owner_id)
@@ -1563,13 +1596,6 @@ def top_up():
         return jsonify({
             "error": "Top-up disabled while a sponsor loan is active. Leave the table to settle.",
         }), 400
-
-    human_idx = next(
-        (i for i, p in enumerate(state_machine.game_state.players) if p.is_human),
-        None,
-    )
-    if human_idx is None:
-        return jsonify({"error": "Player not seated"}), 400
 
     new_stack = state_machine.game_state.players[human_idx].stack + amount
     state_machine.game_state = state_machine.game_state.update_player(

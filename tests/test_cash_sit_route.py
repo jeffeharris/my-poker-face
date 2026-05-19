@@ -188,9 +188,14 @@ class _CashSitRouteBase(unittest.TestCase):
         # Re-seed the lobby to undo any seat mutations this test made.
         from cash_mode.lobby import ensure_lobby_seeded
         # Wipe and reseed: drop every table, then run the boot seeder.
+        # Also drop persisted cash-* rows — `_build_cash_game` now writes
+        # `llm_configs_json` at sit-down, and a leftover row would surface
+        # via `_find_active_cash_game_id`'s DB fallback and trip the
+        # "session already active" 409 on the next test's sit.
         with self.cash_table_repo._get_connection() as conn:
             conn.execute("DELETE FROM cash_tables")
             conn.execute("DELETE FROM cash_idle_pool")
+            conn.execute("DELETE FROM games WHERE game_id LIKE 'cash-%'")
         ensure_lobby_seeded(
             cash_table_repo=self.cash_table_repo,
             personality_repo=self.personality_repo,
