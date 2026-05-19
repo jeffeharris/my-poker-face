@@ -2019,13 +2019,36 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
                 exc_info=True,
             )
 
+        # Heads-up + busted human (or any cash table that's lost all but
+        # one chip-holder) can't deal another hand. The state machine
+        # would loop HAND_OVER → INIT_HAND → SHOWDOWN → HAND_OVER, hit
+        # the 50-iteration cap, and pin progress_game's lock — blocking
+        # /api/cash/leave for the user staring at the bust modal. Pause
+        # the game in HAND_OVER and return; rebuy or leave will unstick
+        # it.
+        chip_holders = sum(
+            1 for p in state_machine.game_state.players if p.stack > 0
+        )
+        if chip_holders < 2:
+            game_data['state_machine'] = state_machine
+            game_state_service.set_game(game_id, game_data)
+            update_and_emit_game_state(game_id)
+            owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+            game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+            logger.info(
+                "[CASH] Paused game_id=%r in HAND_OVER — only %d player(s) "
+                "with chips; waiting for rebuy or leave",
+                game_id, chip_holders,
+            )
+            return state_machine.game_state, True
+
     # Advance to next hand - run until player action needed (deals cards, posts blinds)
     try:
         state_machine.run_until_player_action()
         game_data['state_machine'] = state_machine
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
-    except (ValueError, KeyError, RuntimeError, OSError) as e:
+    except (ValueError, KeyError, RuntimeError, OSError, ArithmeticError) as e:
         logger.error(f"Failed to advance to next hand for game {game_id}: {e}", exc_info=True)
         # Persist whatever state we have to prevent inconsistency
         game_state_service.set_game(game_id, game_data)

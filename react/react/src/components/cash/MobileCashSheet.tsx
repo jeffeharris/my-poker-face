@@ -176,7 +176,7 @@ export function MobileCashSheet({
       if (data.session_summary) {
         setLeaveResult(data);
       } else {
-        navigate('/menu');
+        navigate('/cash');
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -292,7 +292,7 @@ export function MobileCashSheet({
           stakeLabel={cashMode.stake_label}
           finalBankroll={leaveResult.bankroll}
           sponsorRepaid={leaveResult.sponsor_repaid}
-          onContinue={() => navigate('/menu')}
+          onContinue={() => navigate('/cash')}
         />
       )}
     </div>

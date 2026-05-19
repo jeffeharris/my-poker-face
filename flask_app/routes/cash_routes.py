@@ -290,6 +290,55 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
     return len(purged)
 
 
+def _free_ghost_human_seats(owner_id: str) -> int:
+    """Reset any cash_tables human seat owned by `owner_id` to open.
+
+    Used by the memory-miss leave path and the boot reconcile to catch
+    the case where the cash-* game row is gone (purged or deleted) but
+    the persisted seat survives. Without this, the lobby renders the
+    player as still seated at a vanished table and won't let them
+    actually enter the (deleted) game.
+
+    No chip refund — the persisted seat's `chips` field is the last
+    hand-boundary sync, not the true exit stack. The bankroll already
+    reflects the buy-in debit; the game's final settlement path
+    (full leave_table_locked) is the only source of truth for refund,
+    and we only fall back here when that path can't run.
+    """
+    from cash_mode.tables import open_slot
+    from flask_app.extensions import cash_table_repo
+
+    try:
+        tables = cash_table_repo.list_all_tables()
+    except Exception as e:
+        logger.warning(
+            "[CASH] _free_ghost_human_seats: list_all_tables failed: %s", e,
+        )
+        return 0
+
+    freed = 0
+    for table in tables:
+        for idx, slot in enumerate(table.seats):
+            if slot.get("kind") != "human":
+                continue
+            if slot.get("personality_id") != owner_id:
+                continue
+            try:
+                cash_table_repo.save_table(table.with_seat(idx, open_slot()))
+                logger.info(
+                    "[CASH] _free_ghost_human_seats: freed table=%r seat=%d owner=%r",
+                    table.table_id, idx, owner_id,
+                )
+                freed += 1
+            except Exception as e:
+                logger.warning(
+                    "[CASH] _free_ghost_human_seats: save_table failed "
+                    "for %r:%d: %s",
+                    table.table_id, idx, e,
+                )
+    return freed
+
+
 def _load_or_seed_player_bankroll(owner_id: str) -> PlayerBankrollState:
     """Load the player's bankroll row or create a fresh seed on miss.
 
@@ -1554,7 +1603,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
     `leave_table` for the rationale.
     """
     from cash_mode.loan_settlement import settle_loan_on_leave
-    from flask_app.extensions import bankroll_repo, game_repo, personality_repo
+    from flask_app.extensions import bankroll_repo, cash_table_repo, game_repo, personality_repo
     from flask_app.services import game_state_service
 
     game_data = game_state_service.get_game(game_id)
@@ -1570,6 +1619,17 @@ def _leave_table_locked(owner_id: str, game_id: str):
         except Exception as e:
             logger.warning("[CASH] delete_game failed for %r: %s", game_id, e)
         _purge_other_cash_rows(owner_id, except_game_id=None)
+        # Free any cash_tables human seat owned by this user — without
+        # this the lobby keeps rendering them as seated at a ghost table
+        # (the cash row is gone but the persisted seat survives). Chips
+        # on the seat are notional only (last hand-boundary sync); the
+        # bankroll already reflects the actual loss from buy-in, so we
+        # don't refund here.
+        _free_ghost_human_seats(owner_id)
+        logger.info(
+            "[CASH] Left game_id=%r owner=%r (memory-miss path, ghost-seat cleanup ran)",
+            game_id, owner_id,
+        )
         return jsonify({
             "session_ended": True,
             "chips_at_table": 0,

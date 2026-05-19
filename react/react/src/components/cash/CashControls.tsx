@@ -153,12 +153,13 @@ export function CashControls({
       }
       const data: LeaveResponse = await res.json();
       // Without a session_summary (e.g. server lost game_data
-      // mid-session), skip the modal and go straight to the menu so
-      // the user isn't stranded.
+      // mid-session), skip the modal and go straight to the cash
+      // lobby so the user isn't stranded — same destination the bust
+      // modal and the summary's Return to Lobby button use.
       if (data.session_summary) {
         setLeaveResult(data);
       } else {
-        navigate('/menu');
+        navigate('/cash');
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -227,7 +228,7 @@ export function CashControls({
           stakeLabel={cashMode.stake_label}
           finalBankroll={leaveResult.bankroll}
           sponsorRepaid={leaveResult.sponsor_repaid}
-          onContinue={() => navigate('/menu')}
+          onContinue={() => navigate('/cash')}
         />
       )}
     </div>
