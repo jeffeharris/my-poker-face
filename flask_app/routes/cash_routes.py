@@ -328,6 +328,7 @@ def _build_cash_game(
     now: Optional[datetime] = None,
     preselected_ai: Optional[list] = None,
     preselected_ai_chips: Optional[Dict[str, int]] = None,
+    dealer_player_idx: int = 0,
 ) -> tuple[Optional[str], Optional[tuple[dict, int]]]:
     """Create + register a cash game; return (game_id, None) or (None, (err, status)).
 
@@ -459,6 +460,7 @@ def _build_cash_game(
         human_name=human_name,
         starting_stack=player_starting_stack,
         big_blind=big_blind,
+        dealer_idx=dealer_player_idx,
     )
     # AI stacks may differ from the human's starting stack; adjust each.
     for idx, player in enumerate(game_state.players):
@@ -857,17 +859,38 @@ def sit_at_table():
     claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
     cash_table_repo.save_table(claimed_table)
 
-    # Build the cash game using the table's CURRENT AI roster + chip counts.
+    # Build the cash game using the table's CURRENT AI roster + chip
+    # counts. Walk seats in rotation order starting after the human's
+    # seat so that AI player indices match clockwise table position
+    # from the human's POV. Track which player_idx the lobby's dealer
+    # lands on so the in-game dealer button matches the lobby.
+    from flask_app.extensions import personality_repo
+    from cash_mode.tables import TABLE_SEAT_COUNT
     preselected_ai = []
     preselected_chips = {}
-    for slot in claimed_table.seats:
+    seats = claimed_table.seats
+    lobby_dealer_seat = claimed_table.dealer_idx
+    dealer_player_idx = 0  # human (player 0) is the default fallback
+    # Player 0 is always the human; subsequent player indices follow
+    # the seat-rotation order starting at seat_index + 1.
+    next_player_idx = 1
+    for offset in range(TABLE_SEAT_COUNT):
+        seat_i = (seat_index + offset) % TABLE_SEAT_COUNT
+        slot = seats[seat_i]
+        if seat_i == lobby_dealer_seat:
+            # Map the lobby dealer seat to a player_idx. If the dealer
+            # seat happens to be open (rare — lobby._next_occupied_seat
+            # normally guards against this), fall through to player 0.
+            if seat_i == seat_index:
+                dealer_player_idx = 0
+            elif slot["kind"] == "ai":
+                dealer_player_idx = next_player_idx
         if slot["kind"] != "ai":
             continue
         pid = slot["personality_id"]
         # Look up display name from the personality repo. Falls back to
         # personality_id if the row was deleted under us (shouldn't
         # happen for seated AIs).
-        from flask_app.extensions import personality_repo
         personality = None
         try:
             personality = personality_repo.load_personality_by_id(pid)
@@ -876,6 +899,7 @@ def sit_at_table():
         name = (personality or {}).get("name") if personality else pid
         preselected_ai.append({"personality_id": pid, "name": name})
         preselected_chips[pid] = int(slot.get("chips", 0))
+        next_player_idx += 1
 
     game_id, err = _build_cash_game(
         owner_id=owner_id,
@@ -886,6 +910,7 @@ def sit_at_table():
         ),
         preselected_ai=preselected_ai,
         preselected_ai_chips=preselected_chips,
+        dealer_player_idx=dealer_player_idx,
     )
     if err is not None:
         # Roll back the seat claim so the player can retry.
@@ -1410,8 +1435,13 @@ def rebuy():
         active_loan_rate=bankroll.active_loan_rate,
     ))
 
-    from flask_app.handlers.game_handler import update_and_emit_game_state
+    from flask_app.handlers.game_handler import progress_game, update_and_emit_game_state
     update_and_emit_game_state(game_id)
+    # Resume play: if the table was paused in HAND_OVER because the
+    # human's bust dropped chip-holders below 2, refilling our stack
+    # restores quorum. Kick progress_game so the next hand actually
+    # deals instead of waiting for some other event.
+    progress_game(game_id)
 
     return jsonify({
         "stack": amount,
