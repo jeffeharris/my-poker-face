@@ -23,14 +23,18 @@ import { PageLayout, PageHeader } from '../shared';
 import { getLobby, getState, sitAtTable } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
-import type { LobbyTable, StakeLabel } from './types';
+import { ActivityTicker } from './ActivityTicker';
+import type { LobbyEvent, LobbyTable, StakeLabel } from './types';
 import { logger } from '../../utils/logger';
 import './CashMode.css';
+
+const LOBBY_REFRESH_INTERVAL_MS = 8000;
 
 export function Lobby() {
   const navigate = useNavigate();
   const [bankroll, setBankroll] = useState<number | null>(null);
   const [tables, setTables] = useState<LobbyTable[]>([]);
+  const [events, setEvents] = useState<LobbyEvent[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sitError, setSitError] = useState<string | null>(null);
@@ -42,8 +46,31 @@ export function Lobby() {
   // On mount: check active session first (redirect if so), then load
   // the lobby. Pulling /state before /lobby avoids a flash of the
   // lobby UI for users who are already in a game.
+  //
+  // Polling every 8s keeps the activity ticker + roster fresh.
+  // Important: the lobby read itself drives `refresh_unseated_tables`
+  // server-side, so polling is ALSO what keeps the world moving in
+  // v1.5 (there's no background daemon). Stop the poll when the
+  // component unmounts.
   useEffect(() => {
     let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const load = async () => {
+      try {
+        const lobby = await getLobby();
+        if (cancelled) return;
+        setBankroll(lobby.bankroll);
+        setTables(lobby.tables);
+        setEvents(lobby.events ?? []);
+      } catch (e) {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        logger.error('Failed to load lobby:', msg);
+        setLoadError(msg);
+      }
+    };
+
     (async () => {
       try {
         const state = await getState();
@@ -56,20 +83,14 @@ export function Lobby() {
         if (cancelled) return;
         logger.warn('Failed to read cash state:', e);
       }
-      try {
-        const lobby = await getLobby();
-        if (cancelled) return;
-        setBankroll(lobby.bankroll);
-        setTables(lobby.tables);
-      } catch (e) {
-        if (cancelled) return;
-        const msg = e instanceof Error ? e.message : String(e);
-        logger.error('Failed to load lobby:', msg);
-        setLoadError(msg);
-      }
+      await load();
+      if (cancelled) return;
+      interval = setInterval(load, LOBBY_REFRESH_INTERVAL_MS);
     })();
+
     return () => {
       cancelled = true;
+      if (interval !== null) clearInterval(interval);
     };
   }, [navigate]);
 
@@ -116,6 +137,8 @@ export function Lobby() {
             </span>
           </div>
         )}
+
+        <ActivityTicker events={events} />
 
         {loadError && (
           <div className="cash-entry__error" role="alert">

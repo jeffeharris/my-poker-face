@@ -154,9 +154,27 @@ export interface LobbyTable {
   seats: LobbySeat[];
 }
 
+/** One lobby movement event surfaced to the activity ticker.
+ *  Sourced from `cash_mode/activity.py` in-memory ring buffer; reset
+ *  on backend restart. `message` is the display string. */
+export interface LobbyEvent {
+  type: 'join' | 'leave';
+  table_id: string;
+  stake_label: string;
+  personality_id: string;
+  name: string;
+  /** Empty string for joins; movement decision name for leaves
+   *  (e.g., 'forced_leave', 'stake_up_queued', 'take_break',
+   *  'bored_move'). */
+  reason: string;
+  message: string;
+  created_at: string;
+}
+
 export interface LobbyResponse {
   bankroll: number;
   tables: LobbyTable[];
+  events: LobbyEvent[];
 }
 
 /** Successful response from POST /api/cash/sit. */

@@ -1612,26 +1612,24 @@ def get_lobby():
 
       {
         "bankroll": int,
-        "tables": [
-          {
-            "table_id": str,
-            "stake_label": str,
-            "big_blind": int,
-            "min_buy_in": int,
-            "max_buy_in": int,
-            "affordability": "affordable" | "sponsor_eligible" | "locked",
-            "seats": [
-              {"kind": "open", "index": int}                        |
-              {"kind": "ai", "index": int, "personality_id": str,
-               "name": str, "avatar_url": str|null, "emotion": str,
-               "chips": int, "relationship_hint": str}              |
-              {"kind": "human", "index": int, "personality_id": str,
-               "chips": int}
-            ]
-          },
-          ...
-        ]
+        "tables": [ {table_id, stake_label, big_blind,
+                     min_buy_in, max_buy_in, affordability,
+                     seats: [...]}, ... ],
+        "events": [ {type, table_id, stake_label, personality_id,
+                     name, reason, message, created_at}, ... ]
       }
+
+    Seat shapes (in `tables[].seats`):
+      {"kind": "open", "index": int}                            |
+      {"kind": "ai",  "index", "personality_id", "name",
+       "avatar_url" (nullable), "emotion", "chips",
+       "relationship_hint"}                                     |
+      {"kind": "human", "index", "personality_id", "chips"}
+
+    Events are sourced from the in-memory ring buffer populated by
+    `refresh_unseated_tables` — see `cash_mode/activity.py`.
+    Newest-first, capped at 10. Empty list = nothing has happened
+    since the last backend restart.
     """
     try:
         owner_id = _resolve_owner_id()
@@ -1761,9 +1759,11 @@ def get_lobby():
             "seats": serialized_seats,
         })
 
+    from cash_mode.activity import recent_events, serialize_event
     return jsonify({
         "bankroll": bankroll.chips,
         "tables": response_tables,
+        "events": [serialize_event(e) for e in recent_events(limit=10)],
     })
 
 

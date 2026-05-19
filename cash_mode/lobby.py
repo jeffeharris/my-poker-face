@@ -308,6 +308,20 @@ def refresh_unseated_tables(
             elif change.kind == "remove":
                 cash_table_repo.delete_idle(change.personality_id)
 
+        # Emit lobby activity events from the refresh result.
+        # `decisions` covers AIs that were on the table at the start
+        # of the refresh; non-`stay` decisions correspond to leaves.
+        # `freshly_seated_personality_ids` covers joins from idle pool
+        # or live-fill from the eligible pool.
+        _emit_activity_events(
+            table=result.new_table,
+            previous_table=table,
+            decisions=result.decisions,
+            freshly_seated_personality_ids=result.freshly_seated_personality_ids,
+            personality_repo=personality_repo,
+            now=now,
+        )
+
         # Refresh idle_pool snapshot so the next iteration sees the
         # updated state (we may have added or removed entries).
         idle_pool = cash_table_repo.list_idle()
@@ -315,6 +329,84 @@ def refresh_unseated_tables(
         out[table.table_id] = result
 
     return out
+
+
+def _emit_activity_events(
+    *,
+    table,
+    previous_table,
+    decisions,
+    freshly_seated_personality_ids,
+    personality_repo,
+    now: datetime,
+) -> None:
+    """Push lobby activity events to the in-memory ring buffer.
+
+    Pulls display names from the personality repo. Wrapped in a
+    broad except — the ticker is a UX nicety, not a correctness
+    surface; if it fails for one event the lobby refresh shouldn't
+    abort. Same defensive style as `try/except` around the relationship
+    hint lookup in the lobby route.
+    """
+    from cash_mode.activity import (
+        EVENT_JOIN,
+        EVENT_LEAVE,
+        LobbyEvent,
+        format_join_message,
+        format_leave_message,
+        record_event,
+    )
+
+    def _name_for(pid: str) -> Optional[str]:
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            return None
+        if not personality:
+            return None
+        return personality.get("name") or pid
+
+    stake = table.stake_label
+    ts = now.isoformat()
+
+    for pid, decision in decisions.items():
+        if decision == "stay":
+            continue
+        name = _name_for(pid)
+        if not name:
+            continue
+        try:
+            record_event(LobbyEvent(
+                type=EVENT_LEAVE,
+                table_id=table.table_id,
+                stake_label=stake,
+                personality_id=pid,
+                name=name,
+                reason=decision,
+                message=format_leave_message(name, stake, decision),
+                created_at=ts,
+            ))
+        except Exception:
+            # Buffer is best-effort. Don't let it break the refresh.
+            pass
+
+    for pid in freshly_seated_personality_ids:
+        name = _name_for(pid)
+        if not name:
+            continue
+        try:
+            record_event(LobbyEvent(
+                type=EVENT_JOIN,
+                table_id=table.table_id,
+                stake_label=stake,
+                personality_id=pid,
+                name=name,
+                reason="",
+                message=format_join_message(name, stake),
+                created_at=ts,
+            ))
+        except Exception:
+            pass
 
 
 def kill_all_cash_sessions(
