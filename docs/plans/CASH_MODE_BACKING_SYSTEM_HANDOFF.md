@@ -1,5 +1,5 @@
 ---
-purpose: Implementation handoff for the complete loan/backing system — persistent loans across sessions, reputation enforcement, tab UI, and AI-as-borrower. Builds on Path B's session-scoped sponsorship.
+purpose: Implementation handoff for the staking system — session-based stakes with light carry, reputation-driven offer quality, AI and human as borrowers and stakers. Replaces Path B's session-scoped sponsorship model.
 type: guide
 created: 2026-05-19
 last_updated: 2026-05-19
@@ -10,103 +10,155 @@ last_updated: 2026-05-19
 > **Read first:** [`CASH_MODE_ECONOMY.md`](../technical/CASH_MODE_ECONOMY.md)
 > is the canonical reference for the chip economy as built (pools,
 > flow paths, conservation invariant, ledger vocabulary). The
-> backing system extends the economy substantially; the economy doc
-> is where to verify your understanding of the existing pools before
-> adding new ones.
+> staking system extends the economy substantially; the economy
+> doc is where to verify your understanding of the existing pools
+> before adding new ones.
 
 > **What's shipped between this handoff being written and now
 > (2026-05-19, late):**
 >
 > - **Chip ledger v0** (schemas v93+v94). The audit endpoint
 >   reports `drift = ledger_outstanding - actual_outstanding`;
->   `drift == 0` is correctness. The backing system's loan flows
->   already feed this — Phase 1 must preserve `house_loan_issue` /
->   `house_loan_settle` / `forgive_balance` entries as it
->   re-homes loans into the new table. See "Chip ledger
->   interaction" below.
+>   `drift == 0` is correctness. Use it as your guardrail
+>   throughout Phase 1.
 > - **Full Sim** (schemas v96+v97) — see
 >   [`CASH_MODE_FULL_SIM.md`](../technical/CASH_MODE_FULL_SIM.md)
 >   for the technical reference. Real AI hands at unseated
 >   tables; psychology persists across sessions and backend
->   restarts; dealer rotates in real engine order. Phase 4's "AI
->   hits forced_leave → take_loan" trigger now has real chip
->   dynamics behind it — a busting AI is one who tilted off
->   their stack vs a specific opponent, not a uniform-random
->   chip drift. The relationship layer's heat / respect /
->   likability axes drive lender willingness AND borrower
->   psychology now, which is the texture that made this whole
->   doc worth writing.
-> - **Lobby-seed leak fix** (`f04e048b`). New `BankrollChange`
->   plumbing in `cash_mode/movement.py` — pure helper signals
->   what bankroll mutations to apply; caller persists them. **Phase
->   4's AI-borrow chip flow should reuse this exact pattern** —
->   add a `direction='to_seat_loan'` (or similar) variant rather
->   than inventing a new plumbing approach.
-> - **Live drift = 0** is now achievable from a clean baseline.
->   Run `compute_audit` before and after each Phase 1 commit;
->   `drift` should not move beyond what your new ledger entries
->   account for.
+>   restarts; dealer rotates in real engine order. Phase 4's
+>   "AI hits forced_leave → take_stake" trigger now has real
+>   chip dynamics behind it.
+> - **Lobby-seed leak fix** (`f04e048b`). The `BankrollChange`
+>   plumbing in `cash_mode/movement.py` is the pattern Phase 4
+>   reuses for AI-borrow chip flows. Add a new direction
+>   variant rather than inventing new plumbing.
+> - **Live drift = 0** is achievable from a clean baseline.
 
-This is the v2 layer on top of Path B's sponsorship. The goal is a
-**coherent loan economy** where chips, trust, and rivalry all
-compound: you owe Napoleon real money, defaulting on Bezos changes
-how he plays against you, AIs lend to each other when one busts and
-the other has bankroll, and the relationship layer carries
-everything across sessions.
+> **Design lock (2026-05-19, evening):** the original handoff
+> framed this work as a **loan system** with persistent debt,
+> amortization, and multi-loan settlement. A deep design review
+> reframed it as a **staking system** — session-based deals,
+> light carry, tier-gated offer quality, no payment plans.
+> Headline shifts:
+>
+> | Was (loan model) | Now (stake model) |
+> |---|---|
+> | Loans persist with outstanding principal | Stakes settle at session end; only **carry** persists |
+> | Amortization with periodic minimum payments | No payment schedule — carries sit until cleared by play |
+> | Multi-loan stacking (concurrent active loans) | One active stake per session; multiple carries possible |
+> | Borrower-side default cascade risk | No cascade — staker exposure bounded at principal |
+> | "Tab UI" framing | "Net Worth" view — staker AND borrower position |
 
-> **Vision in one sentence:** *Backing turns the cash table from a
-> sequence of independent sit-down events into a web of debts and
-> obligations that follow every personality across time.*
+This is the v2 layer on top of Path B's sponsorship. The goal is
+a **coherent stake economy** where chips, trust, and rivalry all
+compound: you owe Napoleon real money, defaulting on Bezos
+changes how he plays against you, AIs stake each other when one
+busts and the other has bankroll, eventually you stake AIs back,
+and the relationship layer carries everything across sessions.
+
+> **Vision in one sentence:** *Staking turns the cash table from
+> a sequence of independent sit-down events into a web of
+> obligations and shared interests that follows every personality
+> across time.*
+
+## The stake model
+
+A **stake** is a deal struck at sit-down, settled at leave-table.
+The staker puts up chips; the borrower plays them; at session
+end, total chips are split per the agreed cut. If the borrower
+busted without recovering the principal, the residual rolls into
+a **carry** — a static debt that sits until the borrower works
+it down.
+
+Critically: the staker's exposure is **bounded by the principal
+they put up**. The chips change hands at deal time. Whatever
+the borrower does afterward is bookkeeping — no chain of
+obligations propagates back to the staker. This dissolves the
+"default cascade" worry that drove some of the original loan-
+system caution.
+
+### Three staker kinds
+
+| `staker_kind` | Source | Carry behavior | Used when |
+|---|---|---|---|
+| `house` | Central bank | Forgives (no carry) | Lender of last resort; always available; baseline-poor terms |
+| `personality` | AI bankroll | Creates carry on bust | Most common; relationship-gated |
+| `human` | Player bankroll | Creates carry on bust | Phase 5 — player as staker |
+
+### Three offer formats
+
+| Format | Borrower puts up | Staker puts up | Origination fee | Cut |
+|---|---|---|---|---|
+| **Pure stake** | 0 | full buy-in | yes (from bankroll) | low-mid (15-25%) |
+| **Match-and-share** | half buy-in | half buy-in | no | mid-high (40-50%) |
+| **House stake** | 0 | full buy-in | small/none | high (40%+) |
+
+Offers are **randomly assembled** at sit-down — a player might
+see a match-share offer or might not; willing personalities are
+filtered by relationship axes; the house always offers. The tier
+system below biases *which* personalities surface, not the
+specific terms.
+
+### Carry — light pressure, no amortization
+
+When a borrower leaves with `final_chips < principal`, the
+residual becomes `carry_amount`. Carries are:
+
+- **Static.** No hand-count interest, no auto-growth. They sit.
+- **Per-staker.** "I owe Napoleon $300, separately owe Bezos $180."
+- **Aggregable.** A borrower's `carry_load = Σ carry_amount` across all stakers drives their tier.
+- **Capped.** `max_carry = 10 × min_buy_in @ current tier`. Exceed → over-leveraged → house-only.
+
+Two pressure mechanisms apply when a borrower with carry tries
+to take a new stake:
+
+1. **Garnishment (per-staker)** — if they had a previous carry with this staker, the new stake's cut is bumped up until the old carry clears.
+2. **Tier degradation (aggregate)** — willing personalities drop out as `carry_load` grows; eventually only the house will stake them.
+
+The path back is "grind your way out at bad terms" — house
+stakes at high cuts, slowly paying down carry, eventually
+re-qualifying for personality offers.
 
 ## What Path B shipped
 
-- AI personalities as named lenders (vs anonymous house archetypes)
+- AI personalities as named stakers (vs. anonymous house archetypes)
 - `active_loan_lender_id` on `player_bankroll_state` (schema v90)
-- Lender profile per personality (willingness, max-loan-pct,
+- Lender profile per personality (willingness, max-stake-pct,
   rate/floor anchors, relationship gates)
 - Offer generation gated by bankroll + likability/heat/respect
-- Leave-time settlement credits the AI lender's bankroll
+- Leave-time settlement credits the AI staker's bankroll
 - Three `RelationshipEvent`s: `SPONSORSHIP_OFFERED`, `LOAN_REPAID`,
-  `LOAN_DEFAULTED` — all wired through the existing dispatch table
+  `LOAN_DEFAULTED` — names predate the stake rename. Phase 1
+  Commit 1 renames them to `STAKE_OFFERED` / `STAKE_REPAID` /
+  `STAKE_DEFAULTED` and adds `STAKE_FORGIVEN` for Phase 3's
+  forgiveness action.
 
 ## What's still missing — the gap this doc fills
 
-1. **Loans are session-scoped.** Leave the table → loan settles
-   (often forgives a partial balance). You can never "carry debt"
-   across sessions, so the threat of owing someone is hollow.
-2. **Defaults don't enforce.** `LOAN_DEFAULTED` fires and shifts
-   respect/heat/likability via dispatch — but no code reads those
-   axes to *refuse* a future loan. Napoleon will gladly lend you
-   $500 again tomorrow even if you stiffed him today.
-3. **One loan at a time.** `active_loan_*` columns hold a single
-   loan. Can't owe Napoleon AND Bezos simultaneously.
-4. **AIs can't borrow.** When an AI busts, they go to the idle pool
-   and wait for bankroll regen. They can't take a loan from a
-   richer AI to keep playing — even though the human can.
-5. **No tab visibility.** Player has no in-game view of their
-   debts. Past loans, current balance, who they've burned — all
-   invisible to the UI.
+1. **No carry across sessions.** Leave the table → loan settles or forgives. Bust → walked away clean. No persistent obligation, so the threat of owing someone is hollow.
+2. **Defaults don't enforce.** `STAKE_DEFAULTED` (renamed in Phase 1) fires and shifts respect/heat/likability via dispatch — but no code reads those axes to *refuse* a future stake.
+3. **No aggregate debt tracking.** `active_loan_*` columns hold a single loan. Can't represent multi-staker carry positions, which is the v2 unit of debt.
+4. **AIs can't be staked.** When an AI busts, they go to the idle pool and wait for bankroll regen. They can't accept a stake from a richer AI (or eventually a player).
+5. **No net-worth visibility.** Player has no in-game view of their bankroll position relative to their tier, their carries, or (post-Phase 5) their receivables. All invisible.
 
-This handoff turns those five gaps into a four-phase project.
+This handoff turns those five gaps into a five-phase project.
 Each phase ships independently; you can stop after any phase and
 have a coherent partial system.
 
-## Phase 1: Loans as persistent first-class objects
+## Phase 1: Session stakes with light carry
 
 ### Goal
 
-Replace the three `active_loan_*` columns with a dedicated `loans`
-table. Loans become rows you can query (history, outstanding
-balances, who-owes-whom). One borrower can hold multiple loans
-from multiple lenders concurrently.
+Replace the three `active_loan_*` columns with a dedicated
+`stakes` table. Each row is one session's stake deal. Settlement
+at session end converts the row to either `'settled'` (clean) or
+`'carry'` (residual debt rolls forward).
 
 ### Schema v98 (current as of 2026-05-19 late)
 
-> Schema is at v97. **Phase 1's loans-table migration is v98.**
-> Use that number when editing `schema_manager.py`. Verify with
-> `SELECT MAX(version) FROM schema_version` against the live DB
-> before starting — if other work landed between, increment
-> accordingly.
+> Schema is at v97. **Phase 1's stakes migration is v98.** Verify
+> with `SELECT MAX(version) FROM schema_version` against the
+> live DB before starting.
 
 Versions already taken:
 - v90: `active_loan_lender_id` on player_bankroll_state (Path B)
@@ -119,521 +171,460 @@ Versions already taken:
 - v97: `ai_bankroll_state.emotional_state_json`
 
 ```sql
-CREATE TABLE loans (
-    loan_id TEXT PRIMARY KEY,
-    lender_id TEXT,          -- personality_id; NULL = anonymous house loan
-    lender_kind TEXT NOT NULL,   -- 'house' | 'personality'
-    borrower_id TEXT NOT NULL,   -- owner_id (player) OR personality_id (AI borrower, Phase 4)
-    borrower_kind TEXT NOT NULL, -- 'player' | 'personality'
-    principal INTEGER NOT NULL,
-    floor REAL NOT NULL,
-    rate REAL NOT NULL,
-    status TEXT NOT NULL,        -- 'active' | 'settled' | 'defaulted'
-    outstanding_principal INTEGER NOT NULL,  -- what's still owed (== principal when active)
-    outstanding_floor INTEGER NOT NULL,      -- floor amount still owed
+CREATE TABLE stakes (
+    stake_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,                -- the specific cash session this funds
+    staker_id TEXT,                          -- NULL for house; personality_id or owner_id otherwise
+    staker_kind TEXT NOT NULL,               -- 'house' | 'personality' | 'human'
+    borrower_id TEXT NOT NULL,
+    borrower_kind TEXT NOT NULL,             -- 'human' | 'personality'
+    format TEXT NOT NULL,                    -- 'pure' | 'match_share' | 'house'
+    principal INTEGER NOT NULL,              -- chips the staker put up
+    match_amount INTEGER NOT NULL DEFAULT 0, -- chips the borrower put up (match_share only)
+    origination_fee INTEGER NOT NULL DEFAULT 0,
+    cut REAL NOT NULL,                       -- fraction of net winnings to staker
+    status TEXT NOT NULL,                    -- 'active' | 'settled' | 'carry' | 'defaulted'
+    carry_amount INTEGER NOT NULL DEFAULT 0, -- residual debt if borrower busted (status='carry')
+    stake_tier TEXT NOT NULL,                -- stake_label this deal was made at
     created_at TIMESTAMP NOT NULL,
-    settled_at TIMESTAMP,
-    settled_via TEXT,            -- 'full_repay' | 'partial_default' | 'forgiven' | NULL
-    last_session_id TEXT         -- last cash session that touched this loan, for audit
+    settled_at TIMESTAMP
 );
-CREATE INDEX idx_loans_borrower ON loans(borrower_id, borrower_kind, status);
-CREATE INDEX idx_loans_lender ON loans(lender_id, status);
+
+CREATE INDEX idx_stakes_borrower_carry ON stakes(borrower_id, borrower_kind, status)
+    WHERE status = 'carry';
+CREATE INDEX idx_stakes_staker_carry ON stakes(staker_id, status)
+    WHERE status = 'carry';
+CREATE INDEX idx_stakes_session ON stakes(session_id);
 ```
 
-`outstanding_principal` and `outstanding_floor` decrement as
-sessions settle partial repayments — see Phase 1.4 below.
+The `stake_tier` field is the `STAKES_LADDER` key (`$2`, `$10`,
+etc.) the stake was made at. Used by Phase 2 tier resolution and
+for analytics on default rates by stake size.
 
-### Phase 1 commit breakdown (~4 commits)
+### Phase 1 commit breakdown (~5 commits)
 
-**Commit 1: Schema (next available, was-v93) — loans table + repo**
-- Idempotent CREATE TABLE.
-- New `poker/repositories/loan_repository.py` with
-  `create_loan`, `load_loan`, `list_active_for_borrower`,
-  `list_active_for_lender`, `update_loan_status`,
-  `update_outstanding`.
-- `Loan` dataclass in `cash_mode/loans.py`.
-- Tests: schema round-trip, status transitions, defaults.
+**Commit 1: Vocabulary rename — LOAN_* / SPONSORSHIP_* → STAKE_***
+- Pure refactor pass. No new functionality.
+- **Relationship event names** in `poker/memory/relationship_events.py`:
+  - `LOAN_REPAID` → `STAKE_REPAID`
+  - `LOAN_DEFAULTED` → `STAKE_DEFAULTED`
+  - `SPONSORSHIP_OFFERED` → `STAKE_OFFERED`
+  - Add new `STAKE_FORGIVEN` (Phase 3 surfaces it; wired through the dispatch table now).
+- **Ledger reason names** in chip_ledger code + `CASH_MODE_ECONOMY.md`:
+  - `house_loan_issue` → `house_stake_issue`
+  - `house_loan_settle` → `house_stake_settle`
+  - `forgive_balance` stays (it's generic, not loan-specific).
+- Touches: `poker/memory/relationship_events.py`, the dispatch table in `opponent_model.py`, axes shift definitions, every `record_event()` caller, `poker/repositories/chip_ledger_repository.py` ledger reason constants, ledger-writer call sites, all tests referencing the old names. Use `git grep -l 'LOAN_REPAID\|LOAN_DEFAULTED\|SPONSORSHIP_OFFERED\|house_loan_'` to find call sites.
+- We're still in testing; purge old names entirely, no backwards-compat shim. Existing ledger rows can be migrated in a one-shot UPDATE (`UPDATE chip_ledger_entries SET reason = 'house_stake_issue' WHERE reason = 'house_loan_issue'`) or the table truncated since we're pre-launch.
+- Update `CASH_MODE_ECONOMY.md` "Sources" / "Sinks" tables and `CASH_MODE_CHIP_LEDGER_HANDOFF.md` reason vocabulary section to use new reason names.
+- Tests: existing relationship-axis tests pass under new event names; ledger writes use new reason names; audit invariant holds; no string references to old names remain (grep check in CI ok).
 
-**Commit 2: Migrate `active_loan_*` data → `loans` rows**
+**Commit 2: Module rename + Schema v98 + repo**
+- Rename `cash_mode/stakes.py` (currently holds `STAKES_LADDER`) → `cash_mode/stakes_ladder.py`. Update all imports.
+- New `cash_mode/stakes.py` holds the `Stake` dataclass.
+- Schema v98: idempotent CREATE TABLE `stakes`.
+- New `poker/repositories/stake_repository.py` with
+  `create_stake`, `load_stake`, `load_active_for_session`,
+  `list_carries_for_borrower`, `list_carries_for_staker`,
+  `update_status`, `update_carry_amount`.
+- Tests: schema round-trip, status transitions, carry creation.
+
+**Commit 3: Migrate active_loan_* data → stakes rows**
 - One-shot migration helper that scans `player_bankroll_state`
-  rows with `active_loan_amount > 0` and creates a corresponding
-  `loans` row. Mark `status='active'`.
-- After migration, the `active_loan_*` columns become legacy /
-  cached convenience fields. Reads should prefer `loans` table.
-- Don't drop the columns yet — Phase 2 finishes the cutover.
+  rows with `active_loan_amount > 0`:
+  - If the player has an active session: create a stake with `status='active'`, terms transferred verbatim from the columns. Resolve `staker_kind` from `active_loan_lender_id` (NULL → `'house'`, else `'personality'`).
+  - If no active session (defensive — shouldn't normally happen post-leave): create `status='carry'` with `carry_amount = active_loan_amount`.
+- Don't drop the `active_loan_*` columns yet — Phase 2 finishes the cutover after the new settlement path is live.
+- Tests: known-state fixtures migrate correctly; idempotency (re-running doesn't duplicate rows).
 
-**Commit 3: Settlement reads + writes use the new table**
-- `cash_mode/loan_settlement.py:settle_loan_on_leave` becomes
-  `settle_all_active_loans(borrower_id, chips_at_table,
-  bankroll_repo, loan_repo)`. Walks all active loans, applies
-  floor/cut math per loan, builds a settlement plan, persists.
-- Settlement order: **lender_id priority** — personality loans
-  settle before house loans (a real person waiting > anonymous
-  house). Within personality loans, oldest first.
-- Pure function returns:
-  ```python
-  @dataclass
-  class MultiLoanSettlement:
-      new_bankroll: PlayerBankrollState
-      per_loan: List[LoanSettlementResult]  # one per loan touched
-      total_to_player: int
-  ```
-- Tests: single loan (matches current behavior), two loans
-  (priority ordering, chip distribution), partial default on one,
-  full repay on another.
+**Commit 4: Settlement rewrites against stakes table**
+- `cash_mode/loan_settlement.py:settle_loan_on_leave` becomes `cash_mode/stake_settlement.py:settle_stake_on_leave(stake_id, chips_at_leave, repos)`.
+- Walks the **single active stake** for the session (not multiple — only one stake per session). Math:
+  - `net_winnings = chips_at_leave - stake.principal - stake.match_amount`
+  - If `net_winnings >= 0`: staker gets `principal + cut × net_winnings`; borrower gets `match_amount + (1 - cut) × net_winnings`. Mark `status='settled'`.
+  - If `net_winnings < 0` AND `chips_at_leave > 0`: staker recovers `min(chips_at_leave, principal)`; borrower gets whatever's left after that (typically 0); `carry_amount = principal - recovered`; mark `status='carry'`.
+  - If `chips_at_leave == 0`: staker gets 0; `carry_amount = principal`; `status='carry'`.
+- Returns a `StakeSettlement` dataclass with the chip flows for the caller to apply.
+- Tests: clean settle at multiple cut ratios; partial-bust carry; full-bust carry; match-share variants.
 
-**Commit 4: Carry-forward as the v2 behavior**
-- When `chips_at_table < total_outstanding_floor`, instead of
-  forgiving the balance: decrement `outstanding_floor` by what was
-  paid, keep `status='active'`. The loan persists into the next
-  session.
-- New `settled_via='partial_default'` is reserved for explicit
-  defaults (Phase 2); plain partial-pay rolls forward as
-  `settled_via=NULL`, status stays `active`.
-- Add `forgiveness_threshold_chips` config — if a loan's
-  outstanding gets below some tiny floor (~1 BB at the loan's
-  origin stake), forgive the remainder. Avoids tracking $3
-  zombie debts.
-- Tests: chips < floor → roll-forward; chips just barely cover
-  one of multiple loans → priority order resolves it; tiny
-  remainder → forgiven.
+**Commit 5: House stake forgiveness + chip flow plumbing**
+- House stakes never carry. When `staker_kind='house'` and the borrower busted: `status='settled'`, `carry_amount=0`, fire the `forgive_balance` ledger annotation (amount=0) for the unrecovered amount.
+- Wire stake creation chip flow via `BankrollChange` (the lobby pattern from `f04e048b`):
+  - Personality stakes: staker bankroll → borrower seat, new direction `'staker_to_borrower_seat'`.
+  - Human stakes: player bankroll → borrower seat, same direction.
+  - House stakes: `house_stake_issue` ledger path (renamed from `house_loan_issue` in Commit 1); chips go central_bank → borrower seat.
+- For `match_share`: borrower's own contribution comes from their bankroll (existing `direction='to_seat'`).
+- For `origination_fee` (pure stakes): borrower bankroll → staker bankroll at sit-down, separate `BankrollChange`.
+- Tests: house stake bust forgives cleanly (audit drift=0); personality stake bust creates carry (audit drift=0); match-share settlement splits per cut; origination fee transfers correctly.
 
-After Phase 1: loans persist, multiple loans work, settlement is
-generalized. Nothing yet enforces "you defaulted, can't borrow
-again" — that's Phase 2.
+After Phase 1: stakes persist as session records; carries persist as residual debt. Nothing yet *enforces* "you have a carry, can't borrow again from the same staker" — that's Phase 2.
 
 ### Phase 1 chip-ledger interaction (do not break the audit)
 
-The ledger already tracks house-loan flows. Phase 1 re-homes the
-loan state into a new table but **must not change which ledger
-entries fire from which events**. Preserve:
+Phase 1 re-homes the loan state but **must not change which
+ledger entries fire from which events**. Mapping under stakes:
 
 | Event | Ledger entry | Fires from |
 |---|---|---|
-| Player accepts house archetype sponsor | `house_loan_issue` (central_bank → player) | `sponsor_and_sit` in `cash_routes.py` |
-| Player leaves with active house loan, chips ≥ floor | `house_loan_settle` (player → central_bank) for floor + cut | `leave_table` → `settle_loan_on_leave` |
-| Player leaves with active house loan, chips < floor | `house_loan_settle` for paid portion + `forgive_balance` (amount=0 annotation) for the unpaid principal | same |
-| Personality lender flows | **NONE** — pure transfer between AI bankroll and player stack | n/a |
+| Player accepts house stake | `house_stake_issue` (central_bank → player seat) for `principal` | `sponsor_and_sit` in `cash_routes.py` |
+| Player leaves with house stake, chips ≥ principal | `house_stake_settle` (player seat → central_bank) for principal + cut × winnings | `leave_table` → `settle_stake_on_leave` |
+| Player leaves with house stake, chips < principal | `house_stake_settle` for `chips_at_leave` + `forgive_balance` (amount=0) for unrecovered principal | same |
+| Personality / human stake flows | **NONE** — pure transfer between two non-bank pools | n/a |
+| Match-share / origination-fee flows | **NONE** — pure bankroll-to-bankroll transfers | n/a |
 
-After Phase 1.3 (`settle_all_active_loans`) the dispatch logic
-walks multiple loans. Each loan's settlement should fire the
-matching pair of entries depending on its `lender_kind`. Add an
-end-to-end test:
-1. `compute_audit` baseline
-2. Issue + settle a multi-loan scenario (one house, one personality)
-3. `compute_audit` again
-4. Assert `drift` delta == 0
+Personality and human stakes move bankroll → bankroll without a
+ledger entry; the audit's `actual_outstanding` already counts
+both sides, so chip conservation holds without bank involvement.
 
-Personality-loan principal moves bankroll → bankroll without a
-ledger entry; the audit's `actual_outstanding` already counts both
-sides (AI bankrolls + player table stack), so chip conservation
-holds without bank involvement.
+**Carry creation does NOT fire any new ledger entry.** The chips
+were already ledger-accounted at the partial settle. The
+`carry_amount` is a tracking field on the stakes row, not a
+chip pool. The chips themselves are wherever they ended up via
+gameplay — most often in other AIs' seats at the table.
 
-**Carry-forward at session-end (Phase 1.4) does NOT fire any new
-ledger entry.** The loan's `outstanding_floor` decrements in the
-`loans` table, but no chips moved that weren't already
-ledger-accounted in the partial settle. The loan just stays
-`status='active'` instead of resolving. Audit drift unchanged.
+See `CASH_MODE_ECONOMY.md` for why "forgiveness" doesn't destroy
+chips (they were redistributed via gameplay, the IOU is what
+got written off).
 
 ### Phase 1 data-migration scope (do NOT reconcile historical drift)
 
-Phase 1.2's migration of `active_loan_*` columns → `loans` rows is
-a **shape change only**. If the live DB carries pre-existing audit
-drift (~1M chips as of 2026-05-19, from the historical lobby-seed
-leak that landed before today's fix at `f04e048b`), the loans
-migration must not try to reconcile it. That's a separate one-shot
-cleanup tracked in `CASH_MODE_ECONOMY.md` §"Known issues" item 1.
+Phase 1.2's migration is a **shape change only**. If the live
+DB carries pre-existing audit drift, don't try to reconcile it
+in the migration. That's a separate cleanup tracked in
+`CASH_MODE_ECONOMY.md` §"Known issues" item 1.
 
-Concretely: don't write any synthesizing ledger entries from the
-migration. If a `player_bankroll_state` row says `active_loan_amount=500`,
-create a `loans` row with `principal=500, outstanding_principal=500`;
-don't try to back-fill ledger entries to make the totals add up.
-The audit will show the same drift before and after the migration,
-which is correct.
+Don't write synthesizing ledger entries from the migration. The
+audit will show the same drift before and after, which is
+correct.
 
-## Phase 2: Reputation enforcement
+## Phase 2: Reputation enforcement + tier-gated offer quality
 
 ### Goal
 
-Defaults have teeth. Outstanding debt blocks new loans from the
-same lender. Heat/respect axes (which the dispatch table already
-adjusts) get *read* by the offer generator.
+Defaults have teeth. Outstanding carries shift the borrower's
+tier and degrade new offers. The relationship axes (already
+adjusted by the existing dispatch table) get *read* by the offer
+generator. Aggregate carry load adds a system-level brake.
 
 ### Phase 2 commit breakdown (~3 commits)
 
-**Commit 1: Lender-side gates in offer generation**
-- `cash_mode/sponsor_offers.py:compute_personality_offers` gains
-  an explicit gate: if the player has an `active` loan with this
-  lender, exclude them.
-- Same function: if the player has a `defaulted` loan with this
-  lender in the last N days (configurable, default 7 wall-clock
-  days), exclude them. This is the "Napoleon won't lend you again"
-  enforcement.
-- The relationship axis gates (likability/heat/respect) already
-  exist from Path B; this commit makes the *outstanding-loan*
-  check first so it short-circuits before the axis reads.
-- Tests: outstanding loan blocks same-lender offer; old default
-  excludes; default older than N days re-enables; multiple
-  lenders qualify independently.
+**Commit 1: Tier resolution + per-staker carry-blocking gates**
+- New `cash_mode/staking_tier.py:resolve_tier(borrower_id, repos, now) → str` returning one of `'premium' | 'standard' | 'restricted' | 'house_only'`. Driven by:
+  - `carry_load = Σ carry_amount across active carries`
+  - `max_carry = 10 × min_buy_in @ borrower's current playing tier`
+  - Ratio thresholds (configurable; suggested defaults: <20% premium, 20–60% standard, 60–100% restricted, ≥100% house_only)
+- `cash_mode/sponsor_offers.py:compute_personality_offers` reads the tier:
+  - **Premium**: full list of willing personalities, normal cuts, match-share offered when the personality is in the mood.
+  - **Standard**: personalities with low likability/respect drop out; cuts bumped 5-10%.
+  - **Restricted**: only forgiving personalities (high likability AND high respect); cuts bumped 15-25%.
+  - **House-only**: no personality offers; house only.
+- Per-staker garnishment: if the borrower has an existing carry with this specific staker, that staker's offer cut goes up by `garnishment_rate × outstanding_carry_amount / new_principal` (capped at some maximum, suggested +20pp).
+- Tests: tier resolution at boundary loads; carry blocks same-staker low-cut offers but allows garnished variant; tier degradation orders willing personalities correctly.
 
 **Commit 2: Explicit default action**
-- New POST `/api/cash/loans/<loan_id>/default` — player chooses to
-  walk away from a loan they can't pay. Marks the loan
-  `status='defaulted'`, emits `LOAN_DEFAULTED` event (already
-  exists), zeroes outstanding amounts.
-- Different from Phase 1's carry-forward: this is *intentional*
-  default, surfaces the reputation hit immediately.
-- Tests: default endpoint mutates loan state; event fires;
-  bankroll unchanged (no chip transfer on default).
+- New POST `/api/cash/stakes/<stake_id>/default` — borrower (player or, via Phase 4, AI) chooses to clear a carry by taking the reputation hit. Marks `status='defaulted'`, emits `STAKE_DEFAULTED` event, zeroes `carry_amount`.
+- **No bankroll check** — default is always allowed regardless of whether the borrower could afford to pay. The trade-off the borrower is making is "clear the carry now in exchange for a reputation hit on this lender."
+- Different from Phase 1's natural carry behavior (no event, just rolls forward): explicit default fires the reputation hit immediately via the dispatch table.
+- The leverage exploit (take cheap stake, win big, default cheap, pocket profit) is tolerated for v1. The carry's tier-degradation pressure is the main consequence anyway; explicit default trades that ongoing pressure for a one-shot reputation hit on one lender. If playtest shows systematic exploitation, follow-up work could scale the reputation magnitude by carry size or by bankroll-vs-carry ratio at default time.
+- Tests: default endpoint mutates state; STAKE_DEFAULTED event fires; bankroll unchanged (server doesn't touch it).
 
-**Commit 3: Lobby surfacing of refusals**
-- When `compute_personality_offers` excludes a lender for
-  reputation reasons, capture the rejection reason in a parallel
-  return ("Napoleon refuses — you defaulted last week").
-- Sponsor modal renders the rejected lenders in a separate "they
-  won't back you" section so the player sees the cost of past
-  defaults.
-- Tests: rejection reasons surface correctly in the API response.
+**Commit 3: Lobby surfacing of tier + refusals**
+- When `compute_personality_offers` excludes a lender for tier or per-staker reasons, capture the rejection ("Napoleon refuses — you defaulted last week").
+- Sponsor modal renders the rejected list in a "they won't back you" section so the player sees the cost of past defaults.
+- Lobby response carries the current tier so the frontend can render a tier indicator.
+- Tests: rejection reasons surface; tier appears in lobby response.
 
-After Phase 2: the loan economy has consequences. Defaulting is a
-real choice with future cost; outstanding tabs prevent
-double-dipping.
+After Phase 2: tiered offer quality + per-staker garnishment make carries painful through the offer surface, without forcing fixed payment schedules.
 
-## Phase 3: Tab UI
+## Phase 3: Net Worth view
 
 ### Goal
 
-Visibility into outstanding debt. Currently invisible; the player
-has to remember.
+Visibility into bankroll position relative to the player's tier,
+outstanding carries, and (Phase 5+) receivables. Currently the
+bankroll number is misleading because it doesn't reflect carries.
 
-### Phase 3 commit breakdown (~2 commits)
+> **Renamed from "Tab UI":** the original framing was loan-centric. Stakes resolve at session end, so the active stake lives in-game; the lobby view's job is the post-session position — net worth, carries, tier — not a running tab.
 
-**Commit 1: Backend `/api/cash/loans` route**
-- GET → returns all `active` loans for the current player,
-  enriched with lender display name + relationship hint.
-- The lobby's GET `/api/cash/lobby` annotates each `TableCard`
-  where the player has an outstanding loan with the table's
-  lender. Frontend shows it as a small indicator on the card
-  ("owed Napoleon $300").
-- Tests: list endpoint shape; lobby annotation surfaces correctly.
+### Phase 3 commit breakdown (~3 commits)
 
-**Commit 2: Frontend tab views**
-- New `<TabDrawer>` accessible from `/cash` (small button labeled
-  "My tabs" or a chip-count indicator next to bankroll).
-- Lists active loans: lender avatar + name, principal, outstanding
-  floor, sponsor cut rate, history age.
-- Per loan: "pay off now" action (if bankroll covers
-  outstanding_floor — settles via the existing leave-time math
-  but without leaving the table).
-- TableCard gains a small badge ("Owe Napoleon $300") when
-  player has an active loan with someone seated.
-- Mobile: include in the existing MobileCashSheet under a "tabs"
-  section.
-- **Note on the lobby visual budget:** TableCard now carries
-  emotion-tinted card borders (Full Sim psychology persistence),
-  the dealer "D" badge (and SB/BB), plus the activity ticker
-  below. The "Owe Napoleon $300" indicator should be small and
-  visually quiet — a corner pin on Napoleon's portrait, not a
-  banner across the card. The card surface is already dense;
-  don't add another full-width strip.
+**Commit 1: Backend `/api/cash/net-worth` route**
+- GET → returns:
+  - `bankroll`: integer
+  - `tier`: stake_label (highest stake the bankroll qualifies for)
+  - `tier_status`: `'premium' | 'standard' | 'restricted' | 'house_only'`
+  - `carry_cap`: `10 × min_buy_in @ tier`
+  - `payables`: list of `{stake_id, staker_id, staker_kind, staker_display_name, carry_amount, created_at}`
+  - `receivables`: empty list for now (Phase 5 populates)
+  - `net_worth`: bankroll + Σreceivables - Σpayables
+  - `available`: carry_cap − Σpayables (how much carry headroom remains)
+- `/api/cash/lobby` annotates each `TableCard` where the player has a carry with someone seated at that table.
+- Tests: route shape; lobby annotation surfaces correctly.
 
-After Phase 3: the player can see their tabs, pay them off
-voluntarily, and the lobby surfaces "where my creditors are."
+**Commit 2: Frontend Net Worth drawer**
+- New `<NetWorthDrawer>` accessible from `/cash` via an icon next to the bankroll display.
+- Lists payables: staker avatar + name, carry amount, age, "Pay off now" action (voluntary — debit bankroll → staker bankroll, mark stake `'settled'`; gated on bankroll covering the carry; greyed out when it doesn't).
+- **Receivables column appears in the layout but renders empty in v1** (placeholder waiting for Phase 5). Keep the structural slot so the UI doesn't reshuffle when Phase 5 ships.
+- Tier indicator visible: e.g., "$50 stakes — Standard tier".
+- TableCard gains a small corner pin on the relevant AI's portrait when the player has a carry with someone seated there.
+- Mobile: include in `MobileCashSheet` under a "Net worth" section.
+- **Visual budget note:** TableCard already carries emotion-tinted borders (Full Sim psychology), the dealer "D" badge (+ SB/BB), and the activity ticker. Keep the carry indicator small — a corner pin on the AI's portrait, not a banner.
 
-## Phase 4: AI as borrowers
+**Commit 3: Forgiveness request action**
+- Player taps "Request forgiveness" on a carry in the Net Worth drawer.
+- New POST `/api/cash/stakes/<stake_id>/request-forgiveness`:
+  - Server reads the staker's relationship state for the borrower (likability, respect, heat from `relationship_states`).
+  - Decision logic: weighted threshold — e.g., `(likability × 0.5 + respect × 0.4 - heat × 0.3) > threshold` grants forgiveness. Tunable constant.
+  - Granted: clear `carry_amount`, mark stake `'settled'`, fire `STAKE_FORGIVEN` event (positive shift for both sides — the forgiven borrower feels grateful, the staker doesn't lose reputation for being generous).
+  - Refused: small likability hit on the borrower's side ("you have some nerve asking"); the carry stays.
+- Rate-limit asks: at most one request per stake per 24 hours. Otherwise the player could spam-request until the threshold accidentally crosses.
+- UI affordance: button labeled "Request forgiveness" with a small explainer ("Napoleon may forgive this if you've built up enough goodwill.").
+- Tests: granted/refused paths fire the right events; rate-limit holds; threshold math respects relationship state.
+
+After Phase 3: the player sees their net worth, sees who they owe, can pay carries voluntarily OR request forgiveness through built-up goodwill, and the lobby surfaces "where my creditors are." Three paths to clear a carry (voluntary pay, request forgiveness, explicit default-with-reputation-hit via Phase 2) without anything forcing bankroll movement.
+
+## Phase 4: AIs as borrowers
 
 ### Goal
 
-AIs take loans when they bust. Creates an AI-to-AI economic
-substrate that the player observes (and eventually can interact
-with — sponsoring an AI, taking sides in their disputes).
+AIs accept stakes when they bust. Creates an AI-to-AI staking
+substrate where the staker's bankroll is genuinely at risk on
+the borrower's session outcome. Player observes via the
+activity ticker.
 
 ### Phase 4 commit breakdown (~5 commits)
 
-**Commit 1: Generalize loan tables for AI borrowers**
-- The schema from Phase 1 already supports `borrower_kind='personality'`
-  — wire it.
-- `cash_mode/lender_profile.py` gains `borrower_profile` (mirror
-  of lender profile but for "do I take loans?"). Most AIs would
-  default to "yes if I bust," variant: stoic personalities
-  (Lincoln, Buddha types) `willing=false`.
+**Commit 1: Generalize stake plumbing for AI borrowers**
+- The schema from Phase 1 already supports `borrower_kind='personality'` — wire it.
+- `cash_mode/lender_profile.py` gains `borrower_profile` (mirror of lender profile but for "do I accept stakes?"). Most AIs default to "yes if I bust"; stoic personalities (Lincoln, Buddha types) `willing=false`.
 
 **Commit 2: AI-borrow movement decision**
-- `cash_mode/movement.py:evaluate_ai_movement` gains a
-  `take_loan` decision option, evaluated when the AI would
-  otherwise `forced_leave` (chips ≤ 0.3 × buy_in).
-- New helper `find_ai_lender_for(borrower_pid, stake_label,
-  candidates)` — picks the best lender from the table's other
-  AIs (or the broader pool, Phase 4.4).
-- If a lender qualifies, the AI takes a loan instead of leaving.
-  Their chips refill to a min-buy-in; the loan is persistent
-  (same `loans` table, both sides personality).
-- Tests: AI hitting forced_leave threshold → take_loan when
-  eligible lender exists → stays at table with fresh chips.
+- `cash_mode/movement.py:evaluate_ai_movement` gains a `take_stake` decision option, evaluated when the AI would otherwise `forced_leave` (chips ≤ 0.3 × buy_in).
+- New helper `find_ai_staker_for(borrower_pid, stake_label, candidates)` picks the best staker from the table's other AIs (or the broader pool, Phase 4.4).
+- If a staker qualifies, the AI accepts a stake instead of leaving. Their chips refill to the principal; the stake row is created (`stakes` table, both sides `personality`).
+- Tests: AI hitting forced_leave threshold → take_stake when eligible staker exists → stays at table with fresh chips; stoic AI refuses; no eligible staker → falls back to `forced_leave`.
 
-**Commit 3: AI-to-AI leave-time settlement**
-- When an AI hits forced_leave AND has outstanding loans,
-  partial-pay from their final table chips before going idle.
-- Same settlement function as the player path
-  (`settle_all_active_loans`), now polymorphic on borrower_kind.
+**Commit 3: AI session-end stake settlement**
+- When an AI's movement decision triggers leave (any reason: forced_leave, stake_up, take_break, bored_move), settle the active stake via `settle_stake_on_leave` — same path as humans.
+- Carry rolls forward if applicable; the AI's `borrower_profile` data tracks their own carry history.
+- The AI session in full sim is bounded by sit-down (movement → seat) and leave-table (movement → idle/other-seat). Reuse these events as session boundaries.
+- Tests: AI session ends → stake settles → carry created/resolved correctly; AI with carry from previous session takes a new stake → garnishment applies from the new lender.
 
-**Commit 4: Cross-table lender pool**
-- Broaden `find_ai_lender_for` from "AIs at this table" to "any
-  AI with capacity in the pool." Models a richer AI offering a
-  loan even if they're sitting elsewhere.
-- Maybe gated on "AIs at the same OR adjacent stake" so the
-  economy stays localized.
+**Commit 4: Cross-table staker pool**
+- Broaden `find_ai_staker_for` from "AIs at this table" to "any AI with capacity in the pool." Richer AIs at other tables can stake busting AIs elsewhere.
+- Gated on "AIs at the same OR adjacent stake" so the economy stays localized — a $1000-stake AI doesn't impulsively stake a $2-stake bust.
 
-**Commit 5: AI-loan events in lobby ticker**
-- New `EVENT_AI_LOAN` event type:
-  "Bezos backed Napoleon for $400 at $10"
-- New `EVENT_AI_DEFAULT` event type:
-  "Napoleon defaulted on Bezos — owed $400"
-- Surfaces the AI economy as visible drama in the lobby ticker.
-- Follow the dedupe pattern already in `ActivityTicker.tsx`
-  (`dedupeChipPairs`) — AI loan events come in pairs (lender +
-  borrower POV); the ticker should show one or the other but not
-  both as separate rows.
+**Commit 5: AI-stake events in lobby ticker**
+- New `EVENT_AI_STAKE` event: "Bezos staked Napoleon for $400 at $10"
+- New `EVENT_AI_DEFAULT` event: "Napoleon defaulted on Bezos — carried $400"
+- Surfaces the AI economy as visible drama.
+- Follow the dedupe pattern in `ActivityTicker.tsx` (`dedupeChipPairs`) — AI stake events come in pairs (staker + borrower POV); show one not both.
 
 ### Phase 4 implementation notes
 
-**Reuse the `BankrollChange` pattern from `f04e048b`.** Phase 4's
-AI-borrow flow shifts chips between two AI bankrolls + one seat:
-- borrower's bankroll → seat (existing pattern, already
-  `direction='to_seat'`)
-- lender's bankroll → borrower's bankroll (new direction —
-  call it `'lender_to_borrower'` or fold into existing pairings)
+**Reuse `BankrollChange` from `f04e048b`.** AI-borrow chip flow:
+- borrower's bankroll → seat (existing `direction='to_seat'`)
+- staker's bankroll → borrower's bankroll (new `direction='staker_to_borrower'`)
 
-The pure helpers in `cash_mode/movement.py` should keep emitting
-`BankrollChange` lists; the caller in `cash_mode/lobby.py` applies
-them via `debit_bankroll_for_seat` / `credit_ai_cash_out`. No new
-plumbing needed — extend the dispatch.
+The pure helpers in `cash_mode/movement.py` keep emitting
+`BankrollChange` lists; the caller in `cash_mode/lobby.py`
+applies them via `debit_bankroll_for_seat` / `credit_ai_cash_out`.
+No new plumbing.
 
-**Consider closing the `ai_seed` ledger gap here.** The economy
-doc's "Known issues" §2 flags that new `ai_bankroll_state` rows
-aren't ledger-instrumented (only the rows that existed at v94
-migration time are covered by `pre_ledger_universe`). When Phase
-4 creates an AI's first loan record, that AI may not yet have a
-bankroll row — the implicit `save_ai_bankroll` call creates one
-from nothing. This is a good time to add a new
-`ai_seed` reason to `LEDGER_REASONS` and fire a
-`central_bank → ai:<pid>` entry when the row is first written.
-Closes a known leak; one extra ledger reason; ~4 lines.
+**Close the `ai_seed` ledger gap here.** The economy doc's
+"Known issues" §2 flags that new `ai_bankroll_state` rows
+aren't ledger-instrumented. Phase 4 will create stake records
+for AIs who don't yet have a bankroll row — the implicit save
+creates one from nothing. Add an `ai_seed` ledger reason and
+fire a `central_bank → ai:<pid>` entry on first write. Closes
+a known leak; one ledger reason; ~4 lines.
 
-After Phase 4: the AI economy mirrors the player economy. AIs lend
-to each other, default on each other, build histories. The
-player's interactions are one node in a much larger graph.
+**There's no AI default cascade.** A common worry is "one AI's
+bust triggers another's default." This doesn't happen under the
+stake model: when Napoleon stakes Buddha, Napoleon's bankroll
+loses the principal *at deal time*. Buddha's subsequent loss
+doesn't affect Napoleon's solvency; Napoleon just doesn't get
+repaid. The real concern is **slow bankroll deflation** across
+many bad-pick stakings — the existing `lender_profile.bankroll_floor`
+(2× ai_buy_in) prevents extreme cases. Watch audit telemetry
+for AI bankroll medians drifting downward; tune `bankroll_floor`
+or `max_outstanding_stakes_per_staker` upward if needed.
+
+**Simultaneous staker AND borrower is a feature, not a bug.** An
+AI can be staking other AIs while also being staked themselves —
+this is the leverage play we want in the economy. Example: a
+$50-tier AI with $3k bankroll takes a stake from Bezos for $8k
+to play at $200, AND uses their own $3k to stake an upcoming
+$10-tier player. Both ends pay off → big upside. Both ends
+fail → the staker AI takes a hit but doesn't propagate it (the
+chips Napoleon owes Bezos are still owed regardless of how
+Buddha's stake from Napoleon plays out — they're separate
+deals). The chip math works because:
+- An AI's bankroll already reflects what they've staked out (chips left bankroll at deal time).
+- An AI's outstanding carries are tracking fields, not chip claims on the bankroll.
+- Therefore `available_to_stake = bankroll` directly. No subtraction needed.
+
+The Phase 4 design lets this emerge naturally. No special-casing required.
+
+After Phase 4: the AI economy mirrors the player economy. AIs
+stake each other, default on each other, build histories. The
+player's interactions are one node in a larger graph.
+
+## Phase 5: Humans as stakers
+
+### Goal
+
+Once the player has enough bankroll, they can offer stakes to
+AIs. This is the **endgame chip-sink mechanism** — wealthy
+players deploy capital into the AI population, taking on
+bankroll-deflation risk in exchange for a cut of upside.
+
+### Unlock criteria
+
+Player can offer a stake at a given tier iff **bankroll ≥ 1.5 × min_buy_in @ that tier**:
+
+| Stake | Min buy-in | Bankroll needed to stake here |
+|---|---|---|
+| $2 | $80 | $120 |
+| $10 | $400 | $600 |
+| $50 | $2,000 | $3,000 |
+| $200 | $8,000 | $12,000 |
+| $1000 | $40,000 | $60,000 |
+
+This puts staking-at-the-current-tier within reach as soon as
+the player is comfortably playing that tier. Tunable post-launch
+— move to 2× if exploit potential surfaces in playtest.
+
+### Phase 5 commit breakdown (~3 commits)
+
+**Commit 1: Player-offered stake route + AI evaluation**
+- New `POST /api/cash/stakes/offer` — player offers a stake to a specific AI: `{target_pid, principal, cut, match_amount, origination_fee, stake_label}`.
+- Server validates: player bankroll ≥ 1.5 × min_buy_in @ stake_label; target AI is staking-eligible (not currently in a session, willing per `borrower_profile`, carry-load within their own tier cap, not in cooldown for prior default to this player).
+- AI evaluates using its relationship axes vs the player (likability/heat/respect), its `borrower_profile.willingness_threshold`, and a comparison against other available stake options (the AI shops the best deal in its current pool of offers).
+- Response: accepted (stake row created with `staker_kind='human'`, AI sits at the target table) or refused (with reason).
+- Tests: bankroll gate; AI accept/refuse logic; stake row created correctly; relationship events fire (`STAKE_OFFERED` — new event type added to dispatch, or reuse `SPONSORSHIP_OFFERED` for v1 backward compat).
+
+**Commit 2: Player-as-staker UI**
+- Lobby's AI roster view gains a "Stake this player" action on each AI when the player meets the unlock criteria for at least one tier.
+- Action opens a modal with default terms (auto-suggested principal at `min_buy_in @ tier`, default cut from a configurable starting point — say 30%, optional match-and-share toggle, optional origination fee).
+- On submit, hits the offer route.
+- Net Worth drawer's "Receivables" column populates with active stakes.
+
+**Commit 3: Settlement when the staked AI's session ends**
+- When the staked AI's movement decision triggers leave, `settle_stake_on_leave` runs as for any other stake. The player's bankroll is credited with their share.
+- New `RelationshipEvent`: `STAKE_REPAID` / `STAKE_DEFAULTED` for AI→player feedback (or reuse `LOAN_REPAID` / `LOAN_DEFAULTED` for v1 backward compat).
+- Tests: AI's session ends → player bankroll updates with cut/principal recovery; carry rolls forward when AI busts under player stake; relationship event fires.
+
+After Phase 5: the player is fully participating from both
+sides. The endgame chip sinks (hosting tables, appearance fees,
+creating custom personalities and staking them) become possible
+to layer on top in subsequent phases.
 
 ## Locked decisions (2026-05-19) + remaining open questions
 
-1. ~~**Default cooldown duration.**~~ **Locked: 7 wall-clock
-   days.** Phase 2's gate refuses re-lending from any lender the
-   player defaulted on within the last 7 days. Configurable
-   constant; tune in playtest.
+1. ~~**Default cooldown duration.**~~ **Locked: 7 wall-clock days.** Phase 2's gate refuses re-staking from any staker the borrower defaulted on within the last 7 days. Configurable constant.
 
-2. **Loan interest accrual.** Still open. Currently loans don't
-   grow over time. Phase 1's schema admits an `interest_rate_daily`
-   column without redesign, but the v1 calculus is "flat terms,
-   settle when you leave." Recommend defer — adding accrual
-   changes the player loop significantly. Revisit if playtest
-   shows persistent debt is too forgiving (you can owe forever
-   with no escalating pressure).
+2. **Stake interest / fees.** Origination fee (paid upfront from borrower bankroll) is the primary mechanism. No time-based accrual. The schema admits an `interest_rate_daily` column without redesign if needed later; v1 is flat terms with cut on session-end winnings.
 
-3. ~~**House loans, persistent or session?**~~ **Locked: persistent
-   ("follow around"), but not urgent.** House tabs carry across
-   sessions, same as personality loans. Phase 1's schema and
-   settlement already treat them uniformly; no extra work to
-   make house loans persistent. The "not urgent" framing means
-   if a sub-commit needs to defer house-loan persistence to ship
-   Phase 1 sooner, that's acceptable — auto-settling house loans
-   on leave (v1 behavior) is the deferred fallback.
+3. ~~**House stakes — persistent or session?**~~ **Locked: session-scoped, forgive on bust.** House never carries. The "lender of last resort" role is preserved; player can take repeated house stakes after busts. Stuck at house-only tier until they grind back via wins.
 
-4. ~~**AI bankrupt cascade.**~~ **Locked: sane defaults, tune
-   later.** Phase 4's gating uses these starting values
-   (constants in `cash_mode/lender_profile.py`):
-   - **Lender bankroll floor**: `2 × ai_buy_in` — an AI won't
-     lend if their projected bankroll is less than 2× the loan's
-     stake (must have real capacity, not bare-cover).
-   - **Max outstanding loans per lender**: 2 — one AI can have
-     at most 2 active loans receivable. Keeps lending distributed
-     across the AI population.
-   - **AI-to-AI default cooldown**: 14 days — longer than the
-     player cooldown (7) since AIs are conceptually less
-     forgiving and the cascade risk is real.
-   - **Respect threshold**: reuses existing `lender_profile.respect_floor`
-     from Path B (defaults to -0.5 for personality lenders).
-     AI lender refuses if their respect for the borrower < this.
+4. ~~**AI default cascade.**~~ **Locked: not a real risk; simultaneous staker+borrower is a feature.** Staker exposure is bounded at principal — chips leave at deal time, the borrower's subsequent loss doesn't propagate back to the staker. Simultaneous staker+borrower is the intended leverage play (an AI stakes lower-tier players while being staked themselves at a higher tier). Watch AI bankroll medians via audit telemetry; tune `bankroll_floor` and `max_outstanding_stakes_per_staker` if telemetry shows slow deflation.
 
-   These are starting values. Adjust based on playtest signal
-   (specifically: watch the chip ledger audit for AI bankroll
-   crashes after Phase 4 ships).
+5. ~~**Player-staking-AI unlocked when?**~~ **Locked: bankroll ≥ 1.5 × min_buy_in @ target tier.** Tunable post-launch.
 
-5. **Player can sponsor AIs?** Still open / v3 territory.
-   Defer; mention in the doc so we don't paint into a corner.
+6. ~~**Reputation across stakes.**~~ **Locked: global per-personality.** Default on Napoleon at $10 → Napoleon refuses at $1000 too.
 
-6. ~~**Reputation across stakes.**~~ **Locked: global
-   per-personality.** Default on Napoleon at $10 → Napoleon
-   refuses at $1000 too. Reputation is a relationship attribute,
-   not a stake-local one.
+7. ~~**Match-and-share offer shape.**~~ **Locked: same `stakes` row with `match_amount > 0` and zero origination_fee.** Higher cut than pure stakes (suggested 40-50% vs 15-25%). Offer surfaces randomly — match-share isn't guaranteed in any given offer batch.
+
+8. ~~**Carry cap.**~~ **Locked: 10 × min_buy_in @ borrower's current playing tier.** Drops when the player drops tiers. Over-cap → house-only.
+
+9. ~~**Player-created custom personality as endgame chip sink**~~ **Locked (post-Phase-5 scope).** Player creates a custom personality via the existing personality manager. All player-created personalities are **private to the server instance** — public/private is a server-host decision, not a per-user choice. On creation, the new personality is auto-seeded into the AI pool and behaves like any other AI from there. The creator-borrower relationship starts with a **higher-affinity bonus on top of the standard staking-relationship bond** — the new personality has positive likability toward the creator from day zero (representing the "I created you" affinity), then the relationship evolves naturally from gameplay. The personality counts against the player's bankroll the same as staking any other AI; no special pricing.
+
+10. ~~**House stake economics — chip source semantics.**~~ **Locked: unbounded for v1.** Central bank can always lend; the "lender of last resort" role is preserved. The bank's "reserves" remain a derived ledger value (creations vs destructions vs seed). Revisit if endgame chip sinks (Phase 5+ staking, hosting tables, custom-personality stakes) aren't pulling enough chips back from the player economy.
+
+11. ~~**STAKE_*** vs LOAN_* event names.~~ **Locked: full rename to STAKE_*** across the codebase. `SPONSORSHIP_OFFERED` → `STAKE_OFFERED`. `LOAN_REPAID` → `STAKE_REPAID`. `LOAN_DEFAULTED` → `STAKE_DEFAULTED`. New `STAKE_FORGIVEN` added for Phase 3's forgiveness action. We're still in testing — no backwards-compat shim; purge old names entirely. Phase 1 Commit 1 is the rename pass.
+
+12. ~~**Explicit-default eligibility check.**~~ **Locked: no bankroll gate; default always allowed.** The reputation hit is the cost, not forced bankroll payment. The leverage exploit (take cheap stake, win big, default cheap) is tolerated for v1 — the tier-degradation pressure of a sitting carry is the main consequence anyway, and explicit default trades that ongoing pressure for a one-shot single-lender reputation hit. If playtest shows systematic exploitation, follow-up work could scale the reputation hit by carry size or by bankroll-vs-carry ratio at default time.
+
+13. ~~**Multi-player.**~~ **Locked: out of scope for v1.** The cash-mode design is a single-player sandbox. Phase 5's `staker_kind='human'` ID surface uses `owner_id` and is generalized enough to support a future Minecraft-style private-invite mode, but no multi-player UI, dispute resolution, or human-vs-human relationship surface is in scope.
 
 ## Risks to flag before starting
 
-- **Existing players have outstanding loans (the
-  `active_loan_*` fields).** The Phase 1.2 migration handles
-  them, but the migration script should run before the new
-  settlement code path is live, else loans get lost. Standard
-  schema-migration ordering applies.
+- **Existing players have outstanding loans (the `active_loan_*` fields).** The Phase 1.2 migration handles them by translating into `stakes` rows. Run the migration before the new settlement code path is live, else loans get lost during the cutover.
 
-- **Test combinatorics explode.** Multi-loan settlement has many
-  branches (priority order, partial pays, carry-forward, all-or-
-  nothing default). Write the pure-function tests first
-  (Phase 1.3) before wiring the route.
+- **Test combinatorics are manageable here.** Under the original loan model, multi-loan settlement had many branches. Under stakes, there's one active stake per session, so settlement is single-branch: clean settle / partial carry / full bust. The surface shrinks meaningfully.
 
-- **UI complexity creep.** TabDrawer + lobby annotations + per-
-  loan actions is a lot of UI. v1 can ship with just the list
-  view ("here are your tabs") and add the "pay off now" action
-  later.
+- **AI-to-AI events could spam the ticker (Phase 4.5).** With full sim running real hands at unseated tables, 4 unseated tables × forced_leave rate × take_stake decisions could fire many events per minute. Apply the same `big_event_threshold` pattern from `cash_mode/full_sim.py` — only surface AI stakes above a chip threshold; smaller ones affect state silently.
 
-- **AI-to-AI events spam the ticker** (Phase 4.5). 4 unseated
-  tables × random AI loans could fire many events per minute.
-  Apply the same `big_event_threshold` pattern from fake_sim —
-  only surface AI loans above some chip threshold; smaller
-  ones just affect state silently.
+- **"Wealthy player owes $5k is a rounding error" problem.** Under stakes, the carry cap is `10 × min_buy_in @ tier` — a $200k player at $1000 stakes has a $200k carry cap. They can owe a lot, but the carry never threatens them mechanically. The structural fix is endgame chip sinks (Phase 5 staking, hosting tables, etc.); reputation enforcement is the narrative consequence but doesn't equalize the economic asymmetry.
+
+- ~~**Cross-stake leverage exploit.**~~ Already documented as **tolerated v1 behavior** in locked decision #12. Mentioned here so the Phase 2 implementer doesn't try to "fix" it by reintroducing a bankroll gate on default — that path was explicitly rejected during design.
 
 ## Files to read first
 
 1. **This doc** — design above.
-2. **`docs/technical/CASH_MODE_ECONOMY.md`** — single canonical
-   reference for the chip economy as built. Pools, flow paths,
-   conservation invariant, ledger vocabulary, tuning levers,
-   known issues. **Read this before touching any chip-moving
-   code.**
-3. **`docs/technical/CASH_MODE_FULL_SIM.md`** — sim mechanics
-   that Phase 4 hooks into (AI hands at unseated tables, real
-   chip dynamics, dealer rotation, psychology persistence).
-4. **`docs/plans/CASH_MODE_PATH_B_HANDOFF.md`** — what Path B
-   built; defines the lender_profile shape and the relationship
-   event wiring this handoff extends.
-5. **`docs/plans/CASH_MODE_CHIP_LEDGER_HANDOFF.md`** — the
-   ledger's reason vocabulary and audit model. Phase 1's loan
-   migration must preserve the existing `house_loan_*` entries.
-6. **`poker/repositories/schema_manager.py`** — current
-   `SCHEMA_VERSION` is 97; Phase 1 lands v98. Mirror the v90
-   (loan fields) and v93 (chip_ledger_entries) migration
-   patterns.
-7. **`cash_mode/loan_settlement.py:settle_loan_on_leave`** — the
-   single-loan function Phase 1.3 generalizes.
-8. **`cash_mode/movement.py:BankrollChange`** — the plumbing
-   pattern Phase 4 reuses for AI-borrow chip flows.
-9. **`cash_mode/sponsor_offers.py:compute_personality_offers`** —
-   where Phase 2.1's reputation gates land.
-10. **`flask_app/routes/cash_routes.py:leave_table`** — current
-    single-loan settlement call site; Phase 1.4 changes the contract.
-11. **`flask_app/services/chip_ledger_audit.py:compute_audit`** —
-    your correctness probe. Run before + after each commit;
-    `drift` delta should stay 0.
-12. **`poker/memory/relationship_events.py`** — `LOAN_DEFAULTED`
-    and friends already exist; Phase 4 adds AI-borrow events.
-13. **`cash_mode/activity.py`** — Phase 4.5 events + the dedupe
-    pattern (`ActivityTicker.tsx:dedupeChipPairs`) to mirror.
-14. **`react/react/src/components/cash/SponsorModal.tsx`** —
-    Phase 2.3 surfaces refusal reasons; Phase 3 adds the tab
-    drawer alongside.
+2. **`docs/technical/CASH_MODE_ECONOMY.md`** — canonical chip-economy reference. Pools, flow paths, conservation invariant, ledger vocabulary, known issues. **Read this before touching any chip-moving code.**
+3. **`docs/technical/CASH_MODE_FULL_SIM.md`** — sim mechanics that Phase 4 hooks into.
+4. **`docs/plans/CASH_MODE_PATH_B_HANDOFF.md`** — what Path B built; defines the lender_profile shape and the relationship event wiring this handoff extends.
+5. **`docs/plans/CASH_MODE_CHIP_LEDGER_HANDOFF.md`** — the ledger's reason vocabulary and audit model.
+6. **`poker/repositories/schema_manager.py`** — `SCHEMA_VERSION` is 97; Phase 1 lands v98.
+7. **`cash_mode/loan_settlement.py:settle_loan_on_leave`** — the function Phase 1.3 rewrites as `cash_mode/stake_settlement.py:settle_stake_on_leave`.
+8. **`cash_mode/movement.py:BankrollChange`** — plumbing pattern Phase 4 reuses for AI-borrow chip flows.
+9. **`cash_mode/sponsor_offers.py:compute_personality_offers`** — where Phase 2's tier-aware gates land.
+10. **`flask_app/routes/cash_routes.py:leave_table`** — current settlement call site; Phase 1.3 updates the contract.
+11. **`flask_app/services/chip_ledger_audit.py:compute_audit`** — your correctness probe. Run before + after each commit; `drift` delta should stay 0 except where new ledger entries explain it.
+12. **`poker/memory/relationship_events.py`** — `LOAN_*` event names exist here; Phase 1 Commit 1 renames them to `STAKE_*` and adds `STAKE_FORGIVEN` for Phase 3's forgiveness action.
+13. **`cash_mode/activity.py`** — Phase 4.5 events + the dedupe pattern (`ActivityTicker.tsx:dedupeChipPairs`) to mirror.
+14. **`react/react/src/components/cash/SponsorModal.tsx`** — Phase 2.3 surfaces refusal reasons; Phase 3 adds the Net Worth drawer alongside.
 
 ## Suggested ship order
 
-Phase 1 → Phase 3 → Phase 2 → Phase 4.
+**Phase 1 → Phase 3 → Phase 2 → Phase 4 → Phase 5.**
 
 Reasoning:
-- **Phase 1** is load-bearing (everything else assumes the new
-  table). Ship first.
-- **Phase 3** (tab UI) goes second — gives the player visibility
-  into the new persistent-loan world *before* you add
-  consequences. Avoids the experience of "I have a loan I didn't
-  know about and now Napoleon won't talk to me."
-- **Phase 2** (enforcement) third — adds teeth after the player
-  can see what they owe.
-- **Phase 4** (AI borrowers) last — biggest change to AI
-  behavior; needs all the prior pieces stable so debugging is
-  tractable.
+- **Phase 1** is load-bearing (everything else assumes the new table). Ship first.
+- **Phase 3** (Net Worth view) goes second — gives the player visibility into their carries *before* you add consequences. Avoids "I have a carry I didn't know about and now Napoleon won't talk to me."
+- **Phase 2** (enforcement) third — adds teeth after the player can see what they owe.
+- **Phase 4** (AI borrowers) fourth — biggest behavior change; needs prior pieces stable.
+- **Phase 5** (Human as staker) last — closes the staking loop; unlocks the endgame chip-sink work.
 
-A reasonable v2.5 stopping point is after Phase 3: the player
-has persistent debt, can see it, can pay it off voluntarily. Phase
-2's enforcement and Phase 4's AI economy are the v3 expansion
-that turns it from "I owe people" into "I'm part of a money
-network."
+A reasonable v2.5 stopping point is after Phase 3: persistent
+carries + Net Worth view + voluntary pay-off is a coherent
+shipped product. Phases 2, 4, and 5 are real expansions.
 
 ## Why this matters
 
 Each phase amplifies what the previous one set up. Path B made
-sponsorship *named* (it's Napoleon, not "Loan Shark"). This system
+backing *named* (it's Napoleon, not "Loan Shark"). This system
 makes it *consequential* (Napoleon remembers; Napoleon refuses;
-Napoleon needs loans of his own). When complete, the cash table
-isn't a series of disconnected sessions — it's a persistent
-financial graph that the player is a node in. The relationship
-layer was built for exactly this; this backing system is what
-makes it pay off.
+Napoleon needs stakes of his own; eventually you stake Napoleon
+back). When complete, the cash table isn't a series of
+disconnected sessions — it's a persistent financial graph that
+the player is a node in. The relationship layer was built for
+exactly this; this staking system is what makes it pay off.
 
 ## Strategic notes for starting now (2026-05-19 late)
 
-A few things have shifted since this doc was written that affect
-how I'd actually approach Phase 1:
+**1. The chip ledger is your safety net.** Run `compute_audit` before and after each commit. If `drift` delta is non-zero on a commit that shouldn't be moving chips (schema migration, data migration, frontend), you have an instrumentation gap. Catch it when the diff is small.
 
-**1. The chip ledger is your safety net.** Run `compute_audit`
-before and after each commit. If `drift` delta is non-zero on a
-commit that shouldn't be moving chips (schema migration, data
-migration, frontend), you have an instrumentation gap. Catch it
-when the diff is small. The audit endpoint is at
-`/api/admin/chip-ledger/audit` (admin only) or via
-`flask_app.services.chip_ledger_audit.compute_audit()`.
+**2. Phase 4 (AI borrowers) is meaningfully more interesting now than when this doc was first written.** Full sim runs real hands at unseated tables; AIs actually lose chips to each other. The "AI hits forced_leave because they ran cold" trigger is no longer hypothetical.
 
-**2. Phase 4 (AI borrowers) is meaningfully more interesting now
-than when this doc was written.** Full sim runs real hands at
-unseated tables; AIs actually lose chips to each other. The "AI
-hits forced_leave because they ran cold" trigger is no longer
-hypothetical. By the time you reach Phase 4, the AI population
-will have real economic motion to ride on.
+**3. The recommended ship order (1 → 3 → 2 → 4 → 5) holds.** Net Worth before consequences. Reputation before AI borrowers. AI borrowers before human-as-staker (Phase 5 builds on Phase 4's `borrower_kind='personality'` plumbing). Don't skip ahead.
 
-**3. The recommended ship order (1 → 3 → 2 → 4) still holds.**
-Tab UI before consequences. Reputation before AI borrowers.
-Don't be tempted to skip ahead — Phase 2's enforcement gates
-read state Phase 1 creates, and Phase 4's AI lending needs
-Phase 2's outstanding-debt checks to avoid runaway lending.
+**4. The economy doc (`CASH_MODE_ECONOMY.md`) is the place to update** as backing system phases ship. When Phase 1 lands, add a row to the "Pools" table for `stakes.carry_amount`. When Phase 4 ships, add an "AI stake carries" row. When Phase 5 ships, add "player-staker receivables."
 
-**4. The economy doc (`CASH_MODE_ECONOMY.md`) is the place to
-update** as backing system phases ship. When Phase 1 lands,
-add a row to the "Pools" table for active loan principals from
-the new `loans` table (replacing the `active_loan_*` field).
-When Phase 4 ships, add an "AI loans" pool and the new
-`EVENT_AI_LOAN` ledger reason (if you choose to ledger AI loans).
+**5. The player-has-no-cap problem gets worse under persistent carries, not better.** A wealthy player can carry meaningful debt as a rounding error. Reputation enforcement (Phase 2) helps narratively but not structurally. The structural fix is endgame chip sinks — Phase 5 staking is the first; hosting tables, appearance fees, custom-personality staking are the rest.
 
-**5. The player-has-no-cap problem (economy doc §"Known issues"
-item 3) gets *worse* under persistent loans, not better.** A
-player with $200k bankroll and Phase 1 persistent debt can owe
-$5k to Napoleon but it's a rounding error against their pile.
-Reputation enforcement (Phase 2) helps a bit (Napoleon refusing
-matters for narrative even if not for chips), but the structural
-fix is the unwritten chip-sink work. Note in your playtest
-journal if/when persistent debt starts feeling toothless against
-a high-bankroll player.
+**6. Phase 1 is ~5 commits and you'll be tempted to bundle.** Don't. The event rename (Commit 1), data migration (Commit 3), and settlement rewrite (Commit 4) each have enough surface area that splitting gives the chip ledger a clean diff to verify against. Run `compute_audit` between each commit.
 
-**6. Phase 1 is ~4 commits and you'll be tempted to bundle.**
-Don't. The data migration (Commit 2) and the settlement
-generalization (Commit 3) each have enough surface area that
-splitting them gives the chip ledger a clean diff to verify
-against. If you bundle and drift moves, you'll be bisecting which
-half caused it.
+**7. Personality / human stakes are pure transfers; house stakes are ledgered.** Phase 1's `settle_stake_on_leave` dispatch must preserve this distinction. Easy to drop on the floor in a generalization pass — call it out in the test matrix.
 
-**7. Personality loans are pure transfers; house loans are
-ledgered.** Phase 1's `settle_all_active_loans` dispatch must
-preserve this. The settle function needs the loan's `lender_kind`
-on every loan to decide whether to fire `house_loan_settle` or
-emit no ledger entry. Easy to drop on the floor in a generalization
-pass — call it out in the test matrix.
+**8. v2.5 stopping point after Phase 3 is genuinely viable.** Persistent carries + Net Worth view + voluntary pay-off + forgiveness request is a coherent shipped product on its own. A week of playtest between Phase 3 and Phase 2 would tell you if reputation enforcement feels needed or if visibility + forgiveness texture is enough.
 
-**8. v2.5 stopping point after Phase 3 is genuinely viable.**
-Persistent debt + visible tabs + voluntary pay-off is a coherent
-shipped product. Phases 2 and 4 are real expansions; don't feel
-compelled to chain straight through. A week of playtest between
-Phase 3 and Phase 2 would tell you if reputation feels needed
-or if persistent debt alone is enough texture.
+**9. The vocabulary lock matters.** v1 ships a clean `STAKE_*` event vocabulary across the dispatch table, axes shifts, and call sites. Don't reintroduce `loan` terminology in new code. The mental model: a stake is a session deal with a cut on upside, NOT a term loan with amortization. Path B-era variable names will get renamed in the Phase 1 Commit 1 rename pass.
+
+**10. The default cascade you might worry about doesn't exist.** When a staker lends, those chips leave their bankroll immediately. The borrower's subsequent loss doesn't propagate back. The chips are wherever they ended up via gameplay — typically other AIs' seats. Simultaneous staker+borrower is a feature, not a risk — see locked decision #4 and the Phase 4 implementation notes.
+
+**11. Three paths to clear a carry, none of them force bankroll movement.** (1) Voluntary "Pay off now" in the Net Worth drawer — player choice, debits bankroll → staker. (2) Garnishment on a new stake from the same lender — chips come from session winnings, not bankroll. (3) Forgiveness request via relationship axes — no chips move, the IOU is written off. (4) Explicit default — clears the carry in exchange for a reputation hit; no chips move. The deliberate exclusion of "force payment as default precondition" is locked decision #12.
+
+**12. Multi-player isn't on the roadmap.** Phase 5 generalizes `staker_kind='human'` enough that a future private-invite multi-player mode could ship without schema churn, but no v1 or v2 work assumes multi-player. If you find yourself designing for "what if two humans share a session," stop and confirm with the product owner before continuing.
