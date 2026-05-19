@@ -226,3 +226,89 @@ def record_house_loan_issue(
         reason='house_loan_issue',
         context=context,
     )
+
+
+def record_cap_clamp(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    overflow: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """ai → central_bank for chips that would push past `bankroll_cap`.
+
+    Fired by `credit_ai_cash_out` when the AI's table stack would
+    push the bankroll past its cap; the excess effectively evaporates
+    back into the bank. No-op when `overflow <= 0`.
+    """
+    if repo is None or overflow <= 0:
+        return None
+    return record(
+        repo,
+        source=ai(personality_id),
+        sink=bank(),
+        amount=overflow,
+        reason='cap_clamp',
+        context=context,
+    )
+
+
+def record_house_loan_settle(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """player → central_bank for an anonymous house-loan settle.
+
+    Sponsor_total (floor + cut) goes back to the bank on leave-time
+    settlement. Path B (named personality lender) doesn't route here
+    — sponsor_total credits the lender's persistent bankroll instead,
+    a pure non-bank transfer.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=player(owner_id),
+        sink=bank(),
+        amount=amount,
+        reason='house_loan_settle',
+        context=context,
+    )
+
+
+def record_forgive_balance(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+    forgiven_principal: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """Annotation row (amount=0) — house loan principal not recovered.
+
+    Fired when the player leaves a house-loan session with
+    `chips_at_table < floor`. The unrecovered principal already
+    exists in the universe (it flowed into other AI's table stacks
+    during play and gets caught at credit_ai_cash_out). This
+    annotation only exists so the audit endpoint can reconcile:
+    `sum(house_loan_issue) - sum(house_loan_settle) -
+    sum(forgive_balance.context.forgiven_principal)` equals
+    outstanding house-loan principal.
+
+    Always source=player, sink=bank to keep the central-bank-side
+    rule simple. Amount is 0 by construction.
+    """
+    if repo is None or forgiven_principal <= 0:
+        return None
+    ctx = dict(context or {})
+    ctx['forgiven_principal'] = int(forgiven_principal)
+    return record(
+        repo,
+        source=player(owner_id),
+        sink=bank(),
+        amount=0,
+        reason='forgive_balance',
+        context=ctx,
+    )

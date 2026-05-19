@@ -202,9 +202,9 @@ def credit_ai_cash_out(
 
     `chip_ledger_repo` (optional) opts the call into ledger
     instrumentation. When provided, the regen portion of the write
-    (projected - stored.chips, if positive) fires an `ai_regen` entry
-    here in commit 2; commit 3 adds the cap-clamp entry. None disables
-    instrumentation entirely so tests don't need the repo.
+    fires an `ai_regen` entry and any overflow above `bankroll_cap`
+    fires a `cap_clamp` entry. None disables instrumentation
+    entirely so tests don't need the repo.
     """
     if player_stack <= 0:
         return None
@@ -237,6 +237,20 @@ def credit_ai_cash_out(
             stored_chips=stored.chips,
             projected_chips=projected,
             context=ctx,
+        )
+        # Cap clamp: chips that came off the table but couldn't fit
+        # in the bankroll evaporate back to the bank. Pre-clamp
+        # value = projected + player_stack; overflow = excess.
+        overflow = max(0, (projected + player_stack) - knobs.bankroll_cap)
+        clamp_ctx = dict(ctx)
+        clamp_ctx['cap'] = knobs.bankroll_cap
+        clamp_ctx['projected'] = projected
+        clamp_ctx['player_stack'] = player_stack
+        chip_ledger.record_cap_clamp(
+            chip_ledger_repo,
+            personality_id=personality_id,
+            overflow=overflow,
+            context=clamp_ctx,
         )
     logger.info(
         "[CASH] AI cash-out %r: +%d (projected=%d) → %d (cap %d)",
