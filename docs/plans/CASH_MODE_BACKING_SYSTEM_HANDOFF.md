@@ -67,7 +67,16 @@ table. Loans become rows you can query (history, outstanding
 balances, who-owes-whom). One borrower can hold multiple loans
 from multiple lenders concurrently.
 
-### Schema v93
+### Schema v95+
+
+> **Doc was written assuming v93 for the loans table.** Schema v93
+> and v94 were claimed by the chip-ledger handoff (ledger table +
+> pre-ledger seed). Use the next available number when implementing
+> Phase 1 — at time of writing that's **v95 or later** depending on
+> what's landed in `schema_manager.py` between now and the start of
+> Phase 1. Update the migrations dict and the SCHEMA_VERSION
+> constant accordingly. All references below to "v93" should be
+> read as "the new loans-table migration."
 
 ```sql
 CREATE TABLE loans (
@@ -96,7 +105,7 @@ sessions settle partial repayments — see Phase 1.4 below.
 
 ### Phase 1 commit breakdown (~4 commits)
 
-**Commit 1: Schema v93 — loans table + repo**
+**Commit 1: Schema (next available, was-v93) — loans table + repo**
 - Idempotent CREATE TABLE.
 - New `poker/repositories/loan_repository.py` with
   `create_loan`, `load_loan`, `list_active_for_borrower`,
@@ -364,8 +373,9 @@ player's interactions are one node in a much larger graph.
    built; defines the lender_profile shape and the relationship
    event wiring.
 4. **`poker/repositories/schema_manager.py`** — v90 (loan fields)
-   and v92 (cash_idle_pool) are the patterns to mirror for v93
-   (loans table).
+   and v92 (cash_idle_pool) are the patterns to mirror for the
+   new loans-table migration. Use the next available version
+   number (v93 + v94 are taken by the chip-ledger work).
 5. **`cash_mode/loan_settlement.py:settle_loan_on_leave`** — the
    single-loan function Phase 1.3 generalizes.
 6. **`cash_mode/sponsor_offers.py:compute_personality_offers`** —

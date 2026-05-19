@@ -109,6 +109,15 @@ def ensure_lobby_seeded(
     debits each seated AI's persistent bankroll for `ai_buy_in`).
     That way, re-seeding (idempotent boot pass) doesn't double-spend
     AI bankrolls.
+
+    Side effect on chip-ledger audit (v0): because the AI bankrolls
+    are intact AND the seat chips are counted by `cash_table_seats_ai`,
+    the audit double-counts the placeholder amount and reports
+    `drift = -cash_table_seats_ai` after a fresh seed. This is a known
+    v0 limitation pinned by `tests/test_chip_ledger_lobby_seed.py`.
+    Fix path: either debit AI bankrolls at seed time (a pure transfer,
+    no ledger event needed) and credit back on table removal, or
+    teach the audit to dedupe table seats against AI bankrolls.
     """
     if now is None:
         now = datetime.utcnow()
