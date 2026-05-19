@@ -102,20 +102,72 @@ def _relationship_hint(
     return ""
 
 
+def _derive_traits_from_anchors(anchors: dict) -> dict:
+    """Map the v2 psychology anchors to the legacy four-trait dict.
+
+    All 53 seed personalities in `personalities.json` use the anchors
+    shape and never set `personality_traits` — only the 39 user-
+    created personalities (added via the admin tool) carry the legacy
+    dict directly. Without this derivation the BEHAVIORAL INDEX
+    section drops for the entire seed cast.
+
+    Mapping (each value clamped to [0, 1]):
+      - aggression     = baseline_aggression                    (direct)
+      - chattiness     = expressiveness                         (direct — "0=poker face, 1=open book")
+      - bluff_tendency = (baseline_aggression + risk_identity)/2 (aggressive AND risk-seeking → more bluffs)
+      - emoji_usage    = (expressiveness + baseline_energy)/2   (rendered as "Theatrics")
+    """
+    def get(key: str) -> Optional[float]:
+        v = anchors.get(key)
+        return float(v) if isinstance(v, (int, float)) else None
+
+    agg = get('baseline_aggression')
+    expr = get('expressiveness')
+    risk = get('risk_identity')
+    energy = get('baseline_energy')
+
+    def avg(a: Optional[float], b: Optional[float]) -> Optional[float]:
+        if a is None or b is None:
+            return None
+        return max(0.0, min(1.0, (a + b) / 2))
+
+    return {
+        'bluff_tendency': avg(agg, risk),
+        'aggression':     agg,
+        'chattiness':     expr,
+        'emoji_usage':    avg(expr, energy),
+    }
+
+
 def _build_personality_payload(personality_id: str) -> dict:
-    """Return the subset of personality fields the dossier renders."""
+    """Return the subset of personality fields the dossier renders.
+
+    Trait values come from `personality_traits` when set; otherwise
+    they're derived from the v2 `anchors` block via
+    `_derive_traits_from_anchors`. Either way the BEHAVIORAL INDEX
+    section in the dossier gets the data it needs.
+    """
     from flask_app.extensions import personality_repo
     try:
         p = personality_repo.load_personality_by_id(personality_id) or {}
     except Exception:
         p = {}
+
     traits = p.get('personality_traits') or {}
+    # Legacy block missing or all-null? Fall back to anchors.
+    if not any(traits.get(k) is not None for k in (
+        'bluff_tendency', 'aggression', 'chattiness', 'emoji_usage',
+    )):
+        anchors = p.get('anchors') or {}
+        if anchors:
+            traits = _derive_traits_from_anchors(anchors)
+
     return {
         'name': p.get('name'),
         'nickname': p.get('nickname'),
         'play_style': p.get('play_style'),
-        'attitude': p.get('attitude'),
-        'confidence': p.get('confidence'),
+        'attitude': p.get('attitude') or p.get('default_attitude'),
+        'confidence': p.get('confidence') or p.get('default_confidence'),
         'signature_line': p.get('signature_line'),
         'personality_traits': {
             'bluff_tendency': traits.get('bluff_tendency'),
