@@ -24,11 +24,18 @@ last_updated: 2026-05-19
 >   `house_loan_settle` / `forgive_balance` entries as it
 >   re-homes loans into the new table. See "Chip ledger
 >   interaction" below.
-> - **Full Sim** (schemas v96+v97). Real AI hands at unseated
->   tables; psychology persists; dealer rotates. Phase 4's "AI
+> - **Full Sim** (schemas v96+v97) — see
+>   [`CASH_MODE_FULL_SIM.md`](../technical/CASH_MODE_FULL_SIM.md)
+>   for the technical reference. Real AI hands at unseated
+>   tables; psychology persists across sessions and backend
+>   restarts; dealer rotates in real engine order. Phase 4's "AI
 >   hits forced_leave → take_loan" trigger now has real chip
->   dynamics behind it (was hypothetical when this doc was
->   first written).
+>   dynamics behind it — a busting AI is one who tilted off
+>   their stack vs a specific opponent, not a uniform-random
+>   chip drift. The relationship layer's heat / respect /
+>   likability axes drive lender willingness AND borrower
+>   psychology now, which is the texture that made this whole
+>   doc worth writing.
 > - **Lobby-seed leak fix** (`f04e048b`). New `BankrollChange`
 >   plumbing in `cash_mode/movement.py` — pure helper signals
 >   what bankroll mutations to apply; caller persists them. **Phase

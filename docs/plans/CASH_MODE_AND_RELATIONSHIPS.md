@@ -2,7 +2,7 @@
 purpose: Design for the relationship/affinity layer and a multi-table cash-game mode that consumes it
 type: design
 created: 2026-05-16
-last_updated: 2026-05-18
+last_updated: 2026-05-19
 ---
 
 # Cash Mode and Relationships
@@ -613,14 +613,47 @@ Chips move between `PlayerBankrollState.chips` (bankroll) and the player's seat 
 - `stop_loss_buy_ins` / `stop_win_buy_ins` per-personality knobs **deferred to v2** — adds session-length tracking complexity not justified for single-table v1.
 - AI does not stand up mid-session unless busted.
 
-### AI table selection — deferred to v2
+### AI table selection — as shipped (v1.5 + full sim)
 
-Single-table v1 has no selection problem: AI eligible for the current stake are candidates; selection is filling open seats. v2 adds:
+> **Updated 2026-05-19:** lobby v1.5 + full sim shipped. The
+> selection and seating-cadence subsystems below are live. See
+> [CASH_MODE_FULL_SIM.md](../technical/CASH_MODE_FULL_SIM.md)
+> for the technical reference on what runs per lobby read.
 
-1. **Affordable** — `project_bankroll() >= min_buy_in × buy_in_multiplier`.
-2. **Stake comfort zone** — bias toward `stake_comfort_zone` from personality.
-3. **Highest affordable upward drift** — probabilistic shop-up.
-4. **Rivalry seek** — `project_heat(player) > threshold` biases toward player's table. **The cash-mode payoff of the relationship layer.**
+**Roster maintenance** runs inside
+`cash_mode.lobby.refresh_unseated_tables`, called from
+`GET /api/cash/lobby`. For every table without a human seated:
+
+1. **Sim hand cadence**:
+   - Gap < 30 s since last refresh → probability-gated single
+     hand (`hand_sim_prob`, default 0.25).
+   - Gap ≥ 30 s → burst-tick `floor(gap / 20s)` hands, capped
+     at 30 per table per refresh.
+2. **Per hand**: rotate dealer to next occupied seat, run
+   `play_one_hand` (TieredBotController-driven), mutate seat
+   chips, persist dealer position to `cash_tables.dealer_idx`.
+3. **Movement decisions** evaluated against the post-sim chip
+   counts (`refresh_table_roster`):
+   - **Affordable** — `project_bankroll() >= min_buy_in × buy_in_multiplier`.
+   - **Forced leave** — chips ≤ 0.3 × buy_in (bust + recovery).
+   - **Stake up** — chips ≥ 2.0 × buy_in AND can afford next tier.
+   - **Take break** — same big-win threshold, smaller probability.
+   - **Bored move** — base-rate cycling (0.015 per refresh).
+4. **Live-fill** rolls on open seats — AIs from the idle pool or
+   the broader eligible pool walk up. Personality bankroll is
+   debited into the seat.
+
+**Still on the v2/v3 wishlist**:
+
+- **Stake comfort zone bias** — `stake_comfort_zone` knob exists
+  but isn't yet used to bias movement decisions.
+- **Highest affordable upward drift** — current stake-up is
+  one-tier; "shop up multiple tiers when bankroll explodes"
+  isn't wired.
+- **Rivalry seek** — `project_heat(player) > threshold` biases
+  toward player's table. **The cash-mode payoff of the
+  relationship layer.** Not yet implemented; would slot into
+  `evaluate_ai_movement` as a new decision option.
 
 ### v1 architectural invariants (so v2/v3 don't require redesign)
 

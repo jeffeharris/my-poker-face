@@ -1,16 +1,24 @@
 ---
-purpose: Implementation handoff for full background simulation — replace fake-sim chip drift with actual AI-only poker hands at unseated tables, surface hand-level drama to the lobby. Captures design rationale from the lobby v1.5 + fake-sim lite work, plus Phase 0 spike findings (2026-05-19).
+purpose: Historical handoff for full background simulation — captures the design rationale and commit-by-commit plan that led to shipping. For "how the sim works now," read CASH_MODE_FULL_SIM.md.
 type: guide
 created: 2026-05-19
 last_updated: 2026-05-19
 ---
 
-# Cash Mode — Full Sim Handoff
+# Cash Mode — Full Sim Handoff (SHIPPED)
+
+> **Status: SHIPPED 2026-05-19.** All commits 1-7 landed; the doc
+> sweep (commit 8) is this update. For the current technical
+> reference — architecture, invariants, performance, limitations,
+> follow-on opportunities — read
+> [CASH_MODE_FULL_SIM.md](../technical/CASH_MODE_FULL_SIM.md).
+> This handoff stays as the historical record of design choices
+> and the iterative path the implementation took.
 
 This doc supersedes `CASH_MODE_PATH_C_DESIGN.md` (which was
 written before any of the lobby/sim work shipped and is now
-historical). Read this for the current implementation plan, the
-older doc for the original conception.
+historical). Read this for the design journey and per-commit
+plan; read the technical doc above for the system as built.
 
 > **Related:** the [chip ledger](CASH_MODE_CHIP_LEDGER_HANDOFF.md)
 > instruments every chip creation / destruction in cash mode. Once
@@ -264,7 +272,7 @@ per 2026-05-19 design discussion. Phase 0 spike is DONE — see
 
 Estimated effort: ~6-7 days total (was 5 pre-scope-add).
 
-**Commit 1: `cash_mode/full_sim.py` skeleton + controller cache**
+**Commit 1: `cash_mode/full_sim.py` skeleton + controller cache** — SHIPPED (`9bcd0beb`)
 - `HandSimResult` dataclass (mirroring `FakeHandResult` shape +
   extras).
 - `play_one_hand(seats, big_blind, rng)` — initial implementation
@@ -280,7 +288,7 @@ Estimated effort: ~6-7 days total (was 5 pre-scope-add).
 - Tests: parity with `roll_fake_hand` outputs; cache eviction
   works; cache hit returns the same controller instance.
 
-**Commit 2: Real hand engine integration + dealer rotation**
+**Commit 2: Real hand engine integration + dealer rotation** — SHIPPED (`9bcd0beb` engine, `8b63e3c1` dealer sync, `a33a137d` schema v96)
 - `play_one_hand` now constructs a minimal `GameState`, seats
   the AIs at it with their persisted chip counts, runs the hand
   engine until showdown, captures the result.
@@ -304,7 +312,7 @@ Estimated effort: ~6-7 days total (was 5 pre-scope-add).
   side effects; dealer rotates correctly across N hands
   including skips when a seat is open.
 
-**Commit 2.5: Snapshot pruning in `play_one_hand`**
+**Commit 2.5: Snapshot pruning in `play_one_hand`** — SHIPPED via different mechanism (`baf7f0e6` adds `record_snapshots=False` flag to `ImmutableStateMachine`; `play_one_hand` uses it; `d2df222c` adds the tracemalloc test pinning < 5 MB heap growth over 1000 hands)
 - Spike found `advance_state_pure` appends to a snapshots tuple
   that never gets pruned (~25 MB / 1000 hands). For player-
   visible sessions this never hits a wall — one hand at a time,
@@ -318,7 +326,7 @@ Estimated effort: ~6-7 days total (was 5 pre-scope-add).
 - Tests: memory profile across 1000 hands stays flat (use
   `tracemalloc` snapshot diff; tolerance ±5 MB).
 
-**Commit 3: Schema for emotional state persistence + cache discipline**
+**Commit 3: Schema for emotional state persistence + cache discipline** — SHIPPED (`dabae3f0` schema v97, `5fc1a10a` cache hydrate/flush). On-evict flush deliberately deferred — see CASH_MODE_FULL_SIM.md "Opportunities."
 - New migration: add `emotional_state_json TEXT NULL` to
   `ai_bankroll_state`. Mirrors v83's `controller_state.psychology_json`
   precedent.
@@ -333,7 +341,7 @@ Estimated effort: ~6-7 days total (was 5 pre-scope-add).
   preserves state; flush cadence works; NULL column treats AI
   as fresh-confident.
 
-**Commit 4: Swap fake-sim for full sim at the call site**
+**Commit 4: Swap fake-sim for full sim at the call site** — SHIPPED (`9bcd0beb`). Kwarg renamed `fake_hand_prob` → `hand_sim_prob`; `_emit_fake_sim_events` → `_emit_sim_events`.
 - `cash_mode/lobby.py:refresh_unseated_tables` imports
   `play_one_hand` instead of `roll_fake_hand`. The function
   signatures match by construction.
@@ -346,7 +354,7 @@ Estimated effort: ~6-7 days total (was 5 pre-scope-add).
   taking a bad beat ends the refresh with non-confident state
   persisted.
 
-**Commit 5: Lobby emotion + dealer indicators**
+**Commit 5: Lobby emotion + dealer indicators** — SHIPPED (`d2df222c` emotion resolver, `8b63e3c1` dealer sync, `ddeafaec` frontend UI badge). Wall-clock decay-on-read deliberately deferred — see CASH_MODE_FULL_SIM.md "Opportunities."
 - `/api/cash/lobby` response:
   - Emotion resolver: for AIs at unseated tables, read
     `emotional_state_json` instead of defaulting to "confident".
@@ -370,7 +378,7 @@ Estimated effort: ~6-7 days total (was 5 pre-scope-add).
   index round-trips correctly; UI dealer badge renders on the
   expected seat.
 
-**Commit 6: Hand-level events**
+**Commit 6: Hand-level events** — SHIPPED (`9bcd0beb`). BUST + ALL_IN detected; SUCKOUT deferred (needs per-street equity tracking — see CASH_MODE_FULL_SIM.md "Opportunities").
 - After `play_one_hand` returns, inspect `hand_events` and emit
   corresponding `LobbyEvent`s.
 - New event types in `cash_mode/activity.py`: `all_in`,
@@ -380,7 +388,7 @@ Estimated effort: ~6-7 days total (was 5 pre-scope-add).
   `burst_summary` event for compressed activity.
 - Frontend handles the new event types with appropriate styling.
 
-**Commit 7: Catch-up burst on long-gap reads**
+**Commit 7: Catch-up burst on long-gap reads** — SHIPPED (`9bcd0beb`). `hand_burst_count` reads `last_activity_at` directly; no new schema needed.
 - Track `last_refresh_at` per table in `cash_tables`.
 - If a refresh happens > N seconds after last refresh, burst-tick
   multiple hands (capped at 30 per table) instead of just one.
@@ -388,7 +396,9 @@ Estimated effort: ~6-7 days total (was 5 pre-scope-add).
 - Tests: gap > threshold triggers burst; cap respected; emotional
   state persists across burst boundaries.
 
-**Commit 8: Docs sweep**
+**Commit 8: Docs sweep** — SHIPPED (this commit). New
+[CASH_MODE_FULL_SIM.md](../technical/CASH_MODE_FULL_SIM.md) is
+the canonical technical reference going forward.
 - Mark this handoff shipped.
 - Update `CASH_MODE_AND_RELATIONSHIPS.md` Part 2 §"AI table
   selection" to reflect the actual cadence.
