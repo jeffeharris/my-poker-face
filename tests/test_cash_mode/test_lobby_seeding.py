@@ -323,23 +323,26 @@ class TestKillAllCashSessions:
         assert "tournament-1" in service.games
         assert dropped == 2
 
-    def test_drops_persisted_cash_rows(self):
+    def test_preserves_persisted_cash_rows(self):
+        """Persisted cash rows survive boot — they're the resume target."""
         service = _FakeGameStateService()
         repo = _FakeGameRepo([
             _row("cash-old-1"),
             _row("cash-old-2"),
-            _row("tournament-3"),  # untouched
+            _row("tournament-3"),
         ])
         dropped = kill_all_cash_sessions(
             game_state_service=service,
             game_repo=repo,
         )
-        assert "cash-old-1" in repo.deleted
-        assert "cash-old-2" in repo.deleted
-        assert "tournament-3" not in repo.deleted
-        assert dropped == 2
+        assert repo.deleted == []
+        # Only in-memory wipe counts; nothing to wipe here.
+        assert dropped == 0
 
-    def test_drops_both_in_memory_and_persisted(self):
+    def test_drops_in_memory_but_keeps_persisted(self):
+        """In-memory cash games are still cleared (no-op in production
+        boot since memory starts empty, but useful for callers that
+        want a hard reset). Persisted rows untouched."""
         service = _FakeGameStateService(initial={
             "cash-abc": {"cash_mode": True, "owner_id": "u1"},
         })
@@ -351,8 +354,9 @@ class TestKillAllCashSessions:
             game_state_service=service,
             game_repo=repo,
         )
-        # cash-abc dropped from memory; cash-old-1 from DB.
-        assert dropped == 2
+        assert "cash-abc" in service.deleted
+        assert repo.deleted == []
+        assert dropped == 1
 
     def test_empty_state_returns_zero(self):
         service = _FakeGameStateService()
@@ -360,3 +364,97 @@ class TestKillAllCashSessions:
         assert kill_all_cash_sessions(
             game_state_service=service, game_repo=repo,
         ) == 0
+
+
+class TestKillAllCashSessionsHumanSeatReset:
+    """Orphan-seat reconcile.
+
+    A `"human"` seat is orphan when its owner has no surviving `cash-*`
+    row. Those get reset + refunded. Seats backed by a real row stay
+    intact so the player can resume on reconnect.
+    """
+
+    def test_resets_orphan_seat_and_refunds_chips(
+        self, cash_table_repo, bankroll_repo
+    ):
+        from cash_mode.bankroll import PlayerBankrollState
+        from cash_mode.tables import CashTableState, human_slot, open_slot
+
+        seats = [open_slot() for _ in range(6)]
+        seats[4] = human_slot("guest_jeff", 150)
+        cash_table_repo.save_table(CashTableState(
+            table_id="cash-table-2-001",
+            stake_label="$2",
+            seats=seats,
+        ))
+        bankroll_repo.save_player_bankroll(PlayerBankrollState(
+            player_id="guest_jeff",
+            chips=148,
+            starting_bankroll=200,
+        ))
+
+        # No cash row for guest_jeff → seat is orphan.
+        kill_all_cash_sessions(
+            game_state_service=_FakeGameStateService(),
+            game_repo=_FakeGameRepo([]),
+            cash_table_repo=cash_table_repo,
+            bankroll_repo=bankroll_repo,
+        )
+
+        reloaded = cash_table_repo.load_table("cash-table-2-001")
+        assert reloaded.seats[4] == open_slot()
+        br = bankroll_repo.load_player_bankroll("guest_jeff")
+        assert br.chips == 298  # 148 + 150
+
+    def test_preserves_seat_when_cash_row_exists(
+        self, cash_table_repo, bankroll_repo
+    ):
+        """Backing row present → seat stays seated for resume."""
+        from cash_mode.bankroll import PlayerBankrollState
+        from cash_mode.tables import CashTableState, human_slot, open_slot
+
+        seats = [open_slot() for _ in range(6)]
+        seats[4] = human_slot("guest_jeff", 150)
+        cash_table_repo.save_table(CashTableState(
+            table_id="cash-table-2-001",
+            stake_label="$2",
+            seats=seats,
+        ))
+        bankroll_repo.save_player_bankroll(PlayerBankrollState(
+            player_id="guest_jeff",
+            chips=148,
+            starting_bankroll=200,
+        ))
+
+        kill_all_cash_sessions(
+            game_state_service=_FakeGameStateService(),
+            game_repo=_FakeGameRepo([_row("cash-live-1", owner_id="guest_jeff")]),
+            cash_table_repo=cash_table_repo,
+            bankroll_repo=bankroll_repo,
+        )
+
+        reloaded = cash_table_repo.load_table("cash-table-2-001")
+        assert reloaded.seats[4]["kind"] == "human"
+        assert reloaded.seats[4]["chips"] == 150
+        br = bankroll_repo.load_player_bankroll("guest_jeff")
+        assert br.chips == 148  # not refunded — seat still claims it
+
+    def test_skipped_when_repos_not_provided(self, cash_table_repo):
+        """Older test harnesses don't pass the new repos — no-op for seats."""
+        from cash_mode.tables import CashTableState, human_slot, open_slot
+
+        seats = [open_slot() for _ in range(6)]
+        seats[0] = human_slot("guest_jeff", 100)
+        cash_table_repo.save_table(CashTableState(
+            table_id="cash-table-2-001",
+            stake_label="$2",
+            seats=seats,
+        ))
+
+        kill_all_cash_sessions(
+            game_state_service=_FakeGameStateService(),
+            game_repo=_FakeGameRepo([]),
+        )
+
+        reloaded = cash_table_repo.load_table("cash-table-2-001")
+        assert reloaded.seats[0]["kind"] == "human"

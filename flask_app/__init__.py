@@ -109,6 +109,8 @@ def create_app():
         kill_all_cash_sessions(
             game_state_service=game_state_service,
             game_repo=extensions.game_repo,
+            cash_table_repo=extensions.cash_table_repo,
+            bankroll_repo=extensions.bankroll_repo,
         )
         ensure_lobby_seeded(
             cash_table_repo=extensions.cash_table_repo,
