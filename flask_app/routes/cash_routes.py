@@ -1763,7 +1763,7 @@ def get_lobby():
     return jsonify({
         "bankroll": bankroll.chips,
         "tables": response_tables,
-        "events": [serialize_event(e) for e in recent_events(limit=10)],
+        "events": [serialize_event(e) for e in recent_events(limit=5)],
     })
 
 
