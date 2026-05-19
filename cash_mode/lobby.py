@@ -44,7 +44,7 @@ from cash_mode.movement import (
     RosterRefreshResult,
     refresh_table_roster,
 )
-from cash_mode.stakes import (
+from cash_mode.stakes_ladder import (
     STAKES_LADDER,
     STAKES_ORDER,
     table_buy_in_window,
@@ -362,7 +362,49 @@ def refresh_unseated_tables(
             rng=rng,
         )
 
+        # Per-hand movement + fill: each sim hand drives one movement
+        # evaluation and one live-fill roll per open seat. Replaces the
+        # prior "one refresh after the whole burst" cadence, which made
+        # fills tied to poll frequency rather than table activity.
+        # Aggregate the per-hand results so persistence + event emission
+        # below sees the full burst's worth of changes.
+        from cash_mode.full_sim import _get_default_controller_cache
+        controller_cache = _get_default_controller_cache()
+
+        def _psych_lookup_sim(pid: str) -> Dict[str, Any]:
+            ctrl = controller_cache.get(pid)
+            if ctrl is None:
+                return {}
+            psych = getattr(ctrl, 'psychology', None)
+            if psych is None:
+                return {}
+            try:
+                zone = getattr(psych, 'primary_zone', 'neutral')
+            except Exception:
+                zone = 'neutral'
+            try:
+                intensity = min(1.0, float(psych.zone_effects.total_penalty_strength))
+            except Exception:
+                intensity = 0.0
+            return {
+                'energy': float(getattr(psych, 'energy', 0.5)),
+                'zone': zone,
+                'hands_in_detached_zone': int(getattr(ctrl, '_detached_hands', 0)),
+                'emotional_intensity': intensity,
+            }
+
+        # Snapshot pre-burst table for _emit_activity_events below.
+        # `table` gets reassigned each iteration to the post-hand result,
+        # so without this snapshot the diff-aware event helper would see
+        # the wrong "previous" state.
+        previous_table_snapshot = table
+
         sim_results: List[HandSimResult] = []
+        agg_decisions: Dict[str, str] = {}
+        agg_idle_changes = []
+        agg_bankroll_changes = []
+        agg_freshly_seated: List[str] = []
+        agg_rebuy_changes = []
         for _ in range(burst_n):
             # Rotate the dealer button to the next occupied seat for
             # this hand. Matters for seat-choice UX — when a player
@@ -398,20 +440,70 @@ def refresh_unseated_tables(
                 table.dealer_idx = r.dealer_seat_idx
             sim_results.append(r)
 
-        result = refresh_table_roster(
-            table,
-            idle_pool=idle_pool,
-            eligible_candidates=eligible,
-            seated_globally=seated_globally,
-            bankroll_lookup=_bankroll_lookup,
-            buy_in_lookup=_buy_in_for,
-            rng=rng,
-            now=now,
-            stake_idx=stake_idx,
-            table_min_buy_in=table_min_buy_in,
-            table_max_buy_in=table_max_buy_in,
-            next_tier_min_buy_in=next_tier_min_buy_in,
-            live_fill_prob=live_fill_prob,
+            # Advance detached counters for AI seats now that the hand
+            # has resolved (their psychology reflects this hand's events).
+            for slot in table.seats:
+                if slot.get('kind') != 'ai':
+                    continue
+                pid = slot.get('personality_id')
+                ctrl = controller_cache.get(pid) if pid else None
+                if ctrl is None:
+                    continue
+                psych = getattr(ctrl, 'psychology', None)
+                if psych is None:
+                    continue
+                try:
+                    zone = getattr(psych, 'primary_zone', 'neutral')
+                except Exception:
+                    zone = 'neutral'
+                prior = getattr(ctrl, '_detached_hands', 0)
+                ctrl._detached_hands = (prior + 1) if zone == 'detached' else 0
+
+            # Per-hand movement + fill. Each iteration sees the latest
+            # seat state (chips updated by play_one_hand) and rolls
+            # against the same pressure model used at seated tables.
+            per_hand = refresh_table_roster(
+                table,
+                idle_pool=idle_pool,
+                eligible_candidates=eligible,
+                seated_globally=seated_globally,
+                bankroll_lookup=_bankroll_lookup,
+                buy_in_lookup=_buy_in_for,
+                rng=rng,
+                now=now,
+                stake_idx=stake_idx,
+                table_min_buy_in=table_min_buy_in,
+                table_max_buy_in=table_max_buy_in,
+                next_tier_min_buy_in=next_tier_min_buy_in,
+                live_fill_prob=live_fill_prob,
+                defer_freshly_vacated_live_fill=True,
+                psych_lookup=_psych_lookup_sim,
+            )
+            # Carry the post-hand table forward to the next iteration.
+            table = per_hand.new_table
+            # Refresh idle_pool snapshot from in-memory aggregates so the
+            # next iteration's idle-candidate filter sees the latest.
+            for ch in per_hand.idle_changes:
+                if ch.kind == 'add' and ch.entry is not None:
+                    idle_pool = [e for e in idle_pool if e.personality_id != ch.personality_id]
+                    idle_pool.append(ch.entry)
+                elif ch.kind == 'remove':
+                    idle_pool = [e for e in idle_pool if e.personality_id != ch.personality_id]
+            agg_decisions.update(per_hand.decisions)
+            agg_idle_changes.extend(per_hand.idle_changes)
+            agg_bankroll_changes.extend(per_hand.bankroll_changes)
+            agg_freshly_seated.extend(per_hand.freshly_seated_personality_ids)
+            agg_rebuy_changes.extend(per_hand.rebuy_changes)
+
+        # Synthesize a result object that the existing post-loop
+        # persistence + event-emission code can consume unchanged.
+        result = RosterRefreshResult(
+            new_table=table,
+            idle_changes=agg_idle_changes,
+            freshly_seated_personality_ids=agg_freshly_seated,
+            bankroll_changes=agg_bankroll_changes,
+            decisions=agg_decisions,
+            rebuy_changes=agg_rebuy_changes,
         )
 
         # Persist the table (always — last_activity_at bumps) and idle
@@ -462,7 +554,7 @@ def refresh_unseated_tables(
         # or live-fill from the eligible pool.
         _emit_activity_events(
             table=result.new_table,
-            previous_table=table,
+            previous_table=previous_table_snapshot,
             decisions=result.decisions,
             freshly_seated_personality_ids=result.freshly_seated_personality_ids,
             personality_repo=personality_repo,

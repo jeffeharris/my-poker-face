@@ -862,9 +862,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     from datetime import datetime
     from cash_mode.lobby import _global_seated_set
     from cash_mode.movement import refresh_table_roster
-    from cash_mode.stakes import STAKES_ORDER, table_buy_in_window
+    from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
     from cash_mode.tables import ai_slot, human_slot, open_slot
     from flask_app.extensions import bankroll_repo, cash_table_repo, personality_repo
+    from cash_mode.bankroll import AIBankrollState
 
     table = cash_table_repo.load_table(table_id)
     if table is None:
@@ -962,6 +963,56 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
 
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=human_owner_id)
 
+    # Build a pid → controller map (live controllers carry psych state).
+    # ai_controllers is keyed by display name, so resolve via cash_pids.
+    ai_controllers = game_data.get('ai_controllers', {}) or {}
+    pid_to_name = {pid: name for name, pid in cash_pids.items()}
+    pid_to_controller = {
+        pid: ai_controllers.get(pid_to_name.get(pid))
+        for pid in current_ai_pids
+    }
+
+    # Advance per-controller detached-zone counter once per hand boundary.
+    # Pure read of psychology.primary_zone — if 'detached', increment;
+    # any other zone (including 'neutral') resets the streak. The counter
+    # lives on the controller object so it survives across hands at the
+    # same seat but resets when the AI leaves and a new controller is
+    # built on re-entry.
+    for pid, ctrl in pid_to_controller.items():
+        if ctrl is None:
+            continue
+        psych = getattr(ctrl, 'psychology', None)
+        if psych is None:
+            continue
+        try:
+            zone = getattr(psych, 'primary_zone', 'neutral')
+        except Exception:
+            zone = 'neutral'
+        prior = getattr(ctrl, '_detached_hands', 0)
+        ctrl._detached_hands = (prior + 1) if zone == 'detached' else 0
+
+    def _psych_lookup(pid: str) -> Dict[str, Any]:
+        ctrl = pid_to_controller.get(pid)
+        if ctrl is None:
+            return {}
+        psych = getattr(ctrl, 'psychology', None)
+        if psych is None:
+            return {}
+        try:
+            zone = getattr(psych, 'primary_zone', 'neutral')
+        except Exception:
+            zone = 'neutral'
+        try:
+            intensity = min(1.0, float(psych.zone_effects.total_penalty_strength))
+        except Exception:
+            intensity = 0.0
+        return {
+            'energy': float(getattr(psych, 'energy', 0.5)),
+            'zone': zone,
+            'hands_in_detached_zone': int(getattr(ctrl, '_detached_hands', 0)),
+            'emotional_intensity': intensity,
+        }
+
     def _bankroll_lookup(pid: str):
         return bankroll_repo.load_ai_bankroll_current(pid, now=now)
 
@@ -990,7 +1041,22 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         table_max_buy_in=table_max_buy_in,
         next_tier_min_buy_in=next_tier_min_buy_in,
         defer_freshly_vacated_live_fill=True,
+        psych_lookup=_psych_lookup,
     )
+
+    # Apply rebuy decisions: debit each AI's bankroll for the top-up
+    # and mirror the new seat chips onto the live Player.stack.
+    # refresh_table_roster has already updated result.new_table.seats
+    # with the post-rebuy chip count, so persistence is correct; the
+    # work here is the bankroll write and game-state mirror.
+    if result.rebuy_changes:
+        try:
+            _apply_rebuys(
+                game_id, game_data, state_machine,
+                result.rebuy_changes, pid_to_name, bankroll_repo, now,
+            )
+        except Exception as e:
+            logger.error("[CASH][LOBBY] rebuy application failed: %s", e, exc_info=True)
 
     # Persist table + idle changes.
     cash_table_repo.save_table(result.new_table, now=now)
@@ -999,6 +1065,18 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
             cash_table_repo.save_idle(change.entry)
         elif change.kind == "remove":
             cash_table_repo.delete_idle(change.personality_id)
+
+    # Surface movement to the seated player's in-game chat. The lobby
+    # ticker (cash_mode/activity.py) is unaffected — those events are
+    # written by the unseated-table refresh path, not this one. Here
+    # we just want the player at the table to see "X left with $Y"
+    # / "X rebought for $Z" alongside their hand history.
+    try:
+        _emit_seated_movement_chat(
+            game_id, synced_table, result, pid_to_name,
+        )
+    except Exception as e:
+        logger.warning("[CASH][LOBBY] movement chat emission failed: %s", e)
 
     # 4a. Mirror voluntary departures into game state: AIs that
     # `refresh_table_roster` moved off the persisted table (take_break,
@@ -1032,6 +1110,190 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
                 "[CASH][LOBBY] live-fill controller install failed: %s",
                 e, exc_info=True,
             )
+
+
+def _apply_rebuys(
+    game_id: str,
+    game_data: dict,
+    state_machine,
+    rebuy_changes,
+    pid_to_name: Dict[str, str],
+    bankroll_repo,
+    now,
+) -> None:
+    """Execute pressure-driven rebuys: bankroll debit + Player.stack bump.
+
+    `refresh_table_roster` already wrote the post-rebuy chip count to
+    `result.new_table.seats` (so the persisted table is correct on
+    the upcoming `save_table` call). The remaining work is:
+
+      1. Debit the AI's bankroll by the rebuy amount — chips moved
+         from the AI's off-table chips into their seat.
+      2. Mirror the new stack onto the live `Player` in game state so
+         the engine deals the next hand with the right chip count.
+
+    Failures are logged but don't propagate — a missed bankroll debit
+    is a chip-leak, not a session-killer, and the next hand boundary
+    will retry the refresh path. The "missing controller / missing
+    name" cases are no-ops.
+    """
+    from cash_mode.bankroll import AIBankrollState, project_bankroll
+
+    if not rebuy_changes:
+        return
+
+    game_state = state_machine.game_state
+    name_to_player_idx = {p.name: i for i, p in enumerate(game_state.players)}
+    updated = False
+
+    for change in rebuy_changes:
+        name = pid_to_name.get(change.personality_id)
+        if not name:
+            continue
+        # 1. Bankroll debit. Mirror the pattern used by _refill_cash_seats
+        # for fresh seats: project to `now`, subtract, persist. Pure
+        # transfer — chips moved bankroll → seat, no ledger entry needed
+        # (matches credit_ai_cash_out's complement on the leave path).
+        try:
+            knobs = bankroll_repo.load_personality_knobs(change.personality_id)
+            stored = bankroll_repo.load_ai_bankroll(change.personality_id)
+            if stored is None:
+                # Defensive: an AI without a bankroll row shouldn't be
+                # rolling rebuy in the first place (the pressure model
+                # only fires when projected bankroll signals affordability).
+                # Skip the debit and keep going.
+                logger.warning(
+                    "[CASH][LOBBY] rebuy: no bankroll row for %r; seat chips bumped without debit",
+                    change.personality_id,
+                )
+            else:
+                projected = project_bankroll(
+                    stored, knobs.bankroll_cap, knobs.bankroll_rate, now,
+                )
+                new_chips = max(0, projected - change.amount)
+                bankroll_repo.save_ai_bankroll(AIBankrollState(
+                    personality_id=change.personality_id,
+                    chips=new_chips,
+                    last_regen_tick=now,
+                ))
+        except Exception as e:
+            logger.warning(
+                "[CASH][LOBBY] rebuy bankroll debit failed for %r (+%d): %s",
+                change.personality_id, change.amount, e,
+            )
+
+        # 2. Mirror to live game state.
+        idx = name_to_player_idx.get(name)
+        if idx is None:
+            continue
+        state_machine.game_state = state_machine.game_state.update_player(
+            idx, stack=change.new_seat_chips,
+        )
+        updated = True
+        logger.info(
+            "[CASH][LOBBY] %r rebought +%d (new stack %d)",
+            name, change.amount, change.new_seat_chips,
+        )
+
+    if updated:
+        game_data['state_machine'] = state_machine
+        game_state_service.set_game(game_id, game_data)
+
+
+def _emit_seated_movement_chat(
+    game_id: str,
+    table_pre_refresh,
+    result,
+    pid_to_name: Dict[str, str],
+) -> None:
+    """Push system chat messages for each movement event at the seated table.
+
+    Four event kinds, each with differentiated phrasing per user spec:
+      - rebuy:     "{name} added ${amount} in chips"
+      - leave:     wording varies by reason
+                     * forced_leave   → "{name} busted out with ${chips}"
+                     * stake_up       → "{name} moved up to {next_stake}"
+                     * take_break     → "{name} stepped away with ${chips}"
+                     * bored_move     → "{name} got restless and left with ${chips}"
+      - join:      "{name} sat down with ${amount}"   (live-fill)
+
+    Sender is "Table". Message type is "system" so the React chat
+    renders it with the settings/system styling (matches lobby
+    join/leave ticker convention without being shouty).
+    """
+    from cash_mode.stakes_ladder import STAKES_ORDER
+
+    pre_seats = {
+        i: dict(s) for i, s in enumerate(table_pre_refresh.seats)
+    }
+
+    # Leaves: any pid whose seat went from 'ai' to 'open' in this
+    # refresh, with reason from result.decisions.
+    for change in result.idle_changes:
+        if change.kind != "add" or change.entry is None:
+            continue
+        pid = change.personality_id
+        name = pid_to_name.get(pid) or pid
+        reason = change.entry.reason
+        # Find the chips they left with from pre-refresh seats.
+        prev_chips = 0
+        for slot in pre_seats.values():
+            if slot.get("kind") == "ai" and slot.get("personality_id") == pid:
+                prev_chips = int(slot.get("chips", 0))
+                break
+        if reason == "forced_leave":
+            text = f"{name} busted out with ${prev_chips}"
+        elif reason == "stake_up_queued":
+            target = change.entry.target_stake or "the next stake"
+            text = f"{name} moved up to {target}"
+        elif reason == "take_break":
+            text = f"{name} stepped away with ${prev_chips}"
+        elif reason == "bored_move":
+            text = f"{name} got restless and left with ${prev_chips}"
+        else:
+            text = f"{name} left with ${prev_chips}"
+        send_message(
+            game_id=game_id,
+            sender="Table",
+            content=text,
+            message_type="system",
+        )
+
+    # Rebuys.
+    for change in result.rebuy_changes:
+        name = pid_to_name.get(change.personality_id) or change.personality_id
+        send_message(
+            game_id=game_id,
+            sender="Table",
+            content=f"{name} added ${change.amount} in chips",
+            message_type="system",
+        )
+
+    # Live-fill joins: pids freshly seated. Names come from the new
+    # table (they may not be in pid_to_name yet — that mapping gets
+    # updated by _seat_freshly_filled_ais).
+    pid_to_chips_post = {
+        s["personality_id"]: int(s.get("chips", 0))
+        for s in result.new_table.seats
+        if s["kind"] == "ai"
+    }
+    for pid in result.freshly_seated_personality_ids:
+        # _seat_freshly_filled_ais resolves the display name from
+        # personality_repo; we do the same lookup here. Fallback to
+        # pid keeps the message visible even if the repo lookup fails.
+        from flask_app.extensions import personality_repo
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            personality = None
+        display_name = (personality or {}).get("name") or pid
+        chips = pid_to_chips_post.get(pid, 0)
+        send_message(
+            game_id=game_id,
+            sender="Table",
+            content=f"{display_name} sat down with ${chips}",
+            message_type="system",
+        )
 
 
 def _remove_departed_ais_from_game(
@@ -1198,7 +1460,7 @@ def _detect_human_cash_bust(game_id: str, game_data: dict, state_machine) -> Non
     stake_label, has_active_loan). Safe no-op if the human's stack
     is non-zero — exits early.
     """
-    from cash_mode.stakes import table_buy_in_window
+    from cash_mode.stakes_ladder import table_buy_in_window
     from flask_app.extensions import bankroll_repo
 
     game_state = state_machine.game_state
