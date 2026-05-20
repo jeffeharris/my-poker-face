@@ -213,15 +213,12 @@ def cash_out_ai_seat(
 
     AI analogue of the human `leave_table` row. Returns the new
     table (seat cleared, stack entry removed) and the new
-    `AIBankrollState` with the credited chips clamped to
-    `knobs.starting_bankroll`.
+    `AIBankrollState` with the seat's stack added to bankroll.
 
-    Matches the leave-time accounting in `cash_routes.leave_table`:
-    project the stored bankroll forward through elapsed time
-    (passive regen), credit the seat's current table stack on top,
-    clamp to cap. The cap is a hard ceiling — extras evaporate so
-    one AI can't accumulate runaway wealth relative to the rest of
-    the cast.
+    `starting_bankroll` is the regen *target*, not a ceiling: regen
+    pulls chips up toward it when the AI is below, and is dormant
+    when chips are at or above. Winnings stack uncapped, so an AI
+    can climb past their character's natural-wealth baseline.
 
     Unused in v1: AI seats only leave the table on bust (handled by
     `bust_at_table`, no bankroll move because the chips were lost in
@@ -249,7 +246,7 @@ def cash_out_ai_seat(
     projected = project_bankroll(
         ai_bankroll, knobs.starting_bankroll, knobs.bankroll_rate, now,
     )
-    new_chips = min(knobs.starting_bankroll, projected + chips_at_table)
+    new_chips = projected + chips_at_table
 
     new_table = table.with_seat(seat_index, None).without_stack(personality_id)
     new_bankroll = AIBankrollState(

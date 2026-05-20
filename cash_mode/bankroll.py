@@ -115,32 +115,37 @@ def project_bankroll(
     """Project bankroll chips through elapsed time.
 
     Pure function. Returns the value `chips` would currently have
-    given the time elapsed since the last mutation, clamped to
-    `starting_bankroll` (which doubles as the regen ceiling).
-    Does not mutate `state`.
+    given the time elapsed since the last mutation. Does not mutate
+    `state`.
 
-      projected = stored_chips + int(rate * elapsed_days)
-      projected = min(starting_bankroll, projected)
+    `starting_bankroll` is the regen *target*, not a cap:
+      - When chips are below it, passive regen accrues at `rate/day`,
+        not overshooting the target.
+      - When chips are at or above it (the AI has won their way past
+        their character's "natural wealth"), regen is dormant and
+        chips are returned verbatim. Winnings above starting_bankroll
+        are kept — there is no ceiling.
 
-    Same pattern as `project_heat`. Persistence writes only on real
-    events; reads always project. The fractional-day floor uses
-    `int(...)` so projection is monotonic per day boundary — a
-    half-second after `last_regen_tick` reads as the stored value,
-    not a no-op `+0`.
+    Same pattern as `project_heat` for the below-target case.
+    Persistence writes only on real events; reads always project.
+    The fractional-day floor uses `int(...)` so projection is
+    monotonic per day boundary — a half-second after `last_regen_tick`
+    reads as the stored value, not a no-op `+0`.
 
     `last_regen_tick == None` is the no-event-yet state for freshly
     seeded AI personalities; the function returns stored `chips`
     verbatim so the seed value isn't immediately inflated.
 
-    When `economy_flags.REGEN_ENABLED` is False, the passive faucet is
-    off — returns stored chips (still clamped to `starting_bankroll`
-    so future ceiling reductions don't read back inflated values).
+    When `economy_flags.REGEN_ENABLED` is False, the passive faucet
+    is off — returns stored chips unchanged.
     """
     from cash_mode import economy_flags
     if state.last_regen_tick is None:
         return state.chips
+    if state.chips >= starting_bankroll:
+        return state.chips
     if not economy_flags.REGEN_ENABLED:
-        return min(starting_bankroll, state.chips)
+        return state.chips
     elapsed_days = (now - state.last_regen_tick).total_seconds() / 86400.0
     projected = state.chips + int(rate * elapsed_days)
     return min(starting_bankroll, projected)
@@ -158,12 +163,13 @@ def credit_ai_cash_out(
 ) -> Optional[AIBankrollState]:
     """Credit `player_stack` chips back to an AI's persistent bankroll.
 
-    Mirrors the leave-time accounting rule: project the stored
-    bankroll forward through elapsed time (passive regen), then add
-    the AI's current table stack, clamped to `starting_bankroll`. The cap
-    is a hard ceiling — winnings above the cap evaporate. This is
-    intentional: it prevents a single AI from accumulating a runaway
-    bankroll relative to the rest of the cast.
+    Leave-time accounting: project the stored bankroll forward through
+    elapsed time (passive regen toward `starting_bankroll` when chips
+    are below target, dormant when at or above), then add the AI's
+    current table stack as winnings. **No cap on the upside** —
+    `starting_bankroll` is the regen *target*, not a ceiling, so an
+    AI who wins above their character's natural wealth keeps the
+    winnings and can buy into higher stakes next session.
 
     Always writes a fresh row when one doesn't exist (defensive seam:
     if the seed/debit chain skipped the AI, the credit path creates
@@ -171,8 +177,8 @@ def credit_ai_cash_out(
     last_regen_tick=now` is preferable to no row — the latter strands
     the AI forever because every lookup returns None.
 
-    For an existing row, writes `chips=min(cap, projected +
-    max(0, player_stack)), last_regen_tick=now`. `player_stack <= 0`
+    For an existing row, writes `chips=projected + max(0,
+    player_stack), last_regen_tick=now`. `player_stack <= 0`
     no longer short-circuits: committing regen on a bust-out leave
     advances the tick so passive regen starts accruing from `now`,
     not from the prior sit-down. Without this, AIs that lose
@@ -185,9 +191,9 @@ def credit_ai_cash_out(
 
     `chip_ledger_repo` (optional) opts the call into ledger
     instrumentation. When provided, the regen portion of the write
-    fires an `ai_regen` entry and any overflow above `starting_bankroll`
-    fires a `cap_clamp` entry. None disables instrumentation
-    entirely so tests don't need the repo.
+    fires an `ai_regen` entry. (The legacy `cap_clamp` destruction
+    path was removed when `starting_bankroll` semantics shifted from
+    ceiling to target — winnings are kept, not evaporated.)
     """
     if now is None:
         now = datetime.utcnow()
@@ -206,11 +212,11 @@ def credit_ai_cash_out(
         # First-write seam — write a row so the regen clock can begin.
         # `save_ai_bankroll`'s first-write hook emits an `ai_seed`
         # ledger entry for the chips landing here, keeping the audit
-        # balanced.
-        new_chips = min(knobs.starting_bankroll, effective_stack)
+        # balanced. No cap on the first-write either; the AI gets
+        # exactly what they brought back from the seat.
         new_state = AIBankrollState(
             personality_id=personality_id,
-            chips=new_chips,
+            chips=effective_stack,
             last_regen_tick=now,
         )
         try:
@@ -223,12 +229,12 @@ def credit_ai_cash_out(
                 raise
             bankroll_repo.save_ai_bankroll(new_state)
         logger.info(
-            "[CASH] AI cash-out (first-write) %r: +%d → %d (cap %d)",
-            personality_id, effective_stack, new_chips, knobs.starting_bankroll,
+            "[CASH] AI cash-out (first-write) %r: +%d → %d",
+            personality_id, effective_stack, effective_stack,
         )
         return new_state
     projected = project_bankroll(stored, knobs.starting_bankroll, knobs.bankroll_rate, now)
-    new_chips = min(knobs.starting_bankroll, projected + effective_stack)
+    new_chips = projected + effective_stack
     new_state = AIBankrollState(
         personality_id=personality_id,
         chips=new_chips,
@@ -253,24 +259,9 @@ def credit_ai_cash_out(
             context=ctx,
             sandbox_id=sandbox_id,
         )
-        # Cap clamp: chips that came off the table but couldn't fit
-        # in the bankroll evaporate back to the bank. Pre-clamp
-        # value = projected + effective_stack; overflow = excess.
-        overflow = max(0, (projected + effective_stack) - knobs.starting_bankroll)
-        clamp_ctx = dict(ctx)
-        clamp_ctx['cap'] = knobs.starting_bankroll
-        clamp_ctx['projected'] = projected
-        clamp_ctx['player_stack'] = effective_stack
-        chip_ledger.record_cap_clamp(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            overflow=overflow,
-            context=clamp_ctx,
-            sandbox_id=sandbox_id,
-        )
     logger.info(
-        "[CASH] AI cash-out %r: +%d (projected=%d) → %d (cap %d)",
-        personality_id, effective_stack, projected, new_chips, knobs.starting_bankroll,
+        "[CASH] AI cash-out %r: +%d (projected=%d) → %d",
+        personality_id, effective_stack, projected, new_chips,
     )
     return new_state
 

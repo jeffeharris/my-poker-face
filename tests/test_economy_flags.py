@@ -92,15 +92,15 @@ class TestRegenFlag:
         # No accrual — stored value comes back verbatim.
         assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=later) == 1000
 
-    def test_regen_off_still_clamps_stored_above_cap(self):
-        # Defensive: stored chips can sit above cap (legacy, future cap
-        # reduction). Read path clamps even with regen off.
+    def test_regen_off_above_target_returns_stored(self):
+        # `starting_bankroll` is a regen target, not a cap — chips
+        # above the target are kept regardless of REGEN_ENABLED.
         anchor = datetime(2026, 5, 20, 12, 0, 0)
         state = AIBankrollState(
             personality_id="napoleon", chips=15_000, last_regen_tick=anchor,
         )
         economy_flags.REGEN_ENABLED = False
-        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=anchor) == 10_000
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=anchor) == 15_000
 
     def test_regen_off_with_null_last_tick_returns_stored(self):
         state = AIBankrollState(

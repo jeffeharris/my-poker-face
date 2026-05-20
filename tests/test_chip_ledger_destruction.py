@@ -56,15 +56,23 @@ def _insert_personality(db_path: str, personality_id: str, *, knobs: dict) -> No
         conn.commit()
 
 
-# --- cap_clamp: credit_ai_cash_out evaporates overflow above starting_bankroll ---
+# --- cap_clamp DEPRECATED: starting_bankroll is now a regen target, not a ceiling ---
+#
+# `credit_ai_cash_out` no longer emits `cap_clamp` — winnings above
+# `starting_bankroll` are kept (the AI can climb past their natural
+# wealth tier). The chip-out path moved to `table_rake` (see
+# `economy_flags.py`). These tests pin the new no-op semantics and
+# document that historical `cap_clamp` rows are valid for the audit
+# to read even though no new ones are written.
 
 
-class TestCapClampLedger:
-    def test_cap_clamp_fired_when_post_credit_exceeds_cap(
+class TestNoCapClampOnCredit:
+    def test_winnings_above_target_dont_fire_cap_clamp(
         self, bankroll_repo, ledger_repo, db_path,
     ):
-        # Cap = 5000. Stored = 4500, no elapsed time so projected =
-        # 4500. Player stack = 1000. post_credit = 5500. Overflow = 500.
+        # starting_bankroll = 5000, stored = 4500, player_stack = 1000
+        # → final bankroll = 5500 (no clamp). No cap_clamp ledger
+        # entry, no chips destroyed.
         _insert_personality(db_path, "napoleon", knobs={
             "starting_bankroll": 5_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
@@ -81,16 +89,14 @@ class TestCapClampLedger:
         )
 
         clamps = [e for e in ledger_repo.recent_entries() if e['reason'] == 'cap_clamp']
-        assert len(clamps) == 1
-        assert clamps[0]['amount'] == 500
-        assert clamps[0]['source'] == 'ai:napoleon'
-        assert clamps[0]['sink'] == 'central_bank'
-        assert clamps[0]['context']['cap'] == 5_000
-        assert clamps[0]['context']['player_stack'] == 1_000
+        assert clamps == []
+        stored = bankroll_repo.load_ai_bankroll("napoleon", sandbox_id="test-sandbox-1")
+        assert stored.chips == 5_500
 
-    def test_no_clamp_when_post_credit_below_cap(
+    def test_no_clamp_when_post_credit_below_target(
         self, bankroll_repo, ledger_repo, db_path,
     ):
+        # Sanity: the no-overflow case still works.
         _insert_personality(db_path, "napoleon", knobs={
             "starting_bankroll": 50_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,

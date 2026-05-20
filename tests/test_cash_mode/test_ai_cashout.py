@@ -127,13 +127,14 @@ class TestSingleAICashOut:
         assert result.last_regen_tick == now
 
 
-# --- Cap clamp: extras evaporate at the ceiling ---
+# --- Winnings above starting_bankroll are kept (regen target, not cap) ---
 
 
-class TestCapClamp:
-    def test_cap_clamp_eats_excess(self, repo, db_path, now):
-        # Bankroll at 49_000, cap 50_000, table stack 5_000 → winnings
-        # clamp to 50_000. 4_000 chips evaporate (intentional v1 rule).
+class TestWinningsAboveTarget:
+    def test_winnings_pass_through_starting_bankroll(self, repo, db_path, now):
+        # Bankroll at 49_000, starting_bankroll 50_000, table stack
+        # 5_000 → final bankroll 54_000. starting_bankroll is the
+        # regen *target*, not a ceiling — winnings above it are kept.
         _insert_personality(db_path, "napoleon", bankroll_knobs={
             "starting_bankroll": 50_000,
             "bankroll_rate": 0,
@@ -146,12 +147,12 @@ class TestCapClamp:
 
         result = credit_ai_cash_out(repo, "napoleon", 5_000, sandbox_id="test-sandbox-1", now=now)
 
-        assert result.chips == 50_000
+        assert result.chips == 54_000
 
-    def test_at_cap_stays_at_cap(self, repo, db_path, now):
-        # Already at cap; cash-out is a no-growth event. The bankroll
-        # *write still fires* (last_regen_tick refreshes) but chips
-        # don't change.
+    def test_above_target_stays_above(self, repo, db_path, now):
+        # Already above starting_bankroll; cash-out adds winnings and
+        # regen is dormant (project_bankroll early-returns when chips
+        # are already at or above target).
         _insert_personality(db_path, "napoleon", bankroll_knobs={
             "starting_bankroll": 50_000,
             "bankroll_rate": 500,
@@ -164,35 +165,35 @@ class TestCapClamp:
 
         result = credit_ai_cash_out(repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=now)
 
-        assert result.chips == 50_000
+        # 50_000 (no regen, already at target) + 1_000 winnings = 51_000.
+        assert result.chips == 51_000
 
-    def test_uses_personality_specific_cap(self, repo, db_path, now):
-        # Different cap per personality: zeus cap=200k, napoleon cap=10k.
-        # Cash-out respects each personality's own knob.
-        _insert_personality(db_path, "zeus", bankroll_knobs={
-            "starting_bankroll": 200_000,
-            "bankroll_rate": 0,
+    def test_low_starter_can_climb_past_target(self, repo, db_path, now):
+        # A_mime archetype: starting_bankroll=200 (street-performer
+        # tier), wins big at the $2 table. The cash-out must let the
+        # winnings stack — without this, the character can never
+        # afford a higher stake.
+        _insert_personality(db_path, "a_mime", bankroll_knobs={
+            "starting_bankroll": 200,
+            "bankroll_rate": 100,  # 100 chips/day regen toward target
             "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$100",
+            "stake_comfort_zone": "$2",
         })
-        _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "starting_bankroll": 10_000,
-            "bankroll_rate": 0,
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$10",
-        })
+        # Bankroll at 120 (below target), tick 1 day ago — regen
+        # should pull it up toward target (200) before winnings land.
         repo.save_ai_bankroll(AIBankrollState(
-            personality_id="zeus", chips=150_000, last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
-        repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon", chips=8_000, last_regen_tick=now,
+            personality_id="a_mime", chips=120,
+            last_regen_tick=now - timedelta(days=1),
         ), sandbox_id="test-sandbox-1")
 
-        zeus_after = credit_ai_cash_out(repo, "zeus", 30_000, sandbox_id="test-sandbox-1", now=now)
-        napoleon_after = credit_ai_cash_out(repo, "napoleon", 5_000, sandbox_id="test-sandbox-1", now=now)
+        # Wins $400 at the seat — far above the $200 starting target.
+        result = credit_ai_cash_out(repo, "a_mime", 400, sandbox_id="test-sandbox-1", now=now)
 
-        assert zeus_after.chips == 180_000  # well under 200k cap
-        assert napoleon_after.chips == 10_000  # clamped to 10k cap
+        # Regen pulls 120 → min(200, 120+100) = 200. Winnings stack
+        # on top: 200 + 400 = 600. Enough to buy into $10 next session.
+        # The pre-target regen still caps at the target — only winnings
+        # above target stack uncapped, not regen.
+        assert result.chips == 600
 
 
 # --- Edge cases (busted stacks, missing rows) ---
@@ -297,16 +298,18 @@ class TestMultipleAIs:
 class TestDefaultKnobs:
     def test_personality_without_knobs_uses_defaults(self, repo, db_path, now):
         # Personality has no bankroll_knobs sub-dict → load_personality_knobs
-        # returns BANKROLL_KNOB_DEFAULTS (cap=10_000). Stack credit
-        # clamps at the default cap.
+        # returns BANKROLL_KNOB_DEFAULTS. The default starting_bankroll
+        # is just the regen target — winnings stack uncapped on top.
         _insert_personality(db_path, "rookie")  # no knobs
+        starting = BANKROLL_KNOB_DEFAULTS.starting_bankroll
         repo.save_ai_bankroll(AIBankrollState(
             personality_id="rookie",
-            chips=BANKROLL_KNOB_DEFAULTS.starting_bankroll - 1_000,
+            chips=starting - 1_000,  # one buy-in below default target
             last_regen_tick=now,
         ), sandbox_id="test-sandbox-1")
 
         result = credit_ai_cash_out(repo, "rookie", 5_000, sandbox_id="test-sandbox-1", now=now)
 
-        # Default cap is 10_000; we started at 9_000 + 5_000 → clamp to 10_000
-        assert result.chips == BANKROLL_KNOB_DEFAULTS.starting_bankroll
+        # No regen elapsed (same `now` used for save + credit), so
+        # bankroll = (starting - 1000) + 5000 = starting + 4000.
+        assert result.chips == starting + 4_000

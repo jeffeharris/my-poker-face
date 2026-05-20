@@ -40,7 +40,12 @@ LEDGER_REASONS = frozenset({
     'pre_ledger_universe', # one-shot seed at migration so day-1 drift is 0
 
     # Destructions: X → central_bank
-    'cap_clamp',           # AI bankroll write where projected > starting_bankroll
+    'cap_clamp',           # DEPRECATED — historical entries only. Was emitted
+                           # when AI winnings would push bankroll above
+                           # `bankroll_cap`; that cap concept was retired when
+                           # `starting_bankroll` became a regen target rather
+                           # than a ceiling. Kept in the vocabulary so the
+                           # audit can still query historical entries.
     'house_stake_settle',  # leave-time settlement of a house-archetype stake
     'table_rake',          # per-hand pot rake destroyed at award time
 

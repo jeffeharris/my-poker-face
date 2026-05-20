@@ -41,8 +41,8 @@ REGEN_ENABLED: bool = True
 
 # --- Sink (table rake) ----------------------------------------------------
 
-RAKE_ENABLED: bool = False
-RAKE_PLAYER_TABLES: bool = False
+RAKE_ENABLED: bool = True
+RAKE_PLAYER_TABLES: bool = True
 RAKE_RATE: float = 0.02
 RAKE_CAP_BB: int = 4
 

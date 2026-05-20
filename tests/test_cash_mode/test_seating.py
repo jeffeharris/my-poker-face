@@ -304,14 +304,16 @@ class TestCashOutAISeat:
         # 9_500 + 500 (regen) + 500 (table) = 10_500.
         assert new_b.chips == 10_500
 
-    def test_cap_clamp(self, empty_table, knobs, now):
-        # Bankroll 49_900, table 500 → would be 50_400 but cap is 50_000.
+    def test_winnings_above_target_are_kept(self, empty_table, knobs, now):
+        # starting_bankroll is a regen *target*, not a ceiling. A win
+        # that pushes bankroll above the target keeps the excess —
+        # AIs can climb past their character's natural-wealth tier.
         ai = AIBankrollState(
             "napoleon", chips=49_900, last_regen_tick=now,
         )
         t = empty_table.with_seat(1, "napoleon").with_stack("napoleon", 500)
         _new_t, new_b = cash_out_ai_seat(t, "napoleon", ai, knobs, now=now)
-        assert new_b.chips == 50_000
+        assert new_b.chips == 50_400
 
     def test_busted_seat_no_credit(self, empty_table, knobs, now):
         # Stack 0 at table: seat still clears, bankroll only refreshes

@@ -391,23 +391,24 @@ class TestProjectBankrollPure:
         state = AIBankrollState("a", chips=1_000, last_regen_tick=tick)
         assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 3_000
 
-    def test_clamps_to_cap(self):
+    def test_regen_stops_at_target(self):
+        # `starting_bankroll` is the regen target. Below it, regen
+        # accrues at `rate/day` but doesn't overshoot.
         tick = datetime(2026, 1, 1, 0, 0, 0)
         now = tick + timedelta(days=365)
         state = AIBankrollState("a", chips=8_000, last_regen_tick=tick)
-        # Without cap: 8_000 + 500 * 365 = 190_500. Cap at 10_000.
+        # Without target: 8_000 + 500 * 365 = 190_500. Target is 10_000.
         assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 10_000
 
-    def test_starting_above_cap_stays_at_value(self):
-        # An AI already above cap (e.g., from a big win) doesn't get
-        # clamped down on read; only the projection is capped. The
-        # min() means a stored value > cap reads as cap, which is the
-        # intended behavior — the cap is a hard ceiling on live
-        # eligibility, not a soft floor.
+    def test_above_target_reads_unchanged(self):
+        # `starting_bankroll` is a regen target, NOT a cap. An AI who
+        # has won past their natural-wealth tier reads back at their
+        # stored value — chips earned above the target are kept.
         tick = datetime(2026, 5, 17, 12, 0, 0)
         now = tick + timedelta(days=1)
         state = AIBankrollState("a", chips=15_000, last_regen_tick=tick)
-        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 10_000
+        # Stored 15_000 > target 10_000 → no regen, no clamp.
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 15_000
 
 
 class TestAIBankrollCurrentReads:
