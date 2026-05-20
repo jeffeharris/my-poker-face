@@ -86,26 +86,28 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   // private aliases the player set in the dossier. Re-runs when
   // the user identity flips (login/logout) so the override set is
   // never stale to who's looking.
-  const setAllOverrides = useNicknameOverridesStore((s) => s.setAll);
+  //
+  // Reset runs unconditionally at the top: this prevents a stale
+  // prior-user map from leaking into a fresh identity's hydrate
+  // (hydrate merges, with local edits winning, so without this
+  // reset the prior user's edits would survive an identity swap).
+  const hydrateOverrides = useNicknameOverridesStore((s) => s.hydrate);
   const resetOverrides = useNicknameOverridesStore((s) => s.reset);
   useEffect(() => {
-    if (!isAuthenticated || !user?.id) {
-      resetOverrides();
-      return;
-    }
+    resetOverrides();
+    if (!isAuthenticated || !user?.id) return;
     let cancelled = false;
     fetchNicknameOverrides()
       .then((map) => {
-        if (!cancelled) setAllOverrides(map);
+        if (!cancelled) hydrateOverrides(map);
       })
       .catch((e) => {
-        // Soft-fail: empty map means the canonical nicknames keep
-        // showing, which is the existing behaviour.
+        // Soft-fail: leave the (empty) store alone so canonical
+        // nicknames keep showing — the existing behaviour pre-feature.
         logger.warn('[nickname-overrides] fetch failed', e);
-        if (!cancelled) setAllOverrides({});
       });
     return () => { cancelled = true; };
-  }, [isAuthenticated, user?.id, setAllOverrides, resetOverrides]);
+  }, [isAuthenticated, user?.id, hydrateOverrides, resetOverrides]);
 
   // Update page title based on current route
   useEffect(() => {

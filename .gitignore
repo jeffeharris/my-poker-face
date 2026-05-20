@@ -195,3 +195,9 @@ react/progress.md
 react/react/output/
 react/react/test-results/
 *.json.tmp
+cookies.txt
+sandbox-*.png
+main-*.png
+
+# Claude Code runtime
+.claude/
