@@ -20,6 +20,7 @@ from ..extensions import (
     chip_ledger_repo,
     limiter,
     persistence_db_path,
+    stake_repo,
 )
 from ..services import game_state_service
 from ..services.chip_ledger_audit import compute_audit
@@ -41,6 +42,7 @@ def chip_ledger_audit():
             ledger_repo=chip_ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=persistence_db_path,
             list_game_ids_fn=game_state_service.list_game_ids,
             get_game_fn=game_state_service.get_game,

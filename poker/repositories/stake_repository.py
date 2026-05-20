@@ -262,6 +262,25 @@ class StakeRepository(BaseRepository):
                 )
             return cursor.rowcount > 0
 
+    def sum_active_principal_for_humans(self) -> int:
+        """Sum (principal + match_amount) across active stakes to humans.
+
+        Drives the chip-ledger audit's `active_loans_principal` term —
+        chips currently sitting on a human session seat from an active
+        stake. Other surfaces (AI bankrolls, AI seats, live AI stacks)
+        already capture chips on those ends; humans need this explicit
+        sum because `_sum_live_session_ai_stacks` filters humans out.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(principal + match_amount), 0)
+                FROM stakes
+                WHERE status = 'active' AND borrower_kind = 'human'
+                """
+            ).fetchone()
+            return int(row[0] or 0)
+
     def update_carry_amount(self, stake_id: str, carry_amount: int) -> bool:
         """Set `carry_amount` on a stake. Returns True if updated.
 
