@@ -421,6 +421,33 @@ def _load_or_seed_player_bankroll(
     return bankroll
 
 
+def _load_human_stake_or_404(stake_id: str, owner_id: str):
+    """Load a stake by id, gated on borrower == this human owner.
+
+    Returns `(stake, None)` on success or `(None, (response, status))`
+    on rejection — caller bubbles the response back to the client.
+
+    The 404-on-both-missing-and-other-owner pattern prevents stake-id
+    enumeration: a probing client can't tell apart "doesn't exist"
+    from "belongs to a different player." The borrower_kind guard
+    keeps the player-initiated routes off the AI-borrower path that
+    Phase 4 will introduce.
+
+    Shared by `/default`, `/payoff`, and `/request-forgiveness` — when
+    that guard's policy changes (e.g., Phase 4's AI-borrower handling
+    lands), all three routes update at one edit.
+    """
+    from flask_app.extensions import stake_repo
+    stake = stake_repo.load_stake(stake_id)
+    if (
+        stake is None
+        or stake.borrower_id != owner_id
+        or stake.borrower_kind != BORROWER_KIND_HUMAN
+    ):
+        return None, (jsonify({"error": "Stake not found"}), 404)
+    return stake, None
+
+
 def _resolve_player_tier_stake_label(owner_id: str, bankroll_chips: int) -> str:
     """Pick the stake label that drives the player's current tier.
 
@@ -1726,17 +1753,9 @@ def default_stake(stake_id: str):
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    from flask_app.extensions import stake_repo
-
-    stake = stake_repo.load_stake(stake_id)
-    # 404 covers both "missing stake" and "stake belongs to someone
-    # else" so probing clients can't enumerate other borrowers' carries.
-    if stake is None or stake.borrower_id != owner_id:
-        return jsonify({"error": "Stake not found"}), 404
-    if stake.borrower_kind != BORROWER_KIND_HUMAN:
-        # Defensive — this route is the player-initiated path. AI
-        # defaults (Phase 4) flow through movement instead.
-        return jsonify({"error": "Stake not found"}), 404
+    stake, err = _load_human_stake_or_404(stake_id, owner_id)
+    if err is not None:
+        return err
 
     if stake.status != STAKE_STATUS_CARRY:
         return jsonify({
@@ -1751,6 +1770,7 @@ def default_stake(stake_id: str):
             "error": "House stakes cannot be defaulted (they don't carry)",
         }), 400
 
+    from flask_app.extensions import stake_repo
     former_carry = stake.carry_amount
     former_staker = stake.staker_id
 
@@ -1817,15 +1837,9 @@ def payoff_stake(stake_id: str):
         return jsonify({"error": str(e)}), 400
     sandbox_id = _resolve_sandbox_id(owner_id)
 
-    from flask_app.extensions import bankroll_repo, chip_ledger_repo, stake_repo
-
-    stake = stake_repo.load_stake(stake_id)
-    # Same 404-on-both pattern as /default — no information leak about
-    # whether the id exists but belongs to someone else.
-    if stake is None or stake.borrower_id != owner_id:
-        return jsonify({"error": "Stake not found"}), 404
-    if stake.borrower_kind != BORROWER_KIND_HUMAN:
-        return jsonify({"error": "Stake not found"}), 404
+    stake, err = _load_human_stake_or_404(stake_id, owner_id)
+    if err is not None:
+        return err
 
     if stake.status != STAKE_STATUS_CARRY:
         return jsonify({
@@ -1840,6 +1854,8 @@ def payoff_stake(stake_id: str):
             "error": "Human-staker payoff not yet supported",
         }), 501
 
+    from flask_app.extensions import bankroll_repo, chip_ledger_repo, stake_repo
+
     bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
     carry_amount = int(stake.carry_amount)
     if bankroll.chips < carry_amount:
@@ -1848,6 +1864,18 @@ def payoff_stake(stake_id: str):
             "bankroll": bankroll.chips,
             "carry_amount": carry_amount,
         }), 400
+
+    # Pre-flight: confirm the staker's bankroll row exists. Without
+    # this, `credit_ai_cash_out` silently returns None on a missing
+    # row (its documented contract) — and we'd debit the player while
+    # the credit evaporates, plus flip the stake to settled so the
+    # player can't retry. Fail fast before any state mutation.
+    if bankroll_repo.load_ai_bankroll(
+        stake.staker_id, sandbox_id=sandbox_id,
+    ) is None:
+        return jsonify({
+            "error": "Staker bankroll unavailable for this carry",
+        }), 503
 
     # Transfer: player bankroll → staker bankroll. credit_ai_cash_out
     # mirrors the leave-time settlement path so the staker's bankroll
@@ -1979,15 +2007,13 @@ def request_forgiveness(stake_id: str):
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
+    stake, err = _load_human_stake_or_404(stake_id, owner_id)
+    if err is not None:
+        return err
+
     from flask_app.extensions import (
         personality_repo, relationship_repo, stake_repo,
     )
-
-    stake = stake_repo.load_stake(stake_id)
-    if stake is None or stake.borrower_id != owner_id:
-        return jsonify({"error": "Stake not found"}), 404
-    if stake.borrower_kind != BORROWER_KIND_HUMAN:
-        return jsonify({"error": "Stake not found"}), 404
 
     if stake.status != STAKE_STATUS_CARRY:
         return jsonify({

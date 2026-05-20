@@ -4498,6 +4498,9 @@ class SchemaManager:
                 stake_tier TEXT NOT NULL,
                 created_at TIMESTAMP NOT NULL,
                 settled_at TIMESTAMP,
+                -- forgiveness_last_asked must be UTC naive (written via
+                -- datetime.utcnow().isoformat()) so the rate-limit's
+                -- (now - last_asked) subtraction is timezone-consistent.
                 forgiveness_last_asked TIMESTAMP
             )
         """)

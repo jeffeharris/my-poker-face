@@ -425,6 +425,35 @@ class TestPayoffRejections(_NetWorthRouteBase):
         self.assertEqual(payload['bankroll'], 5_000)
         self.assertEqual(payload['carry_amount'], 6_000)
 
+    def test_missing_staker_bankroll_returns_503_without_mutation(self):
+        # Stake exists with a staker_id that has no ai_bankroll_state
+        # row (e.g. a personality that was deleted post-stake-creation).
+        # The route must NOT debit the player and flip the stake to
+        # settled in this case — without the pre-flight check, the
+        # player would be charged for an evaporating credit.
+        self._seed_carry(
+            stake_id='stk-missing-staker',
+            staker_id='ghost-personality',  # no bankroll row seeded
+        )
+        before_bankroll = self.bankroll_repo.load_player_bankroll(
+            PLAYER_OWNER_ID,
+        ).chips
+
+        response = self.client.post(
+            '/api/cash/stakes/stk-missing-staker/payoff',
+        )
+
+        self.assertEqual(response.status_code, 503)
+        # Bankroll untouched.
+        after_bankroll = self.bankroll_repo.load_player_bankroll(
+            PLAYER_OWNER_ID,
+        ).chips
+        self.assertEqual(before_bankroll, after_bankroll)
+        # Stake still in carry status.
+        stake = self.stake_repo.load_stake('stk-missing-staker')
+        self.assertEqual(stake.status, STAKE_STATUS_CARRY)
+        self.assertEqual(stake.carry_amount, 250)
+
     def test_insufficient_bankroll_doesnt_mutate(self):
         # Reject path must leave stake + bankroll untouched.
         self._seed_carry(carry_amount=6_000)

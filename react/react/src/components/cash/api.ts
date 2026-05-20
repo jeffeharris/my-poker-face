@@ -26,13 +26,22 @@ import type {
 
 const BASE = `${config.API_URL}/api/cash`;
 
-async function postJson<T>(path: string, body: object = {}): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+/** POST without throwing on non-2xx — caller branches on status. Used
+ *  when the route's "error" responses (like 429) carry information
+ *  the caller wants to act on rather than surface as a generic Error. */
+async function postJsonRaw(
+  path: string, body: object = {},
+): Promise<Response> {
+  return fetch(`${BASE}${path}`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+async function postJson<T>(path: string, body: object = {}): Promise<T> {
+  const res = await postJsonRaw(path, body);
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `HTTP ${res.status}`);
@@ -135,18 +144,14 @@ export async function requestForgiveness(
   | { kind: 'decided'; data: ForgivenessResponse }
   | { kind: 'rate_limited'; data: ForgivenessRateLimited }
 > {
-  const res = await fetch(
-    `${BASE}/stakes/${encodeURIComponent(stakeId)}/request-forgiveness`,
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    },
+  const res = await postJsonRaw(
+    `/stakes/${encodeURIComponent(stakeId)}/request-forgiveness`,
   );
   if (res.status === 429) {
-    const data = (await res.json()) as ForgivenessRateLimited;
-    return { kind: 'rate_limited', data };
+    return {
+      kind: 'rate_limited',
+      data: (await res.json()) as ForgivenessRateLimited,
+    };
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
