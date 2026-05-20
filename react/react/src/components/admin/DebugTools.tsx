@@ -103,7 +103,10 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
 
     try {
       setLoading(true);
-      const response = await fetch(`${config.API_URL}/api/game/${gameId}/${tab.endpoint}`);
+      const response = await fetch(
+        `${config.API_URL}/api/game/${gameId}/${tab.endpoint}`,
+        { credentials: 'include' },
+      );
       const data = await response.json();
 
       if (response.ok) {
