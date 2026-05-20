@@ -2210,6 +2210,16 @@ def get_lobby():
             continue
         unseated_emotions[pid] = _resolve_emotion_from_blob(blob, pid)
 
+    # Phase 2 Commit 3: resolve the player's tier at each table so the
+    # frontend can render a per-card tier indicator alongside the
+    # existing affordability. `stake_repo` is imported lazily here to
+    # keep the existing module-level extension imports stable.
+    from flask_app.extensions import stake_repo
+    from cash_mode.staking_tier import (
+        TIER_PREMIUM,
+        resolve_tier,
+    )
+
     response_tables = []
     for table in tables:
         big_blind, min_buy_in, max_buy_in = table_buy_in_window(table.stake_label)
@@ -2222,6 +2232,21 @@ def get_lobby():
             affordability = "sponsor_eligible"
         else:
             affordability = "locked"
+
+        # Tier at this table — bounded by carry load relative to this
+        # stake's carry cap. Drops with carry growth; the player sees
+        # tier degradation per-card so they can pick a table whose
+        # tier matches the offer quality they want.
+        try:
+            table_tier = resolve_tier(
+                borrower_id=owner_id,
+                current_stake_label=table.stake_label,
+                stake_repo=stake_repo,
+            ) if stake_repo is not None else TIER_PREMIUM
+        except Exception as e:
+            logger.warning("[CASH][LOBBY] tier resolution failed for %r: %s",
+                           table.stake_label, e)
+            table_tier = TIER_PREMIUM
 
         serialized_seats = []
         for idx, slot in enumerate(table.seats):
@@ -2299,11 +2324,48 @@ def get_lobby():
             "affordability": affordability,
             "seats": serialized_seats,
             "dealer_index": get_dealer_index(table),
+            "tier": table_tier,
         })
+
+    # Top-level tier reflects "what tier am I currently playing at?".
+    # When the player is in an active session, that session's stake
+    # drives the tier; otherwise default to the highest stake the
+    # bankroll affords (or the lowest stake when the player can't
+    # afford any). Keeps the lobby header indicator stable across
+    # the player's natural movement.
+    current_tier_stake = None
+    if active_game_id:
+        active_game = game_state_service.get_game(active_game_id)
+        if active_game:
+            current_tier_stake = active_game.get("cash_stake_label")
+    if current_tier_stake is None:
+        # Highest affordable; fall through to the cheapest stake when
+        # the bankroll covers none. The cheapest tier's tier value
+        # still tells the player whether their carries have priced
+        # them out of personality offers entirely.
+        for label in reversed(STAKES_ORDER):
+            _, this_min, _ = table_buy_in_window(label)
+            if bankroll.chips >= this_min:
+                current_tier_stake = label
+                break
+        if current_tier_stake is None:
+            current_tier_stake = STAKES_ORDER[0]
+
+    try:
+        current_tier = resolve_tier(
+            borrower_id=owner_id,
+            current_stake_label=current_tier_stake,
+            stake_repo=stake_repo,
+        ) if stake_repo is not None else TIER_PREMIUM
+    except Exception as e:
+        logger.warning("[CASH][LOBBY] current tier resolution failed: %s", e)
+        current_tier = TIER_PREMIUM
 
     from cash_mode.activity import recent_events, serialize_event
     return jsonify({
         "bankroll": bankroll.chips,
+        "tier": current_tier,
+        "tier_stake_label": current_tier_stake,
         "tables": response_tables,
         "events": [serialize_event(e) for e in recent_events(limit=5)],
     })
