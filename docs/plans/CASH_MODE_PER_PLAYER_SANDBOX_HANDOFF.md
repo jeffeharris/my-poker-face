@@ -1,11 +1,11 @@
 ---
-purpose: Phase 2.5 — scope cash mode's shared AI economy to per-player sandboxes so each player has their own bankrolls, lobby tables, idle pool, and activity history.
+purpose: Phase 2.5 — introduce sandboxes as a first-class scoping unit for cash mode's runtime AI state (bankrolls, lobby tables, idle pool, activity history). Per-player in v1 via a 1:1 default sandbox; the model admits multiple-sandboxes-per-user, shared sandboxes, sandbox lifecycle (reset / export / archive), and admin-provided templates without further migration.
 type: guide
 created: 2026-05-20
 last_updated: 2026-05-20
 ---
 
-# Cash Mode — Per-Player Sandbox Handoff (Phase 2.5)
+# Cash Mode — Sandbox Handoff (Phase 2.5)
 
 > **Read first:**
 > - [`CASH_MODE_BACKING_SYSTEM_HANDOFF.md`](CASH_MODE_BACKING_SYSTEM_HANDOFF.md)
@@ -22,269 +22,403 @@ last_updated: 2026-05-20
 > Phase 4 wires AIs as borrowers, with personality-stakes-personality
 > events fired into a shared activity ticker. That assumes a global
 > economy: Napoleon staking Bezos in Player A's session is meaningful
-> drama for Player B to watch. Per-player sandboxes break that
-> assumption — each player only sees their own Napoleon staking
-> their own Bezos. Building Phase 4 against the shared model and
-> then retrofitting per-player is much more work than doing the
-> scoping first. The Phase 4 design's spec text doesn't change
-> meaningfully; the implementation just picks up `owner_id` as
-> another parameter and the activity ticker becomes per-bucket.
+> drama for Player B to watch. Sandbox scoping breaks that
+> assumption — each sandbox only sees its own Napoleon staking its
+> own Bezos. Building Phase 4 against the shared model and then
+> retrofitting per-sandbox is much more work than doing the scoping
+> first. The Phase 4 design's spec text doesn't change meaningfully;
+> the implementation just picks up `sandbox_id` as another parameter
+> and the activity ticker becomes per-bucket.
 
-## What's already per-player vs shared
+## Sandbox vs owner_id — why they're separate
+
+Two distinct concepts that happen to be 1:1 in v1:
+
+  - **`owner_id`** — answers "who is this account?". Identity. Comes
+    from auth (Google OAuth `users.id`). Existing surface.
+  - **`sandbox_id`** — answers "which save-file is this state in?".
+    World state. New surface in v99. Scopes the runtime AI state
+    (`ai_bankroll_state`, `cash_tables`, `cash_idle_pool`, ledger
+    rows, activity ticker).
+
+In v1, each user gets one default sandbox auto-created on first
+cash-mode access. The route layer resolves `sandbox_id` from
+`owner_id` via `_resolve_sandbox_for(owner_id)` and threads it
+through. Players never see the distinction.
+
+Future use cases that need the abstraction:
+
+| Feature | Why owner-only doesn't work | Sandbox makes it cheap |
+|---|---|---|
+| "Reset my casino" | Would need to delete the user account | Delete the sandbox row, create a new one |
+| Multiple save files per user | Need separate accounts | N sandboxes per owner |
+| Export / import sandbox state | Coupled to user data | Clean serialization unit |
+| Admin "tutorial" sandboxes | Awkward — admin user shared? | Owner = `_system`, anyone forks |
+| Shared / co-op sandboxes | Owner conflict | N:1 owners-to-sandbox via future join table |
+| AI character lifecycle | Tangled with auth | Sandbox archival doesn't touch the user |
+
+The third axis that composes naturally with this:
+
+| Field | Lives on | Answers |
+|---|---|---|
+| `personalities.owner_id` (v64 — exists) | `personalities` | Who CREATED this personality definition? |
+| `personalities.visibility` (v64 — exists) | `personalities` | Who can SEE / instantiate this definition? |
+| `sandbox_id` (v99 — NEW) | runtime-state tables | Which world holds this AI's bankroll / mood / seat? |
+
+A `public` personality template can be instantiated in many
+sandboxes simultaneously. Each instance has its own bankroll +
+emotional state + relationship history scoped to that sandbox.
+Phase 5+'s "player creates a custom personality" feature already
+has its half-shipped (personalities.owner_id / visibility); v99's
+sandbox scoping completes the picture.
+
+## What's already scoped vs shared
 
 | Surface | Status | Why it matters |
 |---|---|---|
-| `player_bankroll_state` | Per-player (keyed on `player_id`) | ✓ no change needed |
-| `stakes` | Per-borrower (keyed on `borrower_id`) | ✓ borrower side fine; staker side gets owner_id this phase |
-| `relationship_states` | Per-pair (`observer_id`, `opponent_id`) | ✓ already the model to copy |
-| `games` table (cash sessions) | Per-`owner_id` | ✓ |
-| `personalities` (definitions) | Per-`owner_id` + visibility | ✓ public personalities still shared as definitions |
-| `ai_bankroll_state` | **Shared** by `personality_id` only | One Napoleon, one bankroll across all players. The biggest sticking point. |
+| `player_bankroll_state` | Per-player (keyed on `player_id`) | ✓ player bankroll is part of identity, not sandbox state |
+| `stakes` | Per-borrower (keyed on `borrower_id`) | ✓ borrower side fine; staker side gets `sandbox_id` this phase |
+| `relationship_states` | Per-pair (`observer_id`, `opponent_id`) | ✓ already the per-axis-keyed model to copy |
+| `games` table (cash sessions) | Per-`owner_id` | ✓ identity-scoped; sandbox_id added as a context field |
+| `personalities` (definitions) | Per-`owner_id` + visibility | ✓ public personalities stay shared as definitions; sandbox holds INSTANCES |
+| `ai_bankroll_state` | **Shared** by `personality_id` only | One Napoleon, one bankroll across all worlds. The biggest sticking point. |
 | `ai_bankroll_state.emotional_state_json` | **Shared** | Napoleon's tilt is global — Player A's bad beat affects Player B's Napoleon |
-| `cash_tables` | **Shared** (5 global tables) | All players see the same lobby rosters |
+| `cash_tables` | **Shared** (5 global tables) | All worlds see the same lobby rosters |
 | `cash_idle_pool` | **Shared** | AIs between sessions globally tracked |
-| `chip_ledger_entries` | **Global stream** | source/sink encoding is `ai:<pid>` — doesn't carry owner_id |
+| `chip_ledger_entries` | **Global stream** | source/sink encoding is `ai:<pid>` — doesn't carry sandbox |
 | Activity ticker (`cash_mode/activity.py`) | **Shared** (in-memory ring) | "Bezos staked Napoleon" event is global |
 
-## Design — per-player Napoleon
+## Design — sandboxed Napoleon
 
-Each player gets their own copy of every AI personality's *runtime
+Each sandbox holds its own copy of every AI personality's *runtime
 state*: bankroll, idle status, emotional state, table assignment.
 The personality *definition* (traits, play style, lender profile in
 config_json) stays shared via the existing `personalities` table.
 
 The mental model: like single-player save files in a video game.
-Player A's Napoleon is a separate save-state from Player B's
+Sandbox A's Napoleon is a separate save-state from Sandbox B's
 Napoleon — same character template, different bankroll histories,
-different emotional baggage, different memories of you.
+different emotional baggage, different memories of the player.
 
 This is intentionally NOT a multi-tenant database split. We stay in
-one SQLite file, one schema, with `owner_id` columns scoping the
+one SQLite file, one schema, with `sandbox_id` columns scoping the
 runtime surfaces. Simpler ops, simpler audit (admins can still
-aggregate across owners), and the relationship layer's already
+aggregate across sandboxes), and the relationship layer's already
 per-pair-keyed so the surfaces compose naturally.
+
+V1 ships with one sandbox per `owner_id`, auto-created on first
+cash-mode access. Players never see the sandbox abstraction in the
+UI — every cash route resolves `sandbox_id` from auth-derived
+`owner_id` via a one-line helper. The data model is ready for
+multi-sandbox / sandbox-management UI whenever that ships.
 
 ## Schema scope (v99)
 
-Add `owner_id TEXT NOT NULL` to:
+**Pre-launch, single environment.** v99 truncates the affected
+runtime-state tables and rebuilds with `sandbox_id` as part of the
+key. No backfill bookkeeping, no synthetic `_legacy` sandbox, no
+chip-conservation gymnastics. Fresh-start migration; first cash-mode
+access per user creates their default sandbox and seeds it from
+scratch.
 
 ```sql
--- v99: per-player AI state.
-ALTER TABLE ai_bankroll_state ADD COLUMN owner_id TEXT NOT NULL DEFAULT '_legacy';
-ALTER TABLE cash_tables       ADD COLUMN owner_id TEXT NOT NULL DEFAULT '_legacy';
-ALTER TABLE cash_idle_pool    ADD COLUMN owner_id TEXT NOT NULL DEFAULT '_legacy';
+-- v99: sandboxes as first-class scoping units. Pre-launch fresh-
+-- start migration — truncates runtime AI state and rebuilds the
+-- key shape. The migration is *destructive* by design; we have one
+-- environment and no real production data to preserve.
 
--- PKs become composite.
--- SQLite can't ALTER PRIMARY KEY directly — recreate each table with
--- the new PK, INSERT INTO new SELECT FROM old, DROP old, RENAME new.
+-- 1. New `sandboxes` table — one row per save-file. V1 creates one
+-- per owner_id on first cash-mode access; future multi-sandbox UI
+-- lets a single owner have several.
+CREATE TABLE sandboxes (
+    sandbox_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,             -- whose sandbox (v1: 1:1; future: N:1)
+    name TEXT NOT NULL,                 -- 'My Casino' default; user-renamable later
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    archived_at TIMESTAMP               -- soft-delete affordance for reset / archive
+);
+CREATE INDEX idx_sandboxes_owner ON sandboxes(owner_id) WHERE archived_at IS NULL;
 
--- chip_ledger_entries gets owner_id too — but as a *context* column,
--- not part of the source/sink encoding. The 'ai:<pid>' string stays
--- unchanged for back-compat with existing rows; owner_id is the new
--- query dimension.
-ALTER TABLE chip_ledger_entries ADD COLUMN owner_id TEXT;
+-- 2. Truncate + rebuild runtime AI state with sandbox_id in the PK.
+-- SQLite ALTER PRIMARY KEY isn't supported, so the migration drops
+-- and recreates these three tables. The pre-launch fresh-start
+-- decision makes the data loss intentional.
+DROP TABLE IF EXISTS ai_bankroll_state;
+CREATE TABLE ai_bankroll_state (
+    personality_id TEXT NOT NULL,
+    sandbox_id TEXT NOT NULL,
+    chips INTEGER NOT NULL DEFAULT 0,
+    last_regen_tick TIMESTAMP,
+    emotional_state_json TEXT,
+    PRIMARY KEY (personality_id, sandbox_id)
+);
+CREATE INDEX idx_ai_bankroll_sandbox ON ai_bankroll_state(sandbox_id);
 
--- New indexes for per-owner queries.
-CREATE INDEX idx_ai_bankroll_owner    ON ai_bankroll_state(owner_id);
-CREATE INDEX idx_cash_tables_owner    ON cash_tables(owner_id);
-CREATE INDEX idx_cash_idle_owner      ON cash_idle_pool(owner_id);
-CREATE INDEX idx_chip_ledger_owner    ON chip_ledger_entries(owner_id);
+DROP TABLE IF EXISTS cash_tables;
+CREATE TABLE cash_tables (
+    table_id TEXT NOT NULL,
+    sandbox_id TEXT NOT NULL,
+    stake_label TEXT NOT NULL,
+    seats_json TEXT NOT NULL,
+    dealer_idx INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (table_id, sandbox_id)
+);
+CREATE INDEX idx_cash_tables_sandbox ON cash_tables(sandbox_id);
+
+DROP TABLE IF EXISTS cash_idle_pool;
+CREATE TABLE cash_idle_pool (
+    personality_id TEXT NOT NULL,
+    sandbox_id TEXT NOT NULL,
+    left_at TIMESTAMP NOT NULL,
+    reason TEXT NOT NULL,
+    target_stake TEXT,
+    PRIMARY KEY (personality_id, sandbox_id)
+);
+CREATE INDEX idx_cash_idle_sandbox ON cash_idle_pool(sandbox_id);
+
+-- 3. chip_ledger_entries gets sandbox_id as a *context* column
+-- (preserve existing rows — the ledger is append-only history we
+-- don't want to nuke even pre-launch; it's the audit's foundation).
+ALTER TABLE chip_ledger_entries ADD COLUMN sandbox_id TEXT;
+CREATE INDEX idx_chip_ledger_sandbox ON chip_ledger_entries(sandbox_id);
+-- Existing rows have sandbox_id=NULL; the audit treats NULL as the
+-- pre-migration universe and bundles into a single "_pre_v99" bucket
+-- for the cross-sandbox totals. New writes always stamp sandbox_id.
 ```
 
-**The `_legacy` synthetic owner** captures the pre-migration state.
-Existing AI bankrolls all migrate under one `_legacy` owner so the
-audit's chip totals stay invariant. Player-first-access seeds a
-fresh per-owner AI bankroll set from scratch (or duplicates from
-`_legacy` — see "Migration semantics" below).
+**Why we keep the chip ledger.** The other three tables hold mutable
+state we can rebuild. The ledger is observability history — even
+pre-launch, losing it makes the audit's drift baseline confusing.
+Pre-existing rows survive with `sandbox_id=NULL`; the audit treats
+those as a pre-v99 bucket for cross-sandbox aggregations and ignores
+them for per-sandbox queries.
 
-### Migration semantics — three options for backfill
+**What players lose on upgrade.** Any AI bankroll regen-accumulated
+chips beyond starting balances. Any active cash sessions that
+existed at migration time become unrecoverable (they reference
+`personality_id`s whose bankrolls are gone). Acceptable because:
+(a) pre-launch, no real users, (b) the cash-mode work itself is in
+testing, (c) fresh sandboxes give every user a clean start under the
+new economy semantics anyway.
 
-1. **Synthetic `_legacy` owner, fresh per-player seeds on first access.**
-   Existing AI bankrolls retained under `_legacy`; queries by other
-   owners return empty until first-access. Cleanest from a chip-
-   conservation standpoint. Players migrating to per-player land in
-   a fresh universe. **Recommended.**
+## Commit breakdown (~6 commits)
 
-2. **Duplicate AI bankrolls per existing player.** For every row in
-   `player_bankroll_state`, copy the legacy AI bankroll set under
-   that player's `owner_id`. Doubles the AI chip universe immediately;
-   the audit's drift jumps by `(N players - 1) × sum(ai_bankrolls)`.
-   Requires a paired `pre_ledger_universe` reseed to keep drift at 0.
-   Not recommended for pre-launch — too much chip-conservation noise.
+### Commit 1: Sandbox table + SandboxRepository + auth helper
 
-3. **Drop and reseed.** Truncate `ai_bankroll_state` /
-   `cash_table_repo` / `cash_idle_pool` entirely; seed on first
-   access. Loses any existing AI bankroll growth (regen-accumulated
-   chips), but the simplest from a code standpoint. Acceptable
-   pre-launch where there's no real production data.
+- v99 migration **part 1**: `CREATE TABLE sandboxes` + the `_legacy`
+  sandbox seed row.
+- New `poker/repositories/sandbox_repository.py`:
+  - `SandboxRepository.create(sandbox_id, owner_id, name)` — INSERT.
+  - `SandboxRepository.load(sandbox_id)` — fetch one.
+  - `SandboxRepository.list_for_owner(owner_id, include_archived=False)`.
+  - `SandboxRepository.archive(sandbox_id, now)` — soft-delete.
+- New `flask_app/services/sandbox_resolver.py`:
+  - `resolve_default_sandbox_for(owner_id, *, sandbox_repo) → str`.
+    Returns `f"default_{owner_id}"`-shaped id; creates the row on
+    first call. Idempotent. Cached per-process in a small dict so
+    hot-path resolution is O(1).
+- Wired into `create_repos()` + `flask_app.extensions`.
+- Tests: round-trip CRUD; archive marks the row; resolve creates on
+  first-access; second call returns existing row.
 
-The handoff defaults to option 1. Option 3 is acceptable if option
-1's backfill bookkeeping turns out gnarlier than expected.
+### Commit 2: Schema v99 part 2 — scope existing tables
 
-## Commit breakdown (~5 commits)
-
-### Commit 1: Schema v99 + repository signatures
-
-- v99 migration: add `owner_id` columns + indexes as above. PK
-  recreation done via the standard SQLite table-rebuild pattern (used
-  by v27 `_migrate_v27_fix_opponent_models_constraint`).
-- Backfill: every existing row gets `owner_id='_legacy'`.
-- Update repository method signatures to take `owner_id` as a kwarg.
-  Optional during this commit (default to `'_legacy'`) so existing
-  callers compile. Subsequent commits drop the default.
+- v99 migration **part 2**: add `sandbox_id` column + indexes to
+  `ai_bankroll_state`, `cash_tables`, `cash_idle_pool`,
+  `chip_ledger_entries`. PK recreation done via the standard SQLite
+  table-rebuild pattern (used by v27).
+- Backfill: every existing row gets `sandbox_id='_legacy'`.
+- Update repository method signatures to take `sandbox_id` as a
+  required kwarg. Existing callers WILL break — Commit 3 catches
+  them all at compile time. Doing it as a required kwarg (not
+  default-to-`'_legacy'`) forces every site to be explicit; the
+  default-kwarg trick from earlier phases led to silent fallback
+  bugs we don't want to repeat.
 - Methods affected:
-  - `BankrollRepository.save_ai_bankroll(state, *, owner_id)`
-  - `BankrollRepository.load_ai_bankroll(personality_id, *, owner_id)`
-  - `BankrollRepository.load_ai_bankroll_current(personality_id, *, owner_id, now=None)`
-  - `BankrollRepository.iter_personality_ids_with_bankrolls(owner_id=None)` — when owner_id is None, iterates ALL rows (used by admin audit).
-  - `BankrollRepository.sum_ai_bankroll_chips_stored(owner_id=None)`
-  - `BankrollRepository.save_emotional_state_json(personality_id, blob, *, owner_id)`
-  - `BankrollRepository.load_emotional_state_json(personality_id, *, owner_id)`
-  - `BankrollRepository.load_emotional_state_json_for_pids(pids, *, owner_id)`
-  - `CashTableRepository.list_all_tables(owner_id=None)` — None for admin
-  - `CashTableRepository.load_table(table_id, *, owner_id)` — table_id alone isn't unique anymore
-  - `CashTableRepository.save_table(state, *, owner_id, now=None)`
-  - `CashTableRepository.save_idle(entry, *, owner_id)`
-  - `CashTableRepository.load_idle(personality_id, *, owner_id)`
-  - `CashTableRepository.list_idle(owner_id=None)`
-  - `CashTableRepository.delete_idle(personality_id, *, owner_id)`
-- Tests: schema round-trip + back-compat (legacy default) + per-owner
-  isolation (writing under one owner doesn't surface under another).
+  - `BankrollRepository.save_ai_bankroll(state, *, sandbox_id)`
+  - `BankrollRepository.load_ai_bankroll(personality_id, *, sandbox_id)`
+  - `BankrollRepository.load_ai_bankroll_current(personality_id, *, sandbox_id, now=None)`
+  - `BankrollRepository.iter_personality_ids_with_bankrolls(*, sandbox_id=None)` — None = ALL (admin audit).
+  - `BankrollRepository.sum_ai_bankroll_chips_stored(*, sandbox_id=None)`
+  - `BankrollRepository.save_emotional_state_json(personality_id, blob, *, sandbox_id)`
+  - `BankrollRepository.load_emotional_state_json(personality_id, *, sandbox_id)`
+  - `BankrollRepository.load_emotional_state_json_for_pids(pids, *, sandbox_id)`
+  - `CashTableRepository.list_all_tables(*, sandbox_id=None)` — None for admin
+  - `CashTableRepository.load_table(table_id, *, sandbox_id)`
+  - `CashTableRepository.save_table(state, *, sandbox_id, now=None)`
+  - `CashTableRepository.save_idle(entry, *, sandbox_id)`
+  - `CashTableRepository.load_idle(personality_id, *, sandbox_id)`
+  - `CashTableRepository.list_idle(*, sandbox_id=None)`
+  - `CashTableRepository.delete_idle(personality_id, *, sandbox_id)`
+- Tests: schema round-trip + per-sandbox isolation (writing under
+  one sandbox doesn't surface under another).
 
-### Commit 2: Wire owner_id through cash_mode pure helpers
+### Commit 3: Wire sandbox_id through cash_mode pure helpers
 
 - `cash_mode/lobby.py`:
-  - `ensure_lobby_seeded(*, owner_id, ...)` — required kwarg. Each
-    player gets their own seed pass.
-  - `refresh_unseated_tables(*, owner_id, ...)` — scopes the refresh.
-  - `_table_id_for_stake(stake_label, owner_id)` — table IDs become
-    `cash-table-<stake>-<owner_id_slug>-001` so the (table_id,
-    owner_id) PK doesn't need a uniqueness conflict.
+  - `ensure_lobby_seeded(*, sandbox_id, ...)` — required kwarg.
+    Each sandbox gets its own seed pass.
+  - `refresh_unseated_tables(*, sandbox_id, ...)` — scopes the refresh.
+  - `_table_id_for_stake(stake_label, sandbox_id)` — table IDs
+    become `cash-table-<stake>-<sandbox_slug>-001` so the
+    (table_id, sandbox_id) PK doesn't conflict across sandboxes.
 - `cash_mode/movement.py`:
-  - `refresh_table_roster(*, owner_id, ...)` — bankroll lookups pass
-    owner_id through.
+  - `refresh_table_roster(*, sandbox_id, ...)` — bankroll lookups
+    pass sandbox_id through.
 - `cash_mode/sponsor_offers.py`:
-  - `compute_personality_offers(*, owner_id, ...)` — bankroll loads
-    use it. The `candidate_personalities` list passed in already comes
-    from the player's eligible pool (`personality_repo.
-    list_eligible_for_cash_mode(user_id=owner_id)`).
+  - `compute_personality_offers(*, sandbox_id, ...)` — bankroll
+    loads use it. The `candidate_personalities` list passed in
+    already comes from the player's eligible pool
+    (`personality_repo.list_eligible_for_cash_mode(user_id=owner_id)`
+    — note this stays owner-scoped because the personality DEFINITION
+    visibility is owner-bound, not sandbox-bound).
 - `cash_mode/full_sim.py`:
-  - `play_one_hand(*, owner_id, ...)` — sim chips come from per-owner
-    bankrolls. AI psychology persistence goes per-owner too.
+  - `play_one_hand(*, sandbox_id, ...)` — sim chips come from
+    per-sandbox bankrolls. AI psychology persistence goes
+    per-sandbox too.
 - `cash_mode/staking_tier.py`:
-  - No change (already scoped by borrower_id which IS the owner).
+  - No change (already scoped by borrower_id which IS the player).
 - `cash_mode/stake_chip_flow.py`:
   - No change (operates on a Stake object that doesn't need to know
-    about owner scoping — the route layer handles that).
+    about sandbox scoping — the route layer handles that).
 
-### Commit 3: Wire owner_id through routes + handlers
+### Commit 4: Wire sandbox resolution through routes + handlers
 
+- Pattern at every cash route entry:
+  ```python
+  owner_id = _resolve_owner_id()                       # existing
+  sandbox_id = resolve_default_sandbox_for(            # new
+      owner_id, sandbox_repo=sandbox_repo,
+  )
+  ```
+  Then `sandbox_id` is threaded through to every repo / cash_mode
+  call. The resolver caches in-process so the per-request cost is
+  one dict lookup after warmup.
 - `flask_app/routes/cash_routes.py`: every place that calls
   `bankroll_repo.load_ai_bankroll_*`, `cash_table_repo.*`, or
-  `cash_mode.lobby.*` needs owner_id (always resolvable from
-  `_resolve_owner_id()`).
+  `cash_mode.lobby.*` passes sandbox_id.
 - `flask_app/handlers/game_handler.py`: hand-boundary hooks that
   refresh tables / project bankrolls.
+- Game session ↔ sandbox link: stamp `sandbox_id` onto the
+  `game_data` dict at sit-down (`sponsor_and_sit`), so leave-time
+  + hand-boundary handlers don't need to re-resolve. Resolves the
+  "session outlives the user's auth session" concern.
 - Boot hook (`ensure_lobby_seeded` at app startup) **removes**. The
-  first-access pattern is the new model — first `/api/cash/lobby` or
-  `/api/cash/state` per owner seeds their lobby lazily.
+  first-access pattern is the new model — first `/api/cash/lobby`
+  or `/api/cash/state` per sandbox seeds its lobby lazily.
 - `flask_app/services/chip_ledger_audit.py`:
-  - `compute_audit(*, owner_id=None, ...)` — `None` means
-    "aggregate across all owners" (admin endpoint).
-  - When `owner_id` is provided, every sum query filters: `WHERE
-    owner_id = ?`.
-  - Per-player audit endpoint shape unchanged; just scoped.
+  - `compute_audit(*, sandbox_id=None, ...)` — `None` means
+    "aggregate across all sandboxes" (admin endpoint).
+  - When `sandbox_id` is provided, every sum query filters:
+    `WHERE sandbox_id = ?`.
 - `cash_mode/activity.py`:
   - Replace the global ring buffer with `_buckets: Dict[str, deque]`
-    keyed on `owner_id`.
-  - `recent_events(owner_id, limit=5)`.
-  - `record_event(owner_id, ...)`.
-- Tests: every fixture that seeds AI bankrolls now passes owner_id
-  (50-100 mechanical changes, mostly s/`save_ai_bankroll(state)`/
-  `save_ai_bankroll(state, owner_id=PLAYER_OWNER_ID)`/).
+    keyed on `sandbox_id`.
+  - `recent_events(sandbox_id, limit=5)`.
+  - `record_event(sandbox_id, ...)`.
+- Tests: every fixture that seeds AI bankrolls now passes
+  sandbox_id (50-100 mechanical changes, mostly
+  s/`save_ai_bankroll(state)`/
+  `save_ai_bankroll(state, sandbox_id=SANDBOX_ID)`/).
 
-### Commit 4: Lobby seed migration to first-access
+### Commit 5: Lobby seed migration to first-access
 
-- Remove the boot-time `ensure_lobby_seeded(owner_id='_legacy')`
+- Remove the boot-time `ensure_lobby_seeded(sandbox_id='_legacy')`
   call from app startup.
-- Add a `_ensure_lobby_seeded_for(owner_id)` helper in cash_routes.py
-  that's idempotent + fast (checks `cash_table_repo.list_all_tables(
-  owner_id)` for existing rows; only seeds if empty).
+- Add a `_ensure_lobby_seeded_for(sandbox_id)` helper in
+  cash_routes.py that's idempotent + fast (checks
+  `cash_table_repo.list_all_tables(sandbox_id=...)` for existing
+  rows; only seeds if empty).
 - Call it from `/api/cash/state`, `/api/cash/lobby`, and
   `/api/cash/sponsor-offers` (every route that needs a populated
   lobby).
-- Tests: first-access seeds a fresh lobby for a new owner; second
-  access is a no-op; admin endpoint aggregates across owners.
+- Tests: first-access seeds a fresh lobby for a new sandbox;
+  second access is a no-op; admin audit aggregates across sandboxes.
 
-### Commit 5: Chip ledger context_json owner_id stamping
+### Commit 6: Chip ledger context_json sandbox_id stamping
 
-- Every `ledger.record(...)` call site adds `owner_id` to the context
-  dict so the audit's per-owner scoping works for ledger events too.
-- Migration backfills existing rows with `owner_id='_legacy'` in the
-  new dedicated column (already added in Commit 1; this commit
-  populates it from `context_json.owner_id` when present).
-- Audit's per-reason buckets stay global (cross-owner) but the
-  `by_reason_window_24h` can scope to a single owner when requested.
-- Tests: audit drift = 0 per-owner after a full session lifecycle in
-  a fresh per-owner sandbox; admin endpoint sums correctly across
-  multiple owners.
+- Every `ledger.record(...)` call site adds `sandbox_id` to the
+  context dict + the new column so the audit's per-sandbox scoping
+  works for ledger events too.
+- Migration backfills existing rows with `sandbox_id='_legacy'`
+  in the dedicated column added in Commit 2.
+- Audit's per-reason buckets stay global (cross-sandbox) but the
+  `by_reason_window_24h` can scope to a single sandbox when
+  requested.
+- Tests: audit drift = 0 per-sandbox after a full session lifecycle
+  in a fresh sandbox; admin endpoint sums correctly across multiple
+  sandboxes.
 
 ## Tests — what to expect
 
 The test surface grows because every fixture that seeds AI state
-needs an owner. Estimated breakdown:
+needs a sandbox. Estimated breakdown:
 
 | File | Change kind | Approx count |
 |---|---|---|
-| `test_cash_lobby_route.py`, `test_cash_lobby_integration.py`, `test_cash_sit_route.py`, `test_cash_sponsor_routes.py`, `test_cash_default_route.py`, `test_cash_lobby_tier.py`, `test_cash_cutover_integration.py`, `test_fast_forward.py` | Add `owner_id=PLAYER_OWNER_ID` to `save_ai_bankroll` calls; pass `owner_id` to `ensure_lobby_seeded` | ~40 |
-| `test_personality_offers.py`, `test_personality_offers_tier.py` | Fake `BankrollRepository` honors owner_id | ~10 |
-| `test_chip_ledger_audit.py`, `test_chip_ledger_lobby_seed.py`, `test_chip_ledger_destruction.py`, `test_chip_ledger_instrumentation.py`, `test_chip_ledger_wrapper_audit.py` | Scope sums; verify per-owner isolation | ~20 |
-| `test_schema_migration_v99.py` | New file — covers v99 migration + backfill | 6-8 new tests |
-| `test_cash_per_player_isolation.py` | New file — covers cross-owner isolation invariants | 8-12 new tests |
+| `test_cash_lobby_route.py`, `test_cash_lobby_integration.py`, `test_cash_sit_route.py`, `test_cash_sponsor_routes.py`, `test_cash_default_route.py`, `test_cash_lobby_tier.py`, `test_cash_cutover_integration.py`, `test_fast_forward.py` | Resolve a sandbox in setUp; pass `sandbox_id=...` to `save_ai_bankroll`, `ensure_lobby_seeded`, etc. | ~50 |
+| `test_personality_offers.py`, `test_personality_offers_tier.py` | Fake `BankrollRepository` honors sandbox_id | ~10 |
+| `test_chip_ledger_audit.py`, `test_chip_ledger_lobby_seed.py`, `test_chip_ledger_destruction.py`, `test_chip_ledger_instrumentation.py`, `test_chip_ledger_wrapper_audit.py` | Scope sums; verify per-sandbox isolation; NULL-bucket handling for legacy ledger rows | ~25 |
+| `test_schema_migration_v99.py` | New file — table-rebuild correctness + sandbox FK semantics | 8-10 new tests |
+| `test_sandbox_repository.py` | New file — sandbox CRUD + archive + resolver | 8-10 new tests |
+| `test_cash_per_sandbox_isolation.py` | New file — cross-sandbox isolation invariants (AI bankroll in sandbox A invisible to sandbox B, etc.) | 8-12 new tests |
 
-Net add: ~80 test changes + ~15 new tests.
+Net add: ~85 test changes + ~25-30 new tests.
 
 ## Risks
 
-1. **Chip-ledger backfill semantics.** Option 1 (synthetic
-   `_legacy` owner + fresh per-player seeds) keeps drift invariant
-   at migration time. But the first-access seed for each new
-   player creates AI bankrolls out of thin air — those need
-   `ai_seed` ledger entries (the missing surface flagged in the
-   economy doc's "Known issues" §2). This commit is a good time to
-   close that gap.
+1. **First-access AI bankroll seeding fires no `ai_seed` ledger
+   entry today.** The existing seed path (`save_ai_bankroll` for a
+   personality with no prior row) creates chips out of thin air
+   without a ledger annotation. The economy doc's "Known issues"
+   §2 flagged this pre-Phase-2.5; v99 makes it worse because
+   *every new sandbox* triggers a seed wave. **Mitigation**:
+   Commit 2 adds an `ai_seed` ledger reason + fires it in
+   `BankrollRepository.save_ai_bankroll` when the personality has
+   no prior row in this sandbox. Closes the audit-drift leak.
 
-2. **Cross-owner test pollution.** The hardcoded-repo-list pattern
-   in five test fixtures (mock_init_persistence) was tripped over
-   in Phase 2 — five files needed updates. Per-player adds another
-   layer: tests that seed AI state without owner_id will silently
-   write under `_legacy` and not be queried by per-owner reads.
-   The default-to-`_legacy` back-compat from Commit 1 mitigates
-   this but doesn't eliminate it. **Mitigation**: Commit 3 drops
-   the default kwarg, forcing every call site to be explicit.
+2. **Cross-sandbox test pollution.** The hardcoded-repo-list
+   pattern in five test fixtures (mock_init_persistence) was
+   tripped over in Phase 2 — five files needed updates. Sandbox
+   scoping adds another layer: tests that seed AI state without
+   `sandbox_id` will fail outright (required kwarg, no default).
+   That's the chosen mitigation — fail loud, not silent. Better
+   than the default-to-`_legacy` trick which would let pollution
+   sneak in unnoticed.
 
 3. **Lobby seeding cost on first access.** Currently the boot hook
-   amortizes one seed pass over the process lifetime. Per-player
+   amortizes one seed pass over the process lifetime. Per-sandbox
    first-access seeding moves that cost to the first request per
-   player. For 5 lobby tables × 4 baseline AI seats + relationship
+   sandbox. For 5 lobby tables × 4 baseline AI seats + relationship
    lookups + bankroll projections, that's maybe 50ms per first
    access. Acceptable; can be backgrounded if needed.
 
 4. **Phase 4 design assumes shared world by default.** The Phase 4
    spec talks about AIs staking each other across the whole pool.
-   Per-player scoping changes "the whole pool" to "this player's
-   pool of AIs." The Phase 4 spec text doesn't need rewriting —
-   the implementation just picks up `owner_id` as another
-   parameter. But the per-player narrative shifts from "watch the
-   casino's economy" to "your casino, your AIs."
+   Sandbox scoping changes "the whole pool" to "this sandbox's pool
+   of AIs." The Phase 4 spec text doesn't need rewriting — the
+   implementation just picks up `sandbox_id` as another parameter.
+   But the narrative shifts from "watch the casino's economy" to
+   "your casino, your AIs." Confirmed acceptable given locked
+   decision #13 (single-player v1).
 
-5. **Audit's `_sum_active_loans` fallback.** The audit currently
-   reads from `active_loan_amount` (legacy) when `stake_repo` is
-   None (test back-compat). The legacy `player_bankroll_state`
-   surface is per-player already, so no scoping change needed
-   there. But when the new `_sum_active_stake_principal_for_humans`
-   path runs (when stake_repo is provided), the sum needs to scope
-   to the audit's `owner_id` filter — easy add.
+5. **Audit's `_sum_active_stake_principal_for_humans` scoping.**
+   The audit's new query (added post-Phase-2-cutover) sums
+   `stakes.principal WHERE status='active' AND borrower_kind='human'`
+   globally. Add `AND sandbox_id = ?` when the audit is called
+   per-sandbox. Easy edit, but it's the kind of thing that's easy
+   to miss when the audit is silently working at the cross-sandbox
+   level.
+
+6. **Destructive migration in a non-prod-but-shared dev env.**
+   The "single environment, can nuke" assumption (per the
+   2026-05-20 decision) means existing teammates' local dev DBs
+   lose their AI bankroll state on pull. Coordinate via Slack /
+   commit message; the migration is one-shot so it only bites
+   once. The chip ledger survives (its rows are append-only
+   history) so admin observability is preserved.
 
 ## Files to read first
 
@@ -293,28 +427,29 @@ Net add: ~80 test changes + ~15 new tests.
    what Phase 2.5 builds on. Especially the "What's shipped" section
    and the suggested ship order.
 3. **`docs/technical/CASH_MODE_ECONOMY.md`** — chip-bearing surfaces
-   inventory. Per-player changes the shape of every surface listed.
+   inventory. Sandbox scoping changes the shape of every surface
+   listed.
 4. **`poker/repositories/bankroll_repository.py`** — the biggest
    single file affected. The `save_ai_bankroll` /
    `load_ai_bankroll_current` / emotional state methods all need
-   owner_id.
+   sandbox_id.
 5. **`poker/repositories/cash_table_repository.py`** — table + idle
    pool CRUD. Composite-PK rewrite for v99.
 6. **`cash_mode/lobby.py`** — `ensure_lobby_seeded` +
    `refresh_unseated_tables` are the main surfaces that need
-   per-owner scoping.
+   per-sandbox scoping.
 7. **`flask_app/services/chip_ledger_audit.py`** — admin audit gets
-   an optional `owner_id` filter; per-player audits become a new
+   an optional `sandbox_id` filter; per-sandbox audits become a new
    endpoint variant.
-8. **`cash_mode/activity.py`** — global ring → per-owner buckets.
+8. **`cash_mode/activity.py`** — global ring → per-sandbox buckets.
    The simplest example of the scoping pattern.
 9. **`poker/repositories/relationship_repository.py`** (or wherever
-   relationship_states lives) — the model to copy. It's already
-   per-pair-keyed; Commit 1-3 mirrors its query patterns for
-   AI runtime state.
+   relationship_states lives) — the per-pair-keyed model to copy.
+   Commit 2-3 mirrors its query patterns for sandbox-scoped AI
+   runtime state.
 10. **`flask_app/routes/cash_routes.py:_resolve_owner_id`** — every
     route already resolves owner_id at request-handler entry. The
-    scoping is "pipe it down" rather than "compute it."
+    new sandbox resolution slots in immediately after.
 11. **`poker/repositories/schema_manager.py`** —
     `SCHEMA_VERSION = 98`; Phase 2.5 lands v99. Pattern for
     composite-PK rebuild lives at
@@ -322,43 +457,56 @@ Net add: ~80 test changes + ~15 new tests.
 
 ## Open questions
 
-1. **Should per-player audits be a separate route or a query
-   parameter?** `GET /api/admin/chip-ledger/audit` currently
-   aggregates everything. Could be `GET /api/admin/chip-ledger/audit?owner_id=X`
-   for a per-player view, or a separate `GET /api/cash/audit` that
-   resolves the current user's owner_id from auth. Latter is
-   cleaner — players don't need to know about owner_id semantics
-   to inspect their own state.
+1. **Sandbox id format.** Two options:
+   - **Deterministic** (`default_{owner_id}`) — derivable from auth
+     state, no extra DB lookup for the v1 common case. Slightly
+     leaks owner_id through the id.
+   - **Opaque UUID** — proper opaque sandbox identity, requires the
+     `sandboxes` table lookup every time. Matches "sandbox is its
+     own thing" framing more cleanly. The resolver caches so the
+     lookup cost is ~one hash map hit per warm request.
+   Doc currently leans opaque — confirm with the implementer
+   before Commit 1 lands. Switching format later is a one-shot
+   data migration.
 
-2. **Cross-session AI events.** When Player A's Napoleon takes a
-   bad beat from Player A's Bezos, that's a per-player event. But
-   "Napoleon defaulted on Bezos" is an event with TWO AI sides —
-   both have to be in the same owner's sandbox (which they are,
-   since they're both Player A's instances). The activity ticker
-   stays clean. No design change here, just confirmation.
+2. **Per-sandbox audits — separate route or query parameter?**
+   `GET /api/admin/chip-ledger/audit` currently aggregates
+   everything. Could be
+   `GET /api/admin/chip-ledger/audit?sandbox_id=X` for a per-
+   sandbox view, or a separate `GET /api/cash/audit` that resolves
+   the current user's sandbox_id from auth. Latter is cleaner —
+   players don't need to know about sandbox_id semantics to
+   inspect their own state.
 
-3. **Personality template updates.** Today, editing Napoleon's
+3. **Cross-AI events stay within a sandbox.** When Sandbox A's
+   Napoleon takes a bad beat from Sandbox A's Bezos, that's a
+   per-sandbox event. "Napoleon defaulted on Bezos" is an event
+   with TWO AI sides — both are in the same sandbox by
+   construction (a sandbox holds ALL its AI instances). The
+   activity ticker stays clean. No design change here, just
+   confirmation.
+
+4. **Personality template updates.** Today, editing Napoleon's
    `lender_profile` in `personalities.json` affects all sessions.
-   That stays the same under per-player sandboxes — definitions
-   are shared, only runtime state is scoped. If you want truly
-   independent Napoleons (each player can tune their copy's
-   profile), that's a different much-bigger project (per-player
-   personality definitions, which already partially exists via
-   the v64 `owner_id` + `visibility` on `personalities`).
+   That stays the same under sandbox scoping — definitions are
+   shared, only runtime state is scoped. If you want truly
+   independent Napoleons (each sandbox can tune their copy's
+   profile), that's a different much-bigger project (per-sandbox
+   personality definitions, which would also need a v64-style
+   visibility model — out of scope here).
 
-4. **Migration of in-flight sessions.** If a player has a cash
-   session active at Phase 2.5 deploy time, the migration's
-   `_legacy` owner takes over. The session's `cash_personality_ids`
-   mapping (game_data dict) still points to personality_ids that
-   exist; their bankrolls are now under `_legacy`. The session
-   continues using the `_legacy` owner's AI bankrolls until leave-
-   time. Subsequent sit-downs hit the per-owner path. Documented
-   as a known transitional state; tests cover the boundary.
+5. **Frontend session continuity.** Sandbox scoping (even with v1's
+   1:1 default sandbox per user) means logging in as a different
+   user shows a different lobby. That's the design intent but
+   worth confirming with the frontend product owner before
+   shipping.
 
-5. **Frontend session continuity.** Per-player sandboxes mean
-   logging in as a different user shows a different lobby. That's
-   the design intent but worth confirming with the frontend
-   product owner before shipping.
+6. **When to expose sandbox management UI?** Spec ships data-model
+   ready for multi-sandbox; UI is deferred. Triggers worth watching
+   in playtest: (a) users asking for "reset my casino", (b) users
+   wanting a separate experimental sandbox to test wild stake
+   strategies, (c) admin asking for tutorial-sandbox templates.
+   None of those need schema changes — just a route + UI work.
 
 ## Why this matters
 
