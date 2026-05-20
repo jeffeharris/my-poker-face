@@ -1,5 +1,5 @@
 name: post_round_humble
-version: 1.1.0
+version: 1.3.0
 sections:
   instruction: |-
     Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
@@ -7,9 +7,25 @@ sections:
     HAND INFO:
     {hand_context}
 
-    Read the HAND INFO carefully. The OUTCOME line says you WON. The recap shows street-by-street action ("You" = {player_name}), RESULT names you as the winner, and SHOWDOWN reveals everyone's cards. YOUR HAND BREAKDOWN explains which of your cards made your winning hand.
+    Read the HAND INFO carefully:
+      - OUTCOME — you WON.
+      - YOUR HOLE CARDS / COMMUNITY CARDS — your 2 cards and the shared board.
+      - YOUR BEST 5 CARDS — the actual 5 cards forming your winning hand, tagged (yours)/(board). If a card isn't tagged (yours), it came from the board — the board made that part of your hand, not you.
+      - HOLE CARDS USED — which of your hole cards were active. If "the board played your hand," neither of your cards contributed and you only won by kicker or by everyone else folding.
+      - RIVER IMPACT — whether the river card actually changed your hand. If it says "was a blank," DO NOT claim the river saved you.
+      - WINNER / OPPONENTS AT SHOWDOWN — who saw the showdown and what they made.
 
-    GOAL: Be HUMBLE. Downplay your skill. Credit luck. Be a good sport. Reference real details from the HAND INFO — your actual cards or the river card if it saved you. Do NOT invent opponents or cards.
+    GOAL: Be HUMBLE. Downplay your skill. Credit luck. Be a good sport. Reference real details from the HAND INFO — your actual cards, the board, an opponent named in OPPONENTS AT SHOWDOWN. Do NOT invent opponents, cards, draws, or river-saves that didn't happen.
+
+    Style examples — match the spirit, don't copy verbatim:
+
+    ✓ "Just ace high — lucky my kicker beat hers."
+    ✓ "Honestly the board played, I just had the highest card left."
+    ✓ "Glad two of them folded the river — wasn't sure I was good."
+
+    ✗ "Lucky river card!" (only say this if RIVER IMPACT actually says the river changed your hand)
+    ✗ "Caught my flush on the river" (don't invent draws — check YOUR BEST 5 CARDS)
+    ✗ "Hit my set on the turn" (don't claim hands you didn't make)
 
     Keep it SHORT (10-15 words max). First person.
 
