@@ -118,7 +118,12 @@ logger = logging.getLogger(__name__)
 #       handoff. Subsequent commits add `sandbox_id` to the runtime-
 #       state tables; this commit only lands the new table + repo.
 #       Spec: docs/plans/CASH_MODE_PER_PLAYER_SANDBOX_HANDOFF.md.
-SCHEMA_VERSION = 100
+# v101: Add `nickname_override` column to `relationship_states` so a
+#       player can rename an opponent privately from the dossier — the
+#       override is keyed on the same (observer_id, opponent_id) pair as
+#       `notes`, so it's per-viewer by construction. Display falls back
+#       to the personality's canonical nickname when the override is NULL.
+SCHEMA_VERSION = 101
 
 
 
@@ -416,6 +421,7 @@ class SchemaManager:
                     last_seen TIMESTAMP,
                     last_decay_tick TIMESTAMP,
                     notes TEXT,
+                    nickname_override TEXT,
                     PRIMARY KEY (observer_id, opponent_id)
                 )
             """)
@@ -1263,6 +1269,7 @@ class SchemaManager:
             98: (self._migrate_v98_add_stakes_table, "Add stakes table for backing-system stake model (Phase 1) and rename legacy house_loan_* ledger reasons to house_stake_*"),
             99: (self._migrate_v99_drop_active_loan_columns, "Drop legacy active_loan_* columns from player_bankroll_state — stakes table is now the sole source-of-truth"),
             100: (self._migrate_v100_add_sandboxes_table, "Add sandboxes table (Phase 2.5) — first-class scoping unit for cash-mode runtime state, per-owner save-file model"),
+            101: (self._migrate_v101_add_relationship_nickname_override, "Add nickname_override column to relationship_states so players can rename opponents privately from the dossier"),
         }
 
         with self._get_connection() as conn:
@@ -4592,4 +4599,25 @@ class SchemaManager:
                 WHERE archived_at IS NULL
         """)
         logger.info("Migration v100 complete: sandboxes table created")
+
+    def _migrate_v101_add_relationship_nickname_override(self, conn: sqlite3.Connection) -> None:
+        """Migration v101: Add `nickname_override` TEXT to relationship_states.
+
+        Lets a player privately rename an opponent from the dossier
+        (e.g., re-label "Batman" as "the tight one on my left"). The
+        override is per-viewer because it sits on the same
+        (observer_id, opponent_id) row as `notes`; no other observer
+        sees it. When NULL the dossier falls back to the personality's
+        canonical nickname.
+
+        Idempotent: only adds the column if it doesn't already exist.
+        """
+        cursor = conn.execute("PRAGMA table_info(relationship_states)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'nickname_override' not in existing_columns:
+            conn.execute("ALTER TABLE relationship_states ADD COLUMN nickname_override TEXT")
+            logger.debug("Added nickname_override column to relationship_states")
+
+        logger.info("Migration v101 complete: relationship_states.nickname_override added")
 
