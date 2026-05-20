@@ -82,6 +82,7 @@ class RelationshipEvent(Enum):
     STAKE_REPAID = "stake_repaid"
     STAKE_DEFAULTED = "stake_defaulted"
     STAKE_FORGIVEN = "stake_forgiven"
+    STAKE_FORGIVENESS_REFUSED = "stake_forgiveness_refused"
 
     # Quarantine sentinel for unknown strings encountered on load.
     # Has zero entries in both dispatch tables — `record_event` with
@@ -168,6 +169,17 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.STAKE_REPAID:    AxisShift(heat=-0.05, respect=+0.15, likability=+0.10),
     RelationshipEvent.STAKE_DEFAULTED: AxisShift(heat=+0.30, respect=-0.30, likability=-0.20),
     RelationshipEvent.STAKE_FORGIVEN:  AxisShift(heat=-0.10, respect=+0.05, likability=+0.05),
+    # STAKE_FORGIVENESS_REFUSED: borrower asked for forgiveness and the
+    # staker refused. Small actor-side hit — "you have some nerve
+    # asking" — without escalating to the full STAKE_DEFAULTED magnitude
+    # (defaulting is a much sharper transgression than asking). Actor
+    # is staker, target is borrower; the staker's view of the borrower
+    # drops slightly. Mirror (borrower's view of staker) shifts only
+    # mildly — the borrower wasn't expecting the ask to be granted, but
+    # being refused does cool their warmth toward the staker a touch.
+    RelationshipEvent.STAKE_FORGIVENESS_REFUSED: AxisShift(
+        heat=+0.02, respect= 0.00, likability=-0.05,
+    ),
 
     # Quarantine — no axis impact
     RelationshipEvent.UNKNOWN:            AxisShift(),
@@ -225,6 +237,12 @@ MIRROR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.STAKE_REPAID:    AxisShift(heat=-0.05, respect=+0.05, likability=+0.05),
     RelationshipEvent.STAKE_DEFAULTED: AxisShift(heat=+0.20, respect= 0.00, likability=-0.10),
     RelationshipEvent.STAKE_FORGIVEN:  AxisShift(heat=-0.10, respect=+0.10, likability=+0.15),
+    # Mirror: borrower felt rejected. Small negative — being told "no"
+    # cools the borrower's warmth a touch, but not as much as the
+    # staker's annoyance moves their own axes.
+    RelationshipEvent.STAKE_FORGIVENESS_REFUSED: AxisShift(
+        heat=+0.03, respect= 0.00, likability=-0.03,
+    ),
 
     # Quarantine — no axis impact, same as actor table.
     RelationshipEvent.UNKNOWN:            AxisShift(),

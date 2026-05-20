@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { X, Wallet } from 'lucide-react';
-import { getNetWorth, payOffCarry } from './api';
+import { getNetWorth, payOffCarry, requestForgiveness } from './api';
 import type { NetWorthResponse, Payable, TierStatus } from './types';
 import { logger } from '../../utils/logger';
 import './NetWorthDrawer.css';
@@ -61,11 +61,19 @@ function formatAge(createdAt: string | null): string {
   return `${months}mo ago`;
 }
 
+/** Per-stake transient outcome notice rendered above the row. */
+interface ForgivenessNotice {
+  stakeId: string;
+  kind: 'granted' | 'refused' | 'rate_limited';
+  message: string;
+}
+
 export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProps) {
   const [data, setData] = useState<NetWorthResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [payoffError, setPayoffError] = useState<string | null>(null);
   const [busyStakeId, setBusyStakeId] = useState<string | null>(null);
+  const [forgivenessNotice, setForgivenessNotice] = useState<ForgivenessNotice | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -85,6 +93,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
       setLoadError(null);
       setPayoffError(null);
       setBusyStakeId(null);
+      setForgivenessNotice(null);
       return;
     }
     void load();
@@ -93,6 +102,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
   const handlePayoff = useCallback(
     async (stakeId: string) => {
       setPayoffError(null);
+      setForgivenessNotice(null);
       setBusyStakeId(stakeId);
       try {
         await payOffCarry(stakeId);
@@ -101,6 +111,48 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         logger.error('Payoff failed:', msg);
+        setPayoffError(msg);
+      } finally {
+        setBusyStakeId(null);
+      }
+    },
+    [load, onPayoff],
+  );
+
+  const handleForgiveness = useCallback(
+    async (payable: Payable) => {
+      setPayoffError(null);
+      setForgivenessNotice(null);
+      setBusyStakeId(payable.stake_id);
+      try {
+        const result = await requestForgiveness(payable.stake_id);
+        if (result.kind === 'rate_limited') {
+          const hoursLeft = Math.ceil(result.data.retry_after_seconds / 3600);
+          setForgivenessNotice({
+            stakeId: payable.stake_id,
+            kind: 'rate_limited',
+            message: `Already asked recently — try again in about ${hoursLeft}h.`,
+          });
+          return;
+        }
+        if (result.data.granted) {
+          setForgivenessNotice({
+            stakeId: payable.stake_id,
+            kind: 'granted',
+            message: `${payable.staker_display_name} forgave the carry.`,
+          });
+          await load();
+          onPayoff?.();
+        } else {
+          setForgivenessNotice({
+            stakeId: payable.stake_id,
+            kind: 'refused',
+            message: `${payable.staker_display_name} refused — build goodwill and try again later.`,
+          });
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        logger.error('Forgiveness request failed:', msg);
         setPayoffError(msg);
       } finally {
         setBusyStakeId(null);
@@ -155,8 +207,10 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
             <NetWorthBody
               data={data}
               onPayoff={handlePayoff}
+              onForgiveness={handleForgiveness}
               busyStakeId={busyStakeId}
               payoffError={payoffError}
+              forgivenessNotice={forgivenessNotice}
             />
           )}
         </div>
@@ -168,11 +222,20 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
 interface NetWorthBodyProps {
   data: NetWorthResponse;
   onPayoff: (stakeId: string) => void;
+  onForgiveness: (payable: Payable) => void;
   busyStakeId: string | null;
   payoffError: string | null;
+  forgivenessNotice: ForgivenessNotice | null;
 }
 
-function NetWorthBody({ data, onPayoff, busyStakeId, payoffError }: NetWorthBodyProps) {
+function NetWorthBody({
+  data,
+  onPayoff,
+  onForgiveness,
+  busyStakeId,
+  payoffError,
+  forgivenessNotice,
+}: NetWorthBodyProps) {
   return (
     <>
       <section className="net-worth-drawer__summary">
@@ -235,6 +298,12 @@ function NetWorthBody({ data, onPayoff, busyStakeId, payoffError }: NetWorthBody
                 busy={busyStakeId === p.stake_id}
                 disabled={busyStakeId !== null && busyStakeId !== p.stake_id}
                 onPayoff={onPayoff}
+                onForgiveness={onForgiveness}
+                notice={
+                  forgivenessNotice?.stakeId === p.stake_id
+                    ? forgivenessNotice
+                    : null
+                }
               />
             ))}
           </ul>
@@ -261,14 +330,28 @@ interface PayableRowProps {
   busy: boolean;
   disabled: boolean;
   onPayoff: (stakeId: string) => void;
+  onForgiveness: (payable: Payable) => void;
+  notice: ForgivenessNotice | null;
 }
 
-function PayableRow({ payable, bankroll, busy, disabled, onPayoff }: PayableRowProps) {
+function PayableRow({
+  payable,
+  bankroll,
+  busy,
+  disabled,
+  onPayoff,
+  onForgiveness,
+  notice,
+}: PayableRowProps) {
   const canAfford = bankroll >= payable.carry_amount;
-  const handleClick = useCallback(() => {
+  const handlePayoff = useCallback(() => {
     if (!canAfford || busy || disabled) return;
     onPayoff(payable.stake_id);
   }, [canAfford, busy, disabled, onPayoff, payable.stake_id]);
+  const handleForgiveness = useCallback(() => {
+    if (busy || disabled) return;
+    onForgiveness(payable);
+  }, [busy, disabled, onForgiveness, payable]);
   return (
     <li className="net-worth-drawer__row">
       <div className="net-worth-drawer__row-main">
@@ -290,20 +373,39 @@ function PayableRow({ payable, bankroll, busy, disabled, onPayoff }: PayableRowP
             </>
           )}
         </div>
+        {notice && (
+          <div
+            className={`net-worth-drawer__notice net-worth-drawer__notice--${notice.kind}`}
+            role="status"
+          >
+            {notice.message}
+          </div>
+        )}
       </div>
-      <button
-        type="button"
-        className="net-worth-drawer__action"
-        onClick={handleClick}
-        disabled={!canAfford || busy || disabled}
-        title={
-          !canAfford
-            ? `Need $${payable.carry_amount.toLocaleString()} bankroll`
-            : 'Pay off this carry'
-        }
-      >
-        {busy ? 'Paying…' : 'Pay off now'}
-      </button>
+      <div className="net-worth-drawer__row-actions">
+        <button
+          type="button"
+          className="net-worth-drawer__action net-worth-drawer__action--secondary"
+          onClick={handleForgiveness}
+          disabled={busy || disabled}
+          title={`Ask ${payable.staker_display_name} to forgive — depends on goodwill you've built.`}
+        >
+          {busy ? 'Asking…' : 'Request forgiveness'}
+        </button>
+        <button
+          type="button"
+          className="net-worth-drawer__action"
+          onClick={handlePayoff}
+          disabled={!canAfford || busy || disabled}
+          title={
+            !canAfford
+              ? `Need $${payable.carry_amount.toLocaleString()} bankroll`
+              : 'Pay off this carry'
+          }
+        >
+          {busy ? 'Paying…' : 'Pay off now'}
+        </button>
+      </div>
     </li>
   );
 }

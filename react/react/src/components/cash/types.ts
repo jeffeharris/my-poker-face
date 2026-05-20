@@ -255,3 +255,23 @@ export interface PayoffResponse {
   bankroll: number;
   staker_id: string;
 }
+
+/** Response from POST /api/cash/stakes/<id>/request-forgiveness. */
+export interface ForgivenessResponse {
+  stake_id: string;
+  granted: boolean;
+  /** `'settled'` when granted; `'carry'` when refused (stake unchanged). */
+  status: 'settled' | 'carry';
+  staker_id: string;
+  staker_display_name: string;
+  /** The weighted relationship-axes score the decision used. */
+  score: number;
+  /** The threshold the score had to exceed for forgiveness. */
+  threshold: number;
+}
+
+/** 429 body when an ask is inside the 24h rate-limit window. */
+export interface ForgivenessRateLimited {
+  error: string;
+  retry_after_seconds: number;
+}

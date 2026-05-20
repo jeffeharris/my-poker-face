@@ -12,6 +12,8 @@ import type {
   CashAction,
   CashApiResponse,
   CashStateResponse,
+  ForgivenessRateLimited,
+  ForgivenessResponse,
   LobbyResponse,
   NetWorthResponse,
   PayoffResponse,
@@ -120,6 +122,37 @@ export async function getNetWorth(): Promise<NetWorthResponse> {
 
 export async function payOffCarry(stakeId: string): Promise<PayoffResponse> {
   return postJson(`/stakes/${encodeURIComponent(stakeId)}/payoff`);
+}
+
+/** Request forgiveness on an outstanding carry. The server reads the
+ *  staker's view of the borrower (likability/respect/heat) and either
+ *  clears the carry (granted) or refuses (carry stays). The 429 path
+ *  is distinguished from a normal Error so the caller can surface a
+ *  countdown rather than a generic message. */
+export async function requestForgiveness(
+  stakeId: string,
+): Promise<
+  | { kind: 'decided'; data: ForgivenessResponse }
+  | { kind: 'rate_limited'; data: ForgivenessRateLimited }
+> {
+  const res = await fetch(
+    `${BASE}/stakes/${encodeURIComponent(stakeId)}/request-forgiveness`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    },
+  );
+  if (res.status === 429) {
+    const data = (await res.json()) as ForgivenessRateLimited;
+    return { kind: 'rate_limited', data };
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+  }
+  return { kind: 'decided', data: (await res.json()) as ForgivenessResponse };
 }
 
 /**

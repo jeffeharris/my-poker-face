@@ -48,6 +48,7 @@ class TestEnumCoverage:
             "stake_repaid",
             "stake_defaulted",
             "stake_forgiven",
+            "stake_forgiveness_refused",
             # Quarantine
             "_unknown",
         }

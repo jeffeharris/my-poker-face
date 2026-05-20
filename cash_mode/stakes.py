@@ -82,6 +82,10 @@ class Stake:
         default rates by stake size.
       - `created_at`: stake-row creation timestamp.
       - `settled_at`: leave-table timestamp; None while active.
+      - `forgiveness_last_asked`: timestamp of the most recent
+        `/request-forgiveness` ask against this stake. None when
+        the borrower has never asked. Phase 3 rate-limits asks at
+        one per stake per 24h.
     """
 
     stake_id: str
@@ -100,3 +104,4 @@ class Stake:
     stake_tier: str
     created_at: datetime
     settled_at: Optional[datetime] = None
+    forgiveness_last_asked: Optional[datetime] = None

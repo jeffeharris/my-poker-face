@@ -133,7 +133,11 @@ logger = logging.getLogger(__name__)
 #       Non-destructive ALTER; existing rows get `sandbox_id=NULL`
 #       (pre-v103 legacy bucket — the audit's `_pre_v103` aggregation
 #       lumps them together when running per-sandbox queries).
-SCHEMA_VERSION = 103
+# v104: Phase 3 Commit 3 — add nullable `forgiveness_last_asked`
+#       column to `stakes` so the forgiveness route can rate-limit
+#       requests to "one per stake per 24h" without an in-memory map
+#       (which wouldn't survive a backend restart).
+SCHEMA_VERSION = 104
 
 
 
@@ -1290,6 +1294,7 @@ class SchemaManager:
             101: (self._migrate_v101_add_relationship_nickname_override, "Add nickname_override column to relationship_states so players can rename opponents privately from the dossier"),
             102: (self._migrate_v102_scope_runtime_tables_to_sandbox, "Phase 2.5 Commit 2 — drop+recreate ai_bankroll_state, cash_tables, cash_idle_pool with sandbox_id in PK (pre-launch destructive migration)"),
             103: (self._migrate_v103_add_sandbox_id_to_chip_ledger, "Phase 2.5 Commit 6 — add nullable sandbox_id column to chip_ledger_entries for per-sandbox audit scoping"),
+            104: (self._migrate_v104_add_forgiveness_last_asked, "Phase 3 Commit 3 — add nullable forgiveness_last_asked column to stakes for per-stake 24h rate-limit on forgiveness requests"),
         }
 
         with self._get_connection() as conn:
@@ -4492,7 +4497,8 @@ class SchemaManager:
                 carry_amount INTEGER NOT NULL DEFAULT 0,
                 stake_tier TEXT NOT NULL,
                 created_at TIMESTAMP NOT NULL,
-                settled_at TIMESTAMP
+                settled_at TIMESTAMP,
+                forgiveness_last_asked TIMESTAMP
             )
         """)
         # Partial indexes on status='carry' so the per-borrower /
@@ -4743,5 +4749,30 @@ class SchemaManager:
         """)
         logger.info(
             "Migration v103 complete: chip_ledger_entries.sandbox_id added"
+        )
+
+    def _migrate_v104_add_forgiveness_last_asked(self, conn: sqlite3.Connection) -> None:
+        """Migration v104: add nullable `forgiveness_last_asked` to `stakes`.
+
+        Phase 3 Commit 3 adds POST /api/cash/stakes/<id>/request-forgiveness
+        with a "one ask per stake per 24h" rate-limit. The route checks
+        the column against `datetime.utcnow() - 24h` before honoring
+        the request; refused asks stamp the column so spam clicks
+        don't accidentally cross the threshold.
+
+        Non-destructive ALTER. Existing rows get NULL (no prior ask),
+        which the route treats as "never asked — proceed."
+
+        Idempotent: PRAGMA-guarded ADD COLUMN — re-running is a no-op
+        (mirrors the v103 pattern).
+        """
+        cursor = conn.execute("PRAGMA table_info(stakes)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'forgiveness_last_asked' not in cols:
+            conn.execute(
+                "ALTER TABLE stakes ADD COLUMN forgiveness_last_asked TIMESTAMP"
+            )
+        logger.info(
+            "Migration v104 complete: stakes.forgiveness_last_asked added"
         )
 

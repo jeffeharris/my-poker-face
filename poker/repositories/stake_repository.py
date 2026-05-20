@@ -111,7 +111,7 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at
+                       created_at, settled_at, forgiveness_last_asked
                 FROM stakes
                 WHERE stake_id = ?
                 """,
@@ -137,7 +137,7 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at
+                       created_at, settled_at, forgiveness_last_asked
                 FROM stakes
                 WHERE session_id = ? AND status = 'active'
                 ORDER BY created_at DESC
@@ -163,7 +163,7 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at
+                       created_at, settled_at, forgiveness_last_asked
                 FROM stakes
                 WHERE session_id = ?
                 ORDER BY created_at ASC
@@ -193,7 +193,7 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at
+                       created_at, settled_at, forgiveness_last_asked
                 FROM stakes
                 WHERE borrower_id = ? AND borrower_kind = ?
                   AND status = ?
@@ -225,7 +225,7 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at
+                       created_at, settled_at, forgiveness_last_asked
                 FROM stakes
                 WHERE staker_id = ? AND status = ?
                 ORDER BY created_at ASC
@@ -297,6 +297,27 @@ class StakeRepository(BaseRepository):
             )
             return cursor.rowcount > 0
 
+    def mark_forgiveness_asked(
+        self, stake_id: str, asked_at: datetime,
+    ) -> bool:
+        """Stamp the most-recent forgiveness-ask timestamp on a stake.
+
+        Used by POST /api/cash/stakes/<id>/request-forgiveness to
+        rate-limit asks at one per stake per 24 hours (locked decision
+        spec'd in Phase 3 Commit 3). Stamped on BOTH the granted and
+        refused paths so back-to-back attempts can't accidentally
+        cross the relationship-axes threshold via lucky timing.
+
+        Returns True if a row was updated, False if no such stake.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE stakes SET forgiveness_last_asked = ? "
+                "WHERE stake_id = ?",
+                (asked_at.isoformat(), stake_id),
+            )
+            return cursor.rowcount > 0
+
 
 def _row_to_stake(row) -> Stake:
     """Build a `Stake` from a `stakes` row."""
@@ -324,4 +345,5 @@ def _row_to_stake(row) -> Stake:
         stake_tier=row["stake_tier"],
         created_at=created_at,
         settled_at=_parse_timestamp(row["settled_at"]),
+        forgiveness_last_asked=_parse_timestamp(row["forgiveness_last_asked"]),
     )

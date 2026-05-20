@@ -252,6 +252,13 @@
   color: var(--text-secondary, #aaa);
 }
 
+.net-worth-drawer__row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .net-worth-drawer__action {
   background: rgba(110, 180, 220, 0.18);
   color: #b9e0f5;
@@ -262,6 +269,7 @@
   font-weight: 600;
   cursor: pointer;
   transition: background 0.1s ease-out;
+  white-space: nowrap;
 }
 
 .net-worth-drawer__action:hover:not(:disabled) {
@@ -271,6 +279,43 @@
 .net-worth-drawer__action:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.net-worth-drawer__action--secondary {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary, #aaa);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.net-worth-drawer__action--secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #f5f5f5);
+}
+
+.net-worth-drawer__notice {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.net-worth-drawer__notice--granted {
+  background: rgba(110, 200, 130, 0.14);
+  color: #9be0b5;
+  border: 1px solid rgba(110, 200, 130, 0.28);
+}
+
+.net-worth-drawer__notice--refused {
+  background: rgba(220, 150, 90, 0.12);
+  color: #f0c598;
+  border: 1px solid rgba(220, 150, 90, 0.26);
+}
+
+.net-worth-drawer__notice--rate_limited {
+  background: rgba(150, 150, 150, 0.10);
+  color: var(--text-secondary, #aaa);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* Lobby trigger button — wallet icon next to bankroll display. */

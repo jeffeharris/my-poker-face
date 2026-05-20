@@ -1900,6 +1900,176 @@ def payoff_stake(stake_id: str):
     })
 
 
+# Phase 3 Commit 3 — forgiveness-request constants
+#
+# Threshold formula: weighted sum of the staker's view of the borrower
+# along the relationship axes. Likability and respect both work in
+# the borrower's favor; heat works against. The 0.55 default is
+# meaningfully above the no-history baseline of 0.45 — a player has
+# to have actually built goodwill rather than relying on default
+# neutrality. Tunable from play data.
+FORGIVENESS_LIKABILITY_WEIGHT = 0.5
+FORGIVENESS_RESPECT_WEIGHT = 0.4
+FORGIVENESS_HEAT_WEIGHT = 0.3
+FORGIVENESS_THRESHOLD = 0.55
+
+# Rate-limit: at most one ask per stake per 24 hours. Without this
+# the player could spam-request until the staker's axes coincidentally
+# drift across the threshold. Locked at 24h per the spec; the column
+# stamping makes it survive backend restarts.
+FORGIVENESS_RATE_LIMIT_SECONDS = 24 * 60 * 60
+
+
+def _forgiveness_score(*, likability: float, respect: float, heat: float) -> float:
+    """Weighted score driving the grant decision.
+
+    Pure function for testability — the route reads relationship state
+    and feeds these three numbers in.
+    """
+    return (
+        likability * FORGIVENESS_LIKABILITY_WEIGHT
+        + respect * FORGIVENESS_RESPECT_WEIGHT
+        - heat * FORGIVENESS_HEAT_WEIGHT
+    )
+
+
+@cash_bp.route(
+    "/api/cash/stakes/<stake_id>/request-forgiveness", methods=["POST"],
+)
+def request_forgiveness(stake_id: str):
+    """POST /api/cash/stakes/<stake_id>/request-forgiveness
+
+    Phase 3 Commit 3. The borrower asks the staker to write off the
+    carry as a goodwill gesture. The staker decides via the weighted
+    relationship-axes score (`likability`, `respect`, `heat`) against
+    `FORGIVENESS_THRESHOLD`. Rate-limited at one ask per stake per
+    24 hours so spam clicks can't accidentally cross the threshold.
+
+    Decision paths:
+      - **Granted**: stake's `carry_amount` zeros, `status` flips to
+        'settled', STAKE_FORGIVEN fires (positive axis shifts both
+        sides — borrower grateful, staker generous).
+      - **Refused**: stake stays as-is, STAKE_FORGIVENESS_REFUSED
+        fires (small actor-side likability hit; mild mirror cool-down).
+
+    Both paths stamp `forgiveness_last_asked` so the rate-limit holds.
+
+    Rejections:
+      - 404 if stake missing or borrower isn't the requesting player
+        (same leak-avoidance pattern as /default and /payoff).
+      - 400 if stake status != 'carry'.
+      - 400 if staker_kind == 'house' (house carries don't exist; no
+        staker to forgive).
+      - 429 if a prior ask was within the rate-limit window — error
+        body includes `retry_after_seconds` so the UI can countdown.
+
+    Response (granted/refused):
+      {
+        "stake_id": str,
+        "granted": bool,
+        "status": 'settled' | 'carry',
+        "staker_id": str,
+        "staker_display_name": str,
+        "score": float,           # the weighted score the decision used
+        "threshold": float,       # FORGIVENESS_THRESHOLD
+      }
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    from flask_app.extensions import (
+        personality_repo, relationship_repo, stake_repo,
+    )
+
+    stake = stake_repo.load_stake(stake_id)
+    if stake is None or stake.borrower_id != owner_id:
+        return jsonify({"error": "Stake not found"}), 404
+    if stake.borrower_kind != BORROWER_KIND_HUMAN:
+        return jsonify({"error": "Stake not found"}), 404
+
+    if stake.status != STAKE_STATUS_CARRY:
+        return jsonify({
+            "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
+        }), 400
+    if stake.staker_id is None:
+        return jsonify({
+            "error": "House stakes cannot be forgiven (they don't carry)",
+        }), 400
+
+    now = datetime.utcnow()
+    if stake.forgiveness_last_asked is not None:
+        elapsed = (now - stake.forgiveness_last_asked).total_seconds()
+        if elapsed < FORGIVENESS_RATE_LIMIT_SECONDS:
+            retry_after = int(FORGIVENESS_RATE_LIMIT_SECONDS - elapsed)
+            return jsonify({
+                "error": "Forgiveness already requested recently",
+                "retry_after_seconds": retry_after,
+            }), 429
+
+    # Read staker's view of borrower. `load_relationship_state` returns
+    # None for never-interacted pairs — treat as the neutral default
+    # (0.5/0.5/0.0). Heat is already projected through decay on read.
+    rel = relationship_repo.load_relationship_state(
+        observer_id=stake.staker_id, opponent_id=owner_id, now=now,
+    )
+    likability = rel.likability if rel is not None else 0.5
+    respect = rel.respect if rel is not None else 0.5
+    heat = rel.heat if rel is not None else 0.0
+
+    score = _forgiveness_score(
+        likability=likability, respect=respect, heat=heat,
+    )
+    granted = score > FORGIVENESS_THRESHOLD
+
+    # Stamp the rate-limit on BOTH paths so spam clicks can't sneak
+    # across the threshold via lucky axis drift between attempts.
+    stake_repo.mark_forgiveness_asked(stake_id, now)
+
+    if granted:
+        stake_repo.update_carry_amount(stake_id, 0)
+        stake_repo.update_status(stake_id, STAKE_STATUS_SETTLED, settled_at=now)
+        _record_relationship_event(
+            actor_id=stake.staker_id,
+            target_id=owner_id,
+            event=RelationshipEvent.STAKE_FORGIVEN,
+        )
+    else:
+        _record_relationship_event(
+            actor_id=stake.staker_id,
+            target_id=owner_id,
+            event=RelationshipEvent.STAKE_FORGIVENESS_REFUSED,
+        )
+
+    # Display-name resolution mirrors /net-worth — best-effort.
+    display_name = stake.staker_id
+    if stake.staker_kind == STAKER_KIND_PERSONALITY:
+        try:
+            personality = personality_repo.load_personality_by_id(stake.staker_id)
+            if personality and personality.get("name"):
+                display_name = personality["name"]
+        except Exception:
+            pass
+
+    logger.info(
+        "[STAKE] Forgiveness request stake_id=%r owner=%r staker=%r "
+        "score=%.3f threshold=%.3f granted=%s",
+        stake_id, owner_id, stake.staker_id, score,
+        FORGIVENESS_THRESHOLD, granted,
+    )
+
+    return jsonify({
+        "stake_id": stake_id,
+        "granted": granted,
+        "status": STAKE_STATUS_SETTLED if granted else STAKE_STATUS_CARRY,
+        "staker_id": stake.staker_id,
+        "staker_display_name": display_name,
+        "score": round(score, 3),
+        "threshold": FORGIVENESS_THRESHOLD,
+    })
+
+
 @cash_bp.route("/api/cash/leave", methods=["POST"])
 def leave_table():
     """POST /api/cash/leave — player stands up; any active stake settles.
