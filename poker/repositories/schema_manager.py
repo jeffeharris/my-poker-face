@@ -128,7 +128,12 @@ logger = logging.getLogger(__name__)
 #       key. Pre-launch destructive migration; existing rows in those
 #       three tables are nuked. The chip ledger survives. Repo
 #       signatures gain `sandbox_id` as a required kwarg.
-SCHEMA_VERSION = 102
+# v103: Phase 2.5 Commit 6 — add nullable `sandbox_id` column to
+#       `chip_ledger_entries` so the audit can scope per sandbox.
+#       Non-destructive ALTER; existing rows get `sandbox_id=NULL`
+#       (pre-v103 legacy bucket — the audit's `_pre_v103` aggregation
+#       lumps them together when running per-sandbox queries).
+SCHEMA_VERSION = 103
 
 
 
@@ -1284,6 +1289,7 @@ class SchemaManager:
             100: (self._migrate_v100_add_sandboxes_table, "Add sandboxes table (Phase 2.5) — first-class scoping unit for cash-mode runtime state, per-owner save-file model"),
             101: (self._migrate_v101_add_relationship_nickname_override, "Add nickname_override column to relationship_states so players can rename opponents privately from the dossier"),
             102: (self._migrate_v102_scope_runtime_tables_to_sandbox, "Phase 2.5 Commit 2 — drop+recreate ai_bankroll_state, cash_tables, cash_idle_pool with sandbox_id in PK (pre-launch destructive migration)"),
+            103: (self._migrate_v103_add_sandbox_id_to_chip_ledger, "Phase 2.5 Commit 6 — add nullable sandbox_id column to chip_ledger_entries for per-sandbox audit scoping"),
         }
 
         with self._get_connection() as conn:
@@ -4704,5 +4710,38 @@ class SchemaManager:
         logger.info(
             "Migration v102 complete: ai_bankroll_state, cash_tables, "
             "cash_idle_pool dropped+recreated with sandbox_id in PK"
+        )
+
+    def _migrate_v103_add_sandbox_id_to_chip_ledger(self, conn: sqlite3.Connection) -> None:
+        """Migration v103: add nullable `sandbox_id` to `chip_ledger_entries`.
+
+        Non-destructive ALTER: every existing row keeps `sandbox_id=NULL`
+        (the pre-v103 legacy bucket). New writes always stamp the
+        column so the audit's per-sandbox scoping kicks in for ledger
+        events too.
+
+        The audit treats NULL as the cross-sandbox "pre-v103" bucket
+        when running per-sandbox queries: scoped audits filter
+        `WHERE sandbox_id = ?`, which excludes NULL rows; admin /
+        cross-sandbox audits aggregate every row including NULLs. This
+        is the same shape the spec calls out — the legacy bucket is
+        carried as a single line item rather than redistributed.
+
+        Idempotent: PRAGMA-guarded ADD COLUMN so re-running is a
+        no-op (matches the v89 / v95 pattern).
+        """
+        cursor = conn.execute("PRAGMA table_info(chip_ledger_entries)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'sandbox_id' not in cols:
+            conn.execute(
+                "ALTER TABLE chip_ledger_entries ADD COLUMN sandbox_id TEXT"
+            )
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chip_ledger_sandbox
+                ON chip_ledger_entries(sandbox_id)
+                WHERE sandbox_id IS NOT NULL
+        """)
+        logger.info(
+            "Migration v103 complete: chip_ledger_entries.sandbox_id added"
         )
 

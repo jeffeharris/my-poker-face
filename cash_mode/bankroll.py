@@ -214,7 +214,7 @@ def credit_ai_cash_out(
         bankroll_repo.save_ai_bankroll(new_state)
     if chip_ledger_repo is not None:
         from core.economy import ledger as chip_ledger
-        ctx = {'site': 'credit_ai_cash_out'}
+        ctx = {'site': 'credit_ai_cash_out', 'sandbox_id': sandbox_id}
         if ledger_context:
             ctx.update(ledger_context)
         chip_ledger.record_ai_regen(
@@ -223,6 +223,7 @@ def credit_ai_cash_out(
             stored_chips=stored.chips,
             projected_chips=projected,
             context=ctx,
+            sandbox_id=sandbox_id,
         )
         # Cap clamp: chips that came off the table but couldn't fit
         # in the bankroll evaporate back to the bank. Pre-clamp
@@ -237,6 +238,7 @@ def credit_ai_cash_out(
             personality_id=personality_id,
             overflow=overflow,
             context=clamp_ctx,
+            sandbox_id=sandbox_id,
         )
     logger.info(
         "[CASH] AI cash-out %r: +%d (projected=%d) → %d (cap %d)",

@@ -813,7 +813,8 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
             personality_id=replacement_state.personality_id,
             stored_chips=replacement_pre_regen_chips,
             projected_chips=replacement_state.chips + replacement_buy_in,
-            context={'game_id': game_id, 'site': 'cash_refill'},
+            context={'game_id': game_id, 'site': 'cash_refill', 'sandbox_id': sandbox_id},
+            sandbox_id=sandbox_id,
         )
 
         # Swap controller registry: remove old, build new
@@ -2501,6 +2502,16 @@ def progress_game(game_id: str) -> None:
             current_game_data = game_state_service.get_game(game_id)
             if not current_game_data:
                 return  # Game was deleted
+
+            # Cooperative cancellation: `/api/cash/leave` sets this flag
+            # before blocking on the per-game lock. Bail before kicking
+            # off another AI orbit so the leave route gets the lock
+            # within one iteration instead of waiting for the loop to
+            # happen to land on a human-turn break.
+            if current_game_data.get('leave_requested'):
+                logger.info(f"[CASH] progress_game yielding to leave_requested for game {game_id}")
+                return
+
             state_machine = current_game_data['state_machine']
 
             state_machine.run_until([PokerPhase.EVALUATING_HAND])

@@ -366,17 +366,41 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
     return freed
 
 
-def _load_or_seed_player_bankroll(owner_id: str) -> PlayerBankrollState:
+def _load_or_seed_player_bankroll(
+    owner_id: str, *, sandbox_id: Optional[str] = None,
+) -> PlayerBankrollState:
     """Load the player's bankroll row or create a fresh seed on miss.
 
     Centralizes the "first-time entry" path so every cash route lands
     the same seed amount and writes the row immediately. Subsequent
     routes can assume `load_player_bankroll` returns non-None.
+
+    `sandbox_id` (Phase 2.5 v103) is stamped onto the `player_seed`
+    ledger entry so per-sandbox audits attribute the seed correctly.
+    Player bankroll is NOT itself sandbox-scoped (it spans the owner's
+    save-files); we tag the seed event with the sandbox the player
+    was entering when first seeded so per-sandbox audits don't lose
+    the line item. Callers that don't have a sandbox_id in scope (rare
+    — admin paths only) can omit it; the entry then writes NULL into
+    the legacy bucket.
     """
-    from flask_app.extensions import bankroll_repo, chip_ledger_repo
+    from flask_app.extensions import bankroll_repo, chip_ledger_repo, sandbox_repo
     bankroll = bankroll_repo.load_player_bankroll(owner_id)
     if bankroll is not None:
         return bankroll
+    # First seed — resolve sandbox lazily if the caller didn't provide
+    # one so the ledger entry is attributed correctly even when this
+    # path is reached from a route that hasn't called the resolver yet.
+    if sandbox_id is None and sandbox_repo is not None:
+        try:
+            from flask_app.services.sandbox_resolver import (
+                resolve_default_sandbox_for,
+            )
+            sandbox_id = resolve_default_sandbox_for(
+                owner_id, sandbox_repo=sandbox_repo,
+            )
+        except Exception:
+            sandbox_id = None  # fall through; entry writes NULL
     bankroll = PlayerBankrollState(
         player_id=owner_id,
         chips=DEFAULT_PLAYER_STARTING_BANKROLL,
@@ -387,10 +411,11 @@ def _load_or_seed_player_bankroll(owner_id: str) -> PlayerBankrollState:
         chip_ledger_repo,
         owner_id=owner_id,
         amount=DEFAULT_PLAYER_STARTING_BANKROLL,
-        context={'reason_detail': 'first_cash_entry'},
+        context={'reason_detail': 'first_cash_entry', 'sandbox_id': sandbox_id},
+        sandbox_id=sandbox_id,
     )
-    logger.info("[CASH] Seeded fresh bankroll for %r at %d chips",
-                owner_id, DEFAULT_PLAYER_STARTING_BANKROLL)
+    logger.info("[CASH] Seeded fresh bankroll for %r at %d chips (sandbox=%r)",
+                owner_id, DEFAULT_PLAYER_STARTING_BANKROLL, sandbox_id)
     return bankroll
 
 
@@ -676,7 +701,9 @@ def _build_cash_game(
                 'game_id': game_id,
                 'stake_label': stake_label,
                 'site': 'sit_down_debit',
+                'sandbox_id': sandbox_id,
             },
+            sandbox_id=sandbox_id,
         )
 
     # 7. Register with game_state_service.
@@ -1469,7 +1496,9 @@ def sponsor_and_sit():
                 'archetype_id': archetype_id,
                 'offer_floor': offer_floor,
                 'offer_rate': offer_rate,
+                'sandbox_id': sandbox_id,
             },
+            sandbox_id=sandbox_id,
         )
 
     if lender_id:
@@ -1752,6 +1781,20 @@ def leave_table():
 
     from flask_app.services import game_state_service
 
+    # Cooperative cancellation: signal an in-flight `progress_game` to
+    # bail out of its while loop on the next iteration instead of running
+    # the full orbit (potentially multiple AI LLM calls + animation
+    # sleeps) before releasing the per-game lock. Without this flag the
+    # human sees "Leaving…" while AI play continues, sometimes for tens
+    # of seconds, until the loop happens to land on a human-turn break.
+    # The dict mutation is GIL-atomic and visible to the lock holder
+    # because `get_game` returns the same dict object stored in
+    # `game_state_service.games`. Safe no-op when no game_data exists
+    # (the memory-miss path below handles cold-leave cleanup).
+    pending = game_state_service.get_game(game_id)
+    if pending is not None:
+        pending['leave_requested'] = True
+
     # Hold the per-game lock for the whole settlement + teardown so an
     # in-flight `progress_game` can't resurrect the row right after we
     # delete it. Without this, progress_game's `set_game` / `save_game`
@@ -1924,6 +1967,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
             stake_repo=stake_repo,
             chip_ledger_repo=chip_ledger_repo,
             ledger_context={'game_id': game_id, 'site': 'leave_table'},
+            sandbox_id=sandbox_id,
             now=now,
         )
         flows = build_stake_settlement_flows(stake_settlement)
@@ -1955,7 +1999,9 @@ def _leave_table_locked(owner_id: str, game_id: str):
                         'game_id': game_id,
                         'stake_id': active_stake.stake_id,
                         'site': 'leave_table',
+                        'sandbox_id': sandbox_id,
                     },
+                    sandbox_id=sandbox_id,
                 )
             elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
                 borrower_credit = flow.amount
@@ -2364,6 +2410,7 @@ def get_lobby():
 
     unseated_emotion_blobs = bankroll_repo.load_emotional_state_json_for_pids(
         unseated_pids,
+        sandbox_id=sandbox_id,
     )
     unseated_emotions: Dict[str, str] = {}
     for pid, blob in unseated_emotion_blobs.items():

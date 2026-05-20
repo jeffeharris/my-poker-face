@@ -443,3 +443,77 @@ class TestComputeAudit:
 
         # Only the cash- game's 5000 counts.
         assert data['actual_totals']['live_session_ai_stacks'] == 5000
+
+
+class TestPerSandboxAudit:
+    """Phase 2.5 v103: `compute_audit(sandbox_id=...)` scopes the
+    audit to one sandbox.
+
+    Two sandboxes seeded independently:
+      - sb1: 2000 chips minted to one AI, 1500 to another.
+      - sb2: 800 chips to a third AI.
+
+    Cross-sandbox audit aggregates all three (chips_created=4300).
+    Per-sandbox audit reports only that sandbox's contribution.
+    NULL-sandbox ledger entries (pre-v103) only show in the
+    cross-sandbox view.
+    """
+
+    def test_per_sandbox_scoping(self, repos, stake_repo, db_path):
+        bankroll_repo, cash_table_repo, ledger_repo = repos
+        # Seed two sandboxes with distinct ledger entries.
+        ledger_repo.record(
+            source='central_bank', sink='ai:zeus', amount=2000,
+            reason='ai_seed', sandbox_id='sb1',
+        )
+        ledger_repo.record(
+            source='central_bank', sink='ai:hera', amount=1500,
+            reason='ai_seed', sandbox_id='sb1',
+        )
+        ledger_repo.record(
+            source='central_bank', sink='ai:ares', amount=800,
+            reason='ai_seed', sandbox_id='sb2',
+        )
+        # Pre-v103 legacy entry (sandbox_id=NULL): only appears in admin.
+        ledger_repo.record(
+            source='central_bank', sink='ai:athena', amount=300,
+            reason='ai_seed',
+        )
+
+        # Admin / cross-sandbox view
+        all_view = compute_audit(
+            ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
+            db_path=db_path,
+        )
+        assert all_view['ledger_totals']['chips_created'] == 4600  # 2000+1500+800+300
+
+        # sb1 scope
+        sb1_view = compute_audit(
+            ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
+            db_path=db_path,
+            sandbox_id='sb1',
+        )
+        assert sb1_view['ledger_totals']['chips_created'] == 3500  # 2000+1500
+
+        # sb2 scope
+        sb2_view = compute_audit(
+            ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
+            db_path=db_path,
+            sandbox_id='sb2',
+        )
+        assert sb2_view['ledger_totals']['chips_created'] == 800
+
+        # by_reason filtering — sb1 only sees its own ai_seed contribution
+        assert sb1_view['by_reason'].get('ai_seed') == 3500
+        assert sb2_view['by_reason'].get('ai_seed') == 800
+        # Cross-sandbox sees the union including the legacy NULL row.
+        assert all_view['by_reason']['ai_seed'] == 4600

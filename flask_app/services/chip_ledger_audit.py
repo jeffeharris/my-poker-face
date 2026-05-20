@@ -80,15 +80,24 @@ def compute_audit(
         now = datetime.utcnow()
 
     # --- Ledger totals (all-time + 24h window) ---
-    creations = ledger_repo.sum_creations_by_reason()
-    destructions = ledger_repo.sum_destructions_by_reason()
+    # Per-sandbox scoping (v103): when `sandbox_id` is provided, the
+    # ledger sums filter to that sandbox's rows only. NULL-sandbox
+    # rows (pre-v103 legacy bucket) are excluded by the WHERE clause
+    # — they show up in the cross-sandbox / admin view (sandbox_id=None)
+    # but not in any specific sandbox's audit.
+    creations = ledger_repo.sum_creations_by_reason(sandbox_id=sandbox_id)
+    destructions = ledger_repo.sum_destructions_by_reason(sandbox_id=sandbox_id)
     chips_created = sum(creations.values())
     chips_destroyed = sum(destructions.values())
     ledger_outstanding = chips_created - chips_destroyed
 
     since_24h_iso = (now - timedelta(hours=24)).isoformat()
-    creations_24h = ledger_repo.sum_creations_by_reason(since_iso=since_24h_iso)
-    destructions_24h = ledger_repo.sum_destructions_by_reason(since_iso=since_24h_iso)
+    creations_24h = ledger_repo.sum_creations_by_reason(
+        since_iso=since_24h_iso, sandbox_id=sandbox_id,
+    )
+    destructions_24h = ledger_repo.sum_destructions_by_reason(
+        since_iso=since_24h_iso, sandbox_id=sandbox_id,
+    )
 
     # --- Actual totals ---
     #

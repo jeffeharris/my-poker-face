@@ -80,6 +80,7 @@ def record(
     amount: int,
     reason: str,
     context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
     """Write one ledger entry. Returns the row id, or None on failure.
 
@@ -94,6 +95,12 @@ def record(
         `central_bank`). Pure transfers between non-bank entities
         don't change the size of the universe and are out of scope
         for v0.
+
+    `sandbox_id` is the Phase 2.5 v103 per-sandbox audit scope. When
+    omitted the row writes `sandbox_id=NULL` (legacy / pre-v103
+    bucket). Production callers should always pass it so per-sandbox
+    audits can filter; one-shot migration helpers
+    (`_migrate_v94_seed_pre_ledger_universe`) leave it NULL on purpose.
 
     Failures log a warning and return None — we never want a ledger
     bug to take down a chip-moving code path. The audit-side drift
@@ -139,6 +146,7 @@ def record(
             amount=amount_int,
             reason=reason,
             context=context,
+            sandbox_id=sandbox_id,
         )
     except Exception as e:
         logger.warning(
@@ -161,8 +169,13 @@ def record_player_seed(
     owner_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
-    """First-time entry: central_bank → player. Accepts repo=None (no-op)."""
+    """First-time entry: central_bank → player. Accepts repo=None (no-op).
+
+    `sandbox_id` is the Phase 2.5 per-sandbox audit scope; omit to
+    write NULL (pre-v103 legacy bucket).
+    """
     if repo is None:
         return None
     return record(
@@ -172,6 +185,7 @@ def record_player_seed(
         amount=amount,
         reason='player_seed',
         context=context,
+        sandbox_id=sandbox_id,
     )
 
 
@@ -181,6 +195,7 @@ def record_ai_seed(
     personality_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
     """First AI bankroll write in a sandbox: central_bank → ai.
 
@@ -201,6 +216,7 @@ def record_ai_seed(
         amount=int(amount),
         reason='ai_seed',
         context=context,
+        sandbox_id=sandbox_id,
     )
 
 
@@ -211,6 +227,7 @@ def record_ai_regen(
     stored_chips: int,
     projected_chips: int,
     context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
     """central_bank → ai for the positive delta between stored and projected.
 
@@ -230,6 +247,7 @@ def record_ai_regen(
         amount=delta,
         reason='ai_regen',
         context=context,
+        sandbox_id=sandbox_id,
     )
 
 
@@ -239,6 +257,7 @@ def record_house_stake_issue(
     owner_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
     """House-archetype stake principal: central_bank → borrower.
 
@@ -256,6 +275,7 @@ def record_house_stake_issue(
         amount=amount,
         reason='house_stake_issue',
         context=context,
+        sandbox_id=sandbox_id,
     )
 
 
@@ -265,6 +285,7 @@ def record_cap_clamp(
     personality_id: str,
     overflow: int,
     context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
     """ai → central_bank for chips that would push past `bankroll_cap`.
 
@@ -281,6 +302,7 @@ def record_cap_clamp(
         amount=overflow,
         reason='cap_clamp',
         context=context,
+        sandbox_id=sandbox_id,
     )
 
 
@@ -290,6 +312,7 @@ def record_house_stake_settle(
     owner_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
     """borrower → central_bank for a house-archetype stake settle.
 
@@ -307,6 +330,7 @@ def record_house_stake_settle(
         amount=amount,
         reason='house_stake_settle',
         context=context,
+        sandbox_id=sandbox_id,
     )
 
 
@@ -316,6 +340,7 @@ def record_forgive_balance(
     owner_id: str,
     forgiven_principal: int,
     context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
     """Annotation row (amount=0) — house stake principal not recovered.
 
@@ -347,4 +372,5 @@ def record_forgive_balance(
         amount=0,
         reason='forgive_balance',
         context=ctx,
+        sandbox_id=sandbox_id,
     )

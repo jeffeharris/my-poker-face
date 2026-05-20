@@ -99,6 +99,7 @@ def settle_stake_on_leave(
     stake_repo,
     chip_ledger_repo=None,
     ledger_context: Optional[dict] = None,
+    sandbox_id: Optional[str] = None,
     now: Optional[datetime] = None,
 ) -> Optional[StakeSettlement]:
     """Apply leave-time settlement to the single active stake.
@@ -181,6 +182,7 @@ def settle_stake_on_leave(
                 forgiven_amount=math.forgiven_amount,
                 chips_at_leave=chips_at_leave,
                 ledger_context=ledger_context,
+                sandbox_id=sandbox_id,
             )
 
     # Persist the new status + carry_amount in one logical step. The
@@ -218,6 +220,7 @@ def _emit_forgive_balance(
     forgiven_amount: int,
     chips_at_leave: int,
     ledger_context: Optional[dict],
+    sandbox_id: Optional[str] = None,
 ) -> None:
     """Fire the `forgive_balance` ledger annotation for a house bust.
 
@@ -234,12 +237,14 @@ def _emit_forgive_balance(
         'principal': stake.principal,
         'chips_at_leave': chips_at_leave,
         'stake_tier': stake.stake_tier,
+        'sandbox_id': sandbox_id,
     })
     chip_ledger.record_forgive_balance(
         chip_ledger_repo,
         owner_id=stake.borrower_id,
         forgiven_principal=int(forgiven_amount),
         context=ctx,
+        sandbox_id=sandbox_id,
     )
 
 

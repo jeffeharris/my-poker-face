@@ -125,6 +125,7 @@ class BankrollRepository(BaseRepository):
                 personality_id=state.personality_id,
                 amount=int(state.chips),
                 context={'sandbox_id': sandbox_id, 'site': 'save_ai_bankroll'},
+                sandbox_id=sandbox_id,
             )
 
     def load_ai_bankroll(
