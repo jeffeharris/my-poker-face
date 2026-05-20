@@ -16,7 +16,16 @@ import { logger } from '../../utils/logger';
 import type { CashModeInfo } from '../../types/game';
 import { computeLeaveBreakdown } from './loanSettlement';
 import { CashOutSummary, type SessionSummary } from './CashOutSummary';
+import { getNetWorth } from './api';
+import type { NetWorthResponse, TierStatus } from './types';
 import './MobileCashSheet.css';
+
+const TIER_LABELS: Record<TierStatus, string> = {
+  premium: 'Premium',
+  standard: 'Standard',
+  restricted: 'Restricted',
+  house_only: 'House only',
+};
 
 interface LeaveResponse {
   session_ended: boolean;
@@ -99,16 +108,34 @@ export function MobileCashSheet({
   const [closing, setClosing] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [leaveResult, setLeaveResult] = useState<LeaveResponse | null>(null);
+  const [netWorth, setNetWorth] = useState<NetWorthResponse | null>(null);
 
   // Reset error + confirmation state when sheet opens (a stale
   // message or partial-confirm from a previous open shouldn't
-  // carry over).
+  // carry over). Fetch net-worth on open so the in-game sheet
+  // surfaces carry visibility — manage actions still live on /cash.
   useEffect(() => {
-    if (isOpen) {
-      setError(null);
-      setClosing(false);
-      setConfirmLeave(false);
+    if (!isOpen) {
+      setNetWorth(null);
+      return;
     }
+    setError(null);
+    setClosing(false);
+    setConfirmLeave(false);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await getNetWorth();
+        if (cancelled) return;
+        setNetWorth(data);
+      } catch (e) {
+        // Net worth is auxiliary; failure shouldn't break the sheet.
+        logger.warn('Net worth fetch failed:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   const handleClose = useCallback(() => {
@@ -239,6 +266,34 @@ export function MobileCashSheet({
               ${cashMode.min_buy_in.toLocaleString()} – ${cashMode.max_buy_in.toLocaleString()}
             </span>
           </div>
+
+          {netWorth && (netWorth.payables.length > 0 || netWorth.tier_status !== 'premium') && (
+            <div className="mobile-cash-sheet__net-worth">
+              <div className="mobile-cash-sheet__net-worth-title">Net worth</div>
+              <div className="mobile-cash-sheet__row">
+                <span className="mobile-cash-sheet__label">Tier</span>
+                <span className="mobile-cash-sheet__value">
+                  {TIER_LABELS[netWorth.tier_status]}
+                </span>
+              </div>
+              {netWorth.payables.length > 0 && (
+                <div className="mobile-cash-sheet__row">
+                  <span className="mobile-cash-sheet__label">
+                    {netWorth.payables.length === 1 ? 'Carry' : 'Carries'}
+                  </span>
+                  <span className="mobile-cash-sheet__value">
+                    ${netWorth.payables
+                      .reduce((s, p) => s + p.carry_amount, 0)
+                      .toLocaleString()}{' '}
+                    owed
+                  </span>
+                </div>
+              )}
+              <div className="mobile-cash-sheet__net-worth-hint">
+                Manage from the cash lobby.
+              </div>
+            </div>
+          )}
 
           {headroom > 0 ? (
             <button

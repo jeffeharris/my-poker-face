@@ -13,6 +13,8 @@ import type {
   CashApiResponse,
   CashStateResponse,
   LobbyResponse,
+  NetWorthResponse,
+  PayoffResponse,
   SitResponse,
   SitRequiresSponsor,
   SponsorOffer,
@@ -108,6 +110,16 @@ export async function rebuy(amount: number): Promise<{ stack: number; bankroll: 
 
 export async function getLobby(): Promise<LobbyResponse> {
   return getJson('/lobby');
+}
+
+// --- Net Worth (Phase 3) ---
+
+export async function getNetWorth(): Promise<NetWorthResponse> {
+  return getJson('/net-worth');
+}
+
+export async function payOffCarry(stakeId: string): Promise<PayoffResponse> {
+  return postJson(`/stakes/${encodeURIComponent(stakeId)}/payoff`);
 }
 
 /**

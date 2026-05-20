@@ -124,6 +124,15 @@ export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardPr
                     D
                   </span>
                 )}
+                {seat.carry_amount !== undefined && (
+                  <span
+                    className="lobby-table-card__carry-pin"
+                    title={`You owe ${seat.name} $${seat.carry_amount.toLocaleString()}`}
+                    aria-label={`You owe ${seat.name} ${seat.carry_amount} chips`}
+                  >
+                    ${seat.carry_amount.toLocaleString()}
+                  </span>
+                )}
                 <div className="lobby-table-card__seat-image">
                   {(() => {
                     const src = absolutizeAvatarUrl(seat.avatar_url);

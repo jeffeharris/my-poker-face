@@ -136,6 +136,12 @@ export type LobbySeat =
       emotion: string;
       chips: number;
       relationship_hint: string;
+      /** Phase 3 Commit 1: present when the player has an outstanding
+       *  carry to this AI. Aggregates across any past sessions that
+       *  produced a residual debt to the same lender. Absent when
+       *  there's no carry — frontend uses presence (not >0) to decide
+       *  whether to render the corner pin. */
+      carry_amount?: number;
     }
   | {
       kind: 'human';
@@ -199,4 +205,53 @@ export interface SitRequiresSponsor {
   bankroll: number;
   min_buy_in: number;
   max_buy_in: number;
+}
+
+// --- Net Worth (Phase 3 Commit 1) ---
+
+/** Carry-load-driven gate on offer quality. Mirrors `staking_tier.py`
+ *  string constants — keep in lockstep when adding tiers. */
+export type TierStatus = 'premium' | 'standard' | 'restricted' | 'house_only';
+
+/** One outstanding carry the player owes to a staker. The "owed" number
+ *  is `carry_amount` — the unrecovered portion of principal after the
+ *  staker recovered what they could at the borrower's leave-time bust.
+ *  `principal` is shown as context (the original stake size). */
+export interface Payable {
+  stake_id: string;
+  staker_id: string;
+  staker_kind: 'personality' | 'human';
+  staker_display_name: string;
+  carry_amount: number;
+  principal: number;
+  stake_tier: StakeLabel;
+  /** ISO 8601 timestamp of stake creation. */
+  created_at: string | null;
+}
+
+/** Response from GET /api/cash/net-worth. */
+export interface NetWorthResponse {
+  bankroll: number;
+  /** The stake label whose tier_status / carry_cap applies. */
+  tier_stake_label: StakeLabel;
+  tier_status: TierStatus;
+  /** 10 × min_buy_in @ tier_stake_label. */
+  carry_cap: number;
+  payables: Payable[];
+  /** Phase 5 stub — empty list for v1. Layout slot reserved. */
+  receivables: never[];
+  /** bankroll + Σreceivables − Σpayables */
+  net_worth: number;
+  /** max(0, carry_cap − Σpayables) — remaining carry headroom before
+   *  tier degrades. */
+  available: number;
+}
+
+/** Response from POST /api/cash/stakes/<id>/payoff. */
+export interface PayoffResponse {
+  stake_id: string;
+  status: 'settled';
+  paid: number;
+  bankroll: number;
+  staker_id: string;
 }

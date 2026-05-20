@@ -17,13 +17,15 @@
  * `/api/cash/state` (separate endpoint, kept).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Wallet } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import { getLobby, getState, sitAtTable } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
+import { NetWorthDrawer } from './NetWorthDrawer';
 import type { LobbyEvent, LobbyTable, StakeLabel } from './types';
 import { logger } from '../../utils/logger';
 import {
@@ -55,6 +57,11 @@ export function Lobby() {
     tableId: string;
   } | null>(null);
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
+  const [netWorthOpen, setNetWorthOpen] = useState(false);
+  // Mutable ref so the drawer's `onPayoff` callback can re-fetch the
+  // lobby without re-rendering on every interval tick. The interval
+  // captures `load` once via the dep-free useEffect below.
+  const reloadLobbyRef = useRef<() => Promise<void>>(async () => {});
 
   // On mount: check active session first (redirect if so), then load
   // the lobby. Pulling /state before /lobby avoids a flash of the
@@ -83,6 +90,7 @@ export function Lobby() {
         setLoadError(msg);
       }
     };
+    reloadLobbyRef.current = load;
 
     (async () => {
       try {
@@ -148,6 +156,15 @@ export function Lobby() {
             <span className="cash-entry__bankroll-value">
               ${bankroll.toLocaleString()}
             </span>
+            <button
+              type="button"
+              className="cash-entry__net-worth-trigger"
+              onClick={() => setNetWorthOpen(true)}
+              aria-label="Open net worth"
+              title="View net worth"
+            >
+              <Wallet size={16} aria-hidden="true" />
+            </button>
           </div>
         )}
 
@@ -190,6 +207,13 @@ export function Lobby() {
         character={dossier?.dossier ?? { name: '' }}
         origin={dossier?.origin}
         identifier={dossier?.identifier}
+      />
+      <NetWorthDrawer
+        isOpen={netWorthOpen}
+        onClose={() => setNetWorthOpen(false)}
+        onPayoff={() => {
+          void reloadLobbyRef.current();
+        }}
       />
     </PageLayout>
   );
