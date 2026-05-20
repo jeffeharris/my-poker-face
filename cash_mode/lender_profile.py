@@ -62,3 +62,44 @@ LENDER_PROFILE_DEFAULTS = LenderProfile(
     respect_floor=-0.5,
     heat_ceiling=0.7,
 )
+
+
+# --- Borrower profile (Phase 4 of the backing system) ---------------------
+
+
+@dataclass(frozen=True)
+class BorrowerProfile:
+    """Per-personality knobs that shape an AI's willingness to BE staked.
+
+    Phase 4 introduces AIs as stake borrowers. When an AI hits the
+    `forced_leave` threshold (chips below 30% of the buy-in), the
+    movement decision can opt to take a stake from another AI with
+    capacity instead of leaving. The borrower-side gate is this
+    profile.
+
+    Fields:
+      - `willing`: do they accept stakes when busting? Stoic /
+        principled personalities (Lincoln, Buddha) refuse outright;
+        most AIs accept. This is "do I borrow at all?" — not a
+        relationship gate.
+
+    Frozen because the profile is read-only at decision time —
+    relationship-aware adjustments happen on the staker side, not here.
+
+    Phase 5 (humans as stakers) will add a `willingness_threshold`
+    field for "would I accept THIS offer from a player?" gating. The
+    Phase 4 borrower path (AI accepting a peer's offer to avoid bust)
+    doesn't need it — a busting AI takes whatever they can get.
+
+    Spec: `docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md` Phase 4
+    Commit 1.
+    """
+
+    willing: bool
+
+
+# Default — most personalities accept stakes when busting. Stoic
+# personalities override `willing=False` in their config sub-dict.
+BORROWER_PROFILE_DEFAULTS = BorrowerProfile(
+    willing=True,
+)

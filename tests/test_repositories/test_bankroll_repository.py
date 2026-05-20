@@ -28,7 +28,12 @@ from cash_mode.bankroll import (
     PlayerBankrollState,
     project_bankroll,
 )
-from cash_mode.lender_profile import LENDER_PROFILE_DEFAULTS, LenderProfile
+from cash_mode.lender_profile import (
+    BORROWER_PROFILE_DEFAULTS,
+    BorrowerProfile,
+    LENDER_PROFILE_DEFAULTS,
+    LenderProfile,
+)
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.schema_manager import SchemaManager
 
@@ -43,13 +48,16 @@ def _insert_personality(
     name: str = None,
     bankroll_knobs: dict = None,
     lender_profile: dict = None,
+    borrower_profile: dict = None,
 ) -> None:
-    """Helper: insert a personality row with optional bankroll_knobs / lender_profile in config_json."""
+    """Helper: insert a personality row with optional bankroll_knobs / lender_profile / borrower_profile in config_json."""
     config = {}
     if bankroll_knobs is not None:
         config["bankroll_knobs"] = bankroll_knobs
     if lender_profile is not None:
         config["lender_profile"] = lender_profile
+    if borrower_profile is not None:
+        config["borrower_profile"] = borrower_profile
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "INSERT INTO personalities (name, config_json, personality_id) "
@@ -531,3 +539,77 @@ class TestLenderProfile:
             conn.commit()
         profile = repo.load_lender_profile("wrong_type_lp")
         assert profile == LENDER_PROFILE_DEFAULTS
+
+
+# --- Borrower profile loading (Phase 4 of the backing system) ---
+
+
+class TestBorrowerProfile:
+    """`load_borrower_profile` reads `config_json.borrower_profile` with
+    per-field fallback to `BORROWER_PROFILE_DEFAULTS`. Mirror of
+    `load_lender_profile` for "does this AI accept stakes when bust?"."""
+
+    def test_load_returns_defaults_when_row_missing(self, repo):
+        profile = repo.load_borrower_profile("nonexistent_id")
+        assert profile == BORROWER_PROFILE_DEFAULTS
+        # Defaults to willing — most AIs accept a stake to avoid bust.
+        assert profile.willing is True
+
+    def test_load_returns_defaults_when_config_lacks_borrower_profile(self, db_path, repo):
+        _insert_personality(db_path, "no_bp_id")
+        profile = repo.load_borrower_profile("no_bp_id")
+        assert profile == BORROWER_PROFILE_DEFAULTS
+
+    def test_load_returns_stoic_unwilling_borrower(self, db_path, repo):
+        # Stoic personalities (Lincoln, Buddha) refuse stakes.
+        _insert_personality(
+            db_path, "buddha",
+            borrower_profile={"willing": False},
+        )
+        profile = repo.load_borrower_profile("buddha")
+        assert profile.willing is False
+
+    def test_load_explicit_willing_true_round_trips(self, db_path, repo):
+        # Most personalities default to willing=True; an explicit override
+        # is preserved through the read path.
+        _insert_personality(
+            db_path, "napoleon",
+            borrower_profile={"willing": True},
+        )
+        profile = repo.load_borrower_profile("napoleon")
+        assert profile.willing is True
+
+    def test_load_handles_malformed_json(self, db_path, repo):
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO personalities (name, config_json, personality_id) "
+                "VALUES (?, ?, ?)",
+                ("Bad JSON", "{not valid", "bad_json_bp"),
+            )
+            conn.commit()
+        profile = repo.load_borrower_profile("bad_json_bp")
+        assert profile == BORROWER_PROFILE_DEFAULTS
+
+    def test_load_handles_non_dict_borrower_profile(self, db_path, repo):
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO personalities (name, config_json, personality_id) "
+                "VALUES (?, ?, ?)",
+                ("Wrong Type", json.dumps({"borrower_profile": "oops"}), "wrong_type_bp"),
+            )
+            conn.commit()
+        profile = repo.load_borrower_profile("wrong_type_bp")
+        assert profile == BORROWER_PROFILE_DEFAULTS
+
+    def test_lender_and_borrower_profiles_independent(self, db_path, repo):
+        # A personality can be a willing lender AND unwilling borrower
+        # (Lincoln-like: principled about giving help but not asking).
+        _insert_personality(
+            db_path, "principled_lincoln",
+            lender_profile={"willing": True, "max_loan_pct_of_bankroll": 0.15},
+            borrower_profile={"willing": False},
+        )
+        lender = repo.load_lender_profile("principled_lincoln")
+        borrower = repo.load_borrower_profile("principled_lincoln")
+        assert lender.willing is True
+        assert borrower.willing is False

@@ -38,6 +38,9 @@
         "rate_anchor": 0.15,
         "respect_floor": -0.7,
         "heat_ceiling": 0.85
+      },
+      "borrower_profile": {
+        "willing": false
       }
     },
     "Winston Churchill": {
@@ -528,6 +531,9 @@
         "rate_anchor": 0.15,
         "respect_floor": -0.7,
         "heat_ceiling": 0.85
+      },
+      "borrower_profile": {
+        "willing": false
       }
     },
     "Bob Ross": {

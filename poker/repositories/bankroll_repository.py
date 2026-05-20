@@ -36,7 +36,12 @@ from cash_mode.bankroll import (
     PlayerBankrollState,
     project_bankroll,
 )
-from cash_mode.lender_profile import LENDER_PROFILE_DEFAULTS, LenderProfile
+from cash_mode.lender_profile import (
+    BORROWER_PROFILE_DEFAULTS,
+    BorrowerProfile,
+    LENDER_PROFILE_DEFAULTS,
+    LenderProfile,
+)
 from poker.repositories.base_repository import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -470,6 +475,50 @@ class BankrollRepository(BaseRepository):
             rate_anchor=sub.get("rate_anchor", defaults.rate_anchor),
             respect_floor=sub.get("respect_floor", defaults.respect_floor),
             heat_ceiling=sub.get("heat_ceiling", defaults.heat_ceiling),
+        )
+
+    def load_borrower_profile(self, personality_id: str) -> BorrowerProfile:
+        """Read the borrower profile from `config_json.borrower_profile`.
+
+        Phase 4 of the backing system. Mirrors `load_lender_profile`'s
+        per-field fallback to `BORROWER_PROFILE_DEFAULTS`. Three
+        fallback cases all return the default profile:
+          - personality_id not in the table
+          - config_json has no `borrower_profile` sub-dict
+          - sub-dict is partial / malformed
+
+        Default `willing=True` so unannotated personalities accept
+        stakes when bust. Stoic personalities override `willing=False`
+        via their config sub-dict.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                (personality_id,),
+            ).fetchone()
+        if not row:
+            return BORROWER_PROFILE_DEFAULTS
+
+        try:
+            config = json.loads(row["config_json"])
+        except (TypeError, ValueError):
+            logger.warning(
+                "Personality %r has malformed config_json; using borrower profile defaults",
+                personality_id,
+            )
+            return BORROWER_PROFILE_DEFAULTS
+
+        sub = config.get("borrower_profile") or {}
+        if not isinstance(sub, dict):
+            logger.warning(
+                "Personality %r has non-dict borrower_profile; using defaults",
+                personality_id,
+            )
+            return BORROWER_PROFILE_DEFAULTS
+
+        defaults = BORROWER_PROFILE_DEFAULTS
+        return BorrowerProfile(
+            willing=sub.get("willing", defaults.willing),
         )
 
     def save_personality_knobs(
