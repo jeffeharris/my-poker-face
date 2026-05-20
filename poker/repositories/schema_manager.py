@@ -107,7 +107,11 @@ logger = logging.getLogger(__name__)
 #      audit's per-reason buckets don't split between old and new
 #      names). Spec: docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md
 #      Phase 1.
-SCHEMA_VERSION = 98
+# v99: Drop legacy `active_loan_*` columns from `player_bankroll_state`
+#      now that the stakes-table cutover (v98 + Cleanup A/B) is done.
+#      Stake state lives in `stakes` via `StakeRepository`; the bankroll
+#      row carries chips + starting_bankroll only.
+SCHEMA_VERSION = 99
 
 
 
@@ -438,27 +442,18 @@ class SchemaManager:
                 )
             """)
 
-            # 10e. Player bankroll state (v88, loan fields added v89,
-            #      lender_id added v90) — per-player persistent bankroll.
-            #      `starting_bankroll` is the seed grant on first entry.
-            #      The `active_loan_*` columns (v89) encode a session-
-            #      scoped sponsor loan; all reset to 0/0.0/0.0 on
-            #      `/api/cash/leave` after the leave-time math settles the
-            #      loan. `active_loan_lender_id` (v90) is the optional
-            #      personality_id of an AI lender — NULL means anonymous
-            #      house loan (v1 sponsorship), non-NULL means a named AI
-            #      lender whose persistent bankroll receives sponsor_total
-            #      at leave-time. Loans do NOT persist across sessions in
-            #      v1.
+            # 10e. Player bankroll state (v88) — per-player persistent
+            #      bankroll. `starting_bankroll` is the seed grant on
+            #      first entry. The legacy `active_loan_*` columns
+            #      (v89/v90) were dropped in v99 once the stakes-table
+            #      cutover (v98) completed; stake state now lives in
+            #      `stakes` via `StakeRepository`. Fresh-DB creation
+            #      lands on the post-v99 shape directly.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS player_bankroll_state (
                     player_id TEXT PRIMARY KEY,
                     chips INTEGER NOT NULL DEFAULT 0,
-                    starting_bankroll INTEGER NOT NULL DEFAULT 0,
-                    active_loan_amount INTEGER NOT NULL DEFAULT 0,
-                    active_loan_floor REAL NOT NULL DEFAULT 0.0,
-                    active_loan_rate REAL NOT NULL DEFAULT 0.0,
-                    active_loan_lender_id TEXT DEFAULT NULL
+                    starting_bankroll INTEGER NOT NULL DEFAULT 0
                 )
             """)
 
@@ -1259,6 +1254,7 @@ class SchemaManager:
             96: (self._migrate_v96_add_dealer_idx_to_cash_tables, "Add dealer_idx column to cash_tables so the lobby dealer button survives backend restart (full sim Commit 2)"),
             97: (self._migrate_v97_add_emotional_state_to_ai_bankroll, "Add emotional_state_json column to ai_bankroll_state so sim-hand psychology persists across cache evictions and restarts (full sim Commit 3)"),
             98: (self._migrate_v98_add_stakes_table, "Add stakes table for backing-system stake model (Phase 1) and rename legacy house_loan_* ledger reasons to house_stake_*"),
+            99: (self._migrate_v99_drop_active_loan_columns, "Drop legacy active_loan_* columns from player_bankroll_state — stakes table is now the sole source-of-truth"),
         }
 
         with self._get_connection() as conn:
@@ -4505,4 +4501,41 @@ class SchemaManager:
         logger.info(
             "Migration v98 complete: stakes table created + indexes; "
             "legacy house_loan_* ledger reasons renamed to house_stake_*"
+        )
+
+    def _migrate_v99_drop_active_loan_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v99: drop the legacy `active_loan_*` columns from
+        `player_bankroll_state`.
+
+        The stakes-table cutover (v98 + the backing-system handoff
+        Cleanup A/B) moved all readers and writers to `StakeRepository`.
+        v99 finishes the cleanup: the columns are dead weight on every
+        bankroll row and confuse anyone reading the schema.
+
+        SQLite 3.35+ supports `ALTER TABLE ... DROP COLUMN`. Each DROP
+        is PRAGMA-guarded so re-running on a partially-migrated DB
+        (or a fresh DB that landed on the post-v99 shape via
+        `create_initial_schema`) is a no-op.
+
+        Order matters: `active_loan_lender_id` first because it's a
+        nullable text column (no constraints), then the numeric ones.
+        The whole batch is one statement-sequence; SQLite rewrites
+        the table per DROP under the hood, but that's fine for a
+        small table that gets touched on every cash-mode hit.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_bankroll_state)")
+        cols = {row[1] for row in cursor}
+        for col in (
+            "active_loan_lender_id",
+            "active_loan_amount",
+            "active_loan_floor",
+            "active_loan_rate",
+        ):
+            if col in cols:
+                conn.execute(
+                    f"ALTER TABLE player_bankroll_state DROP COLUMN {col}"
+                )
+        logger.info(
+            "Migration v99 complete: active_loan_* columns dropped from "
+            "player_bankroll_state"
         )

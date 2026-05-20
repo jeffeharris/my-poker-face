@@ -46,7 +46,20 @@ def db_path(tmp_path):
 
 
 @pytest.fixture
-def repos(db_path):
+def stake_repo(db_path):
+    r = StakeRepository(db_path)
+    yield r
+    r.close()
+
+
+@pytest.fixture
+def repos(db_path, stake_repo):
+    """Tuple of (bankroll_repo, cash_table_repo, ledger_repo).
+
+    `stake_repo` is yielded as a separate fixture so tests that want
+    to seed stake rows can grab it directly; the repos tuple stays
+    the same 3-element shape callers already destructure.
+    """
     bankroll_repo = BankrollRepository(db_path)
     cash_table_repo = CashTableRepository(db_path)
     ledger_repo = ChipLedgerRepository(db_path)
@@ -54,13 +67,6 @@ def repos(db_path):
     bankroll_repo.close()
     cash_table_repo.close()
     ledger_repo.close()
-
-
-@pytest.fixture
-def stake_repo(db_path):
-    r = StakeRepository(db_path)
-    yield r
-    r.close()
 
 
 def _insert_personality(db_path: str, personality_id: str, *, cap=50_000, rate=500) -> None:
@@ -84,7 +90,7 @@ def _insert_personality(db_path: str, personality_id: str, *, cap=50_000, rate=5
 
 
 class TestComputeAudit:
-    def test_empty_state_zero_everywhere(self, repos, db_path):
+    def test_empty_state_zero_everywhere(self, repos, stake_repo, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
         now = datetime(2026, 5, 18, 12, 0, 0)
 
@@ -92,6 +98,7 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             now=now,
         )
@@ -104,7 +111,7 @@ class TestComputeAudit:
         assert data['by_reason'] == {}
         assert data['by_reason_window_24h'] == {}
 
-    def test_ledger_totals_split_by_creation_vs_destruction(self, repos, db_path):
+    def test_ledger_totals_split_by_creation_vs_destruction(self, repos, stake_repo, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
         ledger_repo.record('central_bank', 'player:alice', 200, 'player_seed')
         ledger_repo.record('central_bank', 'ai:zeus', 1000, 'ai_regen')
@@ -115,6 +122,7 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             now=now,
         )
@@ -194,7 +202,7 @@ class TestComputeAudit:
         assert data['actual_totals']['active_loans_principal'] == 200
         assert data['actual_totals']['actual_outstanding'] == 4000
 
-    def test_drift_zero_when_ledger_matches_actual(self, repos, db_path):
+    def test_drift_zero_when_ledger_matches_actual(self, repos, stake_repo, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
         # Seed: 200 chips created (player_seed), 200 in player bankroll.
         bankroll_repo.save_player_bankroll(PlayerBankrollState(
@@ -207,13 +215,14 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             now=now,
         )
 
         assert data['drift'] == 0
 
-    def test_drift_nonzero_on_simulated_bypass(self, repos, db_path):
+    def test_drift_nonzero_on_simulated_bypass(self, repos, stake_repo, db_path):
         """If chips appear in actual state without a matching ledger
         entry (the bug the audit is meant to surface), drift goes
         negative — ledger says fewer outstanding than reality."""
@@ -228,6 +237,7 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             now=now,
         )
@@ -235,7 +245,7 @@ class TestComputeAudit:
         # Ledger outstanding = 0; actual = 200. drift = -200.
         assert data['drift'] == -200
 
-    def test_window_24h_includes_recent_excludes_old(self, repos, db_path):
+    def test_window_24h_includes_recent_excludes_old(self, repos, stake_repo, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
         anchor = datetime(2026, 5, 18, 12, 0, 0)
 
@@ -262,6 +272,7 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             now=anchor,
         )
@@ -269,7 +280,7 @@ class TestComputeAudit:
         assert data['by_reason']['player_seed'] == 300  # both counted overall
         assert data['by_reason_window_24h']['player_seed'] == 200  # only recent
 
-    def test_annotation_rows_dont_skew_totals(self, repos, db_path):
+    def test_annotation_rows_dont_skew_totals(self, repos, stake_repo, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
         ledger_repo.record('central_bank', 'player:a', 200, 'house_stake_issue')
         ledger_repo.record('player:a', 'central_bank', 50, 'house_stake_settle')
@@ -281,6 +292,7 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             now=now,
         )
@@ -290,7 +302,7 @@ class TestComputeAudit:
         assert data['ledger_totals']['chips_destroyed'] == 50
         assert data['by_reason']['forgive_balance'] == 0  # annotation visible but neutral
 
-    def test_annotation_only_forgive_appears_in_by_reason(self, repos, db_path):
+    def test_annotation_only_forgive_appears_in_by_reason(self, repos, stake_repo, db_path):
         """forgive_balance is the lone destruction-side reason with no
         positive amounts. When it appears alone (no house_stake_settle
         rows alongside), `by_reason` must still surface it so the UI
@@ -305,6 +317,7 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             now=now,
         )
@@ -315,7 +328,7 @@ class TestComputeAudit:
         assert 'forgive_balance' in data['by_reason_window_24h']
         assert data['by_reason_window_24h']['forgive_balance'] == 0
 
-    def test_errors_field_empty_on_clean_run(self, repos, db_path):
+    def test_errors_field_empty_on_clean_run(self, repos, stake_repo, db_path):
         """No live-session iteration failures → empty errors dict."""
         bankroll_repo, cash_table_repo, ledger_repo = repos
         now = datetime(2026, 5, 18, 12, 0, 0)
@@ -323,12 +336,13 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             now=now,
         )
         assert data['errors'] == {}
 
-    def test_errors_field_populated_when_live_session_iter_fails(self, repos, db_path):
+    def test_errors_field_populated_when_live_session_iter_fails(self, repos, stake_repo, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
 
         def boom():
@@ -338,6 +352,7 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             list_game_ids_fn=boom,
             get_game_fn=lambda gid: None,
@@ -348,7 +363,7 @@ class TestComputeAudit:
         # Falls back to 0 so the rest of the audit still computes.
         assert data['actual_totals']['live_session_ai_stacks'] == 0
 
-    def test_live_session_ai_stacks_summed(self, repos, db_path):
+    def test_live_session_ai_stacks_summed(self, repos, stake_repo, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
 
         # Fake game_state_service: one cash session with 3 AI seats.
@@ -381,6 +396,7 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             list_game_ids_fn=list_ids,
             get_game_fn=get_game,
@@ -390,7 +406,7 @@ class TestComputeAudit:
         # Excludes the human (800), includes 3 AI: 1000+500+2000.
         assert data['actual_totals']['live_session_ai_stacks'] == 3500
 
-    def test_non_cash_games_excluded(self, repos, db_path):
+    def test_non_cash_games_excluded(self, repos, stake_repo, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
 
         class FakePlayer:
@@ -419,6 +435,7 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             list_game_ids_fn=list_ids,
             get_game_fn=get_game,

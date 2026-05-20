@@ -32,8 +32,8 @@ def compute_audit(
     ledger_repo,
     bankroll_repo,
     cash_table_repo,
+    stake_repo,
     db_path: str,
-    stake_repo=None,
     list_game_ids_fn=None,
     get_game_fn=None,
     now: Optional[datetime] = None,
@@ -50,13 +50,13 @@ def compute_audit(
         bankroll_repo: BankrollRepository for projected AI chips
             (uses `project_bankroll` via `load_ai_bankroll_current`).
         cash_table_repo: CashTableRepository for persisted seat chips.
+        stake_repo: StakeRepository for summing active stake principal
+            owed by humans (chips on a human session seat aren't
+            summed elsewhere). Required as of v99 — the legacy
+            `active_loan_amount` column fallback was removed once the
+            columns themselves were dropped.
         db_path: Raw SQLite path for the SUM queries that don't go
             through repo APIs (player_bankrolls).
-        stake_repo: Optional StakeRepository for summing active stake
-            principal owed by humans (chips on a human session seat
-            aren't summed elsewhere). When omitted, falls back to the
-            legacy `active_loan_amount` column sum — used only by
-            tests that pre-date the stakes table. Production passes it.
         list_game_ids_fn: Optional callable returning live game ids.
             Defaults to `flask_app.services.game_state_service.list_game_ids`.
         get_game_fn: Optional callable taking a game id and returning
@@ -100,12 +100,7 @@ def compute_audit(
     # land in chip-bearing surfaces already counted (AI staker bankroll
     # decreases, AI borrower seat / live-stack increases), so the
     # stakes-table sum is restricted to human borrowers by design.
-    # Pre-cutover fallback to `active_loan_amount` retained for the
-    # few tests that haven't migrated to creating stake rows.
-    if stake_repo is not None:
-        active_loans_principal = _sum_active_stake_principal_for_humans(stake_repo)
-    else:
-        active_loans_principal = _sum_active_loans(db_path)
+    active_loans_principal = _sum_active_stake_principal_for_humans(stake_repo)
     ai_bankrolls_stored = _sum_ai_bankrolls_stored(bankroll_repo)
     ai_bankrolls_projected = _sum_ai_bankrolls_projected(bankroll_repo, now)
     cash_table_seats_ai = _sum_cash_table_ai_seats(cash_table_repo)
@@ -185,24 +180,6 @@ def _sum_player_bankrolls(db_path: str) -> int:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
             "SELECT COALESCE(SUM(chips), 0) FROM player_bankroll_state"
-        ).fetchone()
-        return int(row[0] or 0)
-
-
-def _sum_active_loans(db_path: str) -> int:
-    """Legacy fallback — sum the deprecated `active_loan_amount` column.
-
-    Retained only for the handful of tests that still seed loans via
-    the old column without creating a corresponding stake row. The
-    column gets dropped in schema v99; once that lands, this helper
-    can go too.
-    """
-    import sqlite3
-    with sqlite3.connect(db_path) as conn:
-        row = conn.execute(
-            "SELECT COALESCE(SUM(active_loan_amount), 0) "
-            "FROM player_bankroll_state "
-            "WHERE active_loan_amount > 0"
         ).fetchone()
         return int(row[0] or 0)
 

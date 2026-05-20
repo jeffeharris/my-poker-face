@@ -39,6 +39,7 @@ from poker.repositories.cash_table_repository import CashTableRepository
 from poker.repositories.chip_ledger_repository import ChipLedgerRepository
 from poker.repositories.personality_repository import PersonalityRepository
 from poker.repositories.schema_manager import SchemaManager
+from poker.repositories.stake_repository import StakeRepository
 
 
 @pytest.fixture
@@ -54,12 +55,14 @@ def repos(db_path):
     cash_table_repo = CashTableRepository(db_path)
     chip_ledger_repo = ChipLedgerRepository(db_path)
     personality_repo = PersonalityRepository(db_path)
+    stake_repo = StakeRepository(db_path)
 
-    yield db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, personality_repo
+    yield db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, personality_repo, stake_repo
 
     bankroll_repo.close()
     cash_table_repo.close()
     chip_ledger_repo.close()
+    stake_repo.close()
 
 
 def _seed_personalities(db_path: str, pids: list[str]) -> None:
@@ -79,11 +82,12 @@ def _seed_personalities(db_path: str, pids: list[str]) -> None:
         conn.commit()
 
 
-def _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, now):
+def _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now):
     data = compute_audit(
         ledger_repo=chip_ledger_repo,
         bankroll_repo=bankroll_repo,
         cash_table_repo=cash_table_repo,
+        stake_repo=stake_repo,
         db_path=db_path,
         now=now,
     )
@@ -101,7 +105,7 @@ def test_lobby_seed_preserves_drift(repos):
     `test_lobby_seed_drift_pin` and pinned the buggy pre-fix behavior;
     tightened to `drift_after == drift_before` once the fix landed.
     """
-    db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, personality_repo = repos
+    db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, personality_repo, stake_repo = repos
     now = datetime(2026, 5, 18, 12, 0, 0)
 
     pids = ['zeus', 'hera', 'ares', 'athena', 'apollo']
@@ -121,7 +125,7 @@ def test_lobby_seed_preserves_drift(repos):
         sm._migrate_v94_seed_pre_ledger_universe(conn)
         conn.commit()
 
-    before = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, now)
+    before = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now)
     assert before['drift'] == 0, (
         f"baseline drift should be 0 after v94 seed, got {before['drift']}"
     )
@@ -133,7 +137,7 @@ def test_lobby_seed_preserves_drift(repos):
         now=now,
     )
 
-    after = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, now)
+    after = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now)
 
     seats_chips = after['actual_totals']['cash_table_seats_ai']
     assert seats_chips > 0, "lobby seed should have placed at least one AI seat"
@@ -151,7 +155,7 @@ def test_lobby_seed_preserves_drift(repos):
 def test_lobby_reseed_is_idempotent_for_drift(repos):
     """Running ensure_lobby_seeded twice doesn't change drift between
     the two calls — second pass is a no-op because tables already exist."""
-    db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, personality_repo = repos
+    db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, personality_repo, stake_repo = repos
     now = datetime(2026, 5, 18, 12, 0, 0)
 
     _seed_personalities(db_path, ['zeus', 'hera'])
@@ -171,7 +175,7 @@ def test_lobby_reseed_is_idempotent_for_drift(repos):
         bankroll_repo=bankroll_repo,
         now=now,
     )
-    first = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, now)
+    first = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now)
 
     ensure_lobby_seeded(
         cash_table_repo=cash_table_repo,
@@ -179,7 +183,7 @@ def test_lobby_reseed_is_idempotent_for_drift(repos):
         bankroll_repo=bankroll_repo,
         now=now,
     )
-    second = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, now)
+    second = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now)
 
     assert first['drift'] == second['drift']
     assert (
