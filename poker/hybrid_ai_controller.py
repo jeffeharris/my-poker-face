@@ -385,11 +385,16 @@ CRITICAL RULES:
 {dramatic_sequence_guidance}
 """
 
-        return choice_template.format(
+        rendered = choice_template.format(
             base_message=base_message,
             options_text=options_text,
             num_options=len(options),
             dramatic_sequence_guidance=DRAMATIC_SEQUENCE_GUIDANCE,
+        )
+        # Append relationship-history block (shared with chaos via the
+        # parent helper). Gated on prompt_config.relationship_context.
+        return self._append_relationship_context_if_enabled(
+            rendered, self.state_machine.game_state, self.state_machine.game_state.current_player,
         )
 
     def _validate_and_select(self, response: Optional[Dict], options: List[BoundedOption]) -> Dict:

@@ -67,6 +67,14 @@ class PromptConfig:
     # Situational guidance components (coaching for specific game states)
     situational_guidance: bool = True  # pot_committed, short_stack, made_hand
 
+    # Relationship context — injects a label-driven block ("rival" /
+    # "friendly") for opponents whose axes have moved out of neutral
+    # territory, plus the 1-2 most-recent memorable hands per pair.
+    # Off by default to preserve baseline behavior in experiments;
+    # flip per-experiment via config once play-data validates the
+    # framing. See `poker/memory/relationship_prompt.py`.
+    relationship_context: bool = False
+
     # GTO Foundation components (math-first decision support)
     gto_equity: bool = False  # Always show equity verdict for all decisions
     gto_verdict: bool = False  # Show "CALL is +EV" / "FOLD is correct" verdict

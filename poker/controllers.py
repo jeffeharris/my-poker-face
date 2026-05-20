@@ -1737,7 +1737,44 @@ class AIPlayerController:
             zone_guidance=zone_guidance,
         )
 
+        prompt = self._append_relationship_context_if_enabled(prompt, game_state, player)
         return (prompt, drama_context)
+
+    def _append_relationship_context_if_enabled(
+        self, prompt: str, game_state, player,
+    ) -> str:
+        """Append a relationship-context block to a decision prompt.
+
+        Shared by chaos (`_build_decision_prompt`) and standard
+        (`HybridAIController._build_choice_prompt`) so both LLM paths
+        get the same opponent-history framing. Tiered's narration
+        layer uses a different prompt assembly (`ExpressionContext`)
+        and is wired separately if/when that lands.
+
+        No-op when:
+          - `relationship_context` flag is off
+          - `opponent_model_manager` isn't wired (e.g., human-only
+            games, tests that skip memory bootstrap)
+          - the formatter returns "" (no opponent qualifies as
+            rival/friendly — the common case in early sessions)
+        """
+        if not self.prompt_config.relationship_context:
+            return prompt
+        if self.opponent_model_manager is None:
+            return prompt
+        from .memory.relationship_prompt import build_relationship_context
+        active_opponent_names = [
+            p.name for p in game_state.players
+            if not p.is_folded and p.name != player.name
+        ]
+        rel_block = build_relationship_context(
+            observer_name=self.player_name,
+            opponents=active_opponent_names,
+            opponent_model_manager=self.opponent_model_manager,
+        )
+        if not rel_block:
+            return prompt
+        return prompt + "\n\n" + rel_block
 
     def _normalize_response(self, response_dict: Dict) -> Dict:
         """Normalize response: lowercase action, keep raise_to as float (BB).
