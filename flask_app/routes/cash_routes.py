@@ -894,6 +894,15 @@ def sit_at_table():
             "game_id": existing,
         }), 409
 
+    # Belt-and-suspenders against orphaned seats: the duplicate-session
+    # check above guards against duplicate game rows, but a stale human
+    # slot on `cash_tables` (left over after a leave path skipped its
+    # seat revert, or a purge that cleaned the game row without freeing
+    # the seat) won't show up there. Sweep any seats this owner is
+    # still occupying before claiming the new one — otherwise the
+    # `with_seat` below succeeds and the user double-seats.
+    _free_ghost_human_seats(owner_id)
+
     # Affordability + sponsor-eligibility branching.
     player_bankroll = _load_or_seed_player_bankroll(owner_id)
     if player_bankroll.chips < buy_in:

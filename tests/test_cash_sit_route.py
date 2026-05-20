@@ -347,3 +347,64 @@ class TestSitAll(_CashSitRouteBase):
             "buy_in": 2000,
         })
         assert resp2.status_code == 409
+
+    def test_orphaned_seat_is_freed_on_subsequent_sit(self):
+        """Regression: a stale `human` slot on table A (game row gone but
+        seat never reverted) must NOT survive when the player sits at
+        table B. Reproduces the production case where a leave path
+        cleaned the game row but left the seat occupied, double-seating
+        the user across two tables.
+        """
+        from flask_app.extensions import game_repo
+
+        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
+            player_id=PLAYER_OWNER_ID, chips=10_000, starting_bankroll=10_000,
+        ))
+
+        # Phase 1: sit at $10 (happy path).
+        table_a = self.cash_table_repo.load_table("cash-table-10-001")
+        open_idx_a = next(i for i, s in enumerate(table_a.seats) if s["kind"] == "open")
+        resp_a = self.client.post("/api/cash/sit", json={
+            "table_id": "cash-table-10-001",
+            "seat_index": open_idx_a,
+            "buy_in": 400,
+        })
+        assert resp_a.status_code == 200, resp_a.get_data(as_text=True)
+        sit_a_game_id = resp_a.get_json()["game_id"]
+
+        # Phase 2: orphan the seat by deleting the game row directly,
+        # leaving the human slot stranded on cash-table-10-001. Also
+        # remove the in-memory game so `_find_active_cash_game_id` can't
+        # find it and trip the 409 guard.
+        from flask_app.services import game_state_service
+        game_state_service.delete_game(sit_a_game_id)
+        game_repo.delete_game(sit_a_game_id)
+        stranded = self.cash_table_repo.load_table("cash-table-10-001")
+        assert stranded.seats[open_idx_a]["kind"] == "human", \
+            "Seat should still be human before the fix sweeps it"
+
+        # Phase 3: sit at $50 — this must succeed AND free the orphan.
+        table_b = self.cash_table_repo.load_table("cash-table-50-001")
+        open_idx_b = next(i for i, s in enumerate(table_b.seats) if s["kind"] == "open")
+        resp_b = self.client.post("/api/cash/sit", json={
+            "table_id": "cash-table-50-001",
+            "seat_index": open_idx_b,
+            "buy_in": 2000,
+        })
+        assert resp_b.status_code == 200, resp_b.get_data(as_text=True)
+
+        # Phase 4: the $10 seat must now be open, $50 seat human.
+        after_a = self.cash_table_repo.load_table("cash-table-10-001")
+        after_b = self.cash_table_repo.load_table("cash-table-50-001")
+        assert after_a.seats[open_idx_a]["kind"] == "open", \
+            "Orphaned $10 seat was not freed"
+        assert after_b.seats[open_idx_b]["kind"] == "human"
+        assert after_b.seats[open_idx_b]["personality_id"] == PLAYER_OWNER_ID
+        # Sanity: owner has no other human slot anywhere.
+        humans_for_owner = [
+            (t.table_id, i)
+            for t in self.cash_table_repo.list_all_tables()
+            for i, s in enumerate(t.seats)
+            if s.get("kind") == "human" and s.get("personality_id") == PLAYER_OWNER_ID
+        ]
+        assert humans_for_owner == [("cash-table-50-001", open_idx_b)]
