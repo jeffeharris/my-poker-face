@@ -255,7 +255,8 @@ class _FastForwardRouteBase(unittest.TestCase):
                 'capture_label_repo', 'replay_experiment_repo',
                 'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
                 'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo',
+                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
+                'stake_repo',
             ):
                 if key in repos:
                     setattr(ext, key, repos[key])

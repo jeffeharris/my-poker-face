@@ -45,8 +45,14 @@ from core.economy import ledger as chip_ledger
 from poker.memory.relationship_events import RelationshipEvent
 from cash_mode.stakes import (
     BORROWER_KIND_HUMAN,
+    STAKE_FORMAT_HOUSE,
+    STAKE_FORMAT_PURE,
+    STAKE_STATUS_ACTIVE,
     STAKE_STATUS_CARRY,
     STAKE_STATUS_DEFAULTED,
+    STAKER_KIND_HOUSE,
+    STAKER_KIND_PERSONALITY,
+    Stake,
 )
 from cash_mode.stakes_ladder import (
     MAX_BUY_IN_BB,
@@ -1377,6 +1383,11 @@ def sponsor_and_sit():
 
     # Record the loan terms; bankroll chips unchanged (loan went
     # straight to the table stack, never landed in bankroll).
+    #
+    # Dual-write: legacy active_loan_* columns stay populated for the
+    # audit endpoint's `_sum_active_loans` query through this cutover
+    # phase. The new stakes-table row below is the source-of-truth for
+    # the new settlement path (leave_table).
     bankroll_repo.save_player_bankroll(PlayerBankrollState(
         player_id=bankroll.player_id,
         chips=bankroll.chips,
@@ -1385,6 +1396,36 @@ def sponsor_and_sit():
         active_loan_floor=offer_floor,
         active_loan_rate=offer_rate,
         active_loan_lender_id=offer_lender_id,
+    ))
+
+    # Phase 2 cutover: persist the stake row that leave_table will
+    # settle. stake_id is deterministic on game_id so a retry of
+    # sponsor_and_sit (shouldn't happen — game_id is unique per call)
+    # hits a PK conflict rather than silently double-booking.
+    #
+    # `cut` maps from the legacy `offer_rate`; the legacy `floor` knob
+    # has no equivalent in the stake model and is intentionally
+    # dropped (the model collapses both into a single share-of-net-
+    # winnings number). This shifts settlement math relative to the
+    # pre-cutover behavior — pre-launch, that's the design intent.
+    stake_kind = STAKER_KIND_HOUSE if offer_lender_id is None else STAKER_KIND_PERSONALITY
+    stake_format = STAKE_FORMAT_HOUSE if offer_lender_id is None else STAKE_FORMAT_PURE
+    stake_repo.create_stake(Stake(
+        stake_id=f"sponsor_{game_id}",
+        session_id=game_id,
+        staker_id=offer_lender_id,
+        staker_kind=stake_kind,
+        borrower_id=owner_id,
+        borrower_kind=BORROWER_KIND_HUMAN,
+        format=stake_format,
+        principal=offer_amount,
+        match_amount=0,
+        origination_fee=0,
+        cut=offer_rate,
+        status=STAKE_STATUS_ACTIVE,
+        carry_amount=0,
+        stake_tier=stake_label,
+        created_at=datetime.utcnow(),
     ))
 
     # House-archetype loans create chips out of central_bank. Personality
@@ -1813,42 +1854,142 @@ def _leave_table_locked(owner_id: str, game_id: str):
     )
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
+    from flask_app.extensions import chip_ledger_repo, stake_repo
+    now = datetime.utcnow()
 
-    # Snapshot the loan state before settle clears it — needed for the
-    # post-settlement event classification (STAKE_REPAID vs STAKE_DEFAULTED).
-    loan_outcome = classify_loan_outcome(bankroll, chips_at_table)
-    lender_id_at_settle = bankroll.active_loan_lender_id
-
-    # Settlement: pass the bankroll_repo so Path B can credit the AI
-    # lender's persistent bankroll with sponsor_total (clamped to cap).
-    # Anonymous loans (NULL lender_id) skip the AI-credit branch.
-    from flask_app.extensions import chip_ledger_repo
-    settlement = settle_loan_on_leave(
-        bankroll, chips_at_table,
-        bankroll_repo=bankroll_repo,
-        chip_ledger_repo=chip_ledger_repo,
-        ledger_context={'game_id': game_id, 'site': 'loan_settle_path_b'},
+    # Phase 2 cutover: prefer the new stake-table settlement path.
+    # Sessions created post-cutover have a Stake row keyed on game_id;
+    # pre-cutover sessions only have the legacy active_loan_* columns
+    # and fall through to settle_loan_on_leave below.
+    active_stake = (
+        stake_repo.load_active_for_session(game_id)
+        if stake_repo is not None else None
     )
-    bankroll_repo.save_player_bankroll(settlement.new_bankroll)
 
-    # Path B relationship event: only when a named AI lender was on
-    # the loan. Anonymous loans don't have an `actor` to update.
-    if lender_id_at_settle:
-        if loan_outcome == "repaid":
+    # Response payload values — populated by whichever settlement path
+    # runs. Defaults cover the "no loan, no stake" leave (player walks
+    # away with their chips).
+    sponsor_repaid = 0
+    returned_chips = chips_at_table
+    new_bankroll_chips = bankroll.chips + chips_at_table
+    had_loan = False
+
+    if active_stake is not None:
+        # NEW PATH — stakes-table-backed settlement.
+        from cash_mode.stake_settlement import settle_stake_on_leave
+        from cash_mode.stake_chip_flow import (
+            DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
+            DIRECTION_BORROWER_SEAT_TO_HOUSE,
+            DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL,
+            build_stake_settlement_flows,
+        )
+
+        stake_settlement = settle_stake_on_leave(
+            active_stake.stake_id, chips_at_table,
+            stake_repo=stake_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            ledger_context={'game_id': game_id, 'site': 'leave_table'},
+            now=now,
+        )
+        flows = build_stake_settlement_flows(stake_settlement)
+        borrower_credit = 0
+        for flow in flows:
+            if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
+                # Personality (or Phase-5 human) staker — credit their bankroll.
+                credit_ai_cash_out(
+                    bankroll_repo, flow.staker_id, flow.amount,
+                    now=now,
+                    chip_ledger_repo=chip_ledger_repo,
+                    ledger_context={
+                        'game_id': game_id,
+                        'stake_id': active_stake.stake_id,
+                        'site': 'stake_settle',
+                    },
+                )
+            elif flow.direction == DIRECTION_BORROWER_SEAT_TO_HOUSE:
+                # House staker — chips return to the bank. Ledger entry
+                # closes the loop for the audit's house-stake reconciliation
+                # (forgive_balance for unrecovered portion already fired
+                # inside settle_stake_on_leave above).
+                chip_ledger.record_house_stake_settle(
+                    chip_ledger_repo,
+                    owner_id=stake_settlement.borrower_id,
+                    amount=flow.amount,
+                    context={
+                        'game_id': game_id,
+                        'stake_id': active_stake.stake_id,
+                        'site': 'leave_table',
+                    },
+                )
+            elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
+                borrower_credit = flow.amount
+
+        # Update borrower bankroll + clear the dual-write legacy
+        # active_loan_* fields so the audit doesn't double-count.
+        new_bankroll_chips = bankroll.chips + borrower_credit
+        bankroll_repo.save_player_bankroll(PlayerBankrollState(
+            player_id=bankroll.player_id,
+            chips=new_bankroll_chips,
+            starting_bankroll=bankroll.starting_bankroll,
+            # active_loan_* default to 0 / None — clears the legacy surface.
+        ))
+
+        # Fire STAKE_REPAID only when a personality staker was made whole.
+        # Natural carries roll forward silently (no event per the spec);
+        # house settlements have no actor; explicit defaults go through
+        # the dedicated POST /api/cash/stakes/<id>/default route.
+        if (
+            stake_settlement.staker_id
+            and stake_settlement.new_status == STAKE_STATUS_SETTLED
+            and stake_settlement.forgiven_amount == 0
+        ):
             _record_relationship_event(
-                actor_id=lender_id_at_settle,
+                actor_id=stake_settlement.staker_id,
                 target_id=owner_id,
                 event=RelationshipEvent.STAKE_REPAID,
             )
-        elif loan_outcome == "defaulted":
-            _record_relationship_event(
-                actor_id=lender_id_at_settle,
-                target_id=owner_id,
-                event=RelationshipEvent.STAKE_DEFAULTED,
-            )
-        # "no_chips_no_event" / "no_loan" branches deliberately silent —
-        # the v1 rule forgives full busts and no-loan leaves don't have
-        # a credit relationship to update.
+
+        sponsor_repaid = stake_settlement.staker_total
+        returned_chips = borrower_credit
+        had_loan = True
+    else:
+        # LEGACY PATH — pre-cutover session OR no-loan session. Snapshot
+        # the loan state before settle clears it (needed for the post-
+        # settlement event classification).
+        loan_outcome = classify_loan_outcome(bankroll, chips_at_table)
+        lender_id_at_settle = bankroll.active_loan_lender_id
+
+        legacy_settlement = settle_loan_on_leave(
+            bankroll, chips_at_table,
+            bankroll_repo=bankroll_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            ledger_context={'game_id': game_id, 'site': 'loan_settle_legacy'},
+        )
+        bankroll_repo.save_player_bankroll(legacy_settlement.new_bankroll)
+
+        # Legacy Path B relationship event: only when a named AI lender
+        # was on the loan. The legacy path fires STAKE_DEFAULTED at
+        # leave-time for under-floor leaves — pre-cutover behavior that
+        # changes under the new path (where carries are silent and
+        # defaults only fire from the explicit endpoint).
+        if lender_id_at_settle:
+            if loan_outcome == "repaid":
+                _record_relationship_event(
+                    actor_id=lender_id_at_settle,
+                    target_id=owner_id,
+                    event=RelationshipEvent.STAKE_REPAID,
+                )
+            elif loan_outcome == "defaulted":
+                _record_relationship_event(
+                    actor_id=lender_id_at_settle,
+                    target_id=owner_id,
+                    event=RelationshipEvent.STAKE_DEFAULTED,
+                )
+
+        sponsor_repaid = legacy_settlement.sponsor_total
+        returned_chips = legacy_settlement.returned_chips
+        new_bankroll_chips = legacy_settlement.new_bankroll.chips
+        had_loan = bankroll.active_loan_amount > 0
 
     # Credit every seated AI's current Player.stack back to their
     # persistent bankroll. Without this loop, AI table winnings
@@ -1856,10 +1997,10 @@ def _leave_table_locked(owner_id: str, game_id: str):
     # downward — sit-down debits never get matched by cash-out
     # credits. Path B (AI sponsorship) needs this to be honest, since
     # lender-eligibility reads `load_ai_bankroll_current`.
+    # (`now` was already pinned above for the settlement timestamp.)
     cash_personality_ids: Dict[str, str] = game_data.get(
         "cash_personality_ids", {}
     ) or {}
-    now = datetime.utcnow()
     for player in state_machine.game_state.players:
         if player.is_human:
             continue
@@ -1986,22 +2127,20 @@ def _leave_table_locked(owner_id: str, game_id: str):
             )
     _purge_other_cash_rows(owner_id, except_game_id=None)
 
-    had_loan = bankroll.active_loan_amount > 0
     logger.info(
         "[CASH] Left game_id=%r owner=%r chips_at_table=%d had_loan=%s "
         "sponsor_repaid=%d returned=%d bankroll_now=%d",
         game_id, owner_id, chips_at_table, had_loan,
-        settlement.sponsor_total, settlement.returned_chips,
-        settlement.new_bankroll.chips,
+        sponsor_repaid, returned_chips, new_bankroll_chips,
     )
 
     return jsonify({
         "session_ended": True,
         "chips_at_table": chips_at_table,
         "had_active_loan": had_loan,
-        "sponsor_repaid": settlement.sponsor_total,
-        "returned_chips": settlement.returned_chips,
-        "bankroll": settlement.new_bankroll.chips,
+        "sponsor_repaid": sponsor_repaid,
+        "returned_chips": returned_chips,
+        "bankroll": new_bankroll_chips,
         "session_summary": session_summary,
     })
 
