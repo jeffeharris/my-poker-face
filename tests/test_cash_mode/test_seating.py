@@ -267,8 +267,6 @@ class TestCashOutAISeat:
             bankroll_cap=50_000,
             bankroll_rate=500,
             buy_in_multiplier=1.0,
-            stop_loss_buy_ins=3,
-            stop_win_buy_ins=5,
             stake_comfort_zone="$10",
         )
 
@@ -360,8 +358,6 @@ class TestCashOutAISeat:
             bankroll_cap=50_000,
             bankroll_rate=0,  # no regen for invariant clarity
             buy_in_multiplier=1.0,
-            stop_loss_buy_ins=3,
-            stop_win_buy_ins=5,
             stake_comfort_zone="$10",
         )
         ai = AIBankrollState("napoleon", chips=10_000, last_regen_tick=None)

@@ -55,6 +55,13 @@ def _parse_timestamp(value) -> Optional[datetime]:
     return None
 
 
+def _has_column(conn, table_name: str, column_name: str) -> bool:
+    return any(
+        row[1] == column_name
+        for row in conn.execute(f"PRAGMA table_info({table_name})")
+    )
+
+
 class CashTableRepository(BaseRepository):
     """CRUD for `cash_tables`.
 
@@ -66,7 +73,13 @@ class CashTableRepository(BaseRepository):
     `SchemaManager.ensure_schema()`; this class only touches data.
     """
 
-    def save_table(self, state: CashTableState, *, now: Optional[datetime] = None) -> None:
+    def save_table(
+        self,
+        state: CashTableState,
+        *,
+        sandbox_id: Optional[str] = None,
+        now: Optional[datetime] = None,
+    ) -> None:
         """Upsert a cash table row.
 
         Bumps `last_activity_at` to `now` (default `datetime.utcnow()`)
@@ -83,70 +96,149 @@ class CashTableRepository(BaseRepository):
         seats_blob = seats_to_json(state.seats)
         created_iso = state.created_at.isoformat() if state.created_at else None
         with self._get_connection() as conn:
+            scoped = _has_column(conn, "cash_tables", "sandbox_id")
+            if scoped and not sandbox_id:
+                raise ValueError("sandbox_id is required for cash_tables writes")
             # Preserve created_at on upsert if a row exists; otherwise use
             # the provided value or fall back to SQL DEFAULT.
-            existing = conn.execute(
-                "SELECT created_at FROM cash_tables WHERE table_id = ?",
-                (state.table_id,),
-            ).fetchone()
-            if existing:
-                conn.execute(
+            if scoped:
+                existing = conn.execute(
                     """
-                    UPDATE cash_tables
-                    SET stake_label = ?, seats_json = ?, dealer_idx = ?,
-                        last_activity_at = ?
-                    WHERE table_id = ?
+                    SELECT created_at FROM cash_tables
+                    WHERE table_id = ? AND sandbox_id = ?
                     """,
-                    (
-                        state.stake_label, seats_blob, int(state.dealer_idx),
-                        now.isoformat(), state.table_id,
-                    ),
-                )
+                    (state.table_id, sandbox_id),
+                ).fetchone()
             else:
-                if created_iso is None:
+                existing = conn.execute(
+                    "SELECT created_at FROM cash_tables WHERE table_id = ?",
+                    (state.table_id,),
+                ).fetchone()
+            if existing:
+                if scoped:
                     conn.execute(
                         """
-                        INSERT INTO cash_tables
-                            (table_id, stake_label, seats_json, dealer_idx,
-                             last_activity_at)
-                        VALUES (?, ?, ?, ?, ?)
+                        UPDATE cash_tables
+                        SET stake_label = ?, seats_json = ?, dealer_idx = ?,
+                            last_activity_at = ?
+                        WHERE table_id = ? AND sandbox_id = ?
                         """,
                         (
-                            state.table_id, state.stake_label, seats_blob,
-                            int(state.dealer_idx), now.isoformat(),
+                            state.stake_label, seats_blob, int(state.dealer_idx),
+                            now.isoformat(), state.table_id, sandbox_id,
                         ),
                     )
                 else:
                     conn.execute(
                         """
-                        INSERT INTO cash_tables
-                            (table_id, stake_label, seats_json, dealer_idx,
-                             created_at, last_activity_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        UPDATE cash_tables
+                        SET stake_label = ?, seats_json = ?, dealer_idx = ?,
+                            last_activity_at = ?
+                        WHERE table_id = ?
                         """,
                         (
-                            state.table_id, state.stake_label, seats_blob,
-                            int(state.dealer_idx), created_iso, now.isoformat(),
+                            state.stake_label, seats_blob, int(state.dealer_idx),
+                            now.isoformat(), state.table_id,
                         ),
                     )
+            else:
+                if created_iso is None:
+                    if scoped:
+                        conn.execute(
+                            """
+                            INSERT INTO cash_tables
+                                (table_id, sandbox_id, stake_label, seats_json,
+                                 dealer_idx, last_activity_at)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                state.table_id, sandbox_id, state.stake_label,
+                                seats_blob, int(state.dealer_idx),
+                                now.isoformat(),
+                            ),
+                        )
+                    else:
+                        conn.execute(
+                            """
+                            INSERT INTO cash_tables
+                                (table_id, stake_label, seats_json, dealer_idx,
+                                 last_activity_at)
+                            VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (
+                                state.table_id, state.stake_label, seats_blob,
+                                int(state.dealer_idx), now.isoformat(),
+                            ),
+                        )
+                else:
+                    if scoped:
+                        conn.execute(
+                            """
+                            INSERT INTO cash_tables
+                                (table_id, sandbox_id, stake_label, seats_json,
+                                 dealer_idx, created_at, last_activity_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                state.table_id, sandbox_id, state.stake_label,
+                                seats_blob, int(state.dealer_idx), created_iso,
+                                now.isoformat(),
+                            ),
+                        )
+                    else:
+                        conn.execute(
+                            """
+                            INSERT INTO cash_tables
+                                (table_id, stake_label, seats_json, dealer_idx,
+                                 created_at, last_activity_at)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                state.table_id, state.stake_label, seats_blob,
+                                int(state.dealer_idx), created_iso,
+                                now.isoformat(),
+                            ),
+                        )
 
-    def load_table(self, table_id: str) -> Optional[CashTableState]:
+    def load_table(
+        self,
+        table_id: str,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> Optional[CashTableState]:
         """Load a single cash table by id, or None if it doesn't exist."""
         with self._get_connection() as conn:
-            row = conn.execute(
-                """
-                SELECT table_id, stake_label, seats_json, dealer_idx,
-                       created_at, last_activity_at
-                FROM cash_tables
-                WHERE table_id = ?
-                """,
-                (table_id,),
-            ).fetchone()
+            if _has_column(conn, "cash_tables", "sandbox_id"):
+                if not sandbox_id:
+                    raise ValueError("sandbox_id is required for cash_tables reads")
+                row = conn.execute(
+                    """
+                    SELECT table_id, stake_label, seats_json, dealer_idx,
+                           created_at, last_activity_at
+                    FROM cash_tables
+                    WHERE table_id = ? AND sandbox_id = ?
+                    """,
+                    (table_id, sandbox_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    SELECT table_id, stake_label, seats_json, dealer_idx,
+                           created_at, last_activity_at
+                    FROM cash_tables
+                    WHERE table_id = ?
+                    """,
+                    (table_id,),
+                ).fetchone()
             if not row:
                 return None
             return _row_to_state(row)
 
-    def list_all_tables(self) -> List[CashTableState]:
+    def list_all_tables(
+        self,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> List[CashTableState]:
         """Return every persisted cash table, ordered by stake (ascending).
 
         Ordering keys off `cash_mode.stakes_ladder.STAKES_ORDER` — the single
@@ -163,13 +255,25 @@ class CashTableRepository(BaseRepository):
         from cash_mode.stakes_ladder import STAKES_ORDER
 
         with self._get_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT table_id, stake_label, seats_json, dealer_idx,
-                       created_at, last_activity_at
-                FROM cash_tables
-                """,
-            ).fetchall()
+            if sandbox_id is None:
+                # Admin / audit cross-sandbox aggregation.
+                rows = conn.execute(
+                    """
+                    SELECT table_id, stake_label, seats_json, dealer_idx,
+                           created_at, last_activity_at
+                    FROM cash_tables
+                    """,
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT table_id, stake_label, seats_json, dealer_idx,
+                           created_at, last_activity_at
+                    FROM cash_tables
+                    WHERE sandbox_id = ?
+                    """,
+                    (sandbox_id,),
+                ).fetchall()
 
         # Python-side stable sort against STAKES_ORDER. SQL CASE would
         # hardcode the ladder a second time; this version stays in
@@ -182,7 +286,12 @@ class CashTableRepository(BaseRepository):
 
     # --- Idle pool ---
 
-    def save_idle(self, entry: IdlePoolEntry) -> None:
+    def save_idle(
+        self,
+        entry: IdlePoolEntry,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> None:
         """Upsert one personality's idle-pool row.
 
         Writes `left_at`, `reason`, `target_stake` verbatim. Callers
@@ -191,61 +300,125 @@ class CashTableRepository(BaseRepository):
         moving an AI from idle → table should call `delete_idle`.
         """
         with self._get_connection() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO cash_idle_pool
-                    (personality_id, left_at, reason, target_stake)
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    entry.personality_id,
-                    entry.left_at.isoformat(),
-                    entry.reason,
-                    entry.target_stake,
-                ),
-            )
+            if _has_column(conn, "cash_idle_pool", "sandbox_id"):
+                if not sandbox_id:
+                    raise ValueError("sandbox_id is required for cash_idle_pool writes")
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO cash_idle_pool
+                        (personality_id, sandbox_id, left_at, reason, target_stake)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        entry.personality_id, sandbox_id,
+                        entry.left_at.isoformat(), entry.reason,
+                        entry.target_stake,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO cash_idle_pool
+                        (personality_id, left_at, reason, target_stake)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        entry.personality_id,
+                        entry.left_at.isoformat(),
+                        entry.reason,
+                        entry.target_stake,
+                    ),
+                )
 
-    def load_idle(self, personality_id: str) -> Optional[IdlePoolEntry]:
+    def load_idle(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> Optional[IdlePoolEntry]:
         """Load one personality's idle-pool row, or None if not idle."""
         with self._get_connection() as conn:
-            row = conn.execute(
-                """
-                SELECT personality_id, left_at, reason, target_stake
-                FROM cash_idle_pool
-                WHERE personality_id = ?
-                """,
-                (personality_id,),
-            ).fetchone()
+            if _has_column(conn, "cash_idle_pool", "sandbox_id"):
+                if not sandbox_id:
+                    raise ValueError("sandbox_id is required for cash_idle_pool reads")
+                row = conn.execute(
+                    """
+                    SELECT personality_id, left_at, reason, target_stake
+                    FROM cash_idle_pool
+                    WHERE personality_id = ? AND sandbox_id = ?
+                    """,
+                    (personality_id, sandbox_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    SELECT personality_id, left_at, reason, target_stake
+                    FROM cash_idle_pool
+                    WHERE personality_id = ?
+                    """,
+                    (personality_id,),
+                ).fetchone()
             if not row:
                 return None
             return _row_to_idle(row)
 
-    def list_idle(self) -> List[IdlePoolEntry]:
+    def list_idle(
+        self,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> List[IdlePoolEntry]:
         """Return every idle-pool row, ordered by `left_at` ASC.
 
         Oldest-first makes the re-entry tick natural: the AI who's been
         idle longest is the most likely to walk back up.
         """
         with self._get_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT personality_id, left_at, reason, target_stake
-                FROM cash_idle_pool
-                ORDER BY left_at ASC
-                """,
-            ).fetchall()
+            if sandbox_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT personality_id, left_at, reason, target_stake
+                    FROM cash_idle_pool
+                    ORDER BY left_at ASC
+                    """,
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT personality_id, left_at, reason, target_stake
+                    FROM cash_idle_pool
+                    WHERE sandbox_id = ?
+                    ORDER BY left_at ASC
+                    """,
+                    (sandbox_id,),
+                ).fetchall()
             return [_row_to_idle(r) for r in rows]
 
-    def delete_idle(self, personality_id: str) -> bool:
+    def delete_idle(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> bool:
         """Remove one personality's idle-pool row.
 
         Returns True if a row was deleted, False if no such row existed.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute(
-                "DELETE FROM cash_idle_pool WHERE personality_id = ?",
-                (personality_id,),
-            )
+            if _has_column(conn, "cash_idle_pool", "sandbox_id"):
+                if not sandbox_id:
+                    raise ValueError("sandbox_id is required for cash_idle_pool writes")
+                cursor = conn.execute(
+                    """
+                    DELETE FROM cash_idle_pool
+                    WHERE personality_id = ? AND sandbox_id = ?
+                    """,
+                    (personality_id, sandbox_id),
+                )
+            else:
+                cursor = conn.execute(
+                    "DELETE FROM cash_idle_pool WHERE personality_id = ?",
+                    (personality_id,),
+                )
             return cursor.rowcount > 0
 
 

@@ -64,6 +64,15 @@ class _CashSponsorRouteBase(unittest.TestCase):
         self.relationship_repo = repos['relationship_repo']
         self.stake_repo = repos['stake_repo']
 
+        # Pin the cash-mode resolver so route + setUp seeds agree on
+        # sandbox_id. Direct-seed calls use "test-sandbox-1" via the
+        # repo; pinned cache makes the route's
+        # `resolve_default_sandbox_for(PLAYER_OWNER_ID)` return the
+        # same id.
+        from tests._sandbox_test_helper import pin_sandbox_for, TEST_SANDBOX_ID
+        pin_sandbox_for(PLAYER_OWNER_ID, repos['sandbox_repo'])
+        self.test_sandbox_id = TEST_SANDBOX_ID
+
         def mock_init_persistence():
             import flask_app.extensions as ext
             for key in (
@@ -112,7 +121,6 @@ class _CashSponsorRouteBase(unittest.TestCase):
                 'bankroll_knobs': {
                     'bankroll_cap': 50_000, 'bankroll_rate': 500,
                     'buy_in_multiplier': 1.0,
-                    'stop_loss_buy_ins': 3, 'stop_win_buy_ins': 5,
                     'stake_comfort_zone': '$10',
                 },
                 'lender_profile': {
@@ -133,7 +141,6 @@ class _CashSponsorRouteBase(unittest.TestCase):
                 'bankroll_knobs': {
                     'bankroll_cap': 50_000, 'bankroll_rate': 500,
                     'buy_in_multiplier': 1.0,
-                    'stop_loss_buy_ins': 3, 'stop_win_buy_ins': 5,
                     'stake_comfort_zone': '$10',
                 },
                 'lender_profile': {
@@ -160,13 +167,13 @@ class _CashSponsorRouteBase(unittest.TestCase):
         now = datetime.utcnow()
         self.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=self.napoleon_id, chips=20_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
         self.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=self.buddha_id, chips=20_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
         self.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=self.mime_id, chips=20_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
         # Seed player bankroll below the $10 tier min (= 400) so sponsor-
         # eligible at $10 stake (no prior tier — $2 — so eligibility logic
@@ -261,7 +268,7 @@ class TestSponsorOffersRoute(_CashSponsorRouteBase):
         for pid in (self.napoleon_id, self.buddha_id, self.mime_id):
             self.bankroll_repo.save_ai_bankroll(AIBankrollState(
                 personality_id=pid, chips=0, last_regen_tick=now,
-            ))
+            ), sandbox_id="test-sandbox-1")
         response = self.client.get('/api/cash/sponsor-offers?stake_label=$10')
         self.assertEqual(response.status_code, 200)
         data = response.get_json()

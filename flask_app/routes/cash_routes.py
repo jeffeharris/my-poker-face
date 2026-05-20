@@ -62,6 +62,7 @@ from cash_mode.stakes_ladder import (
     table_buy_in_window,
 )
 from cash_mode.table import PLAYER_SEAT_ID
+from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,18 @@ def _resolve_owner_id() -> str:
     if user and user.get("id"):
         return user["id"]
     raise ValueError("No owner_id resolvable from request")
+
+
+def _resolve_sandbox_id(owner_id: str) -> str:
+    """Resolve the owner's default sandbox_id.
+
+    Phase 2.5: every cash route resolves a sandbox at entry and threads
+    it through to repo + cash_mode calls. v1 ships 1:1 default sandbox
+    per owner; the resolver auto-creates on first access and caches
+    per-process for hot-path O(1) lookups.
+    """
+    from flask_app.extensions import sandbox_repo
+    return resolve_default_sandbox_for(owner_id, sandbox_repo=sandbox_repo)
 
 
 def _resolve_player_name() -> str:
@@ -301,7 +314,7 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
     return len(purged)
 
 
-def _free_ghost_human_seats(owner_id: str) -> int:
+def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
     """Reset any cash_tables human seat owned by `owner_id` to open.
 
     Used by the memory-miss leave path and the boot reconcile to catch
@@ -320,7 +333,7 @@ def _free_ghost_human_seats(owner_id: str) -> int:
     from flask_app.extensions import cash_table_repo
 
     try:
-        tables = cash_table_repo.list_all_tables()
+        tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
     except Exception as e:
         logger.warning(
             "[CASH] _free_ghost_human_seats: list_all_tables failed: %s", e,
@@ -335,7 +348,10 @@ def _free_ghost_human_seats(owner_id: str) -> int:
             if slot.get("personality_id") != owner_id:
                 continue
             try:
-                cash_table_repo.save_table(table.with_seat(idx, open_slot()))
+                cash_table_repo.save_table(
+                    table.with_seat(idx, open_slot()),
+                    sandbox_id=sandbox_id,
+                )
                 logger.info(
                     "[CASH] _free_ghost_human_seats: freed table=%r seat=%d owner=%r",
                     table.table_id, idx, owner_id,
@@ -381,6 +397,7 @@ def _load_or_seed_player_bankroll(owner_id: str) -> PlayerBankrollState:
 def _build_cash_game(
     *,
     owner_id: str,
+    sandbox_id: str,
     stake_label: str,
     player_starting_stack: int,
     welcome_message: str,
@@ -472,7 +489,7 @@ def _build_cash_game(
             ai_threshold = round(min_buy_in * knobs.buy_in_multiplier)
             ai_buy_in = min(ai_threshold, max_buy_in)
 
-            stored = bankroll_repo.load_ai_bankroll(pid)
+            stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
             if stored is None:
                 projected = knobs.bankroll_cap
                 stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
@@ -646,7 +663,7 @@ def _build_cash_game(
             chips=state.chips - ai_buy_ins[pid],
             last_regen_tick=now,
         )
-        bankroll_repo.save_ai_bankroll(debited)
+        bankroll_repo.save_ai_bankroll(debited, sandbox_id=sandbox_id)
         # Regen that this write commits = projected (state.chips) -
         # pre-regen stored. The transfer-to-table-stack portion is a
         # pure non-bank move and isn't ledger-worthy in v0.
@@ -670,6 +687,7 @@ def _build_cash_game(
         "pressure_stats": pressure_stats,
         "memory_manager": memory_manager,
         "owner_id": owner_id,
+        "sandbox_id": sandbox_id,
         "owner_name": human_name,
         "llm_config": default_llm_config,
         "player_llm_configs": player_llm_configs,
@@ -747,6 +765,7 @@ def start_cash_session():
         owner_id = _resolve_owner_id()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
 
     payload = request.get_json(silent=True) or {}
     stake_label = payload.get("stake_label")
@@ -793,6 +812,7 @@ def start_cash_session():
     # Build + register the game (AI selection, controllers, memory manager).
     game_id, err = _build_cash_game(
         owner_id=owner_id,
+        sandbox_id=sandbox_id,
         stake_label=stake_label,
         player_starting_stack=buy_in,
         welcome_message=f"*** Cash table {stake_label} — sit down at ${buy_in} ***",
@@ -840,6 +860,7 @@ def sit_at_table():
         owner_id = _resolve_owner_id()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
 
     payload = request.get_json(silent=True) or {}
     table_id = payload.get("table_id")
@@ -853,7 +874,7 @@ def sit_at_table():
 
     from flask_app.extensions import bankroll_repo, cash_table_repo
 
-    table = cash_table_repo.load_table(table_id)
+    table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
     if table is None:
         return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
 
@@ -900,7 +921,7 @@ def sit_at_table():
     # the seat) won't show up there. Sweep any seats this owner is
     # still occupying before claiming the new one — otherwise the
     # `with_seat` below succeeds and the user double-seats.
-    _free_ghost_human_seats(owner_id)
+    _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
 
     # Affordability + sponsor-eligibility branching.
     player_bankroll = _load_or_seed_player_bankroll(owner_id)
@@ -926,7 +947,7 @@ def sit_at_table():
     # updated table.
     from cash_mode.tables import human_slot
     claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
-    cash_table_repo.save_table(claimed_table)
+    cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
 
     # Build the cash game using the table's CURRENT AI roster + chip
     # counts. Walk seats in rotation order starting after the human's
@@ -972,6 +993,7 @@ def sit_at_table():
 
     game_id, err = _build_cash_game(
         owner_id=owner_id,
+        sandbox_id=sandbox_id,
         stake_label=stake_label,
         player_starting_stack=buy_in,
         welcome_message=(
@@ -983,7 +1005,7 @@ def sit_at_table():
     )
     if err is not None:
         # Roll back the seat claim so the player can retry.
-        cash_table_repo.save_table(table)
+        cash_table_repo.save_table(table, sandbox_id=sandbox_id)
         return jsonify(err[0]), err[1]
 
     # Debit the player's bankroll. Loan fields stay zeroed — this is
@@ -1041,6 +1063,7 @@ def sponsor_offers_for_stake():
         owner_id = _resolve_owner_id()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
 
     stake_label = request.args.get("stake_label")
     table_id = request.args.get("table_id")
@@ -1074,7 +1097,7 @@ def sponsor_offers_for_stake():
     candidates = broad_candidates
 
     if table_id:
-        table = cash_table_repo.load_table(table_id)
+        table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
         if table is not None and table.stake_label == stake_label:
             seated_pids = set(table.seated_personality_ids())
             narrowed = [
@@ -1091,6 +1114,7 @@ def sponsor_offers_for_stake():
     rejections: List[LenderRejection] = []
     personality_offers = compute_personality_offers(
         player_owner_id=owner_id,
+        sandbox_id=sandbox_id,
         min_buy_in=min_buy_in,
         max_buy_in=max_buy_in,
         candidate_personalities=candidates,
@@ -1109,6 +1133,7 @@ def sponsor_offers_for_stake():
         rejections = []  # reset — broader pool will produce its own
         personality_offers = compute_personality_offers(
             player_owner_id=owner_id,
+            sandbox_id=sandbox_id,
             min_buy_in=min_buy_in,
             max_buy_in=max_buy_in,
             candidate_personalities=broad_candidates,
@@ -1213,6 +1238,7 @@ def _materialize_personality_offer(
     *,
     lender_id: str,
     player_owner_id: str,
+    sandbox_id: str,
     min_buy_in: int,
     max_buy_in: int,
     bankroll_repo,
@@ -1250,6 +1276,7 @@ def _materialize_personality_offer(
 
     offers = compute_personality_offers(
         player_owner_id=player_owner_id,
+        sandbox_id=sandbox_id,
         min_buy_in=min_buy_in,
         max_buy_in=max_buy_in,
         candidate_personalities=[match],
@@ -1292,6 +1319,7 @@ def sponsor_and_sit():
         owner_id = _resolve_owner_id()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
 
     payload = request.get_json(silent=True) or {}
     stake_label = payload.get("stake_label")
@@ -1345,6 +1373,7 @@ def sponsor_and_sit():
         personality_offer = _materialize_personality_offer(
             lender_id=lender_id,
             player_owner_id=owner_id,
+            sandbox_id=sandbox_id,
             min_buy_in=min_buy_in,
             max_buy_in=max_buy_in,
             bankroll_repo=bankroll_repo,
@@ -1379,6 +1408,7 @@ def sponsor_and_sit():
     # Build + register the game with loan.amount as the starting stack.
     game_id, err = _build_cash_game(
         owner_id=owner_id,
+        sandbox_id=sandbox_id,
         stake_label=stake_label,
         player_starting_stack=offer_amount,
         welcome_message=(
@@ -1801,6 +1831,15 @@ def _leave_table_locked(owner_id: str, game_id: str):
     from flask_app.services import game_state_service
 
     game_data = game_state_service.get_game(game_id)
+    # Resolve sandbox_id: prefer the value stamped at session-creation
+    # time (sponsor_and_sit / sit_at_table both set it on game_data) so
+    # cold-loaded sessions don't end up re-resolving against a different
+    # sandbox. Fall back to the owner's default sandbox when game_data
+    # is missing the field (e.g. memory-miss or a session that pre-
+    # dated the stamping).
+    sandbox_id = (game_data or {}).get("sandbox_id") if game_data else None
+    if not sandbox_id:
+        sandbox_id = _resolve_sandbox_id(owner_id)
     if game_data is None:
         # Memory-only miss is fine when the game is still in the DB
         # (e.g. server restarted mid-session). Best-effort cleanup of
@@ -1819,7 +1858,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
         # on the seat are notional only (last hand-boundary sync); the
         # bankroll already reflects the actual loss from buy-in, so we
         # don't refund here.
-        _free_ghost_human_seats(owner_id)
+        _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
         logger.info(
             "[CASH] Left game_id=%r owner=%r (memory-miss path, ghost-seat cleanup ran)",
             game_id, owner_id,
@@ -1894,6 +1933,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 # Personality (or Phase-5 human) staker — credit their bankroll.
                 credit_ai_cash_out(
                     bankroll_repo, flow.staker_id, flow.amount,
+                    sandbox_id=sandbox_id,
                     now=now,
                     chip_ledger_repo=chip_ledger_repo,
                     ledger_context={
@@ -1982,6 +2022,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
             bankroll_repo,
             pid,
             player.stack,
+            sandbox_id=sandbox_id,
             now=now,
             chip_ledger_repo=chip_ledger_repo,
             ledger_context={'game_id': game_id, 'site': 'cash_leave_cashout'},
@@ -1997,7 +2038,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
     if cash_table_id is not None:
         from cash_mode.tables import ai_slot, open_slot
         from flask_app.extensions import cash_table_repo
-        table = cash_table_repo.load_table(cash_table_id)
+        table = cash_table_repo.load_table(cash_table_id, sandbox_id=sandbox_id)
         if table is not None:
             # Build chip map: AI's name → personality_id (from session)
             # → final stack.
@@ -2037,7 +2078,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 last_activity_at=table.last_activity_at,
                 dealer_idx=table.dealer_idx,
             )
-            cash_table_repo.save_table(updated_table, now=now)
+            cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
             logger.info(
                 "[CASH][LOBBY] freed seat %r:%s and persisted final chip counts",
                 cash_table_id, cash_seat_index,
@@ -2053,6 +2094,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
                     personality_repo=personality_repo,
                     bankroll_repo=bankroll_repo,
                     user_id=owner_id,
+                    sandbox_id=sandbox_id,
                     now=now,
                     chip_ledger_repo=chip_ledger_repo,
                 )
@@ -2240,6 +2282,7 @@ def get_lobby():
         owner_id = _resolve_owner_id()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
 
     from flask_app.extensions import (
         bankroll_repo, cash_table_repo, personality_repo,
@@ -2247,9 +2290,20 @@ def get_lobby():
     )
     from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
     from flask_app.services import game_state_service
-    from cash_mode.lobby import get_dealer_index, refresh_unseated_tables
+    from cash_mode.lobby import (
+        ensure_lobby_seeded,
+        get_dealer_index,
+        refresh_unseated_tables,
+    )
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
+    ensure_lobby_seeded(
+        cash_table_repo=cash_table_repo,
+        personality_repo=personality_repo,
+        bankroll_repo=bankroll_repo,
+        user_id=owner_id,
+        sandbox_id=sandbox_id,
+    )
 
     # Read-side movement refresh on unseated tables. The handoff
     # documents this as intentional: lazy cadence vs. background ticker.
@@ -2260,6 +2314,7 @@ def get_lobby():
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
             user_id=owner_id,
+            sandbox_id=sandbox_id,
             chip_ledger_repo=chip_ledger_repo,
         )
     except Exception as e:
@@ -2286,7 +2341,7 @@ def get_lobby():
                 else:
                     active_emotions[name] = "confident"
 
-    tables = cash_table_repo.list_all_tables()
+    tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 
     # Resolve emotions for AIs at unseated tables from the persisted
     # emotional_state_json column (schema v97). Without this, every

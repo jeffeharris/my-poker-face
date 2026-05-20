@@ -73,7 +73,6 @@ def _insert_personality(db_path: str, personality_id: str, *, cap=50_000, rate=5
     knobs = {
         "bankroll_cap": cap, "bankroll_rate": rate,
         "buy_in_multiplier": 1.0,
-        "stop_loss_buy_ins": 3, "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10",
     }
     with sqlite3.connect(db_path) as conn:
@@ -168,7 +167,7 @@ class TestComputeAudit:
         anchor = datetime(2026, 5, 18, 12, 0, 0)
         bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id="zeus", chips=3000, last_regen_tick=anchor,
-        ))
+        ), sandbox_id="test-sandbox-1")
         # Cash table with 2 AI seats holding 100+200 chips.
         cash_table_repo.save_table(CashTableState(
             table_id='cash-table-2-001',
@@ -183,7 +182,7 @@ class TestComputeAudit:
             ],
             created_at=anchor,
             last_activity_at=anchor,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
         data = compute_audit(
             ledger_repo=ledger_repo,

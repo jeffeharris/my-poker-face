@@ -89,7 +89,6 @@ class _CashSitRouteBase(unittest.TestCase):
                 'bankroll_knobs': {
                     'bankroll_cap': 5_000_000, 'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
-                    'stop_loss_buy_ins': 3, 'stop_win_buy_ins': 5,
                     'stake_comfort_zone': '$10',
                 },
             },
@@ -97,7 +96,7 @@ class _CashSitRouteBase(unittest.TestCase):
         cls.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=cls.napoleon_id, chips=4_000_000,
             last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-        ))
+        ), sandbox_id="test-sandbox-1")
         for i in range(30):
             pid = cls.personality_repo.save_personality(
                 f'AI {i}',
@@ -105,7 +104,6 @@ class _CashSitRouteBase(unittest.TestCase):
                     'bankroll_knobs': {
                         'bankroll_cap': 5_000_000, 'bankroll_rate': 0,
                         'buy_in_multiplier': 1.0,
-                        'stop_loss_buy_ins': 3, 'stop_win_buy_ins': 5,
                         'stake_comfort_zone': '$10',
                     },
                 },
@@ -113,7 +111,7 @@ class _CashSitRouteBase(unittest.TestCase):
             cls.bankroll_repo.save_ai_bankroll(AIBankrollState(
                 personality_id=pid, chips=4_000_000,
                 last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-            ))
+            ), sandbox_id="test-sandbox-1")
 
         def mock_init_persistence():
             import flask_app.extensions as ext
@@ -223,6 +221,7 @@ class _CashSitRouteBase(unittest.TestCase):
             cash_table_repo=self.cash_table_repo,
             personality_repo=self.personality_repo,
             bankroll_repo=self.bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
         # Reset player bankroll.
         self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
@@ -250,14 +249,14 @@ class TestSitAll(_CashSitRouteBase):
 
     def test_occupied_seat_409(self):
         # Place napoleon at seat 0 and try to sit there.
-        table = self.cash_table_repo.load_table("cash-table-2-001")
+        table = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         new_seats = list(table.seats)
         new_seats[0] = ai_slot(self.napoleon_id, 80)
         self.cash_table_repo.save_table(CashTableState(
             table_id=table.table_id,
             stake_label=table.stake_label,
             seats=new_seats,
-        ))
+        ), sandbox_id="test-sandbox-1")
         resp = self.client.post("/api/cash/sit", json={
             "table_id": "cash-table-2-001", "seat_index": 0,
         })
@@ -276,7 +275,7 @@ class TestSitAll(_CashSitRouteBase):
         # Bankroll 0; sponsor-eligible at $2 (lowest tier).
         self._set_bankroll(0)
         # Find an open seat on $2 table.
-        table = self.cash_table_repo.load_table("cash-table-2-001")
+        table = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         open_idx = next(
             i for i, s in enumerate(table.seats) if s["kind"] == "open"
         )
@@ -292,7 +291,7 @@ class TestSitAll(_CashSitRouteBase):
     def test_unaffordable_at_high_tier_400(self):
         # Bankroll 0; $1000 table is locked (not sponsor-eligible).
         self._set_bankroll(0)
-        table = self.cash_table_repo.load_table("cash-table-1000-001")
+        table = self.cash_table_repo.load_table("cash-table-1000-001", sandbox_id="test-sandbox-1")
         open_idx = next(
             i for i, s in enumerate(table.seats) if s["kind"] == "open"
         )
@@ -311,7 +310,7 @@ class TestSitAll(_CashSitRouteBase):
         self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
             player_id=PLAYER_OWNER_ID, chips=10_000, starting_bankroll=10_000,
         ))
-        table = self.cash_table_repo.load_table("cash-table-10-001")
+        table = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
         open_idx = next(
             i for i, s in enumerate(table.seats) if s["kind"] == "open"
         )
@@ -327,7 +326,7 @@ class TestSitAll(_CashSitRouteBase):
         assert data.get("game_id", "").startswith("cash-")
 
         # Persisted table: human seat at that index.
-        updated = self.cash_table_repo.load_table("cash-table-10-001")
+        updated = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
         assert updated.seats[open_idx]["kind"] == "human"
         assert updated.seats[open_idx]["personality_id"] == PLAYER_OWNER_ID
         assert updated.seats[open_idx]["chips"] == 400
@@ -337,7 +336,7 @@ class TestSitAll(_CashSitRouteBase):
         assert bankroll.chips == 9600
 
         # Phase 2: double-sit attempt → 409.
-        table2 = self.cash_table_repo.load_table("cash-table-50-001")
+        table2 = self.cash_table_repo.load_table("cash-table-50-001", sandbox_id="test-sandbox-1")
         open_idx2 = next(
             i for i, s in enumerate(table2.seats) if s["kind"] == "open"
         )
@@ -362,7 +361,7 @@ class TestSitAll(_CashSitRouteBase):
         ))
 
         # Phase 1: sit at $10 (happy path).
-        table_a = self.cash_table_repo.load_table("cash-table-10-001")
+        table_a = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
         open_idx_a = next(i for i, s in enumerate(table_a.seats) if s["kind"] == "open")
         resp_a = self.client.post("/api/cash/sit", json={
             "table_id": "cash-table-10-001",
@@ -379,12 +378,12 @@ class TestSitAll(_CashSitRouteBase):
         from flask_app.services import game_state_service
         game_state_service.delete_game(sit_a_game_id)
         game_repo.delete_game(sit_a_game_id)
-        stranded = self.cash_table_repo.load_table("cash-table-10-001")
+        stranded = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
         assert stranded.seats[open_idx_a]["kind"] == "human", \
             "Seat should still be human before the fix sweeps it"
 
         # Phase 3: sit at $50 — this must succeed AND free the orphan.
-        table_b = self.cash_table_repo.load_table("cash-table-50-001")
+        table_b = self.cash_table_repo.load_table("cash-table-50-001", sandbox_id="test-sandbox-1")
         open_idx_b = next(i for i, s in enumerate(table_b.seats) if s["kind"] == "open")
         resp_b = self.client.post("/api/cash/sit", json={
             "table_id": "cash-table-50-001",
@@ -394,8 +393,8 @@ class TestSitAll(_CashSitRouteBase):
         assert resp_b.status_code == 200, resp_b.get_data(as_text=True)
 
         # Phase 4: the $10 seat must now be open, $50 seat human.
-        after_a = self.cash_table_repo.load_table("cash-table-10-001")
-        after_b = self.cash_table_repo.load_table("cash-table-50-001")
+        after_a = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
+        after_b = self.cash_table_repo.load_table("cash-table-50-001", sandbox_id="test-sandbox-1")
         assert after_a.seats[open_idx_a]["kind"] == "open", \
             "Orphaned $10 seat was not freed"
         assert after_b.seats[open_idx_b]["kind"] == "human"

@@ -104,18 +104,11 @@ def create_app():
     # state lives in `cash_tables` (not in `games`), so wiping every
     # `cash-*` game row is safe.
     try:
-        from cash_mode.lobby import ensure_lobby_seeded, kill_all_cash_sessions
+        from cash_mode.lobby import kill_all_cash_sessions
         from .services import game_state_service
         kill_all_cash_sessions(
             game_state_service=game_state_service,
             game_repo=extensions.game_repo,
-            cash_table_repo=extensions.cash_table_repo,
-            bankroll_repo=extensions.bankroll_repo,
-        )
-        ensure_lobby_seeded(
-            cash_table_repo=extensions.cash_table_repo,
-            personality_repo=extensions.personality_repo,
-            bankroll_repo=extensions.bankroll_repo,
         )
     except Exception as e:
         logger.error(f"[CASH] lobby boot hook failed: {e}", exc_info=True)

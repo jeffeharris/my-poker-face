@@ -61,7 +61,7 @@ class _FakeBankrollRepo:
     def load_lender_profile(self, personality_id):
         return self.profiles.get(personality_id) or _default_profile()
 
-    def load_ai_bankroll_current(self, personality_id, *, now=None):
+    def load_ai_bankroll_current(self, personality_id, *, sandbox_id, now=None):
         return self.bankrolls.get(personality_id)
 
 
@@ -143,6 +143,7 @@ class TestTierBumpsRate:
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             now=ANCHOR,
         )
@@ -161,6 +162,7 @@ class TestTierBumpsRate:
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             now=ANCHOR,
         )
@@ -180,6 +182,7 @@ class TestTierBumpsRate:
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),  # default neutral
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             now=ANCHOR,
         )
@@ -199,6 +202,7 @@ class TestTierBumpsRate:
             bankroll_repo=bankroll_repo,
             relationship_repo=rel_repo,
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             now=ANCHOR,
         )
@@ -221,6 +225,7 @@ class TestHouseOnlyShortCircuit:
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             now=ANCHOR,
         )
@@ -244,6 +249,7 @@ class TestPerStakerGarnishment:
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             now=ANCHOR,
         )
@@ -262,6 +268,7 @@ class TestPerStakerGarnishment:
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             now=ANCHOR,
         )
@@ -281,6 +288,7 @@ class TestPerStakerGarnishment:
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             now=ANCHOR,
         )
@@ -305,6 +313,7 @@ class TestRejectionsSideOutput:
             bankroll_repo=bankroll_repo,
             relationship_repo=rel_repo,
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             rejections_out=rejections,
             now=ANCHOR,
@@ -330,6 +339,7 @@ class TestRejectionsSideOutput:
             bankroll_repo=bankroll_repo,
             relationship_repo=rel_repo,
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             rejections_out=rejections,
             now=ANCHOR,
@@ -347,6 +357,7 @@ class TestRejectionsSideOutput:
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
             stake_repo=stake_repo,
+            sandbox_id="test-sandbox-1",
             stake_label="$10",
             rejections_out=rejections,
             now=ANCHOR,
@@ -370,6 +381,7 @@ class TestBackwardCompat:
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
+            sandbox_id="test-sandbox-1",
             # No stake_repo / stake_label.
             now=ANCHOR,
         )

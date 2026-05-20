@@ -32,6 +32,7 @@ from poker.repositories.cash_table_repository import CashTableRepository
 from poker.repositories.chip_ledger_repository import ChipLedgerRepository
 from poker.repositories.personality_repository import PersonalityRepository
 from poker.repositories.schema_manager import SchemaManager
+from poker.repositories.stake_repository import StakeRepository
 
 
 @pytest.fixture
@@ -48,6 +49,7 @@ def repos(db_path):
         "cash_table_repo": CashTableRepository(db_path),
         "chip_ledger_repo": ChipLedgerRepository(db_path),
         "personality_repo": PersonalityRepository(db_path),
+        "stake_repo": StakeRepository(db_path),
         "db_path": db_path,
     }
 
@@ -63,8 +65,6 @@ def _seed_personality(db_path, pid, name, bankroll_chips, cap=10_000, rate=500):
             "bankroll_cap": cap,
             "bankroll_rate": rate,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3,
-            "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$10",
         },
     })
@@ -75,9 +75,10 @@ def _seed_personality(db_path, pid, name, bankroll_chips, cap=10_000, rate=500):
             (name, pid, config_json),
         )
         conn.execute(
-            "INSERT INTO ai_bankroll_state (personality_id, chips, last_regen_tick) "
-            "VALUES (?, ?, ?)",
-            (pid, bankroll_chips, datetime.utcnow().isoformat()),
+            "INSERT INTO ai_bankroll_state "
+            "(personality_id, sandbox_id, chips, last_regen_tick) "
+            "VALUES (?, ?, ?, ?)",
+            (pid, "test-sandbox-1", bankroll_chips, datetime.utcnow().isoformat()),
         )
 
 
@@ -86,6 +87,7 @@ def _audit(repos):
         ledger_repo=repos["chip_ledger_repo"],
         bankroll_repo=repos["bankroll_repo"],
         cash_table_repo=repos["cash_table_repo"],
+        stake_repo=repos["stake_repo"],
         db_path=repos["db_path"],
         list_game_ids_fn=lambda: [],
         get_game_fn=lambda gid: None,
@@ -105,6 +107,7 @@ def test_lobby_seed_preserves_audit_outstanding(repos, db_path):
         cash_table_repo=repos["cash_table_repo"],
         personality_repo=repos["personality_repo"],
         bankroll_repo=repos["bankroll_repo"],
+        sandbox_id="test-sandbox-1",
     )
     after = _audit(repos)
 
@@ -146,6 +149,7 @@ def test_refresh_ticks_preserve_drift(repos, db_path):
         cash_table_repo=repos["cash_table_repo"],
         personality_repo=repos["personality_repo"],
         bankroll_repo=repos["bankroll_repo"],
+        sandbox_id="test-sandbox-1",
     )
 
     # Open a seat by force on one table so live-fill has work to do.
@@ -163,10 +167,10 @@ def test_refresh_ticks_preserve_drift(repos, db_path):
                     personality_id=seat["personality_id"],
                     chips=200_000,  # back to original
                     last_regen_tick=datetime.utcnow(),
-                ))
+                ), sandbox_id="test-sandbox-1")
                 tables[0].seats[j] = open_slot()
                 break
-        repos["cash_table_repo"].save_table(tables[0])
+        repos["cash_table_repo"].save_table(tables[0], sandbox_id="test-sandbox-1")
 
     baseline = _audit(repos)
     rng = random.Random(42)
@@ -177,6 +181,7 @@ def test_refresh_ticks_preserve_drift(repos, db_path):
             bankroll_repo=repos["bankroll_repo"],
             chip_ledger_repo=repos["chip_ledger_repo"],
             rng=rng,
+            sandbox_id="test-sandbox-1",
         )
     after = _audit(repos)
 

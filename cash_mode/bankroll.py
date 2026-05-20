@@ -153,6 +153,7 @@ def credit_ai_cash_out(
     personality_id: str,
     player_stack: int,
     *,
+    sandbox_id: Optional[str] = None,
     now: Optional[datetime] = None,
     chip_ledger_repo=None,
     ledger_context: Optional[dict] = None,
@@ -192,7 +193,15 @@ def credit_ai_cash_out(
         return None
     if now is None:
         now = datetime.utcnow()
-    stored = bankroll_repo.load_ai_bankroll(personality_id)
+    try:
+        stored = bankroll_repo.load_ai_bankroll(
+            personality_id,
+            sandbox_id=sandbox_id,
+        )
+    except TypeError as e:
+        if "sandbox_id" not in str(e):
+            raise
+        stored = bankroll_repo.load_ai_bankroll(personality_id)
     if stored is None:
         logger.warning(
             "[CASH] AI cash-out skipped — no bankroll row for %r",
@@ -207,7 +216,12 @@ def credit_ai_cash_out(
         chips=new_chips,
         last_regen_tick=now,
     )
-    bankroll_repo.save_ai_bankroll(new_state)
+    try:
+        bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+    except TypeError as e:
+        if "sandbox_id" not in str(e):
+            raise
+        bankroll_repo.save_ai_bankroll(new_state)
     if chip_ledger_repo is not None:
         from core.economy import ledger as chip_ledger
         ctx = {'site': 'credit_ai_cash_out'}
@@ -245,6 +259,8 @@ def debit_bankroll_for_seat(
     bankroll_repo,
     personality_id: str,
     amount: int,
+    *,
+    sandbox_id: Optional[str] = None,
 ) -> Optional[AIBankrollState]:
     """Pure transfer: move chips from an AI's bankroll to a cash table seat.
 
@@ -270,7 +286,15 @@ def debit_bankroll_for_seat(
     negative bankroll would silently break the audit invariant.
     Returns the persisted state or None if no row exists.
     """
-    stored = bankroll_repo.load_ai_bankroll(personality_id)
+    try:
+        stored = bankroll_repo.load_ai_bankroll(
+            personality_id,
+            sandbox_id=sandbox_id,
+        )
+    except TypeError as e:
+        if "sandbox_id" not in str(e):
+            raise
+        stored = bankroll_repo.load_ai_bankroll(personality_id)
     if stored is None:
         logger.warning(
             "[CASH] seat debit skipped — no bankroll row for %r",
@@ -283,5 +307,10 @@ def debit_bankroll_for_seat(
         chips=new_chips,
         last_regen_tick=stored.last_regen_tick,
     )
-    bankroll_repo.save_ai_bankroll(new_state)
+    try:
+        bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+    except TypeError as e:
+        if "sandbox_id" not in str(e):
+            raise
+        bankroll_repo.save_ai_bankroll(new_state)
     return new_state

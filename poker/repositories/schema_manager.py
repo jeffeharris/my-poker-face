@@ -72,10 +72,10 @@ logger = logging.getLogger(__name__)
 #      mode v1 (Track B step 3). Pure additions — no changes to existing tables.
 # v88: Add bankroll persistence for cash mode v1. Creates ai_bankroll_state (per personality_id)
 #      and player_bankroll_state (per player_id) tables. Per-personality bankroll knobs
-#      (bankroll_cap, bankroll_rate, buy_in_multiplier, stop_loss_buy_ins, stop_win_buy_ins,
-#      stake_comfort_zone) live inside config_json as a `bankroll_knobs` sub-dict — same
-#      convention as `anchors`. The BankrollRepository falls back to BANKROLL_KNOB_DEFAULTS
-#      per-field, so personalities without bankroll_knobs in their JSON land at sane defaults.
+#      (bankroll_cap, bankroll_rate, buy_in_multiplier, stake_comfort_zone) live inside
+#      config_json as a `bankroll_knobs` sub-dict — same convention as `anchors`. The
+#      BankrollRepository falls back to BANKROLL_KNOB_DEFAULTS per-field, so personalities
+#      without bankroll_knobs in their JSON land at sane defaults.
 # v90: Add active_loan_lender_id column to player_bankroll_state for cash-mode Path B
 #      (AI-personality sponsorship). NULL = anonymous house loan (v1 sponsorship);
 #      non-NULL = personality_id of the named AI lender. Used by leave-time settlement to
@@ -123,7 +123,12 @@ logger = logging.getLogger(__name__)
 #       override is keyed on the same (observer_id, opponent_id) pair as
 #       `notes`, so it's per-viewer by construction. Display falls back
 #       to the personality's canonical nickname when the override is NULL.
-SCHEMA_VERSION = 101
+# v102: Phase 2.5 Commit 2 — drop and recreate ai_bankroll_state,
+#       cash_tables, cash_idle_pool with `sandbox_id` in the primary
+#       key. Pre-launch destructive migration; existing rows in those
+#       three tables are nuked. The chip ledger survives. Repo
+#       signatures gain `sandbox_id` as a required kwarg.
+SCHEMA_VERSION = 102
 
 
 
@@ -442,17 +447,25 @@ class SchemaManager:
             """)
 
             # 10d. AI bankroll state (v88) — per-personality persistent bankroll.
-            #      Keyed on personalities.personality_id (stable v85 slug, not
-            #      display name). `chips` is the "as of last_regen_tick"
-            #      snapshot; live reads project through elapsed wall-clock
-            #      time via `cash_mode.project_bankroll`. Writes only happen
-            #      on real events (sit-down, win, loss).
+            #      Keyed on (personalities.personality_id, sandbox_id)
+            #      after the v102 per-sandbox scoping migration. `chips`
+            #      is the "as of last_regen_tick" snapshot; live reads
+            #      project through elapsed wall-clock time via
+            #      `cash_mode.project_bankroll`. Writes only happen on
+            #      real events (sit-down, win, loss).
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS ai_bankroll_state (
-                    personality_id TEXT PRIMARY KEY,
+                    personality_id TEXT NOT NULL,
+                    sandbox_id TEXT NOT NULL,
                     chips INTEGER NOT NULL DEFAULT 0,
-                    last_regen_tick TIMESTAMP
+                    last_regen_tick TIMESTAMP,
+                    emotional_state_json TEXT,
+                    PRIMARY KEY (personality_id, sandbox_id)
                 )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ai_bankroll_sandbox
+                    ON ai_bankroll_state(sandbox_id)
             """)
 
             # 10e. Player bankroll state (v88) — per-player persistent
@@ -1270,6 +1283,7 @@ class SchemaManager:
             99: (self._migrate_v99_drop_active_loan_columns, "Drop legacy active_loan_* columns from player_bankroll_state — stakes table is now the sole source-of-truth"),
             100: (self._migrate_v100_add_sandboxes_table, "Add sandboxes table (Phase 2.5) — first-class scoping unit for cash-mode runtime state, per-owner save-file model"),
             101: (self._migrate_v101_add_relationship_nickname_override, "Add nickname_override column to relationship_states so players can rename opponents privately from the dossier"),
+            102: (self._migrate_v102_scope_runtime_tables_to_sandbox, "Phase 2.5 Commit 2 — drop+recreate ai_bankroll_state, cash_tables, cash_idle_pool with sandbox_id in PK (pre-launch destructive migration)"),
         }
 
         with self._get_connection() as conn:
@@ -4620,4 +4634,75 @@ class SchemaManager:
             logger.debug("Added nickname_override column to relationship_states")
 
         logger.info("Migration v101 complete: relationship_states.nickname_override added")
+
+    def _migrate_v102_scope_runtime_tables_to_sandbox(self, conn: sqlite3.Connection) -> None:
+        """Migration v102: drop+recreate cash-mode runtime-state tables
+        with `sandbox_id` as part of the primary key.
+
+        Pre-launch destructive migration; existing rows in
+        `ai_bankroll_state`, `cash_tables`, `cash_idle_pool` are
+        dropped. The chip ledger survives (its rows are append-only
+        audit history). Per-sandbox scoping is the load-bearing
+        change for Phase 2.5 — every repo method that touches these
+        three tables now requires `sandbox_id`.
+
+        SQLite doesn't support altering a primary key in-place, so
+        the migration drops + recreates. Per the design lock
+        (per-player-sandbox handoff + 2026-05-20 decision), single
+        environment, no real production data to preserve.
+        """
+        conn.execute("DROP TABLE IF EXISTS ai_bankroll_state")
+        conn.execute("""
+            CREATE TABLE ai_bankroll_state (
+                personality_id TEXT NOT NULL,
+                sandbox_id TEXT NOT NULL,
+                chips INTEGER NOT NULL DEFAULT 0,
+                last_regen_tick TIMESTAMP,
+                emotional_state_json TEXT,
+                PRIMARY KEY (personality_id, sandbox_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ai_bankroll_sandbox
+                ON ai_bankroll_state(sandbox_id)
+        """)
+
+        conn.execute("DROP TABLE IF EXISTS cash_tables")
+        conn.execute("""
+            CREATE TABLE cash_tables (
+                table_id TEXT NOT NULL,
+                sandbox_id TEXT NOT NULL,
+                stake_label TEXT NOT NULL,
+                seats_json TEXT NOT NULL,
+                dealer_idx INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (table_id, sandbox_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_tables_sandbox
+                ON cash_tables(sandbox_id)
+        """)
+
+        conn.execute("DROP TABLE IF EXISTS cash_idle_pool")
+        conn.execute("""
+            CREATE TABLE cash_idle_pool (
+                personality_id TEXT NOT NULL,
+                sandbox_id TEXT NOT NULL,
+                left_at TIMESTAMP NOT NULL,
+                reason TEXT NOT NULL,
+                target_stake TEXT,
+                PRIMARY KEY (personality_id, sandbox_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_idle_sandbox
+                ON cash_idle_pool(sandbox_id)
+        """)
+
+        logger.info(
+            "Migration v102 complete: ai_bankroll_state, cash_tables, "
+            "cash_idle_pool dropped+recreated with sandbox_id in PK"
+        )
 

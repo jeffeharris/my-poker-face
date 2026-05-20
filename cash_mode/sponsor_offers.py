@@ -379,6 +379,7 @@ def compute_personality_offers(
     candidate_personalities: List[dict],
     bankroll_repo,
     relationship_repo,
+    sandbox_id: str,
     now: Optional[datetime] = None,
     count: int = 3,
     # Phase 2 additions — when provided, the function applies tier
@@ -488,7 +489,9 @@ def compute_personality_offers(
             continue
 
         # Projected bankroll via projection-on-read.
-        projected = bankroll_repo.load_ai_bankroll_current(pid, now=now)
+        projected = bankroll_repo.load_ai_bankroll_current(
+            pid, sandbox_id=sandbox_id, now=now,
+        )
         if projected is None:
             # No bankroll row yet — can't lend out of nothing. Skip.
             continue

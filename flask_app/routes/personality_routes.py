@@ -734,8 +734,6 @@ def _knobs_to_dict(knobs: BankrollKnobs) -> dict:
         'bankroll_cap': knobs.bankroll_cap,
         'bankroll_rate': knobs.bankroll_rate,
         'buy_in_multiplier': knobs.buy_in_multiplier,
-        'stop_loss_buy_ins': knobs.stop_loss_buy_ins,
-        'stop_win_buy_ins': knobs.stop_win_buy_ins,
         'stake_comfort_zone': knobs.stake_comfort_zone,
     }
 
@@ -768,7 +766,20 @@ def get_bankroll_knobs(name):
 
         from ..extensions import bankroll_repo
         knobs = bankroll_repo.load_personality_knobs(pid)
-        current_bankroll = bankroll_repo.load_ai_bankroll_current(pid)
+        # Admin route — sum stored chips across every sandbox this
+        # personality has a bankroll row in. `current_bankroll` here
+        # is the cross-sandbox view, not a single save-file's value.
+        # Per-sandbox bankroll inspection lives on the future
+        # per-sandbox admin surface (Phase 2.5+).
+        import sqlite3
+        from ..extensions import persistence_db_path
+        with sqlite3.connect(persistence_db_path) as _conn:
+            row = _conn.execute(
+                "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state "
+                "WHERE personality_id = ?",
+                (pid,),
+            ).fetchone()
+            current_bankroll = int(row[0] or 0) if row else None
 
         return jsonify({
             'success': True,
@@ -791,8 +802,6 @@ def update_bankroll_knobs(name):
       - bankroll_cap (int)
       - bankroll_rate (int)
       - buy_in_multiplier (float)
-      - stop_loss_buy_ins (int)
-      - stop_win_buy_ins (int)
       - stake_comfort_zone (str)
 
     Missing keys fall back to the current stored knob value (which
@@ -830,8 +839,6 @@ def update_bankroll_knobs(name):
                 bankroll_cap=int(payload.get('bankroll_cap', current.bankroll_cap)),
                 bankroll_rate=int(payload.get('bankroll_rate', current.bankroll_rate)),
                 buy_in_multiplier=float(payload.get('buy_in_multiplier', current.buy_in_multiplier)),
-                stop_loss_buy_ins=int(payload.get('stop_loss_buy_ins', current.stop_loss_buy_ins)),
-                stop_win_buy_ins=int(payload.get('stop_win_buy_ins', current.stop_win_buy_ins)),
                 stake_comfort_zone=str(payload.get('stake_comfort_zone', current.stake_comfort_zone)),
             )
         except (TypeError, ValueError) as e:

@@ -112,8 +112,6 @@ class _BankrollKnobsRouteBase(unittest.TestCase):
                     'bankroll_cap': 50_000,
                     'bankroll_rate': 500,
                     'buy_in_multiplier': 2.0,
-                    'stop_loss_buy_ins': 3,
-                    'stop_win_buy_ins': 5,
                     'stake_comfort_zone': '$10',
                 },
             },
@@ -178,7 +176,7 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
             personality_id=self.personality_id,
             chips=8_000,
             last_regen_tick=datetime.utcnow(),
-        ))
+        ), sandbox_id="test-sandbox-1")
         response = self.client.get('/api/personality/Napoleon/bankroll-knobs')
         data = response.get_json()
         # Live bankroll surfaces (close to 8_000 — no regen elapsed).
@@ -210,8 +208,6 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
             'bankroll_cap': 100_000,
             'bankroll_rate': 1_000,
             'buy_in_multiplier': 5.0,
-            'stop_loss_buy_ins': 10,
-            'stop_win_buy_ins': 20,
             'stake_comfort_zone': '$100',
         }
         response = self.client.put(

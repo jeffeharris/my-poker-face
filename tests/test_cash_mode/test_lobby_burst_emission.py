@@ -333,9 +333,9 @@ class TestDealerIdxRoundTrip(unittest.TestCase):
                 + [open_slot(), open_slot()],
                 dealer_idx=3,
             )
-            repo.save_table(table)
+            repo.save_table(table, sandbox_id="test-sandbox-1")
 
-            loaded = repo.load_table("cash-table-2-001")
+            loaded = repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
             assert loaded is not None
             assert loaded.dealer_idx == 3
         finally:

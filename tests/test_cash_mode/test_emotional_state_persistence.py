@@ -35,30 +35,30 @@ def repo():
 class TestEmotionalStateRoundTrip:
     def test_save_then_load_returns_same_blob(self, repo):
         blob = '{"state": "tilted", "severity": "moderate", "intensity": 0.6}'
-        repo.save_emotional_state_json("napoleon", blob)
-        assert repo.load_emotional_state_json("napoleon") == blob
+        repo.save_emotional_state_json("napoleon", blob, sandbox_id="test-sandbox-1")
+        assert repo.load_emotional_state_json("napoleon", sandbox_id="test-sandbox-1") == blob
 
     def test_load_missing_personality_returns_none(self, repo):
-        assert repo.load_emotional_state_json("nonexistent") is None
+        assert repo.load_emotional_state_json("nonexistent", sandbox_id="test-sandbox-1") is None
 
     def test_save_with_none_clears_the_column(self, repo):
         blob = '{"state": "tilted"}'
-        repo.save_emotional_state_json("napoleon", blob)
-        assert repo.load_emotional_state_json("napoleon") == blob
+        repo.save_emotional_state_json("napoleon", blob, sandbox_id="test-sandbox-1")
+        assert repo.load_emotional_state_json("napoleon", sandbox_id="test-sandbox-1") == blob
         # Clear:
-        repo.save_emotional_state_json("napoleon", None)
-        assert repo.load_emotional_state_json("napoleon") is None
+        repo.save_emotional_state_json("napoleon", None, sandbox_id="test-sandbox-1")
+        assert repo.load_emotional_state_json("napoleon", sandbox_id="test-sandbox-1") is None
 
     def test_save_creates_bankroll_row_if_missing(self, repo):
         """Sim might touch a personality's psychology before any
         chip-event has written a bankroll row. Save must still
         succeed (inserting a placeholder row) rather than silently
         dropping the state."""
-        repo.save_emotional_state_json("brand_new_pid", '{"state": "confident"}')
-        bankroll = repo.load_ai_bankroll("brand_new_pid")
+        repo.save_emotional_state_json("brand_new_pid", '{"state": "confident"}', sandbox_id="test-sandbox-1")
+        bankroll = repo.load_ai_bankroll("brand_new_pid", sandbox_id="test-sandbox-1")
         assert bankroll is not None
         assert bankroll.chips == 0   # placeholder
-        assert repo.load_emotional_state_json("brand_new_pid") == (
+        assert repo.load_emotional_state_json("brand_new_pid", sandbox_id="test-sandbox-1") == (
             '{"state": "confident"}'
         )
 
@@ -71,14 +71,14 @@ class TestEmotionalStateRoundTrip:
             personality_id="napoleon",
             chips=12_345,
             last_regen_tick=datetime(2026, 5, 19, 0, 0, 0),
-        ))
+        ), sandbox_id="test-sandbox-1")
 
-        repo.save_emotional_state_json("napoleon", '{"state": "tilted"}')
+        repo.save_emotional_state_json("napoleon", '{"state": "tilted"}', sandbox_id="test-sandbox-1")
 
-        bankroll = repo.load_ai_bankroll("napoleon")
+        bankroll = repo.load_ai_bankroll("napoleon", sandbox_id="test-sandbox-1")
         assert bankroll.chips == 12_345
         assert bankroll.last_regen_tick == datetime(2026, 5, 19, 0, 0, 0)
-        assert repo.load_emotional_state_json("napoleon") == '{"state": "tilted"}'
+        assert repo.load_emotional_state_json("napoleon", sandbox_id="test-sandbox-1") == '{"state": "tilted"}'
 
 
 class TestBatchEmotionalStateLoad:
@@ -86,13 +86,14 @@ class TestBatchEmotionalStateLoad:
     resolve unseated-AI emotions in one query instead of N queries."""
 
     def test_empty_pid_list_returns_empty_dict(self, repo):
-        assert repo.load_emotional_state_json_for_pids([]) == {}
+        assert repo.load_emotional_state_json_for_pids([], sandbox_id="test-sandbox-1") == {}
 
     def test_batch_includes_missing_as_none(self, repo):
-        repo.save_emotional_state_json("napoleon", '{"state": "tilted"}')
+        repo.save_emotional_state_json("napoleon", '{"state": "tilted"}', sandbox_id="test-sandbox-1")
         # Buddha doesn't exist; should still appear in result as None.
         result = repo.load_emotional_state_json_for_pids(
             ["napoleon", "buddha"],
+            sandbox_id="test-sandbox-1",
         )
         assert result == {
             "napoleon": '{"state": "tilted"}',
@@ -106,6 +107,6 @@ class TestBatchEmotionalStateLoad:
             personality_id="lincoln",
             chips=5000,
             last_regen_tick=datetime(2026, 5, 19, 0, 0, 0),
-        ))
-        result = repo.load_emotional_state_json_for_pids(["lincoln"])
+        ), sandbox_id="test-sandbox-1")
+        result = repo.load_emotional_state_json_for_pids(["lincoln"], sandbox_id="test-sandbox-1")
         assert result == {"lincoln": None}

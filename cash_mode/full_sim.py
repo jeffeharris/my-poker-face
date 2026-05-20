@@ -278,7 +278,9 @@ def _build_controller(
     )
 
 
-def _hydrate_psychology(controller, personality_id: str, bankroll_repo) -> None:
+def _hydrate_psychology(
+    controller, personality_id: str, bankroll_repo, sandbox_id: str,
+) -> None:
     """Apply persisted emotional state to a freshly-built controller.
 
     Reads `ai_bankroll_state.emotional_state_json` (schema v97) and
@@ -296,7 +298,9 @@ def _hydrate_psychology(controller, personality_id: str, bankroll_repo) -> None:
     if bankroll_repo is None:
         return
     try:
-        blob = bankroll_repo.load_emotional_state_json(personality_id)
+        blob = bankroll_repo.load_emotional_state_json(
+            personality_id, sandbox_id=sandbox_id,
+        )
     except Exception as exc:  # noqa: BLE001 — repo is best-effort here
         logger.debug(
             f"[FULL_SIM] {personality_id}: load_emotional_state_json failed: {exc}"
@@ -349,7 +353,9 @@ def _serialize_psychology(controller) -> Optional[str]:
         return None
 
 
-def _flush_psychology(controller, personality_id: str, bankroll_repo) -> None:
+def _flush_psychology(
+    controller, personality_id: str, bankroll_repo, sandbox_id: str,
+) -> None:
     """Write the controller's current emotional state to the repo.
 
     Called by the periodic flush cadence and (in a future commit) on
@@ -363,7 +369,9 @@ def _flush_psychology(controller, personality_id: str, bankroll_repo) -> None:
     if blob is None:
         return
     try:
-        bankroll_repo.save_emotional_state_json(personality_id, blob)
+        bankroll_repo.save_emotional_state_json(
+            personality_id, blob, sandbox_id=sandbox_id,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.debug(
             f"[FULL_SIM] {personality_id}: save_emotional_state_json failed: {exc}"
@@ -371,7 +379,7 @@ def _flush_psychology(controller, personality_id: str, bankroll_repo) -> None:
 
 
 def _maybe_flush_psychology(
-    controller, personality_id: str, bankroll_repo,
+    controller, personality_id: str, bankroll_repo, sandbox_id: str,
 ) -> None:
     """Increment the per-controller sim-hand counter and flush every
     PSYCHOLOGY_FLUSH_EVERY_HANDS hands."""
@@ -380,7 +388,7 @@ def _maybe_flush_psychology(
     count = getattr(controller, _SIM_HAND_COUNTER_ATTR, 0) + 1
     setattr(controller, _SIM_HAND_COUNTER_ATTR, count)
     if count % PSYCHOLOGY_FLUSH_EVERY_HANDS == 0:
-        _flush_psychology(controller, personality_id, bankroll_repo)
+        _flush_psychology(controller, personality_id, bankroll_repo, sandbox_id)
 
 
 def _ai_seat_indices(seats: List[dict]) -> List[int]:
@@ -395,6 +403,7 @@ def play_one_hand(
     *,
     big_blind: int,
     rng: random.Random,
+    sandbox_id: str,
     max_pot_bb: int = DEFAULT_MAX_POT_BB,  # unused in Phase 2; kept for caller compat
     big_event_threshold_bb: int = DEFAULT_BIG_EVENT_THRESHOLD_BB,
     name_for: Callable[[str], str] = _default_name_for,
@@ -472,6 +481,7 @@ def play_one_hand(
             controller_cache=controller_cache,
             starting_dealer_seat_idx=starting_dealer_seat_idx,
             bankroll_repo=bankroll_repo,
+            sandbox_id=sandbox_id,
         )
     finally:
         random.setstate(_saved_global_random_state)
@@ -488,6 +498,7 @@ def _play_one_hand_inner(
     controller_cache: LruControllerCache,
     starting_dealer_seat_idx: Optional[int],
     bankroll_repo: Optional[Any],
+    sandbox_id: str,
 ) -> HandSimResult:
     """Body of play_one_hand, run inside the hermetic random snapshot.
 
@@ -565,7 +576,7 @@ def _play_one_hand_inner(
     # Hydrate psychology AFTER all controllers are built — keeps the
     # repo I/O in one cluster rather than interleaved with construction.
     for pid, ctrl in cache_misses:
-        _hydrate_psychology(ctrl, pid, bankroll_repo)
+        _hydrate_psychology(ctrl, pid, bankroll_repo, sandbox_id)
 
     # Snapshot starting chips per pid so we can compute deltas.
     starting_chips: Dict[str, int] = {
@@ -581,7 +592,7 @@ def _play_one_hand_inner(
     for player in players:
         pid = seat_pid_by_name[player.name]
         ctrl = controllers[player.name]
-        _maybe_flush_psychology(ctrl, pid, bankroll_repo)
+        _maybe_flush_psychology(ctrl, pid, bankroll_repo, sandbox_id)
 
     # Awards already applied by _run_hand. Read final stacks.
     final_chips: Dict[str, int] = {

@@ -68,16 +68,15 @@ class TestCapClampLedger:
         _insert_personality(db_path, "napoleon", knobs={
             "bankroll_cap": 5_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3, "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$10",
         })
         anchor = datetime(2026, 5, 18, 12, 0, 0)
         bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id="napoleon", chips=4_500, last_regen_tick=anchor,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
         credit_ai_cash_out(
-            bankroll_repo, "napoleon", 1_000, now=anchor,
+            bankroll_repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=anchor,
             chip_ledger_repo=ledger_repo,
         )
 
@@ -95,16 +94,15 @@ class TestCapClampLedger:
         _insert_personality(db_path, "napoleon", knobs={
             "bankroll_cap": 50_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3, "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$10",
         })
         anchor = datetime(2026, 5, 18, 12, 0, 0)
         bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id="napoleon", chips=5_000, last_regen_tick=anchor,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
         credit_ai_cash_out(
-            bankroll_repo, "napoleon", 1_000, now=anchor,
+            bankroll_repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=anchor,
             chip_ledger_repo=ledger_repo,
         )
 

@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 LEDGER_REASONS = frozenset({
     # Creations: central_bank → X
     'player_seed',         # first-time player entry into cash mode
+    'ai_seed',             # first AI bankroll write in a given sandbox
     'ai_regen',            # AI bankroll write where projected > stored
     'house_stake_issue',   # house-archetype stake principal issued to borrower
     'pre_ledger_universe', # one-shot seed at migration so day-1 drift is 0
@@ -170,6 +171,35 @@ def record_player_seed(
         sink=player(owner_id),
         amount=amount,
         reason='player_seed',
+        context=context,
+    )
+
+
+def record_ai_seed(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """First AI bankroll write in a sandbox: central_bank → ai.
+
+    Closes the chip-ledger gap from `CASH_MODE_ECONOMY.md` Known
+    Issues §2. Per-sandbox scoping (v102) makes this fire on every
+    new sandbox's first write of each personality.
+
+    No-op when `repo` is None or `amount <= 0`. Called from
+    `BankrollRepository.save_ai_bankroll` when the existence check
+    fires (first write per `(personality_id, sandbox_id)`).
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=bank(),
+        sink=ai(personality_id),
+        amount=int(amount),
+        reason='ai_seed',
         context=context,
     )
 

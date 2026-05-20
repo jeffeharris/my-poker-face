@@ -114,6 +114,7 @@ def ensure_lobby_seeded(
     bankroll_repo,
     now: Optional[datetime] = None,
     user_id: Optional[str] = None,
+    sandbox_id: Optional[str] = None,
 ) -> List[CashTableState]:
     """Idempotent boot-time lobby seed.
 
@@ -159,7 +160,7 @@ def ensure_lobby_seeded(
     if now is None:
         now = datetime.utcnow()
 
-    existing_tables = cash_table_repo.list_all_tables()
+    existing_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
     by_id: Dict[str, CashTableState] = {t.table_id: t for t in existing_tables}
     # Global "already seated" set, used both for incremental seeding and
     # for preserving uniqueness across tables that already exist.
@@ -212,7 +213,7 @@ def ensure_lobby_seeded(
             ai_threshold = round(min_buy_in * knobs.buy_in_multiplier)
             ai_buy_in = min(ai_threshold, max_buy_in)
 
-            stored = bankroll_repo.load_ai_bankroll(pid)
+            stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
             if stored is None:
                 # No bankroll row yet — use the personality's cap as a
                 # generous starting projection. Sit-down will write the
@@ -237,7 +238,12 @@ def ensure_lobby_seeded(
             # `cash_table_seats_ai` move in opposite directions by
             # `ai_buy_in`, preserving `actual_outstanding`.
             from cash_mode.bankroll import debit_bankroll_for_seat
-            debit_bankroll_for_seat(bankroll_repo, pid, ai_buy_in)
+            debit_bankroll_for_seat(
+                bankroll_repo,
+                pid,
+                ai_buy_in,
+                sandbox_id=sandbox_id,
+            )
             logger.info(
                 "[CASH][LOBBY] seed %s: seated %r at seat %d chips=%d",
                 stake_label, pid, seat_position, ai_buy_in,
@@ -250,7 +256,7 @@ def ensure_lobby_seeded(
             created_at=now,
             last_activity_at=now,
         )
-        cash_table_repo.save_table(new_state, now=now)
+        cash_table_repo.save_table(new_state, sandbox_id=sandbox_id, now=now)
         out_tables.append(new_state)
         logger.info(
             "[CASH][LOBBY] seed %s: created table %r with %d AI seats",
@@ -278,6 +284,7 @@ def refresh_unseated_tables(
     rng: Optional[random.Random] = None,
     now: Optional[datetime] = None,
     user_id: Optional[str] = None,
+    sandbox_id: Optional[str] = None,
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
     hand_sim_prob: float = DEFAULT_HAND_SIM_PROB,
     chip_ledger_repo=None,
@@ -301,13 +308,15 @@ def refresh_unseated_tables(
     if now is None:
         now = datetime.utcnow()
 
-    tables = cash_table_repo.list_all_tables()
-    idle_pool = cash_table_repo.list_idle()
+    tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+    idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
     seated_globally = _global_seated_set(tables)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
 
     def _bankroll_lookup(pid: str) -> Optional[int]:
-        return bankroll_repo.load_ai_bankroll_current(pid, now=now)
+        return bankroll_repo.load_ai_bankroll_current(
+            pid, sandbox_id=sandbox_id, now=now,
+        )
 
     def _buy_in_lookup(pid: str) -> int:
         # Map back to a table buy-in: needs the stake_label of the
@@ -423,6 +432,7 @@ def refresh_unseated_tables(
                 table.seats,
                 big_blind=big_blind,
                 rng=rng,
+                sandbox_id=sandbox_id,
                 name_for=_name_for_personality(personality_repo),
                 starting_dealer_seat_idx=next_dealer,
                 bankroll_repo=bankroll_repo,
@@ -511,13 +521,13 @@ def refresh_unseated_tables(
         # order inside the burst loop above (one rotation per sim hand,
         # synchronized with `play_one_hand`'s starting dealer), so we
         # don't need a separate `advance_dealer` step here.
-        cash_table_repo.save_table(result.new_table, now=now)
+        cash_table_repo.save_table(result.new_table, sandbox_id=sandbox_id, now=now)
 
         for change in result.idle_changes:
             if change.kind == "add" and change.entry is not None:
-                cash_table_repo.save_idle(change.entry)
+                cash_table_repo.save_idle(change.entry, sandbox_id=sandbox_id)
             elif change.kind == "remove":
-                cash_table_repo.delete_idle(change.personality_id)
+                cash_table_repo.delete_idle(change.personality_id, sandbox_id=sandbox_id)
 
         # Apply bankroll ↔ seat transfers (closes the v1.5 lobby-seed
         # leak: live-fill used to mint chips on new seats without
@@ -533,6 +543,7 @@ def refresh_unseated_tables(
             if bc.direction == "to_seat":
                 debit_bankroll_for_seat(
                     bankroll_repo, bc.personality_id, bc.amount,
+                    sandbox_id=sandbox_id,
                 )
             elif bc.direction == "from_seat":
                 credit_ai_cash_out(
@@ -574,7 +585,7 @@ def refresh_unseated_tables(
 
         # Refresh idle_pool snapshot so the next iteration sees the
         # updated state (we may have added or removed entries).
-        idle_pool = cash_table_repo.list_idle()
+        idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
 
         out[table.table_id] = result
 
@@ -982,6 +993,7 @@ def kill_all_cash_sessions(
     game_repo,
     cash_table_repo=None,
     bankroll_repo=None,
+    sandbox_id: Optional[str] = None,
 ) -> int:
     """Boot reconcile: drop stale in-memory cash games; reset orphan seats.
 
@@ -1029,7 +1041,11 @@ def kill_all_cash_sessions(
     # Reconcile orphan human seats. A seat is orphan when its owner
     # has no surviving `cash-*` row — the lobby would otherwise render
     # the player as still seated at a vanished table.
-    if cash_table_repo is not None and bankroll_repo is not None:
+    if (
+        cash_table_repo is not None
+        and bankroll_repo is not None
+        and sandbox_id is not None
+    ):
         from dataclasses import replace as _dc_replace
         try:
             rows = game_repo.list_games(owner_id=None, limit=10000, offset=0)
@@ -1043,7 +1059,7 @@ def kill_all_cash_sessions(
         }
 
         try:
-            tables = cash_table_repo.list_all_tables()
+            tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
         except Exception as e:
             logger.warning("[CASH][LOBBY] list_all_tables failed during reconcile: %s", e)
             tables = []
@@ -1066,7 +1082,8 @@ def kill_all_cash_sessions(
                                 _dc_replace(br, chips=br.chips + refund_chips)
                             )
                     cash_table_repo.save_table(
-                        table.with_seat(idx, open_slot())
+                        table.with_seat(idx, open_slot()),
+                        sandbox_id=sandbox_id,
                     )
                     logger.info(
                         "[CASH][LOBBY] kill_all_cash_sessions: reset orphan human seat "

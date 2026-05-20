@@ -51,7 +51,7 @@ class _FakeBankrollRepo:
     def load_lender_profile(self, personality_id):
         return self.profiles.get(personality_id, LENDER_PROFILE_DEFAULTS)
 
-    def load_ai_bankroll_current(self, personality_id, *, now=None):
+    def load_ai_bankroll_current(self, personality_id, *, sandbox_id, now=None):
         return self.bankrolls.get(personality_id)  # None when missing
 
 
@@ -252,6 +252,7 @@ class TestEligibility:
             min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "mime", "name": "Mime"}],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert offers == []
 
@@ -270,6 +271,7 @@ class TestEligibility:
             min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "newbie", "name": "Newbie"}],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert offers == []
 
@@ -287,6 +289,7 @@ class TestEligibility:
             min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "poor", "name": "Poor"}],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert offers == []
 
@@ -305,6 +308,7 @@ class TestEligibility:
             min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "strict", "name": "Strict"}],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert offers == []
 
@@ -323,6 +327,7 @@ class TestEligibility:
             min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "chilly", "name": "Chilly"}],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert offers == []
 
@@ -341,6 +346,7 @@ class TestEligibility:
             min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "fresh", "name": "Fresh"}],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert len(offers) == 1
         # Anchor terms unmodified (neutral relationship).
@@ -385,6 +391,7 @@ class TestSortAndCount:
                 {"personality_id": "mid", "name": "Mid"},
             ],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert [o.lender_id for o in offers] == ["big", "mid", "small"]
         assert [o.capacity for o in offers] == [1_000, 700, 500]
@@ -409,6 +416,7 @@ class TestSortAndCount:
             ],
             bankroll_repo=bank, relationship_repo=rel,
             count=2,
+            sandbox_id="test-sandbox-1",
         )
         assert len(offers) == 2  # truncated
 
@@ -420,6 +428,7 @@ class TestSortAndCount:
             min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
             candidate_personalities=[],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert offers == []
 
@@ -456,6 +465,7 @@ class TestSortAndCount:
                 {"personality_id": "too_poor", "name": "Too Poor"},
             ],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert len(offers) == 1
         assert offers[0].lender_id == "willing"
@@ -480,6 +490,7 @@ class TestOutputShape:
             min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "napoleon", "name": "Napoleon"}],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert len(offers) == 1
         offer = offers[0]
@@ -506,6 +517,7 @@ class TestOutputShape:
             min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "buddha", "name": "Buddha"}],
             bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
         )
         assert len(offers) == 1
         assert "Buddha" in offers[0].flavor

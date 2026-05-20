@@ -361,12 +361,17 @@ def get_dossier(identifier: str):
     game_data = _find_game_data_with_player(player_name) or {}
 
     # AI bankroll (off-table chips, projected through regen). Lives
-    # in the bankroll repo keyed on personality_id; cheap independent
-    # read regardless of whether the AI is currently seated.
+    # in the bankroll repo keyed on (personality_id, sandbox_id) since
+    # the v102 per-sandbox scoping; the dossier is per-viewer so we
+    # resolve the observer's default sandbox.
     ai_bankroll_chips: Optional[int] = None
     try:
-        from flask_app.extensions import bankroll_repo
-        ai_bankroll_chips = bankroll_repo.load_ai_bankroll_current(personality_id)
+        from flask_app.extensions import bankroll_repo, sandbox_repo
+        from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+        sandbox_id = resolve_default_sandbox_for(observer_id, sandbox_repo=sandbox_repo)
+        ai_bankroll_chips = bankroll_repo.load_ai_bankroll_current(
+            personality_id, sandbox_id=sandbox_id,
+        )
     except Exception as e:
         logger.debug("[CHARACTER] ai_bankroll lookup failed: %s", e)
 

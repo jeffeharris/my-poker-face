@@ -75,7 +75,6 @@ class _CutoverBase(unittest.TestCase):
                 'bankroll_knobs': {
                     'bankroll_cap': 50_000, 'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
-                    'stop_loss_buy_ins': 3, 'stop_win_buy_ins': 5,
                     'stake_comfort_zone': '$10',
                 },
                 'lender_profile': {
@@ -91,7 +90,7 @@ class _CutoverBase(unittest.TestCase):
         self.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=self.napoleon_id, chips=10_000,
             last_regen_tick=ANCHOR,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
         # Seed player bankroll below all $10 buy-in (sponsor-eligible at $10).
         self.bankroll_repo.save_player_bankroll(PlayerBankrollState(

@@ -109,8 +109,6 @@ def _seed_personalities(db_path: str, count: int = 30) -> None:
                 "bankroll_cap": 100_000,
                 "bankroll_rate": 0,
                 "buy_in_multiplier": 1.0,
-                "stop_loss_buy_ins": 3,
-                "stop_win_buy_ins": 5,
                 "stake_comfort_zone": "$10",
             },
         )
@@ -125,6 +123,7 @@ class TestEnsureLobbySeeded:
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
         tables = cash_table_repo.list_all_tables()
         assert len(tables) == len(STAKES_ORDER)
@@ -140,6 +139,7 @@ class TestEnsureLobbySeeded:
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
         for t in cash_table_repo.list_all_tables():
             ai_count = sum(1 for s in t.seats if s["kind"] == "ai")
@@ -155,6 +155,7 @@ class TestEnsureLobbySeeded:
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
         # Capture original seats.
         original_seats = {t.table_id: list(t.seats) for t in first}
@@ -163,6 +164,7 @@ class TestEnsureLobbySeeded:
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
         # Still 5 tables.
         assert len(cash_table_repo.list_all_tables()) == len(STAKES_ORDER)
@@ -179,6 +181,7 @@ class TestEnsureLobbySeeded:
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
         seen_pids = set()
         for t in cash_table_repo.list_all_tables():
@@ -199,6 +202,7 @@ class TestEnsureLobbySeeded:
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
         # For the $2 table, big_blind=2, min_buy_in=80; buy_in_multiplier=1.0
         # so chips should equal 80.
@@ -218,12 +222,13 @@ class TestEnsureLobbySeeded:
             stake_label="$2",
             # All open — we'll verify it's preserved.
         )
-        cash_table_repo.save_table(existing)
+        cash_table_repo.save_table(existing, sandbox_id="test-sandbox-1")
 
         ensure_lobby_seeded(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
         tables = cash_table_repo.list_all_tables()
         assert len(tables) == len(STAKES_ORDER)
@@ -239,27 +244,24 @@ class TestEnsureLobbySeeded:
             "bankroll_cap": 100_000,
             "bankroll_rate": 0,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3,
-            "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$10",
         })
         _insert_personality(db_path, "broke", name="Broke", bankroll_knobs={
             "bankroll_cap": 100_000,
             "bankroll_rate": 0,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3,
-            "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$10",
         })
         # Force "broke" to have ai_bankroll_state row of 1 chip.
         bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id="broke", chips=1, last_regen_tick=datetime(2026, 5, 18),
-        ))
+        ), sandbox_id="test-sandbox-1")
         # "rich" has no row — defaults to bankroll_cap (rich enough).
         ensure_lobby_seeded(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
         # Find broke in any table — must not appear.
         for t in cash_table_repo.list_all_tables():
@@ -386,7 +388,7 @@ class TestKillAllCashSessionsHumanSeatReset:
             table_id="cash-table-2-001",
             stake_label="$2",
             seats=seats,
-        ))
+        ), sandbox_id="test-sandbox-1")
         bankroll_repo.save_player_bankroll(PlayerBankrollState(
             player_id="guest_jeff",
             chips=148,
@@ -399,9 +401,10 @@ class TestKillAllCashSessionsHumanSeatReset:
             game_repo=_FakeGameRepo([]),
             cash_table_repo=cash_table_repo,
             bankroll_repo=bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
 
-        reloaded = cash_table_repo.load_table("cash-table-2-001")
+        reloaded = cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         assert reloaded.seats[4] == open_slot()
         br = bankroll_repo.load_player_bankroll("guest_jeff")
         assert br.chips == 298  # 148 + 150
@@ -419,7 +422,7 @@ class TestKillAllCashSessionsHumanSeatReset:
             table_id="cash-table-2-001",
             stake_label="$2",
             seats=seats,
-        ))
+        ), sandbox_id="test-sandbox-1")
         bankroll_repo.save_player_bankroll(PlayerBankrollState(
             player_id="guest_jeff",
             chips=148,
@@ -431,9 +434,10 @@ class TestKillAllCashSessionsHumanSeatReset:
             game_repo=_FakeGameRepo([_row("cash-live-1", owner_id="guest_jeff")]),
             cash_table_repo=cash_table_repo,
             bankroll_repo=bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
 
-        reloaded = cash_table_repo.load_table("cash-table-2-001")
+        reloaded = cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         assert reloaded.seats[4]["kind"] == "human"
         assert reloaded.seats[4]["chips"] == 150
         br = bankroll_repo.load_player_bankroll("guest_jeff")
@@ -449,12 +453,12 @@ class TestKillAllCashSessionsHumanSeatReset:
             table_id="cash-table-2-001",
             stake_label="$2",
             seats=seats,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
         kill_all_cash_sessions(
             game_state_service=_FakeGameStateService(),
             game_repo=_FakeGameRepo([]),
         )
 
-        reloaded = cash_table_repo.load_table("cash-table-2-001")
+        reloaded = cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         assert reloaded.seats[0]["kind"] == "human"

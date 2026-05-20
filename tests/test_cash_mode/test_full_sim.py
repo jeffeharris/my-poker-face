@@ -82,6 +82,7 @@ class TestPlayOneHandRealCardplay:
             seats,
             big_blind=100,
             rng=random.Random(42),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for,
             controller_cache=warm_cache,
         )
@@ -102,11 +103,13 @@ class TestPlayOneHandRealCardplay:
 
         result_a = play_one_hand(
             seats, big_blind=100, rng=random.Random(10),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for,
             controller_cache=LruControllerCache(max_size=10),
         )
         result_b = play_one_hand(
             seats, big_blind=100, rng=random.Random(10),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for,
             controller_cache=LruControllerCache(max_size=10),
         )
@@ -121,6 +124,7 @@ class TestPlayOneHandRealCardplay:
         seats = _build_seats(5000, 4)
         result = play_one_hand(
             seats, big_blind=100, rng=random.Random(7),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=warm_cache,
         )
 
@@ -148,6 +152,7 @@ class TestPlayOneHandDealerRotation:
         seats = _build_seats(5000, 4)
         result = play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=warm_cache,
             starting_dealer_seat_idx=2,
         )
@@ -160,6 +165,7 @@ class TestPlayOneHandDealerRotation:
         seats = _build_seats(5000, 4)
         result = play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=warm_cache,
             starting_dealer_seat_idx=5,   # open seat in this fixture
         )
@@ -173,6 +179,7 @@ class TestPlayOneHandDealerRotation:
         seats = _build_seats(5000, 4)
         result = play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=warm_cache,
         )
         assert result.dealer_seat_idx == 0
@@ -183,6 +190,7 @@ class TestPlayOneHandDealerRotation:
 
         play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=warm_cache,
         )
 
@@ -197,7 +205,8 @@ class TestPlayOneHandDealerRotation:
         for seed in range(40):
             result = play_one_hand(
                 seats, big_blind=100, rng=random.Random(seed),
-                name_for=_identity_name_for, controller_cache=warm_cache,
+                sandbox_id="test-sandbox-1",
+            name_for=_identity_name_for, controller_cache=warm_cache,
             )
             if result.winner_pid:
                 winners.add(result.winner_pid)
@@ -210,6 +219,7 @@ class TestPlayOneHandNoOpCases:
         seats = _build_seats(5000, 1)
         result = play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=warm_cache,
         )
         assert result.winner_pid is None
@@ -222,6 +232,7 @@ class TestPlayOneHandNoOpCases:
         seats = [open_slot() for _ in range(6)]
         result = play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=warm_cache,
         )
         assert result.winner_pid is None
@@ -235,6 +246,7 @@ class TestControllerCacheReuse:
 
         play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=cache,
         )
         assert len(cache) == 4
@@ -242,6 +254,7 @@ class TestControllerCacheReuse:
         # Second call should not grow the cache — same 4 AIs.
         play_one_hand(
             seats, big_blind=100, rng=random.Random(1),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=cache,
         )
         assert len(cache) == 4
@@ -252,12 +265,14 @@ class TestControllerCacheReuse:
 
         play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=cache,
         )
         ctrl_first = cache.get("Napoleon")
 
         play_one_hand(
             seats, big_blind=100, rng=random.Random(1),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=cache,
         )
         ctrl_second = cache.get("Napoleon")
@@ -284,7 +299,8 @@ class TestHandEventDetection:
         for seed in range(20):
             result = play_one_hand(
                 seats, big_blind=100, rng=random.Random(seed),
-                name_for=_identity_name_for, controller_cache=warm_cache,
+                sandbox_id="test-sandbox-1",
+            name_for=_identity_name_for, controller_cache=warm_cache,
             )
             bust_events = [
                 e for e in result.hand_events if e.type == HAND_EVENT_BUST
@@ -308,6 +324,7 @@ class TestHandEventDetection:
         seats = _build_seats(10_000, 4)
         result = play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=warm_cache,
         )
         bust_events = [
@@ -397,7 +414,8 @@ class TestMemoryFlatness:
         for seed in range(5):
             play_one_hand(
                 seats, big_blind=100, rng=random.Random(seed),
-                name_for=_identity_name_for, controller_cache=warm_cache,
+                sandbox_id="test-sandbox-1",
+            name_for=_identity_name_for, controller_cache=warm_cache,
             )
 
         tracemalloc.start()
@@ -406,7 +424,8 @@ class TestMemoryFlatness:
         for seed in range(1000):
             play_one_hand(
                 seats, big_blind=100, rng=random.Random(100 + seed),
-                name_for=_identity_name_for, controller_cache=warm_cache,
+                sandbox_id="test-sandbox-1",
+            name_for=_identity_name_for, controller_cache=warm_cache,
             )
 
         after = tracemalloc.take_snapshot()
@@ -444,6 +463,7 @@ class TestPsychologyPersistence:
         fresh_cache = LruControllerCache(max_size=10)
         play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=fresh_cache,
             bankroll_repo=repo,
         )
@@ -466,6 +486,7 @@ class TestPsychologyPersistence:
         # First call: all 4 misses → 4 loads.
         play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=cache,
             bankroll_repo=repo,
         )
@@ -474,6 +495,7 @@ class TestPsychologyPersistence:
         # Second call: all 4 hits → 0 additional loads.
         play_one_hand(
             seats, big_blind=100, rng=random.Random(1),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=cache,
             bankroll_repo=repo,
         )
@@ -495,7 +517,8 @@ class TestPsychologyPersistence:
         for hand_i in range(PSYCHOLOGY_FLUSH_EVERY_HANDS):
             play_one_hand(
                 seats, big_blind=100, rng=random.Random(hand_i),
-                name_for=_identity_name_for, controller_cache=cache,
+                sandbox_id="test-sandbox-1",
+            name_for=_identity_name_for, controller_cache=cache,
                 bankroll_repo=repo,
             )
 
@@ -520,7 +543,8 @@ class TestPsychologyPersistence:
         for hand_i in range(PSYCHOLOGY_FLUSH_EVERY_HANDS - 1):
             play_one_hand(
                 seats, big_blind=100, rng=random.Random(hand_i),
-                name_for=_identity_name_for, controller_cache=cache,
+                sandbox_id="test-sandbox-1",
+            name_for=_identity_name_for, controller_cache=cache,
                 bankroll_repo=repo,
             )
         assert repo.save_emotional_state_json.call_count == 0
@@ -536,6 +560,7 @@ class TestPsychologyPersistence:
         # is handled gracefully throughout the call.
         result = play_one_hand(
             seats, big_blind=100, rng=random.Random(0),
+            sandbox_id="test-sandbox-1",
             name_for=_identity_name_for, controller_cache=cache,
         )
         assert result is not None
@@ -550,7 +575,7 @@ class TestPsychologyPersistence:
         # matter here; we're checking the wiring, and PlayerPsychology
         # is patched.
         repo = MagicMock()
-        repo.load_emotional_state_json.side_effect = lambda pid: (
+        repo.load_emotional_state_json.side_effect = lambda pid, *, sandbox_id: (
             '{"axes": {}}' if pid == "Napoleon" else None
         )
 
@@ -561,7 +586,8 @@ class TestPsychologyPersistence:
             mock_from_dict.return_value = MagicMock()
             play_one_hand(
                 seats, big_blind=100, rng=random.Random(0),
-                name_for=_identity_name_for, controller_cache=cache,
+                sandbox_id="test-sandbox-1",
+            name_for=_identity_name_for, controller_cache=cache,
                 bankroll_repo=repo,
             )
         # Only Napoleon had a JSON blob → from_dict called once.

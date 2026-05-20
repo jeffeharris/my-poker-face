@@ -33,6 +33,9 @@ from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.schema_manager import SchemaManager
 
 
+SANDBOX_ID = "test-sandbox-1"
+
+
 def _insert_personality(
     db_path: str,
     personality_id: str,
@@ -97,24 +100,37 @@ class TestSchemaMigrationV88:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(personalities)")}
             for forbidden in (
                 "bankroll_cap", "bankroll_rate", "buy_in_multiplier",
-                "stop_loss_buy_ins", "stop_win_buy_ins", "stake_comfort_zone",
+                "stake_comfort_zone",
             ):
                 assert forbidden not in cols, (
                     f"v88 should not add {forbidden} column — knobs live in config_json"
                 )
 
     def test_ai_bankroll_pk_enforced(self, db_path):
+        # v102: composite PK (personality_id, sandbox_id); a second
+        # insert with the same pair raises IntegrityError. A second
+        # insert with a different sandbox_id is allowed (each sandbox
+        # has its own row for the same personality).
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO ai_bankroll_state (personality_id, chips) VALUES (?, ?)",
-                ("alice", 1000),
+                "INSERT INTO ai_bankroll_state "
+                "(personality_id, sandbox_id, chips) VALUES (?, ?, ?)",
+                ("alice", "sb1", 1000),
             )
             conn.commit()
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(
-                    "INSERT INTO ai_bankroll_state (personality_id, chips) VALUES (?, ?)",
-                    ("alice", 2000),
+                    "INSERT INTO ai_bankroll_state "
+                    "(personality_id, sandbox_id, chips) VALUES (?, ?, ?)",
+                    ("alice", "sb1", 2000),
                 )
+            # Different sandbox_id is fine — separate save-file.
+            conn.execute(
+                "INSERT INTO ai_bankroll_state "
+                "(personality_id, sandbox_id, chips) VALUES (?, ?, ?)",
+                ("alice", "sb2", 2000),
+            )
+            conn.commit()
 
     def test_idempotent_on_rerun(self, db_path):
         # Running v88 twice must be a no-op (CREATE TABLE IF NOT EXISTS
@@ -175,26 +191,29 @@ class TestAIBankrollRoundTrip:
             chips=4_200,
             last_regen_tick=tick,
         )
-        repo.save_ai_bankroll(state)
-        loaded = repo.load_ai_bankroll("napoleon")
+        repo.save_ai_bankroll(state, sandbox_id=SANDBOX_ID)
+        loaded = repo.load_ai_bankroll("napoleon", sandbox_id=SANDBOX_ID)
         assert loaded is not None
         assert loaded.personality_id == "napoleon"
         assert loaded.chips == 4_200
         assert loaded.last_regen_tick == tick
 
     def test_load_returns_none_for_unknown_personality(self, repo):
-        assert repo.load_ai_bankroll("nobody") is None
+        assert repo.load_ai_bankroll("nobody", sandbox_id=SANDBOX_ID) is None
 
     def test_save_is_upsert(self, repo):
-        repo.save_ai_bankroll(AIBankrollState("alice", 1_000))
-        repo.save_ai_bankroll(AIBankrollState("alice", 2_500))
-        loaded = repo.load_ai_bankroll("alice")
+        repo.save_ai_bankroll(AIBankrollState("alice", 1_000), sandbox_id=SANDBOX_ID)
+        repo.save_ai_bankroll(AIBankrollState("alice", 2_500), sandbox_id=SANDBOX_ID)
+        loaded = repo.load_ai_bankroll("alice", sandbox_id=SANDBOX_ID)
         assert loaded.chips == 2_500
 
     def test_null_tick_round_trips(self, repo):
         # No-event-yet state — last_regen_tick stays None
-        repo.save_ai_bankroll(AIBankrollState("seed", 5_000, last_regen_tick=None))
-        loaded = repo.load_ai_bankroll("seed")
+        repo.save_ai_bankroll(
+            AIBankrollState("seed", 5_000, last_regen_tick=None),
+            sandbox_id=SANDBOX_ID,
+        )
+        loaded = repo.load_ai_bankroll("seed", sandbox_id=SANDBOX_ID)
         assert loaded.last_regen_tick is None
         assert loaded.chips == 5_000
 
@@ -250,8 +269,6 @@ class TestPersonalityKnobs:
             bankroll_cap=50_000,
             bankroll_rate=1_000,
             buy_in_multiplier=1.5,
-            stop_loss_buy_ins=2,
-            stop_win_buy_ins=10,
             stake_comfort_zone="$200",
         )
         assert repo.save_personality_knobs("big_stack_bob", custom) is True
@@ -279,8 +296,6 @@ class TestPersonalityKnobs:
         # Missing keys fall back to defaults
         assert knobs.bankroll_rate == BANKROLL_KNOB_DEFAULTS.bankroll_rate
         assert knobs.buy_in_multiplier == BANKROLL_KNOB_DEFAULTS.buy_in_multiplier
-        assert knobs.stop_loss_buy_ins == BANKROLL_KNOB_DEFAULTS.stop_loss_buy_ins
-        assert knobs.stop_win_buy_ins == BANKROLL_KNOB_DEFAULTS.stop_win_buy_ins
 
     def test_save_preserves_other_config_keys(self, db_path, repo):
         # Inserting a personality with anchors etc. and then writing knobs
@@ -298,7 +313,7 @@ class TestPersonalityKnobs:
                 ("Preserved Pete", json.dumps(original_config), "preserved_pete"),
             )
             conn.commit()
-        custom = BankrollKnobs(50_000, 1_000, 1.5, 2, 10, "$200")
+        custom = BankrollKnobs(50_000, 1_000, 1.5, "$200")
         repo.save_personality_knobs("preserved_pete", custom)
         # Read raw config_json back; every original key must still be present.
         with sqlite3.connect(db_path) as conn:
@@ -394,12 +409,17 @@ class TestAIBankrollCurrentReads:
         _insert_personality(db_path, "hungry_hippo", name="Hungry Hippo")
         tick = datetime(2026, 5, 13, 12, 0, 0)
         now = datetime(2026, 5, 17, 12, 0, 0)
-        repo.save_ai_bankroll(AIBankrollState("hungry_hippo", chips=1_000, last_regen_tick=tick))
-        projected = repo.load_ai_bankroll_current("hungry_hippo", now=now)
+        repo.save_ai_bankroll(
+            AIBankrollState("hungry_hippo", chips=1_000, last_regen_tick=tick),
+            sandbox_id=SANDBOX_ID,
+        )
+        projected = repo.load_ai_bankroll_current(
+            "hungry_hippo", sandbox_id=SANDBOX_ID, now=now,
+        )
         assert projected == 3_000
 
     def test_load_current_returns_none_for_unknown(self, repo):
-        assert repo.load_ai_bankroll_current("nobody") is None
+        assert repo.load_ai_bankroll_current("nobody", sandbox_id=SANDBOX_ID) is None
 
     def test_load_current_uses_personality_specific_cap(self, db_path, repo):
         # Personality with bankroll_cap=2000 — should clamp tighter than default.
@@ -411,8 +431,13 @@ class TestAIBankrollCurrentReads:
         )
         tick = datetime(2026, 5, 10, 12, 0, 0)
         now = datetime(2026, 5, 17, 12, 0, 0)  # 7 days, would add 3500
-        repo.save_ai_bankroll(AIBankrollState("capped_cat", chips=500, last_regen_tick=tick))
-        projected = repo.load_ai_bankroll_current("capped_cat", now=now)
+        repo.save_ai_bankroll(
+            AIBankrollState("capped_cat", chips=500, last_regen_tick=tick),
+            sandbox_id=SANDBOX_ID,
+        )
+        projected = repo.load_ai_bankroll_current(
+            "capped_cat", sandbox_id=SANDBOX_ID, now=now,
+        )
         assert projected == 2_000
 
 

@@ -69,7 +69,6 @@ def _seed_personalities(db_path: str, pids: list[str]) -> None:
     knobs = {
         "bankroll_cap": 50_000, "bankroll_rate": 500,
         "buy_in_multiplier": 1.0,
-        "stop_loss_buy_ins": 3, "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10",
     }
     with sqlite3.connect(db_path) as conn:
@@ -113,7 +112,7 @@ def test_lobby_seed_preserves_drift(repos):
     for pid in pids:
         bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=pid, chips=5_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
     # Run v94 seed manually — it normally fires during ensure_schema,
     # but tests new ai_bankroll rows were added after that. Re-run is
@@ -135,6 +134,7 @@ def test_lobby_seed_preserves_drift(repos):
         personality_repo=personality_repo,
         bankroll_repo=bankroll_repo,
         now=now,
+        sandbox_id="test-sandbox-1",
     )
 
     after = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now)
@@ -162,7 +162,7 @@ def test_lobby_reseed_is_idempotent_for_drift(repos):
     for pid in ['zeus', 'hera']:
         bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=pid, chips=5_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
     with sqlite3.connect(db_path) as conn:
         conn.execute("DELETE FROM chip_ledger_entries")
         sm = SchemaManager.__new__(SchemaManager)
@@ -174,6 +174,7 @@ def test_lobby_reseed_is_idempotent_for_drift(repos):
         personality_repo=personality_repo,
         bankroll_repo=bankroll_repo,
         now=now,
+        sandbox_id="test-sandbox-1",
     )
     first = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now)
 
@@ -182,6 +183,7 @@ def test_lobby_reseed_is_idempotent_for_drift(repos):
         personality_repo=personality_repo,
         bankroll_repo=bankroll_repo,
         now=now,
+        sandbox_id="test-sandbox-1",
     )
     second = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now)
 

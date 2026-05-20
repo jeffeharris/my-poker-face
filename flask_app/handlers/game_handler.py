@@ -48,6 +48,39 @@ def _get_hand_number(game_data: dict) -> int:
     return mm.hand_count if mm else 0
 
 
+def _sandbox_id_for(game_data: dict) -> Optional[str]:
+    """Resolve the sandbox_id for a cash-mode `game_data` dict.
+
+    Prefers the value stamped on `game_data` at sit-down — that's the
+    sandbox the session was created in, and avoids re-hitting the
+    resolver on the hot path. Falls back to resolving from `owner_id`
+    when the stamp is missing (defensive; covers cold-load + legacy
+    pre-stamp sessions). Returns None when neither is available
+    (tournament games or sessions with no owner_id).
+    """
+    sandbox_id = game_data.get('sandbox_id')
+    if sandbox_id:
+        return sandbox_id
+    owner_id = game_data.get('owner_id')
+    if not owner_id:
+        return None
+    try:
+        from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+        from flask_app.extensions import sandbox_repo
+        sandbox_id = resolve_default_sandbox_for(
+            owner_id, sandbox_repo=sandbox_repo,
+        )
+        # Stamp it so subsequent reads are O(1) dict hit.
+        game_data['sandbox_id'] = sandbox_id
+        return sandbox_id
+    except Exception as e:
+        logger.warning(
+            "[CASH] sandbox_id fallback resolution failed for owner=%r: %s",
+            owner_id, e,
+        )
+        return None
+
+
 def _track_guest_hand(game_id: str, game_data: dict) -> bool:
     """Track hand completion for guest users and emit limit event if needed.
 
@@ -695,6 +728,7 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
     max_buy_in = big_blind * 100
 
     owner_id = game_data.get('owner_id')
+    sandbox_id = _sandbox_id_for(game_data)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
     eligible_pool = [
         e for e in eligible
@@ -722,7 +756,7 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
             threshold = round(min_buy_in * knobs.buy_in_multiplier)
             buy_in = min(threshold, max_buy_in)
 
-            stored = bankroll_repo.load_ai_bankroll(pid)
+            stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
             if stored is None:
                 projected = knobs.bankroll_cap
                 stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
@@ -766,7 +800,7 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         state_machine.game_state = game_state
 
         # Persist AI bankroll debit
-        bankroll_repo.save_ai_bankroll(replacement_state)
+        bankroll_repo.save_ai_bankroll(replacement_state, sandbox_id=sandbox_id)
         # Record any regen that this write commits. Transfer to table
         # stack is a pure non-bank move and isn't ledger-worthy.
         from flask_app.extensions import chip_ledger_repo
@@ -880,7 +914,8 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     from flask_app.extensions import bankroll_repo, cash_table_repo, personality_repo
     from cash_mode.bankroll import AIBankrollState
 
-    table = cash_table_repo.load_table(table_id)
+    sandbox_id = _sandbox_id_for(game_data)
+    table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
     if table is None:
         logger.warning("[CASH][LOBBY] table %r not found for hand-boundary refresh", table_id)
         return
@@ -970,7 +1005,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         _, next_min, _ = table_buy_in_window(STAKES_ORDER[stake_idx + 1])
         next_tier_min_buy_in = next_min
 
-    all_tables = cash_table_repo.list_all_tables()
+    all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
     seated_globally = _global_seated_set([t for t in all_tables if t.table_id != table_id])
     seated_globally.update(s["personality_id"] for s in synced_seats if s["kind"] == "ai")
 
@@ -1027,7 +1062,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         }
 
     def _bankroll_lookup(pid: str):
-        return bankroll_repo.load_ai_bankroll_current(pid, now=now)
+        return bankroll_repo.load_ai_bankroll_current(pid, sandbox_id=sandbox_id, now=now)
 
     _buy_in_cache: Dict[str, int] = {}
 
@@ -1038,7 +1073,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
             _buy_in_cache[pid] = min(threshold, table_max_buy_in)
         return _buy_in_cache[pid]
 
-    idle_pool = cash_table_repo.list_idle()
+    idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
     rng = random.Random()
     result = refresh_table_roster(
         synced_table,
@@ -1067,17 +1102,18 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
             _apply_rebuys(
                 game_id, game_data, state_machine,
                 result.rebuy_changes, pid_to_name, bankroll_repo, now,
+                sandbox_id=sandbox_id,
             )
         except Exception as e:
             logger.error("[CASH][LOBBY] rebuy application failed: %s", e, exc_info=True)
 
     # Persist table + idle changes.
-    cash_table_repo.save_table(result.new_table, now=now)
+    cash_table_repo.save_table(result.new_table, sandbox_id=sandbox_id, now=now)
     for change in result.idle_changes:
         if change.kind == "add" and change.entry is not None:
-            cash_table_repo.save_idle(change.entry)
+            cash_table_repo.save_idle(change.entry, sandbox_id=sandbox_id)
         elif change.kind == "remove":
-            cash_table_repo.delete_idle(change.personality_id)
+            cash_table_repo.delete_idle(change.personality_id, sandbox_id=sandbox_id)
 
     # Surface movement to the seated player's in-game chat. The lobby
     # ticker (cash_mode/activity.py) is unaffected — those events are
@@ -1133,6 +1169,8 @@ def _apply_rebuys(
     pid_to_name: Dict[str, str],
     bankroll_repo,
     now,
+    *,
+    sandbox_id: Optional[str],
 ) -> None:
     """Execute pressure-driven rebuys: bankroll debit + Player.stack bump.
 
@@ -1169,7 +1207,7 @@ def _apply_rebuys(
         # (matches credit_ai_cash_out's complement on the leave path).
         try:
             knobs = bankroll_repo.load_personality_knobs(change.personality_id)
-            stored = bankroll_repo.load_ai_bankroll(change.personality_id)
+            stored = bankroll_repo.load_ai_bankroll(change.personality_id, sandbox_id=sandbox_id)
             if stored is None:
                 # Defensive: an AI without a bankroll row shouldn't be
                 # rolling rebuy in the first place (the pressure model
@@ -1188,7 +1226,7 @@ def _apply_rebuys(
                     personality_id=change.personality_id,
                     chips=new_chips,
                     last_regen_tick=now,
-                ))
+                ), sandbox_id=sandbox_id)
         except Exception as e:
             logger.warning(
                 "[CASH][LOBBY] rebuy bankroll debit failed for %r (+%d): %s",

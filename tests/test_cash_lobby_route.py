@@ -79,7 +79,6 @@ class _CashLobbyRouteBase(unittest.TestCase):
                 'bankroll_knobs': {
                     'bankroll_cap': 50_000, 'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
-                    'stop_loss_buy_ins': 3, 'stop_win_buy_ins': 5,
                     'stake_comfort_zone': '$10',
                 },
             },
@@ -87,7 +86,7 @@ class _CashLobbyRouteBase(unittest.TestCase):
         cls.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=cls.napoleon_id, chips=10_000,
             last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-        ))
+        ), sandbox_id="test-sandbox-1")
 
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             cls.app = create_app()
@@ -189,7 +188,7 @@ class TestLobbyRouteAll(_CashLobbyRouteBase):
         }
 
         # Read again; persisted state must have updated.
-        before_second = self.cash_table_repo.load_table("cash-table-10-001")
+        before_second = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
         assert before_second is not None
         first_ts = before_second.last_activity_at
 
@@ -197,7 +196,7 @@ class TestLobbyRouteAll(_CashLobbyRouteBase):
         second_data = second.get_json()
         assert len(second_data["tables"]) == 5
 
-        after_second = self.cash_table_repo.load_table("cash-table-10-001")
+        after_second = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
         # Activity timestamp should have moved forward or stayed (same-sec).
         assert after_second.last_activity_at >= first_ts
 

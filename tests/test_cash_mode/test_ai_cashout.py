@@ -89,21 +89,19 @@ class TestSingleAICashOut:
             "bankroll_cap": 50_000,
             "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3,
-            "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$10",
         })
         repo.save_ai_bankroll(AIBankrollState(
             personality_id="napoleon", chips=5_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
-        result = credit_ai_cash_out(repo, "napoleon", 3_000, now=now)
+        result = credit_ai_cash_out(repo, "napoleon", 3_000, sandbox_id="test-sandbox-1", now=now)
 
         assert result is not None
         assert result.chips == 8_000
         assert result.last_regen_tick == now
         # Persisted.
-        stored = repo.load_ai_bankroll("napoleon")
+        stored = repo.load_ai_bankroll("napoleon", sandbox_id="test-sandbox-1")
         assert stored.chips == 8_000
 
     def test_projection_applied_before_credit(self, repo, db_path, now):
@@ -113,8 +111,6 @@ class TestSingleAICashOut:
             "bankroll_cap": 50_000,
             "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3,
-            "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$10",
         })
         one_day_ago = now - timedelta(days=1)
@@ -122,9 +118,9 @@ class TestSingleAICashOut:
             personality_id="napoleon",
             chips=5_000,
             last_regen_tick=one_day_ago,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
-        result = credit_ai_cash_out(repo, "napoleon", 3_000, now=now)
+        result = credit_ai_cash_out(repo, "napoleon", 3_000, sandbox_id="test-sandbox-1", now=now)
 
         # 5_000 + 500 (regen) + 3_000 (table) = 8_500
         assert result.chips == 8_500
@@ -142,15 +138,13 @@ class TestCapClamp:
             "bankroll_cap": 50_000,
             "bankroll_rate": 0,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3,
-            "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$10",
         })
         repo.save_ai_bankroll(AIBankrollState(
             personality_id="napoleon", chips=49_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
-        result = credit_ai_cash_out(repo, "napoleon", 5_000, now=now)
+        result = credit_ai_cash_out(repo, "napoleon", 5_000, sandbox_id="test-sandbox-1", now=now)
 
         assert result.chips == 50_000
 
@@ -162,15 +156,13 @@ class TestCapClamp:
             "bankroll_cap": 50_000,
             "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3,
-            "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$10",
         })
         repo.save_ai_bankroll(AIBankrollState(
             personality_id="napoleon", chips=50_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
-        result = credit_ai_cash_out(repo, "napoleon", 1_000, now=now)
+        result = credit_ai_cash_out(repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=now)
 
         assert result.chips == 50_000
 
@@ -181,27 +173,23 @@ class TestCapClamp:
             "bankroll_cap": 200_000,
             "bankroll_rate": 0,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3,
-            "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$100",
         })
         _insert_personality(db_path, "napoleon", bankroll_knobs={
             "bankroll_cap": 10_000,
             "bankroll_rate": 0,
             "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3,
-            "stop_win_buy_ins": 5,
             "stake_comfort_zone": "$10",
         })
         repo.save_ai_bankroll(AIBankrollState(
             personality_id="zeus", chips=150_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
         repo.save_ai_bankroll(AIBankrollState(
             personality_id="napoleon", chips=8_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
-        zeus_after = credit_ai_cash_out(repo, "zeus", 30_000, now=now)
-        napoleon_after = credit_ai_cash_out(repo, "napoleon", 5_000, now=now)
+        zeus_after = credit_ai_cash_out(repo, "zeus", 30_000, sandbox_id="test-sandbox-1", now=now)
+        napoleon_after = credit_ai_cash_out(repo, "napoleon", 5_000, sandbox_id="test-sandbox-1", now=now)
 
         assert zeus_after.chips == 180_000  # well under 200k cap
         assert napoleon_after.chips == 10_000  # clamped to 10k cap
@@ -216,13 +204,13 @@ class TestSkipConditions:
         _insert_personality(db_path, "napoleon")
         repo.save_ai_bankroll(AIBankrollState(
             personality_id="napoleon", chips=5_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
-        result = credit_ai_cash_out(repo, "napoleon", 0, now=now)
+        result = credit_ai_cash_out(repo, "napoleon", 0, sandbox_id="test-sandbox-1", now=now)
 
         assert result is None
         # No spurious write — last_regen_tick preserved.
-        stored = repo.load_ai_bankroll("napoleon")
+        stored = repo.load_ai_bankroll("napoleon", sandbox_id="test-sandbox-1")
         assert stored.chips == 5_000
         assert stored.last_regen_tick == now
 
@@ -232,9 +220,9 @@ class TestSkipConditions:
         _insert_personality(db_path, "napoleon")
         repo.save_ai_bankroll(AIBankrollState(
             personality_id="napoleon", chips=5_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
-        result = credit_ai_cash_out(repo, "napoleon", -100, now=now)
+        result = credit_ai_cash_out(repo, "napoleon", -100, sandbox_id="test-sandbox-1", now=now)
 
         assert result is None
 
@@ -245,11 +233,11 @@ class TestSkipConditions:
         _insert_personality(db_path, "napoleon")
         # (No save_ai_bankroll call.)
 
-        result = credit_ai_cash_out(repo, "napoleon", 1_000, now=now)
+        result = credit_ai_cash_out(repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=now)
 
         assert result is None
         # Still no row.
-        assert repo.load_ai_bankroll("napoleon") is None
+        assert repo.load_ai_bankroll("napoleon", sandbox_id="test-sandbox-1") is None
 
 
 # --- Multiple AIs ---
@@ -264,21 +252,19 @@ class TestMultipleAIs:
                 "bankroll_cap": 50_000,
                 "bankroll_rate": 0,
                 "buy_in_multiplier": 1.0,
-                "stop_loss_buy_ins": 3,
-                "stop_win_buy_ins": 5,
                 "stake_comfort_zone": "$10",
             })
             repo.save_ai_bankroll(AIBankrollState(
                 personality_id=pid, chips=5_000, last_regen_tick=now,
-            ))
+            ), sandbox_id="test-sandbox-1")
 
-        credit_ai_cash_out(repo, "napoleon", 1_000, now=now)
-        credit_ai_cash_out(repo, "zeus", 2_500, now=now)
-        credit_ai_cash_out(repo, "athena", 0, now=now)  # busted
+        credit_ai_cash_out(repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=now)
+        credit_ai_cash_out(repo, "zeus", 2_500, sandbox_id="test-sandbox-1", now=now)
+        credit_ai_cash_out(repo, "athena", 0, sandbox_id="test-sandbox-1", now=now)  # busted
 
-        assert repo.load_ai_bankroll("napoleon").chips == 6_000
-        assert repo.load_ai_bankroll("zeus").chips == 7_500
-        assert repo.load_ai_bankroll("athena").chips == 5_000  # unchanged
+        assert repo.load_ai_bankroll("napoleon", sandbox_id="test-sandbox-1").chips == 6_000
+        assert repo.load_ai_bankroll("zeus", sandbox_id="test-sandbox-1").chips == 7_500
+        assert repo.load_ai_bankroll("athena", sandbox_id="test-sandbox-1").chips == 5_000  # unchanged
 
 
 # --- Defaults fallback ---
@@ -294,9 +280,9 @@ class TestDefaultKnobs:
             personality_id="rookie",
             chips=BANKROLL_KNOB_DEFAULTS.bankroll_cap - 1_000,
             last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
-        result = credit_ai_cash_out(repo, "rookie", 5_000, now=now)
+        result = credit_ai_cash_out(repo, "rookie", 5_000, sandbox_id="test-sandbox-1", now=now)
 
         # Default cap is 10_000; we started at 9_000 + 5_000 → clamp to 10_000
         assert result.chips == BANKROLL_KNOB_DEFAULTS.bankroll_cap

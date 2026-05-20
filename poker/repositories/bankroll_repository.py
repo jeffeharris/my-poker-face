@@ -12,8 +12,8 @@ Three persistence surfaces, all introduced in schema v88:
     write that resets `chips` to `starting_bankroll`.
 
   - Personality bankroll knobs (`bankroll_cap`, `bankroll_rate`,
-    `buy_in_multiplier`, `stop_loss_buy_ins`, `stop_win_buy_ins`,
-    `stake_comfort_zone`) live inside the existing `config_json`
+    `buy_in_multiplier`, `stake_comfort_zone`) live inside the
+    existing `config_json`
     column as a `bankroll_knobs` sub-dict. Same nesting convention
     as `anchors`. Reads fall back to `BANKROLL_KNOB_DEFAULTS`
     per-field when the sub-dict (or individual keys) is absent, so
@@ -70,49 +70,78 @@ class BankrollRepository(BaseRepository):
     """
 
     # --- AI bankroll ---
+    #
+    # Every method that reads or writes ai_bankroll_state takes
+    # `sandbox_id` as a required kwarg (Phase 2.5 v102). The repo
+    # never falls back to a default sandbox — silent fallbacks were
+    # the bug class the per-sandbox handoff was designed to prevent.
+    # Admin / audit paths that legitimately want cross-sandbox totals
+    # pass `sandbox_id=None` to the methods that explicitly accept it
+    # (`sum_ai_bankroll_chips_stored`, `iter_personality_ids_with_bankrolls`).
 
-    def save_ai_bankroll(self, state: AIBankrollState) -> None:
-        """Upsert the AI bankroll row.
+    def save_ai_bankroll(
+        self,
+        state: AIBankrollState,
+        *,
+        sandbox_id: str,
+        chip_ledger_repo=None,
+    ) -> None:
+        """Upsert the AI bankroll row in the given sandbox.
 
         Writes the stored `chips` snapshot verbatim — callers writing
         a post-event value must have already projected through
         elapsed time and reset `last_regen_tick = now` on the state
-        before calling this. The repo doesn't project on write; that
-        would be a hidden mutation surface.
+        before calling this.
+
+        First-write-per-sandbox emits an `ai_seed` ledger entry for
+        `state.chips` when `chip_ledger_repo` is provided. Closes the
+        chip-ledger gap from `CASH_MODE_ECONOMY.md` Known Issues §2:
+        without this, new sandboxes would create AI chips from thin
+        air with no audit trail.
         """
         with self._get_connection() as conn:
+            is_first_write = chip_ledger_repo is not None and conn.execute(
+                "SELECT 1 FROM ai_bankroll_state "
+                "WHERE personality_id = ? AND sandbox_id = ?",
+                (state.personality_id, sandbox_id),
+            ).fetchone() is None
             conn.execute(
                 """
                 INSERT OR REPLACE INTO ai_bankroll_state
-                    (personality_id, chips, last_regen_tick)
-                VALUES (?, ?, ?)
+                    (personality_id, sandbox_id, chips, last_regen_tick)
+                VALUES (?, ?, ?, ?)
                 """,
                 (
                     state.personality_id,
+                    sandbox_id,
                     state.chips,
                     state.last_regen_tick.isoformat() if state.last_regen_tick else None,
                 ),
             )
+        if is_first_write and state.chips > 0:
+            from core.economy import ledger as chip_ledger
+            chip_ledger.record_ai_seed(
+                chip_ledger_repo,
+                personality_id=state.personality_id,
+                amount=int(state.chips),
+                context={'sandbox_id': sandbox_id, 'site': 'save_ai_bankroll'},
+            )
 
-    def load_ai_bankroll(self, personality_id: str) -> Optional[AIBankrollState]:
-        """Load the raw stored snapshot — no projection applied.
-
-        Returns the AIBankrollState exactly as persisted (`chips` is
-        the snapshot at `last_regen_tick`). Callers wanting the live
-        projected value should use `load_ai_bankroll_current`.
-
-        Returns None when no row exists; treat that as "AI has never
-        sat down at a cash table" — the caller decides whether to
-        seed a row or refuse seating.
-        """
+    def load_ai_bankroll(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
+    ) -> Optional[AIBankrollState]:
+        """Load the raw stored snapshot in the given sandbox."""
         with self._get_connection() as conn:
             row = conn.execute(
                 """
                 SELECT chips, last_regen_tick
                 FROM ai_bankroll_state
-                WHERE personality_id = ?
+                WHERE personality_id = ? AND sandbox_id = ?
                 """,
-                (personality_id,),
+                (personality_id, sandbox_id),
             ).fetchone()
             if not row:
                 return None
@@ -126,63 +155,51 @@ class BankrollRepository(BaseRepository):
         self,
         personality_id: str,
         state_json: Optional[str],
+        *,
+        sandbox_id: str,
     ) -> None:
-        """Persist the AI's emotional-state blob without touching chips.
-
-        Schema v97 added `emotional_state_json` to `ai_bankroll_state`
-        as a TEXT NULL column. The cash_mode controller cache (full-
-        sim Commit 3) calls this on LRU eviction and on the periodic
-        flush cadence, with `state_json` being the JSON-serialized
-        `EmotionalState` from the live controller.
-
-        `state_json=None` clears the persisted state — the next cache
-        miss will hydrate to defaults. Inserts a row when one doesn't
-        already exist (chips defaults to 0, last_regen_tick NULL) so
-        the column write doesn't silently drop on a fresh personality
-        the caller has only ever seen via sim.
-        """
+        """Persist the AI's emotional-state blob in the given sandbox."""
         with self._get_connection() as conn:
             existing = conn.execute(
-                "SELECT 1 FROM ai_bankroll_state WHERE personality_id = ?",
-                (personality_id,),
+                "SELECT 1 FROM ai_bankroll_state "
+                "WHERE personality_id = ? AND sandbox_id = ?",
+                (personality_id, sandbox_id),
             ).fetchone()
             if existing:
                 conn.execute(
                     """
                     UPDATE ai_bankroll_state
                     SET emotional_state_json = ?
-                    WHERE personality_id = ?
+                    WHERE personality_id = ? AND sandbox_id = ?
                     """,
-                    (state_json, personality_id),
+                    (state_json, personality_id, sandbox_id),
                 )
             else:
                 conn.execute(
                     """
                     INSERT INTO ai_bankroll_state
-                        (personality_id, chips, last_regen_tick,
+                        (personality_id, sandbox_id, chips, last_regen_tick,
                          emotional_state_json)
-                    VALUES (?, 0, NULL, ?)
+                    VALUES (?, ?, 0, NULL, ?)
                     """,
-                    (personality_id, state_json),
+                    (personality_id, sandbox_id, state_json),
                 )
 
-    def load_emotional_state_json(self, personality_id: str) -> Optional[str]:
-        """Return the persisted emotional-state JSON blob, or None.
-
-        None means: (a) the AI has no `ai_bankroll_state` row yet,
-        or (b) the row exists but the column is NULL (never been
-        flushed by a sim hand). Callers (the controller cache's
-        hydrate path) treat both as "build a fresh-default
-        controller."
-        """
+    def load_emotional_state_json(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
+    ) -> Optional[str]:
+        """Return the persisted emotional-state JSON blob in the sandbox."""
         with self._get_connection() as conn:
             row = conn.execute(
                 """
                 SELECT emotional_state_json
                 FROM ai_bankroll_state
-                WHERE personality_id = ?
+                WHERE personality_id = ? AND sandbox_id = ?
                 """,
-                (personality_id,),
+                (personality_id, sandbox_id),
             ).fetchone()
             if not row:
                 return None
@@ -191,86 +208,102 @@ class BankrollRepository(BaseRepository):
     def load_emotional_state_json_for_pids(
         self,
         personality_ids: List[str],
+        *,
+        sandbox_id: str,
     ) -> dict:
-        """Batched read of emotional_state_json for multiple AIs.
-
-        Returns `{personality_id: blob_or_none}` covering exactly the
-        requested ids. Missing rows and NULL columns both map to None
-        — callers (the lobby route's emotion resolver) treat both as
-        "no persisted state, fall back to confident default."
-
-        Single SELECT with parameterized IN list keeps the lobby
-        response cheap even with 5 stakes × 6 seats = 30 lookups per
-        request.
-        """
+        """Batched read of emotional_state_json for multiple AIs in one sandbox."""
         result = {pid: None for pid in personality_ids}
         if not personality_ids:
             return result
-        # Build the placeholder list. We don't trust the count enough
-        # to skip the build (callers may pass empty list), and SQLite
-        # supports parameterized IN clauses with ? placeholders.
         placeholders = ",".join("?" for _ in personality_ids)
         with self._get_connection() as conn:
             rows = conn.execute(
                 f"""
                 SELECT personality_id, emotional_state_json
                 FROM ai_bankroll_state
-                WHERE personality_id IN ({placeholders})
+                WHERE sandbox_id = ?
+                  AND personality_id IN ({placeholders})
                 """,
-                tuple(personality_ids),
+                (sandbox_id, *personality_ids),
             ).fetchall()
         for row in rows:
             result[row["personality_id"]] = row["emotional_state_json"]
         return result
 
-    def sum_ai_bankroll_chips_stored(self) -> int:
-        """Return the sum of stored chips across every AI bankroll row.
-
-        Stored value, not projected — this matches the chip ledger's
-        commit-on-write semantics. The chip-ledger audit uses this
-        to compute `ai_bankrolls_stored` for drift math.
-        """
+    def sum_ai_bankroll_chips_stored(
+        self,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> int:
+        """Return the sum of stored chips. `sandbox_id=None` = all sandboxes."""
         with self._get_connection() as conn:
-            row = conn.execute(
-                "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state"
-            ).fetchone()
+            if sandbox_id is None:
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state"
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state "
+                    "WHERE sandbox_id = ?",
+                    (sandbox_id,),
+                ).fetchone()
             return int(row[0] or 0)
 
-    def iter_personality_ids_with_bankrolls(self) -> List[str]:
-        """Return every personality_id with a row in ai_bankroll_state.
+    def iter_personality_ids_with_bankrolls(
+        self,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> List[str]:
+        """Return personality_ids with a row in ai_bankroll_state.
 
-        Used by the audit to project each AI's bankroll forward for
-        the `ai_bankrolls_projected` informational total.
+        `sandbox_id=None` returns the union across all sandboxes
+        (admin / audit). Passing a sandbox_id scopes to one save-file.
+        """
+        with self._get_connection() as conn:
+            if sandbox_id is None:
+                rows = conn.execute(
+                    "SELECT DISTINCT personality_id FROM ai_bankroll_state"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT personality_id FROM ai_bankroll_state "
+                    "WHERE sandbox_id = ?",
+                    (sandbox_id,),
+                ).fetchall()
+        return [row[0] if not hasattr(row, 'keys') else row['personality_id'] for row in rows]
+
+    def iter_personality_ids_with_bankrolls_by_sandbox(
+        self,
+    ) -> List[tuple]:
+        """Return `[(personality_id, sandbox_id), ...]` across every sandbox.
+
+        Drives the chip-ledger audit's cross-sandbox `ai_bankrolls_projected`
+        sum — each (pid, sandbox_id) pair gets its bankroll projected
+        independently and summed. Per-sandbox audits don't need this
+        helper (they walk a single sandbox via the scoped
+        `iter_personality_ids_with_bankrolls(sandbox_id=...)`).
         """
         with self._get_connection() as conn:
             rows = conn.execute(
-                "SELECT personality_id FROM ai_bankroll_state"
+                "SELECT personality_id, sandbox_id FROM ai_bankroll_state"
             ).fetchall()
-        return [row[0] if not hasattr(row, 'keys') else row['personality_id'] for row in rows]
+        return [
+            (
+                row[0] if not hasattr(row, 'keys') else row['personality_id'],
+                row[1] if not hasattr(row, 'keys') else row['sandbox_id'],
+            )
+            for row in rows
+        ]
 
     def load_ai_bankroll_current(
         self,
         personality_id: str,
         *,
+        sandbox_id: str,
         now: Optional[datetime] = None,
     ) -> Optional[int]:
-        """Load the current live bankroll chip count (projection applied).
-
-        "Current" means "what the bankroll is right now," computed by
-        projecting the stored snapshot through elapsed time via
-        `project_bankroll`. Pair name with `load_ai_bankroll` (raw
-        snapshot, no projection — admin/analytics only).
-
-        Reads the stored snapshot, looks up the per-personality knob
-        sub-dict (with default fallback), and returns
-        `project_bankroll(state, cap, rate, now)`. Returns None when
-        the personality has no bankroll row yet.
-
-        `now` defaults to `datetime.utcnow()`; explicit `now` lets
-        callers pin the projection point for replay/test stability
-        (mirrors the relationship repo's pattern).
-        """
-        state = self.load_ai_bankroll(personality_id)
+        """Load the current live bankroll chip count in the sandbox."""
+        state = self.load_ai_bankroll(personality_id, sandbox_id=sandbox_id)
         if state is None:
             return None
         knobs = self.load_personality_knobs(personality_id)
@@ -375,8 +408,6 @@ class BankrollRepository(BaseRepository):
             bankroll_cap=sub.get("bankroll_cap", defaults.bankroll_cap),
             bankroll_rate=sub.get("bankroll_rate", defaults.bankroll_rate),
             buy_in_multiplier=sub.get("buy_in_multiplier", defaults.buy_in_multiplier),
-            stop_loss_buy_ins=sub.get("stop_loss_buy_ins", defaults.stop_loss_buy_ins),
-            stop_win_buy_ins=sub.get("stop_win_buy_ins", defaults.stop_win_buy_ins),
             stake_comfort_zone=sub.get("stake_comfort_zone", defaults.stake_comfort_zone),
         )
 
@@ -469,8 +500,6 @@ class BankrollRepository(BaseRepository):
                 "bankroll_cap": knobs.bankroll_cap,
                 "bankroll_rate": knobs.bankroll_rate,
                 "buy_in_multiplier": knobs.buy_in_multiplier,
-                "stop_loss_buy_ins": knobs.stop_loss_buy_ins,
-                "stop_win_buy_ins": knobs.stop_win_buy_ins,
                 "stake_comfort_zone": knobs.stake_comfort_zone,
             }
             cursor = conn.execute(

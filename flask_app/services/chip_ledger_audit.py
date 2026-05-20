@@ -37,6 +37,7 @@ def compute_audit(
     list_game_ids_fn=None,
     get_game_fn=None,
     now: Optional[datetime] = None,
+    sandbox_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Compute the audit payload described in the chip-ledger handoff.
 
@@ -63,6 +64,13 @@ def compute_audit(
             its game_data dict.
         now: Defaults to `datetime.utcnow()` — explicit lets tests
             pin the 24h window boundary.
+        sandbox_id: Optional sandbox scope. `None` (the default) means
+            "aggregate across all sandboxes" — the admin view. When a
+            specific sandbox_id is passed, every per-sandbox sum filters
+            to that sandbox only. The cross-cutting surfaces
+            (player_bankrolls, stake principal, live session stacks,
+            chip-ledger totals) stay global in v1; only the AI runtime
+            state aggregations honor the filter.
 
     Returns:
         Dict matching the audit shape in
@@ -101,9 +109,9 @@ def compute_audit(
     # decreases, AI borrower seat / live-stack increases), so the
     # stakes-table sum is restricted to human borrowers by design.
     active_loans_principal = _sum_active_stake_principal_for_humans(stake_repo)
-    ai_bankrolls_stored = _sum_ai_bankrolls_stored(bankroll_repo)
-    ai_bankrolls_projected = _sum_ai_bankrolls_projected(bankroll_repo, now)
-    cash_table_seats_ai = _sum_cash_table_ai_seats(cash_table_repo)
+    ai_bankrolls_stored = _sum_ai_bankrolls_stored(bankroll_repo, sandbox_id)
+    ai_bankrolls_projected = _sum_ai_bankrolls_projected(bankroll_repo, now, sandbox_id)
+    cash_table_seats_ai = _sum_cash_table_ai_seats(cash_table_repo, sandbox_id)
     live_session_ai_stacks, live_session_error = _sum_live_session_ai_stacks(
         list_game_ids_fn, get_game_fn,
     )
@@ -201,39 +209,89 @@ def _sum_active_stake_principal_for_humans(stake_repo) -> int:
     return stake_repo.sum_active_principal_for_humans()
 
 
-def _sum_ai_bankrolls_stored(bankroll_repo) -> int:
+def _sum_ai_bankrolls_stored(bankroll_repo, sandbox_id: Optional[str]) -> int:
     """Sum AI bankroll chips as currently *stored* on disk.
 
     Stored chips are the canonical persistence value — they only
     change when `save_ai_bankroll` is called, which is the same
     moment the `ai_regen` / `cap_clamp` ledger entries fire. This
     is what drift math needs.
+
+    `sandbox_id=None` aggregates across every sandbox (admin view).
+    A specific id scopes the sum to a single sandbox.
     """
-    return bankroll_repo.sum_ai_bankroll_chips_stored()
+    return bankroll_repo.sum_ai_bankroll_chips_stored(sandbox_id=sandbox_id)
 
 
-def _sum_ai_bankrolls_projected(bankroll_repo, now: datetime) -> int:
+def _sum_ai_bankrolls_projected(
+    bankroll_repo, now: datetime, sandbox_id: Optional[str],
+) -> int:
     """Sum projected (regen-applied, cap-clamped) AI bankroll chips.
 
     Read-time view: what a live read of each AI's bankroll would
     return now. Differs from stored when time has elapsed since
     the last write — the gap is uncommitted regen, returned in the
     audit payload for tuning purposes.
+
+    `sandbox_id=None` projects across every sandbox; a specific id
+    scopes the projection to a single sandbox. Projection lookups
+    pass the same scope through to `load_ai_bankroll_current`.
     """
     total = 0
-    for pid in bankroll_repo.iter_personality_ids_with_bankrolls():
+    # When aggregating cross-sandbox, we need to iterate every
+    # (sandbox_id, personality_id) pair so the per-row projection
+    # carries the right scope. `iter_personality_ids_with_bankrolls`
+    # returns the per-sandbox pid list; when called with
+    # `sandbox_id=None` it returns pids across every sandbox.
+    if sandbox_id is None:
+        # Cross-sandbox path: iterate every (sandbox_id, pid) pair so
+        # the projection load gets the right scope. The repo exposes
+        # this via the same iterator returning pids per sandbox; we
+        # fall back to summing the stored value when no projection
+        # scope is unambiguous.
         try:
-            chips = bankroll_repo.load_ai_bankroll_current(pid, now=now)
+            iter_pairs = bankroll_repo.iter_personality_ids_with_bankrolls_by_sandbox()
+        except AttributeError:
+            # Repo doesn't yet expose the per-sandbox iterator — fall
+            # back to the stored sum (drift math is unaffected; only
+            # the uncommitted-regen line item degrades).
+            return bankroll_repo.sum_ai_bankroll_chips_stored(sandbox_id=None)
+        for pid, sid in iter_pairs:
+            try:
+                chips = bankroll_repo.load_ai_bankroll_current(
+                    pid, sandbox_id=sid, now=now,
+                )
+            except Exception as e:
+                logger.warning(
+                    "chip-ledger audit: load_ai_bankroll_current(%r, sandbox=%r) failed: %s",
+                    pid, sid, e,
+                )
+                chips = 0
+            total += int(chips or 0)
+        return total
+    for pid in bankroll_repo.iter_personality_ids_with_bankrolls(sandbox_id=sandbox_id):
+        try:
+            chips = bankroll_repo.load_ai_bankroll_current(
+                pid, sandbox_id=sandbox_id, now=now,
+            )
         except Exception as e:
-            logger.warning("chip-ledger audit: load_ai_bankroll_current(%r) failed: %s", pid, e)
+            logger.warning(
+                "chip-ledger audit: load_ai_bankroll_current(%r, sandbox=%r) failed: %s",
+                pid, sandbox_id, e,
+            )
             chips = 0
         total += int(chips or 0)
     return total
 
 
-def _sum_cash_table_ai_seats(cash_table_repo) -> int:
+def _sum_cash_table_ai_seats(cash_table_repo, sandbox_id: Optional[str]) -> int:
+    """Sum AI seat chips across persisted cash tables.
+
+    `sandbox_id=None` walks every sandbox's tables (admin view); a
+    specific id scopes to a single sandbox.
+    """
     total = 0
-    for table in cash_table_repo.list_all_tables():
+    for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
         for slot in table.seats:
             if slot.get('kind') == 'ai':
                 total += int(slot.get('chips', 0) or 0)
