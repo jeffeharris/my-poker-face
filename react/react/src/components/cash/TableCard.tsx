@@ -14,6 +14,7 @@
  */
 
 import { useCallback } from 'react';
+import { HandCoins } from 'lucide-react';
 import { config } from '../../config';
 import type { LobbyTable } from './types';
 // type-only import keeps the Lobby ↔ TableCard cycle erased at runtime
@@ -131,6 +132,15 @@ export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardPr
                     aria-label={`You owe ${seat.name} ${seat.carry_amount} chips`}
                   >
                     ${seat.carry_amount.toLocaleString()}
+                  </span>
+                )}
+                {seat.in_active_stake && (
+                  <span
+                    className="lobby-table-card__stake-glyph"
+                    title={`${seat.name} is currently in an active stake`}
+                    aria-label={`${seat.name} is currently in an active stake position`}
+                  >
+                    <HandCoins size={10} aria-hidden="true" />
                   </span>
                 )}
                 <div className="lobby-table-card__seat-image">

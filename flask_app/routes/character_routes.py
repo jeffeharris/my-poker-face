@@ -422,6 +422,41 @@ def get_dossier(identifier: str):
     except Exception as e:
         logger.debug("[CHARACTER] ai_bankroll lookup failed: %s", e)
 
+    # Stake summary (Phase 4 dossier enrichment). Two directions:
+    #   - `as_borrower`: this AI's outstanding carries as borrower
+    #     (Phase 4 AI-as-borrower). Pre-Phase-4 AIs never borrowed,
+    #     so the list is empty for older data.
+    #   - `as_staker`: humans' (and Phase-4-onward AIs') outstanding
+    #     carries TO this AI (Path B onward).
+    # Both summaries report counts + total chip amounts so the dossier
+    # can render "Owes $X across N carries" / "Owed $Y across M carries"
+    # without rendering individual stake rows (the drawer is the
+    # detail view).
+    stake_summary = {
+        'as_borrower': {'carry_count': 0, 'total_carried': 0},
+        'as_staker':   {'carry_count': 0, 'total_owed_to_them': 0},
+    }
+    try:
+        from flask_app.extensions import stake_repo
+        if stake_repo is not None:
+            from cash_mode.stakes import BORROWER_KIND_PERSONALITY
+            borrower_carries = stake_repo.list_carries_for_borrower(
+                personality_id, BORROWER_KIND_PERSONALITY,
+            )
+            stake_summary['as_borrower'] = {
+                'carry_count': len(borrower_carries),
+                'total_carried': sum(int(s.carry_amount) for s in borrower_carries),
+            }
+            staker_carries = stake_repo.list_carries_for_staker(personality_id)
+            stake_summary['as_staker'] = {
+                'carry_count': len(staker_carries),
+                'total_owed_to_them': sum(
+                    int(s.carry_amount) for s in staker_carries
+                ),
+            }
+    except Exception as e:
+        logger.debug("[CHARACTER] stake_summary lookup failed: %s", e)
+
     response = {
         'personality_id': personality_id,
         'personality': personality,
@@ -429,6 +464,7 @@ def get_dossier(identifier: str):
         'observation': _build_observation(game_data, player_name),
         'pressure_summary': _build_pressure_summary(game_data, player_name),
         'ai_bankroll': ai_bankroll_chips,
+        'stake_summary': stake_summary,
         'relationship': None,
         'cash_pair_stats': None,
         'memorable_hands': _build_memorable_hands(game_data, player_name),

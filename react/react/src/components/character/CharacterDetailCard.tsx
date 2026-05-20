@@ -909,6 +909,34 @@ export function CharacterDetailCard({
                       value={<span className="dossier__money">${character.chips.bankroll.toLocaleString()}</span>}
                     />
                   )}
+                  {fetched?.stake_summary?.as_staker.total_owed_to_them ? (
+                    <DataRow
+                      label="Owed to them"
+                      value={
+                        <span className="dossier__money">
+                          ${fetched.stake_summary.as_staker.total_owed_to_them.toLocaleString()}
+                          <span className="dossier__money-note">
+                            {' '}across {fetched.stake_summary.as_staker.carry_count}{' '}
+                            {fetched.stake_summary.as_staker.carry_count === 1 ? 'carry' : 'carries'}
+                          </span>
+                        </span>
+                      }
+                    />
+                  ) : null}
+                  {fetched?.stake_summary?.as_borrower.total_carried ? (
+                    <DataRow
+                      label="They owe"
+                      value={
+                        <span className="dossier__money">
+                          ${fetched.stake_summary.as_borrower.total_carried.toLocaleString()}
+                          <span className="dossier__money-note">
+                            {' '}across {fetched.stake_summary.as_borrower.carry_count}{' '}
+                            {fetched.stake_summary.as_borrower.carry_count === 1 ? 'carry' : 'carries'}
+                          </span>
+                        </span>
+                      }
+                    />
+                  ) : null}
                   {hasObserved && merged.observed?.handsObserved !== undefined && (
                     <DataRow
                       label="Hands observed"

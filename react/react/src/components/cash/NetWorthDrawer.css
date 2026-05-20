@@ -360,3 +360,24 @@
   pointer-events: none;
   font-variant-numeric: tabular-nums;
 }
+
+/* Phase 4: stake-glyph badge — small chip icon on AI seats currently
+ * in an active stake (either side). Sits at bottom-right so it
+ * doesn't collide with the carry-pin (top-right) or dealer "D"
+ * button (top-left). */
+.lobby-table-card__stake-glyph {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: rgba(110, 180, 220, 0.92);
+  color: #fff;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}

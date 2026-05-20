@@ -142,6 +142,11 @@ export type LobbySeat =
        *  there's no carry — frontend uses presence (not >0) to decide
        *  whether to render the corner pin. */
       carry_amount?: number;
+      /** Phase 4 UI extra: true when this AI is currently in any
+       *  active stake position (borrower OR staker side). Drives a
+       *  small "in stake" glyph on the table card so the player can
+       *  see live AI-economy dynamics without opening each dossier. */
+      in_active_stake?: boolean;
     }
   | {
       kind: 'human';

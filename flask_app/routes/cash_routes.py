@@ -2815,6 +2815,22 @@ def get_lobby():
         except Exception as e:
             logger.warning("[CASH][LOBBY] carry annotation load failed: %s", e)
 
+    # Phase 4 UI extra: build the set of AIs currently in any active
+    # stake (borrower or staker side). The lobby glyph on TableCard
+    # surfaces this so the player can see who's in a live stake
+    # position without opening every dossier. Bulk-fetch keeps the
+    # cost a single query regardless of seat count.
+    active_stake_pids: set = set()
+    if stake_repo is not None:
+        try:
+            active_stake_pids = set(
+                stake_repo.get_active_personality_participants()
+            )
+        except Exception as e:
+            logger.warning(
+                "[CASH][LOBBY] active stake participants load failed: %s", e,
+            )
+
     response_tables = []
     for table in tables:
         big_blind, min_buy_in, max_buy_in = table_buy_in_window(table.stake_label)
@@ -2911,6 +2927,12 @@ def get_lobby():
                 # lender (separate sessions may have produced multiple).
                 if pid in carries_by_staker:
                     entry["carry_amount"] = carries_by_staker[pid]
+                # Phase 4 UI extra: mark AIs currently in any active
+                # stake position. The frontend renders a small glyph
+                # distinct from the carry-pin so the player can spot
+                # active stake dynamics at a glance.
+                if pid in active_stake_pids:
+                    entry["in_active_stake"] = True
             elif slot["kind"] == "human":
                 entry["personality_id"] = slot.get("personality_id")
                 entry["chips"] = int(slot.get("chips", 0))

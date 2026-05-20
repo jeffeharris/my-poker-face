@@ -333,6 +333,28 @@ class StakeRepository(BaseRepository):
             )
             return cursor.rowcount > 0
 
+    def get_active_personality_participants(self) -> List[str]:
+        """Personality_ids currently in any active stake.
+
+        Returns AI participants on either side — borrower or staker —
+        of an active (non-settled, non-carry) stake. Phase 4's lobby
+        glyph uses the result to annotate AI seats currently in a
+        live stake position. Returns a list (not a set) so callers
+        can pass it directly to UI serializers; dedup is done
+        server-side via SQL UNION.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT borrower_id FROM stakes
+                  WHERE status = 'active' AND borrower_kind = 'personality'
+                UNION
+                SELECT staker_id FROM stakes
+                  WHERE status = 'active' AND staker_kind = 'personality'
+                """
+            ).fetchall()
+            return [row[0] for row in rows if row[0]]
+
     def mark_forgiveness_asked(
         self, stake_id: str, asked_at: datetime,
     ) -> bool:

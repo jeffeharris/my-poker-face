@@ -88,6 +88,22 @@ export interface DossierMemorableHand {
   timestamp: string | null;
 }
 
+/** Stake-position summary surfaced on the dossier (Phase 4 of the
+ *  backing system). Counts and total chip amounts for outstanding
+ *  carries this AI is involved in, both as borrower and as staker.
+ *  Active (in-session) stakes are NOT counted here — only carries
+ *  (residual debts that survived a session bust). */
+export interface DossierStakeSummary {
+  as_borrower: {
+    carry_count: number;
+    total_carried: number;
+  };
+  as_staker: {
+    carry_count: number;
+    total_owed_to_them: number;
+  };
+}
+
 export interface DossierResponse {
   personality_id: string;
   personality: DossierPersonality | null;
@@ -97,6 +113,9 @@ export interface DossierResponse {
   /** AI's off-table bankroll (chips), projected through regen.
    *  Null when no bankroll row exists yet (AI never sat down). */
   ai_bankroll: number | null;
+  /** Outstanding-carry totals (both directions). Defaults to all
+   *  zeros when the AI has no stake history. */
+  stake_summary: DossierStakeSummary;
   relationship: DossierRelationship | null;
   cash_pair_stats: DossierCashPairStats | null;
   memorable_hands: DossierMemorableHand[];
