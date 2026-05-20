@@ -548,6 +548,11 @@ def refresh_table_roster(
         Callable[[str, str], Optional[Tuple[float, float, float]]]
     ] = None,
     stake_label: Optional[str] = None,
+    # Phase 4 Commit 4: cross-table staker candidates. Empty by
+    # default → only AIs at this table can stake (Commit 2's
+    # table-local behavior). Pass a broader list (idle + other-table
+    # AIs filtered to adjacent stakes) for the wider pool.
+    cross_table_staker_pids: Optional[List[str]] = None,
 ) -> RosterRefreshResult:
     """Apply movement decisions to a table's AI seats, then live-fill opens.
 
@@ -668,12 +673,23 @@ def refresh_table_roster(
             if borrower_profile is not None and getattr(
                 borrower_profile, "willing", False,
             ):
+                # Candidate pool: AIs at this table PLUS any cross-table
+                # candidates the lobby supplied. Dedup defensively in
+                # case an AI appears in both lists.
+                local_candidates = [
+                    c for c in pre_movement_ai_pids if c != pid
+                ]
+                if cross_table_staker_pids:
+                    seen = set(local_candidates)
+                    seen.add(pid)
+                    for extra in cross_table_staker_pids:
+                        if extra not in seen:
+                            local_candidates.append(extra)
+                            seen.add(extra)
                 pending_stake = find_ai_staker_for(
                     borrower_id=pid,
                     principal=table_min_buy_in,
-                    candidate_pids=[
-                        c for c in pre_movement_ai_pids if c != pid
-                    ],
+                    candidate_pids=local_candidates,
                     lender_profile_lookup=lender_profile_lookup,
                     bankroll_lookup=lambda c: bankroll_lookup(c),
                     relationship_lookup=relationship_lookup,

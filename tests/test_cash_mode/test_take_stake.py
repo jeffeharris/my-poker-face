@@ -321,6 +321,59 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
         self.assertEqual(len(from_seat), 1)
         self.assertEqual(from_seat[0].amount, 15)
 
+    def test_cross_table_staker_pids_widens_pool(self):
+        # Phase 4 Commit 4: when only the busting AI is at the table
+        # (no peer to stake them), an off-table candidate from the
+        # cross_table_staker_pids list can still match.
+        table = CashTableState(
+            table_id="test-table",
+            stake_label="$2",
+            seats=[
+                ai_slot("bust_ai", 10),  # below 0.3 × 80 = 24
+                open_slot(),  # no peer at this table
+                open_slot(),
+                open_slot(),
+                open_slot(),
+                open_slot(),
+            ],
+        )
+        result = refresh_table_roster(
+            table,
+            **self._common_kwargs(
+                borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
+                lender_profile_lookup=lambda pid: _willing_lender(),
+                relationship_lookup=lambda o, p: None,
+                stake_label="$2",
+                # An AI from another table or the idle pool.
+                cross_table_staker_pids=["off_table_napoleon"],
+            ),
+        )
+        self.assertEqual(result.decisions.get("bust_ai"), "take_stake")
+        self.assertEqual(len(result.stake_creations), 1)
+        self.assertEqual(
+            result.stake_creations[0].staker_id, "off_table_napoleon",
+        )
+
+    def test_cross_table_pool_dedups_with_table_local(self):
+        # If the same pid appears in both the table seats and the
+        # cross-table list, it's only considered once.
+        table = self._make_table(busting_chips=10)
+        result = refresh_table_roster(
+            table,
+            **self._common_kwargs(
+                borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
+                lender_profile_lookup=lambda pid: _willing_lender(),
+                relationship_lookup=lambda o, p: None,
+                stake_label="$2",
+                cross_table_staker_pids=["napoleon"],  # already at table
+            ),
+        )
+        self.assertEqual(result.decisions.get("bust_ai"), "take_stake")
+        # Still picks napoleon (only qualified candidate).
+        self.assertEqual(
+            result.stake_creations[0].staker_id, "napoleon",
+        )
+
     def test_take_stake_with_zero_chips_emits_no_from_seat(self):
         # Bust AI at 0 chips — no from_seat (nothing to return). The
         # seat still refills to principal.

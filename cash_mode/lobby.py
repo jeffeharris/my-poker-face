@@ -433,6 +433,75 @@ def refresh_unseated_tables(
         relationship_repo is not None and stake_repo is not None
     )
 
+    # Phase 4 Commit 4: build the cross-table staker candidate pool
+    # ONCE per refresh, indexed by stake_label of the target table.
+    # Each stake's pool includes (a) AIs seated at OTHER tables whose
+    # `stake_comfort_zone` is the target stake or an adjacent stake,
+    # plus (b) idle / eligible-but-never-seated AIs filtered the same
+    # way. Computed lazily inside the per-table loop because adjacency
+    # depends on the target stake_label.
+    def _adjacent_stakes(label: str) -> List[str]:
+        if label not in STAKES_ORDER:
+            return []
+        idx = STAKES_ORDER.index(label)
+        return [
+            STAKES_ORDER[i]
+            for i in (idx - 1, idx, idx + 1)
+            if 0 <= i < len(STAKES_ORDER)
+        ]
+
+    def _cross_table_pool_for(target_stake_label: str, current_table_id: str) -> List[str]:
+        if not _take_stake_enabled:
+            return []
+        adj = set(_adjacent_stakes(target_stake_label))
+        if not adj:
+            return []
+        candidates: List[str] = []
+        seen: set = set()
+        # AIs at other tables.
+        for other_table in tables:
+            if other_table.table_id == current_table_id:
+                continue
+            for slot in other_table.seats:
+                if slot.get("kind") != "ai":
+                    continue
+                pid = slot.get("personality_id")
+                if not pid or pid in seen:
+                    continue
+                try:
+                    knobs = bankroll_repo.load_personality_knobs(pid)
+                except Exception:
+                    continue
+                if knobs.stake_comfort_zone in adj:
+                    candidates.append(pid)
+                    seen.add(pid)
+        # Idle pool AIs.
+        for idle_entry in idle_pool:
+            pid = idle_entry.personality_id
+            if pid in seen:
+                continue
+            try:
+                knobs = bankroll_repo.load_personality_knobs(pid)
+            except Exception:
+                continue
+            if knobs.stake_comfort_zone in adj:
+                candidates.append(pid)
+                seen.add(pid)
+        # Eligible-never-seated personalities (already filtered to
+        # cash-eligible upstream; we further filter by adjacency).
+        for cand in eligible:
+            pid = cand.get("personality_id")
+            if not pid or pid in seen:
+                continue
+            try:
+                knobs = bankroll_repo.load_personality_knobs(pid)
+            except Exception:
+                continue
+            if knobs.stake_comfort_zone in adj:
+                candidates.append(pid)
+                seen.add(pid)
+        return candidates
+
     def _borrower_profile_lookup(pid: str):
         # An AI already on an active stake can't take a new one — the
         # `one-active-stake-per-borrower` invariant would otherwise break
@@ -650,6 +719,16 @@ def refresh_unseated_tables(
                     _relationship_lookup if _take_stake_enabled else None
                 ),
                 stake_label=table.stake_label,
+                # Phase 4 Commit 4: cross-table candidate pool. The
+                # per-table loop sees the pre-loop snapshot of other
+                # tables / idle pool, which is good enough — a staker
+                # picked here might have also moved this tick at their
+                # own table, but the bankroll lookup re-checks capacity
+                # so a now-broke AI wouldn't qualify even if they
+                # appeared in this list.
+                cross_table_staker_pids=_cross_table_pool_for(
+                    table.stake_label, table.table_id,
+                ),
             )
             # Carry the post-hand table forward to the next iteration.
             table = per_hand.new_table
