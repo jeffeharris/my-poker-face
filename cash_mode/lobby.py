@@ -381,6 +381,13 @@ def refresh_unseated_tables(
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
     hand_sim_prob: float = DEFAULT_HAND_SIM_PROB,
     chip_ledger_repo=None,
+    # Phase 4: stake_repo + relationship_repo are required for the
+    # take_stake interception. When either is None, take_stake never
+    # fires and forced_leave behaves as it did pre-Phase-4 (preserves
+    # behavior for the limited number of test callers that don't pass
+    # them — tests for take_stake plumbing pass both).
+    relationship_repo=None,
+    stake_repo=None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -417,6 +424,30 @@ def refresh_unseated_tables(
         # out of live-fill. `ensure_ai_bankrolls_seeded` should have
         # written the row already; this is the defensive shim.
         return bankroll_repo.load_personality_knobs(pid).starting_bankroll
+
+    # Phase 4 take_stake callbacks. Wired only when both stake_repo
+    # and relationship_repo are provided. The borrower/lender profile
+    # lookups always work — the gates inside find_ai_staker_for treat
+    # missing config as defaults.
+    _take_stake_enabled = (
+        relationship_repo is not None and stake_repo is not None
+    )
+
+    def _borrower_profile_lookup(pid: str):
+        return bankroll_repo.load_borrower_profile(pid)
+
+    def _lender_profile_lookup(pid: str):
+        return bankroll_repo.load_lender_profile(pid)
+
+    def _relationship_lookup(observer_id: str, opponent_id: str):
+        if relationship_repo is None:
+            return None
+        rel = relationship_repo.load_relationship_state(
+            observer_id=observer_id, opponent_id=opponent_id, now=now,
+        )
+        if rel is None:
+            return None
+        return (rel.likability, rel.respect, rel.heat)
 
     def _buy_in_lookup(pid: str) -> int:
         # Map back to a table buy-in: needs the stake_label of the
@@ -514,6 +545,7 @@ def refresh_unseated_tables(
         agg_bankroll_changes = []
         agg_freshly_seated: List[str] = []
         agg_rebuy_changes = []
+        agg_stake_creations = []
         for _ in range(burst_n):
             # Rotate the dealer button to the next occupied seat for
             # this hand. Matters for seat-choice UX — when a player
@@ -590,6 +622,21 @@ def refresh_unseated_tables(
                 live_fill_prob=live_fill_prob,
                 defer_freshly_vacated_live_fill=True,
                 psych_lookup=_psych_lookup_sim,
+                # Phase 4: intercept forced_leave with take_stake when
+                # peer AIs are willing to fund the busting borrower.
+                # Wired only when callers pass relationship_repo and
+                # stake_repo — None inputs short-circuit the interception
+                # back to plain forced_leave inside refresh_table_roster.
+                borrower_profile_lookup=(
+                    _borrower_profile_lookup if _take_stake_enabled else None
+                ),
+                lender_profile_lookup=(
+                    _lender_profile_lookup if _take_stake_enabled else None
+                ),
+                relationship_lookup=(
+                    _relationship_lookup if _take_stake_enabled else None
+                ),
+                stake_label=table.stake_label,
             )
             # Carry the post-hand table forward to the next iteration.
             table = per_hand.new_table
@@ -606,6 +653,7 @@ def refresh_unseated_tables(
             agg_bankroll_changes.extend(per_hand.bankroll_changes)
             agg_freshly_seated.extend(per_hand.freshly_seated_personality_ids)
             agg_rebuy_changes.extend(per_hand.rebuy_changes)
+            agg_stake_creations.extend(per_hand.stake_creations)
 
         # Synthesize a result object that the existing post-loop
         # persistence + event-emission code can consume unchanged.
@@ -616,6 +664,7 @@ def refresh_unseated_tables(
             bankroll_changes=agg_bankroll_changes,
             decisions=agg_decisions,
             rebuy_changes=agg_rebuy_changes,
+            stake_creations=agg_stake_creations,
         )
 
         # Persist the table (always — last_activity_at bumps) and idle
@@ -659,6 +708,70 @@ def refresh_unseated_tables(
                         "table_id": result.new_table.table_id,
                     },
                 )
+
+        # Phase 4: apply AI-borrow stake creations. The seat refill
+        # was already baked into result.new_table by refresh_table_roster
+        # (the borrower's chips moved from chips_at_bust → principal,
+        # and the from_seat above credited the borrower's bankroll
+        # with chips_at_bust). What remains:
+        #   - Debit the staker's bankroll by principal.
+        #   - Persist a Stake row (status=active, both kinds personality).
+        #   - Fire STAKE_OFFERED so the staker's relationship axes
+        #     toward the borrower reflect the new tie.
+        if result.stake_creations:
+            from cash_mode.stakes import (
+                BORROWER_KIND_PERSONALITY,
+                STAKE_FORMAT_PURE,
+                STAKE_STATUS_ACTIVE,
+                STAKER_KIND_PERSONALITY,
+                Stake,
+            )
+            import uuid
+
+            for sc in result.stake_creations:
+                debit_bankroll_for_seat(
+                    bankroll_repo, sc.staker_id, sc.principal,
+                    sandbox_id=sandbox_id,
+                )
+                stake = Stake(
+                    stake_id=f"ai_stake_{uuid.uuid4().hex[:12]}",
+                    session_id=f"ai_session_{sc.borrower_id}_{int(now.timestamp())}",
+                    staker_id=sc.staker_id,
+                    staker_kind=STAKER_KIND_PERSONALITY,
+                    borrower_id=sc.borrower_id,
+                    borrower_kind=BORROWER_KIND_PERSONALITY,
+                    format=STAKE_FORMAT_PURE,
+                    principal=sc.principal,
+                    match_amount=0,
+                    origination_fee=0,
+                    cut=sc.cut,
+                    status=STAKE_STATUS_ACTIVE,
+                    carry_amount=0,
+                    stake_tier=sc.stake_label,
+                    created_at=now,
+                )
+                if stake_repo is not None:
+                    stake_repo.create_stake(stake)
+                if relationship_repo is not None:
+                    try:
+                        from poker.memory import OpponentModelManager
+                        from poker.memory.relationship_events import (
+                            RelationshipEvent,
+                        )
+                        mgr = OpponentModelManager(
+                            relationship_repo=relationship_repo,
+                        )
+                        mgr.record_event(
+                            actor_id=sc.staker_id,
+                            target_id=sc.borrower_id,
+                            event=RelationshipEvent.STAKE_OFFERED,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "[CASH][LOBBY] STAKE_OFFERED event failed "
+                            "staker=%r borrower=%r: %s",
+                            sc.staker_id, sc.borrower_id, exc,
+                        )
 
         # Emit lobby activity events from the refresh result.
         # `decisions` covers AIs that were on the table at the start

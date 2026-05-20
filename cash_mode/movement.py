@@ -32,6 +32,7 @@ from datetime import datetime
 import threading
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from cash_mode.lender_profile import LenderProfile
 from cash_mode.stakes_ladder import STAKES_ORDER
 from cash_mode.tables import (
     CashTableState,
@@ -371,6 +372,37 @@ class RebuyChange:
 
 
 @dataclass
+class StakeCreationChange:
+    """Phase 4: an AI accepted a stake from another AI to avoid bust.
+
+    Returned from `refresh_table_roster` when `evaluate_ai_movement`
+    would have returned `forced_leave` but a willing staker existed
+    with capacity. The caller must:
+      - Debit the staker's bankroll by `principal`.
+      - Create a `Stake` row (`status=active`, both kinds `personality`,
+        `format=pure`, `cut` from the staker's `lender_profile.rate_anchor`).
+      - The seat is already updated in `new_table` to `principal` chips.
+
+    The borrower's pre-bust chips (`chips_at_bust`) returned to their
+    bankroll via the normal `from_seat` `BankrollChange` that fires
+    alongside this — same shape as a regular leave. The seat then
+    refills to `principal` from the staker.
+
+    This dataclass is parallel to `RebuyChange`: both describe seat
+    refills with named provenance, but `rebuy` debits the same AI's
+    bankroll and `take_stake` debits a different AI's bankroll +
+    spawns a stake row.
+    """
+
+    borrower_id: str
+    staker_id: str
+    seat_index: int
+    principal: int
+    stake_label: str
+    cut: float
+
+
+@dataclass
 class RosterRefreshResult:
     """Bundle the outputs of a refresh pass.
 
@@ -396,6 +428,85 @@ class RosterRefreshResult:
     bankroll_changes: List[BankrollChange] = field(default_factory=list)
     decisions: Dict[str, MovementDecision] = field(default_factory=dict)
     rebuy_changes: List[RebuyChange] = field(default_factory=list)
+    # Phase 4: AI-borrow stake creations. Each entry's seat in
+    # `new_table` is already refilled to `principal`; the caller
+    # persists the stake row + debits the staker's bankroll.
+    stake_creations: List[StakeCreationChange] = field(default_factory=list)
+
+
+def find_ai_staker_for(
+    *,
+    borrower_id: str,
+    principal: int,
+    candidate_pids: List[str],
+    lender_profile_lookup: Callable[[str], LenderProfile],
+    bankroll_lookup: Callable[[str], Optional[int]],
+    relationship_lookup: Callable[
+        [str, str], Optional[Tuple[float, float, float]]
+    ],
+    rng: random.Random,
+) -> Optional[Tuple[str, LenderProfile]]:
+    """Pick an AI staker willing and able to fund `principal` for borrower.
+
+    Phase 4 Commit 2. Walks `candidate_pids` (table-local in v1;
+    Commit 4 broadens to the global pool), filters by lender_profile
+    willingness, bankroll capacity, and relationship gates. When
+    multiple candidates qualify, picks one at random for variety —
+    deterministic "best" picks (richest, most-respected) made the
+    cast feel mechanical in playtest of the analogous sponsor pool.
+
+    Filters:
+      - `profile.willing` must be True (stoic lenders refuse outright).
+      - `bankroll >= principal / max_loan_pct_of_bankroll` so the
+        principal is within the candidate's stake-size policy. Phrased
+        as a ratio rather than a hard floor so deeper-bankrolled
+        personalities scale up naturally.
+      - Relationship axes (candidate's view of borrower):
+        `respect >= profile.respect_floor`, `heat <= profile.heat_ceiling`.
+
+    Borrower's own id is excluded defensively even though `refresh_table_roster`
+    shouldn't pass it in `candidate_pids`.
+
+    Returns (staker_id, lender_profile) on success, None when no
+    candidate clears every gate. Caller treats None as "fall back to
+    `forced_leave`".
+    """
+    qualified: List[Tuple[str, LenderProfile]] = []
+    for cand_id in candidate_pids:
+        if cand_id == borrower_id:
+            continue
+        try:
+            profile = lender_profile_lookup(cand_id)
+        except Exception as exc:
+            logger.debug(
+                "find_ai_staker_for: lender_profile lookup failed for %r: %s",
+                cand_id, exc,
+            )
+            continue
+        if not profile.willing:
+            continue
+        bankroll = bankroll_lookup(cand_id) or 0
+        if profile.max_loan_pct_of_bankroll <= 0:
+            continue
+        # Capacity check: principal must fit within the lender's
+        # per-loan ceiling (max_loan_pct × bankroll).
+        if bankroll * profile.max_loan_pct_of_bankroll < principal:
+            continue
+        # Relationship gates. None → neutral defaults (0.5/0.5/0.0).
+        rel = relationship_lookup(cand_id, borrower_id)
+        if rel is None:
+            likability, respect, heat = 0.5, 0.5, 0.0
+        else:
+            likability, respect, heat = rel
+        if respect < profile.respect_floor:
+            continue
+        if heat > profile.heat_ceiling:
+            continue
+        qualified.append((cand_id, profile))
+
+    if not qualified:
+        return None
+    return rng.choice(qualified)
 
 
 def _movement_decision_to_idle_reason(decision: MovementDecision) -> str:
@@ -427,6 +538,16 @@ def refresh_table_roster(
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
     defer_freshly_vacated_live_fill: bool = True,
     psych_lookup: Optional[Callable[[str], Dict[str, Any]]] = None,
+    # Phase 4: optional callbacks to intercept `forced_leave` with a
+    # `take_stake` decision when a peer AI is willing and able to
+    # stake the busting borrower. Omit (default None) → never tries
+    # to convert, preserving pre-Phase-4 behavior.
+    borrower_profile_lookup: Optional[Callable[[str], Any]] = None,
+    lender_profile_lookup: Optional[Callable[[str], LenderProfile]] = None,
+    relationship_lookup: Optional[
+        Callable[[str, str], Optional[Tuple[float, float, float]]]
+    ] = None,
+    stake_label: Optional[str] = None,
 ) -> RosterRefreshResult:
     """Apply movement decisions to a table's AI seats, then live-fill opens.
 
@@ -489,6 +610,15 @@ def refresh_table_roster(
     rebuy_changes: List[RebuyChange] = []
     decisions: Dict[str, MovementDecision] = {}
     freshly_vacated: Set[int] = set()
+    stake_creations: List[StakeCreationChange] = []
+    # Snapshot the AIs currently at this table before any movement
+    # applies, so a busting AI's `take_stake` candidates are the OTHER
+    # AIs seated alongside them at the start of the tick (not their
+    # post-leave neighbors).
+    pre_movement_ai_pids = [
+        s.get("personality_id") for s in new_seats
+        if s.get("kind") == "ai" and s.get("personality_id")
+    ]
 
     # Step 1: process AI seats.
     for i, slot in enumerate(new_seats):
@@ -514,7 +644,72 @@ def refresh_table_roster(
             emotional_intensity=float(psych.get("emotional_intensity", 0.0)),
         )
         decision = evaluate_ai_movement(ctx, rng)
+        # Phase 4: intercept `forced_leave` with `take_stake` when a
+        # peer AI is willing to fund the busting borrower. Only fires
+        # when ALL the required callbacks are wired (lobby supplies
+        # them post-Phase-4; pre-Phase-4 callers omit them and behavior
+        # is unchanged).
+        pending_stake: Optional[Tuple[str, LenderProfile]] = None
+        if (
+            decision == "forced_leave"
+            and borrower_profile_lookup is not None
+            and lender_profile_lookup is not None
+            and relationship_lookup is not None
+            and stake_label is not None
+        ):
+            try:
+                borrower_profile = borrower_profile_lookup(pid)
+            except Exception as exc:
+                logger.debug(
+                    "take_stake: borrower profile lookup failed for %r: %s",
+                    pid, exc,
+                )
+                borrower_profile = None
+            if borrower_profile is not None and getattr(
+                borrower_profile, "willing", False,
+            ):
+                pending_stake = find_ai_staker_for(
+                    borrower_id=pid,
+                    principal=table_min_buy_in,
+                    candidate_pids=[
+                        c for c in pre_movement_ai_pids if c != pid
+                    ],
+                    lender_profile_lookup=lender_profile_lookup,
+                    bankroll_lookup=lambda c: bankroll_lookup(c),
+                    relationship_lookup=relationship_lookup,
+                    rng=rng,
+                )
+                if pending_stake is not None:
+                    decision = "take_stake"
         decisions[pid] = decision
+
+        if decision == "take_stake":
+            staker_id, staker_profile = pending_stake
+            # Refill the seat to principal. The borrower's pre-bust
+            # chips return to bankroll via the same `from_seat` path
+            # a regular leave would emit, keeping chip-conservation
+            # consistent with sessions that begin from an empty seat
+            # newly funded by a staker.
+            seat_chips = int(slot.get("chips", 0))
+            if seat_chips > 0:
+                bankroll_changes.append(BankrollChange(
+                    direction="from_seat",
+                    personality_id=pid,
+                    amount=seat_chips,
+                ))
+            new_seats[i] = ai_slot(pid, table_min_buy_in)
+            stake_creations.append(StakeCreationChange(
+                borrower_id=pid,
+                staker_id=staker_id,
+                seat_index=i,
+                principal=table_min_buy_in,
+                stake_label=stake_label,
+                cut=staker_profile.rate_anchor,
+            ))
+            # `seated_globally` stays unchanged — pid still occupies
+            # the seat, just freshly funded by the staker.
+            continue
+
         if decision == "stay":
             continue
         if decision == "rebuy":
@@ -685,4 +880,5 @@ def refresh_table_roster(
         bankroll_changes=bankroll_changes,
         decisions=decisions,
         rebuy_changes=rebuy_changes,
+        stake_creations=stake_creations,
     )
