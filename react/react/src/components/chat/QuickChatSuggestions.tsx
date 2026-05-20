@@ -5,6 +5,7 @@ import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '..
 import { gameAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
+import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import './QuickChatSuggestions.css';
 
 // Cooldown between suggestion fetches to prevent API spam
@@ -72,6 +73,7 @@ export function QuickChatSuggestions({
 }: QuickChatSuggestionsProps) {
   const [selectedTarget, setSelectedTarget] = useState<string | null>(initialTarget);
   const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
+  const displayNickname = useDisplayNickname();
   const [suggestions, setSuggestions] = useState<TargetedSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const lastFetchTimeRef = useRef(0);
@@ -288,11 +290,11 @@ export function QuickChatSuggestions({
                 key={player.name}
                 className={`target-btn target-btn-player ${selectedTarget === player.name ? 'selected' : ''} ${isFolded ? 'folded' : ''} has-bg-image`}
                 onClick={() => handleTargetSelect(player.name)}
-                title={isFolded ? `Talk to ${player.name} (folded)` : `Talk to ${player.name}`}
+                title={isFolded ? `Talk to ${displayNickname(player)} (folded)` : `Talk to ${displayNickname(player)}`}
                 style={{ backgroundImage: `url(${avatarUrl})` }}
               >
                 <span className="target-name">
-                  {player.nickname || player.name}
+                  {displayNickname(player)}
                 </span>
                 {isFolded && <span className="target-folded-badge" aria-hidden="true">folded</span>}
               </button>

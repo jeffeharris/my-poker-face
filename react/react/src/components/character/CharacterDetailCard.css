@@ -470,6 +470,105 @@
   color: var(--ink-soft);
   margin-bottom: 8px;
   line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* When the viewer has set a private override, hint at it with a
+   subtle dotted underline — keeps the noir styling intact but
+   makes "I named this myself" recognisable at a glance. */
+.dossier__nickname--overridden {
+  text-decoration: underline dotted var(--gold-leaf);
+  text-underline-offset: 4px;
+}
+
+/* Pencil button that flips the row into edit mode. Hides until
+   the row is hovered/focused so the dossier stays clean by default. */
+.dossier__nickname-edit {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.18s ease, color 0.18s ease;
+}
+
+.dossier__nickname:hover .dossier__nickname-edit,
+.dossier__nickname:focus-within .dossier__nickname-edit,
+.dossier__nickname-edit:focus-visible {
+  opacity: 1;
+}
+
+.dossier__nickname-edit:hover {
+  color: var(--gold-leaf);
+}
+
+/* Inline input shown in edit mode. Stays styled like the static
+   nickname (italic Fraunces) so the row doesn't visually jump
+   when you click the pencil. */
+.dossier__nickname-input {
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: inherit;
+  color: var(--ink);
+  background: rgba(255, 248, 225, 0.7);
+  border: none;
+  border-bottom: 1px dashed var(--gold-leaf);
+  padding: 0 4px;
+  min-width: 8ch;
+  max-width: 24ch;
+  outline: none;
+}
+
+.dossier__nickname-input::placeholder {
+  color: var(--ink-faint);
+  font-style: italic;
+  opacity: 0.6;
+}
+
+.dossier__nickname-input:focus {
+  border-bottom-color: var(--gold-leaf);
+  background: rgba(255, 248, 225, 0.95);
+}
+
+.dossier__nickname-status {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  font-style: normal;
+  margin-left: 2px;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.dossier__nickname-status--saving { color: var(--ink-faint); }
+.dossier__nickname-status--saved  { color: var(--emerald); }
+.dossier__nickname-status--error  { color: var(--crimson); }
+.dossier__nickname-status--idle   { opacity: 0; }
+
+/* "Add a nickname" affordance when the personality has no
+   canonical alias and the viewer hasn't set one yet. */
+.dossier__nickname-add {
+  background: none;
+  border: 1px dashed rgba(60, 45, 25, 0.35);
+  border-radius: 2px;
+  padding: 3px 8px;
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+
+.dossier__nickname-add:hover {
+  color: var(--ink);
+  border-color: var(--gold-leaf);
 }
 
 .dossier__quote-marks {

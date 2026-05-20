@@ -16,8 +16,11 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   fetchCharacterDossier,
   saveCharacterNote,
+  saveCharacterNicknameOverride,
+  NICKNAME_OVERRIDE_MAX_LEN,
   type DossierResponse,
 } from './api';
+import { useNicknameOverridesStore } from '../../stores/nicknameOverridesStore';
 import './CharacterDetailCard.css';
 
 export type RelationshipKind =
@@ -197,6 +200,29 @@ export function CharacterDetailCard({
   const lastSavedNote = useRef<string>('');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Nickname override: separate draft/state/last-saved triple so its
+  // autosave can't collide with the note autosave. `nicknameEditing`
+  // toggles the inline input vs. the static display chip.
+  const [nicknameEditing, setNicknameEditing] = useState(false);
+  const [nicknameDraft, setNicknameDraft] = useState('');
+  const [nicknameState, setNicknameState] = useState<NoteSaveState>('idle');
+  const lastSavedNickname = useRef<string>('');
+  const nicknameSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nicknameInputRef = useRef<HTMLInputElement | null>(null);
+
+  // After every successful save we push the result into the global
+  // overrides store, so table seats / chat targets / heads-up etc.
+  // re-render with the new alias without a separate refetch.
+  const setNicknameInStore = useNicknameOverridesStore((s) => s.setOne);
+
+  // Ref so the save callbacks can look up the dossier subject's
+  // canonical name without taking a dependency on `fetched` (which
+  // would force every save closure to recreate on hydration).
+  const storeKeyNameRef = useRef<string>(character.name);
+  useEffect(() => {
+    storeKeyNameRef.current = fetched?.personality?.name ?? character.name;
+  }, [fetched, character.name]);
+
   useEffect(() => {
     if (!isOpen || !identifier) {
       setFetched(null);
@@ -207,10 +233,15 @@ export function CharacterDetailCard({
       .then((data) => {
         if (cancelled) return;
         setFetched(data);
-        const initial = data.note ?? '';
-        setNoteDraft(initial);
-        lastSavedNote.current = initial;
+        const initialNote = data.note ?? '';
+        setNoteDraft(initialNote);
+        lastSavedNote.current = initialNote;
         setNoteState('idle');
+        const initialNick = data.personality?.nickname_override ?? '';
+        setNicknameDraft(initialNick);
+        lastSavedNickname.current = initialNick;
+        setNicknameState('idle');
+        setNicknameEditing(false);
       })
       .catch((e) => {
         // Anonymous reads return 200 with null fields, so this is
@@ -281,6 +312,116 @@ export function CharacterDetailCard({
     [scheduleNoteSave],
   );
 
+  // Nickname autosave mirrors the note autosave but uses its own
+  // debounce timer + last-saved ref so the two can save in parallel
+  // without stepping on each other's status indicators.
+  const scheduleNicknameSave = useCallback(
+    (next: string) => {
+      if (!identifier) return;
+      if (nicknameSaveTimerRef.current) clearTimeout(nicknameSaveTimerRef.current);
+      nicknameSaveTimerRef.current = setTimeout(() => {
+        if (next === lastSavedNickname.current) return;
+        setNicknameState('saving');
+        saveCharacterNicknameOverride(identifier, next)
+          .then((res) => {
+            lastSavedNickname.current = res.nickname_override ?? '';
+            setNicknameInStore(storeKeyNameRef.current, res.nickname_override);
+            setNicknameState('saved');
+            setTimeout(() => setNicknameState('idle'), 1400);
+          })
+          .catch((e) => {
+            console.error('[dossier] nickname save failed:', e);
+            setNicknameState('error');
+          });
+      }, 600);
+    },
+    [identifier, setNicknameInStore],
+  );
+
+  // Flush nickname draft on close, same as notes. Independent effect
+  // so the two flushes can both fire if both fields are dirty.
+  useEffect(() => {
+    if (isOpen) return;
+    if (nicknameSaveTimerRef.current) {
+      clearTimeout(nicknameSaveTimerRef.current);
+      nicknameSaveTimerRef.current = null;
+    }
+    if (identifier && nicknameDraft !== lastSavedNickname.current) {
+      saveCharacterNicknameOverride(identifier, nicknameDraft)
+        .then((res) => {
+          lastSavedNickname.current = res.nickname_override ?? '';
+          setNicknameInStore(storeKeyNameRef.current, res.nickname_override);
+        })
+        .catch(() => {
+          // Silent — the card is gone.
+        });
+    }
+  // Intentionally only depends on isOpen; we want flush on close.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const handleNicknameChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const next = e.target.value.slice(0, NICKNAME_OVERRIDE_MAX_LEN);
+      setNicknameDraft(next);
+      scheduleNicknameSave(next);
+    },
+    [scheduleNicknameSave],
+  );
+
+  const commitNicknameEdit = useCallback(() => {
+    // Force-fire the debounced save instead of waiting out the
+    // 600ms — the user just hit Enter or blurred away, the draft
+    // is "done" by their lights.
+    if (nicknameSaveTimerRef.current) {
+      clearTimeout(nicknameSaveTimerRef.current);
+      nicknameSaveTimerRef.current = null;
+    }
+    if (identifier && nicknameDraft !== lastSavedNickname.current) {
+      setNicknameState('saving');
+      saveCharacterNicknameOverride(identifier, nicknameDraft)
+        .then((res) => {
+          lastSavedNickname.current = res.nickname_override ?? '';
+          setNicknameInStore(storeKeyNameRef.current, res.nickname_override);
+          setNicknameState('saved');
+          setTimeout(() => setNicknameState('idle'), 1400);
+        })
+        .catch((e) => {
+          console.error('[dossier] nickname save failed:', e);
+          setNicknameState('error');
+        });
+    }
+    setNicknameEditing(false);
+  }, [identifier, nicknameDraft, setNicknameInStore]);
+
+  const handleNicknameKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commitNicknameEdit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        // Cancel: revert the draft to the last-saved value and exit.
+        setNicknameDraft(lastSavedNickname.current);
+        setNicknameEditing(false);
+        // Don't bubble — the overlay's own Escape handler would
+        // close the entire card otherwise, which is jarring when
+        // the user just wanted to back out of the input.
+        e.stopPropagation();
+      }
+    },
+    [commitNicknameEdit],
+  );
+
+  // Autofocus the input the moment we flip into edit mode so the
+  // user can type immediately without an extra click.
+  useEffect(() => {
+    if (nicknameEditing && nicknameInputRef.current) {
+      nicknameInputRef.current.focus();
+      nicknameInputRef.current.select();
+    }
+  }, [nicknameEditing]);
+
   // ─── Section-presence flags (server-fetched overlays prop data) ───
   // Prefer the freshly-fetched personality fields, but fall back to
   // whatever the caller passed in `character` so the card still
@@ -290,7 +431,12 @@ export function CharacterDetailCard({
     const obs = fetched?.observation;
     return {
       name: p?.name ?? character.name,
+      // `nickname` is the *displayed* alias — the server already
+      // baked in the viewer's override on top of the canonical
+      // value, so we just trust whichever is freshest. The
+      // canonical fallback is exposed separately for the editor.
       nickname: p?.nickname ?? character.nickname ?? undefined,
+      canonicalNickname: p?.canonical_nickname ?? character.nickname ?? undefined,
       playStyle: p?.play_style ?? character.playStyle,
       attitude: p?.attitude ?? character.attitude,
       confidence: p?.confidence ?? character.confidence,
@@ -493,13 +639,95 @@ export function CharacterDetailCard({
               <div className="dossier__subject-text">
                 <div className="dossier__eyebrow">SUBJECT</div>
                 <h2 className="dossier__name">{merged.name}</h2>
-                {merged.nickname && (
-                  <div className="dossier__nickname">
-                    <span className="dossier__quote-marks" aria-hidden="true">&ldquo;</span>
-                    {merged.nickname}
-                    <span className="dossier__quote-marks" aria-hidden="true">&rdquo;</span>
-                  </div>
-                )}
+                {(() => {
+                  // The nickname row has three rendering modes:
+                  //   1. Editing (input visible)
+                  //   2. Display with an override or canonical value (chip + pencil)
+                  //   3. No nickname at all but editor allowed — just a pencil
+                  //      affordance so the player can add one from scratch.
+                  // The editor is gated on `identifier` (no auth → no override).
+                  const editorAllowed = !!identifier;
+                  const hasOverride =
+                    !!fetched?.personality?.nickname_override;
+                  if (nicknameEditing) {
+                    return (
+                      <div className="dossier__nickname dossier__nickname--editing">
+                        <span className="dossier__quote-marks" aria-hidden="true">&ldquo;</span>
+                        <input
+                          ref={nicknameInputRef}
+                          type="text"
+                          className="dossier__nickname-input"
+                          value={nicknameDraft}
+                          onChange={handleNicknameChange}
+                          onKeyDown={handleNicknameKeyDown}
+                          onBlur={commitNicknameEdit}
+                          placeholder={merged.canonicalNickname ?? 'alias'}
+                          maxLength={NICKNAME_OVERRIDE_MAX_LEN}
+                          aria-label="Edit nickname for this opponent"
+                          spellCheck
+                        />
+                        <span className="dossier__quote-marks" aria-hidden="true">&rdquo;</span>
+                        <span
+                          className={`dossier__nickname-status dossier__nickname-status--${nicknameState}`}
+                          aria-live="polite"
+                        >
+                          {nicknameState === 'saving'
+                            ? 'Saving…'
+                            : nicknameState === 'saved'
+                              ? '✓'
+                              : nicknameState === 'error'
+                                ? '!'
+                                : ''}
+                        </span>
+                      </div>
+                    );
+                  }
+                  if (merged.nickname) {
+                    return (
+                      <div
+                        className={
+                          'dossier__nickname' +
+                          (hasOverride ? ' dossier__nickname--overridden' : '')
+                        }
+                      >
+                        <span className="dossier__quote-marks" aria-hidden="true">&ldquo;</span>
+                        {merged.nickname}
+                        <span className="dossier__quote-marks" aria-hidden="true">&rdquo;</span>
+                        {editorAllowed && (
+                          <button
+                            type="button"
+                            className="dossier__nickname-edit"
+                            onClick={() => setNicknameEditing(true)}
+                            aria-label={
+                              hasOverride
+                                ? 'Edit your nickname for this opponent'
+                                : 'Rename this opponent for your eyes only'
+                            }
+                            title={
+                              hasOverride
+                                ? `Your alias (canonical: "${merged.canonicalNickname ?? merged.name}")`
+                                : 'Rename — only you see it'
+                            }
+                          >
+                            <span aria-hidden="true">✎</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }
+                  if (editorAllowed) {
+                    return (
+                      <button
+                        type="button"
+                        className="dossier__nickname-add"
+                        onClick={() => setNicknameEditing(true)}
+                      >
+                        + add your own nickname
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
                 {merged.playStyle && (
                   <div className="dossier__archetype">
                     {merged.playStyle}

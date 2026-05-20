@@ -11,6 +11,7 @@
 
 import { useState } from 'react';
 import { CharacterDetailCard, type CharacterDossierData } from './CharacterDetailCard';
+import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 
 const SAMPLES: CharacterDossierData[] = [
   {
@@ -64,6 +65,7 @@ const SAMPLES: CharacterDossierData[] = [
 export function CharacterCardPreview() {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [origin, setOrigin] = useState<{ x: number; y: number } | undefined>();
+  const displayNickname = useDisplayNickname();
 
   return (
     <div
@@ -138,18 +140,25 @@ export function CharacterCardPreview() {
               }}
             >
               <div style={{ fontWeight: 700 }}>{s.name}</div>
-              {s.nickname && (
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontStyle: 'italic',
-                    color: '#b08433',
-                    marginTop: 4,
-                  }}
-                >
-                  &ldquo;{s.nickname}&rdquo;
-                </div>
-              )}
+              {(() => {
+                const alias = displayNickname({ name: s.name, nickname: s.nickname });
+                // Only render the alias row when it actually adds info
+                // beyond the name itself (skip when fallback collapses
+                // to the name).
+                if (alias === s.name) return null;
+                return (
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontStyle: 'italic',
+                      color: '#b08433',
+                      marginTop: 4,
+                    }}
+                  >
+                    &ldquo;{alias}&rdquo;
+                  </div>
+                );
+              })()}
             </button>
           ))}
         </div>

@@ -8,6 +8,8 @@ import { GamePage } from './components/game/GamePage'
 import { useAuth } from './hooks/useAuth'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { useUsageStats } from './hooks/useUsageStats'
+import { useNicknameOverridesStore } from './stores/nicknameOverridesStore'
+import { fetchNicknameOverrides } from './components/character/api'
 import { ShuffleLoading, GuestLimitModal } from './components/shared'
 import { logger } from './utils/logger'
 import { config } from './config'
@@ -78,6 +80,32 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       setPlayerName(user.name);
     }
   }, [user?.name]);
+
+  // Hydrate the per-viewer nickname-override map on auth so opponent
+  // labels everywhere (table, chat, heads-up panel, etc.) reflect
+  // private aliases the player set in the dossier. Re-runs when
+  // the user identity flips (login/logout) so the override set is
+  // never stale to who's looking.
+  const setAllOverrides = useNicknameOverridesStore((s) => s.setAll);
+  const resetOverrides = useNicknameOverridesStore((s) => s.reset);
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) {
+      resetOverrides();
+      return;
+    }
+    let cancelled = false;
+    fetchNicknameOverrides()
+      .then((map) => {
+        if (!cancelled) setAllOverrides(map);
+      })
+      .catch((e) => {
+        // Soft-fail: empty map means the canonical nicknames keep
+        // showing, which is the existing behaviour.
+        logger.warn('[nickname-overrides] fetch failed', e);
+        if (!cancelled) setAllOverrides({});
+      });
+    return () => { cancelled = true; };
+  }, [isAuthenticated, user?.id, setAllOverrides, resetOverrides]);
 
   // Update page title based on current route
   useEffect(() => {

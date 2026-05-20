@@ -380,3 +380,78 @@ class RelationshipRepository(BaseRepository):
                 """,
                 (observer_id, opponent_id, clean),
             )
+
+    # --- nickname_override (v101) ---
+
+    def load_nickname_override(
+        self, observer_id: str, opponent_id: str,
+    ) -> Optional[str]:
+        """Return the player-authored nickname override, or None.
+
+        None covers both "no row yet" and "row exists but
+        nickname_override is NULL" — the dossier treats those
+        identically (fall back to the personality's canonical
+        nickname).
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT nickname_override FROM relationship_states
+                WHERE observer_id = ? AND opponent_id = ?
+                """,
+                (observer_id, opponent_id),
+            ).fetchone()
+            if not row:
+                return None
+            return row['nickname_override']
+
+    def load_all_nickname_overrides(
+        self, observer_id: str,
+    ) -> Dict[str, str]:
+        """Return every nickname override this observer has set.
+
+        Keyed on opponent personality_id. NULL / empty overrides are
+        excluded — callers want only the rows where the viewer
+        actually chose an alias, not the (default) "no override"
+        state. Used by the client to apply per-viewer aliases to
+        every opponent label without N round-trips.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT opponent_id, nickname_override
+                FROM relationship_states
+                WHERE observer_id = ?
+                  AND nickname_override IS NOT NULL
+                  AND nickname_override != ''
+                """,
+                (observer_id,),
+            ).fetchall()
+            return {row['opponent_id']: row['nickname_override'] for row in rows}
+
+    def save_nickname_override(
+        self,
+        observer_id: str,
+        opponent_id: str,
+        nickname: Optional[str],
+    ) -> None:
+        """Upsert the nickname override for this pair.
+
+        Empty / whitespace-only input is stored as NULL so "has an
+        override" stays a meaningful predicate — clearing the field
+        in the UI should fully revert to the canonical nickname.
+        Mirrors `save_note`: UPSERT keeps the affinity axes at their
+        defaults if no row exists yet.
+        """
+        clean = (nickname or '').strip() or None
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO relationship_states
+                    (observer_id, opponent_id, nickname_override)
+                VALUES (?, ?, ?)
+                ON CONFLICT(observer_id, opponent_id)
+                DO UPDATE SET nickname_override = excluded.nickname_override
+                """,
+                (observer_id, opponent_id, clean),
+            )

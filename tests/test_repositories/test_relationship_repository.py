@@ -295,3 +295,123 @@ class TestCashPairStatsRoundTrip:
         )
         loaded = repo.load_cash_pair_stats("alice", "bob")
         assert loaded.cumulative_pnl == -7500
+
+
+# --- nickname_override (v101) ---
+
+
+class TestNicknameOverrideColumn:
+    def test_column_exists_on_fresh_schema(self, db_path):
+        with sqlite3.connect(db_path) as conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(relationship_states)")}
+            assert "nickname_override" in cols
+
+
+class TestNicknameOverrideRoundTrip:
+    def test_load_returns_none_when_no_row(self, repo):
+        assert repo.load_nickname_override("alice", "bob") is None
+
+    def test_load_returns_none_when_row_has_null_override(self, repo):
+        # An affinity-only row (created by save_relationship_state)
+        # has no override yet — load must distinguish "no row" from
+        # "row exists but override is NULL" only via the same None.
+        repo.save_relationship_state("alice", "bob", RelationshipState(heat=0.2))
+        assert repo.load_nickname_override("alice", "bob") is None
+
+    def test_save_then_load_round_trip(self, repo):
+        repo.save_nickname_override("alice", "bob", "tight guy in red")
+        assert repo.load_nickname_override("alice", "bob") == "tight guy in red"
+
+    def test_save_is_upsert(self, repo):
+        repo.save_nickname_override("alice", "bob", "first label")
+        repo.save_nickname_override("alice", "bob", "second label")
+        assert repo.load_nickname_override("alice", "bob") == "second label"
+
+    def test_save_strips_whitespace(self, repo):
+        repo.save_nickname_override("alice", "bob", "   spaced   ")
+        assert repo.load_nickname_override("alice", "bob") == "spaced"
+
+    def test_empty_string_clears_override(self, repo):
+        repo.save_nickname_override("alice", "bob", "label")
+        repo.save_nickname_override("alice", "bob", "")
+        assert repo.load_nickname_override("alice", "bob") is None
+
+    def test_whitespace_only_clears_override(self, repo):
+        repo.save_nickname_override("alice", "bob", "label")
+        repo.save_nickname_override("alice", "bob", "   \t \n  ")
+        assert repo.load_nickname_override("alice", "bob") is None
+
+    def test_none_clears_override(self, repo):
+        repo.save_nickname_override("alice", "bob", "label")
+        repo.save_nickname_override("alice", "bob", None)
+        assert repo.load_nickname_override("alice", "bob") is None
+
+    def test_override_is_per_observer(self, repo):
+        # alice and zeke both file overrides on bob; reads must
+        # never cross-contaminate.
+        repo.save_nickname_override("alice", "bob", "alice's view")
+        repo.save_nickname_override("zeke", "bob", "zeke's view")
+        assert repo.load_nickname_override("alice", "bob") == "alice's view"
+        assert repo.load_nickname_override("zeke", "bob") == "zeke's view"
+
+    def test_override_is_per_opponent(self, repo):
+        repo.save_nickname_override("alice", "bob", "bob's label")
+        repo.save_nickname_override("alice", "carol", "carol's label")
+        assert repo.load_nickname_override("alice", "bob") == "bob's label"
+        assert repo.load_nickname_override("alice", "carol") == "carol's label"
+
+    def test_override_independent_of_notes(self, repo):
+        # Notes and overrides live in the same row but must be
+        # writable independently — touching one mustn't blank the
+        # other.
+        repo.save_note("alice", "bob", "calls light on the turn")
+        repo.save_nickname_override("alice", "bob", "tight one")
+        assert repo.load_note("alice", "bob") == "calls light on the turn"
+        assert repo.load_nickname_override("alice", "bob") == "tight one"
+
+    def test_override_independent_of_affinity_axes(self, repo):
+        # Saving an override on a row with existing affinity axes
+        # must leave those axes intact.
+        repo.save_relationship_state(
+            "alice", "bob",
+            RelationshipState(heat=0.6, respect=0.7, likability=0.4),
+        )
+        repo.save_nickname_override("alice", "bob", "label")
+        loaded = repo.load_relationship_state("alice", "bob")
+        assert loaded is not None
+        assert loaded.respect == 0.7
+        assert loaded.likability == 0.4
+
+
+class TestLoadAllNicknameOverrides:
+    def test_empty_when_observer_has_no_overrides(self, repo):
+        assert repo.load_all_nickname_overrides("alice") == {}
+
+    def test_returns_only_observer_rows(self, repo):
+        repo.save_nickname_override("alice", "bob", "alice's label for bob")
+        repo.save_nickname_override("alice", "carol", "alice's label for carol")
+        repo.save_nickname_override("zeke", "bob", "zeke's label")
+        result = repo.load_all_nickname_overrides("alice")
+        assert result == {
+            "bob":   "alice's label for bob",
+            "carol": "alice's label for carol",
+        }
+
+    def test_excludes_null_overrides(self, repo):
+        # Rows with non-null other fields but NULL override must
+        # not leak into the bulk map — callers treat presence in
+        # the dict as "viewer has explicitly renamed this opponent."
+        repo.save_relationship_state("alice", "bob", RelationshipState(heat=0.3))
+        repo.save_nickname_override("alice", "carol", "labelled")
+        result = repo.load_all_nickname_overrides("alice")
+        assert "bob" not in result
+        assert result == {"carol": "labelled"}
+
+    def test_excludes_empty_string_overrides(self, repo):
+        # Empty string is also "no real override" — defensive
+        # against rows that might predate the trim-to-NULL behaviour.
+        repo.save_nickname_override("alice", "bob", "set")
+        repo.save_nickname_override("alice", "bob", "")  # clears via trim
+        repo.save_nickname_override("alice", "carol", "kept")
+        result = repo.load_all_nickname_overrides("alice")
+        assert result == {"carol": "kept"}

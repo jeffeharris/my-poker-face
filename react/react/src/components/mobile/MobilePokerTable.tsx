@@ -26,6 +26,7 @@ import { dossierFromPlayer } from '../character/dossierFromPlayer';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useGameStore } from '../../stores/gameStore';
+import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { useCoach } from '../../hooks/useCoach';
@@ -52,6 +53,11 @@ export function MobilePokerTable({
   onBack,
   onGameLoadFailed
 }: MobilePokerTableProps) {
+  // Resolves opponent labels through the viewer's private nickname
+  // overrides. Stable across renders so memoized children don't
+  // bust when the function reference would otherwise churn.
+  const displayNickname = useDisplayNickname();
+
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [showCashSheet, setShowCashSheet] = useState(false);
@@ -506,12 +512,12 @@ export function MobilePokerTable({
               <div
                 key={player.name}
                 className="ghost-avatar"
-                title={player.nickname || player.name}
+                title={displayNickname(player)}
               >
                 {player.avatar_url ? (
                   <img
                     src={`${config.API_URL}${player.avatar_url}`}
-                    alt={player.nickname || player.name}
+                    alt={displayNickname(player)}
                   />
                 ) : (
                   <span className="ghost-initial">{player.name.charAt(0).toUpperCase()}</span>
@@ -639,7 +645,7 @@ export function MobilePokerTable({
                 )}
               </div>
               <div className="opponent-info">
-                <span className="opponent-name" data-testid="opponent-name">{opponent.nickname || opponent.name}</span>
+                <span className="opponent-name" data-testid="opponent-name">{displayNickname(opponent)}</span>
                 <span className="opponent-stack" data-testid="opponent-stack">${opponent.stack}</span>
               </div>
               {opponent.bet > 0 && (

@@ -37,7 +37,15 @@ export interface DossierAnchors {
 
 export interface DossierPersonality {
   name: string | null;
+  /** Displayed alias — the viewer's private override when present,
+   *  otherwise the personality's canonical nickname. */
   nickname: string | null;
+  /** The original nickname from personalities.json, ignoring any
+   *  per-viewer override. Surfaced so the editor can show what the
+   *  override is replacing. */
+  canonical_nickname: string | null;
+  /** Raw stored override; null when the viewer hasn't set one. */
+  nickname_override: string | null;
   play_style: string | null;
   attitude: string | null;
   confidence: string | null;
@@ -95,6 +103,22 @@ export interface DossierResponse {
   note: string | null;
 }
 
+/**
+ * Bulk-load every nickname override the current viewer has set.
+ * Keyed by personality display name so the client can look up
+ * against `player.name` directly. Anonymous callers get `{}`.
+ */
+export async function fetchNicknameOverrides(): Promise<Record<string, string>> {
+  const res = await fetch(`${BASE}/nickname-overrides`, {
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return data?.overrides ?? {};
+}
+
 export async function fetchCharacterDossier(
   identifier: string,
 ): Promise<DossierResponse> {
@@ -128,3 +152,30 @@ export async function saveCharacterNote(
   }
   return res.json();
 }
+
+/**
+ * Save a per-viewer nickname override. An empty string clears the
+ * override; the dossier then falls back to the canonical nickname.
+ * Server caps length at 60 chars (see NICKNAME_OVERRIDE_MAX_LEN).
+ */
+export async function saveCharacterNicknameOverride(
+  identifier: string,
+  nickname: string,
+): Promise<{ nickname_override: string | null }> {
+  const res = await fetch(
+    `${BASE}/${encodeURIComponent(identifier)}/nickname`,
+    {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nickname }),
+    },
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export const NICKNAME_OVERRIDE_MAX_LEN = 60;

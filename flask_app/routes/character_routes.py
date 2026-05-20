@@ -1,7 +1,7 @@
 """Character dossier routes — surfaces existing data for the in-game
 CharacterDetailCard ("Dossier 1972") overlay.
 
-Two endpoints:
+Four endpoints:
 
   GET  /api/character/<identifier>/dossier
        Fans out from the (observer = current user, opponent = identifier)
@@ -9,10 +9,25 @@ Two endpoints:
        cash pair PnL, last-5 hand summaries from the active cash
        session (if any), and the player-authored note.
 
+  GET  /api/character/nickname-overrides
+       Bulk-loader: returns every nickname override the current viewer
+       has set, keyed by personality display name (so the React side
+       can look up by `player.name` without a separate resolver). Used
+       at app load so opponent labels everywhere (table seats, chat
+       targets, heads-up panel, etc.) display the viewer's private
+       alias rather than the canonical nickname.
+
   PUT  /api/character/<identifier>/note      body {note: str}
        Persists the note to relationship_states.notes (schema v95).
        Stored cross-session, cross-game — keyed on the same stable
        (observer_id, opponent_id) the affinity axes use.
+
+  PUT  /api/character/<identifier>/nickname  body {nickname: str}
+       Persists a per-viewer nickname override to
+       relationship_states.nickname_override (schema v101). Lets the
+       player privately rename an opponent for easier recognition;
+       empty / whitespace clears the override and reverts to the
+       canonical nickname.
 
 `<identifier>` resolves as personality_id first, then falls back to a
 name lookup, so the React side can pass either without a separate
@@ -138,17 +153,31 @@ def _curated_anchors(personality: dict) -> Optional[dict]:
     }
 
 
-def _build_personality_payload(personality_id: str) -> dict:
-    """Return the subset of personality fields the dossier renders."""
+def _build_personality_payload(
+    personality_id: str,
+    *,
+    nickname_override: Optional[str] = None,
+) -> dict:
+    """Return the subset of personality fields the dossier renders.
+
+    `nickname` is the *displayed* alias — when the viewer has set a
+    private override it takes precedence over the personality's
+    canonical nickname. `canonical_nickname` is always the original
+    so the editor UI can show what the override is replacing, and
+    `nickname_override` is the raw stored value (None when unset).
+    """
     from flask_app.extensions import personality_repo
     try:
         p = personality_repo.load_personality_by_id(personality_id) or {}
     except Exception:
         p = {}
 
+    canonical = p.get('nickname')
     return {
         'name': p.get('name'),
-        'nickname': p.get('nickname'),
+        'nickname': nickname_override or canonical,
+        'canonical_nickname': canonical,
+        'nickname_override': nickname_override,
         'play_style': p.get('play_style'),
         'attitude': p.get('attitude') or p.get('default_attitude'),
         'confidence': p.get('confidence') or p.get('default_confidence'),
@@ -315,8 +344,8 @@ def get_dossier(identifier: str):
       {
         "personality_id": "batman",
         "personality": {
-          "name", "nickname", "play_style", "attitude", "confidence",
-          "signature_line",
+          "name", "nickname", "canonical_nickname", "nickname_override",
+          "play_style", "attitude", "confidence", "signature_line",
           "anchors": {aggression, looseness, poise,
                       expressiveness, risk} | null
         } | null,
@@ -351,8 +380,26 @@ def get_dossier(identifier: str):
     if not personality_id:
         return jsonify({'error': 'Personality not found'}), 404
 
-    personality = _build_personality_payload(personality_id)
     observer_id = _resolve_observer_id()
+
+    # Pull the viewer's private nickname override first so it can be
+    # baked into the personality block — the rendered `nickname`
+    # field then reflects what the player chose to call this
+    # opponent. Anonymous reads (no observer) skip this entirely and
+    # see the canonical nickname only.
+    nickname_override: Optional[str] = None
+    if observer_id:
+        try:
+            from flask_app.extensions import relationship_repo
+            nickname_override = relationship_repo.load_nickname_override(
+                observer_id, personality_id,
+            )
+        except Exception as e:
+            logger.debug("[CHARACTER] nickname_override load failed: %s", e)
+
+    personality = _build_personality_payload(
+        personality_id, nickname_override=nickname_override,
+    )
 
     # Live in-memory game data — needed for emotion / observation /
     # pressure_summary / memorable_hands. Resolved by player name
@@ -431,6 +478,59 @@ def get_dossier(identifier: str):
     return jsonify(response)
 
 
+@character_bp.route('/api/character/nickname-overrides', methods=['GET'])
+def get_nickname_overrides():
+    """GET /api/character/nickname-overrides
+
+    Returns the current viewer's full nickname-override map. Shape:
+
+        {
+          "overrides": {
+            "Batman": "the tight one",
+            "Joker":  "river bluffer"
+          }
+        }
+
+    Keyed by personality display name so the client can look up
+    against `player.name` from socket payloads directly — no need to
+    push `personality_id` through every game-state emit. Anonymous
+    callers (no session) get an empty map rather than a 401 — the
+    rest of the UI still has to function for guests, and an empty
+    map collapses cleanly through the display helper.
+    """
+    response = {'overrides': {}}
+    observer_id = _resolve_observer_id()
+    if not observer_id:
+        return jsonify(response)
+
+    from flask_app.extensions import personality_repo, relationship_repo
+    try:
+        by_id = relationship_repo.load_all_nickname_overrides(observer_id)
+    except Exception as e:
+        logger.error("[CHARACTER] bulk override load failed: %s", e)
+        return jsonify(response)
+
+    # Resolve each personality_id → display name. Small N (one row
+    # per opponent the viewer has explicitly renamed), so a per-row
+    # lookup is fine and lets the personality_repo's own caching /
+    # times_used bookkeeping do its thing.
+    by_name: dict = {}
+    for personality_id, override in by_id.items():
+        try:
+            p = personality_repo.load_personality_by_id(personality_id)
+        except Exception:
+            p = None
+        if p and p.get('name'):
+            by_name[p['name']] = override
+        # Orphan override (personality deleted): silently drop. The
+        # row stays in the DB so if the personality is restored the
+        # alias comes back, but we don't expose the dangling alias
+        # to the client.
+
+    response['overrides'] = by_name
+    return jsonify(response)
+
+
 @character_bp.route('/api/character/<identifier>/note', methods=['PUT'])
 def put_note(identifier: str):
     """PUT /api/character/<identifier>/note  body: {"note": str}
@@ -469,3 +569,56 @@ def put_note(identifier: str):
 
     saved = relationship_repo.load_note(observer_id, personality_id)
     return jsonify({'note': saved})
+
+
+# Nicknames are displayed prominently and are mostly short cues —
+# 60 chars covers "the tight guy in the red shirt" with room to
+# spare and keeps the dossier layout from being abused as a second
+# notes field.
+NICKNAME_OVERRIDE_MAX_LEN = 60
+
+
+@character_bp.route('/api/character/<identifier>/nickname', methods=['PUT'])
+def put_nickname_override(identifier: str):
+    """PUT /api/character/<identifier>/nickname  body: {"nickname": str}
+
+    Persists a per-viewer nickname override to
+    relationship_states.nickname_override. Empty / blank input
+    clears the override (stored as NULL) so the dossier reverts to
+    the personality's canonical nickname. Returns 401 if no observer
+    (per-viewer overrides require a session); 404 if the personality
+    doesn't exist.
+    """
+    observer_id = _resolve_observer_id()
+    if not observer_id:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    personality_id = _resolve_personality_id(identifier)
+    if not personality_id:
+        return jsonify({'error': 'Personality not found'}), 404
+
+    payload = request.get_json(silent=True) or {}
+    nickname = payload.get('nickname')
+    if nickname is not None and not isinstance(nickname, str):
+        return jsonify({'error': 'nickname must be a string'}), 400
+    if isinstance(nickname, str) and len(nickname) > NICKNAME_OVERRIDE_MAX_LEN:
+        return jsonify({
+            'error': (
+                f'nickname exceeds {NICKNAME_OVERRIDE_MAX_LEN} character limit'
+            ),
+        }), 400
+
+    from flask_app.extensions import relationship_repo
+    try:
+        relationship_repo.save_nickname_override(
+            observer_id, personality_id, nickname,
+        )
+    except Exception as e:
+        logger.error(
+            "[CHARACTER] save_nickname_override failed observer=%r personality=%r: %s",
+            observer_id, personality_id, e,
+        )
+        return jsonify({'error': 'Failed to save nickname'}), 500
+
+    saved = relationship_repo.load_nickname_override(observer_id, personality_id)
+    return jsonify({'nickname_override': saved})
