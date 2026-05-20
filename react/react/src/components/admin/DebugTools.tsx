@@ -7,7 +7,7 @@ import './DebugTools.css';
 // Types
 // ============================================
 
-type DebugTab = 'diagnostic' | 'psychology' | 'tilt' | 'memory' | 'elasticity' | 'pressure' | 'trajectory';
+type DebugTab = 'diagnostic' | 'psychology' | 'tilt' | 'memory' | 'elasticity' | 'pressure' | 'relationships' | 'trajectory';
 
 interface AlertState {
   type: 'success' | 'error' | 'info';
@@ -45,6 +45,7 @@ const TABS: { id: DebugTab; label: string; endpoint: string }[] = [
   { id: 'memory', label: 'Memory', endpoint: 'memory-debug' },
   { id: 'elasticity', label: 'Elasticity', endpoint: 'elasticity' },
   { id: 'pressure', label: 'Pressure Stats', endpoint: 'pressure-stats' },
+  { id: 'relationships', label: 'Relationships', endpoint: 'relationships' },
   { id: 'trajectory', label: 'Trajectory', endpoint: 'trajectory-viewer' },
 ];
 

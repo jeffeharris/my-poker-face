@@ -319,6 +319,108 @@ def get_psychology_debug(game_id):
     })
 
 
+@debug_bp.route('/api/game/<game_id>/relationships', methods=['GET'])
+def get_relationships_debug(game_id):
+    """Dump the full relationship-state view for a game.
+
+    Shows the data the AI bots see (or would see if `relationship_context`
+    were on): for every `(observer, opponent)` pair the memory layer
+    knows about, return the projected heat / respect / likability, the
+    bucket label (rival / friendly / neutral), and the most-recent
+    memorable hands. Includes neutral pairs — debug view wants the full
+    state, not the filtered view the prompt-side formatter shows.
+
+    Returns 404 when no `memory_manager` is wired for the game (older
+    flows, replay paths, in-memory tests that skip the bootstrap).
+    """
+    from datetime import datetime
+    from poker.memory.relationship_prompt import _classify
+
+    game_data = game_state_service.get_game(game_id)
+    if not game_data:
+        return jsonify({'error': 'Game not found'}), 404
+
+    memory_manager = game_data.get('memory_manager')
+    if memory_manager is None:
+        return jsonify({'error': 'No memory_manager for this game'}), 404
+    opp_manager = memory_manager.get_opponent_model_manager()
+    if opp_manager is None or not opp_manager.has_relationship_repo:
+        return jsonify({'error': 'No relationship_repo wired'}), 404
+
+    now = datetime.utcnow()
+    repo = opp_manager._relationship_repo
+
+    pairs = []
+    # Iterate every (observer, opponent) the in-memory models have seen.
+    # That includes both directions of each pair (observer→opponent and
+    # opponent→observer) because the bilateral update writes both rows
+    # on every event — listing both gives an honest view of how each
+    # side sees the other.
+    for observer_name, opp_map in opp_manager.models.items():
+        observer_id = opp_manager.resolve_player_id(observer_name)
+        for opponent_name, model in opp_map.items():
+            opponent_id = opp_manager.resolve_player_id(opponent_name)
+            if not observer_id or not opponent_id or observer_id == opponent_id:
+                continue
+
+            state = repo.load_relationship_state(
+                observer_id, opponent_id, now=now,
+            )
+            # No row yet → pair has no history; still surface it so the
+            # debug view shows "we know about this pair but nothing's
+            # happened" rather than silently omitting it.
+            if state is None:
+                pairs.append({
+                    'observer': observer_name,
+                    'opponent': opponent_name,
+                    'observer_id': observer_id,
+                    'opponent_id': opponent_id,
+                    'heat': 0.0,
+                    'respect': 0.5,
+                    'likability': 0.5,
+                    'label': None,
+                    'last_seen': None,
+                    'memorable_hands': [],
+                })
+                continue
+
+            label = _classify(state)
+            memorable = sorted(
+                model.memorable_hands,
+                key=lambda h: h.timestamp,
+                reverse=True,
+            )[:5] if model and model.memorable_hands else []
+
+            pairs.append({
+                'observer': observer_name,
+                'opponent': opponent_name,
+                'observer_id': observer_id,
+                'opponent_id': opponent_id,
+                'heat': round(state.heat, 4),
+                'respect': round(state.respect, 4),
+                'likability': round(state.likability, 4),
+                'label': label,  # 'rival' / 'friendly' / None
+                'last_seen': state.last_seen.isoformat() if state.last_seen else None,
+                'memorable_hands': [
+                    {
+                        'hand_id': h.hand_id,
+                        'event': h.event.value,
+                        'impact_score': round(h.impact_score, 3),
+                        'narrative': h.narrative,
+                        'timestamp': h.timestamp.isoformat(),
+                    }
+                    for h in memorable
+                ],
+            })
+
+    return jsonify({
+        'game_id': game_id,
+        'pair_count': len(pairs),
+        'now': now.isoformat(),
+        'pairs': pairs,
+    })
+
+
 @debug_bp.route('/api/game/<game_id>/trajectory-viewer', methods=['GET'])
 def game_trajectory_viewer(game_id):
     """Generate and serve interactive psychology trajectory viewer for any game."""
