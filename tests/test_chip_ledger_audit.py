@@ -22,12 +22,20 @@ from typing import Dict, List
 import pytest
 
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
+from cash_mode.stakes import (
+    BORROWER_KIND_HUMAN,
+    STAKE_FORMAT_HOUSE,
+    STAKE_STATUS_ACTIVE,
+    STAKER_KIND_HOUSE,
+    Stake,
+)
 from cash_mode.tables import CashTableState, ai_slot, open_slot
 from flask_app.services.chip_ledger_audit import compute_audit
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.cash_table_repository import CashTableRepository
 from poker.repositories.chip_ledger_repository import ChipLedgerRepository
 from poker.repositories.schema_manager import SchemaManager
+from poker.repositories.stake_repository import StakeRepository
 
 
 @pytest.fixture
@@ -46,6 +54,13 @@ def repos(db_path):
     bankroll_repo.close()
     cash_table_repo.close()
     ledger_repo.close()
+
+
+@pytest.fixture
+def stake_repo(db_path):
+    r = StakeRepository(db_path)
+    yield r
+    r.close()
 
 
 def _insert_personality(db_path: str, personality_id: str, *, cap=50_000, rate=500) -> None:
@@ -113,14 +128,32 @@ class TestComputeAudit:
         assert data['by_reason']['cap_clamp'] == -50
 
     def test_actual_totals_sum_bankrolls_tables_and_loans(
-        self, repos, db_path,
+        self, repos, db_path, stake_repo,
     ):
         bankroll_repo, cash_table_repo, ledger_repo = repos
-        # Player bankroll: 500 chips, 200 active loan principal.
+        # Player bankroll: 500 chips. Active house stake principal=200
+        # (chips sit on a human session seat, captured by the stakes-
+        # table sum the audit relies on for human borrowers).
         bankroll_repo.save_player_bankroll(PlayerBankrollState(
             player_id='alice', chips=500, starting_bankroll=200,
-            active_loan_amount=200, active_loan_floor=1.0,
-            active_loan_rate=0.0, active_loan_lender_id=None,
+        ))
+        anchor_dt = datetime(2026, 5, 18, 12, 0, 0)
+        stake_repo.create_stake(Stake(
+            stake_id='stake-alice-1',
+            session_id='cash-session-1',
+            staker_id=None,
+            staker_kind=STAKER_KIND_HOUSE,
+            borrower_id='alice',
+            borrower_kind=BORROWER_KIND_HUMAN,
+            format=STAKE_FORMAT_HOUSE,
+            principal=200,
+            match_amount=0,
+            origination_fee=0,
+            cut=0.0,
+            status=STAKE_STATUS_ACTIVE,
+            carry_amount=0,
+            stake_tier='$2',
+            created_at=anchor_dt,
         ))
         # AI bankroll: 3000 chips, no elapsed time → projected = 3000.
         _insert_personality(db_path, "zeus")
@@ -148,6 +181,7 @@ class TestComputeAudit:
             ledger_repo=ledger_repo,
             bankroll_repo=bankroll_repo,
             cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
             db_path=db_path,
             now=anchor,
         )

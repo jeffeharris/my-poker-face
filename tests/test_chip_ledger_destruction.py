@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 import pytest
 
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState, credit_ai_cash_out
-from cash_mode.loan_settlement import settle_loan_on_leave
 from core.economy import ledger as chip_ledger
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.chip_ledger_repository import ChipLedgerRepository
@@ -113,121 +112,13 @@ class TestCapClampLedger:
         assert clamps == []
 
 
-# --- house_stake_settle + forgive_balance ---
-
-
-class TestHouseStakeSettleLedger:
-    def test_settle_records_sponsor_total(self, ledger_repo):
-        # House-archetype stake: 200 chips, floor=1.0 (full), rate=0.0.
-        # Borrower returns with 200 chips → to_floor=200, remaining=0,
-        # sponsor_total=200 (all back to bank).
-        bankroll = PlayerBankrollState(
-            player_id="alice",
-            chips=0,
-            starting_bankroll=200,
-            active_loan_amount=200,
-            active_loan_floor=1.0,
-            active_loan_rate=0.0,
-            active_loan_lender_id=None,
-        )
-
-        settlement = settle_loan_on_leave(
-            bankroll, chips_at_table=200,
-            chip_ledger_repo=ledger_repo,
-        )
-        assert settlement.sponsor_total == 200
-
-        settles = [
-            e for e in ledger_repo.recent_entries()
-            if e['reason'] == 'house_stake_settle'
-        ]
-        assert len(settles) == 1
-        assert settles[0]['amount'] == 200
-        assert settles[0]['source'] == 'player:alice'
-        assert settles[0]['sink'] == 'central_bank'
-
-    def test_settle_below_floor_emits_settle_and_forgive(self, ledger_repo):
-        # Loan 200, floor=1.0, returned with 50. to_floor=50,
-        # sponsor_total=50 (back to bank), forgiven=150 (annotation).
-        bankroll = PlayerBankrollState(
-            player_id="alice",
-            chips=0,
-            starting_bankroll=200,
-            active_loan_amount=200,
-            active_loan_floor=1.0,
-            active_loan_rate=0.0,
-            active_loan_lender_id=None,
-        )
-
-        settle_loan_on_leave(
-            bankroll, chips_at_table=50,
-            chip_ledger_repo=ledger_repo,
-        )
-
-        entries = ledger_repo.recent_entries()
-        reasons = {e['reason']: e for e in entries}
-        assert 'house_stake_settle' in reasons
-        assert 'forgive_balance' in reasons
-        assert reasons['house_stake_settle']['amount'] == 50
-        assert reasons['forgive_balance']['amount'] == 0
-        assert reasons['forgive_balance']['context']['forgiven_principal'] == 150
-
-    def test_personality_stake_does_not_fire_house_settle(
-        self, bankroll_repo, ledger_repo, db_path,
-    ):
-        # Personality staker: lender_id set → sponsor_total credits the
-        # AI's bankroll instead. No house_stake_settle, no forgive_balance.
-        _insert_personality(db_path, "zeus", knobs={
-            "bankroll_cap": 50_000, "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0,
-            "stop_loss_buy_ins": 3, "stop_win_buy_ins": 5,
-            "stake_comfort_zone": "$10",
-        })
-        bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id="zeus", chips=5_000,
-            last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-        ))
-
-        bankroll = PlayerBankrollState(
-            player_id="alice",
-            chips=0,
-            starting_bankroll=200,
-            active_loan_amount=200,
-            active_loan_floor=1.0,
-            active_loan_rate=0.0,
-            active_loan_lender_id="zeus",
-        )
-
-        settle_loan_on_leave(
-            bankroll, chips_at_table=50,
-            bankroll_repo=bankroll_repo,
-            chip_ledger_repo=ledger_repo,
-            now=datetime(2026, 5, 18, 12, 0, 0),
-        )
-
-        reasons = {e['reason'] for e in ledger_repo.recent_entries()}
-        # ai_regen may fire for the staker's bankroll write (no time
-        # elapsed here so it shouldn't), but neither destruction
-        # entry is allowed for personality stakes.
-        assert 'house_stake_settle' not in reasons
-        assert 'forgive_balance' not in reasons
-
-    def test_full_payback_no_forgive(self, ledger_repo):
-        bankroll = PlayerBankrollState(
-            player_id="alice",
-            chips=0,
-            starting_bankroll=200,
-            active_loan_amount=200,
-            active_loan_floor=1.0,
-            active_loan_rate=0.0,
-            active_loan_lender_id=None,
-        )
-        settle_loan_on_leave(
-            bankroll, chips_at_table=200,
-            chip_ledger_repo=ledger_repo,
-        )
-        reasons = {e['reason'] for e in ledger_repo.recent_entries()}
-        assert 'forgive_balance' not in reasons
+# NOTE: The `TestHouseStakeSettleLedger` class that previously lived
+# here exercised house_stake_settle + forgive_balance via the legacy
+# `settle_loan_on_leave` code path. That path was removed in Cleanup A
+# of the backing-system handoff; equivalent coverage now lives in
+# `tests/test_stake_settlement.py` (house-stake forgive path) and
+# `tests/test_stake_chip_flow.py` (house-stake chip flow + ledger
+# annotation) against the stakes-table-backed implementation.
 
 
 # --- Helper-level: small sanity tests for the destruction sugar ---

@@ -54,19 +54,34 @@ def seeded_db(db_path):
     bankroll_repo.save_player_bankroll(PlayerBankrollState(
         player_id='alice', chips=500, starting_bankroll=200,
     ))
-    # Player with an active anonymous house loan.
-    bankroll_repo.save_player_bankroll(PlayerBankrollState(
-        player_id='bob', chips=0, starting_bankroll=200,
-        active_loan_amount=300, active_loan_floor=1.0,
-        active_loan_rate=0.0, active_loan_lender_id=None,
-    ))
-    # Player with a personality loan — should NOT add a pre_ledger_universe
-    # entry for the loan; the AI lender's bankroll covers those chips.
-    bankroll_repo.save_player_bankroll(PlayerBankrollState(
-        player_id='carol', chips=100, starting_bankroll=200,
-        active_loan_amount=400, active_loan_floor=1.0,
-        active_loan_rate=0.0, active_loan_lender_id='zeus',
-    ))
+    # bob has an active anonymous house loan; carol has a personality
+    # loan. The v94 migration reads `active_loan_*` directly from SQL,
+    # so we seed those columns via raw SQL — `PlayerBankrollState` no
+    # longer carries the fields after Cleanup B. The columns themselves
+    # disappear in v99 (Cleanup C); at that point this whole migration
+    # test goes too since v94 only matters on DBs that lived through
+    # v89-v98.
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE player_bankroll_state "
+            "SET active_loan_amount=300, active_loan_floor=1.0, "
+            "active_loan_rate=0.0, active_loan_lender_id=NULL "
+            "WHERE player_id='bob'",
+        )
+        # bob's row doesn't exist yet — insert with loan columns.
+        conn.execute(
+            "INSERT OR REPLACE INTO player_bankroll_state "
+            "(player_id, chips, starting_bankroll, active_loan_amount, "
+            "active_loan_floor, active_loan_rate, active_loan_lender_id) "
+            "VALUES ('bob', 0, 200, 300, 1.0, 0.0, NULL)",
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO player_bankroll_state "
+            "(player_id, chips, starting_bankroll, active_loan_amount, "
+            "active_loan_floor, active_loan_rate, active_loan_lender_id) "
+            "VALUES ('carol', 100, 200, 400, 1.0, 0.0, 'zeus')",
+        )
+        conn.commit()
 
     bankroll_repo.save_ai_bankroll(AIBankrollState(
         personality_id='zeus', chips=3_000, last_regen_tick=anchor,

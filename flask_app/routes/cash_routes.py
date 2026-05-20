@@ -1268,21 +1268,22 @@ def sponsor_and_sit():
        body: {stake_label, archetype_id | lender_id, opponents?}
 
     Atomic: validate sponsor eligibility, look up archetype OR
-    personality lender, build the cash game with `loan.amount` as the
-    player's starting stack, record the loan terms on
-    `player_bankroll_state`. The loan never lands in bankroll — it
-    goes directly to the table stack, closing the "pocket the spare
+    personality lender, build the cash game with the stake's
+    `principal` as the player's starting stack, persist the stake
+    row. The stake principal never lands in bankroll — it goes
+    directly to the table stack, closing the "pocket the spare
     loan" exploit by construction.
 
     Two paths:
-      - `archetype_id` (string) → anonymous house archetype (v1
-        sponsorship). `active_loan_lender_id` stays NULL.
-      - `lender_id` (string) → Path B personality sponsorship. The
-        offer is re-materialized server-side from the lender's
-        projected bankroll + the relationship axes — clients can't
-        tamper. `active_loan_lender_id` is set to `lender_id`, so
-        leave-time settlement routes sponsor_total back to the AI
-        lender's bankroll (commit 5).
+      - `archetype_id` (string) → anonymous house stake (v1 sponsorship
+        archetypes). Stake row has `staker_id=NULL`, `staker_kind='house'`,
+        and the bank-side ledger fires `house_stake_issue`.
+      - `lender_id` (string) → personality stake. The offer is
+        re-materialized server-side from the lender's projected
+        bankroll + the relationship axes — clients can't tamper.
+        Stake row has `staker_id=lender_id`, `staker_kind='personality'`,
+        and leave-time settlement routes `staker_total` back to the
+        AI lender's bankroll.
 
     Either field can be present; exactly one is required. Sending
     both is rejected to make the source-of-truth unambiguous.
@@ -1389,27 +1390,13 @@ def sponsor_and_sit():
     if err is not None:
         return jsonify(err[0]), err[1]
 
-    # Record the loan terms; bankroll chips unchanged (loan went
-    # straight to the table stack, never landed in bankroll).
-    #
-    # Dual-write: legacy active_loan_* columns stay populated for the
-    # audit endpoint's `_sum_active_loans` query through this cutover
-    # phase. The new stakes-table row below is the source-of-truth for
-    # the new settlement path (leave_table).
-    bankroll_repo.save_player_bankroll(PlayerBankrollState(
-        player_id=bankroll.player_id,
-        chips=bankroll.chips,
-        starting_bankroll=bankroll.starting_bankroll,
-        active_loan_amount=offer_amount,
-        active_loan_floor=offer_floor,
-        active_loan_rate=offer_rate,
-        active_loan_lender_id=offer_lender_id,
-    ))
-
-    # Phase 2 cutover: persist the stake row that leave_table will
-    # settle. stake_id is deterministic on game_id so a retry of
-    # sponsor_and_sit (shouldn't happen — game_id is unique per call)
-    # hits a PK conflict rather than silently double-booking.
+    # Persist the stake row that leave_table will settle. `stake_id`
+    # is deterministic on `game_id` so a retry of sponsor_and_sit
+    # (shouldn't happen — game_id is unique per call) hits a PK
+    # conflict rather than silently double-booking. The bankroll's
+    # chip count doesn't change here (the principal went straight to
+    # the table stack, never landed in bankroll), so there's nothing
+    # to save on player_bankroll_state — the stake row IS the record.
     #
     # `cut` maps from the legacy `offer_rate`; the legacy `floor` knob
     # has no equivalent in the stake model and is intentionally

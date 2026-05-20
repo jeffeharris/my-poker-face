@@ -1,12 +1,12 @@
 """End-to-end test of the Phase 2 cutover: sponsor_and_sit writes a
-Stake row, leave_table settles via the new stakes-table path.
+Stake row, leave_table settles via the stakes-table path.
 
-These tests verify that the route layer actually uses the new
-persistence surface (not just dual-writes). Tests construct
-fake-AI cash games via _build_cash_game's existing scaffolding,
-trigger the routes, and inspect both the legacy active_loan_* state
-(should be cleared post-leave) and the new stakes row state
-(should be status='settled' or 'carry' post-leave).
+These tests verify that the route layer uses the stakes-table
+persistence surface (the dual-write to legacy `active_loan_*` was
+retired in Cleanup B). Tests construct fake-AI cash games via
+_build_cash_game's existing scaffolding, trigger the routes, and
+inspect the stakes row state (should be `status='settled'` or
+`'carry'` post-leave).
 """
 
 from __future__ import annotations
@@ -163,10 +163,11 @@ class TestSponsorAndSitWritesStakeRow(_CutoverBase):
         self.assertEqual(stake.stake_tier, '$10')
         self.assertGreater(stake.principal, 0)
 
-        # Legacy surface still populated during the dual-write phase.
+        # The dual-write was retired in Cleanup B: bankroll row is now
+        # untouched on stake creation (the stake row IS the record).
         bankroll = self.bankroll_repo.load_player_bankroll(PLAYER_OWNER_ID)
-        self.assertEqual(bankroll.active_loan_lender_id, self.napoleon_id)
-        self.assertEqual(bankroll.active_loan_amount, stake.principal)
+        self.assertIsNotNone(bankroll)
+        # No legacy active_loan_* fields to assert against.
 
     def test_house_archetype_creates_house_stake_row(self):
         with self._patch_build_cash_game():

@@ -62,6 +62,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
         self.bankroll_repo = repos['bankroll_repo']
         self.personality_repo = repos['personality_repo']
         self.relationship_repo = repos['relationship_repo']
+        self.stake_repo = repos['stake_repo']
 
         def mock_init_persistence():
             import flask_app.extensions as ext
@@ -303,11 +304,11 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         The route's load-bearing logic for Path B is:
           - resolve the offer (house archetype vs personality)
           - call `_build_cash_game` to make the table
-          - write `active_loan_lender_id` to the bankroll row
+          - create a `stakes` row with the lender / principal / cut
 
         The full game build pulls in the state machine, controllers,
         memory manager, AI selection, etc. — none of which we're
-        testing. Stubbing it lets the route's loan-write logic run in
+        testing. Stubbing it lets the route's stake-write logic run in
         isolation. The cash_personality_ids mapping the leave-time
         cash-out loop reads is verified separately in commit 5's tests.
         """
@@ -316,8 +317,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
             return_value=("cash-test-stub-id", None),
         )
 
-    def test_house_path_writes_null_lender_id(self):
-        # House archetype path — should write active_loan_lender_id = NULL.
+    def test_house_path_writes_house_stake_row(self):
+        # House archetype path — creates a stake row with staker_id=NULL.
         with self._patch_build_cash_game():
             response = self.client.post(
                 '/api/cash/sponsor-and-sit',
@@ -333,11 +334,13 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertEqual(data['offer']['kind'], 'house')
         self.assertEqual(data['offer']['archetype_id'], 'friendly_boost')
 
-        bankroll = self.bankroll_repo.load_player_bankroll(PLAYER_OWNER_ID)
-        self.assertGreater(bankroll.active_loan_amount, 0)
-        self.assertIsNone(bankroll.active_loan_lender_id)
+        stake = self.stake_repo.load_active_for_session(data['game_id'])
+        self.assertIsNotNone(stake)
+        self.assertIsNone(stake.staker_id)
+        self.assertEqual(stake.staker_kind, 'house')
+        self.assertGreater(stake.principal, 0)
 
-    def test_personality_path_writes_lender_id(self):
+    def test_personality_path_writes_personality_stake_row(self):
         with self._patch_build_cash_game():
             response = self.client.post(
                 '/api/cash/sponsor-and-sit',
@@ -352,9 +355,11 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertEqual(data['offer']['kind'], 'personality')
         self.assertEqual(data['offer']['lender_id'], self.napoleon_id)
 
-        bankroll = self.bankroll_repo.load_player_bankroll(PLAYER_OWNER_ID)
-        self.assertEqual(bankroll.active_loan_lender_id, self.napoleon_id)
-        self.assertGreater(bankroll.active_loan_amount, 0)
+        stake = self.stake_repo.load_active_for_session(data['game_id'])
+        self.assertIsNotNone(stake)
+        self.assertEqual(stake.staker_id, self.napoleon_id)
+        self.assertEqual(stake.staker_kind, 'personality')
+        self.assertGreater(stake.principal, 0)
 
     def test_personality_path_emits_sponsorship_offered_event(self):
         # The route fires STAKE_OFFERED via the relationship_repo

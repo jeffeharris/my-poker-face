@@ -63,35 +63,17 @@ class PlayerBankrollState:
     per-row so future staking / character progression can alter it
     without a schema migration.
 
-    `active_loan_amount`, `active_loan_floor`, `active_loan_rate`
-    encode the session-scoped sponsor loan when one is active (v89).
-    Reset to 0/0.0/0.0 on `/api/cash/leave` after settlement.
-
-      - `active_loan_amount`: principal in chips (0 = no loan)
-      - `active_loan_floor`: repayment multiplier on the principal
-        (e.g., 1.30 = player must repay 130% of principal from
-        chips-at-table before any split kicks in)
-      - `active_loan_rate`: sponsor's cut of post-floor remaining
-        chips (e.g., 0.40 = 40% to sponsor, 60% to player)
-      - `active_loan_lender_id`: personality_id of the AI lender
-        (v90, Path B). NULL = anonymous house loan (v1 sponsorship);
-        non-NULL = named AI personality whose persistent bankroll
-        receives sponsor_total at leave-time. Reset to NULL on
-        `/api/cash/leave` alongside the other loan fields.
-
-    See `docs/plans/CASH_MODE_SPONSORSHIP_HANDOFF.md` for the
-    leave-time math and the sponsor archetype pool that produces
-    these triples, and `docs/plans/CASH_MODE_PATH_B_HANDOFF.md` for
-    the AI-lender extension.
+    Active stakes live in the `stakes` table (`StakeRepository`), not
+    on this dataclass — the legacy `active_loan_*` columns were
+    dropped in Cleanup B of the backing-system handoff after the
+    stakes-table cutover finished. See
+    `docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md` for the stake
+    model that replaced them.
     """
 
     player_id: str
     chips: int
     starting_bankroll: int
-    active_loan_amount: int = 0
-    active_loan_floor: float = 0.0
-    active_loan_rate: float = 0.0
-    active_loan_lender_id: Optional[str] = None
 
 
 @dataclass
