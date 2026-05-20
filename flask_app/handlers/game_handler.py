@@ -567,8 +567,9 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
     """
     if not current_game_data.get('cash_mode'):
         return None
-    from flask_app.extensions import bankroll_repo
+    from flask_app.extensions import bankroll_repo, stake_repo
     owner_id_cash = current_game_data.get('owner_id')
+    game_id_cash = current_game_data.get('game_id')
     bankroll_chips = 0
     active_loan = None
     if owner_id_cash:
@@ -576,13 +577,25 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
             bankroll = bankroll_repo.load_player_bankroll(owner_id_cash)
             if bankroll is not None:
                 bankroll_chips = bankroll.chips
-                if bankroll.active_loan_amount > 0:
-                    active_loan = {
-                        'amount': bankroll.active_loan_amount,
-                        'floor': bankroll.active_loan_floor,
-                        'rate': bankroll.active_loan_rate,
-                        'lender_id': bankroll.active_loan_lender_id,
-                    }
+        except Exception:
+            pass
+    # `active_loan` shape preserves the legacy frontend contract
+    # (amount/floor/rate/lender_id). Sourced from the active stake
+    # row when one exists. `floor` defaults to 1.0 since the stake
+    # model collapses floor+rate into a single `cut`; the frontend's
+    # "amount × floor" display effectively becomes "amount × 1.0",
+    # which is the right v1 shim until the React side adopts the
+    # stake-native fields.
+    if stake_repo is not None and game_id_cash:
+        try:
+            stake = stake_repo.load_active_for_session(game_id_cash)
+            if stake is not None:
+                active_loan = {
+                    'amount': stake.principal,
+                    'floor': 1.0,
+                    'rate': stake.cut,
+                    'lender_id': stake.staker_id,
+                }
         except Exception:
             pass
     big_blind = game_state.current_ante
@@ -1461,7 +1474,7 @@ def _detect_human_cash_bust(game_id: str, game_data: dict, state_machine) -> Non
     is non-zero — exits early.
     """
     from cash_mode.stakes_ladder import table_buy_in_window
-    from flask_app.extensions import bankroll_repo
+    from flask_app.extensions import bankroll_repo, stake_repo
 
     game_state = state_machine.game_state
     human_idx = next(
@@ -1485,7 +1498,13 @@ def _detect_human_cash_bust(game_id: str, game_data: dict, state_machine) -> Non
     owner_id = game_data.get('owner_id')
     bankroll = bankroll_repo.load_player_bankroll(owner_id) if owner_id else None
     bankroll_chips = bankroll.chips if bankroll else 0
-    has_active_loan = bool(bankroll and bankroll.active_loan_amount > 0)
+    # An active stake blocks rebuy regardless of bankroll — chips on
+    # the stake settle at /leave; mingling fresh bankroll chips would
+    # corrupt the staker's `cut` math (see rebuy / top_up gates).
+    has_active_loan = bool(
+        stake_repo is not None
+        and stake_repo.load_active_for_session(game_id) is not None
+    )
 
     event_name = (
         'cash_rebuy_needed'

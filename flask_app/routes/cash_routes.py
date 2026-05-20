@@ -33,7 +33,6 @@ from cash_mode.bankroll import (
     credit_ai_cash_out,
     project_bankroll,
 )
-from cash_mode.loan_settlement import classify_loan_outcome
 from cash_mode.sponsor_offers import (
     PersonalitySponsorOffer,
     compute_offers_for_table,
@@ -1570,9 +1569,15 @@ def rebuy():
         }), 400
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
-    if bankroll.active_loan_amount > 0:
+
+    # Block rebuy while an active stake is live for this session.
+    # Mingling stake-funded chips with fresh bankroll chips would corrupt
+    # the leave-time settlement math (the new buy-in would be subject to
+    # the staker's cut on the upside). Force a /leave to settle first.
+    from flask_app.extensions import stake_repo
+    if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
         return jsonify({
-            "error": "Rebuy disabled while a sponsor loan is active. Leave the table to settle.",
+            "error": "Rebuy disabled while a stake is active. Leave the table to settle.",
         }), 400
     if bankroll.chips < amount:
         return jsonify({"error": "Insufficient bankroll"}), 400
@@ -1584,9 +1589,6 @@ def rebuy():
         player_id=bankroll.player_id,
         chips=bankroll.chips - amount,
         starting_bankroll=bankroll.starting_bankroll,
-        active_loan_amount=bankroll.active_loan_amount,
-        active_loan_floor=bankroll.active_loan_floor,
-        active_loan_rate=bankroll.active_loan_rate,
     ))
 
     from flask_app.handlers.game_handler import progress_game, update_and_emit_game_state
@@ -1706,15 +1708,15 @@ def default_stake(stake_id: str):
 
 @cash_bp.route("/api/cash/leave", methods=["POST"])
 def leave_table():
-    """POST /api/cash/leave — player stands up; sponsor loan settles.
+    """POST /api/cash/leave — player stands up; any active stake settles.
 
-    Pulls the human's current `Player.stack` and applies the
-    leave-time loan math via `settle_loan_on_leave`:
-      - With an active loan: chips_at_table satisfies the floor
-        first, then the sponsor takes their rate of what remains;
-        whatever's left lands back in bankroll. Loan fields reset.
-      - Without an active loan: chips_at_table returns to bankroll
-        verbatim.
+    Pulls the human's current `Player.stack` and applies the leave-time
+    stake math via `settle_stake_on_leave` (stakes table is the
+    source-of-truth post-cutover):
+      - With an active stake: chips_at_table is split between staker and
+        borrower per `cut`; under-water bust creates a carry (or fires
+        `forgive_balance` on house stakes). See `cash_mode/stake_settlement.py`.
+      - Without an active stake: chips_at_table returns to bankroll verbatim.
 
     The old "auto-$5k fresh grant on full bust" branch is gone —
     a fully busted player walks away with $0 and picks a sponsor
@@ -1808,7 +1810,6 @@ def _leave_table_locked(owner_id: str, game_id: str):
     without indenting the existing block — see the `with lock:` in
     `leave_table` for the rationale.
     """
-    from cash_mode.loan_settlement import settle_loan_on_leave
     from flask_app.extensions import bankroll_repo, cash_table_repo, game_repo, personality_repo
     from flask_app.services import game_state_service
 
@@ -1866,25 +1867,24 @@ def _leave_table_locked(owner_id: str, game_id: str):
     from flask_app.extensions import chip_ledger_repo, stake_repo
     now = datetime.utcnow()
 
-    # Phase 2 cutover: prefer the new stake-table settlement path.
-    # Sessions created post-cutover have a Stake row keyed on game_id;
-    # pre-cutover sessions only have the legacy active_loan_* columns
-    # and fall through to settle_loan_on_leave below.
+    # Stake-table settlement. Sessions with an active stake row settle
+    # via the stake_chip_flow plumbing; sessions without (no stake was
+    # ever struck — player walked in with their own bankroll) get their
+    # chips returned verbatim.
     active_stake = (
         stake_repo.load_active_for_session(game_id)
         if stake_repo is not None else None
     )
 
     # Response payload values — populated by whichever settlement path
-    # runs. Defaults cover the "no loan, no stake" leave (player walks
-    # away with their chips).
+    # runs. Defaults cover the "no stake" leave (player walks away with
+    # their chips).
     sponsor_repaid = 0
     returned_chips = chips_at_table
     new_bankroll_chips = bankroll.chips + chips_at_table
     had_loan = False
 
     if active_stake is not None:
-        # NEW PATH — stakes-table-backed settlement.
         from cash_mode.stake_settlement import settle_stake_on_leave
         from cash_mode.stake_chip_flow import (
             DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
@@ -1933,14 +1933,11 @@ def _leave_table_locked(owner_id: str, game_id: str):
             elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
                 borrower_credit = flow.amount
 
-        # Update borrower bankroll + clear the dual-write legacy
-        # active_loan_* fields so the audit doesn't double-count.
         new_bankroll_chips = bankroll.chips + borrower_credit
         bankroll_repo.save_player_bankroll(PlayerBankrollState(
             player_id=bankroll.player_id,
             chips=new_bankroll_chips,
             starting_bankroll=bankroll.starting_bankroll,
-            # active_loan_* default to 0 / None — clears the legacy surface.
         ))
 
         # Fire STAKE_REPAID only when a personality staker was made whole.
@@ -1962,43 +1959,16 @@ def _leave_table_locked(owner_id: str, game_id: str):
         returned_chips = borrower_credit
         had_loan = True
     else:
-        # LEGACY PATH — pre-cutover session OR no-loan session. Snapshot
-        # the loan state before settle clears it (needed for the post-
-        # settlement event classification).
-        loan_outcome = classify_loan_outcome(bankroll, chips_at_table)
-        lender_id_at_settle = bankroll.active_loan_lender_id
-
-        legacy_settlement = settle_loan_on_leave(
-            bankroll, chips_at_table,
-            bankroll_repo=bankroll_repo,
-            chip_ledger_repo=chip_ledger_repo,
-            ledger_context={'game_id': game_id, 'site': 'loan_settle_legacy'},
-        )
-        bankroll_repo.save_player_bankroll(legacy_settlement.new_bankroll)
-
-        # Legacy Path B relationship event: only when a named AI lender
-        # was on the loan. The legacy path fires STAKE_DEFAULTED at
-        # leave-time for under-floor leaves — pre-cutover behavior that
-        # changes under the new path (where carries are silent and
-        # defaults only fire from the explicit endpoint).
-        if lender_id_at_settle:
-            if loan_outcome == "repaid":
-                _record_relationship_event(
-                    actor_id=lender_id_at_settle,
-                    target_id=owner_id,
-                    event=RelationshipEvent.STAKE_REPAID,
-                )
-            elif loan_outcome == "defaulted":
-                _record_relationship_event(
-                    actor_id=lender_id_at_settle,
-                    target_id=owner_id,
-                    event=RelationshipEvent.STAKE_DEFAULTED,
-                )
-
-        sponsor_repaid = legacy_settlement.sponsor_total
-        returned_chips = legacy_settlement.returned_chips
-        new_bankroll_chips = legacy_settlement.new_bankroll.chips
-        had_loan = bankroll.active_loan_amount > 0
+        # No active stake — chips return to bankroll verbatim. The
+        # pre-cutover `active_loan_*` legacy branch is gone (Cleanup A):
+        # post-cutover sessions all create stake rows, and Phase 1's
+        # one-shot migration converted historical loans into stake rows.
+        new_bankroll_chips = bankroll.chips + chips_at_table
+        bankroll_repo.save_player_bankroll(PlayerBankrollState(
+            player_id=bankroll.player_id,
+            chips=new_bankroll_chips,
+            starting_bankroll=bankroll.starting_bankroll,
+        ))
 
     # Credit every seated AI's current Player.stack back to their
     # persistent bankroll. Without this loop, AI table winnings
@@ -2210,12 +2180,13 @@ def top_up():
     bankroll = bankroll_repo.load_player_bankroll(owner_id)
     if bankroll is None or bankroll.chips < amount:
         return jsonify({"error": "Insufficient bankroll"}), 400
-    if bankroll.active_loan_amount > 0:
-        # Mingling bankroll chips with loan chips would corrupt the
-        # leave-time math (your top-up money would be taxed by the
-        # sponsor's cut). Force the player to settle first.
+    # Mingling bankroll chips with stake chips would corrupt the
+    # leave-time math (your top-up money would be taxed by the
+    # staker's cut). Force the player to settle first.
+    from flask_app.extensions import stake_repo
+    if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
         return jsonify({
-            "error": "Top-up disabled while a sponsor loan is active. Leave the table to settle.",
+            "error": "Top-up disabled while a stake is active. Leave the table to settle.",
         }), 400
 
     new_stack = state_machine.game_state.players[human_idx].stack + amount
