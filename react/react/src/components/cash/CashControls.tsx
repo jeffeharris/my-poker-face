@@ -119,6 +119,10 @@ export function CashControls({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (res.status === 404 && data.error === 'No active cash session') {
+          navigate('/cash');
+          return;
+        }
         throw new Error(data.error || `HTTP ${res.status}`);
       }
       // State refresh comes via the SocketIO emit triggered by the route.
