@@ -30,6 +30,7 @@ const LandingPage = lazy(() => import('./components/landing').then(m => ({ defau
 const Lobby = lazy(() => import('./components/cash/Lobby').then(m => ({ default: m.Lobby })))
 const PrivacyPolicy = lazy(() => import('./components/legal').then(m => ({ default: m.PrivacyPolicy })))
 const TermsOfService = lazy(() => import('./components/legal').then(m => ({ default: m.TermsOfService })))
+const WinnerLayoutSandbox = lazy(() => import('./components/dev/WinnerLayoutSandbox').then(m => ({ default: m.WinnerLayoutSandbox })))
 
 // Fallback game limit values when usageStats hasn't loaded yet
 const MAX_GAMES_GUEST = 1;
@@ -362,6 +363,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         } />
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/terms" element={<TermsOfService />} />
+        <Route path="/dev/winner-layout" element={<WinnerLayoutSandbox />} />
 
         {/* Protected routes */}
         <Route path="/menu" element={

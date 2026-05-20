@@ -904,6 +904,7 @@ export function MobilePokerTable({
           gameId={gameId || ''}
           playerName={playerName || ''}
           onSendMessage={wrappedSendMessage}
+          players={storePlayers || []}
         />
       )}
 

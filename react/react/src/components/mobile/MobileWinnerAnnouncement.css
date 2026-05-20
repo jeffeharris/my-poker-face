@@ -5,15 +5,16 @@
     inset: 0;
     background: var(--color-bg-overlay);
     backdrop-filter: blur(12px);
+    /* Flex column: content scrolls in the middle, chat-bar + Continue
+       are fixed-height siblings docked at the bottom of the viewport. */
     display: flex;
-    align-items: flex-start;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
     z-index: 1000;
     animation: fadeIn 0.3s ease-out;
-    padding: var(--space-4);
     padding-top: var(--space-5);
-    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
-    overflow-y: auto;
+    padding-bottom: env(safe-area-inset-bottom);
+    overflow: hidden;
 }
 
 .mobile-winner-content {
@@ -21,15 +22,25 @@
     color: var(--color-text-primary);
     width: 100%;
     max-width: 400px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 var(--space-4);
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: var(--space-3);
-    margin: auto 0;  /* Centers vertically when space available, stays at top when content overflows */
 }
 
-/* Winner Header - announcement at top */
+/* Winner Header — announcement at top. Compact stack: name, amount,
+   hand-name pill. Tight vertical rhythm, centered within its area. */
 .winner-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    padding: var(--space-3) 0 var(--space-2);
     text-align: center;
     animation: fadeInUp 0.4s ease-out;
 }
@@ -117,18 +128,33 @@
     color: var(--color-amber-dark);
 }
 
-/* Player header with name and winnings */
+/* Player header — just the name as the row's headline. Hand description
+   and winnings live in the middle column between avatar and cards below. */
 .showdown-player-header {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: var(--space-2);
+    width: 100%;
+    min-width: 0;
+}
+
+/* Middle column between avatar and cards — hand name on top, win amount
+   (if any) below. Flex:1 so it absorbs the remaining width. */
+.showdown-middle {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--space-1);
+    text-align: center;
 }
 
 .showdown-player-winnings {
     font-family: var(--font-mono);
     color: var(--color-emerald);
-    font-weight: var(--font-weight-semibold);
-    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-lg);
 }
 
 /* No showdown winner display - compact */
@@ -202,11 +228,104 @@
     background: var(--color-bg-surface);
     padding: var(--space-2);
     border-radius: var(--radius-lg);
+    border: 2px solid transparent;
+    /* Grid lets the cards span the full row height (name + avatar+middle)
+       on the right, while the name header + avatar/middle stack on the
+       left. */
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto 1fr;
+    gap: var(--space-1) var(--space-2);
+}
+
+.player-showdown > .showdown-player-header {
+    grid-column: 1;
+    grid-row: 1;
+}
+
+/* Avatar + middle column sits in the second grid row, left column. */
+.showdown-row-main {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    align-items: stretch;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+/* Cards span both grid rows so they take the full vertical space of
+   the participant row instead of sitting beneath the name header. */
+.player-showdown > .showdown-cards-row {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    align-self: stretch;
+}
+
+/* Emotion-aware portrait — skinny portrait crop, stretches to row height.
+   Width kept narrow so the avatar reads as a portrait (head + shoulders)
+   rather than a square headshot. object-fit: cover handles the crop. */
+.showdown-avatar {
+    width: 64px;
+    align-self: stretch;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--color-bg-void);
+    border: 2px solid var(--color-border-default);
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    border: 2px solid transparent;
+    justify-content: center;
+    color: var(--color-text-secondary);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-xl);
+    font-family: var(--font-display);
+}
+
+.player-showdown.winner .showdown-avatar {
+    border-color: var(--color-gold);
+    box-shadow: var(--glow-gold);
+}
+
+.showdown-avatar-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+    display: block;
+}
+
+.showdown-avatar-initial {
+    line-height: 1;
+}
+
+/* No-showdown winner — single large avatar at top of card */
+.no-showdown-avatar {
+    width: 96px;
+    height: 96px;
+    margin: 0 auto var(--space-2);
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--color-bg-void);
+    border: 3px solid var(--color-gold);
+    box-shadow: var(--glow-gold);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-gold);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-2xl);
+    font-family: var(--font-display);
+}
+
+.no-showdown-avatar-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+}
+
+.no-showdown-avatar-initial {
+    line-height: 1;
 }
 
 /* Winner highlighting with gold glow */
@@ -216,18 +335,12 @@
     box-shadow: var(--glow-gold);
 }
 
-.showdown-player-info {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    min-width: 80px;
-}
-
 .showdown-player-name {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-base);
     font-weight: var(--font-weight-semibold);
     color: var(--color-text-primary);
     text-align: left;
+    flex-shrink: 0;
 }
 
 .player-showdown.winner .showdown-player-name {
@@ -236,10 +349,10 @@
 }
 
 .showdown-hand-name {
-    font-size: var(--font-size-xs);
+    font-size: var(--font-size-sm);
     color: var(--color-text-tertiary);
     font-style: italic;
-    margin-top: 2px;
+    line-height: var(--line-height-tight);
 }
 
 .showdown-kickers {
@@ -257,11 +370,13 @@
 
 .showdown-cards-row {
     display: flex;
-    gap: var(--space-2);
-    justify-content: center;
+    gap: var(--space-1);
+    justify-content: flex-end;
+    align-items: center;
+    flex-shrink: 0;
 }
 
-/* Dismiss Button - Gold Primary */
+/* Dismiss Button - Gold Primary. */
 .dismiss-btn {
     padding: var(--space-3) var(--space-6);
     background: var(--gradient-gold);
@@ -278,7 +393,22 @@
 }
 
 .dismiss-btn:active {
-    transform: scale(0.95);
+    transform: scale(0.97);
+}
+
+/* Continue — fixed-height row at the bottom of the overlay flex column.
+   Always visible because it's the last flex item below the scrollable
+   content area; nothing about its position depends on the chat-bar's
+   height or the modal's scroll state. */
+.mobile-winner-dismiss {
+    flex-shrink: 0;
+    width: 100%;
+    max-width: 400px;
+    padding: var(--space-2) var(--space-4) var(--space-3);
+}
+
+.mobile-winner-dismiss .dismiss-btn {
+    width: 100%;
 }
 
 /* Commentary Section */
@@ -311,6 +441,19 @@
     color: var(--color-text-primary);
     font-size: var(--font-size-sm);
     line-height: var(--line-height-normal);
+}
+
+/* Chat bar and Continue are siblings of the scrolling content under
+   the overlay's flex column. Neither is positioned — they sit at their
+   natural location at the bottom of the viewport because they're after
+   the flex:1 content area. */
+
+.mobile-winner-chat-bar {
+    flex-shrink: 0;
+    width: 100%;
+    max-width: 400px;
+    padding: var(--space-2) var(--space-4);
+    animation: fadeIn 0.2s ease-out;
 }
 
 /* Post-Round Chat Section - compact */
@@ -396,12 +539,11 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-    align-items: center;
+    align-items: stretch;
 }
 
 .post-round-suggestion {
     width: 100%;
-    max-width: 280px;
     padding: var(--space-2) var(--space-3);
     border: 1px solid var(--color-border-default);
     border-radius: var(--radius-lg);
@@ -435,24 +577,32 @@
     border-left: 3px solid var(--color-sapphire);
 }
 
+/* Back link sits at the top of the suggestions list — a discreet
+   "Change tone" affordance that reads as navigation, not a button to
+   compete with the suggestion buttons. */
 .post-round-back {
-    padding: var(--space-2) var(--space-3);
+    align-self: flex-start;
+    margin-bottom: var(--space-1);
+    padding: var(--space-1) var(--space-2) var(--space-1) 0;
     border: none;
-    border-radius: var(--radius-md);
-    background: var(--color-bg-surface);
+    background: transparent;
     color: var(--color-text-tertiary);
     font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
     cursor: pointer;
     transition: var(--transition-all-base);
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: var(--space-1);
 }
 
 .post-round-back:hover,
 .post-round-back:active {
-    background: var(--color-bg-surface-hover);
     color: var(--color-text-primary);
+}
+
+.post-round-back svg {
+    opacity: 0.7;
 }
 
 /* Loading state */

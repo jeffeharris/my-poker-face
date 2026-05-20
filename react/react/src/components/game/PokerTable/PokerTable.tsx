@@ -250,6 +250,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
       <WinnerAnnouncement
         winnerInfo={winnerInfo}
         onComplete={clearWinnerInfo}
+        players={gameState.players}
       />
 
       {/* Tournament Complete */}
