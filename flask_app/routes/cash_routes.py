@@ -37,6 +37,7 @@ from cash_mode.loan_settlement import classify_loan_outcome
 from cash_mode.sponsor_offers import (
     PersonalitySponsorOffer,
     compute_offers_for_table,
+    LenderRejection,
     compute_personality_offers,
     offer_for_archetype,
 )
@@ -1046,7 +1047,9 @@ def sponsor_offers_for_stake():
     # current table's seated AIs when `table_id` is provided.
     from flask_app.extensions import (
         bankroll_repo, cash_table_repo, personality_repo, relationship_repo,
+        stake_repo,
     )
+    from cash_mode.staking_tier import resolve_tier
 
     broad_candidates = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
     candidates = broad_candidates
@@ -1062,6 +1065,11 @@ def sponsor_offers_for_stake():
             if narrowed:
                 candidates = narrowed
 
+    # Phase 2 (Commit 3): rejections list is populated as candidates
+    # fail eligibility / tier gates so the modal can render a "they
+    # won't back you" section. Resolved once here so the same list is
+    # surfaced regardless of which candidate pool produced the offers.
+    rejections: List[LenderRejection] = []
     personality_offers = compute_personality_offers(
         player_owner_id=owner_id,
         min_buy_in=min_buy_in,
@@ -1069,13 +1077,17 @@ def sponsor_offers_for_stake():
         candidate_personalities=candidates,
         bankroll_repo=bankroll_repo,
         relationship_repo=relationship_repo,
+        stake_repo=stake_repo,
+        stake_label=stake_label,
         count=3,
+        rejections_out=rejections,
     )
 
     # Lobby v1.5 fallback: if the narrowed-to-table pool produced zero
     # qualifying offers, retry with the broader pool. House archetypes
     # are still the final fallback when even that returns nothing.
     if table_id and not personality_offers and candidates is not broad_candidates:
+        rejections = []  # reset — broader pool will produce its own
         personality_offers = compute_personality_offers(
             player_owner_id=owner_id,
             min_buy_in=min_buy_in,
@@ -1083,8 +1095,21 @@ def sponsor_offers_for_stake():
             candidate_personalities=broad_candidates,
             bankroll_repo=bankroll_repo,
             relationship_repo=relationship_repo,
+            stake_repo=stake_repo,
+            stake_label=stake_label,
             count=3,
+            rejections_out=rejections,
         )
+
+    # Resolve the borrower's tier so the response (Commit 3 frontend)
+    # can render a tier indicator alongside the offers. Tolerates a
+    # missing stake_repo by defaulting to 'premium' for back-compat
+    # in tests that don't wire one through.
+    tier = resolve_tier(
+        borrower_id=owner_id,
+        current_stake_label=stake_label,
+        stake_repo=stake_repo,
+    ) if stake_repo is not None else 'premium'
 
     # House fallback: fill the remainder up to 3 with anonymous archetypes.
     house_slots = max(0, 3 - len(personality_offers))
@@ -1120,6 +1145,16 @@ def sponsor_offers_for_stake():
         "eligible": True,
         "stake_label": stake_label,
         "offers": response_offers,
+        "tier": tier,
+        "rejections": [
+            {
+                "lender_id": r.lender_id,
+                "name": r.lender_name,
+                "reason": r.reason,
+                "detail": r.detail,
+            }
+            for r in rejections
+        ],
     })
 
 
@@ -1164,18 +1199,27 @@ def _materialize_personality_offer(
     bankroll_repo,
     personality_repo,
     relationship_repo,
+    stake_repo=None,
+    stake_label: Optional[str] = None,
 ) -> Optional[PersonalitySponsorOffer]:
     """Server-side: re-derive a personality offer fresh for sponsor-and-sit.
 
     Mirrors `offer_for_archetype` — the client only sends an id, and
     the server recomputes the concrete terms from authoritative state
-    (lender's projected bankroll, relationship axes). A tampered
-    client can't grift better terms than the lender's profile +
-    relationship permits.
+    (lender's projected bankroll, relationship axes, AND Phase 2 tier
+    + per-staker garnishment). A tampered client can't grift better
+    terms than the lender's profile + tier + relationship permits.
+
+    `stake_repo` and `stake_label` are optional for back-compat; when
+    omitted, tier/garnishment terms aren't applied. Production callers
+    pass them so the re-materialized offer matches what the sponsor-
+    offers route surfaced (else the client and server would compute
+    different rates for the same lender).
 
     Returns None if the named lender doesn't qualify (unwilling, broke,
-    respect floor / heat ceiling violations, missing personality).
-    The caller treats None as a tampering or stale-offer condition.
+    respect floor / heat ceiling violations, tier-floor violations,
+    missing personality). The caller treats None as a tampering or
+    stale-offer condition.
     """
     # Locate the candidate in the eligible pool — same pool the
     # sponsor-offers route surfaces, so we can't sit with a lender
@@ -1192,6 +1236,8 @@ def _materialize_personality_offer(
         candidate_personalities=[match],
         bankroll_repo=bankroll_repo,
         relationship_repo=relationship_repo,
+        stake_repo=stake_repo,
+        stake_label=stake_label,
         count=1,
     )
     return offers[0] if offers else None
@@ -1259,7 +1305,7 @@ def sponsor_and_sit():
         }), 409
 
     from flask_app.extensions import (
-        bankroll_repo, personality_repo, relationship_repo,
+        bankroll_repo, personality_repo, relationship_repo, stake_repo,
     )
     bankroll = _load_or_seed_player_bankroll(owner_id)
 
@@ -1272,7 +1318,9 @@ def sponsor_and_sit():
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
 
     # Resolve to a concrete offer — server-side, fresh from authoritative
-    # state, no client trust.
+    # state, no client trust. Pass stake_repo + stake_label so the
+    # re-materialized terms include the Phase 2 tier bump + per-staker
+    # garnishment that the sponsor-offers route applied.
     if lender_id:
         personality_offer = _materialize_personality_offer(
             lender_id=lender_id,
@@ -1282,6 +1330,8 @@ def sponsor_and_sit():
             bankroll_repo=bankroll_repo,
             personality_repo=personality_repo,
             relationship_repo=relationship_repo,
+            stake_repo=stake_repo,
+            stake_label=stake_label,
         )
         if personality_offer is None:
             return jsonify({
