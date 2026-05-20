@@ -1266,8 +1266,6 @@ interface BankrollKnobs {
   bankroll_cap: number;
   bankroll_rate: number;
   buy_in_multiplier: number;
-  stop_loss_buy_ins: number;
-  stop_win_buy_ins: number;
   stake_comfort_zone: string;
 }
 
@@ -1332,8 +1330,6 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
     knobs.bankroll_cap !== original.bankroll_cap ||
     knobs.bankroll_rate !== original.bankroll_rate ||
     knobs.buy_in_multiplier !== original.buy_in_multiplier ||
-    knobs.stop_loss_buy_ins !== original.stop_loss_buy_ins ||
-    knobs.stop_win_buy_ins !== original.stop_win_buy_ins ||
     knobs.stake_comfort_zone !== original.stake_comfort_zone
   );
 
@@ -1461,33 +1457,6 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-          <p className="admin-help-text">v2 — unused in v1</p>
-        </div>
-      </div>
-
-      <div className="admin-form-row">
-        <div className="admin-form-group">
-          <label className="admin-label" htmlFor="stop_loss_buy_ins">Stop loss (buy-ins)</label>
-          <input
-            id="stop_loss_buy_ins"
-            type="number"
-            className="admin-input"
-            min={0}
-            value={knobs.stop_loss_buy_ins}
-            onChange={(e) => updateField('stop_loss_buy_ins', Number(e.target.value))}
-          />
-          <p className="admin-help-text">v2 — unused in v1</p>
-        </div>
-        <div className="admin-form-group">
-          <label className="admin-label" htmlFor="stop_win_buy_ins">Stop win (buy-ins)</label>
-          <input
-            id="stop_win_buy_ins"
-            type="number"
-            className="admin-input"
-            min={0}
-            value={knobs.stop_win_buy_ins}
-            onChange={(e) => updateField('stop_win_buy_ins', Number(e.target.value))}
-          />
           <p className="admin-help-text">v2 — unused in v1</p>
         </div>
       </div>

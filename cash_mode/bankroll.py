@@ -80,26 +80,18 @@ class PlayerBankrollState:
 class BankrollKnobs:
     """Per-personality bankroll behavior knobs.
 
-    Stored in columns on `personalities` (schema v88). Read at table
-    sit-down to decide buy-in size, eligibility, and (in v2)
-    stop-loss / stop-win cutoffs.
-
-    `stop_loss_buy_ins` and `stop_win_buy_ins` are persisted in v1
-    but unused — v1 ships bust-only AI session behavior (Part 2
-    §"AI session behavior (v1)"). v2 reads these to add stop-loss /
-    stop-win gates.
+    Stored in `personalities.config_json.bankroll_knobs`. Read at
+    table sit-down to decide buy-in size and eligibility.
 
     `stake_comfort_zone` is the friendly stake label ("$10",
     "$50", ...) the AI prefers when multiple are affordable. v1 has
-    no selection problem (one table), so this is also persisted-but-
-    unused until v2's lobby lands.
+    no selection problem (one table), so it's persisted-but-unused
+    until the v2 multi-table lobby lands.
     """
 
     bankroll_cap: int
     bankroll_rate: int
     buy_in_multiplier: float
-    stop_loss_buy_ins: int
-    stop_win_buy_ins: int
     stake_comfort_zone: str
 
 
@@ -110,8 +102,6 @@ BANKROLL_KNOB_DEFAULTS = BankrollKnobs(
     bankroll_cap=10_000,
     bankroll_rate=500,
     buy_in_multiplier=1.0,
-    stop_loss_buy_ins=3,
-    stop_win_buy_ins=5,
     stake_comfort_zone="$10",
 )
 
