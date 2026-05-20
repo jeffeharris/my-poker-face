@@ -63,6 +63,15 @@ def dispatch_chat_relationship_event(
         if opponent_manager is None or not opponent_manager.has_relationship_repo:
             return
 
+        # Pull the current hand_number so the bilateral update can
+        # attach a MemorableHand sidecar (record_event silently skips
+        # the memorable-hand step when hand_id is None — that path is
+        # for replay / out-of-band tests). Best-effort: missing
+        # hand_count just degrades to "axes move but no narrative
+        # gets surfaced in the debug view," which is the current
+        # behavior anyway.
+        hand_id = getattr(memory_manager, 'hand_count', None) or None
+
         actor_id = opponent_manager.resolve_player_id(sender)
         for target_name in addressing:
             target_id = opponent_manager.resolve_player_id(target_name)
@@ -74,6 +83,7 @@ def dispatch_chat_relationship_event(
                 event=mapping.event,
                 context_multiplier=mapping.multiplier,
                 narrative=f"{sender} → {target_name}: {tone}",
+                hand_id=hand_id,
             )
     except Exception:
         logger.exception("[chat] relationship dispatch failed")

@@ -154,6 +154,35 @@ class TestDispatchFiresEvent:
             0.5 + expected.likability
         )
 
+    def test_memorable_hand_attached_when_hand_count_present(
+        self, opp_manager, repo,
+    ):
+        """When the chat path is invoked during an active hand, the
+        bilateral axis update should attach a MemorableHand sidecar
+        on the actor's in-memory PlayerModel — same surface
+        hand-outcome events use. Without this, chat-driven movement
+        is invisible in the debug view (axes shift but no narrative).
+        """
+        from types import SimpleNamespace
+        memory_manager = SimpleNamespace(
+            get_opponent_model_manager=lambda: opp_manager,
+            hand_count=7,
+        )
+        game_data = {"memory_manager": memory_manager}
+
+        # Pre-create the model so add_memorable_hand has a target to
+        # attach to. (Production path creates models on register +
+        # first interaction; the test fixture does this explicitly.)
+        opp_manager.get_model("alice", "bob")
+
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="goad", intensity="spicy",
+        )
+        model = opp_manager.get_model("alice", "bob")
+        assert len(model.memorable_hands) == 1
+        assert model.memorable_hands[0].hand_id == 7
+        assert "alice → bob" in model.memorable_hands[0].narrative
+
     def test_self_targeted_message_is_silently_skipped(
         self, game_data, repo,
     ):
