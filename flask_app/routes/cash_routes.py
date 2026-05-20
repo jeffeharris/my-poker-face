@@ -43,6 +43,11 @@ from cash_mode.sponsor_offers import (
 )
 from core.economy import ledger as chip_ledger
 from poker.memory.relationship_events import RelationshipEvent
+from cash_mode.stakes import (
+    BORROWER_KIND_HUMAN,
+    STAKE_STATUS_CARRY,
+    STAKE_STATUS_DEFAULTED,
+)
 from cash_mode.stakes_ladder import (
     MAX_BUY_IN_BB,
     MIN_BUY_IN_BB,
@@ -1545,6 +1550,107 @@ def rebuy():
     return jsonify({
         "stack": amount,
         "bankroll": bankroll.chips - amount,
+    })
+
+
+@cash_bp.route("/api/cash/stakes/<stake_id>/default", methods=["POST"])
+def default_stake(stake_id: str):
+    """POST /api/cash/stakes/<stake_id>/default
+
+    Explicit borrower default on a sitting carry. Phase 2 Commit 2 of
+    the staking-system handoff. The borrower trades the carry's
+    ongoing tier-degradation pressure for a one-shot reputation hit on
+    the specific lender:
+      - status flips to 'defaulted', carry_amount zeroes.
+      - STAKE_DEFAULTED relationship event fires (actor=staker,
+        target=borrower), which drives the dispatch table's sharpest
+        negative axis shift — heat up, respect down, likability down.
+      - **No bankroll movement.** The reputation hit IS the cost.
+        Locked decision #12: defaulting is always allowed regardless
+        of whether the borrower could afford to settle voluntarily.
+
+    Rejections:
+      - 404 if the stake_id doesn't exist or belongs to a different
+        borrower (the auth check leaks no info: both yield the same
+        404 so a probing client can't enumerate other players' carries).
+      - 400 if the stake isn't in 'carry' status — active / settled /
+        already-defaulted rows can't be defaulted from here.
+      - 400 if the staker is the house — house stakes never carry, so
+        there's nothing to default and no actor to take the reputation
+        hit anyway.
+
+    Phase 4 wires AI borrowers into the same path; the route checks
+    `borrower_kind == 'human'` so the player endpoint only operates on
+    the player's own rows. AI-initiated defaults will land in a
+    separate path via the movement decision tree.
+
+    The leverage exploit (take cheap stake, win big, default cheap,
+    pocket profit) is tolerated for v1 per the design lock — the
+    reputation cost on the specific lender is the trade. Follow-up
+    work could scale the reputation magnitude by carry size or by
+    bankroll-vs-carry ratio at default time if playtest shows
+    systematic abuse.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    from flask_app.extensions import stake_repo
+
+    stake = stake_repo.load_stake(stake_id)
+    # 404 covers both "missing stake" and "stake belongs to someone
+    # else" so probing clients can't enumerate other borrowers' carries.
+    if stake is None or stake.borrower_id != owner_id:
+        return jsonify({"error": "Stake not found"}), 404
+    if stake.borrower_kind != BORROWER_KIND_HUMAN:
+        # Defensive — this route is the player-initiated path. AI
+        # defaults (Phase 4) flow through movement instead.
+        return jsonify({"error": "Stake not found"}), 404
+
+    if stake.status != STAKE_STATUS_CARRY:
+        return jsonify({
+            "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
+        }), 400
+    if stake.staker_id is None:
+        # House stakes never carry. This branch only fires if a row
+        # somehow got into 'carry' status with NULL staker_id, which
+        # shouldn't happen — Phase 1's settle_stake_on_leave overrides
+        # house carries to 'settled' before persisting.
+        return jsonify({
+            "error": "House stakes cannot be defaulted (they don't carry)",
+        }), 400
+
+    former_carry = stake.carry_amount
+    former_staker = stake.staker_id
+
+    stake_repo.update_carry_amount(stake_id, 0)
+    stake_repo.update_status(
+        stake_id, STAKE_STATUS_DEFAULTED, settled_at=datetime.utcnow(),
+    )
+
+    # Fire the reputation hit. The dispatch table's STAKE_DEFAULTED
+    # entry is the sharpest negative axis shift in the calibration —
+    # the spec calls this "the worst thing a borrower can do to a
+    # staker" deliberately. Phase 1 Commit 1 calibrated both the
+    # actor and mirror entries; we just trigger the event here.
+    _record_relationship_event(
+        actor_id=former_staker,
+        target_id=owner_id,
+        event=RelationshipEvent.STAKE_DEFAULTED,
+    )
+
+    logger.info(
+        "[STAKE] Explicit default stake_id=%r owner=%r staker=%r "
+        "former_carry=%d",
+        stake_id, owner_id, former_staker, former_carry,
+    )
+
+    return jsonify({
+        "stake_id": stake_id,
+        "status": STAKE_STATUS_DEFAULTED,
+        "former_carry_amount": former_carry,
+        "staker_id": former_staker,
     })
 
 
