@@ -86,7 +86,7 @@ class TestSingleAICashOut:
         # 3_000 chips from the table → bankroll becomes 8_000 (no
         # projection time elapsed, no clamp).
         _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "bankroll_cap": 50_000,
+            "starting_bankroll": 50_000,
             "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
@@ -108,7 +108,7 @@ class TestSingleAICashOut:
         # last_regen_tick is one day ago, rate=500/day → projection
         # adds 500 before the table credit lands.
         _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "bankroll_cap": 50_000,
+            "starting_bankroll": 50_000,
             "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
@@ -135,7 +135,7 @@ class TestCapClamp:
         # Bankroll at 49_000, cap 50_000, table stack 5_000 → winnings
         # clamp to 50_000. 4_000 chips evaporate (intentional v1 rule).
         _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "bankroll_cap": 50_000,
+            "starting_bankroll": 50_000,
             "bankroll_rate": 0,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
@@ -153,7 +153,7 @@ class TestCapClamp:
         # *write still fires* (last_regen_tick refreshes) but chips
         # don't change.
         _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "bankroll_cap": 50_000,
+            "starting_bankroll": 50_000,
             "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
@@ -170,13 +170,13 @@ class TestCapClamp:
         # Different cap per personality: zeus cap=200k, napoleon cap=10k.
         # Cash-out respects each personality's own knob.
         _insert_personality(db_path, "zeus", bankroll_knobs={
-            "bankroll_cap": 200_000,
+            "starting_bankroll": 200_000,
             "bankroll_rate": 0,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$100",
         })
         _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "bankroll_cap": 10_000,
+            "starting_bankroll": 10_000,
             "bankroll_rate": 0,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
@@ -195,28 +195,35 @@ class TestCapClamp:
         assert napoleon_after.chips == 10_000  # clamped to 10k cap
 
 
-# --- Skip conditions ---
+# --- Edge cases (busted stacks, missing rows) ---
 
 
-class TestSkipConditions:
-    def test_zero_stack_no_op(self, repo, db_path, now):
-        # Busted AI: stack=0 → no write happens, function returns None.
+class TestEdgeCases:
+    def test_zero_stack_advances_tick(self, repo, db_path, now):
+        # Busted AI: stack=0 still commits a write so the regen clock
+        # advances. Otherwise an AI that loses everything sits at
+        # chips=0 with a stale tick and never recovers.
         _insert_personality(db_path, "napoleon")
+        old_tick = now - timedelta(days=1)
         repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon", chips=5_000, last_regen_tick=now,
+            personality_id="napoleon", chips=5_000, last_regen_tick=old_tick,
         ), sandbox_id="test-sandbox-1")
 
         result = credit_ai_cash_out(repo, "napoleon", 0, sandbox_id="test-sandbox-1", now=now)
 
-        assert result is None
-        # No spurious write — last_regen_tick preserved.
+        assert result is not None
+        # Regen of one day at the default 500/day applied; no table
+        # chips added on top because the stack was 0.
+        assert result.chips == 5_500
+        assert result.last_regen_tick == now
         stored = repo.load_ai_bankroll("napoleon", sandbox_id="test-sandbox-1")
-        assert stored.chips == 5_000
+        assert stored.chips == 5_500
         assert stored.last_regen_tick == now
 
-    def test_negative_stack_no_op(self, repo, db_path, now):
+    def test_negative_stack_treated_as_zero(self, repo, db_path, now):
         # Defensive: callers shouldn't pass negative, but if they do,
-        # we don't burn the bankroll.
+        # clamp to 0 rather than debiting the bankroll. Tick still
+        # advances so regen continues.
         _insert_personality(db_path, "napoleon")
         repo.save_ai_bankroll(AIBankrollState(
             personality_id="napoleon", chips=5_000, last_regen_tick=now,
@@ -224,20 +231,37 @@ class TestSkipConditions:
 
         result = credit_ai_cash_out(repo, "napoleon", -100, sandbox_id="test-sandbox-1", now=now)
 
-        assert result is None
+        assert result is not None
+        assert result.chips == 5_000
 
-    def test_no_bankroll_row_skips(self, repo, db_path, now):
-        # Personality has no `ai_bankroll_state` row yet (shouldn't
-        # happen for a seated AI — sit_down writes the row — but the
-        # function should not crash if it does).
+    def test_no_bankroll_row_creates_row(self, repo, db_path, now):
+        # Personality has no `ai_bankroll_state` row yet. The credit
+        # path is the defensive seam — it writes a fresh row so the
+        # regen clock can begin. Previously this case silently
+        # skipped, stranding the AI.
         _insert_personality(db_path, "napoleon")
         # (No save_ai_bankroll call.)
 
         result = credit_ai_cash_out(repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=now)
 
-        assert result is None
-        # Still no row.
-        assert repo.load_ai_bankroll("napoleon", sandbox_id="test-sandbox-1") is None
+        assert result is not None
+        assert result.chips == 1_000
+        assert result.last_regen_tick == now
+        stored = repo.load_ai_bankroll("napoleon", sandbox_id="test-sandbox-1")
+        assert stored is not None
+        assert stored.chips == 1_000
+
+    def test_no_bankroll_row_with_zero_stack_creates_chip_zero_row(self, repo, db_path, now):
+        # No row + bust-out (stack=0) is the worst case of the old
+        # bug: the AI was stranded forever. Now we create a row at
+        # chips=0 with a live tick so regen can start accruing.
+        _insert_personality(db_path, "napoleon")
+
+        result = credit_ai_cash_out(repo, "napoleon", 0, sandbox_id="test-sandbox-1", now=now)
+
+        assert result is not None
+        assert result.chips == 0
+        assert result.last_regen_tick == now
 
 
 # --- Multiple AIs ---
@@ -249,7 +273,7 @@ class TestMultipleAIs:
         # independently. No cross-contamination between bankrolls.
         for pid in ("napoleon", "zeus", "athena"):
             _insert_personality(db_path, pid, bankroll_knobs={
-                "bankroll_cap": 50_000,
+                "starting_bankroll": 50_000,
                 "bankroll_rate": 0,
                 "buy_in_multiplier": 1.0,
                 "stake_comfort_zone": "$10",
@@ -278,11 +302,11 @@ class TestDefaultKnobs:
         _insert_personality(db_path, "rookie")  # no knobs
         repo.save_ai_bankroll(AIBankrollState(
             personality_id="rookie",
-            chips=BANKROLL_KNOB_DEFAULTS.bankroll_cap - 1_000,
+            chips=BANKROLL_KNOB_DEFAULTS.starting_bankroll - 1_000,
             last_regen_tick=now,
         ), sandbox_id="test-sandbox-1")
 
         result = credit_ai_cash_out(repo, "rookie", 5_000, sandbox_id="test-sandbox-1", now=now)
 
         # Default cap is 10_000; we started at 9_000 + 5_000 → clamp to 10_000
-        assert result.chips == BANKROLL_KNOB_DEFAULTS.bankroll_cap
+        assert result.chips == BANKROLL_KNOB_DEFAULTS.starting_bankroll

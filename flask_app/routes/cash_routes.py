@@ -575,11 +575,11 @@ def _build_cash_game(
 
             stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
             if stored is None:
-                projected = knobs.bankroll_cap
+                projected = knobs.starting_bankroll
                 stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
             else:
                 projected = project_bankroll(
-                    stored, knobs.bankroll_cap, knobs.bankroll_rate, now,
+                    stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
                 )
             if projected < ai_threshold:
                 continue
@@ -2681,12 +2681,27 @@ def get_lobby():
     from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
     from flask_app.services import game_state_service
     from cash_mode.lobby import (
+        ensure_ai_bankrolls_seeded,
         ensure_lobby_seeded,
         get_dealer_index,
         refresh_unseated_tables,
     )
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
+    # Bankroll seed must run BEFORE lobby seed: the lobby seeder picks
+    # AI candidates by `projected >= ai_threshold`, and a missing row
+    # leans on `knobs.starting_bankroll` only via a defensive fallback —
+    # writing real rows up-front keeps the live-fill path's
+    # `load_ai_bankroll_current` from returning None for personalities
+    # who have never sat.
+    from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
+    ensure_ai_bankrolls_seeded(
+        personality_repo=personality_repo,
+        bankroll_repo=bankroll_repo,
+        sandbox_id=sandbox_id,
+        user_id=owner_id,
+        chip_ledger_repo=_chip_ledger_repo,
+    )
     ensure_lobby_seeded(
         cash_table_repo=cash_table_repo,
         personality_repo=personality_repo,
@@ -2929,7 +2944,10 @@ def get_lobby():
         "tier": current_tier,
         "tier_stake_label": current_tier_stake,
         "tables": response_tables,
-        "events": [serialize_event(e) for e in recent_events(limit=5)],
+        "events": [
+            serialize_event(e)
+            for e in recent_events(limit=5, sandbox_id=sandbox_id)
+        ],
     })
 
 

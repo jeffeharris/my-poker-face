@@ -758,11 +758,11 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
 
             stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
             if stored is None:
-                projected = knobs.bankroll_cap
+                projected = knobs.starting_bankroll
                 stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
             else:
                 projected = project_bankroll(
-                    stored, knobs.bankroll_cap, knobs.bankroll_rate, now,
+                    stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
                 )
             if projected < threshold:
                 continue
@@ -1063,7 +1063,14 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         }
 
     def _bankroll_lookup(pid: str):
-        return bankroll_repo.load_ai_bankroll_current(pid, sandbox_id=sandbox_id, now=now)
+        current = bankroll_repo.load_ai_bankroll_current(pid, sandbox_id=sandbox_id, now=now)
+        if current is not None:
+            return current
+        # No row yet — fall back to the personality's cap (mirrors the
+        # seed path). Keeps a freshly-added personality from being
+        # locked out of hand-boundary live-fill while the boot-time
+        # `ensure_ai_bankrolls_seeded` is racing the first lobby load.
+        return bankroll_repo.load_personality_knobs(pid).starting_bankroll
 
     _buy_in_cache: Dict[str, int] = {}
 
@@ -1220,7 +1227,7 @@ def _apply_rebuys(
                 )
             else:
                 projected = project_bankroll(
-                    stored, knobs.bankroll_cap, knobs.bankroll_rate, now,
+                    stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
                 )
                 new_chips = max(0, projected - change.amount)
                 bankroll_repo.save_ai_bankroll(AIBankrollState(
@@ -1962,6 +1969,101 @@ def _run_async_commentary(game_id: str, game_data: dict,
             completion_event.set()
 
 
+def _apply_player_table_rake(
+    *,
+    game_id: str,
+    game_data: dict,
+    game_state,
+    winner_info: dict,
+    pot_size: int,
+):
+    """Skim per-hand rake from the headline winner at a player cash table.
+
+    Returns a (possibly updated) game_state. Mirrors the AI-only sim
+    helper (`cash_mode.full_sim._apply_rake_to_winner`) but operates
+    on the live `game_state` and resolves winner identity via the
+    cash-mode `cash_personality_ids` map (AI) or `owner_id` (human).
+
+    No-op unless: cash mode active AND `RAKE_ENABLED` AND
+    `RAKE_PLAYER_TABLES`. The first gate is the caller's; the latter
+    two are checked here.
+    """
+    from cash_mode import economy_flags
+    from core.economy import ledger as chip_ledger
+
+    if not economy_flags.RAKE_ENABLED or not economy_flags.RAKE_PLAYER_TABLES:
+        return game_state
+
+    big_blind = game_state.current_ante
+    rake = economy_flags.compute_rake(pot_size, big_blind)
+    if rake <= 0:
+        return game_state
+
+    # Identify the largest winner from pot_breakdown.
+    winnings_by_name: Dict[str, int] = {}
+    for pot in winner_info.get('pot_breakdown', []):
+        for winner in pot['winners']:
+            winnings_by_name[winner['name']] = (
+                winnings_by_name.get(winner['name'], 0) + winner['amount']
+            )
+    if not winnings_by_name:
+        return game_state
+    headline_name = max(winnings_by_name, key=winnings_by_name.get)
+    headline_winnings = winnings_by_name[headline_name]
+    rake = min(rake, max(0, headline_winnings))
+    if rake <= 0:
+        return game_state
+
+    # Deduct from the headline winner's stack.
+    _, player_idx = game_state.get_player_by_name(headline_name)
+    winner_player = game_state.players[player_idx]
+    new_stack = max(0, winner_player.stack - rake)
+    game_state = game_state.update_player(player_idx=player_idx, stack=new_stack)
+
+    # Resolve the ledger source string. For AI seats we use the
+    # cash-mode personality map; for the human seat we use owner_id.
+    cash_pids: Dict[str, str] = game_data.get('cash_personality_ids', {}) or {}
+    if winner_player.is_human:
+        owner_id = game_data.get('owner_id')
+        if not owner_id:
+            logger.warning(
+                f"[Game {game_id}] rake skipped: human winner with no owner_id"
+            )
+            return game_state
+        source = chip_ledger.player(owner_id)
+    else:
+        pid = cash_pids.get(headline_name)
+        if not pid:
+            logger.warning(
+                f"[Game {game_id}] rake skipped: no personality_id for AI winner {headline_name!r}"
+            )
+            return game_state
+        source = chip_ledger.ai(pid)
+
+    sandbox_id = _sandbox_id_for(game_data)
+    ctx = {
+        'site': 'handle_evaluating_hand_phase',
+        'game_id': game_id,
+        'pot': pot_size,
+        'big_blind': big_blind,
+        'winner_name': headline_name,
+        'winner_is_human': winner_player.is_human,
+    }
+    from flask_app.extensions import chip_ledger_repo as _ledger_repo
+    chip_ledger.record_table_rake(
+        _ledger_repo,
+        source=source,
+        amount=rake,
+        context=ctx,
+        sandbox_id=sandbox_id,
+    )
+    logger.info(
+        f"[Game {game_id}] table_rake skim: {rake} chips from {headline_name}"
+        f" (pot={pot_size}, bb={big_blind})"
+    )
+    return game_state
+
+
 def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
     """Handle the EVALUATING_HAND phase.
 
@@ -1979,6 +2081,19 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     # Award winnings FIRST so chip counts are updated
     game_state = award_pot_winnings(game_state, winner_info)
+
+    # Cash mode rake — deducts a % of the pot from the headline winner
+    # and ledgers the destruction. No-op when cash mode is inactive,
+    # the rake flag is off, or RAKE_PLAYER_TABLES is False (which is
+    # the sandbox-friendly default for player-occupied tables).
+    if game_data.get('cash_mode'):
+        game_state = _apply_player_table_rake(
+            game_id=game_id,
+            game_data=game_data,
+            game_state=game_state,
+            winner_info=winner_info,
+            pot_size=pot_size_before_award,
+        )
 
     if not winning_player_names:
         logger.error(f"[Game {game_id}] No winning player names found in pot_breakdown")

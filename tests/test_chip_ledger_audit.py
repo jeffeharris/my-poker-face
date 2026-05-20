@@ -71,7 +71,7 @@ def repos(db_path, stake_repo):
 
 def _insert_personality(db_path: str, personality_id: str, *, cap=50_000, rate=500) -> None:
     knobs = {
-        "bankroll_cap": cap, "bankroll_rate": rate,
+        "starting_bankroll": cap, "bankroll_rate": rate,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$10",
     }

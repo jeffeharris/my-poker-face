@@ -62,7 +62,7 @@ def _seed_personality(db_path, pid, name, bankroll_chips, cap=10_000, rate=500):
 
     config_json = json.dumps({
         "bankroll_knobs": {
-            "bankroll_cap": cap,
+            "starting_bankroll": cap,
             "bankroll_rate": rate,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",

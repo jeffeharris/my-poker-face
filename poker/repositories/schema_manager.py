@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 #      mode v1 (Track B step 3). Pure additions — no changes to existing tables.
 # v88: Add bankroll persistence for cash mode v1. Creates ai_bankroll_state (per personality_id)
 #      and player_bankroll_state (per player_id) tables. Per-personality bankroll knobs
-#      (bankroll_cap, bankroll_rate, buy_in_multiplier, stake_comfort_zone) live inside
+#      (starting_bankroll, bankroll_rate, buy_in_multiplier, stake_comfort_zone) live inside
 #      config_json as a `bankroll_knobs` sub-dict — same convention as `anchors`. The
 #      BankrollRepository falls back to BANKROLL_KNOB_DEFAULTS per-field, so personalities
 #      without bankroll_knobs in their JSON land at sane defaults.
@@ -137,7 +137,14 @@ logger = logging.getLogger(__name__)
 #       column to `stakes` so the forgiveness route can rate-limit
 #       requests to "one per stake per 24h" without an in-memory map
 #       (which wouldn't survive a backend restart).
-SCHEMA_VERSION = 104
+# v105: Rename bankroll knob `bankroll_cap` → `starting_bankroll` in
+#       every personality's `config_json.bankroll_knobs` sub-dict, and
+#       drop the vestigial all-NULL `personalities.bankroll_cap`
+#       column. The runtime treats the two names as aliases on read
+#       (back-compat) but writes the new key going forward; this
+#       migration normalises persisted data so the alias path becomes
+#       cold.
+SCHEMA_VERSION = 105
 
 
 
@@ -1295,6 +1302,7 @@ class SchemaManager:
             102: (self._migrate_v102_scope_runtime_tables_to_sandbox, "Phase 2.5 Commit 2 — drop+recreate ai_bankroll_state, cash_tables, cash_idle_pool with sandbox_id in PK (pre-launch destructive migration)"),
             103: (self._migrate_v103_add_sandbox_id_to_chip_ledger, "Phase 2.5 Commit 6 — add nullable sandbox_id column to chip_ledger_entries for per-sandbox audit scoping"),
             104: (self._migrate_v104_add_forgiveness_last_asked, "Phase 3 Commit 3 — add nullable forgiveness_last_asked column to stakes for per-stake 24h rate-limit on forgiveness requests"),
+            105: (self._migrate_v105_rename_bankroll_cap_to_starting_bankroll, "Rename bankroll_knobs.bankroll_cap → starting_bankroll in personality config_json and drop the vestigial personalities.bankroll_cap column"),
         }
 
         with self._get_connection() as conn:
@@ -4753,6 +4761,67 @@ class SchemaManager:
         logger.info(
             "Migration v103 complete: chip_ledger_entries.sandbox_id added"
         )
+
+    def _migrate_v105_rename_bankroll_cap_to_starting_bankroll(self, conn: sqlite3.Connection) -> None:
+        """Migration v105: bankroll_cap → starting_bankroll rename.
+
+        Two parts:
+
+          1. For every row in `personalities`, parse `config_json`,
+             rewrite `bankroll_knobs.bankroll_cap` to
+             `bankroll_knobs.starting_bankroll`, and save. Idempotent:
+             rows already using the new key are skipped.
+
+          2. Drop the `personalities.bankroll_cap` column if present.
+             It was always NULL in production data — never wired to
+             any read or write — so the drop is non-destructive.
+             SQLite 3.35+ supports `ALTER TABLE ... DROP COLUMN`;
+             the docker python image ships 3.37+.
+
+        The runtime accepts both keys on read (see
+        `BankrollRepository.load_personality_knobs`), so this
+        migration is purely a normalization — it doesn't change any
+        observable behavior, just collapses the two-name regime to
+        one name in persistence.
+        """
+        import json
+        rows = conn.execute(
+            "SELECT id, config_json FROM personalities WHERE config_json IS NOT NULL"
+        ).fetchall()
+        n_rewritten = 0
+        for row in rows:
+            try:
+                cfg = json.loads(row[1])
+            except (TypeError, ValueError):
+                continue
+            knobs = cfg.get("bankroll_knobs")
+            if not isinstance(knobs, dict):
+                continue
+            if "bankroll_cap" not in knobs:
+                continue
+            # Prefer the new key if both happen to exist; otherwise
+            # promote the old value.
+            if "starting_bankroll" not in knobs:
+                knobs["starting_bankroll"] = knobs["bankroll_cap"]
+            knobs.pop("bankroll_cap", None)
+            cfg["bankroll_knobs"] = knobs
+            conn.execute(
+                "UPDATE personalities SET config_json = ? WHERE id = ?",
+                (json.dumps(cfg), row[0]),
+            )
+            n_rewritten += 1
+        logger.info(
+            "Migration v105: rewrote bankroll_cap → starting_bankroll in %d "
+            "personality config_json rows", n_rewritten,
+        )
+
+        # Drop the vestigial column. Guard with PRAGMA so re-running
+        # is a no-op.
+        cursor = conn.execute("PRAGMA table_info(personalities)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'bankroll_cap' in cols:
+            conn.execute("ALTER TABLE personalities DROP COLUMN bankroll_cap")
+            logger.info("Migration v105: dropped personalities.bankroll_cap column")
 
     def _migrate_v104_add_forgiveness_last_asked(self, conn: sqlite3.Connection) -> None:
         """Migration v104: add nullable `forgiveness_last_asked` to `stakes`.

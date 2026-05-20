@@ -398,6 +398,67 @@ def _ai_seat_indices(seats: List[dict]) -> List[int]:
     ]
 
 
+def _apply_rake_to_winner(
+    *,
+    final_chips: Dict[str, int],
+    starting_chips: Dict[str, int],
+    pot: int,
+    big_blind: int,
+    winner_pid: Optional[str],
+    chip_ledger_repo: Optional[Any],
+    sandbox_id: str,
+    table_id: Optional[str],
+) -> None:
+    """Skim the per-hand rake off the winning seat. Mutates `final_chips`.
+
+    The rake amount comes from `economy_flags.compute_rake`, which
+    returns 0 when rake is disabled. No-op when there's no positive
+    pot, no winner, no ledger repo, or compute_rake returns 0 —
+    which keeps the call site at the engine boundary clean.
+
+    Multiway hands: applied to the headline winner only. For the
+    common case of a single-winner pot, this is exact. For split
+    pots (where `_headline_pair` returns the largest beneficiary),
+    we under-collect by at most one BB-cap's worth; cleaner than
+    proportionally splitting the rake across winners and the cost
+    is small at the cap rates we use.
+    """
+    from cash_mode import economy_flags
+    from core.economy import ledger as chip_ledger
+
+    if winner_pid is None or chip_ledger_repo is None:
+        return
+    rake = economy_flags.compute_rake(pot, big_blind)
+    if rake <= 0:
+        return
+
+    # Don't let rake drive the winner's stack negative — clamp to
+    # what they actually netted on the hand. (Real cardrooms enforce
+    # "no flop, no drop"; this is a stricter version — we only rake
+    # to the extent of the winner's net win.)
+    winner_net = final_chips[winner_pid] - starting_chips.get(winner_pid, 0)
+    rake = min(rake, max(0, winner_net))
+    if rake <= 0:
+        return
+
+    final_chips[winner_pid] = final_chips[winner_pid] - rake
+    ctx = {
+        'site': 'full_sim.play_one_hand',
+        'pot': pot,
+        'big_blind': big_blind,
+        'winner_pid': winner_pid,
+    }
+    if table_id:
+        ctx['table_id'] = table_id
+    chip_ledger.record_table_rake(
+        chip_ledger_repo,
+        source=chip_ledger.ai(winner_pid),
+        amount=rake,
+        context=ctx,
+        sandbox_id=sandbox_id,
+    )
+
+
 def play_one_hand(
     seats: List[dict],
     *,
@@ -410,6 +471,8 @@ def play_one_hand(
     controller_cache: Optional[LruControllerCache] = None,
     starting_dealer_seat_idx: Optional[int] = None,
     bankroll_repo: Optional[Any] = None,
+    chip_ledger_repo: Optional[Any] = None,
+    table_id: Optional[str] = None,
 ) -> HandSimResult:
     """Run one AI-only hand at the given cash-mode table.
 
@@ -443,9 +506,18 @@ def play_one_hand(
     that don't care about cross-call state; production (the lobby
     refresh loop) wires this to the repo it already has in scope.
 
-    Pure-ish: no DB writes, no SocketIO, no LLM. The state machine
-    runs with `record_snapshots=False` so the snapshots tuple
-    doesn't accumulate across many sim hands (Phase 2.5 hygiene).
+    `chip_ledger_repo`, when provided alongside
+    `economy_flags.RAKE_ENABLED`, triggers per-hand `table_rake`
+    destruction: a fraction of the pot is deducted from the winning
+    AI's stack and recorded in the chip ledger. `table_id` is
+    threaded into the ledger context for traceability. Both are
+    optional — without them the rake step is a no-op and the sim
+    runs exactly as before.
+
+    Pure-ish: no DB writes other than the optional rake ledger
+    entry. No SocketIO, no LLM. The state machine runs with
+    `record_snapshots=False` so the snapshots tuple doesn't
+    accumulate across many sim hands (Phase 2.5 hygiene).
     """
     ai_indices = _ai_seat_indices(seats)
     if len(ai_indices) < 2:
@@ -482,6 +554,8 @@ def play_one_hand(
             starting_dealer_seat_idx=starting_dealer_seat_idx,
             bankroll_repo=bankroll_repo,
             sandbox_id=sandbox_id,
+            chip_ledger_repo=chip_ledger_repo,
+            table_id=table_id,
         )
     finally:
         random.setstate(_saved_global_random_state)
@@ -499,6 +573,8 @@ def _play_one_hand_inner(
     starting_dealer_seat_idx: Optional[int],
     bankroll_repo: Optional[Any],
     sandbox_id: str,
+    chip_ledger_repo: Optional[Any] = None,
+    table_id: Optional[str] = None,
 ) -> HandSimResult:
     """Body of play_one_hand, run inside the hermetic random snapshot.
 
@@ -599,13 +675,6 @@ def _play_one_hand_inner(
         seat_pid_by_name[p.name]: p.stack for p in sm.game_state.players
     }
 
-    # Build new_seats reflecting the post-hand chip counts. Seats
-    # outside the AI set are passed through unchanged.
-    new_seats = _copy_seats(seats)
-    for idx in ai_indices:
-        pid = seats[idx]["personality_id"]
-        new_seats[idx] = {**new_seats[idx], "chips": int(final_chips.get(pid, 0))}
-
     winner_pid, loser_pid, delta = _headline_pair(starting_chips, final_chips)
     big_event = delta >= big_blind * big_event_threshold_bb
     # Pot total: sum of all positive deltas (= sum of all negative
@@ -615,6 +684,30 @@ def _play_one_hand_inner(
         max(0, final_chips[pid] - starting_chips[pid])
         for pid in starting_chips
     )
+
+    # Apply table rake (destruction sink, paired with `ai_regen` faucet).
+    # Skim happens after the engine awards but before we materialize
+    # `new_seats`, so the rake comes off the winner's stack and the
+    # cash-table seat row reflects the post-rake value. No-op unless
+    # `economy_flags.RAKE_ENABLED` is True and a ledger repo was
+    # threaded in by the caller.
+    _apply_rake_to_winner(
+        final_chips=final_chips,
+        starting_chips=starting_chips,
+        pot=pot,
+        big_blind=big_blind,
+        winner_pid=winner_pid,
+        chip_ledger_repo=chip_ledger_repo,
+        sandbox_id=sandbox_id,
+        table_id=table_id,
+    )
+
+    # Build new_seats reflecting the post-hand (and post-rake) chip
+    # counts. Seats outside the AI set are passed through unchanged.
+    new_seats = _copy_seats(seats)
+    for idx in ai_indices:
+        pid = seats[idx]["personality_id"]
+        new_seats[idx] = {**new_seats[idx], "chips": int(final_chips.get(pid, 0))}
 
     hand_events = _detect_hand_events(
         starting_chips=starting_chips,

@@ -109,7 +109,7 @@ class _BankrollKnobsRouteBase(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'bankroll_cap': 50_000,
+                    'starting_bankroll': 50_000,
                     'bankroll_rate': 500,
                     'buy_in_multiplier': 2.0,
                     'stake_comfort_zone': '$10',
@@ -142,12 +142,12 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
         self.assertTrue(data['success'])
         self.assertEqual(data['name'], 'Napoleon')
         self.assertEqual(data['personality_id'], self.personality_id)
-        self.assertEqual(data['knobs']['bankroll_cap'], 50_000)
+        self.assertEqual(data['knobs']['starting_bankroll'], 50_000)
         self.assertEqual(data['knobs']['bankroll_rate'], 500)
         self.assertEqual(data['knobs']['buy_in_multiplier'], 2.0)
         self.assertEqual(data['knobs']['stake_comfort_zone'], '$10')
         # Defaults block surfaced for the UI's hint text.
-        self.assertIn('bankroll_cap', data['defaults'])
+        self.assertIn('starting_bankroll', data['defaults'])
         # No bankroll row yet → None.
         self.assertIsNone(data['current_bankroll'])
 
@@ -157,7 +157,7 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
         data = response.get_json()
         self.assertTrue(data['success'])
         # Defaults fill in.
-        self.assertEqual(data['knobs']['bankroll_cap'], 10_000)
+        self.assertEqual(data['knobs']['starting_bankroll'], 10_000)
         self.assertEqual(data['knobs']['bankroll_rate'], 500)
         self.assertEqual(data['knobs']['buy_in_multiplier'], 1.0)
         self.assertEqual(data['knobs']['stake_comfort_zone'], '$10')
@@ -184,15 +184,15 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
         self.assertGreaterEqual(data['current_bankroll'], 8_000)
 
     def test_put_round_trips_partial_update(self):
-        # Send only bankroll_cap; other fields should preserve.
+        # Send only starting_bankroll; other fields should preserve.
         response = self.client.put(
             '/api/personality/Napoleon/bankroll-knobs',
-            json={'bankroll_cap': 75_000},
+            json={'starting_bankroll': 75_000},
         )
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertTrue(data['success'])
-        self.assertEqual(data['knobs']['bankroll_cap'], 75_000)
+        self.assertEqual(data['knobs']['starting_bankroll'], 75_000)
         # Preserved.
         self.assertEqual(data['knobs']['bankroll_rate'], 500)
         self.assertEqual(data['knobs']['buy_in_multiplier'], 2.0)
@@ -200,12 +200,12 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
         # Re-fetch via GET to confirm persistence.
         get_response = self.client.get('/api/personality/Napoleon/bankroll-knobs')
         get_data = get_response.get_json()
-        self.assertEqual(get_data['knobs']['bankroll_cap'], 75_000)
+        self.assertEqual(get_data['knobs']['starting_bankroll'], 75_000)
         self.assertEqual(get_data['knobs']['bankroll_rate'], 500)
 
     def test_put_replaces_all_fields(self):
         new_knobs = {
-            'bankroll_cap': 100_000,
+            'starting_bankroll': 100_000,
             'bankroll_rate': 1_000,
             'buy_in_multiplier': 5.0,
             'stake_comfort_zone': '$100',
@@ -221,12 +221,12 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
     def test_put_rejects_negative_cap(self):
         response = self.client.put(
             '/api/personality/Napoleon/bankroll-knobs',
-            json={'bankroll_cap': -100},
+            json={'starting_bankroll': -100},
         )
         self.assertEqual(response.status_code, 400)
         data = response.get_json()
         self.assertFalse(data['success'])
-        self.assertIn('bankroll_cap', data['error'])
+        self.assertIn('starting_bankroll', data['error'])
 
     def test_put_rejects_zero_multiplier(self):
         response = self.client.put(
@@ -238,7 +238,7 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
     def test_put_rejects_non_numeric_value(self):
         response = self.client.put(
             '/api/personality/Napoleon/bankroll-knobs',
-            json={'bankroll_cap': 'fifty thousand'},
+            json={'starting_bankroll': 'fifty thousand'},
         )
         self.assertEqual(response.status_code, 400)
         data = response.get_json()
@@ -247,7 +247,7 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
     def test_put_404_for_unknown_personality(self):
         response = self.client.put(
             '/api/personality/NoSuchOne/bankroll-knobs',
-            json={'bankroll_cap': 50_000},
+            json={'starting_bankroll': 50_000},
         )
         self.assertEqual(response.status_code, 404)
 
@@ -264,7 +264,7 @@ class TestBankrollKnobsRoutesNonAdmin(_BankrollKnobsRouteBase):
     def test_put_blocked_for_non_admin(self):
         response = self.client.put(
             '/api/personality/Napoleon/bankroll-knobs',
-            json={'bankroll_cap': 99_999},
+            json={'starting_bankroll': 99_999},
         )
         self.assertEqual(response.status_code, 403)
 

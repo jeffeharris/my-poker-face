@@ -40,8 +40,9 @@ LEDGER_REASONS = frozenset({
     'pre_ledger_universe', # one-shot seed at migration so day-1 drift is 0
 
     # Destructions: X → central_bank
-    'cap_clamp',           # AI bankroll write where projected > bankroll_cap
+    'cap_clamp',           # AI bankroll write where projected > starting_bankroll
     'house_stake_settle',  # leave-time settlement of a house-archetype stake
+    'table_rake',          # per-hand pot rake destroyed at award time
 
     # Annotation (amount=0, audit reconciliation only)
     'forgive_balance',     # borrower left short of principal on a house stake
@@ -287,7 +288,7 @@ def record_cap_clamp(
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
-    """ai → central_bank for chips that would push past `bankroll_cap`.
+    """ai → central_bank for chips that would push past `starting_bankroll`.
 
     Fired by `credit_ai_cash_out` when the AI's table stack would
     push the bankroll past its cap; the excess effectively evaporates
@@ -301,6 +302,37 @@ def record_cap_clamp(
         sink=bank(),
         amount=overflow,
         reason='cap_clamp',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_table_rake(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    source: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """winner → central_bank for the per-hand rake skim.
+
+    `source` is the canonical entity string the pot was drawn from —
+    typically `ai(personality_id)` for sim hands or `player(owner_id)`
+    for player-table hands. Constructed by the caller because rake
+    targets a specific winner, which the caller already knows.
+
+    No-op when `repo` is None or `amount <= 0` so call sites don't have
+    to guard before invoking.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=source,
+        sink=bank(),
+        amount=amount,
+        reason='table_rake',
         context=context,
         sandbox_id=sandbox_id,
     )

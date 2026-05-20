@@ -119,7 +119,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'bankroll_cap': 50_000, 'bankroll_rate': 500,
+                    'starting_bankroll': 50_000, 'bankroll_rate': 500,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
@@ -139,7 +139,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
             {
                 'play_style': 'tight',
                 'bankroll_knobs': {
-                    'bankroll_cap': 50_000, 'bankroll_rate': 500,
+                    'starting_bankroll': 50_000, 'bankroll_rate': 500,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },

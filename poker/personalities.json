@@ -25,7 +25,7 @@
         "*nods slowly while considering options*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 12000,
+        "starting_bankroll": 12000,
         "bankroll_rate": 350,
         "buy_in_multiplier": 1.1,
         "stake_comfort_zone": "$10"
@@ -65,7 +65,7 @@
         "*taps fingers rhythmically on the table*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 45000,
+        "starting_bankroll": 45000,
         "bankroll_rate": 700,
         "buy_in_multiplier": 1.5,
         "stake_comfort_zone": "$200"
@@ -105,7 +105,7 @@
         "*taps fingers rhythmically on the table*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 80000,
+        "starting_bankroll": 80000,
         "bankroll_rate": 2200,
         "buy_in_multiplier": 2.3,
         "stake_comfort_zone": "$200"
@@ -146,7 +146,7 @@
         "*adjusts an imaginary crown*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 150000,
+        "starting_bankroll": 150000,
         "bankroll_rate": 2000,
         "buy_in_multiplier": 2.4,
         "stake_comfort_zone": "$1000"
@@ -188,7 +188,7 @@
       ],
       "nickname": "Henry VIII",
       "bankroll_knobs": {
-        "bankroll_cap": 120000,
+        "starting_bankroll": 120000,
         "bankroll_rate": 2500,
         "buy_in_multiplier": 2.4,
         "stake_comfort_zone": "$1000"
@@ -228,7 +228,7 @@
         "*leans in close while speaking*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 18000,
+        "starting_bankroll": 18000,
         "bankroll_rate": 600,
         "buy_in_multiplier": 1.3,
         "stake_comfort_zone": "$50"
@@ -268,7 +268,7 @@
         "*leaning back with a knowing smile*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 8000,
+        "starting_bankroll": 8000,
         "bankroll_rate": 300,
         "buy_in_multiplier": 1.2,
         "stake_comfort_zone": "$10"
@@ -308,7 +308,7 @@
         "*taps fingers thoughtfully*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 30000,
+        "starting_bankroll": 30000,
         "bankroll_rate": 550,
         "buy_in_multiplier": 1.4,
         "stake_comfort_zone": "$50"
@@ -348,7 +348,7 @@
         "*leans back with a slight smirk*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 100000,
+        "starting_bankroll": 100000,
         "bankroll_rate": 1500,
         "buy_in_multiplier": 2.0,
         "stake_comfort_zone": "$200"
@@ -390,7 +390,7 @@
       ],
       "nickname": "Mime",
       "bankroll_knobs": {
-        "bankroll_cap": 4000,
+        "starting_bankroll": 4000,
         "bankroll_rate": 1500,
         "buy_in_multiplier": 1.4,
         "stake_comfort_zone": "$2"
@@ -432,7 +432,7 @@
       ],
       "nickname": "Dad Jokes",
       "bankroll_knobs": {
-        "bankroll_cap": 5000,
+        "starting_bankroll": 5000,
         "bankroll_rate": 400,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$10"
@@ -475,7 +475,7 @@
       ],
       "nickname": "Mean Guy",
       "bankroll_knobs": {
-        "bankroll_cap": 25000,
+        "starting_bankroll": 25000,
         "bankroll_rate": 2800,
         "buy_in_multiplier": 2.3,
         "stake_comfort_zone": "$50"
@@ -515,7 +515,7 @@
         "*gazes thoughtfully at the table*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 6000,
+        "starting_bankroll": 6000,
         "bankroll_rate": 200,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$2"
@@ -556,7 +556,7 @@
         "*paints in the air*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 7000,
+        "starting_bankroll": 7000,
         "bankroll_rate": 250,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$10"
@@ -597,7 +597,7 @@
       ],
       "nickname": "Dr. Seuss",
       "bankroll_knobs": {
-        "bankroll_cap": 22000,
+        "starting_bankroll": 22000,
         "bankroll_rate": 1100,
         "buy_in_multiplier": 1.6,
         "stake_comfort_zone": "$50"
@@ -637,7 +637,7 @@
         "*leans back thoughtfully*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 5000,
+        "starting_bankroll": 5000,
         "bankroll_rate": 200,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$2"
@@ -679,7 +679,7 @@
         "*glares across the table*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 60000,
+        "starting_bankroll": 60000,
         "bankroll_rate": 3000,
         "buy_in_multiplier": 2.5,
         "stake_comfort_zone": "$200"
@@ -721,7 +721,7 @@
         "*folds hands with deliberate calm*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 40000,
+        "starting_bankroll": 40000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.5,
         "stake_comfort_zone": "$50"
@@ -763,7 +763,7 @@
         "*rubs chin thoughtfully*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 30000,
+        "starting_bankroll": 30000,
         "bankroll_rate": 600,
         "buy_in_multiplier": 1.4,
         "stake_comfort_zone": "$50"
@@ -805,7 +805,7 @@
         "*twirls mustache thoughtfully*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 20000,
+        "starting_bankroll": 20000,
         "bankroll_rate": 700,
         "buy_in_multiplier": 1.3,
         "stake_comfort_zone": "$50"
@@ -847,7 +847,7 @@
         "*twitches slightly when the math doesn't add up*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 15000,
+        "starting_bankroll": 15000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.3,
         "stake_comfort_zone": "$50"
@@ -889,7 +889,7 @@
         "*grins with theatrical confidence*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 35000,
+        "starting_bankroll": 35000,
         "bankroll_rate": 1400,
         "buy_in_multiplier": 1.8,
         "stake_comfort_zone": "$200"
@@ -931,7 +931,7 @@
         "*languidly adjusts cravat*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 50000,
+        "starting_bankroll": 50000,
         "bankroll_rate": 1300,
         "buy_in_multiplier": 1.8,
         "stake_comfort_zone": "$200"
@@ -973,7 +973,7 @@
         "*drums fingers in an ominous rhythm*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 6000,
+        "starting_bankroll": 6000,
         "bankroll_rate": 800,
         "buy_in_multiplier": 1.3,
         "stake_comfort_zone": "$10"
@@ -1015,7 +1015,7 @@
         "*watches opponents with cold precision*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 55000,
+        "starting_bankroll": 55000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.5,
         "stake_comfort_zone": "$200"
@@ -1057,7 +1057,7 @@
         "*lightning crackles in eyes*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 200000,
+        "starting_bankroll": 200000,
         "bankroll_rate": 3500,
         "buy_in_multiplier": 2.5,
         "stake_comfort_zone": "$1000"
@@ -1099,7 +1099,7 @@
         "*waves hand dismissively at small bets*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 120000,
+        "starting_bankroll": 120000,
         "bankroll_rate": 1800,
         "buy_in_multiplier": 2.0,
         "stake_comfort_zone": "$1000"
@@ -1141,7 +1141,7 @@
         "*gasps theatrically at a bad card*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 90000,
+        "starting_bankroll": 90000,
         "bankroll_rate": 2500,
         "buy_in_multiplier": 2.4,
         "stake_comfort_zone": "$1000"
@@ -1183,7 +1183,7 @@
         "*kicks boots up on chair*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 12000,
+        "starting_bankroll": 12000,
         "bankroll_rate": 2200,
         "buy_in_multiplier": 2.0,
         "stake_comfort_zone": "$50"
@@ -1225,7 +1225,7 @@
         "*adjusts imaginary ruff collar*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 100000,
+        "starting_bankroll": 100000,
         "bankroll_rate": 900,
         "buy_in_multiplier": 1.6,
         "stake_comfort_zone": "$1000"
@@ -1267,7 +1267,7 @@
         "*stands dramatically before going all-in*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 15000,
+        "starting_bankroll": 15000,
         "bankroll_rate": 1800,
         "buy_in_multiplier": 2.2,
         "stake_comfort_zone": "$50"
@@ -1309,7 +1309,7 @@
         "*taps table rhythmically with painted nails*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 14000,
+        "starting_bankroll": 14000,
         "bankroll_rate": 1000,
         "buy_in_multiplier": 1.5,
         "stake_comfort_zone": "$50"
@@ -1354,7 +1354,7 @@
       ],
       "nickname": "Lucy",
       "bankroll_knobs": {
-        "bankroll_cap": 9000,
+        "starting_bankroll": 9000,
         "bankroll_rate": 1500,
         "buy_in_multiplier": 1.6,
         "stake_comfort_zone": "$10"
@@ -1396,7 +1396,7 @@
         "*places chips with surgical precision*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 18000,
+        "starting_bankroll": 18000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.3,
         "stake_comfort_zone": "$50"
@@ -1438,7 +1438,7 @@
         "*stirs tea thoughtfully between hands*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 22000,
+        "starting_bankroll": 22000,
         "bankroll_rate": 450,
         "buy_in_multiplier": 1.3,
         "stake_comfort_zone": "$50"
@@ -1480,7 +1480,7 @@
         "*whispers conspiratorially*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 70000,
+        "starting_bankroll": 70000,
         "bankroll_rate": 2200,
         "buy_in_multiplier": 2.3,
         "stake_comfort_zone": "$200"
@@ -1522,7 +1522,7 @@
         "*emerges from the shadows to place a bet*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 100000,
+        "starting_bankroll": 100000,
         "bankroll_rate": 1200,
         "buy_in_multiplier": 1.8,
         "stake_comfort_zone": "$1000"
@@ -1564,7 +1564,7 @@
         "*counts and recounts chip stack obsessively*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 250000,
+        "starting_bankroll": 250000,
         "bankroll_rate": 100,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$2"
@@ -1606,7 +1606,7 @@
         "*bows with a flourish after winning*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 12000,
+        "starting_bankroll": 12000,
         "bankroll_rate": 1600,
         "buy_in_multiplier": 1.7,
         "stake_comfort_zone": "$50"
@@ -1648,7 +1648,7 @@
         "*adjusts rusty imaginary helmet*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 8000,
+        "starting_bankroll": 8000,
         "bankroll_rate": 2500,
         "buy_in_multiplier": 2.2,
         "stake_comfort_zone": "$10"
@@ -1691,7 +1691,7 @@
       ],
       "nickname": "Alice",
       "bankroll_knobs": {
-        "bankroll_cap": 5000,
+        "starting_bankroll": 5000,
         "bankroll_rate": 800,
         "buy_in_multiplier": 1.1,
         "stake_comfort_zone": "$2"
@@ -1734,7 +1734,7 @@
       ],
       "nickname": "Queen of Hearts",
       "bankroll_knobs": {
-        "bankroll_cap": 130000,
+        "starting_bankroll": 130000,
         "bankroll_rate": 3500,
         "buy_in_multiplier": 2.5,
         "stake_comfort_zone": "$1000"
@@ -1777,7 +1777,7 @@
       ],
       "nickname": "Cheshire Cat",
       "bankroll_knobs": {
-        "bankroll_cap": 20000,
+        "starting_bankroll": 20000,
         "bankroll_rate": 1100,
         "buy_in_multiplier": 1.5,
         "stake_comfort_zone": "$50"
@@ -1820,7 +1820,7 @@
       ],
       "nickname": "Wicked Witch",
       "bankroll_knobs": {
-        "bankroll_cap": 40000,
+        "starting_bankroll": 40000,
         "bankroll_rate": 2400,
         "buy_in_multiplier": 2.2,
         "stake_comfort_zone": "$200"
@@ -1862,7 +1862,7 @@
         "*tilts head slowly, unblinking*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 35000,
+        "starting_bankroll": 35000,
         "bankroll_rate": 1100,
         "buy_in_multiplier": 1.7,
         "stake_comfort_zone": "$200"
@@ -1905,7 +1905,7 @@
       ],
       "nickname": "Fortune Teller",
       "bankroll_knobs": {
-        "bankroll_cap": 8000,
+        "starting_bankroll": 8000,
         "bankroll_rate": 900,
         "buy_in_multiplier": 1.4,
         "stake_comfort_zone": "$10"
@@ -1948,7 +1948,7 @@
       ],
       "nickname": "Librarian",
       "bankroll_knobs": {
-        "bankroll_cap": 10000,
+        "starting_bankroll": 10000,
         "bankroll_rate": 250,
         "buy_in_multiplier": 1.2,
         "stake_comfort_zone": "$10"
@@ -1991,7 +1991,7 @@
       ],
       "nickname": "Honey Badger",
       "bankroll_knobs": {
-        "bankroll_cap": 30000,
+        "starting_bankroll": 30000,
         "bankroll_rate": 3500,
         "buy_in_multiplier": 2.5,
         "stake_comfort_zone": "$200"
@@ -2034,7 +2034,7 @@
       ],
       "nickname": "Grandma",
       "bankroll_knobs": {
-        "bankroll_cap": 25000,
+        "starting_bankroll": 25000,
         "bankroll_rate": 400,
         "buy_in_multiplier": 1.3,
         "stake_comfort_zone": "$10"
@@ -2077,7 +2077,7 @@
       ],
       "nickname": "Teacher",
       "bankroll_knobs": {
-        "bankroll_cap": 8000,
+        "starting_bankroll": 8000,
         "bankroll_rate": 700,
         "buy_in_multiplier": 1.2,
         "stake_comfort_zone": "$10"
@@ -2111,7 +2111,7 @@
       "physical_tics": [],
       "nickname": "CaseBot",
       "bankroll_knobs": {
-        "bankroll_cap": 10000,
+        "starting_bankroll": 10000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$10"
@@ -2145,7 +2145,7 @@
       "physical_tics": [],
       "nickname": "GTO-Lite",
       "bankroll_knobs": {
-        "bankroll_cap": 10000,
+        "starting_bankroll": 10000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$10"
@@ -2179,7 +2179,7 @@
       "physical_tics": [],
       "nickname": "Solver",
       "bankroll_knobs": {
-        "bankroll_cap": 10000,
+        "starting_bankroll": 10000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$10"

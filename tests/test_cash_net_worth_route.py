@@ -97,7 +97,7 @@ class _NetWorthRouteBase(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'bankroll_cap': 50_000, 'bankroll_rate': 0,
+                    'starting_bankroll': 50_000, 'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
@@ -510,7 +510,7 @@ class TestLobbyCarryAnnotation(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'bankroll_cap': 50_000, 'bankroll_rate': 0,
+                    'starting_bankroll': 50_000, 'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },

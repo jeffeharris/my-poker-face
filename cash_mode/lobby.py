@@ -107,6 +107,99 @@ def _table_id_for_stake(stake_label: str) -> str:
     return f"cash-table-{slug}-001"
 
 
+def ensure_ai_bankrolls_seeded(
+    *,
+    personality_repo,
+    bankroll_repo,
+    sandbox_id: str,
+    now: Optional[datetime] = None,
+    user_id: Optional[str] = None,
+    chip_ledger_repo=None,
+) -> Dict[str, str]:
+    """Idempotent bankroll seed for every cash-eligible personality.
+
+    For each personality returned by `list_eligible_for_cash_mode`:
+      - No `ai_bankroll_state` row → write
+        `chips=knobs.starting_bankroll, last_regen_tick=now`.
+      - Row exists with `last_regen_tick IS NULL` → repair to the same
+        seeded state. This is the placeholder pattern that
+        `save_emotional_state_json` leaves behind when the controller
+        flushes psychology before the AI has ever been credited a
+        starting bankroll. Without the repair, those rows sit at
+        `chips=0` forever with no regen clock.
+      - Row exists with `last_regen_tick` set → leave alone (live state).
+
+    Returns `{personality_id: action}` where action is one of
+    `"created"`, `"repaired"`, `"skipped"`. Useful for boot logs.
+
+    Why this exists: the live-fill path in `refresh_table_roster`
+    treats "no row" as "0 chips" (via `load_ai_bankroll_current`
+    returning None and movement.py's `or 0`). The seed path uses
+    `knobs.starting_bankroll` as a fallback. Without this helper, only the
+    handful of personalities seeded into table seats at boot ever got
+    rows — every personality added later was permanently locked out
+    of live-fill. Calling this alongside `ensure_lobby_seeded` keeps
+    every eligible personality usable.
+    """
+    if now is None:
+        now = datetime.utcnow()
+
+    eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
+    actions: Dict[str, str] = {}
+    for cand in eligible:
+        pid = cand.get("personality_id")
+        if not pid:
+            continue
+        knobs = bankroll_repo.load_personality_knobs(pid)
+        stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+        needs_write = stored is None or stored.last_regen_tick is None
+        if not needs_write:
+            actions[pid] = "skipped"
+            continue
+        new_state = AIBankrollState(
+            personality_id=pid,
+            chips=knobs.starting_bankroll,
+            last_regen_tick=now,
+        )
+        bankroll_repo.save_ai_bankroll(
+            new_state,
+            sandbox_id=sandbox_id,
+            chip_ledger_repo=chip_ledger_repo,
+        )
+        if stored is None:
+            actions[pid] = "created"
+        else:
+            actions[pid] = "repaired"
+            # save_ai_bankroll only emits `ai_seed` on first-write —
+            # the repair case (placeholder row at chips=0) writes a
+            # non-zero chip count without auditing the mint. Emit
+            # manually so the chip ledger stays balanced. The mint is
+            # documenting chips that should have been seeded at
+            # placeholder-row creation time (when
+            # `save_emotional_state_json` inserted chips=0).
+            if chip_ledger_repo is not None and new_state.chips > stored.chips:
+                from core.economy import ledger as chip_ledger
+                chip_ledger.record_ai_seed(
+                    chip_ledger_repo,
+                    personality_id=pid,
+                    amount=new_state.chips - stored.chips,
+                    context={
+                        'site': 'ensure_ai_bankrolls_seeded',
+                        'sandbox_id': sandbox_id,
+                        'reason': 'placeholder_repair',
+                    },
+                    sandbox_id=sandbox_id,
+                )
+    n_created = sum(1 for a in actions.values() if a == "created")
+    n_repaired = sum(1 for a in actions.values() if a == "repaired")
+    if n_created or n_repaired:
+        logger.info(
+            "[CASH][LOBBY] bankroll seed: %d created, %d repaired, %d skipped",
+            n_created, n_repaired, len(actions) - n_created - n_repaired,
+        )
+    return actions
+
+
 def ensure_lobby_seeded(
     *,
     cash_table_repo,
@@ -218,10 +311,10 @@ def ensure_lobby_seeded(
                 # No bankroll row yet — use the personality's cap as a
                 # generous starting projection. Sit-down will write the
                 # row at debit time.
-                projected = knobs.bankroll_cap
+                projected = knobs.starting_bankroll
             else:
                 projected = project_bankroll(
-                    stored, knobs.bankroll_cap, knobs.bankroll_rate, now,
+                    stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
                 )
             if projected < ai_threshold:
                 continue
@@ -314,9 +407,16 @@ def refresh_unseated_tables(
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
 
     def _bankroll_lookup(pid: str) -> Optional[int]:
-        return bankroll_repo.load_ai_bankroll_current(
+        current = bankroll_repo.load_ai_bankroll_current(
             pid, sandbox_id=sandbox_id, now=now,
         )
+        if current is not None:
+            return current
+        # No row yet — mirror the seed-path fallback so a personality
+        # added between boot and the first lobby refresh isn't locked
+        # out of live-fill. `ensure_ai_bankrolls_seeded` should have
+        # written the row already; this is the defensive shim.
+        return bankroll_repo.load_personality_knobs(pid).starting_bankroll
 
     def _buy_in_lookup(pid: str) -> int:
         # Map back to a table buy-in: needs the stake_label of the
@@ -436,6 +536,8 @@ def refresh_unseated_tables(
                 name_for=_name_for_personality(personality_repo),
                 starting_dealer_seat_idx=next_dealer,
                 bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                table_id=getattr(table, 'table_id', None),
             )
             if r.delta > 0:
                 table.seats = r.new_seats
@@ -570,6 +672,7 @@ def refresh_unseated_tables(
             freshly_seated_personality_ids=result.freshly_seated_personality_ids,
             personality_repo=personality_repo,
             now=now,
+            sandbox_id=sandbox_id,
         )
 
         # Burst-aware event emission: pick at most one headline per
@@ -581,6 +684,7 @@ def refresh_unseated_tables(
             sim_results=sim_results,
             personality_repo=personality_repo,
             now=now,
+            sandbox_id=sandbox_id,
         )
 
         # Refresh idle_pool snapshot so the next iteration sees the
@@ -600,6 +704,7 @@ def _emit_activity_events(
     freshly_seated_personality_ids,
     personality_repo,
     now: datetime,
+    sandbox_id: Optional[str] = None,
 ) -> None:
     """Push lobby activity events to the in-memory ring buffer.
 
@@ -646,6 +751,7 @@ def _emit_activity_events(
                 reason=decision,
                 message=format_leave_message(name, stake, decision),
                 created_at=ts,
+                sandbox_id=sandbox_id,
             ))
         except Exception:
             # Buffer is best-effort. Don't let it break the refresh.
@@ -665,6 +771,7 @@ def _emit_activity_events(
                 reason="",
                 message=format_join_message(name, stake),
                 created_at=ts,
+                sandbox_id=sandbox_id,
             ))
         except Exception:
             pass
@@ -698,6 +805,7 @@ def _emit_sim_events(
     sim_result,
     personality_repo,
     now: datetime,
+    sandbox_id: Optional[str] = None,
 ) -> None:
     """Push paired big_win + big_loss events for a sim hand.
 
@@ -751,6 +859,7 @@ def _emit_sim_events(
             reason=loser_pid,  # opponent id for frontend grouping
             message=format_big_win_message(winner_name, loser_name, stake, delta),
             created_at=ts,
+            sandbox_id=sandbox_id,
         ))
         record_event(LobbyEvent(
             type=EVENT_BIG_LOSS,
@@ -761,6 +870,7 @@ def _emit_sim_events(
             reason=winner_pid,
             message=format_big_loss_message(loser_name, winner_name, stake, delta),
             created_at=ts,
+            sandbox_id=sandbox_id,
         ))
     except Exception:
         # Buffer is best-effort.
@@ -773,6 +883,7 @@ def _emit_burst_events(
     sim_results: List[HandSimResult],
     personality_repo,
     now: datetime,
+    sandbox_id: Optional[str] = None,
 ) -> None:
     """Emit at most one event per type across a catch-up burst.
 
@@ -806,6 +917,7 @@ def _emit_burst_events(
             sim_result=headline_big,
             personality_repo=personality_repo,
             now=now,
+            sandbox_id=sandbox_id,
         )
 
     # Aggregate hand-level events across the burst, dedup'd by type.
@@ -826,6 +938,7 @@ def _emit_burst_events(
             sim_result=synthetic,
             personality_repo=personality_repo,
             now=now,
+            sandbox_id=sandbox_id,
         )
 
     # Summary event when more than one hand fired. Drops a single
@@ -836,6 +949,7 @@ def _emit_burst_events(
             sim_results=sim_results,
             personality_repo=personality_repo,
             now=now,
+            sandbox_id=sandbox_id,
         )
 
 
@@ -845,6 +959,7 @@ def _emit_burst_summary(
     sim_results: List[HandSimResult],
     personality_repo,
     now: datetime,
+    sandbox_id: Optional[str] = None,
 ) -> None:
     """Emit a single summary event for a multi-hand burst.
 
@@ -898,6 +1013,7 @@ def _emit_burst_summary(
                 top_net_delta=top_delta,
             ),
             created_at=now.isoformat(),
+            sandbox_id=sandbox_id,
         ))
     except Exception:
         pass
@@ -909,6 +1025,7 @@ def _emit_hand_events(
     sim_result,
     personality_repo,
     now: datetime,
+    sandbox_id: Optional[str] = None,
 ) -> None:
     """Translate `HandSimResult.hand_events` into `LobbyEvent`s.
 
@@ -965,6 +1082,7 @@ def _emit_hand_events(
                     reason=evt.opponent_pid or "",
                     message=format_all_in_message(name, stake, opponent_name),
                     created_at=ts,
+                    sandbox_id=sandbox_id,
                 ))
                 seen_types.add(evt.type)
             except Exception:
@@ -981,6 +1099,7 @@ def _emit_hand_events(
                     reason=evt.opponent_pid or "",
                     message=format_bust_message(name, stake),
                     created_at=ts,
+                    sandbox_id=sandbox_id,
                 ))
                 seen_types.add(evt.type)
             except Exception:

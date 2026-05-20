@@ -36,7 +36,6 @@ from cash_mode import (
     bust_at_table,
     cash_out_ai_seat,
     disconnect_timeout,
-    full_bankroll_bust,
     leave_table,
     mid_hand_quit,
     new_table,
@@ -264,7 +263,7 @@ class TestCashOutAISeat:
     @pytest.fixture
     def knobs(self) -> BankrollKnobs:
         return BankrollKnobs(
-            bankroll_cap=50_000,
+            starting_bankroll=50_000,
             bankroll_rate=500,
             buy_in_multiplier=1.0,
             stake_comfort_zone="$10",
@@ -355,7 +354,7 @@ class TestCashOutAISeat:
         # Sit AI down, immediately cash them out — total bankroll
         # back to original (no elapsed time, no regen, no winnings).
         knobs = BankrollKnobs(
-            bankroll_cap=50_000,
+            starting_bankroll=50_000,
             bankroll_rate=0,  # no regen for invariant clarity
             buy_in_multiplier=1.0,
             stake_comfort_zone="$10",
@@ -471,28 +470,12 @@ class TestBustAtTable:
         assert new_t == empty_table
 
 
-# --- Row 5: Full bankroll bust ---
-
-
-class TestFullBankrollBust:
-    def test_resets_chips_to_starting_bankroll(self, player_bankroll):
-        broke = PlayerBankrollState("alice", 0, 2_000)
-        granted = full_bankroll_bust(broke)
-        assert granted.chips == 2_000
-        assert granted.starting_bankroll == 2_000
-
-    def test_uses_per_player_starting_bankroll(self):
-        # The starting_bankroll travels with the player — different
-        # players can have different starting grants (future staking
-        # / progression hooks).
-        weird_grant = PlayerBankrollState("vip", 0, 50_000)
-        granted = full_bankroll_bust(weird_grant)
-        assert granted.chips == 50_000
-
-    def test_does_not_mutate_input(self, player_bankroll):
-        broke = PlayerBankrollState("alice", 0, 2_000)
-        full_bankroll_bust(broke)
-        assert broke.chips == 0  # original untouched
+# Row 5 (`full_bankroll_bust`) intentionally absent. The "auto-reset
+# busted player bankrolls to starting_bankroll" rule was deleted —
+# busted players must use the staking flow (or wait, if AIs gain regen
+# later) rather than receiving free chips. The function was dead code
+# in production; removing it makes the absence load-bearing in the
+# code instead of just in the wiring.
 
 
 # --- Row 6: Mid-hand quit ---
@@ -622,11 +605,13 @@ class TestChipConservation:
         assert b1.chips == player_bankroll.chips - 500
         # Seat now empty
         assert t3.seats[0] is None
-        # If b1.chips == 0 the player layer would fire full_bankroll_bust;
-        # tested separately in TestFullBankrollBust.
+        # A bust at bankroll=0 leaves the player broke; the staking
+        # flow (sponsor offers) is the only recovery path. The system
+        # never re-grants chips for free.
 
-    def test_full_bust_to_fresh_grant_cycle(self, empty_table):
-        # Walk a player from starting bankroll → 0 → fresh grant.
+    def test_full_bust_leaves_player_at_zero(self, empty_table):
+        # Walk a player from starting bankroll → 0 → must be staked
+        # to play again. No auto-refill.
         b0 = PlayerBankrollState("alice", 500, 2_000)  # already low
         t1, b1 = sit_down(empty_table, 0, PLAYER_SEAT_ID, 500, b0)
         # bankroll now 0; lose stack
@@ -634,9 +619,8 @@ class TestChipConservation:
         t3 = bust_at_table(t2, PLAYER_SEAT_ID)
         assert b1.chips == 0
         assert t3.seats[0] is None
-        # Now full bankroll bust kicks in
-        b_fresh = full_bankroll_bust(b1)
-        assert b_fresh.chips == 2_000  # starting_bankroll
+        # Bankroll stays at 0 — recovery is via the staking system,
+        # not an automatic refill.
 
 
 # --- CashTable invariants ---

@@ -67,7 +67,7 @@ def repos(db_path):
 
 def _seed_personalities(db_path: str, pids: list[str]) -> None:
     knobs = {
-        "bankroll_cap": 50_000, "bankroll_rate": 500,
+        "starting_bankroll": 50_000, "bankroll_rate": 500,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$10",
     }

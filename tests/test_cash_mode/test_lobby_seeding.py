@@ -106,7 +106,7 @@ def _seed_personalities(db_path: str, count: int = 30) -> None:
             f"p{i}",
             name=f"Personality {i}",
             bankroll_knobs={
-                "bankroll_cap": 100_000,
+                "starting_bankroll": 100_000,
                 "bankroll_rate": 0,
                 "buy_in_multiplier": 1.0,
                 "stake_comfort_zone": "$10",
@@ -241,13 +241,13 @@ class TestEnsureLobbySeeded:
     ):
         # Two personalities. One has a huge bankroll, the other near-zero.
         _insert_personality(db_path, "rich", name="Rich", bankroll_knobs={
-            "bankroll_cap": 100_000,
+            "starting_bankroll": 100_000,
             "bankroll_rate": 0,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
         })
         _insert_personality(db_path, "broke", name="Broke", bankroll_knobs={
-            "bankroll_cap": 100_000,
+            "starting_bankroll": 100_000,
             "bankroll_rate": 0,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
@@ -256,7 +256,7 @@ class TestEnsureLobbySeeded:
         bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id="broke", chips=1, last_regen_tick=datetime(2026, 5, 18),
         ), sandbox_id="test-sandbox-1")
-        # "rich" has no row — defaults to bankroll_cap (rich enough).
+        # "rich" has no row — defaults to starting_bankroll (rich enough).
         ensure_lobby_seeded(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,

@@ -99,7 +99,7 @@ class TestSchemaMigrationV88:
         with sqlite3.connect(db_path) as conn:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(personalities)")}
             for forbidden in (
-                "bankroll_cap", "bankroll_rate", "buy_in_multiplier",
+                "starting_bankroll", "bankroll_rate", "buy_in_multiplier",
                 "stake_comfort_zone",
             ):
                 assert forbidden not in cols, (
@@ -266,7 +266,7 @@ class TestPersonalityKnobs:
     def test_save_then_load_round_trip(self, db_path, repo):
         _insert_personality(db_path, "big_stack_bob", name="Big Stack Bob")
         custom = BankrollKnobs(
-            bankroll_cap=50_000,
+            starting_bankroll=50_000,
             bankroll_rate=1_000,
             buy_in_multiplier=1.5,
             stake_comfort_zone="$200",
@@ -288,10 +288,10 @@ class TestPersonalityKnobs:
         _insert_personality(
             db_path,
             "partial_knobs",
-            bankroll_knobs={"bankroll_cap": 25_000, "stake_comfort_zone": "$50"},
+            bankroll_knobs={"starting_bankroll": 25_000, "stake_comfort_zone": "$50"},
         )
         knobs = repo.load_personality_knobs("partial_knobs")
-        assert knobs.bankroll_cap == 25_000
+        assert knobs.starting_bankroll == 25_000
         assert knobs.stake_comfort_zone == "$50"
         # Missing keys fall back to defaults
         assert knobs.bankroll_rate == BANKROLL_KNOB_DEFAULTS.bankroll_rate
@@ -325,7 +325,7 @@ class TestPersonalityKnobs:
         assert config["play_style"] == "tight aggressive"
         assert config["anchors"] == {"baseline_aggression": 0.7, "poise": 0.8}
         assert config["verbal_tics"] == ["'Show me the chips.'"]
-        assert config["bankroll_knobs"]["bankroll_cap"] == 50_000
+        assert config["bankroll_knobs"]["starting_bankroll"] == 50_000
 
     def test_load_handles_malformed_config_json(self, db_path, repo):
         # If config_json is unparseable, return defaults rather than crashing.
@@ -362,33 +362,33 @@ class TestProjectBankrollPure:
         state = AIBankrollState("seed", chips=3_000, last_regen_tick=None)
         # The "never had an event" state should project to the seed
         # value, not inflate by full elapsed time since epoch.
-        assert project_bankroll(state, cap=10_000, rate=500, now=datetime.utcnow()) == 3_000
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=datetime.utcnow()) == 3_000
 
     def test_within_same_day_no_regen(self):
         # Half-second elapsed → floor(rate * 5.78e-6 days) == 0 → no change.
         tick = datetime(2026, 5, 17, 12, 0, 0)
         now = tick + timedelta(seconds=1)
         state = AIBankrollState("a", chips=1_000, last_regen_tick=tick)
-        assert project_bankroll(state, cap=10_000, rate=500, now=now) == 1_000
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 1_000
 
     def test_full_day_adds_rate(self):
         tick = datetime(2026, 5, 17, 12, 0, 0)
         now = tick + timedelta(days=1)
         state = AIBankrollState("a", chips=1_000, last_regen_tick=tick)
-        assert project_bankroll(state, cap=10_000, rate=500, now=now) == 1_500
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 1_500
 
     def test_multiple_days_linear_growth(self):
         tick = datetime(2026, 5, 17, 12, 0, 0)
         now = tick + timedelta(days=4)
         state = AIBankrollState("a", chips=1_000, last_regen_tick=tick)
-        assert project_bankroll(state, cap=10_000, rate=500, now=now) == 3_000
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 3_000
 
     def test_clamps_to_cap(self):
         tick = datetime(2026, 1, 1, 0, 0, 0)
         now = tick + timedelta(days=365)
         state = AIBankrollState("a", chips=8_000, last_regen_tick=tick)
         # Without cap: 8_000 + 500 * 365 = 190_500. Cap at 10_000.
-        assert project_bankroll(state, cap=10_000, rate=500, now=now) == 10_000
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 10_000
 
     def test_starting_above_cap_stays_at_value(self):
         # An AI already above cap (e.g., from a big win) doesn't get
@@ -399,7 +399,7 @@ class TestProjectBankrollPure:
         tick = datetime(2026, 5, 17, 12, 0, 0)
         now = tick + timedelta(days=1)
         state = AIBankrollState("a", chips=15_000, last_regen_tick=tick)
-        assert project_bankroll(state, cap=10_000, rate=500, now=now) == 10_000
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 10_000
 
 
 class TestAIBankrollCurrentReads:
@@ -422,12 +422,12 @@ class TestAIBankrollCurrentReads:
         assert repo.load_ai_bankroll_current("nobody", sandbox_id=SANDBOX_ID) is None
 
     def test_load_current_uses_personality_specific_cap(self, db_path, repo):
-        # Personality with bankroll_cap=2000 — should clamp tighter than default.
+        # Personality with starting_bankroll=2000 — should clamp tighter than default.
         _insert_personality(
             db_path,
             "capped_cat",
             name="Capped Cat",
-            bankroll_knobs={"bankroll_cap": 2_000, "bankroll_rate": 500},
+            bankroll_knobs={"starting_bankroll": 2_000, "bankroll_rate": 500},
         )
         tick = datetime(2026, 5, 10, 12, 0, 0)
         now = datetime(2026, 5, 17, 12, 0, 0)  # 7 days, would add 3500

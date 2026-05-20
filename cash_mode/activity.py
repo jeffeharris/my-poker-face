@@ -85,6 +85,15 @@ class LobbyEvent:
     busted out of $50") so the React side doesn't have to know about
     every enum value; the structured fields are still there for any
     future grouping/filtering UI.
+
+    `sandbox_id` is server-internal scoping — set by every emitter
+    (lobby.py + Phase 4 stake events). `recent_events(sandbox_id=...)`
+    filters on it so events from another player's sandbox don't leak
+    into this player's ticker. Stripped from `serialize_event` so the
+    wire shape is unchanged. None tolerated for legacy events still
+    in the ring buffer at process startup — those degrade to "visible
+    everywhere" rather than "lost," matching the buffer's best-effort
+    semantics. Phase 4 prep.
     """
 
     type: str
@@ -95,6 +104,7 @@ class LobbyEvent:
     reason: str  # `''` for joins; movement decision for leaves
     message: str
     created_at: str  # ISO-8601, UTC
+    sandbox_id: Optional[str] = None
 
 
 # Bounded ring; oldest events drop on overflow. 50 is enough to
@@ -117,15 +127,28 @@ def record_event(event: LobbyEvent) -> None:
         _events.append(event)
 
 
-def recent_events(limit: int = 10) -> List[LobbyEvent]:
+def recent_events(
+    limit: int = 10, *, sandbox_id: Optional[str] = None,
+) -> List[LobbyEvent]:
     """Return up to `limit` most-recent events, newest first.
 
     Snapshot — callers don't hold the lock; mutations after this
     call don't reflect in the returned list. Safe to serialize.
+
+    `sandbox_id` filters the ring to events scoped to this sandbox
+    (plus pre-scoping events with `sandbox_id=None`, which match
+    everywhere as a best-effort upgrade path). When omitted (None
+    keyword default), no filter is applied — admin / cross-sandbox
+    callers see the full ring.
     """
     with _events_lock:
         snapshot = list(_events)
     snapshot.reverse()
+    if sandbox_id is not None:
+        snapshot = [
+            e for e in snapshot
+            if e.sandbox_id is None or e.sandbox_id == sandbox_id
+        ]
     return snapshot[:limit]
 
 
@@ -213,7 +236,12 @@ def format_burst_summary_message(
 
 
 def serialize_event(event: LobbyEvent) -> dict:
-    """JSON-friendly dict for the lobby response. Equivalent to
-    dataclasses.asdict but explicit so changes here are visible at
-    the wire boundary."""
-    return asdict(event)
+    """JSON-friendly dict for the lobby response.
+
+    `sandbox_id` is server-internal scoping (see `LobbyEvent` docs) —
+    stripped from the wire payload so the frontend's event type
+    surface stays unchanged across the Phase 4 prep refactor.
+    """
+    payload = asdict(event)
+    payload.pop('sandbox_id', None)
+    return payload

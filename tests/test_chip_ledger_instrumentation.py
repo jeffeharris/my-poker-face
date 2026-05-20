@@ -92,7 +92,7 @@ class TestCreditAICashOutLedger:
         self, bankroll_repo, ledger_repo, db_path,
     ):
         _insert_personality(db_path, "napoleon", knobs={
-            "bankroll_cap": 50_000, "bankroll_rate": 500,
+            "starting_bankroll": 50_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
         })
@@ -122,7 +122,7 @@ class TestCreditAICashOutLedger:
         self, bankroll_repo, ledger_repo, db_path,
     ):
         _insert_personality(db_path, "napoleon", knobs={
-            "bankroll_cap": 50_000, "bankroll_rate": 500,
+            "starting_bankroll": 50_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
         })
@@ -140,7 +140,7 @@ class TestCreditAICashOutLedger:
     def test_omitting_ledger_repo_is_silent(self, bankroll_repo, db_path):
         """Legacy callers that don't wire the ledger don't crash."""
         _insert_personality(db_path, "napoleon", knobs={
-            "bankroll_cap": 50_000, "bankroll_rate": 500,
+            "starting_bankroll": 50_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
         })

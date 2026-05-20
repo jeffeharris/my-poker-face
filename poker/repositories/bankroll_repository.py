@@ -8,10 +8,10 @@ Three persistence surfaces, all introduced in schema v88:
     live value via `cash_mode.project_bankroll`.
 
   - `player_bankroll_state`: per-player persistent bankroll, keyed on
-    player_id. No regen in v1 — fresh-grant on full bust is the only
-    write that resets `chips` to `starting_bankroll`.
+    player_id. No regen in v1 and no auto-refill — busted players
+    must use the staking system to play again.
 
-  - Personality bankroll knobs (`bankroll_cap`, `bankroll_rate`,
+  - Personality bankroll knobs (`starting_bankroll`, `bankroll_rate`,
     `buy_in_multiplier`, `stake_comfort_zone`) live inside the
     existing `config_json`
     column as a `bankroll_knobs` sub-dict. Same nesting convention
@@ -310,7 +310,7 @@ class BankrollRepository(BaseRepository):
         knobs = self.load_personality_knobs(personality_id)
         if now is None:
             now = datetime.utcnow()
-        return project_bankroll(state, knobs.bankroll_cap, knobs.bankroll_rate, now)
+        return project_bankroll(state, knobs.starting_bankroll, knobs.bankroll_rate, now)
 
     # --- Player bankroll ---
 
@@ -405,8 +405,15 @@ class BankrollRepository(BaseRepository):
             return BANKROLL_KNOB_DEFAULTS
 
         defaults = BANKROLL_KNOB_DEFAULTS
+        # Accept the legacy `bankroll_cap` key for personalities whose
+        # config_json hasn't been migrated to `starting_bankroll` yet.
+        # The two names are aliases — same chip value, just renamed.
+        starting = sub.get(
+            "starting_bankroll",
+            sub.get("bankroll_cap", defaults.starting_bankroll),
+        )
         return BankrollKnobs(
-            bankroll_cap=sub.get("bankroll_cap", defaults.bankroll_cap),
+            starting_bankroll=starting,
             bankroll_rate=sub.get("bankroll_rate", defaults.bankroll_rate),
             buy_in_multiplier=sub.get("buy_in_multiplier", defaults.buy_in_multiplier),
             stake_comfort_zone=sub.get("stake_comfort_zone", defaults.stake_comfort_zone),
@@ -498,7 +505,7 @@ class BankrollRepository(BaseRepository):
                 )
                 return False
             config["bankroll_knobs"] = {
-                "bankroll_cap": knobs.bankroll_cap,
+                "starting_bankroll": knobs.starting_bankroll,
                 "bankroll_rate": knobs.bankroll_rate,
                 "buy_in_multiplier": knobs.buy_in_multiplier,
                 "stake_comfort_zone": knobs.stake_comfort_zone,

@@ -56,7 +56,7 @@ def _insert_personality(db_path: str, personality_id: str, *, knobs: dict) -> No
         conn.commit()
 
 
-# --- cap_clamp: credit_ai_cash_out evaporates overflow above bankroll_cap ---
+# --- cap_clamp: credit_ai_cash_out evaporates overflow above starting_bankroll ---
 
 
 class TestCapClampLedger:
@@ -66,7 +66,7 @@ class TestCapClampLedger:
         # Cap = 5000. Stored = 4500, no elapsed time so projected =
         # 4500. Player stack = 1000. post_credit = 5500. Overflow = 500.
         _insert_personality(db_path, "napoleon", knobs={
-            "bankroll_cap": 5_000, "bankroll_rate": 500,
+            "starting_bankroll": 5_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
         })
@@ -92,7 +92,7 @@ class TestCapClampLedger:
         self, bankroll_repo, ledger_repo, db_path,
     ):
         _insert_personality(db_path, "napoleon", knobs={
-            "bankroll_cap": 50_000, "bankroll_rate": 500,
+            "starting_bankroll": 50_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
             "stake_comfort_zone": "$10",
         })

@@ -87,7 +87,7 @@ class _CashSitRouteBase(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'bankroll_cap': 5_000_000, 'bankroll_rate': 0,
+                    'starting_bankroll': 5_000_000, 'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
@@ -102,7 +102,7 @@ class _CashSitRouteBase(unittest.TestCase):
                 f'AI {i}',
                 {
                     'bankroll_knobs': {
-                        'bankroll_cap': 5_000_000, 'bankroll_rate': 0,
+                        'starting_bankroll': 5_000_000, 'bankroll_rate': 0,
                         'buy_in_multiplier': 1.0,
                         'stake_comfort_zone': '$10',
                     },

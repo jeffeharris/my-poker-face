@@ -60,7 +60,7 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
                 f'Lender {i}',
                 {
                     'bankroll_knobs': {
-                        'bankroll_cap': 1_000_000,
+                        'starting_bankroll': 1_000_000,
                         'bankroll_rate': 0,
                         'buy_in_multiplier': 1.0,
                         'stake_comfort_zone': '$10',

@@ -731,7 +731,7 @@ def _resolve_personality_id_or_404(name):
 def _knobs_to_dict(knobs: BankrollKnobs) -> dict:
     """Serialize BankrollKnobs to the JSON shape consumed by the admin UI."""
     return {
-        'bankroll_cap': knobs.bankroll_cap,
+        'starting_bankroll': knobs.starting_bankroll,
         'bankroll_rate': knobs.bankroll_rate,
         'buy_in_multiplier': knobs.buy_in_multiplier,
         'stake_comfort_zone': knobs.stake_comfort_zone,
@@ -799,7 +799,7 @@ def update_bankroll_knobs(name):
     """PUT a partial knob update; merges into config_json.bankroll_knobs.
 
     Request body: a JSON object containing any subset of:
-      - bankroll_cap (int)
+      - starting_bankroll (int)
       - bankroll_rate (int)
       - buy_in_multiplier (float)
       - stake_comfort_zone (str)
@@ -836,7 +836,7 @@ def update_bankroll_knobs(name):
         # current stored value — partial updates are the norm.
         try:
             new_knobs = BankrollKnobs(
-                bankroll_cap=int(payload.get('bankroll_cap', current.bankroll_cap)),
+                starting_bankroll=int(payload.get('starting_bankroll', current.starting_bankroll)),
                 bankroll_rate=int(payload.get('bankroll_rate', current.bankroll_rate)),
                 buy_in_multiplier=float(payload.get('buy_in_multiplier', current.buy_in_multiplier)),
                 stake_comfort_zone=str(payload.get('stake_comfort_zone', current.stake_comfort_zone)),
@@ -849,8 +849,8 @@ def update_bankroll_knobs(name):
 
         # Light range validation — keep the floor at 0 for caps/rates so
         # we don't produce negative-debit math, and require multipliers > 0.
-        if new_knobs.bankroll_cap < 0:
-            return jsonify({'success': False, 'error': 'bankroll_cap must be >= 0'}), 400
+        if new_knobs.starting_bankroll < 0:
+            return jsonify({'success': False, 'error': 'starting_bankroll must be >= 0'}), 400
         if new_knobs.bankroll_rate < 0:
             return jsonify({'success': False, 'error': 'bankroll_rate must be >= 0'}), 400
         if new_knobs.buy_in_multiplier <= 0:
