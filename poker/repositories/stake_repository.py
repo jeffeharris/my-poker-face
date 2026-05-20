@@ -149,6 +149,42 @@ class StakeRepository(BaseRepository):
                 return None
             return _row_to_stake(row)
 
+    def load_active_for_borrower(
+        self, borrower_id: str, borrower_kind: str,
+    ) -> Optional[Stake]:
+        """Load the borrower's single active stake, or None.
+
+        Phase 4 Commit 3 needs this for AI borrowers: when an AI's
+        movement decision triggers leave, we need to find their
+        active stake row to settle it. Humans use
+        `load_active_for_session(game_id)` because they have a
+        canonical session_id; AI sessions have synthesized
+        `ai_session_*` ids that aren't reconstructible from outside.
+
+        The invariant from Phase 1 — one active stake per borrower at
+        a time — makes this a single-row read. If multiple match
+        (shouldn't happen), returns the most recently created.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT stake_id, session_id, staker_id, staker_kind,
+                       borrower_id, borrower_kind, format,
+                       principal, match_amount, origination_fee, cut,
+                       status, carry_amount, stake_tier,
+                       created_at, settled_at, forgiveness_last_asked
+                FROM stakes
+                WHERE borrower_id = ? AND borrower_kind = ?
+                  AND status = 'active'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (borrower_id, borrower_kind),
+            ).fetchone()
+            if not row:
+                return None
+            return _row_to_stake(row)
+
     def list_stakes_for_session(self, session_id: str) -> List[Stake]:
         """Return every stake row for a session, oldest first.
 

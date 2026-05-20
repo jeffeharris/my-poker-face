@@ -153,6 +153,74 @@ class TestLoadActiveForSession:
         assert repo.load_active_for_session("never-existed") is None
 
 
+class TestLoadActiveForBorrower:
+    """Phase 4 Commit 3: lookup by borrower_id (AI sessions have
+    synthesized session_ids, so this is the way to find their active
+    stake at leave-time)."""
+
+    def test_returns_active_stake_for_human_borrower(self, repo):
+        active = _make_stake(
+            stake_id="stk-h", session_id="sess-h",
+            borrower_id="alice", borrower_kind=BORROWER_KIND_HUMAN,
+        )
+        repo.create_stake(active)
+        loaded = repo.load_active_for_borrower("alice", BORROWER_KIND_HUMAN)
+        assert loaded is not None
+        assert loaded.stake_id == "stk-h"
+
+    def test_borrower_kind_filter(self, repo):
+        # Same id, different borrower kind — must not collide.
+        human_stake = _make_stake(
+            stake_id="stk-h", session_id="sess-h",
+            borrower_id="napoleon", borrower_kind=BORROWER_KIND_HUMAN,
+        )
+        ai_stake = _make_stake(
+            stake_id="stk-ai", session_id="sess-ai",
+            borrower_id="napoleon",
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+        )
+        repo.create_stake(human_stake)
+        repo.create_stake(ai_stake)
+        assert repo.load_active_for_borrower(
+            "napoleon", BORROWER_KIND_HUMAN,
+        ).stake_id == "stk-h"
+        assert repo.load_active_for_borrower(
+            "napoleon", BORROWER_KIND_PERSONALITY,
+        ).stake_id == "stk-ai"
+
+    def test_returns_none_when_no_active_stake(self, repo):
+        settled = _make_stake(
+            stake_id="stk-old", session_id="sess-old",
+            borrower_id="alice", borrower_kind=BORROWER_KIND_HUMAN,
+            status=STAKE_STATUS_SETTLED, settled_at=ANCHOR,
+        )
+        repo.create_stake(settled)
+        assert repo.load_active_for_borrower(
+            "alice", BORROWER_KIND_HUMAN,
+        ) is None
+
+    def test_returns_most_recent_when_multiple_active(self, repo):
+        # Shouldn't happen post-Phase-4 (the lobby's borrower-profile
+        # gate prevents double-take-stake) — but the read path stays
+        # deterministic if the invariant slips.
+        older = _make_stake(
+            stake_id="stk-old", session_id="sess-old",
+            borrower_id="alice", borrower_kind=BORROWER_KIND_HUMAN,
+            created_at=ANCHOR,
+        )
+        newer = _make_stake(
+            stake_id="stk-new", session_id="sess-new",
+            borrower_id="alice", borrower_kind=BORROWER_KIND_HUMAN,
+            created_at=ANCHOR + timedelta(hours=1),
+        )
+        repo.create_stake(older)
+        repo.create_stake(newer)
+        loaded = repo.load_active_for_borrower(
+            "alice", BORROWER_KIND_HUMAN,
+        )
+        assert loaded.stake_id == "stk-new"
+
+
 class TestListCarriesForBorrower:
     def test_returns_all_carries_for_borrower(self, repo):
         # Same borrower, two carries (different stakers), one settled.

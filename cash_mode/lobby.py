@@ -434,7 +434,20 @@ def refresh_unseated_tables(
     )
 
     def _borrower_profile_lookup(pid: str):
-        return bankroll_repo.load_borrower_profile(pid)
+        # An AI already on an active stake can't take a new one — the
+        # `one-active-stake-per-borrower` invariant would otherwise break
+        # (orphaned active rows accumulate in the stakes table). Surface
+        # this as "unwilling" to the take_stake interception so the AI
+        # falls back to forced_leave + session-end settlement instead.
+        profile = bankroll_repo.load_borrower_profile(pid)
+        if stake_repo is not None and profile.willing:
+            existing = stake_repo.load_active_for_borrower(
+                pid, "personality",
+            )
+            if existing is not None:
+                from cash_mode.lender_profile import BorrowerProfile
+                return BorrowerProfile(willing=False)
+        return profile
 
     def _lender_profile_lookup(pid: str):
         return bankroll_repo.load_lender_profile(pid)
@@ -680,6 +693,113 @@ def refresh_unseated_tables(
             elif change.kind == "remove":
                 cash_table_repo.delete_idle(change.personality_id, sandbox_id=sandbox_id)
 
+        # Phase 4 Commit 3: settle AI-borrower stakes BEFORE the normal
+        # from_seat credit fires. When an AI with an active stake row
+        # leaves, the chips on their seat need to be split per the
+        # stake's `cut` between staker and borrower — not credited
+        # whole to the borrower. We compute the settlement flows here
+        # and add the settled borrower's pid to a skip set so the
+        # from_seat loop below leaves them alone.
+        settled_borrower_pids: set = set()
+        if stake_repo is not None:
+            from cash_mode.stake_chip_flow import (
+                DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
+                DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL,
+                build_stake_settlement_flows,
+            )
+            from cash_mode.stake_settlement import settle_stake_on_leave
+            from cash_mode.stakes import (
+                BORROWER_KIND_PERSONALITY,
+                STAKE_STATUS_CARRY,
+            )
+
+            # Build a {pid: from_seat_amount} for AIs that left this
+            # tick — settle_stake_on_leave needs the chips_at_leave.
+            leaving_pid_chips: Dict[str, int] = {
+                bc.personality_id: bc.amount
+                for bc in result.bankroll_changes
+                if bc.direction == "from_seat"
+            }
+            for pid, chips_at_leave in leaving_pid_chips.items():
+                # Was this AI a stake borrower? Look up active stake.
+                active_stake = stake_repo.load_active_for_borrower(
+                    pid, BORROWER_KIND_PERSONALITY,
+                )
+                if active_stake is None:
+                    continue
+                settlement = settle_stake_on_leave(
+                    active_stake.stake_id, chips_at_leave,
+                    stake_repo=stake_repo,
+                    chip_ledger_repo=chip_ledger_repo,
+                    ledger_context={
+                        "site": "ai_session_end",
+                        "table_id": result.new_table.table_id,
+                    },
+                    sandbox_id=sandbox_id,
+                    now=now,
+                )
+                if settlement is None:
+                    continue
+                # Apply the settlement flows. For AI-staker / AI-borrower
+                # personality stakes the flows are pure bankroll→bankroll
+                # transfers — no ledger entry, mirror the route's leave
+                # path.
+                flows = build_stake_settlement_flows(settlement)
+                for flow in flows:
+                    if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
+                        from cash_mode.bankroll import credit_ai_cash_out
+                        credit_ai_cash_out(
+                            bankroll_repo, flow.staker_id, flow.amount,
+                            sandbox_id=sandbox_id,
+                            now=now,
+                            chip_ledger_repo=chip_ledger_repo,
+                            ledger_context={
+                                "stake_id": active_stake.stake_id,
+                                "site": "ai_stake_settle_staker",
+                            },
+                        )
+                    elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
+                        from cash_mode.bankroll import credit_ai_cash_out
+                        credit_ai_cash_out(
+                            bankroll_repo, flow.borrower_id, flow.amount,
+                            sandbox_id=sandbox_id,
+                            now=now,
+                            chip_ledger_repo=chip_ledger_repo,
+                            ledger_context={
+                                "stake_id": active_stake.stake_id,
+                                "site": "ai_stake_settle_borrower",
+                            },
+                        )
+                # Fire repaid/defaulted event. Carry rolls forward
+                # silently — only the explicit STAKE_DEFAULTED action
+                # would fire the sharper hit; natural carry is just a
+                # status='carry' row.
+                if (
+                    relationship_repo is not None
+                    and settlement.new_status != STAKE_STATUS_CARRY
+                    and settlement.staker_id is not None
+                    and settlement.forgiven_amount == 0
+                ):
+                    try:
+                        from poker.memory import OpponentModelManager
+                        from poker.memory.relationship_events import (
+                            RelationshipEvent,
+                        )
+                        mgr = OpponentModelManager(
+                            relationship_repo=relationship_repo,
+                        )
+                        mgr.record_event(
+                            actor_id=settlement.staker_id,
+                            target_id=settlement.borrower_id,
+                            event=RelationshipEvent.STAKE_REPAID,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "[CASH][LOBBY] STAKE_REPAID event failed "
+                            "stake=%r: %s", active_stake.stake_id, exc,
+                        )
+                settled_borrower_pids.add(pid)
+
         # Apply bankroll ↔ seat transfers (closes the v1.5 lobby-seed
         # leak: live-fill used to mint chips on new seats without
         # deducting from the AI's bankroll). `to_seat` is a pure
@@ -697,6 +817,10 @@ def refresh_unseated_tables(
                     sandbox_id=sandbox_id,
                 )
             elif bc.direction == "from_seat":
+                # Skip from_seat for AI borrowers whose stake we just
+                # settled — the settlement flows already credited them.
+                if bc.personality_id in settled_borrower_pids:
+                    continue
                 credit_ai_cash_out(
                     bankroll_repo,
                     bc.personality_id,
