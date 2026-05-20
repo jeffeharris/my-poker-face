@@ -330,32 +330,64 @@ def get_relationships_debug(game_id):
     memorable hands. Includes neutral pairs — debug view wants the full
     state, not the filtered view the prompt-side formatter shows.
 
-    Returns 404 when no `memory_manager` is wired for the game (older
-    flows, replay paths, in-memory tests that skip the bootstrap).
+    Two paths:
+      1. **In-memory**: when the game is still active in this Flask
+         process, walk the in-memory `OpponentModelManager` (most
+         up-to-date — includes unsaved memorable hands).
+      2. **DB fallback**: when the game's been evicted (common for
+         cash-mode sessions returned to between visits), reconstruct
+         the pair list from `opponent_models WHERE game_id = ?` plus
+         the persistent `relationship_states` and `memorable_hands`
+         tables. `relationship_states` is cross-session-persistent so
+         axis values survive evictions intact.
+
+    The DB fallback returns the same JSON shape as the in-memory path
+    so the frontend doesn't need to care which one served the response.
     """
     from datetime import datetime
     from poker.memory.relationship_prompt import _classify
-
-    game_data = game_state_service.get_game(game_id)
-    if not game_data:
-        return jsonify({'error': 'Game not found'}), 404
-
-    memory_manager = game_data.get('memory_manager')
-    if memory_manager is None:
-        return jsonify({'error': 'No memory_manager for this game'}), 404
-    opp_manager = memory_manager.get_opponent_model_manager()
-    if opp_manager is None or not opp_manager.has_relationship_repo:
-        return jsonify({'error': 'No relationship_repo wired'}), 404
+    from ..extensions import game_repo, relationship_repo
 
     now = datetime.utcnow()
-    repo = opp_manager._relationship_repo
+    game_data = game_state_service.get_game(game_id)
 
+    if game_data:
+        memory_manager = game_data.get('memory_manager')
+        if memory_manager is not None:
+            opp_manager = memory_manager.get_opponent_model_manager()
+            if opp_manager is not None and opp_manager.has_relationship_repo:
+                return jsonify(_build_relationships_response_from_memory(
+                    game_id, opp_manager, now,
+                ))
+
+    # Fallback: read everything from the DB. `relationship_states`
+    # rows are cross-game (keyed on personality_id pairs), so they
+    # survive game eviction; `opponent_models` rows scoped to the
+    # game tell us which pairs to surface. `memorable_hands` is
+    # already attached to the loaded model dict via game_repo.
+    if game_repo is None or relationship_repo is None:
+        return jsonify({'error': 'Repositories not initialized'}), 500
+
+    models_dict = game_repo.load_opponent_models(game_id)
+    if not models_dict:
+        return jsonify({
+            'error': (
+                f'No relationship data for game {game_id} — '
+                'no opponent_models rows in DB.'
+            ),
+        }), 404
+
+    return jsonify(_build_relationships_response_from_db(
+        game_id, models_dict, relationship_repo, now,
+    ))
+
+
+def _build_relationships_response_from_memory(game_id, opp_manager, now):
+    """Walk the in-memory OpponentModelManager and serialize pairs."""
+    from poker.memory.relationship_prompt import _classify
+
+    repo = opp_manager._relationship_repo
     pairs = []
-    # Iterate every (observer, opponent) the in-memory models have seen.
-    # That includes both directions of each pair (observer→opponent and
-    # opponent→observer) because the bilateral update writes both rows
-    # on every event — listing both gives an honest view of how each
-    # side sees the other.
     for observer_name, opp_map in opp_manager.models.items():
         observer_id = opp_manager.resolve_player_id(observer_name)
         for opponent_name, model in opp_map.items():
@@ -366,22 +398,10 @@ def get_relationships_debug(game_id):
             state = repo.load_relationship_state(
                 observer_id, opponent_id, now=now,
             )
-            # No row yet → pair has no history; still surface it so the
-            # debug view shows "we know about this pair but nothing's
-            # happened" rather than silently omitting it.
             if state is None:
-                pairs.append({
-                    'observer': observer_name,
-                    'opponent': opponent_name,
-                    'observer_id': observer_id,
-                    'opponent_id': opponent_id,
-                    'heat': 0.0,
-                    'respect': 0.5,
-                    'likability': 0.5,
-                    'label': None,
-                    'last_seen': None,
-                    'memorable_hands': [],
-                })
+                pairs.append(_neutral_pair_payload(
+                    observer_name, opponent_name, observer_id, opponent_id,
+                ))
                 continue
 
             label = _classify(state)
@@ -399,7 +419,7 @@ def get_relationships_debug(game_id):
                 'heat': round(state.heat, 4),
                 'respect': round(state.respect, 4),
                 'likability': round(state.likability, 4),
-                'label': label,  # 'rival' / 'friendly' / None
+                'label': label,
                 'last_seen': state.last_seen.isoformat() if state.last_seen else None,
                 'memorable_hands': [
                     {
@@ -413,12 +433,112 @@ def get_relationships_debug(game_id):
                 ],
             })
 
-    return jsonify({
+    return {
         'game_id': game_id,
         'pair_count': len(pairs),
         'now': now.isoformat(),
+        'source': 'memory',
         'pairs': pairs,
-    })
+    }
+
+
+def _build_relationships_response_from_db(game_id, models_dict, rel_repo, now):
+    """Reconstruct the pair list from the DB.
+
+    `models_dict` is the dict returned by `game_repo.load_opponent_models`:
+    nested observer_name → opponent_name → entry dict with
+    observer_id / opponent_id / memorable_hands. The dict also carries
+    a `__name_to_id__` sidecar entry (a flat name→id registry, mirror
+    of `OpponentModelManager.to_dict`) which we use as a fallback id
+    resolver for rows that pre-date the v86 id columns.
+    """
+    from poker.memory.relationship_prompt import _classify
+
+    name_to_id = models_dict.get('__name_to_id__') or {}
+    pairs = []
+    for observer_name, opp_map in models_dict.items():
+        if observer_name == '__name_to_id__':
+            # Sidecar entry — not a real observer.
+            continue
+        for opponent_name, entry in opp_map.items():
+            observer_id = (
+                entry.get('observer_id')
+                or name_to_id.get(observer_name)
+                or observer_name
+            )
+            opponent_id = (
+                entry.get('opponent_id')
+                or name_to_id.get(opponent_name)
+                or opponent_name
+            )
+            if not observer_id or not opponent_id or observer_id == opponent_id:
+                continue
+
+            state = rel_repo.load_relationship_state(
+                observer_id, opponent_id, now=now,
+            )
+            if state is None:
+                pairs.append(_neutral_pair_payload(
+                    observer_name, opponent_name, observer_id, opponent_id,
+                ))
+                continue
+
+            label = _classify(state)
+            raw_hands = entry.get('memorable_hands') or []
+            # DB rows store memory_type, not RelationshipEvent — pass
+            # through verbatim so the frontend can render the string.
+            # Sort by timestamp descending (DB returns insert order).
+            sorted_hands = sorted(
+                raw_hands,
+                key=lambda h: h.get('timestamp') or '',
+                reverse=True,
+            )[:5]
+
+            pairs.append({
+                'observer': observer_name,
+                'opponent': opponent_name,
+                'observer_id': observer_id,
+                'opponent_id': opponent_id,
+                'heat': round(state.heat, 4),
+                'respect': round(state.respect, 4),
+                'likability': round(state.likability, 4),
+                'label': label,
+                'last_seen': state.last_seen.isoformat() if state.last_seen else None,
+                'memorable_hands': [
+                    {
+                        'hand_id': h.get('hand_id'),
+                        'event': h.get('memory_type'),
+                        'impact_score': round(h.get('impact_score') or 0.0, 3),
+                        'narrative': h.get('narrative') or '',
+                        'timestamp': h.get('timestamp') or '',
+                    }
+                    for h in sorted_hands
+                ],
+            })
+
+    return {
+        'game_id': game_id,
+        'pair_count': len(pairs),
+        'now': now.isoformat(),
+        'source': 'db',
+        'pairs': pairs,
+    }
+
+
+def _neutral_pair_payload(observer_name, opponent_name, observer_id, opponent_id):
+    """Default-state pair payload — no row yet in relationship_states."""
+    return {
+        'observer': observer_name,
+        'opponent': opponent_name,
+        'observer_id': observer_id,
+        'opponent_id': opponent_id,
+        'heat': 0.0,
+        'respect': 0.5,
+        'likability': 0.5,
+        'label': None,
+        'last_seen': None,
+        'memorable_hands': [],
+    }
 
 
 @debug_bp.route('/api/game/<game_id>/trajectory-viewer', methods=['GET'])

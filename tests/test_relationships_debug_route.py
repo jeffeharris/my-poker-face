@@ -175,3 +175,63 @@ class TestRelationshipsRoute(unittest.TestCase):
         self.assertEqual(len(rival_pair['memorable_hands']), 1)
         self.assertEqual(rival_pair['memorable_hands'][0]['event'], 'bad_beat')
         self.assertIn('bad-beat alice', rival_pair['memorable_hands'][0]['narrative'])
+
+    def test_db_fallback_when_game_not_in_memory(self):
+        """Game evicted from memory but opponent_models persisted in DB
+        — the DB fallback path reconstructs the response without needing
+        the in-memory OpponentModelManager. Mirrors the production
+        scenario where cash sessions get evicted between visits.
+        """
+        # Seed relationship_states for the pair.
+        self._seed("alice_pid", "bob_pid", heat=0.65, respect=0.4, likability=0.5)
+        # Persist opponent_models for a different game_id (not in memory).
+        # save_opponent_models reads the manager's models dict + ids.
+        evicted_game_id = 'evicted_game'
+        # Attach a memorable hand on the in-memory model, then persist.
+        model = self.opp_manager.get_model("alice", "bob")
+        model.add_memorable_hand(
+            hand_id=99,
+            event=RelationshipEvent.BIG_LOSS,
+            impact_score=0.85,
+            narrative="alice lost big to bob on hand 99",
+            hand_summary="set vs flush",
+        )
+        self.repos['game_repo'].save_opponent_models(
+            evicted_game_id, self.opp_manager,
+        )
+
+        response = self.client.get(f'/api/game/{evicted_game_id}/relationships')
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data['source'], 'db')
+        rival_pair = next(
+            p for p in data['pairs']
+            if p['observer'] == 'alice' and p['opponent'] == 'bob'
+        )
+        # Axis values came from the cross-session relationship_states row.
+        self.assertEqual(rival_pair['label'], 'rival')
+        # Memorable hand came from the per-game memorable_hands rows.
+        self.assertEqual(len(rival_pair['memorable_hands']), 1)
+        self.assertIn('lost big', rival_pair['memorable_hands'][0]['narrative'])
+
+    def test_db_fallback_no_data_returns_404(self):
+        """No opponent_models rows for the game → 404 with a clearer
+        error so the operator can distinguish "game doesn't exist" from
+        "game exists but no relationship data was captured."
+        """
+        response = self.client.get('/api/game/totally_unknown/relationships')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(
+            'No relationship data',
+            response.get_json().get('error', ''),
+        )
+
+    def test_in_memory_source_marker(self):
+        """When the in-memory path serves the response, the `source`
+        field reflects that — useful for the frontend to distinguish
+        "live data" from "frozen at last persistence."
+        """
+        self._seed("alice_pid", "bob_pid", heat=0.65)
+        response = self.client.get(f'/api/game/{self.game_id}/relationships')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['source'], 'memory')
