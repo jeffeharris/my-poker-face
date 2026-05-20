@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { config } from '../../config';
 import { adminAPI } from '../../utils/api';
+import { RelationshipMatrix, type RelationshipsPayload } from './RelationshipMatrix';
 import './DebugTools.css';
 
 // ============================================
@@ -34,6 +35,19 @@ interface DebugToolsProps {
   embedded?: boolean;
 }
 
+/** Narrow check: the relationships endpoint returns this shape, and
+ *  TypeScript can't infer it from the `unknown` result. We don't try
+ *  to fully validate — just enough to safely pass the value through
+ *  to the matrix component, which itself iterates defensively.
+ */
+function isRelationshipsPayload(v: unknown): v is RelationshipsPayload {
+  return (
+    typeof v === 'object'
+    && v !== null
+    && Array.isArray((v as { pairs?: unknown }).pairs)
+  );
+}
+
 // ============================================
 // Constants
 // ============================================
@@ -62,6 +76,11 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
   const [loadingGames, setLoadingGames] = useState(false);
+  // Toggle: prefer the structured matrix view for the relationships tab,
+  // but keep the raw JSON dump available behind a switch for cases where
+  // the operator needs to copy/paste field values or check fields the
+  // matrix component doesn't render yet.
+  const [showRelationshipsRaw, setShowRelationshipsRaw] = useState(false);
 
   // Fetch active games
   const fetchActiveGames = useCallback(async () => {
@@ -276,7 +295,35 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
             <span>Loading...</span>
           </div>
         ) : result ? (
-          <pre className="dt-result__json">{JSON.stringify(result, null, 2)}</pre>
+          activeTab === 'relationships' && !showRelationshipsRaw && isRelationshipsPayload(result) ? (
+            <>
+              <div className="dt-view-toggle">
+                <button
+                  type="button"
+                  className="dt-view-toggle-btn"
+                  onClick={() => setShowRelationshipsRaw(true)}
+                >
+                  Show raw JSON
+                </button>
+              </div>
+              <RelationshipMatrix data={result} />
+            </>
+          ) : activeTab === 'relationships' && showRelationshipsRaw ? (
+            <>
+              <div className="dt-view-toggle">
+                <button
+                  type="button"
+                  className="dt-view-toggle-btn"
+                  onClick={() => setShowRelationshipsRaw(false)}
+                >
+                  Show matrix
+                </button>
+              </div>
+              <pre className="dt-result__json">{JSON.stringify(result, null, 2)}</pre>
+            </>
+          ) : (
+            <pre className="dt-result__json">{JSON.stringify(result, null, 2)}</pre>
+          )
         ) : (
           <div className="dt-result__empty">
             Enter a game ID and click Fetch to view debug data
