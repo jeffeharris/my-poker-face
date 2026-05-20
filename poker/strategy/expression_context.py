@@ -128,3 +128,12 @@ class ExpressionContext:
     # Optional and defaults to empty list — pre-existing callers /
     # tests render identical prompts when no observations exist.
     opponent_observations: List[Tuple[str, str]] = field(default_factory=list)
+
+    # Pre-formatted relationship-context block (rival/friendly labels +
+    # most-recent memorable hands per qualifying opponent). Built by
+    # `poker/memory/relationship_prompt.py:build_relationship_context`
+    # so the chaos/standard/sharp paths frame the same situation the
+    # same way. Empty default preserves baseline prompt for pre-existing
+    # callers; gating lives at the controller (prompt_config.relationship_context),
+    # not here.
+    relationship_context: str = ''

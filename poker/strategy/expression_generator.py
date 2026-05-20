@@ -356,6 +356,14 @@ class ExpressionGenerator:
         if obs_block:
             user_text = f"{user_text}\n\n{obs_block}"
 
+        # Append relationship-context block when present. Pre-formatted
+        # by the caller (see relationship_prompt.build_relationship_context)
+        # so the block reads identically here, in chaos's
+        # _build_decision_prompt, and in hybrid's _build_choice_prompt.
+        rel_block = self._render_relationship_context_block(ctx)
+        if rel_block:
+            user_text = f"{user_text}\n\n{rel_block}"
+
         return system_text, user_text
 
     def _render_opponent_observations_block(self, ctx: ExpressionContext) -> str:
@@ -378,6 +386,18 @@ class ExpressionGenerator:
                 f"{ctx.personality_name}: {e}"
             )
             return ''
+
+    def _render_relationship_context_block(self, ctx: ExpressionContext) -> str:
+        """Render the relationship-context block as a prompt suffix.
+
+        The block is pre-formatted upstream by
+        `poker.memory.relationship_prompt.build_relationship_context`,
+        so this method's only job is to surface it (or skip when
+        empty). Pre-existing callers that don't populate the field
+        produce identical prompts to before.
+        """
+        block = getattr(ctx, 'relationship_context', '') or ''
+        return block.strip()
 
     def _render_narration_facts_block(self, ctx: ExpressionContext) -> str:
         """Render the NarrationFacts block as a prompt suffix.
