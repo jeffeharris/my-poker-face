@@ -49,7 +49,9 @@ from cash_mode.stakes import (
     STAKE_STATUS_ACTIVE,
     STAKE_STATUS_CARRY,
     STAKE_STATUS_DEFAULTED,
+    STAKE_STATUS_SETTLED,
     STAKER_KIND_HOUSE,
+    STAKER_KIND_HUMAN,
     STAKER_KIND_PERSONALITY,
     Stake,
 )
@@ -417,6 +419,36 @@ def _load_or_seed_player_bankroll(
     logger.info("[CASH] Seeded fresh bankroll for %r at %d chips (sandbox=%r)",
                 owner_id, DEFAULT_PLAYER_STARTING_BANKROLL, sandbox_id)
     return bankroll
+
+
+def _resolve_player_tier_stake_label(owner_id: str, bankroll_chips: int) -> str:
+    """Pick the stake label that drives the player's current tier.
+
+    Priority:
+      1. Active cash session's stake_label (the tier the player is
+         actively playing).
+      2. Highest stake the bankroll can self-afford (`>= min_buy_in`).
+      3. Cheapest stake — so a busted player still gets a meaningful
+         tier reading at $2 rather than an empty answer.
+
+    Shared by `/api/cash/lobby` (top-level tier indicator) and
+    `/api/cash/net-worth` (carry-cap denominator). Keeping the two
+    surfaces aligned means the player can't see "tier X here, tier Y
+    there" for the same playing context.
+    """
+    active_game_id = _find_active_cash_game_id(owner_id)
+    if active_game_id:
+        from flask_app.services import game_state_service
+        active_game = game_state_service.get_game(active_game_id)
+        if active_game:
+            label = active_game.get("cash_stake_label")
+            if label:
+                return label
+    for label in reversed(STAKES_ORDER):
+        _, this_min, _ = table_buy_in_window(label)
+        if bankroll_chips >= this_min:
+            return label
+    return STAKES_ORDER[0]
 
 
 def _build_cash_game(
@@ -1752,6 +1784,122 @@ def default_stake(stake_id: str):
     })
 
 
+@cash_bp.route("/api/cash/stakes/<stake_id>/payoff", methods=["POST"])
+def payoff_stake(stake_id: str):
+    """POST /api/cash/stakes/<stake_id>/payoff — voluntary carry clearance.
+
+    Phase 3 Commit 1 of the backing system handoff. The player chooses
+    to clear an outstanding carry from their bankroll. Chips transfer
+    bankroll → staker bankroll directly (no seat involved — the session
+    is already over). The stake transitions to 'settled' and fires
+    STAKE_REPAID so the staker's relationship axes warm up.
+
+    Rejections:
+      - 404 if the stake doesn't exist or belongs to another player
+        (single error string for both; the leak-avoidance pattern
+        mirrors /default).
+      - 400 if the stake isn't in 'carry' status.
+      - 400 if the bankroll can't cover `carry_amount`. The UI greys
+        the action out when funds are short, but this defends against
+        a race / tampered client.
+      - 400 if `staker_kind == 'house'` (house carries shouldn't exist
+        — settle_stake_on_leave forgives them — but defensive).
+      - 501 if `staker_kind == 'human'`. Phase 5 lands the human-as-
+        staker bankroll credit path; refusing explicitly avoids silently
+        routing the credit into an AI bankroll write.
+
+    Unlike `/default`: this route DOES move chips. The carry leaves the
+    "open obligation" pool and the staker is made whole.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    from flask_app.extensions import bankroll_repo, chip_ledger_repo, stake_repo
+
+    stake = stake_repo.load_stake(stake_id)
+    # Same 404-on-both pattern as /default — no information leak about
+    # whether the id exists but belongs to someone else.
+    if stake is None or stake.borrower_id != owner_id:
+        return jsonify({"error": "Stake not found"}), 404
+    if stake.borrower_kind != BORROWER_KIND_HUMAN:
+        return jsonify({"error": "Stake not found"}), 404
+
+    if stake.status != STAKE_STATUS_CARRY:
+        return jsonify({
+            "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
+        }), 400
+    if stake.staker_id is None:
+        return jsonify({
+            "error": "House stakes cannot be paid off (they don't carry)",
+        }), 400
+    if stake.staker_kind == STAKER_KIND_HUMAN:
+        return jsonify({
+            "error": "Human-staker payoff not yet supported",
+        }), 501
+
+    bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
+    carry_amount = int(stake.carry_amount)
+    if bankroll.chips < carry_amount:
+        return jsonify({
+            "error": "Insufficient bankroll to cover carry",
+            "bankroll": bankroll.chips,
+            "carry_amount": carry_amount,
+        }), 400
+
+    # Transfer: player bankroll → staker bankroll. credit_ai_cash_out
+    # mirrors the leave-time settlement path so the staker's bankroll
+    # accounting (projection-with-regen + cap clamp + ledger
+    # instrumentation) stays consistent across "session-end settle" and
+    # "voluntary payoff" — the staker doesn't experience a different
+    # accounting shape depending on which event produced the credit.
+    now = datetime.utcnow()
+    new_player_chips = bankroll.chips - carry_amount
+    bankroll_repo.save_player_bankroll(PlayerBankrollState(
+        player_id=bankroll.player_id,
+        chips=new_player_chips,
+        starting_bankroll=bankroll.starting_bankroll,
+    ))
+    credit_ai_cash_out(
+        bankroll_repo, stake.staker_id, carry_amount,
+        sandbox_id=sandbox_id,
+        now=now,
+        chip_ledger_repo=chip_ledger_repo,
+        ledger_context={
+            'stake_id': stake_id,
+            'site': 'voluntary_payoff',
+        },
+    )
+
+    stake_repo.update_carry_amount(stake_id, 0)
+    stake_repo.update_status(stake_id, STAKE_STATUS_SETTLED, settled_at=now)
+
+    # Voluntary payoff reads as a STAKE_REPAID event — the borrower
+    # made the staker whole, same axis shifts as natural session-end
+    # repayment. The "remorseful payoff vs winning payoff" distinction
+    # could grow its own event later; for v1 they share the calibration.
+    _record_relationship_event(
+        actor_id=stake.staker_id,
+        target_id=owner_id,
+        event=RelationshipEvent.STAKE_REPAID,
+    )
+
+    logger.info(
+        "[STAKE] Voluntary payoff stake_id=%r owner=%r staker=%r amount=%d",
+        stake_id, owner_id, stake.staker_id, carry_amount,
+    )
+
+    return jsonify({
+        "stake_id": stake_id,
+        "status": STAKE_STATUS_SETTLED,
+        "paid": carry_amount,
+        "bankroll": new_player_chips,
+        "staker_id": stake.staker_id,
+    })
+
+
 @cash_bp.route("/api/cash/leave", methods=["POST"])
 def leave_table():
     """POST /api/cash/leave — player stands up; any active stake settles.
@@ -2428,6 +2576,26 @@ def get_lobby():
         resolve_tier,
     )
 
+    # Phase 3 Commit 1: build a {staker_id: total_carry_amount} map so
+    # AI seats the player has outstanding carries with can be annotated
+    # in the response. A single owner can carry from the same lender
+    # across multiple sessions, so values aggregate. Built once before
+    # the table loop to keep serialization O(seats × 1).
+    carries_by_staker: Dict[str, int] = {}
+    if stake_repo is not None:
+        try:
+            for stake in stake_repo.list_carries_for_borrower(
+                owner_id, BORROWER_KIND_HUMAN,
+            ):
+                if stake.staker_id is None:
+                    continue  # house carries shouldn't exist; skip
+                carries_by_staker[stake.staker_id] = (
+                    carries_by_staker.get(stake.staker_id, 0)
+                    + int(stake.carry_amount)
+                )
+        except Exception as e:
+            logger.warning("[CASH][LOBBY] carry annotation load failed: %s", e)
+
     response_tables = []
     for table in tables:
         big_blind, min_buy_in, max_buy_in = table_buy_in_window(table.stake_label)
@@ -2518,6 +2686,12 @@ def get_lobby():
                 except Exception:
                     hint = ""
                 entry["relationship_hint"] = hint
+                # Phase 3 Commit 1: surface outstanding carries to this
+                # AI so the lobby card can render a "you owe them"
+                # corner pin. Aggregated across all carries to this
+                # lender (separate sessions may have produced multiple).
+                if pid in carries_by_staker:
+                    entry["carry_amount"] = carries_by_staker[pid]
             elif slot["kind"] == "human":
                 entry["personality_id"] = slot.get("personality_id")
                 entry["chips"] = int(slot.get("chips", 0))
@@ -2536,28 +2710,12 @@ def get_lobby():
         })
 
     # Top-level tier reflects "what tier am I currently playing at?".
-    # When the player is in an active session, that session's stake
-    # drives the tier; otherwise default to the highest stake the
-    # bankroll affords (or the lowest stake when the player can't
-    # afford any). Keeps the lobby header indicator stable across
-    # the player's natural movement.
-    current_tier_stake = None
-    if active_game_id:
-        active_game = game_state_service.get_game(active_game_id)
-        if active_game:
-            current_tier_stake = active_game.get("cash_stake_label")
-    if current_tier_stake is None:
-        # Highest affordable; fall through to the cheapest stake when
-        # the bankroll covers none. The cheapest tier's tier value
-        # still tells the player whether their carries have priced
-        # them out of personality offers entirely.
-        for label in reversed(STAKES_ORDER):
-            _, this_min, _ = table_buy_in_window(label)
-            if bankroll.chips >= this_min:
-                current_tier_stake = label
-                break
-        if current_tier_stake is None:
-            current_tier_stake = STAKES_ORDER[0]
+    # `_resolve_player_tier_stake_label` consolidates the active-session
+    # → bankroll → cheapest fallback chain; the same helper drives
+    # `/api/cash/net-worth` so the two surfaces can't disagree.
+    current_tier_stake = _resolve_player_tier_stake_label(
+        owner_id, bankroll.chips,
+    )
 
     try:
         current_tier = resolve_tier(
@@ -2576,6 +2734,141 @@ def get_lobby():
         "tier_stake_label": current_tier_stake,
         "tables": response_tables,
         "events": [serialize_event(e) for e in recent_events(limit=5)],
+    })
+
+
+@cash_bp.route("/api/cash/net-worth", methods=["GET"])
+def get_net_worth():
+    """GET /api/cash/net-worth — bankroll, tier, carries, headroom.
+
+    Phase 3 Commit 1 of the backing system handoff. Returns the
+    player's full financial position so the Net Worth drawer can
+    render bankroll + outstanding carries + tier status + headroom
+    in one fetch.
+
+    Response shape:
+      {
+        "bankroll": int,
+        "tier_stake_label": str,        # e.g. "$50"
+        "tier_status": str,             # 'premium' | 'standard' | 'restricted' | 'house_only'
+        "carry_cap": int,               # 10 × min_buy_in @ tier_stake_label
+        "payables": [
+          {stake_id, staker_id, staker_kind, staker_display_name,
+           carry_amount, principal, stake_tier, created_at}, ...
+        ],
+        "receivables": [],              # Phase 5 stub
+        "net_worth": int,               # bankroll + Σreceivables − Σpayables
+        "available": int,               # max(0, carry_cap − Σpayables)
+      }
+
+    Naming note: `tier_status` (carry-load gate) vs `tier_stake_label`
+    (the stake the gate applies to) mirrors the same two keys returned
+    by `/api/cash/lobby` so the frontend's tier rendering can share
+    type definitions across both surfaces. The handoff doc uses `tier`
+    for the stake label; that name clashes with the lobby route's
+    pre-existing `tier` field (which means status), so we follow the
+    lobby naming here and rename in the spec rather than confuse the
+    wire format. No `game_id` required — the response is per-owner.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    from flask_app.extensions import bankroll_repo, personality_repo, stake_repo
+    from cash_mode.staking_tier import (
+        TIER_PREMIUM,
+        max_carry_for_tier,
+        resolve_tier,
+    )
+
+    bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
+    tier_stake_label = _resolve_player_tier_stake_label(owner_id, bankroll.chips)
+
+    try:
+        tier_status = (
+            resolve_tier(
+                borrower_id=owner_id,
+                current_stake_label=tier_stake_label,
+                stake_repo=stake_repo,
+            )
+            if stake_repo is not None
+            else TIER_PREMIUM
+        )
+    except Exception as e:
+        logger.warning("[CASH][NET_WORTH] tier resolution failed: %s", e)
+        tier_status = TIER_PREMIUM
+
+    carry_cap = max_carry_for_tier(tier_stake_label)
+
+    carries: List[Stake] = []
+    if stake_repo is not None:
+        try:
+            carries = stake_repo.list_carries_for_borrower(
+                owner_id, BORROWER_KIND_HUMAN,
+            )
+        except Exception as e:
+            logger.warning("[CASH][NET_WORTH] list_carries failed: %s", e)
+
+    payables: List[Dict[str, Any]] = []
+    payables_sum = 0
+    # Personality-name cache so repeated carries to the same lender
+    # don't trigger N+1 reads. Most players will have ≤3 carries; the
+    # cache is more for symmetry with the sponsor route's pattern.
+    name_cache: Dict[str, str] = {}
+    for stake in carries:
+        if stake.staker_id is None:
+            # Defensive: house carries shouldn't exist (Phase 1's
+            # settle_stake_on_leave forgives them). Skip rather than
+            # crash if one slipped through.
+            continue
+        display_name = name_cache.get(stake.staker_id, stake.staker_id)
+        if (
+            stake.staker_id not in name_cache
+            and stake.staker_kind == STAKER_KIND_PERSONALITY
+        ):
+            try:
+                personality = personality_repo.load_personality_by_id(
+                    stake.staker_id,
+                )
+                if personality and personality.get("name"):
+                    display_name = personality["name"]
+            except Exception:
+                pass  # fall back to id
+            name_cache[stake.staker_id] = display_name
+        payables.append({
+            "stake_id": stake.stake_id,
+            "staker_id": stake.staker_id,
+            "staker_kind": stake.staker_kind,
+            "staker_display_name": display_name,
+            "carry_amount": int(stake.carry_amount),
+            "principal": int(stake.principal),
+            "stake_tier": stake.stake_tier,
+            "created_at": (
+                stake.created_at.isoformat() if stake.created_at else None
+            ),
+        })
+        payables_sum += int(stake.carry_amount)
+
+    # Phase 5 will populate this from `list_carries_for_staker(owner_id)`.
+    # Keeping the slot present (empty list, not omitted) means the
+    # frontend's structural layout doesn't reshuffle when Phase 5 ships.
+    receivables: List[Dict[str, Any]] = []
+    receivables_sum = 0
+
+    net_worth = int(bankroll.chips) + receivables_sum - payables_sum
+    available = max(0, int(carry_cap) - payables_sum)
+
+    return jsonify({
+        "bankroll": int(bankroll.chips),
+        "tier_stake_label": tier_stake_label,
+        "tier_status": tier_status,
+        "carry_cap": int(carry_cap),
+        "payables": payables,
+        "receivables": receivables,
+        "net_worth": int(net_worth),
+        "available": int(available),
     })
 
 
