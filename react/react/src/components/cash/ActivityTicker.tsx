@@ -71,7 +71,7 @@ export function ActivityTicker({ events }: ActivityTickerProps) {
             key={`${event.created_at}-${event.personality_id}-${event.type}-${idx}`}
             className={`lobby-ticker__item lobby-ticker__item--${event.type}`}
           >
-            {event.type === 'big_win' ? (
+            {event.type === 'big_win' || event.type === 'ai_stake' ? (
               <HandCoins
                 size={14}
                 className="lobby-ticker__icon"

@@ -850,9 +850,13 @@ def refresh_unseated_tables(
                             },
                         )
                 # Fire repaid/defaulted event. Carry rolls forward
-                # silently — only the explicit STAKE_DEFAULTED action
-                # would fire the sharper hit; natural carry is just a
-                # status='carry' row.
+                # silently on the relationship axes — only the
+                # explicit STAKE_DEFAULTED action would fire the
+                # sharper hit; natural carry is just a status='carry'
+                # row. Phase 4 Commit 5: when status is carry, emit
+                # an EVENT_AI_DEFAULT to the lobby ticker so the
+                # player sees the moment-of-default drama even though
+                # no axis-shift event fires.
                 if (
                     relationship_repo is not None
                     and settlement.new_status != STAKE_STATUS_CARRY
@@ -876,6 +880,45 @@ def refresh_unseated_tables(
                         logger.warning(
                             "[CASH][LOBBY] STAKE_REPAID event failed "
                             "stake=%r: %s", active_stake.stake_id, exc,
+                        )
+                if (
+                    settlement.new_status == STAKE_STATUS_CARRY
+                    and settlement.carry_amount >= AI_STAKE_TICKER_THRESHOLD
+                    and settlement.staker_id is not None
+                ):
+                    try:
+                        from cash_mode.activity import (
+                            EVENT_AI_DEFAULT,
+                            LobbyEvent,
+                            format_ai_default_message,
+                            record_event,
+                        )
+                        staker_name = _ticker_name_for(
+                            settlement.staker_id, personality_repo,
+                        )
+                        borrower_name = _ticker_name_for(
+                            settlement.borrower_id, personality_repo,
+                        )
+                        if staker_name and borrower_name:
+                            record_event(LobbyEvent(
+                                type=EVENT_AI_DEFAULT,
+                                table_id=result.new_table.table_id,
+                                stake_label=active_stake.stake_tier,
+                                personality_id=settlement.borrower_id,
+                                name=borrower_name,
+                                reason=settlement.staker_id,
+                                message=format_ai_default_message(
+                                    borrower_name, staker_name,
+                                    active_stake.stake_tier,
+                                    settlement.carry_amount,
+                                ),
+                                created_at=now.isoformat(),
+                                sandbox_id=sandbox_id,
+                            ))
+                    except Exception as exc:
+                        logger.warning(
+                            "[CASH][LOBBY] EVENT_AI_DEFAULT emit failed: %s",
+                            exc,
                         )
                 settled_borrower_pids.add(pid)
 
@@ -921,6 +964,18 @@ def refresh_unseated_tables(
         #   - Persist a Stake row (status=active, both kinds personality).
         #   - Fire STAKE_OFFERED so the staker's relationship axes
         #     toward the borrower reflect the new tie.
+        #   - Emit EVENT_AI_STAKE on the lobby ticker (Commit 5).
+        from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
+
+        def _ticker_name_for(pid: str, personality_repo) -> Optional[str]:
+            try:
+                personality = personality_repo.load_personality_by_id(pid)
+            except Exception:
+                return None
+            if not personality:
+                return None
+            return personality.get("name") or pid
+
         if result.stake_creations:
             from cash_mode.stakes import (
                 BORROWER_KIND_PERSONALITY,
@@ -974,6 +1029,45 @@ def refresh_unseated_tables(
                             "[CASH][LOBBY] STAKE_OFFERED event failed "
                             "staker=%r borrower=%r: %s",
                             sc.staker_id, sc.borrower_id, exc,
+                        )
+                # Phase 4 Commit 5: emit ticker event for stakes above
+                # the threshold so the player sees the AI economy
+                # moving. Smaller stakes (at $2/$10) fire silently —
+                # state mutates, but the ticker stays focused on
+                # higher-stakes drama.
+                if sc.principal >= AI_STAKE_TICKER_THRESHOLD:
+                    try:
+                        from cash_mode.activity import (
+                            EVENT_AI_STAKE,
+                            LobbyEvent,
+                            format_ai_stake_message,
+                            record_event,
+                        )
+                        staker_name = _ticker_name_for(
+                            sc.staker_id, personality_repo,
+                        )
+                        borrower_name = _ticker_name_for(
+                            sc.borrower_id, personality_repo,
+                        )
+                        if staker_name and borrower_name:
+                            record_event(LobbyEvent(
+                                type=EVENT_AI_STAKE,
+                                table_id=result.new_table.table_id,
+                                stake_label=sc.stake_label,
+                                personality_id=sc.staker_id,
+                                name=staker_name,
+                                reason=sc.borrower_id,
+                                message=format_ai_stake_message(
+                                    staker_name, borrower_name,
+                                    sc.stake_label, sc.principal,
+                                ),
+                                created_at=now.isoformat(),
+                                sandbox_id=sandbox_id,
+                            ))
+                    except Exception as exc:
+                        logger.warning(
+                            "[CASH][LOBBY] EVENT_AI_STAKE emit failed: %s",
+                            exc,
                         )
 
         # Emit lobby activity events from the refresh result.

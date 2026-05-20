@@ -67,6 +67,19 @@ table on the next refresh tick): `bust` is the hand-level "they're
 out of chips" beat; `leave` is the "they walked away" beat. Both
 fire over the course of a single lobby read after a bust hand."""
 
+EVENT_AI_STAKE = "ai_stake"
+"""An AI staked another AI. Phase 4 of the backing system. Surfaces
+the AI economy as visible drama in the lobby ticker — "Bezos staked
+Napoleon for $2,000 at $50". Throttled by chip-amount threshold so
+the smallest stakes (at $2 / $10 tables) don't drown the ticker."""
+
+EVENT_AI_DEFAULT = "ai_default"
+"""An AI-to-AI stake settled with a carry — borrower busted without
+repaying principal. Phase 4. The "default" framing is the player's
+perspective; technically the stake row's status flips to 'carry',
+not 'defaulted'. Surfaces alongside EVENT_AI_STAKE to make the AI
+economy's wins and losses both visible."""
+
 EVENT_BURST_SUMMARY = "burst_summary"
 """Compression event for catch-up bursts (Commit 5): when a single
 lobby read fires many sim hands at one table (e.g. after the
@@ -217,6 +230,32 @@ def format_all_in_message(
 def format_bust_message(name: str, stake_label: str) -> str:
     """Phrasing for a bust event — AI's stack hit 0 during a hand."""
     return f"{name} busted out at {stake_label}"
+
+
+def format_ai_stake_message(
+    staker_name: str, borrower_name: str, stake_label: str, principal: int,
+) -> str:
+    """Phrasing for an AI-to-AI stake creation."""
+    return (
+        f"{staker_name} staked {borrower_name} for ${principal:,} at {stake_label}"
+    )
+
+
+def format_ai_default_message(
+    borrower_name: str, staker_name: str, stake_label: str, carry_amount: int,
+) -> str:
+    """Phrasing for an AI-to-AI stake carry — borrower busted owing."""
+    return (
+        f"{borrower_name} carried ${carry_amount:,} from {staker_name} at {stake_label}"
+    )
+
+
+# Phase 4 ticker-throttle threshold. AI stakes below this principal
+# fire silently — relationship + chip state mutate, but no event
+# surfaces. Tuned so $2 and $10 stakes stay invisible (their min
+# buy-ins are 80 and 400, both well below 2000) and $50+ stakes
+# show up. Matches the spec's "drama threshold" guidance.
+AI_STAKE_TICKER_THRESHOLD = 2000
 
 
 def format_burst_summary_message(

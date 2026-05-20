@@ -653,6 +653,12 @@
 .lobby-ticker__item--big_loss .lobby-ticker__dot {
   background: #f87171;
 }
+.lobby-ticker__item--ai_stake .lobby-ticker__icon {
+  color: #b9e0f5;
+}
+.lobby-ticker__item--ai_default .lobby-ticker__dot {
+  background: #d66e6e;
+}
 
 .lobby-ticker__message {
   color: var(--text-primary, #f5f5f5);
