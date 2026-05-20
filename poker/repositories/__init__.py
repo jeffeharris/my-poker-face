@@ -28,6 +28,7 @@ from .relationship_repository import RelationshipRepository
 from .bankroll_repository import BankrollRepository
 from .cash_table_repository import CashTableRepository
 from .chip_ledger_repository import ChipLedgerRepository
+from .sandbox_repository import SandboxRepository, SandboxState
 from .stake_repository import StakeRepository
 
 
@@ -65,6 +66,7 @@ def create_repos(db_path: str) -> dict:
         'cash_table_repo': CashTableRepository(db_path),
         'chip_ledger_repo': ChipLedgerRepository(db_path),
         'stake_repo': StakeRepository(db_path),
+        'sandbox_repo': SandboxRepository(db_path),
         'db_path': db_path,
     }
 
@@ -88,6 +90,8 @@ __all__ = [
     'PromptPresetRepository',
     'RelationshipRepository',
     'ReplayExperimentRepository',
+    'SandboxRepository',
+    'SandboxState',
     'SavedGame',
     'SchemaManager',
     'SettingsRepository',
