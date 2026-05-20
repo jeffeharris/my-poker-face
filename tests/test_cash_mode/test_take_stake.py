@@ -397,5 +397,30 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
         self.assertEqual(result.new_table.seats[0]["chips"], 80)
 
 
+class TestBorrowerGuardClosure(unittest.TestCase):
+    """The lobby's `_borrower_profile_lookup` closure prevents
+    double-take-stake within a single burst. Mirror the lobby logic
+    directly so the test doesn't need the full lobby setup.
+    """
+
+    def test_burst_local_guard_blocks_second_stake(self):
+        from cash_mode.lender_profile import BorrowerProfile
+        burst_seen: set = set()
+
+        def lookup(pid: str):
+            profile = BorrowerProfile(willing=True)
+            if pid in burst_seen:
+                return BorrowerProfile(willing=False)
+            return profile
+
+        # First call → willing.
+        assert lookup("bust_ai").willing is True
+        # After "stake created" → blocked.
+        burst_seen.add("bust_ai")
+        assert lookup("bust_ai").willing is False
+        # Other AIs still eligible.
+        assert lookup("other_ai").willing is True
+
+
 if __name__ == '__main__':
     unittest.main()

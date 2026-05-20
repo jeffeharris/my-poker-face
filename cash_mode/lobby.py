@@ -450,6 +450,21 @@ def refresh_unseated_tables(
             if 0 <= i < len(STAKES_ORDER)
         ]
 
+    # Cache `stake_comfort_zone` per pid once per refresh. The knobs
+    # are static for the duration of a lobby refresh, so loading them
+    # per (pid, table) combo would do up to 5× the necessary work
+    # across the per-table loop. Populated lazily on first access.
+    _comfort_zone_cache: Dict[str, Optional[str]] = {}
+
+    def _comfort_zone(pid: str) -> Optional[str]:
+        if pid not in _comfort_zone_cache:
+            try:
+                knobs = bankroll_repo.load_personality_knobs(pid)
+                _comfort_zone_cache[pid] = knobs.stake_comfort_zone
+            except Exception:
+                _comfort_zone_cache[pid] = None
+        return _comfort_zone_cache[pid]
+
     def _cross_table_pool_for(target_stake_label: str, current_table_id: str) -> List[str]:
         if not _take_stake_enabled:
             return []
@@ -468,11 +483,7 @@ def refresh_unseated_tables(
                 pid = slot.get("personality_id")
                 if not pid or pid in seen:
                     continue
-                try:
-                    knobs = bankroll_repo.load_personality_knobs(pid)
-                except Exception:
-                    continue
-                if knobs.stake_comfort_zone in adj:
+                if _comfort_zone(pid) in adj:
                     candidates.append(pid)
                     seen.add(pid)
         # Idle pool AIs.
@@ -480,11 +491,7 @@ def refresh_unseated_tables(
             pid = idle_entry.personality_id
             if pid in seen:
                 continue
-            try:
-                knobs = bankroll_repo.load_personality_knobs(pid)
-            except Exception:
-                continue
-            if knobs.stake_comfort_zone in adj:
+            if _comfort_zone(pid) in adj:
                 candidates.append(pid)
                 seen.add(pid)
         # Eligible-never-seated personalities (already filtered to
@@ -493,14 +500,19 @@ def refresh_unseated_tables(
             pid = cand.get("personality_id")
             if not pid or pid in seen:
                 continue
-            try:
-                knobs = bankroll_repo.load_personality_knobs(pid)
-            except Exception:
-                continue
-            if knobs.stake_comfort_zone in adj:
+            if _comfort_zone(pid) in adj:
                 candidates.append(pid)
                 seen.add(pid)
         return candidates
+
+    # In-memory set of pids that already received a `take_stake` this
+    # lobby refresh. Stake rows aren't written until AFTER the burst
+    # loop completes, so `load_active_for_borrower` returns stale
+    # (None) within the burst. Without this guard, an AI that busts
+    # twice across a multi-hand burst would get two stakes created in
+    # `agg_stake_creations`, violating the one-active-stake invariant
+    # and orphaning the earlier stake row.
+    _burst_stake_creation_pids: set = set()
 
     def _borrower_profile_lookup(pid: str):
         # An AI already on an active stake can't take a new one — the
@@ -509,12 +521,18 @@ def refresh_unseated_tables(
         # this as "unwilling" to the take_stake interception so the AI
         # falls back to forced_leave + session-end settlement instead.
         profile = bankroll_repo.load_borrower_profile(pid)
-        if stake_repo is not None and profile.willing:
+        if not profile.willing:
+            return profile
+        from cash_mode.lender_profile import BorrowerProfile
+        # Burst-local guard: was this pid already given a stake earlier
+        # in the current refresh? (DB check below sees stale state.)
+        if pid in _burst_stake_creation_pids:
+            return BorrowerProfile(willing=False)
+        if stake_repo is not None:
             existing = stake_repo.load_active_for_borrower(
                 pid, "personality",
             )
             if existing is not None:
-                from cash_mode.lender_profile import BorrowerProfile
                 return BorrowerProfile(willing=False)
         return profile
 
@@ -746,6 +764,10 @@ def refresh_unseated_tables(
             agg_freshly_seated.extend(per_hand.freshly_seated_personality_ids)
             agg_rebuy_changes.extend(per_hand.rebuy_changes)
             agg_stake_creations.extend(per_hand.stake_creations)
+            # Update the burst-local set so subsequent hands within
+            # this same burst can't double-stake the same borrower.
+            for sc in per_hand.stake_creations:
+                _burst_stake_creation_pids.add(sc.borrower_id)
 
         # Synthesize a result object that the existing post-loop
         # persistence + event-emission code can consume unchanged.
@@ -777,9 +799,12 @@ def refresh_unseated_tables(
         # leaves, the chips on their seat need to be split per the
         # stake's `cut` between staker and borrower — not credited
         # whole to the borrower. We compute the settlement flows here
-        # and add the settled borrower's pid to a skip set so the
-        # from_seat loop below leaves them alone.
-        settled_borrower_pids: set = set()
+        # and record which `from_seat` BankrollChange index was
+        # consumed by the settlement so the from_seat loop below
+        # skips ONLY that entry (not all from_seat entries for the
+        # same pid — a take_stake earlier in the burst emits its
+        # own from_seat for the bust chips, which must still credit).
+        settled_from_seat_indices: set = set()
         if stake_repo is not None:
             from cash_mode.stake_chip_flow import (
                 DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
@@ -792,14 +817,17 @@ def refresh_unseated_tables(
                 STAKE_STATUS_CARRY,
             )
 
-            # Build a {pid: from_seat_amount} for AIs that left this
-            # tick — settle_stake_on_leave needs the chips_at_leave.
-            leaving_pid_chips: Dict[str, int] = {
-                bc.personality_id: bc.amount
-                for bc in result.bankroll_changes
-                if bc.direction == "from_seat"
-            }
-            for pid, chips_at_leave in leaving_pid_chips.items():
+            # Find the LAST from_seat per pid — that's the session-end
+            # leave amount (any earlier from_seat for the same pid is
+            # the take_stake bust-chips return, which must still
+            # credit the bankroll normally).
+            last_from_seat_index: Dict[str, int] = {}
+            for i, bc in enumerate(result.bankroll_changes):
+                if bc.direction == "from_seat":
+                    last_from_seat_index[bc.personality_id] = i
+
+            for pid, idx in last_from_seat_index.items():
+                chips_at_leave = result.bankroll_changes[idx].amount
                 # Was this AI a stake borrower? Look up active stake.
                 active_stake = stake_repo.load_active_for_borrower(
                     pid, BORROWER_KIND_PERSONALITY,
@@ -920,7 +948,7 @@ def refresh_unseated_tables(
                             "[CASH][LOBBY] EVENT_AI_DEFAULT emit failed: %s",
                             exc,
                         )
-                settled_borrower_pids.add(pid)
+                settled_from_seat_indices.add(idx)
 
         # Apply bankroll ↔ seat transfers (closes the v1.5 lobby-seed
         # leak: live-fill used to mint chips on new seats without
@@ -932,16 +960,17 @@ def refresh_unseated_tables(
             credit_ai_cash_out,
             debit_bankroll_for_seat,
         )
-        for bc in result.bankroll_changes:
+        for i, bc in enumerate(result.bankroll_changes):
             if bc.direction == "to_seat":
                 debit_bankroll_for_seat(
                     bankroll_repo, bc.personality_id, bc.amount,
                     sandbox_id=sandbox_id,
                 )
             elif bc.direction == "from_seat":
-                # Skip from_seat for AI borrowers whose stake we just
-                # settled — the settlement flows already credited them.
-                if bc.personality_id in settled_borrower_pids:
+                # Skip ONLY the specific from_seat entry the
+                # settlement consumed; earlier from_seat entries for
+                # the same pid (take_stake bust chips) still credit.
+                if i in settled_from_seat_indices:
                     continue
                 credit_ai_cash_out(
                     bankroll_repo,
