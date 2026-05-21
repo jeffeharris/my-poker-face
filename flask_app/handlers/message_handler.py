@@ -113,13 +113,7 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
         "sender": sender,
         "content": content,
         "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
-        "message_type": message_type,
-        # `reactions` is the per-message emoji-reaction store, keyed by
-        # reactor display name. Initialized empty; mutated in place by
-        # `flask_app/handlers/reaction_handler.py`. Only present for the
-        # benefit of the React-side type contract — readers should treat
-        # `None`/missing as "no reactions yet."
-        "reactions": {},
+        "message_type": message_type
     }
 
     # Include action for AI messages (shown in floating bubble)
@@ -185,7 +179,5 @@ def format_messages_for_api(messages: list) -> list:
             entry['win_result'] = msg['win_result']
         if 'addressing' in msg:
             entry['addressing'] = msg['addressing']
-        if 'reactions' in msg:
-            entry['reactions'] = msg['reactions']
         formatted.append(entry)
     return formatted

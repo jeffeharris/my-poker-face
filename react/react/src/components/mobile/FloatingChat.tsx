@@ -1,7 +1,6 @@
 import { memo, useEffect, useState, useRef, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { ChatMessage, ReactionSentiment } from '../../types';
-import { ReactionButtons, ReactionChips } from '../chat/MessageReactions/MessageReactions';
+import type { ChatMessage } from '../../types';
 import {
   TYPING_SPEED_MS,
   READING_BUFFER_MS,
@@ -24,10 +23,6 @@ interface FloatingChatProps {
   message: ChatMessage | null;
   onDismiss: () => void;
   playerAvatars?: Map<string, string>;
-  /** Player display name for highlighting the active sentiment. */
-  playerName?: string;
-  /** When provided, AI bubbles show the 2-button reaction stack. */
-  onSendReaction?: (messageId: string, sentiment: ReactionSentiment | null) => void;
 }
 
 // Parse a beat to determine if it's an action or speech
@@ -167,26 +162,11 @@ interface MessageItemProps {
   msg: MessageWithMeta;
   avatarUrl: string | null;
   onDismiss: (id: string) => void;
-  playerName?: string;
-  onSendReaction?: (messageId: string, sentiment: ReactionSentiment | null) => void;
-  /** Called when the user taps a reaction button — gives the parent
-   * a chance to keep the bubble visible long enough to see the
-   * result rather than letting the dismiss timer cut it off. */
-  onReactionInteract?: (id: string) => void;
 }
 
-const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem(
-  { msg, avatarUrl, onDismiss, playerName, onSendReaction, onReactionInteract },
-  ref,
-) {
+const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ msg, avatarUrl, onDismiss }, ref) {
   const senderInitial = msg.sender?.charAt(0).toUpperCase() || '?';
   const isAI = msg.type === 'ai';
-  const canReact = isAI && !!onSendReaction && !!msg.id;
-
-  const handleReact = (messageId: string, sentiment: ReactionSentiment | null) => {
-    onReactionInteract?.(messageId);
-    onSendReaction!(messageId, sentiment);
-  };
 
   return (
     <motion.div
@@ -206,7 +186,7 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
         scale: { duration: 0.25 },
         y: { type: "spring", stiffness: 500, damping: 35 }
       }}
-      className={`floating-chat${canReact ? ' has-reactions' : ''}`}
+      className="floating-chat"
       data-testid="floating-chat"
     >
       <div className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`} data-testid="floating-chat-avatar">
@@ -224,19 +204,9 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
         {msg.message && (
           <div className="floating-chat-message" data-testid="floating-chat-message">
             <DramaticMessage text={msg.message} />
-            {isAI && <ReactionChips reactions={msg.reactions} />}
           </div>
         )}
       </div>
-      {canReact && msg.id && (
-        <ReactionButtons
-          messageId={msg.id}
-          reactions={msg.reactions}
-          playerName={playerName || ''}
-          onReact={handleReact}
-          variant="floating"
-        />
-      )}
       <button
         className="floating-chat-dismiss"
         data-testid="floating-chat-dismiss"
@@ -257,20 +227,7 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
 // How many messages can have active timers (visible zone)
 const ACTIVE_MESSAGE_LIMIT = 2;
 
-// How long to keep a bubble alive after the user taps a reaction —
-// gives them a beat to see the rolled emoji + chip update before the
-// dismiss timer cuts the bubble off mid-feedback. Picked at the lower
-// end of MESSAGE_MAX_DURATION so spamming reactions can't pin a
-// bubble open indefinitely.
-const REACTION_INTERACTION_BONUS_MS = 3000;
-
-export const FloatingChat = memo(function FloatingChat({
-  message,
-  onDismiss,
-  playerAvatars,
-  playerName,
-  onSendReaction,
-}: FloatingChatProps) {
+export const FloatingChat = memo(function FloatingChat({ message, onDismiss, playerAvatars }: FloatingChatProps) {
   const [messages, setMessages] = useState<MessageWithMeta[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
   // Keep a ref to current messages for timer callbacks (avoids stale closures)
@@ -299,26 +256,6 @@ export const FloatingChat = memo(function FloatingChat({
         }];
       });
     }
-  }, [message]);
-
-  // Merge updates to an already-tracked message's `reactions` field
-  // — the dedupe-on-add path above never re-applies prop changes
-  // after first sighting, so without this effect a reaction landing
-  // while the bubble is visible would leave the chip count stale.
-  // Timer state (addedAt, displayDuration, timerStartedAt) is
-  // preserved unchanged; only the chat fields are refreshed.
-  useEffect(() => {
-    if (!message || !processedIdsRef.current.has(message.id)) return;
-    setMessages(prev => {
-      let changed = false;
-      const next = prev.map(m => {
-        if (m.id !== message.id) return m;
-        if (m.reactions === message.reactions) return m;
-        changed = true;
-        return { ...m, reactions: message.reactions };
-      });
-      return changed ? next : prev;
-    });
   }, [message]);
 
   // Activate timers for messages that moved into the visible zone
@@ -391,29 +328,6 @@ export const FloatingChat = memo(function FloatingChat({
     setMessages(prev => prev.filter(msg => msg.id !== id));
   };
 
-  // Extend the bubble's display window when the user taps a reaction
-  // so the rolled emoji + chip update has a moment to land. We push
-  // `timerStartedAt` forward in time (and bump displayDuration so the
-  // newly-pushed-out deadline still respects the bonus window) rather
-  // than mutating displayDuration alone, which would let an old start
-  // time race past the new deadline immediately on slow renders.
-  const handleReactionInteract = (id: string) => {
-    setMessages(prev => prev.map(msg => {
-      if (msg.id !== id || msg.timerStartedAt === null) return msg;
-      const elapsed = Date.now() - msg.timerStartedAt;
-      const remaining = msg.displayDuration - elapsed;
-      // Only extend if the current window is shorter than the bonus —
-      // otherwise we'd accidentally shrink a bubble that was already
-      // going to stay longer than the bonus.
-      if (remaining >= REACTION_INTERACTION_BONUS_MS) return msg;
-      return {
-        ...msg,
-        timerStartedAt: Date.now(),
-        displayDuration: REACTION_INTERACTION_BONUS_MS,
-      };
-    }));
-  };
-
   if (messages.length === 0) return null;
 
   return (
@@ -429,9 +343,6 @@ export const FloatingChat = memo(function FloatingChat({
               msg={msg}
               avatarUrl={avatarUrl}
               onDismiss={handleDismiss}
-              playerName={playerName}
-              onSendReaction={onSendReaction}
-              onReactionInteract={handleReactionInteract}
             />
           );
         })}

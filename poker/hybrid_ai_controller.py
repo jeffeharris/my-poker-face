@@ -393,14 +393,9 @@ CRITICAL RULES:
         )
         # Append relationship-history block (shared with chaos via the
         # parent helper). Gated on prompt_config.relationship_context.
-        rendered = self._append_relationship_context_if_enabled(
+        return self._append_relationship_context_if_enabled(
             rendered, self.state_machine.game_state, self.state_machine.game_state.current_player,
         )
-        # Append the recent-reactions block too — gives the LLM
-        # immediate-feedback signal that the slower axis-projection
-        # layer is too coarse to surface ("they liked your last
-        # chirp" lands before heat/likability has accumulated).
-        return self._append_reactions_context_if_any(rendered)
 
     def _validate_and_select(self, response: Optional[Dict], options: List[BoundedOption]) -> Dict:
         """Validate LLM choice and build response dict.

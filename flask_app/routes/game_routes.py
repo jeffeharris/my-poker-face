@@ -39,7 +39,6 @@ from ..handlers.message_handler import (
     send_message, format_action_message, record_action_in_memory, format_messages_for_api
 )
 from ..handlers.chat_relationship import dispatch_chat_relationship_event
-from ..handlers.reaction_handler import ReactionError, apply_reaction
 from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
 from ..validation import validate_player_action
@@ -1537,83 +1536,6 @@ def api_send_message(game_id):
         return jsonify({'success': True})
 
     return jsonify({'success': False, 'error': 'Empty message'})
-
-
-@game_bp.route('/api/game/<game_id>/message/<message_id>/react', methods=['POST'])
-def api_react_to_message(game_id, message_id):
-    """Apply / swap / remove an emoji reaction on an AI chat message.
-
-    Request body: {"reactor": "PlayerName", "sentiment": "positive" |
-    "negative" | null}. A null sentiment is the explicit remove
-    signal; sending the same sentiment a reactor already chose also
-    removes (toggle semantics).
-
-    The server rolls a weighted emoji pool for the chosen sentiment
-    and stores `{emoji, sentiment}` per reactor on the target
-    message's `reactions` dict. The bilateral relationship-axis
-    update fires inside `apply_reaction` via the same path
-    `dispatch_chat_relationship_event` uses.
-
-    Broadcasts `message_reaction` to every client in the game room so
-    reaction counts stay in sync without polling.
-    """
-    data = request.json or {}
-    reactor = data.get('reactor')
-    sentiment = data.get('sentiment')
-
-    if not reactor or not isinstance(reactor, str):
-        return jsonify({'success': False, 'error': 'Missing reactor'}), 400
-
-    current_game_data = game_state_service.get_game(game_id)
-    _, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
-    if auth_error:
-        return auth_error
-
-    if not current_game_data:
-        return jsonify({'success': False, 'error': 'Game not found in memory.'}), 404
-
-    # Validate the reactor is actually a player at this table. Without
-    # this guard the authenticated owner could send arbitrary names —
-    # the reactions dict would accept them and broadcast them in the
-    # `message_reaction` payload, polluting the on-screen reaction
-    # counts with phantom reactors.
-    try:
-        seated_names = {p.name for p in current_game_data['state_machine'].game_state.players}
-    except (KeyError, AttributeError):
-        seated_names = set()
-    if seated_names and reactor not in seated_names:
-        return jsonify({'success': False, 'error': 'Reactor not at this table'}), 400
-
-    # Hold the per-game lock for the get→mutate→set_game window so
-    # two concurrent reactions on the same message (or a double-tap
-    # retry on a flaky network) can't clobber the reactions dict.
-    # Mirrors the lock pattern used by `progress_game` and the
-    # cold-load path at line 502. The socketio emit happens AFTER
-    # the lock is released — `socketio.emit` can yield under gevent
-    # and we don't want to hold the lock across an awaitable.
-    lock = game_state_service.get_game_lock(game_id)
-    with lock:
-        try:
-            reactions = apply_reaction(
-                current_game_data,
-                message_id=message_id,
-                reactor=reactor,
-                sentiment=sentiment,
-            )
-        except ReactionError as exc:
-            return jsonify({'success': False, 'error': str(exc)}), exc.status_code
-
-        # Persist the message-list mutation so the next page-load
-        # serialization (`format_messages_for_api`) sees the new
-        # reactions dict. Mirrors the pattern in `send_message`.
-        game_state_service.set_game(game_id, current_game_data)
-
-    socketio.emit(
-        'message_reaction',
-        {'message_id': message_id, 'reactions': reactions},
-        to=game_id,
-    )
-    return jsonify({'success': True, 'reactions': reactions})
 
 
 @game_bp.route('/api/game/<game_id>/retry', methods=['POST'])
