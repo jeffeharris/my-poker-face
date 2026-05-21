@@ -1738,7 +1738,32 @@ class AIPlayerController:
         )
 
         prompt = self._append_relationship_context_if_enabled(prompt, game_state, player)
+        prompt = self._append_reactions_context_if_any(prompt)
         return (prompt, drama_context)
+
+    def _append_reactions_context_if_any(self, prompt: str) -> str:
+        """Append a "RECENT REACTIONS TO YOUR COMMENTS" block when
+        any of this AI's recent outgoing chat messages have reactions.
+
+        Reads from the controller's `_current_game_messages` cache —
+        set on entry to `decide_action`. Silent no-op when no messages
+        are cached (replay paths, simulation harnesses) or when no
+        reacted-to AI message is in the window.
+
+        Reactions also move axes via `record_event`, so the
+        relationship-context block will pick up larger trends. This
+        block is for the *immediate* feedback signal — "they liked
+        your last chirp" — which the axis-projection layer is too
+        coarse to surface.
+        """
+        msgs = getattr(self, '_current_game_messages', None)
+        if not msgs:
+            return prompt
+        from .memory.reaction_prompt import summarize_recent_reactions
+        block = summarize_recent_reactions(msgs, self.player_name)
+        if not block:
+            return prompt
+        return prompt + "\n\n" + block
 
     def _append_relationship_context_if_enabled(
         self, prompt: str, game_state, player,

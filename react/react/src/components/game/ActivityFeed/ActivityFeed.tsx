@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import type { ChatMessage } from '../../../types';
+import type { ChatMessage, ReactionSentiment } from '../../../types';
 import { parseMessageInline } from '../../../utils/messages';
+import { ReactionButtons, ReactionChips } from '../../chat/MessageReactions/MessageReactions';
 import './ActivityFeed.css';
 
 interface ActivityFeedProps {
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
+  onSendReaction?: (messageId: string, sentiment: ReactionSentiment | null) => void;
   playerName?: string;
   guestChatDisabled?: boolean;
 }
@@ -13,7 +15,8 @@ interface ActivityFeedProps {
 export function ActivityFeed({
   messages,
   onSendMessage,
-  playerName: _playerName = 'You',
+  onSendReaction,
+  playerName = 'You',
   guestChatDisabled = false,
 }: ActivityFeedProps) {
   const [inputValue, setInputValue] = useState('');
@@ -134,10 +137,25 @@ export function ActivityFeed({
 
             // AI chat message
             if (item.type === 'ai') {
+              const canReact = !!(onSendReaction && item.id);
               return (
-                <div key={item.id || idx} className="activity-item chat ai-chat">
+                <div
+                  key={item.id || idx}
+                  className={`activity-item chat ai-chat${canReact ? ' has-reactions' : ''}`}
+                >
                   <span className="activity-item__sender">{item.sender}:</span>
-                  <span className="activity-item__message">{parseMessageInline(item.message)}</span>
+                  <span className="activity-item__message">
+                    {parseMessageInline(item.message)}
+                    <ReactionChips reactions={item.reactions} />
+                  </span>
+                  {canReact && item.id && (
+                    <ReactionButtons
+                      messageId={item.id}
+                      reactions={item.reactions}
+                      playerName={playerName}
+                      onReact={onSendReaction!}
+                    />
+                  )}
                 </div>
               );
             }

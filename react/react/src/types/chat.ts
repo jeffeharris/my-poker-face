@@ -1,3 +1,26 @@
+/**
+ * Reaction sentiment vocabulary. Drives which weighted emoji pool the
+ * server rolls and which RelationshipEvent direction fires.
+ */
+export type ReactionSentiment = 'positive' | 'negative';
+
+/**
+ * One reactor's entry on a message. The emoji shown is what the
+ * server rolled from the sentiment's pool — clients render the emoji
+ * directly and infer their own button highlight from `sentiment`.
+ */
+export interface ReactionRecord {
+  emoji: string;
+  sentiment: ReactionSentiment;
+}
+
+/**
+ * Map of reactor display name → their current reaction. One reaction
+ * per reactor per message — clicking again removes; clicking the
+ * opposite swaps.
+ */
+export type MessageReactions = Record<string, ReactionRecord>;
+
 export interface ChatMessage {
   id: string;
   sender: string;
@@ -8,6 +31,7 @@ export interface ChatMessage {
   phase?: string;   // Optional game phase for card-deal messages (e.g., "flop")
   cards?: string[]; // Optional card strings for card-deal messages (e.g., ["A♠", "K♦"])
   win_result?: WinResult; // Optional structured winning hand data
+  reactions?: MessageReactions; // Optional per-reactor emoji reactions (AI messages only)
 }
 
 /** Structured data for winning hand display in chat */
@@ -35,6 +59,18 @@ export interface BackendChatMessage {
   phase?: string;   // Optional game phase for card-deal messages
   cards?: string[]; // Optional card strings for card-deal messages
   win_result?: WinResult; // Optional structured winning hand data
+  reactions?: MessageReactions; // Optional per-reactor emoji reactions
+}
+
+/**
+ * Payload of the `message_reaction` Socket.IO event broadcast when a
+ * reactor adds, swaps, or removes their reaction on an AI message.
+ * The `reactions` dict is the full updated state for that message;
+ * clients overwrite their local copy rather than computing a diff.
+ */
+export interface MessageReactionEvent {
+  message_id: string;
+  reactions: MessageReactions;
 }
 
 /**

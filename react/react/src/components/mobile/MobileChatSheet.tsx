@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Keyboard, Zap, Send } from 'lucide-react';
-import type { ChatMessage, WinResult } from '../../types';
+import type { ChatMessage, ReactionSentiment, WinResult } from '../../types';
 import type { Player } from '../../types/player';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
+import { ReactionButtons, ReactionChips } from '../chat/MessageReactions/MessageReactions';
 import { parseMessageBlock } from '../../utils/messages';
 import './MobileChatSheet.css';
 
@@ -103,6 +104,7 @@ interface MobileChatSheetProps {
     tone?: string,
     intensity?: string,
   ) => void;
+  onSendReaction?: (messageId: string, sentiment: ReactionSentiment | null) => void;
   gameId: string;
   playerName: string;
   players: Player[];
@@ -117,6 +119,7 @@ export function MobileChatSheet({
   onClose,
   messages,
   onSendMessage,
+  onSendReaction,
   gameId,
   playerName,
   players,
@@ -340,8 +343,12 @@ export function MobileChatSheet({
 
               const isCardDeal = msg.type === 'table' && msg.phase && msg.cards;
               const isWinResult = msg.type === 'table' && msg.win_result;
+              const canReact = msg.type === 'ai' && !!(onSendReaction && msg.id);
               return (
-                <div key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`} className={`mcs-msg mcs-msg-${msg.type}${isCardDeal ? ' mcs-msg-card-deal' : ''}${isWinResult ? ' mcs-msg-win-result' : ''}`}>
+                <div
+                  key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`}
+                  className={`mcs-msg mcs-msg-${msg.type}${isCardDeal ? ' mcs-msg-card-deal' : ''}${isWinResult ? ' mcs-msg-win-result' : ''}${canReact ? ' has-reactions' : ''}`}
+                >
                   {isWinResult ? (
                     <span className="mcs-msg-text">
                       {renderWinResult(msg.win_result!)}
@@ -355,7 +362,18 @@ export function MobileChatSheet({
                   ) : (
                     <>
                       <span className="mcs-msg-sender">{msg.sender}</span>
-                      <span className="mcs-msg-text">{parseMessageBlock(msg.message)}</span>
+                      <span className="mcs-msg-text">
+                        {parseMessageBlock(msg.message)}
+                        {msg.type === 'ai' && <ReactionChips reactions={msg.reactions} />}
+                      </span>
+                      {canReact && msg.id && (
+                        <ReactionButtons
+                          messageId={msg.id}
+                          reactions={msg.reactions}
+                          playerName={playerName}
+                          onReact={onSendReaction!}
+                        />
+                      )}
                     </>
                   )}
                 </div>

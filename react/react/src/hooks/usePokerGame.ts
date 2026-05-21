@@ -55,6 +55,7 @@ interface UsePokerGameResult {
   setQueuedAction: (action: QueuedAction) => void;
   handlePlayerAction: (action: string, amount?: number) => Promise<void>;
   handleSendMessage: (message: string) => Promise<void>;
+  handleSendReaction: (messageId: string, sentiment: 'positive' | 'negative' | null) => Promise<void>;
   clearWinnerInfo: () => void;
   clearTournamentResult: () => void;
   clearRevealedCards: () => void;
@@ -437,7 +438,8 @@ export function usePokerGame({
         message: msg.content,
         timestamp: msg.timestamp,
         type: msg.message_type,
-        action: msg.action  // Include action for AI messages
+        action: msg.action,  // Include action for AI messages
+        reactions: msg.reactions,  // Carry through any pre-existing reactions
       };
 
       messageIdsRef.current.add(msgId);
@@ -446,6 +448,24 @@ export function usePokerGame({
       if (onNewAiMessage && transformedMessage.type === 'ai') {
         onNewAiMessage(transformedMessage);
       }
+    });
+
+    // Patch one message's `reactions` field when the server
+    // broadcasts an emoji-reaction update. The payload carries the
+    // FULL updated reactions dict (not a diff), so we overwrite the
+    // field rather than merging. Reactions on a message that's no
+    // longer in our local trimmed buffer are silently dropped — the
+    // server is the source of truth and a missed update is at worst
+    // a count-off-by-one in the UI, never a relationship-state
+    // discrepancy (axes are applied server-side regardless).
+    socket.on('message_reaction', (data: { message_id: string; reactions: ChatMessage['reactions'] }) => {
+      setMessages(prev => {
+        const idx = prev.findIndex(m => m.id === data.message_id);
+        if (idx === -1) return prev;
+        const next = prev.slice();
+        next[idx] = { ...next[idx], reactions: data.reactions };
+        return next;
+      });
     });
 
     // Listen for new messages (plural - mobile format)
@@ -867,6 +887,33 @@ export function usePokerGame({
     }
   }, [gameId, playerName]);
 
+  // Apply / swap / remove the player's emoji reaction on an AI chat
+  // message. The backend rolls a weighted emoji pool and broadcasts
+  // the full updated reactions dict over the `message_reaction`
+  // socket event, so this fetch is fire-and-forget — local state
+  // updates land via that listener.
+  const handleSendReaction = useCallback(async (
+    messageId: string,
+    sentiment: 'positive' | 'negative' | null,
+  ) => {
+    if (!gameId) return;
+    try {
+      await fetchWithCredentials(
+        `${config.API_URL}/api/game/${gameId}/message/${messageId}/react`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reactor: playerName || 'Player',
+            sentiment,
+          }),
+        },
+      );
+    } catch (error) {
+      logger.error('Failed to send reaction:', error);
+    }
+  }, [gameId, playerName]);
+
   // Debug function to trigger split pot scenario (two winners with equal hands)
   const debugTriggerSplitPot = useCallback(() => {
     const humanName = playerName || 'You';
@@ -1001,6 +1048,7 @@ export function usePokerGame({
     setQueuedAction,
     handlePlayerAction,
     handleSendMessage,
+    handleSendReaction,
     clearWinnerInfo,
     clearTournamentResult,
     clearRevealedCards,

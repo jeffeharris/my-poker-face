@@ -73,6 +73,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
     showActionButtons,
     handlePlayerAction,
     handleSendMessage,
+    handleSendReaction,
     clearWinnerInfo,
     clearTournamentResult,
     cashBustEvent,
@@ -333,6 +334,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
           <ActivityFeed
             messages={messages}
             onSendMessage={wrappedSendMessage}
+            onSendReaction={handleSendReaction}
             playerName={playerName}
             guestChatDisabled={guestChatDisabled}
           />

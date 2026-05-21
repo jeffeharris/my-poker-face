@@ -157,6 +157,7 @@ export function MobilePokerTable({
     setQueuedAction,
     handlePlayerAction,
     handleSendMessage,
+    handleSendReaction,
     clearWinnerInfo,
     clearTournamentResult,
     guestLimitReached,
@@ -174,6 +175,20 @@ export function MobilePokerTable({
     awaitingAction,
     handleSendMessage,
   );
+
+  // Keep the floating bubble's reactions in sync with the canonical
+  // messages array — `handleNewAiMessage` only fires on first arrival,
+  // so without this effect a reaction landing while a bubble is up
+  // would update the chat history but leave the bubble's chip count
+  // stale. Identity comparison on the reactions field is enough
+  // (socket handler replaces the field wholesale on each update).
+  useEffect(() => {
+    if (!recentAiMessage) return;
+    const latest = messages.find(m => m.id === recentAiMessage.id);
+    if (latest && latest.reactions !== recentAiMessage.reactions) {
+      setRecentAiMessage(latest);
+    }
+  }, [messages, recentAiMessage]);
 
   // Usage stats for guest limit modal
   const { stats: usageStats } = useUsageStats();
@@ -720,6 +735,8 @@ export function MobilePokerTable({
         message={recentAiMessage}
         onDismiss={dismissRecentAiMessage}
         playerAvatars={playerAvatars}
+        playerName={playerName}
+        onSendReaction={handleSendReaction}
       />
 
       {/* Hero Section - Your Cards */}
@@ -936,6 +953,7 @@ export function MobilePokerTable({
         onClose={closeChatSheet}
         messages={messages}
         onSendMessage={wrappedSendMessage}
+        onSendReaction={handleSendReaction}
         gameId={providedGameId || ''}
         playerName={playerName || 'Player'}
         players={storePlayers || []}
