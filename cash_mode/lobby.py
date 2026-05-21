@@ -44,11 +44,13 @@ from cash_mode.movement import (
     RosterRefreshResult,
     refresh_table_roster,
 )
+from cash_mode.stakes import BORROWER_KIND_PERSONALITY
 from cash_mode.stakes_ladder import (
     STAKES_LADDER,
     STAKES_ORDER,
     table_buy_in_window,
 )
+from cash_mode.staking_tier import TIER_HOUSE_ONLY, resolve_tier
 from cash_mode.tables import (
     BASELINE_AI_SEATS,
     CashTableState,
@@ -549,6 +551,29 @@ def refresh_unseated_tables(
             return None
         return (rel.likability, rel.respect, rel.heat)
 
+    def _carry_lookup(staker_id: str, borrower_id: str) -> int:
+        """Phase 4.5 Commit 1 — total outstanding carry borrower → staker.
+
+        Returns 0 when the borrower has no carries with this staker, or
+        when no stake_repo is wired (early tests / standalone callers).
+        Used by `refresh_table_roster`'s `take_stake` branch to garnish
+        the new stake's cut against the candidate's prior unpaid debt.
+        """
+        if stake_repo is None:
+            return 0
+        try:
+            carries = stake_repo.list_carries_for_staker(staker_id)
+        except Exception as exc:
+            logger.debug(
+                "[CASH][LOBBY] carry_lookup failed staker=%r borrower=%r: %s",
+                staker_id, borrower_id, exc,
+            )
+            return 0
+        return sum(
+            int(c.carry_amount) for c in carries
+            if c.borrower_id == borrower_id
+        )
+
     def _buy_in_lookup(pid: str) -> int:
         # Map back to a table buy-in: needs the stake_label of the
         # destination table. We close over the current iteration's
@@ -584,6 +609,44 @@ def refresh_unseated_tables(
             value = min(threshold, table_max_buy_in)
             _current_table_buy_in[pid] = value
             return value
+
+        # Phase 4.5 Commit 2 — tier-gated take_stake. Wrap the borrower
+        # lookup with a per-table tier check so an AI whose carry-load
+        # has pushed them to `house_only` at this stake can't intercept
+        # `forced_leave` with a peer-staked seat refill. Without this
+        # gate, an over-leveraged AI keeps qualifying for peer stakes
+        # purely because lender filters don't read the borrower's tier
+        # — the runaway-debt failure mode. House-staker fallback is
+        # NOT applied here (movement-time is the wrong layer for
+        # sponsor-flow selection); over-tier AIs just `forced_leave`
+        # normally and may try again at a lower-stake table later.
+        _target_stake_label = table.stake_label
+
+        def _borrower_lookup_for_table(
+            pid: str, _stake=_target_stake_label,
+        ):
+            profile = _borrower_profile_lookup(pid)
+            if not profile.willing:
+                return profile
+            if stake_repo is None:
+                return profile
+            try:
+                tier = resolve_tier(
+                    borrower_id=pid,
+                    borrower_kind=BORROWER_KIND_PERSONALITY,
+                    current_stake_label=_stake,
+                    stake_repo=stake_repo,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "[CASH][LOBBY] tier resolution failed pid=%r: %s",
+                    pid, exc,
+                )
+                return profile
+            if tier == TIER_HOUSE_ONLY:
+                from cash_mode.lender_profile import BorrowerProfile
+                return BorrowerProfile(willing=False)
+            return profile
 
         # Full sim with catch-up burst (Commits 3-5): if the table
         # was last refreshed recently, fire at most one probability-
@@ -728,7 +791,7 @@ def refresh_unseated_tables(
                 # stake_repo — None inputs short-circuit the interception
                 # back to plain forced_leave inside refresh_table_roster.
                 borrower_profile_lookup=(
-                    _borrower_profile_lookup if _take_stake_enabled else None
+                    _borrower_lookup_for_table if _take_stake_enabled else None
                 ),
                 lender_profile_lookup=(
                     _lender_profile_lookup if _take_stake_enabled else None
@@ -746,6 +809,13 @@ def refresh_unseated_tables(
                 # appeared in this list.
                 cross_table_staker_pids=_cross_table_pool_for(
                     table.stake_label, table.table_id,
+                ),
+                # Phase 4.5 Commit 1: per-staker garnishment for AI
+                # borrowers. Only meaningful when stake_repo is wired
+                # (else the lookup returns 0 and the cut stays at
+                # rate_anchor as before).
+                carry_lookup=(
+                    _carry_lookup if _take_stake_enabled else None
                 ),
             )
             # Carry the post-hand table forward to the next iteration.
@@ -815,6 +885,7 @@ def refresh_unseated_tables(
             from cash_mode.stakes import (
                 BORROWER_KIND_PERSONALITY,
                 STAKE_STATUS_CARRY,
+                STAKER_KIND_HUMAN,
             )
 
             # Find the LAST from_seat per pid — that's the session-end
@@ -854,17 +925,43 @@ def refresh_unseated_tables(
                 flows = build_stake_settlement_flows(settlement)
                 for flow in flows:
                     if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
-                        from cash_mode.bankroll import credit_ai_cash_out
-                        credit_ai_cash_out(
-                            bankroll_repo, flow.staker_id, flow.amount,
-                            sandbox_id=sandbox_id,
-                            now=now,
-                            chip_ledger_repo=chip_ledger_repo,
-                            ledger_context={
-                                "stake_id": active_stake.stake_id,
-                                "site": "ai_stake_settle_staker",
-                            },
-                        )
+                        # Phase 5 Commit 3 — human-staker branch. When
+                        # the staker is the player, credit their
+                        # player_bankroll_state row instead of
+                        # credit_ai_cash_out (which would mis-route the
+                        # chips into an AI bankroll). Read-modify-write
+                        # so concurrent leaves don't lose the credit.
+                        if flow.staker_kind == STAKER_KIND_HUMAN:
+                            from cash_mode.bankroll import PlayerBankrollState
+                            existing = bankroll_repo.load_player_bankroll(
+                                flow.staker_id,
+                            )
+                            if existing is not None:
+                                bankroll_repo.save_player_bankroll(
+                                    PlayerBankrollState(
+                                        player_id=existing.player_id,
+                                        chips=existing.chips + flow.amount,
+                                        starting_bankroll=existing.starting_bankroll,
+                                    ),
+                                )
+                            else:
+                                logger.warning(
+                                    "[CASH][LOBBY] human staker bankroll "
+                                    "missing for credit staker=%r stake=%r",
+                                    flow.staker_id, active_stake.stake_id,
+                                )
+                        else:
+                            from cash_mode.bankroll import credit_ai_cash_out
+                            credit_ai_cash_out(
+                                bankroll_repo, flow.staker_id, flow.amount,
+                                sandbox_id=sandbox_id,
+                                now=now,
+                                chip_ledger_repo=chip_ledger_repo,
+                                ledger_context={
+                                    "stake_id": active_stake.stake_id,
+                                    "site": "ai_stake_settle_staker",
+                                },
+                            )
                     elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
                         from cash_mode.bankroll import credit_ai_cash_out
                         credit_ai_cash_out(
@@ -976,6 +1073,7 @@ def refresh_unseated_tables(
                     bankroll_repo,
                     bc.personality_id,
                     bc.amount,
+                    sandbox_id=sandbox_id,
                     now=now,
                     chip_ledger_repo=chip_ledger_repo,
                     ledger_context={
@@ -1131,6 +1229,74 @@ def refresh_unseated_tables(
         idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
 
         out[table.table_id] = result
+
+    # Phase 4.5 Commits 3-5: AI-initiated carry resolution. Runs once
+    # per lobby refresh, after every table has been processed. Iterates
+    # AIs with outstanding carries (single bulk query) and rolls
+    # voluntary payoff / forgiveness ask / explicit default per the
+    # handoff spec. Best-effort — failures here don't affect the
+    # table-refresh side effects above.
+    if stake_repo is not None:
+        try:
+            from cash_mode.ai_carry_resolution import resolve_ai_carries
+
+            def _energy_lookup(pid: str) -> float:
+                """Resolve an AI's energy for the explicit-default
+                pressure formula. Cache lookup first (active sessions);
+                fall back to persisted emotional_state_json for idle
+                AIs; neutral 0.5 default for never-played AIs.
+
+                Best-effort — any failure returns 0.5 so the pressure
+                math still proceeds with neutral energy. The carry
+                resolution surface tolerates this gracefully (other
+                pressure signals dominate when energy is unknown).
+                """
+                from cash_mode.full_sim import _get_default_controller_cache
+                cache = _get_default_controller_cache()
+                ctrl = cache.get(pid)
+                if ctrl is not None:
+                    psych = getattr(ctrl, 'psychology', None)
+                    if psych is not None:
+                        try:
+                            return float(getattr(psych, 'energy', 0.5))
+                        except Exception:
+                            return 0.5
+                try:
+                    blob = bankroll_repo.load_emotional_state_json(
+                        pid, sandbox_id=sandbox_id,
+                    )
+                except Exception:
+                    return 0.5
+                if not blob:
+                    return 0.5
+                try:
+                    import json as _json
+                    state_dict = _json.loads(blob)
+                    return float(state_dict.get('energy', 0.5))
+                except Exception:
+                    return 0.5
+
+            batch = resolve_ai_carries(
+                bankroll_repo=bankroll_repo,
+                stake_repo=stake_repo,
+                relationship_repo=relationship_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                energy_lookup=_energy_lookup,
+                rng=rng,
+                now=now,
+            )
+            _emit_carry_resolution_events(
+                batch=batch,
+                personality_repo=personality_repo,
+                stake_repo=stake_repo,
+                now=now,
+                sandbox_id=sandbox_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] AI carry resolution failed: %s", exc,
+            )
 
     return out
 
@@ -1543,6 +1709,109 @@ def _emit_hand_events(
                 seen_types.add(evt.type)
             except Exception:
                 pass
+
+
+def _emit_carry_resolution_events(
+    *,
+    batch,
+    personality_repo,
+    stake_repo,
+    now: datetime,
+    sandbox_id: Optional[str] = None,
+) -> None:
+    """Translate a CarryResolutionBatch into LobbyEvents.
+
+    Phase 4.5 Commits 3-5 — surfaces payoff / forgiveness / default
+    outcomes to the lobby ticker. Threshold-gated by
+    `AI_CARRY_TICKER_THRESHOLD` (mirror of `AI_STAKE_TICKER_THRESHOLD`)
+    so small-stake resolutions stay invisible. Refused forgiveness
+    asks are intentionally silent — the axis shift is enough drama;
+    every refusal in the ticker would be noise.
+
+    Best-effort: ring-buffer failures don't propagate.
+    """
+    if not batch or not batch.results:
+        return
+
+    from cash_mode.activity import (
+        AI_CARRY_TICKER_THRESHOLD,
+        EVENT_AI_DEFAULT,
+        EVENT_AI_FORGIVEN,
+        EVENT_AI_PAYOFF,
+        LobbyEvent,
+        format_ai_explicit_default_message,
+        format_ai_forgiven_message,
+        format_ai_payoff_message,
+        record_event,
+    )
+
+    def _name_for(pid: str) -> Optional[str]:
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            return None
+        if not personality:
+            return None
+        return personality.get("name") or pid
+
+    ts = now.isoformat()
+
+    for result in batch.results:
+        if result.amount < AI_CARRY_TICKER_THRESHOLD:
+            continue
+        borrower_name = _name_for(result.borrower_id)
+        staker_name = _name_for(result.staker_id)
+        if not borrower_name or not staker_name:
+            continue
+
+        if result.kind == 'payoff':
+            event_type = EVENT_AI_PAYOFF
+            message = format_ai_payoff_message(
+                borrower_name, staker_name, result.stake_tier, result.amount,
+            )
+            actor_pid = result.borrower_id
+            counterparty_pid = result.staker_id
+            actor_name = borrower_name
+        elif result.kind == 'forgiven':
+            event_type = EVENT_AI_FORGIVEN
+            message = format_ai_forgiven_message(
+                staker_name, borrower_name, result.stake_tier, result.amount,
+            )
+            # The staker is the actor in a grant (they chose to forgive),
+            # so the event indexes by staker_id. Mirrors how `ai_stake`
+            # uses the staker as the actor and the borrower as `reason`.
+            actor_pid = result.staker_id
+            counterparty_pid = result.borrower_id
+            actor_name = staker_name
+        elif result.kind == 'default':
+            event_type = EVENT_AI_DEFAULT
+            message = format_ai_explicit_default_message(
+                borrower_name, staker_name, result.stake_tier, result.amount,
+            )
+            actor_pid = result.borrower_id
+            counterparty_pid = result.staker_id
+            actor_name = borrower_name
+        else:
+            # forgiveness_refused — silent on the ticker by design.
+            continue
+
+        try:
+            record_event(LobbyEvent(
+                type=event_type,
+                table_id="",  # carry resolutions aren't table-scoped
+                stake_label=result.stake_tier,
+                personality_id=actor_pid,
+                name=actor_name,
+                reason=counterparty_pid,
+                message=message,
+                created_at=ts,
+                sandbox_id=sandbox_id,
+            ))
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] carry resolution event emit failed (%s): %s",
+                result.kind, exc,
+            )
 
 
 def kill_all_cash_sessions(

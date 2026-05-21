@@ -15,7 +15,7 @@
  */
 
 import { useMemo } from 'react';
-import { HandCoins } from 'lucide-react';
+import { HandCoins, Gift, ReceiptText } from 'lucide-react';
 import type { LobbyEvent } from './types';
 import './CashMode.css';
 
@@ -71,8 +71,22 @@ export function ActivityTicker({ events }: ActivityTickerProps) {
             key={`${event.created_at}-${event.personality_id}-${event.type}-${idx}`}
             className={`lobby-ticker__item lobby-ticker__item--${event.type}`}
           >
-            {event.type === 'big_win' || event.type === 'ai_stake' ? (
+            {event.type === 'big_win' ||
+            event.type === 'ai_stake' ||
+            event.type === 'ai_payoff' ? (
               <HandCoins
+                size={14}
+                className="lobby-ticker__icon"
+                aria-hidden="true"
+              />
+            ) : event.type === 'ai_forgiven' ? (
+              <Gift
+                size={14}
+                className="lobby-ticker__icon"
+                aria-hidden="true"
+              />
+            ) : event.type === 'ai_default' ? (
+              <ReceiptText
                 size={14}
                 className="lobby-ticker__icon"
                 aria-hidden="true"

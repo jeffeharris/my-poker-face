@@ -1,5 +1,5 @@
 /**
- * Cash mode lobby — multi-table view, seat picker.
+ * Cash mode lobby — multi-table view, seat picker, idle staking panel.
  *
  * Replaces `CashModeEntry`'s stake-picker UI. Fetches `/api/cash/lobby`
  * on mount; renders one `<TableCard>` per stake with the 4-AI roster
@@ -11,6 +11,11 @@
  *     `requires_sponsor` body → open `<SponsorModal>` with this
  *     table's id (so sponsor offers are narrowed to seated AIs).
  *   - Locked → tap ignored (button is disabled).
+ *
+ * Player-as-staker (Phase 5) lives in a separate panel below the
+ * table grid — `<IdleStakablePanel>` shows AIs willing to be staked
+ * up to the next tier. Tapping "Stake" opens `<StakeOfferModal>`
+ * pre-targeted to that AI at their +1 tier.
  *
  * Active-session redirect: if `/api/cash/lobby` is reached while the
  * user has an active session, the page redirects to /game/:id via
@@ -26,7 +31,14 @@ import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
 import { NetWorthDrawer } from './NetWorthDrawer';
-import type { LobbyEvent, LobbyTable, StakeLabel } from './types';
+import { StakeOfferModal } from './StakeOfferModal';
+import { IdleStakablePanel } from './IdleStakablePanel';
+import type {
+  LobbyEvent,
+  LobbyTable,
+  StakableAiCandidate,
+  StakeLabel,
+} from './types';
 import { logger } from '../../utils/logger';
 import {
   CharacterDetailCard,
@@ -58,6 +70,19 @@ export function Lobby() {
   } | null>(null);
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
+  /** Tick incremented on every lobby reload so the IdleStakablePanel's
+   *  useEffect re-fetches its own data in lockstep. The two endpoints
+   *  return overlapping state (seated AIs disappear from stakable,
+   *  successful stakes seat AIs); keeping them in sync visually keeps
+   *  the UX honest. */
+  const [stakablePanelTick, setStakablePanelTick] = useState(0);
+  const [stakeTarget, setStakeTarget] = useState<{
+    candidate: StakableAiCandidate;
+    stakeLabel: StakeLabel;
+    minBuyIn: number;
+    maxBuyIn: number;
+  } | null>(null);
+
   // Mutable ref so the drawer's `onPayoff` callback can re-fetch the
   // lobby without re-rendering on every interval tick. The interval
   // captures `load` once via the dep-free useEffect below.
@@ -83,6 +108,7 @@ export function Lobby() {
         setBankroll(lobby.bankroll);
         setTables(lobby.tables);
         setEvents(lobby.events ?? []);
+        setStakablePanelTick((t) => t + 1);
       } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : String(e);
@@ -142,6 +168,33 @@ export function Lobby() {
     [busy, navigate],
   );
 
+  /** Open the StakeOfferModal pre-targeted to a candidate. Looks up
+   *  the target tier's [min, max] window from the lobby's tables so
+   *  the modal doesn't need its own fetch. */
+  const handleStakeClick = useCallback(
+    (candidate: StakableAiCandidate, targetStakeLabel: string) => {
+      const table = tables.find((t) => t.stake_label === targetStakeLabel);
+      if (!table) {
+        // The lobby and stakable-AI endpoints normally agree, but
+        // race conditions can produce a candidate whose target tier
+        // isn't in the current lobby snapshot. Fall back to ignoring
+        // the click — the next poll will reconcile.
+        logger.warn(
+          'Stake target tier missing from lobby tables:',
+          targetStakeLabel,
+        );
+        return;
+      }
+      setStakeTarget({
+        candidate,
+        stakeLabel: targetStakeLabel as StakeLabel,
+        minBuyIn: table.min_buy_in,
+        maxBuyIn: table.max_buy_in,
+      });
+    },
+    [tables],
+  );
+
   return (
     <PageLayout>
       <PageHeader
@@ -195,6 +248,11 @@ export function Lobby() {
             ))}
           </div>
         </section>
+
+        <IdleStakablePanel
+          refreshKey={stakablePanelTick}
+          onStake={handleStakeClick}
+        />
       </div>
       <SponsorModal
         isOpen={sponsorState !== null}
@@ -212,6 +270,17 @@ export function Lobby() {
         isOpen={netWorthOpen}
         onClose={() => setNetWorthOpen(false)}
         onPayoff={() => {
+          void reloadLobbyRef.current();
+        }}
+      />
+      <StakeOfferModal
+        target={stakeTarget}
+        bankroll={bankroll ?? 0}
+        onClose={() => setStakeTarget(null)}
+        onAccepted={() => {
+          // Don't close immediately — modal shows the "accepted" notice
+          // and the player taps Close. But reload lobby so the AI's
+          // new seat + in_active_stake glyph appear in the background.
           void reloadLobbyRef.current();
         }}
       />

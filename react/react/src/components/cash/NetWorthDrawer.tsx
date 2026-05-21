@@ -20,7 +20,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { X, Wallet } from 'lucide-react';
 import { getNetWorth, payOffCarry, requestForgiveness } from './api';
-import type { NetWorthResponse, Payable, TierStatus } from './types';
+import type {
+  NetWorthResponse,
+  Payable,
+  Receivable,
+  StakeHistoryRow,
+  TierStatus,
+} from './types';
 import { logger } from '../../utils/logger';
 import './NetWorthDrawer.css';
 
@@ -313,14 +319,276 @@ function NetWorthBody({
       <section className="net-worth-drawer__column">
         <h3 className="net-worth-drawer__column-title">
           Receivables
-          <span className="net-worth-drawer__column-count">0</span>
+          <span className="net-worth-drawer__column-count">
+            {data.receivables.length}
+          </span>
         </h3>
-        <p className="net-worth-drawer__empty">
-          Stake an AI to start earning carries.{' '}
-          <span className="net-worth-drawer__hint">(Coming in Phase 5.)</span>
-        </p>
+        {data.receivables.length === 0 ? (
+          <p className="net-worth-drawer__empty">
+            Stake an AI from the lobby to start earning carries.
+          </p>
+        ) : (
+          <ul className="net-worth-drawer__list">
+            {data.receivables.map((r) => (
+              <ReceivableRow key={r.stake_id} receivable={r} />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="net-worth-drawer__column">
+        <h3 className="net-worth-drawer__column-title">
+          History
+          <span className="net-worth-drawer__column-count">
+            {data.history.length}
+          </span>
+        </h3>
+        {data.history.length === 0 ? (
+          <p className="net-worth-drawer__empty">
+            No closed-out stakes yet — settled and defaulted stakes will
+            appear here.
+          </p>
+        ) : (
+          <ul className="net-worth-drawer__list net-worth-drawer__list--history">
+            {data.history.map((h) => (
+              <HistoryRow key={h.stake_id} row={h} />
+            ))}
+          </ul>
+        )}
       </section>
     </>
+  );
+}
+
+interface HistoryRowProps {
+  row: StakeHistoryRow;
+}
+
+/** Human-readable explanation of how a stake closed out from the
+ *  player's POV. Distinguishes four staker outcomes (clean settle,
+ *  paid-off-after-bust, forgiven-after-bust, defaulted-after-bust)
+ *  and the borrower side's settled vs walked-away cases.
+ *
+ *  Defaulted: the borrower walked away from the IOU — debt canceled,
+ *  reputation hit absorbed. Forgiven: same chip outcome (debt
+ *  canceled, no chips moved) but voluntary on the staker's side and
+ *  the relationship axes warm instead of fracturing.
+ *
+ *  When payouts came back >= principal, the stake either settled
+ *  cleanly at session end OR went bust-then-paid-off (the route
+ *  bumps staker_payout on payoff so both flow into the same line). */
+function describeStakeOutcome(args: {
+  role: 'staker' | 'borrower';
+  defaulted: boolean;
+  payout: number;
+  principal: number;
+}): string {
+  const { role, defaulted, payout, principal } = args;
+  const unrecovered = Math.max(0, principal - payout);
+
+  if (role === 'staker') {
+    if (defaulted) {
+      if (payout <= 0) {
+        return `Nothing came back at the bust. They defaulted on the $${unrecovered.toLocaleString()} you put up.`;
+      }
+      return `You got back $${payout.toLocaleString()} at the bust. The remaining $${unrecovered.toLocaleString()} was written off when they defaulted.`;
+    }
+    // status = 'settled' branch
+    if (payout >= principal) {
+      // Either clean settle with cut or a carry that was later paid
+      // back in full — both end here.
+      return `You got back $${payout.toLocaleString()} on your $${principal.toLocaleString()} stake.`;
+    }
+    // Settled with payout < principal → forgiveness was granted by
+    // the staker. They wrote off the carry voluntarily; chips were
+    // already lost at the bust, only the IOU was canceled.
+    return `You got back $${payout.toLocaleString()} at the bust and forgave the remaining $${unrecovered.toLocaleString()}.`;
+  }
+
+  // Borrower side.
+  if (defaulted) {
+    return `You walked away from the debt — chips were already gone at the bust, but the IOU is now canceled.`;
+  }
+  if (payout < 0) {
+    // The borrower paid the staker back out of bankroll after their
+    // own bust — borrower_payout decremented below zero by the
+    // payoff route to reflect the realized loss.
+    return `You paid back the $${Math.abs(payout).toLocaleString()} carry out of bankroll.`;
+  }
+  return `You kept $${payout.toLocaleString()} at session end.`;
+}
+
+/** One closed-stake row in the history list. Frames from the player's
+ *  POV using `role`: as staker, it's "you staked X"; as borrower, "X
+ *  staked you". `settled` rows read as clean closures; `defaulted`
+ *  rows surface the relationship rupture moment.
+ *
+ *  When `net_for_player` is known (v106+), shows the per-stake P&L
+ *  with a colored amount. Legacy rows pre-v106 settled without
+ *  capturing chip flows, so the P&L line is hidden and the player
+ *  gets the qualitative outcome only.
+ *
+ *  Read-only — no actions are possible on closed stakes. */
+function HistoryRow({ row }: HistoryRowProps) {
+  const defaulted = row.status === 'defaulted';
+  // Who walked away from the deal? On defaults, the borrower is the
+  // actor; on settles, the framing is neutral ("closed").
+  const verb = defaulted
+    ? row.role === 'staker'
+      ? 'defaulted on you'
+      : 'you defaulted on'
+    : 'settled with';
+  const settleLabel = row.settled_at ? formatAge(row.settled_at) : '';
+
+  const net = row.net_for_player;
+  const hasNet = net !== null && net !== undefined;
+  const isWin = hasNet && net > 0;
+  const isLoss = hasNet && net < 0;
+  // Payout the player actually received on this stake — the "how much
+  // came back to me" number. Surfaced separately from net so a small
+  // win on a big stake still shows the full pay-back amount.
+  const payout =
+    row.role === 'staker' ? row.staker_payout : row.borrower_payout;
+
+  return (
+    <li
+      className={
+        'net-worth-drawer__row net-worth-drawer__row--history' +
+        (defaulted
+          ? ' net-worth-drawer__row--defaulted'
+          : ' net-worth-drawer__row--settled')
+      }
+    >
+      <div className="net-worth-drawer__row-main">
+        <div className="net-worth-drawer__row-name">
+          <span>{row.counterparty_display_name}</span>
+          <span
+            className={
+              'net-worth-drawer__status-badge' +
+              (defaulted
+                ? ' net-worth-drawer__status-badge--defaulted'
+                : ' net-worth-drawer__status-badge--settled')
+            }
+          >
+            {defaulted ? 'defaulted' : 'settled'}
+          </span>
+          {hasNet && (
+            <span
+              className={
+                'net-worth-drawer__history-net' +
+                (isWin
+                  ? ' net-worth-drawer__history-net--win'
+                  : isLoss
+                    ? ' net-worth-drawer__history-net--loss'
+                    : '')
+              }
+            >
+              {net > 0 ? '+' : net < 0 ? '−' : ''}$
+              {Math.abs(net).toLocaleString()}
+            </span>
+          )}
+        </div>
+        <div className="net-worth-drawer__row-meta">
+          <span>
+            {row.role === 'staker' ? 'You staked' : 'They staked you'} for{' '}
+            ${row.principal.toLocaleString()}
+          </span>
+          <span className="net-worth-drawer__row-sep">·</span>
+          <span className="net-worth-drawer__hint">
+            {verb} {settleLabel || 'recently'}
+          </span>
+        </div>
+        {hasNet && payout !== null && payout !== undefined && (
+          <div className="net-worth-drawer__row-status-line">
+            {describeStakeOutcome({
+              role: row.role,
+              defaulted,
+              payout,
+              principal: row.principal,
+            })}
+          </div>
+        )}
+        {!hasNet && (
+          <div className="net-worth-drawer__row-status-line net-worth-drawer__row-status-line--muted">
+            P&L for this stake wasn't captured (settled before history
+            tracking was added).
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+interface ReceivableRowProps {
+  receivable: Receivable;
+}
+
+/** Read-only row — chips return automatically when the staked AI's
+ *  session settles (or carry rolls forward if they bust). The player
+ *  has no direct action to take from here; surfacing the row is the
+ *  point.
+ *
+ *  Two flavors share this row: active stakes (chips in flight on the
+ *  AI's seat) and carries (residual debt after a bust). The status
+ *  badge + amount framing distinguishes them. */
+function ReceivableRow({ receivable }: ReceivableRowProps) {
+  const isActive = receivable.status === 'active';
+  const cutPct = Math.round(receivable.cut * 100);
+  const isMatchShare = receivable.format === 'match_share';
+
+  return (
+    <li
+      className={
+        'net-worth-drawer__row' +
+        (isActive
+          ? ' net-worth-drawer__row--active'
+          : ' net-worth-drawer__row--carry')
+      }
+    >
+      <div className="net-worth-drawer__row-main">
+        <div className="net-worth-drawer__row-name">
+          <span>{receivable.borrower_display_name}</span>
+          <span
+            className={
+              'net-worth-drawer__status-badge' +
+              (isActive
+                ? ' net-worth-drawer__status-badge--active'
+                : ' net-worth-drawer__status-badge--carry')
+            }
+          >
+            {isActive ? 'in play' : 'owed'}
+          </span>
+        </div>
+        <div className="net-worth-drawer__row-meta">
+          <span>
+            ${receivable.amount.toLocaleString()}{' '}
+            {isActive ? 'at the table' : 'owed to you'}
+          </span>
+          <span className="net-worth-drawer__row-sep">·</span>
+          <span className="net-worth-drawer__hint">
+            {isMatchShare
+              ? `you put up $${receivable.principal.toLocaleString()} + they matched $${receivable.match_amount.toLocaleString()}`
+              : `you staked $${receivable.principal.toLocaleString()}`}{' '}
+            @ {receivable.stake_tier} · {cutPct}% cut
+          </span>
+          {receivable.created_at && (
+            <>
+              <span className="net-worth-drawer__row-sep">·</span>
+              <span className="net-worth-drawer__hint">
+                {formatAge(receivable.created_at)}
+              </span>
+            </>
+          )}
+        </div>
+        {isActive && (
+          <div className="net-worth-drawer__row-status-line">
+            Settles when {receivable.borrower_display_name} leaves the
+            table — you recover the principal first, then split the
+            upside per your cut.
+          </div>
+        )}
+      </div>
+    </li>
   );
 }
 

@@ -23,7 +23,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from cash_mode.stakes import Stake, STAKE_STATUS_CARRY
+from cash_mode.stakes import Stake, STAKE_STATUS_ACTIVE, STAKE_STATUS_CARRY
 from poker.repositories.base_repository import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -79,8 +79,9 @@ class StakeRepository(BaseRepository):
                      borrower_id, borrower_kind, format,
                      principal, match_amount, origination_fee, cut,
                      status, carry_amount, stake_tier,
-                     created_at, settled_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     created_at, settled_at,
+                     staker_payout, borrower_payout)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     stake.stake_id,
@@ -99,8 +100,38 @@ class StakeRepository(BaseRepository):
                     stake.stake_tier,
                     stake.created_at.isoformat(),
                     stake.settled_at.isoformat() if stake.settled_at else None,
+                    stake.staker_payout,
+                    stake.borrower_payout,
                 ),
             )
+
+    def update_payouts(
+        self,
+        stake_id: str,
+        *,
+        staker_payout: int,
+        borrower_payout: int,
+    ) -> bool:
+        """Capture settlement chip flows on a stake row.
+
+        Called once by `settle_stake_on_leave` after the math runs but
+        before the status transition is committed (carry vs settled).
+        These values are what the Net Worth history surface reads to
+        compute per-stake P&L from the staker / borrower POVs.
+
+        Returns True if a row was updated. The fields are nullable in
+        the schema (v106) so callers that don't carry settlement data
+        (legacy pre-v106 paths) can omit this call without surfacing
+        errors.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE stakes "
+                "SET staker_payout = ?, borrower_payout = ? "
+                "WHERE stake_id = ?",
+                (int(staker_payout), int(borrower_payout), stake_id),
+            )
+            return cursor.rowcount > 0
 
     def load_stake(self, stake_id: str) -> Optional[Stake]:
         """Load one stake by id, or None if not found."""
@@ -111,7 +142,8 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at, forgiveness_last_asked
+                       created_at, settled_at, forgiveness_last_asked,
+                       staker_payout, borrower_payout
                 FROM stakes
                 WHERE stake_id = ?
                 """,
@@ -137,7 +169,8 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at, forgiveness_last_asked
+                       created_at, settled_at, forgiveness_last_asked,
+                       staker_payout, borrower_payout
                 FROM stakes
                 WHERE session_id = ? AND status = 'active'
                 ORDER BY created_at DESC
@@ -172,7 +205,8 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at, forgiveness_last_asked
+                       created_at, settled_at, forgiveness_last_asked,
+                       staker_payout, borrower_payout
                 FROM stakes
                 WHERE borrower_id = ? AND borrower_kind = ?
                   AND status = 'active'
@@ -199,7 +233,8 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at, forgiveness_last_asked
+                       created_at, settled_at, forgiveness_last_asked,
+                       staker_payout, borrower_payout
                 FROM stakes
                 WHERE session_id = ?
                 ORDER BY created_at ASC
@@ -229,13 +264,84 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at, forgiveness_last_asked
+                       created_at, settled_at, forgiveness_last_asked,
+                       staker_payout, borrower_payout
                 FROM stakes
                 WHERE borrower_id = ? AND borrower_kind = ?
                   AND status = ?
                 ORDER BY created_at ASC
                 """,
                 (borrower_id, borrower_kind, STAKE_STATUS_CARRY),
+            ).fetchall()
+            return [_row_to_stake(r) for r in rows]
+
+    def list_active_stakes_for_staker(self, staker_id: str) -> List[Stake]:
+        """Return every active stake row this staker is funding.
+
+        Phase 5 addition (2026-05-21) — Net Worth receivables surface
+        the player's *in-flight* stakes alongside the residual carry
+        debts. An active stake's `principal` represents chips currently
+        on the borrower's seat that the staker has claim to at
+        settlement; it's not "owed debt" but it IS a tracked position
+        the player needs visibility into.
+
+        Distinct from `list_carries_for_staker` which is settled-but-
+        unrecovered chips. The two together form the full receivables
+        picture from the staker's POV.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT stake_id, session_id, staker_id, staker_kind,
+                       borrower_id, borrower_kind, format,
+                       principal, match_amount, origination_fee, cut,
+                       status, carry_amount, stake_tier,
+                       created_at, settled_at, forgiveness_last_asked,
+                       staker_payout, borrower_payout
+                FROM stakes
+                WHERE staker_id = ? AND status = ?
+                ORDER BY created_at ASC
+                """,
+                (staker_id, STAKE_STATUS_ACTIVE),
+            ).fetchall()
+            return [_row_to_stake(r) for r in rows]
+
+    def list_recent_closed_for_owner(
+        self,
+        owner_id: str,
+        *,
+        limit: int = 20,
+    ) -> List[Stake]:
+        """Return recently closed stakes touching `owner_id` on either side.
+
+        Phase 5 addition (2026-05-21). Surfaces a Net Worth history
+        view for `settled` and `defaulted` rows where the player was
+        either staker or borrower. `carry` rows are NOT included —
+        those are still open positions and live in the active
+        receivables/payables surfaces; this method is for resolved
+        history.
+
+        Ordered by `settled_at DESC` (most recent close first), capped
+        at `limit` (default 20 — enough for a "recent activity" feel
+        without scrolling fatigue). Older history is intentionally
+        truncated; a future "see all" admin view could relax the cap.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT stake_id, session_id, staker_id, staker_kind,
+                       borrower_id, borrower_kind, format,
+                       principal, match_amount, origination_fee, cut,
+                       status, carry_amount, stake_tier,
+                       created_at, settled_at, forgiveness_last_asked,
+                       staker_payout, borrower_payout
+                FROM stakes
+                WHERE (staker_id = ? OR borrower_id = ?)
+                  AND status IN ('settled', 'defaulted')
+                ORDER BY settled_at DESC
+                LIMIT ?
+                """,
+                (owner_id, owner_id, int(limit)),
             ).fetchall()
             return [_row_to_stake(r) for r in rows]
 
@@ -261,7 +367,8 @@ class StakeRepository(BaseRepository):
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
-                       created_at, settled_at, forgiveness_last_asked
+                       created_at, settled_at, forgiveness_last_asked,
+                       staker_payout, borrower_payout
                 FROM stakes
                 WHERE staker_id = ? AND status = ?
                 ORDER BY created_at ASC
@@ -404,4 +511,12 @@ def _row_to_stake(row) -> Stake:
         created_at=created_at,
         settled_at=_parse_timestamp(row["settled_at"]),
         forgiveness_last_asked=_parse_timestamp(row["forgiveness_last_asked"]),
+        staker_payout=(
+            int(row["staker_payout"])
+            if row["staker_payout"] is not None else None
+        ),
+        borrower_payout=(
+            int(row["borrower_payout"])
+            if row["borrower_payout"] is not None else None
+        ),
     )

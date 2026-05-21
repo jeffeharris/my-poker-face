@@ -71,35 +71,40 @@ LENDER_PROFILE_DEFAULTS = LenderProfile(
 class BorrowerProfile:
     """Per-personality knobs that shape an AI's willingness to BE staked.
 
-    Phase 4 introduces AIs as stake borrowers. When an AI hits the
-    `forced_leave` threshold (chips below 30% of the buy-in), the
-    movement decision can opt to take a stake from another AI with
-    capacity instead of leaving. The borrower-side gate is this
-    profile.
+    Phase 4 introduces AIs as stake borrowers (peer bailout when bust).
+    Phase 5 introduces humans as stakers (player offering a stake to
+    an AI of their choosing). The two paths share this profile.
 
     Fields:
-      - `willing`: do they accept stakes when busting? Stoic /
-        principled personalities (Lincoln, Buddha) refuse outright;
-        most AIs accept. This is "do I borrow at all?" — not a
-        relationship gate.
+      - `willing`: do they accept stakes at all? Stoic / principled
+        personalities (Lincoln, Buddha) refuse outright; most AIs
+        accept. The Phase 4 take_stake path checks this directly —
+        a busting AI takes whatever they can get from a willing
+        staker (no further gating on the offer's terms).
+      - `willingness_threshold`: Phase 5 — the minimum relationship-
+        axes score the AI requires from a HUMAN staker before
+        accepting a stake offer. Mirrors the human-side forgiveness
+        score (`L×0.5 + R×0.4 - H×0.3`). Below the threshold, the
+        offer is refused regardless of terms. AI-to-AI bailout
+        stakes ignore this field (different decision path). Default
+        0.30 — broadly accepting; a player with even mild goodwill
+        clears it. Stoic AIs can raise their threshold to ~0.50+ to
+        require meaningful goodwill before accepting.
 
     Frozen because the profile is read-only at decision time —
     relationship-aware adjustments happen on the staker side, not here.
 
-    Phase 5 (humans as stakers) will add a `willingness_threshold`
-    field for "would I accept THIS offer from a player?" gating. The
-    Phase 4 borrower path (AI accepting a peer's offer to avoid bust)
-    doesn't need it — a busting AI takes whatever they can get.
-
     Spec: `docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md` Phase 4
-    Commit 1.
+    Commit 1 + Phase 5 Commit 1.
     """
 
     willing: bool
+    willingness_threshold: float = 0.30
 
 
 # Default — most personalities accept stakes when busting. Stoic
 # personalities override `willing=False` in their config sub-dict.
 BORROWER_PROFILE_DEFAULTS = BorrowerProfile(
     willing=True,
+    willingness_threshold=0.30,
 )

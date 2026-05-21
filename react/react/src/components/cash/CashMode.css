@@ -659,6 +659,19 @@
 .lobby-ticker__item--ai_default .lobby-ticker__dot {
   background: #d66e6e;
 }
+.lobby-ticker__item--ai_default .lobby-ticker__icon {
+  color: #d66e6e;
+}
+/* Phase 4.5 — AI-initiated carry resolution. Payoffs ride the same
+   gold as wins (positive economic act); forgiveness is a softer
+   green; explicit defaults use the red ai_default tint above
+   already. */
+.lobby-ticker__item--ai_payoff .lobby-ticker__icon {
+  color: #fcd34d;
+}
+.lobby-ticker__item--ai_forgiven .lobby-ticker__icon {
+  color: #86efac;
+}
 
 .lobby-ticker__message {
   color: var(--text-primary, #f5f5f5);

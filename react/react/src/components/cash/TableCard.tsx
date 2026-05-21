@@ -42,7 +42,12 @@ interface TableCardProps {
   onAiSeatClick?: (click: AiSeatClick) => void;
 }
 
-export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardProps) {
+export function TableCard({
+  table,
+  busy,
+  onSeatTap,
+  onAiSeatClick,
+}: TableCardProps) {
   const locked = table.affordability === 'locked';
   const sponsorOnly = table.affordability === 'sponsor_eligible';
 

@@ -184,7 +184,10 @@ export interface LobbyEvent {
     | 'burst_summary'
     // Phase 4 of the backing system.
     | 'ai_stake'
-    | 'ai_default';
+    | 'ai_default'
+    // Phase 4.5 — AI-initiated carry resolution.
+    | 'ai_payoff'
+    | 'ai_forgiven';
   table_id: string;
   stake_label: string;
   personality_id: string;
@@ -196,7 +199,12 @@ export interface LobbyEvent {
    *   - big_win / big_loss: the opponent's personality_id (so the
    *     frontend can group win+loss pairs or filter per AI)
    *   - ai_stake: the borrower's personality_id (counterparty)
-   *   - ai_default: the staker's personality_id (counterparty) */
+   *   - ai_default: the staker's personality_id (counterparty —
+   *     applies to both Phase 4 natural-carry and Phase 4.5 explicit
+   *     defaults; the `message` verb distinguishes the two)
+   *   - ai_payoff: the staker's personality_id (counterparty)
+   *   - ai_forgiven: the borrower's personality_id (the staker is
+   *     the actor in a forgive grant, so they lead `personality_id`) */
   reason: string;
   message: string;
   created_at: string;
@@ -246,6 +254,70 @@ export interface Payable {
   created_at: string | null;
 }
 
+/** Phase 5 — one stake the player has skin in, from their POV as staker.
+ *
+ *  Two flavors share this shape, distinguished by `status`:
+ *    - `'active'`: stake is in flight — `amount` is principal+match
+ *      currently sitting on the borrower's table seat. Settles at the
+ *      AI's leave time (could pay full, could carry, could win
+ *      upside). Surfaced so the player can see "what's in play."
+ *    - `'carry'`: stake settled but the AI busted under-water — `amount`
+ *      is the residual debt (`carry_amount`). Same semantic as Payable
+ *      from the other side.
+ *
+ *  `amount` is the unified value the UI renders; the row's framing
+ *  ("in play" vs "owed") comes from `status`. `principal`, `match_amount`,
+ *  `cut`, and `format` are exposed for richer breakdowns / future UI. */
+export interface Receivable {
+  stake_id: string;
+  borrower_id: string;
+  borrower_kind: 'personality' | 'human';
+  borrower_display_name: string;
+  /** Unified display amount: principal+match for active, carry_amount
+   *  for carry. The status field tells the UI which framing to use. */
+  amount: number;
+  carry_amount: number;
+  principal: number;
+  match_amount: number;
+  stake_tier: StakeLabel;
+  status: 'active' | 'carry';
+  format: 'pure' | 'match_share' | 'house';
+  cut: number;
+  created_at: string | null;
+}
+
+/** One closed-out stake the player touched — either as staker or
+ *  borrower. Surfaces a history trail so cleanly-settled stakes
+ *  (chips just returned to bankroll) and explicit defaults (no chip
+ *  movement at all) leave a visible record. */
+export interface StakeHistoryRow {
+  stake_id: string;
+  /** Was the player the staker or borrower on this stake? Drives
+   *  the "from / to" framing in the row. */
+  role: 'staker' | 'borrower';
+  status: 'settled' | 'defaulted';
+  /** The other side's id (null for house stakes). */
+  counterparty_id: string | null;
+  counterparty_kind: 'personality' | 'human' | 'house';
+  counterparty_display_name: string;
+  principal: number;
+  match_amount: number;
+  stake_tier: StakeLabel;
+  format: 'pure' | 'match_share' | 'house';
+  cut: number;
+  /** Settlement chip flows captured at settle time (v106+). NULL on
+   *  legacy rows that settled before the schema upgrade — UI hides
+   *  the P&L line in that case. */
+  staker_payout: number | null;
+  borrower_payout: number | null;
+  /** Net change in the player's chips from this single stake.
+   *  Positive = won, negative = lost. NULL when payouts weren't
+   *  captured. */
+  net_for_player: number | null;
+  created_at: string | null;
+  settled_at: string | null;
+}
+
 /** Response from GET /api/cash/net-worth. */
 export interface NetWorthResponse {
   bankroll: number;
@@ -255,13 +327,126 @@ export interface NetWorthResponse {
   /** 10 × min_buy_in @ tier_stake_label. */
   carry_cap: number;
   payables: Payable[];
-  /** Phase 5 stub — empty list for v1. Layout slot reserved. */
-  receivables: never[];
+  /** Phase 5 — active stakes + carries (both directions) the player
+   *  has open. Active rows surface as "in play"; carries as "owed". */
+  receivables: Receivable[];
+  /** Phase 5 — recent closed-out stakes (settled / defaulted). Most
+   *  recent first, capped at 20. */
+  history: StakeHistoryRow[];
   /** bankroll + Σreceivables − Σpayables */
   net_worth: number;
   /** max(0, carry_cap − Σpayables) — remaining carry headroom before
    *  tier degrades. */
   available: number;
+}
+
+// --- Phase 5: Player as staker ---
+
+export type StakeFormat = 'pure' | 'match_share';
+
+/** Body of POST /api/cash/stakes/offer. */
+export interface StakeOfferRequest {
+  target_pid: string;
+  stake_label: StakeLabel;
+  principal: number;
+  cut: number;
+  format?: StakeFormat;
+  match_amount?: number;
+  origination_fee?: number;
+}
+
+/** AI willingness-evaluation breakdown — returned on accept and on
+ *  most refuses so the player can see why an offer landed where it
+ *  did. The base/penalty/relief decomposition exposes the math
+ *  rather than hiding it, so the player learns to read AI mood. */
+export interface OfferEvaluation {
+  score: number;
+  base_threshold: number;
+  cut_penalty: number;
+  desperation: number;
+  desperation_relief: number;
+  effective_threshold: number;
+}
+
+/** 200 body when the AI accepted the offer. */
+export interface StakeOfferAccepted {
+  accepted: true;
+  stake_id: string;
+  target_pid: string;
+  target_display_name: string;
+  principal: number;
+  match_amount: number;
+  origination_fee: number;
+  format: StakeFormat;
+  cut: number;
+  stake_label: StakeLabel;
+  table_id: string;
+  seat_index: number;
+  evaluation: OfferEvaluation;
+  bankroll: number;
+}
+
+/** 200 body when the AI decided against the offer. Distinct from
+ *  client-error 4xx rejections (bankroll gate, invalid input). */
+export interface StakeOfferRefused {
+  accepted: false;
+  reason:
+    | 'unwilling'
+    | 'tier_blocked'
+    | 'cooldown'
+    | 'no_history'
+    | 'heat'
+    | 'dislike'
+    | 'ai_underfunded'
+    | 'cut_too_steep'
+    | 'low_goodwill'
+    // legacy reason kept for back-compat during rollout
+    | 'relationship';
+  target_pid: string;
+  target_display_name: string;
+  detail: string;
+  /** Present when the AI got far enough to run the willingness math. */
+  evaluation?: OfferEvaluation;
+  score?: number;
+  threshold?: number;
+}
+
+export type StakeOfferResponse = StakeOfferAccepted | StakeOfferRefused;
+
+/** One AI eligible to receive a player-offered stake right now.
+ *  `target_stake_label` (parent tier) determines the only tier the
+ *  player can stake them at (comfort_zone +1, per the "help them
+ *  work up the ranks" rule). */
+export interface StakableAiCandidate {
+  personality_id: string;
+  name: string;
+  comfort_zone: StakeLabel;
+  suggested_principal: number;
+  relationship_hint: string;
+  likability: number;
+  respect: number;
+  heat: number;
+  /** How desperate this AI is right now — higher means they'll
+   *  tolerate worse terms. Surfaced so the UI can hint at easier
+   *  sells without exposing the formula. */
+  desperation: number;
+  /** AI's personality `ego` anchor (0..1). Drives the willingness
+   *  math alongside `desperation`. */
+  ego: number;
+}
+
+/** One target-tier section of stakable candidates. */
+export interface StakableAiTier {
+  stake_label: StakeLabel;
+  min_buy_in: number;
+  max_buy_in: number;
+  candidates: StakableAiCandidate[];
+}
+
+/** Response from GET /api/cash/stakable-ai. */
+export interface StakableAiResponse {
+  by_tier: StakableAiTier[];
+  bankroll: number;
 }
 
 /** Response from POST /api/cash/stakes/<id>/payoff. */

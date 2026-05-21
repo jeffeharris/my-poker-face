@@ -44,7 +44,9 @@ from core.economy import ledger as chip_ledger
 from poker.memory.relationship_events import RelationshipEvent
 from cash_mode.stakes import (
     BORROWER_KIND_HUMAN,
+    BORROWER_KIND_PERSONALITY,
     STAKE_FORMAT_HOUSE,
+    STAKE_FORMAT_MATCH_SHARE,
     STAKE_FORMAT_PURE,
     STAKE_STATUS_ACTIVE,
     STAKE_STATUS_CARRY,
@@ -1904,6 +1906,21 @@ def payoff_stake(stake_id: str):
     stake_repo.update_carry_amount(stake_id, 0)
     stake_repo.update_status(stake_id, STAKE_STATUS_SETTLED, settled_at=now)
 
+    # v106 payout accounting on voluntary payoff:
+    #   staker_payout  += carry_amount  (staker received the deferred chips)
+    #   borrower_payout −= carry_amount (borrower paid them out of bankroll)
+    # Together these keep the Net Worth history's per-stake net P&L
+    # accurate. Without these updates, a stake that went bust → carry →
+    # later-paid-off would still show -principal in history even though
+    # the player made the staker whole.
+    prior_staker_payout = stake.staker_payout or 0
+    prior_borrower_payout = stake.borrower_payout or 0
+    stake_repo.update_payouts(
+        stake_id,
+        staker_payout=prior_staker_payout + carry_amount,
+        borrower_payout=prior_borrower_payout - carry_amount,
+    )
+
     # Voluntary payoff reads as a STAKE_REPAID event — the borrower
     # made the staker whole, same axis shifts as natural session-end
     # repayment. The "remorseful payoff vs winning payoff" distinction
@@ -2094,6 +2111,633 @@ def request_forgiveness(stake_id: str):
         "score": round(score, 3),
         "threshold": FORGIVENESS_THRESHOLD,
     })
+
+
+# Phase 5 — humans as stakers. Player offers a stake to a specific AI;
+# the AI evaluates and accepts/refuses. On accept, the AI is seated at
+# the target lobby table with `principal` chips funded from the player's
+# bankroll, and a stake row with `staker_kind='human'` is persisted.
+# The AI plays in lobby sim hands until they leave; the existing leave-
+# time settlement path (`refresh_unseated_tables`) credits the player
+# bankroll via the Phase 5 Commit 3 human-staker branch.
+
+# Player-stake constants live in `cash_mode.player_staking` so the
+# list endpoint, the offer route, and any future analytics paths
+# import from one home. Re-export the cooldown here for the
+# `_load_recent_defaults` helper below, which is the only remaining
+# route-internal reference.
+from cash_mode.player_staking import (
+    PLAYER_STAKE_DEFAULT_COOLDOWN_SECONDS,
+)
+
+
+@cash_bp.route("/api/cash/stakable-ai", methods=["GET"])
+def stakable_ai():
+    """GET /api/cash/stakable-ai — curated per-tier list of AIs the
+    player can offer a stake to right now.
+
+    Phase 5 refinement (2026-05-21). The lobby surfaces this in a
+    dedicated "Idle players" panel so the player has a focused
+    decision (3 candidates per tier) rather than scanning every
+    portrait for the stake affordance. Filters fire all the same
+    gates the offer route enforces, so the player can't pick a
+    candidate the server would reject — what they see is what they
+    can act on.
+
+    Empty result: returns `{by_tier: []}` (no error) when no AI
+    clears every gate. The frontend renders an "ack" message
+    ("no one's ready for a stake right now — keep playing")
+    instead of treating it as an error.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    from flask_app.extensions import (
+        bankroll_repo, cash_table_repo, personality_repo,
+        relationship_repo, stake_repo,
+    )
+    from cash_mode.player_staking import list_stakeable_ai
+
+    bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
+    candidates = list_stakeable_ai(
+        owner_id=owner_id,
+        player_bankroll=bankroll.chips,
+        sandbox_id=sandbox_id,
+        personality_repo=personality_repo,
+        bankroll_repo=bankroll_repo,
+        relationship_repo=relationship_repo,
+        stake_repo=stake_repo,
+        cash_table_repo=cash_table_repo,
+    )
+
+    # Group by target tier for the per-section rendering pattern. Tier
+    # order matches STAKES_ORDER so the frontend can iterate in lobby
+    # order without re-sorting.
+    by_tier: Dict[str, Dict[str, Any]] = {}
+    for c in candidates:
+        bucket = by_tier.setdefault(c.target_stake_label, {
+            "stake_label": c.target_stake_label,
+            "min_buy_in": c.min_buy_in,
+            "max_buy_in": c.max_buy_in,
+            "candidates": [],
+        })
+        bucket["candidates"].append({
+            "personality_id": c.personality_id,
+            "name": c.name,
+            "comfort_zone": c.comfort_zone,
+            "suggested_principal": c.suggested_principal,
+            "relationship_hint": c.relationship_hint,
+            "likability": round(c.likability, 3),
+            "respect": round(c.respect, 3),
+            "heat": round(c.heat, 3),
+            "desperation": round(c.desperation, 3),
+            "ego": round(c.ego, 3),
+        })
+
+    return jsonify({
+        "by_tier": list(by_tier.values()),
+        "bankroll": bankroll.chips,
+    })
+
+
+@cash_bp.route("/api/cash/stakes/offer", methods=["POST"])
+def offer_stake_to_ai():
+    """POST /api/cash/stakes/offer — player proposes a stake to an AI.
+
+    Phase 5 Commit 1 + 2026-05-21 refinement.
+
+    Body: `{target_pid, stake_label, principal, cut, format?, match_amount?, origination_fee?}`.
+    `format` is `'pure'` (default) or `'match_share'`. Origination fee
+    is honored on pure stakes only (mirrors the schema's invariant).
+
+    Validates (all gates also enforced in `list_stakeable_ai`):
+      - Player bankroll ≥ 1.5 × min_buy_in @ stake_label.
+      - `principal` in `[min_buy_in, max_buy_in]`.
+      - For match_share: bankroll covers (principal); AI's match
+        contribution comes from their seat funding.
+      - Target AI cash-eligible, willing, met-before, relationship
+        floors, no active stake, not seated, not at house_only tier,
+        no 7-day default cooldown.
+      - `stake_label` is exactly `+1` tier above the AI's
+        `stake_comfort_zone` (help-them-work-up-the-ranks rule).
+
+    AI evaluation runs the full willingness math from
+    `evaluate_player_offer`: score vs effective_threshold where
+    effective_threshold rises with cut overage and falls with
+    desperation (ego × bankroll deficit).
+
+    On accept: debit player bankroll, seat AI with `principal` chips,
+    create stake row with `staker_kind='human'`. For match_share
+    additionally debit the AI's bankroll for the match amount (chips
+    go onto the seat alongside the player's principal).
+
+    Rejection wire shape:
+      - 400 — client-input rejections (bankroll gate, tier mismatch,
+        invalid principal, etc.)
+      - 409 — invariant conflicts (AI already in active stake / seated)
+      - 200 `{accepted: false, reason: ..., evaluation: {...}}` —
+        AI's evaluation refused the offer
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    payload = request.get_json(silent=True) or {}
+    target_pid = payload.get("target_pid")
+    stake_label = payload.get("stake_label")
+    principal = payload.get("principal")
+    cut = payload.get("cut")
+    stake_format = payload.get("format") or STAKE_FORMAT_PURE
+    match_amount = int(payload.get("match_amount") or 0)
+    origination_fee = int(payload.get("origination_fee") or 0)
+
+    if not isinstance(target_pid, str) or not target_pid:
+        return jsonify({"error": "target_pid is required"}), 400
+    if stake_label not in STAKES_LADDER:
+        return jsonify({
+            "error": "Invalid stake_label",
+            "valid_stakes": list(STAKES_LADDER.keys()),
+        }), 400
+    if not isinstance(principal, int) or principal <= 0:
+        return jsonify({"error": "principal must be a positive integer"}), 400
+    if not isinstance(cut, (int, float)):
+        return jsonify({"error": "cut must be a number"}), 400
+    cut = float(cut)
+    if cut < 0.0 or cut > 0.55:
+        # Match the cap used by sponsor_offers garnishment so client
+        # tampering can't produce a cut beyond the standard cap.
+        return jsonify({"error": "cut must lie in [0.0, 0.55]"}), 400
+    if stake_format not in (STAKE_FORMAT_PURE, STAKE_FORMAT_MATCH_SHARE):
+        return jsonify({
+            "error": (
+                "format must be 'pure' or 'match_share'"
+            ),
+        }), 400
+    if stake_format == STAKE_FORMAT_PURE:
+        if match_amount != 0:
+            return jsonify({
+                "error": "match_amount is only valid with format='match_share'",
+            }), 400
+    else:  # match_share
+        if origination_fee != 0:
+            return jsonify({
+                "error": (
+                    "origination_fee is only valid with format='pure' — "
+                    "match_share shares both up- and downside instead"
+                ),
+            }), 400
+        if match_amount <= 0:
+            return jsonify({
+                "error": "match_amount must be a positive integer for match_share",
+            }), 400
+    if origination_fee < 0:
+        return jsonify({"error": "origination_fee must be non-negative"}), 400
+
+    from flask_app.extensions import (
+        bankroll_repo, cash_table_repo, chip_ledger_repo,
+        personality_repo, relationship_repo, stake_repo,
+    )
+    from cash_mode.player_staking import (
+        PLAYER_STAKER_BANKROLL_FLOOR_MULT,
+        evaluate_player_offer,
+    )
+
+    _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
+    if principal < min_buy_in or principal > max_buy_in:
+        return jsonify({
+            "error": (
+                f"principal {principal} out of range for {stake_label} table "
+                f"(min={min_buy_in}, max={max_buy_in})"
+            ),
+        }), 400
+    if stake_format == STAKE_FORMAT_MATCH_SHARE:
+        # Match-share's combined principal+match must fit the buy-in
+        # window — both contributions land on the seat together. AI's
+        # share comes from their bankroll, so we need to check their
+        # capacity too (further down once we have the AI loaded).
+        if principal + match_amount > max_buy_in:
+            return jsonify({
+                "error": (
+                    f"principal+match_amount {principal + match_amount} exceeds "
+                    f"max buy-in {max_buy_in} for {stake_label}"
+                ),
+            }), 400
+
+    bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
+    bankroll_floor = int(PLAYER_STAKER_BANKROLL_FLOOR_MULT * min_buy_in)
+    if bankroll.chips < bankroll_floor:
+        return jsonify({
+            "error": (
+                f"Bankroll ${bankroll.chips} below stake-offer floor "
+                f"${bankroll_floor} for {stake_label}"
+            ),
+            "bankroll": bankroll.chips,
+            "required": bankroll_floor,
+        }), 400
+    if bankroll.chips < principal:
+        return jsonify({
+            "error": "Insufficient bankroll to cover principal",
+            "bankroll": bankroll.chips,
+        }), 400
+    # Origination fee comes from the player too (paid to the AI's
+    # bankroll at deal time on pure stakes). Validate together with
+    # the principal so we don't half-commit.
+    total_player_outlay = principal + origination_fee
+    if bankroll.chips < total_player_outlay:
+        return jsonify({
+            "error": "Insufficient bankroll to cover principal + origination_fee",
+            "bankroll": bankroll.chips,
+            "required": total_player_outlay,
+        }), 400
+
+    # Target AI must be a real cash-eligible personality.
+    personality = personality_repo.load_personality_by_id(target_pid)
+    if not personality:
+        return jsonify({"error": f"Unknown personality {target_pid!r}"}), 400
+    target_display_name = personality.get("name") or target_pid
+
+    # +1 tier rule: target stake_label must be exactly one tier above
+    # the AI's stake_comfort_zone. Help-them-work-up-the-ranks model.
+    knobs = bankroll_repo.load_personality_knobs(target_pid)
+    try:
+        comfort_idx = STAKES_ORDER.index(knobs.stake_comfort_zone)
+        target_idx = STAKES_ORDER.index(stake_label)
+    except ValueError:
+        comfort_idx = -1
+        target_idx = -1
+    if comfort_idx == -1 or target_idx == -1 or target_idx != comfort_idx + 1:
+        return jsonify({
+            "error": (
+                f"Can only stake {target_display_name} at the tier directly "
+                f"above their comfort zone ({knobs.stake_comfort_zone})."
+            ),
+            "ai_comfort_zone": knobs.stake_comfort_zone,
+        }), 400
+
+    # AI can't already have an active stake as borrower (one-active-
+    # stake invariant).
+    existing_active = stake_repo.load_active_for_borrower(
+        target_pid, BORROWER_KIND_PERSONALITY,
+    )
+    if existing_active is not None:
+        return jsonify({
+            "error": f"{target_display_name} is already in an active stake",
+        }), 409
+
+    # AI's borrower_profile must allow stakes at all.
+    profile = bankroll_repo.load_borrower_profile(target_pid)
+    if not profile.willing:
+        return jsonify({
+            "accepted": False,
+            "reason": "unwilling",
+            "target_pid": target_pid,
+            "target_display_name": target_display_name,
+            "detail": f"{target_display_name} doesn't accept stakes from anyone.",
+        }), 200
+
+    # Met-before gate: AI must have a relationship row toward this
+    # player (created on first interaction). Without history, the
+    # offer is a stranger's gesture — refuse with a "build history"
+    # nudge rather than an error.
+    if relationship_repo.load_relationship_state(
+        observer_id=target_pid, opponent_id=owner_id,
+    ) is None:
+        return jsonify({
+            "accepted": False,
+            "reason": "no_history",
+            "target_pid": target_pid,
+            "target_display_name": target_display_name,
+            "detail": (
+                f"{target_display_name} hasn't played with you yet — "
+                "share a few hands together first."
+            ),
+        }), 200
+
+    # Relationship status floor — separate from the willingness math
+    # because crossing it means "AI won't even consider the offer."
+    now = datetime.utcnow()
+    rel_check = relationship_repo.load_relationship_state(
+        observer_id=target_pid, opponent_id=owner_id, now=now,
+    )
+    if rel_check is not None:
+        if rel_check.heat >= 0.5:
+            return jsonify({
+                "accepted": False,
+                "reason": "heat",
+                "target_pid": target_pid,
+                "target_display_name": target_display_name,
+                "detail": f"{target_display_name} is still upset with you.",
+            }), 200
+        if rel_check.likability < 0.2:
+            return jsonify({
+                "accepted": False,
+                "reason": "dislike",
+                "target_pid": target_pid,
+                "target_display_name": target_display_name,
+                "detail": f"{target_display_name} doesn't like you enough.",
+            }), 200
+
+    # Tier gate — if the AI is over-leveraged at this stake, they're
+    # house-only and can't take a new peer stake.
+    from cash_mode.staking_tier import resolve_tier, TIER_HOUSE_ONLY
+    target_tier = resolve_tier(
+        borrower_id=target_pid,
+        borrower_kind=BORROWER_KIND_PERSONALITY,
+        current_stake_label=stake_label,
+        stake_repo=stake_repo,
+    )
+    if target_tier == TIER_HOUSE_ONLY:
+        return jsonify({
+            "accepted": False,
+            "reason": "tier_blocked",
+            "target_pid": target_pid,
+            "target_display_name": target_display_name,
+            "detail": (
+                f"{target_display_name} has too much outstanding debt "
+                "to take a new stake at this level."
+            ),
+        }), 200
+
+    # 7-day default cooldown.
+    cooldown_threshold = now - _timedelta_seconds(
+        PLAYER_STAKE_DEFAULT_COOLDOWN_SECONDS,
+    )
+    prior_defaults = _load_recent_defaults(
+        stake_repo=stake_repo,
+        staker_id=owner_id,
+        borrower_id=target_pid,
+        since=cooldown_threshold,
+    )
+    if prior_defaults:
+        return jsonify({
+            "accepted": False,
+            "reason": "cooldown",
+            "target_pid": target_pid,
+            "target_display_name": target_display_name,
+            "detail": (
+                f"{target_display_name} won't take a stake from you yet — "
+                "they defaulted on a recent stake from you."
+            ),
+        }), 200
+
+    # For match-share: the AI must be able to fund their match from
+    # bankroll. Refuse if their capacity is too low — they'd otherwise
+    # accept and the seat would under-fund.
+    if stake_format == STAKE_FORMAT_MATCH_SHARE:
+        ai_chips = bankroll_repo.load_ai_bankroll_current(
+            target_pid, sandbox_id=sandbox_id, now=now,
+        ) or 0
+        if int(ai_chips) < match_amount:
+            return jsonify({
+                "accepted": False,
+                "reason": "ai_underfunded",
+                "target_pid": target_pid,
+                "target_display_name": target_display_name,
+                "detail": (
+                    f"{target_display_name} can't cover the ${match_amount:,} "
+                    "match — pick pure stake or lower the match amount."
+                ),
+            }), 200
+
+    # AI evaluation — desperation + cut-penalty layered on the base
+    # willingness threshold. The cut_penalty rises with overage past
+    # `FAIR_CUT_REFERENCE` (0.30); desperation × ego lowers the bar.
+    evaluation = evaluate_player_offer(
+        target_pid=target_pid,
+        owner_id=owner_id,
+        principal=principal,
+        cut=cut,
+        sandbox_id=sandbox_id,
+        personality_repo=personality_repo,
+        bankroll_repo=bankroll_repo,
+        relationship_repo=relationship_repo,
+        now=now,
+    )
+    if not evaluation.accepted:
+        if evaluation.reason == 'cut_too_steep':
+            detail = (
+                f"{target_display_name} thinks the cut is too steep — "
+                "try lowering it or building more goodwill first."
+            )
+        else:
+            detail = (
+                f"{target_display_name} doesn't trust you enough yet — "
+                "build more goodwill first."
+            )
+        return jsonify({
+            "accepted": False,
+            "reason": evaluation.reason,
+            "target_pid": target_pid,
+            "target_display_name": target_display_name,
+            "score": evaluation.score,
+            "threshold": evaluation.effective_threshold,
+            "evaluation": {
+                "score": evaluation.score,
+                "base_threshold": evaluation.base_threshold,
+                "cut_penalty": evaluation.cut_penalty,
+                "desperation": evaluation.desperation,
+                "desperation_relief": evaluation.desperation_relief,
+                "effective_threshold": evaluation.effective_threshold,
+            },
+            "detail": detail,
+        }), 200
+
+    # Find an open seat at the canonical lobby table for this stake.
+    # Lobby v1.5 has exactly one canonical table per stake; if it has
+    # no open seat (rare — 4 baseline AIs + 2 open), the offer can't
+    # be honored even on accept.
+    from cash_mode.lobby import _table_id_for_stake
+    from cash_mode.tables import ai_slot
+    target_table_id = _table_id_for_stake(stake_label)
+    table = cash_table_repo.load_table(target_table_id, sandbox_id=sandbox_id)
+    if table is None:
+        return jsonify({
+            "error": f"No lobby table exists for {stake_label}",
+        }), 503
+    open_seat_index: Optional[int] = None
+    for idx, slot in enumerate(table.seats):
+        if slot.get("kind") == "open":
+            open_seat_index = idx
+            break
+    if open_seat_index is None:
+        return jsonify({
+            "error": f"No open seat at the {stake_label} table right now",
+        }), 503
+
+    # Also check the AI isn't already seated at SOME table (would
+    # double-seat them). The lobby seed enforces global uniqueness;
+    # belt-and-suspenders.
+    all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+    for t in all_tables:
+        for slot in t.seats:
+            if slot.get("kind") == "ai" and slot.get("personality_id") == target_pid:
+                return jsonify({
+                    "error": (
+                        f"{target_display_name} is already seated at "
+                        f"{t.stake_label} — can't double-seat"
+                    ),
+                }), 409
+
+    # Atomic-ish commit: debit player bankroll (+ AI bankroll for the
+    # match in match-share), persist seat, persist stake row. If any
+    # step fails after the player debit, the chip-ledger audit will
+    # surface the drift — the alternative (full transactional wrap)
+    # would require pulling all four repos into one connection, which
+    # the BaseRepository API doesn't expose. Order matters: charge the
+    # player BEFORE seating so an exception leaves them under-charged
+    # (recoverable via account credit) not over-charged.
+    seat_chips = principal + (
+        match_amount if stake_format == STAKE_FORMAT_MATCH_SHARE else 0
+    )
+
+    new_player_chips = bankroll.chips - total_player_outlay
+    bankroll_repo.save_player_bankroll(PlayerBankrollState(
+        player_id=bankroll.player_id,
+        chips=new_player_chips,
+        starting_bankroll=bankroll.starting_bankroll,
+    ))
+
+    # Pure-stake origination fee: chips move player bankroll → AI
+    # bankroll at deal time. The total_player_outlay above already
+    # deducted from the player; credit the AI side here. Use
+    # credit_ai_cash_out so the regen + ledger semantics stay
+    # consistent with the rest of the AI-credit surface.
+    if stake_format == STAKE_FORMAT_PURE and origination_fee > 0:
+        credit_ai_cash_out(
+            bankroll_repo, target_pid, origination_fee,
+            sandbox_id=sandbox_id,
+            now=now,
+            chip_ledger_repo=chip_ledger_repo,
+            ledger_context={
+                'site': 'player_stake_origination_fee',
+                'stake_label': stake_label,
+            },
+        )
+
+    # Match-share: debit the AI's match contribution from their bankroll
+    # before the seat write. Pure non-bank transfer (chips go onto the
+    # seat alongside the player's principal) so no ledger entry.
+    if stake_format == STAKE_FORMAT_MATCH_SHARE:
+        from cash_mode.bankroll import debit_bankroll_for_seat
+        debit_bankroll_for_seat(
+            bankroll_repo, target_pid, match_amount,
+            sandbox_id=sandbox_id,
+        )
+
+    updated_table = table.with_seat(
+        open_seat_index, ai_slot(target_pid, seat_chips),
+    )
+    cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
+
+    import uuid as _uuid
+    stake_id = f"player_stake_{_uuid.uuid4().hex[:12]}"
+    session_id = f"player_session_{target_pid}_{int(now.timestamp())}"
+    stake_repo.create_stake(Stake(
+        stake_id=stake_id,
+        session_id=session_id,
+        staker_id=owner_id,
+        staker_kind=STAKER_KIND_HUMAN,
+        borrower_id=target_pid,
+        borrower_kind=BORROWER_KIND_PERSONALITY,
+        format=stake_format,
+        principal=principal,
+        match_amount=match_amount,
+        origination_fee=origination_fee,
+        cut=cut,
+        status=STAKE_STATUS_ACTIVE,
+        carry_amount=0,
+        stake_tier=stake_label,
+        created_at=now,
+    ))
+
+    # STAKE_OFFERED event: actor=player, target=AI. Mirrors the
+    # personality-staker path's event firing. Player extends trust;
+    # the AI's relationship axes warm slightly toward the player.
+    _record_relationship_event(
+        actor_id=owner_id,
+        target_id=target_pid,
+        event=RelationshipEvent.STAKE_OFFERED,
+    )
+
+    logger.info(
+        "[STAKE][PLAYER_OFFER] %r staked %r principal=%d match=%d cut=%.2f "
+        "fee=%d format=%s stake=%r",
+        owner_id, target_pid, principal, match_amount, cut,
+        origination_fee, stake_format, stake_label,
+    )
+
+    return jsonify({
+        "accepted": True,
+        "stake_id": stake_id,
+        "target_pid": target_pid,
+        "target_display_name": target_display_name,
+        "principal": principal,
+        "match_amount": match_amount,
+        "origination_fee": origination_fee,
+        "format": stake_format,
+        "cut": cut,
+        "stake_label": stake_label,
+        "table_id": target_table_id,
+        "seat_index": open_seat_index,
+        "evaluation": {
+            "score": evaluation.score,
+            "base_threshold": evaluation.base_threshold,
+            "cut_penalty": evaluation.cut_penalty,
+            "desperation": evaluation.desperation,
+            "desperation_relief": evaluation.desperation_relief,
+            "effective_threshold": evaluation.effective_threshold,
+        },
+        "bankroll": new_player_chips,
+    })
+
+
+def _timedelta_seconds(seconds: int):
+    """Lazy import wrapper so the route doesn't pollute the import
+    surface with timedelta at module scope."""
+    from datetime import timedelta
+    return timedelta(seconds=seconds)
+
+
+def _load_recent_defaults(
+    *,
+    stake_repo,
+    staker_id: str,
+    borrower_id: str,
+    since: datetime,
+) -> List[Stake]:
+    """Return defaulted stakes from `staker_id` against `borrower_id`
+    settled within the cooldown window.
+
+    Phase 5 Commit 1 — used to enforce the 7-day re-offer cooldown
+    after a default. Direct SQL because the existing repo methods
+    don't filter on `(staker_id, borrower_id, status, settled_at)`.
+    """
+    with stake_repo._get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT stake_id, session_id, staker_id, staker_kind,
+                   borrower_id, borrower_kind, format,
+                   principal, match_amount, origination_fee, cut,
+                   status, carry_amount, stake_tier,
+                   created_at, settled_at, forgiveness_last_asked,
+                   staker_payout, borrower_payout
+            FROM stakes
+            WHERE staker_id = ?
+              AND borrower_id = ?
+              AND status = 'defaulted'
+              AND settled_at IS NOT NULL
+              AND settled_at >= ?
+            ORDER BY settled_at DESC
+            """,
+            (staker_id, borrower_id, since.isoformat()),
+        ).fetchall()
+    from poker.repositories.stake_repository import _row_to_stake
+    return [_row_to_stake(r) for r in rows]
 
 
 @cash_bp.route("/api/cash/leave", methods=["POST"])
@@ -3095,11 +3739,218 @@ def get_net_worth():
         })
         payables_sum += int(stake.carry_amount)
 
-    # Phase 5 will populate this from `list_carries_for_staker(owner_id)`.
-    # Keeping the slot present (empty list, not omitted) means the
-    # frontend's structural layout doesn't reshuffle when Phase 5 ships.
+    # Phase 5 — populate receivables from BOTH active stakes the
+    # player is funding AND carries owed to them. Active stakes
+    # surface the in-flight position (`principal` chips currently on
+    # the borrower's seat, settling at session end); carries surface
+    # residual debt from busted sessions (`carry_amount` chips that
+    # the borrower owes but hasn't paid back).
+    #
+    # Both share the receivables surface so the player has one place
+    # to see "what's mine that isn't in my bankroll right now." A
+    # `status` field on each row tells the UI which framing to use
+    # ("in play" vs "owed").
     receivables: List[Dict[str, Any]] = []
-    receivables_sum = 0
+    active_receivables_sum = 0
+    carry_receivables_sum = 0
+
+    def _borrower_display_for(stake) -> str:
+        if stake.borrower_id in name_cache:
+            return name_cache[stake.borrower_id]
+        display = stake.borrower_id
+        if stake.borrower_kind != BORROWER_KIND_HUMAN:
+            try:
+                personality = personality_repo.load_personality_by_id(
+                    stake.borrower_id,
+                )
+                if personality and personality.get("name"):
+                    display = personality["name"]
+            except Exception:
+                pass
+        name_cache[stake.borrower_id] = display
+        return display
+
+    if stake_repo is not None:
+        # Active stakes in flight — chips on the seat, not yet settled.
+        try:
+            active_for_staker = stake_repo.list_active_stakes_for_staker(owner_id)
+        except Exception as e:
+            logger.warning(
+                "[CASH][NET_WORTH] list_active_stakes_for_staker failed: %s", e,
+            )
+            active_for_staker = []
+        for stake in active_for_staker:
+            amount = int(stake.principal) + int(stake.match_amount)
+            receivables.append({
+                "stake_id": stake.stake_id,
+                "borrower_id": stake.borrower_id,
+                "borrower_kind": stake.borrower_kind,
+                "borrower_display_name": _borrower_display_for(stake),
+                # `amount` is the unified field the UI renders; the
+                # row's `status` tells the UI whether to call it
+                # "in play" (active) or "owed" (carry).
+                "amount": amount,
+                "carry_amount": int(stake.carry_amount),
+                "principal": int(stake.principal),
+                "match_amount": int(stake.match_amount),
+                "stake_tier": stake.stake_tier,
+                "status": stake.status,  # 'active'
+                "format": stake.format,
+                "cut": float(stake.cut),
+                "created_at": (
+                    stake.created_at.isoformat() if stake.created_at else None
+                ),
+            })
+            active_receivables_sum += amount
+
+        # Carries owed to the player by AIs who busted under their stake.
+        try:
+            receivable_carries = stake_repo.list_carries_for_staker(owner_id)
+        except Exception as e:
+            logger.warning(
+                "[CASH][NET_WORTH] list_carries_for_staker failed: %s", e,
+            )
+            receivable_carries = []
+        for stake in receivable_carries:
+            carry = int(stake.carry_amount)
+            receivables.append({
+                "stake_id": stake.stake_id,
+                "borrower_id": stake.borrower_id,
+                "borrower_kind": stake.borrower_kind,
+                "borrower_display_name": _borrower_display_for(stake),
+                "amount": carry,
+                "carry_amount": carry,
+                "principal": int(stake.principal),
+                "match_amount": int(stake.match_amount),
+                "stake_tier": stake.stake_tier,
+                "status": stake.status,  # 'carry'
+                "format": stake.format,
+                "cut": float(stake.cut),
+                "created_at": (
+                    stake.created_at.isoformat() if stake.created_at else None
+                ),
+            })
+            carry_receivables_sum += carry
+
+    receivables_sum = active_receivables_sum + carry_receivables_sum
+
+    # Phase 5 — recently closed stakes (settled / defaulted) where the
+    # player was either staker or borrower. Gives the player a history
+    # surface so cleanly-settled stakes don't just disappear into
+    # bankroll, and explicit defaults leave a visible trail.
+    history: List[Dict[str, Any]] = []
+    if stake_repo is not None:
+        try:
+            closed = stake_repo.list_recent_closed_for_owner(owner_id, limit=20)
+        except Exception as e:
+            logger.warning(
+                "[CASH][NET_WORTH] list_recent_closed_for_owner failed: %s", e,
+            )
+            closed = []
+        for stake in closed:
+            # Each row gets a `role` (am I the staker or the borrower
+            # on this one?) so the UI can frame it from the player's
+            # POV. `counterparty_*` is the other side regardless of role.
+            if stake.staker_id == owner_id:
+                role = "staker"
+                counterparty_id = stake.borrower_id
+                counterparty_kind = stake.borrower_kind
+            else:
+                role = "borrower"
+                counterparty_id = stake.staker_id
+                counterparty_kind = stake.staker_kind
+            counterparty_display = counterparty_id or "House"
+            if counterparty_id and counterparty_id not in name_cache:
+                # Resolve display name; house stakes (counterparty=None)
+                # skip the lookup and render as "House" above.
+                if counterparty_kind == BORROWER_KIND_HUMAN:
+                    name_cache[counterparty_id] = counterparty_id
+                else:
+                    try:
+                        p = personality_repo.load_personality_by_id(
+                            counterparty_id,
+                        )
+                        if p and p.get("name"):
+                            counterparty_display = p["name"]
+                            name_cache[counterparty_id] = counterparty_display
+                    except Exception:
+                        name_cache[counterparty_id] = counterparty_display
+            elif counterparty_id:
+                counterparty_display = name_cache[counterparty_id]
+            # Compute per-role P&L when settlement chip flows were
+            # captured (v106+). Legacy settled-pre-v106 rows have NULL
+            # payouts → net is None and the UI hides the P&L line.
+            #
+            # Settled-cleanly P&L:
+            #   staker:   payout − principal (+ origination_fee received on pure)
+            #   borrower: payout − match_amount − origination_fee_paid
+            # Settled-with-carry P&L (a transient status before this
+            # row would be in History — only reaches here as 'defaulted'
+            # post-explicit-default — but the math still holds):
+            #   staker:   staker_payout − principal (negative, equals -carry)
+            #   borrower: borrower_payout − match_amount (typically 0)
+            # Defaulted P&L assumes the carry was already realized at
+            # the original settle into 'carry'; defaulting just zeros
+            # the IOU. Net for the staker who was owed = same as the
+            # carry-creation moment (lost principal − staker_payout).
+            net_for_player: Optional[int] = None
+            payout = (
+                stake.staker_payout if role == "staker"
+                else stake.borrower_payout
+            )
+            if payout is not None:
+                if role == "staker":
+                    # Player put up principal; received payout (+ any
+                    # origination fee at deal time, on pure stakes only).
+                    cost = int(stake.principal)
+                    proceeds = int(payout)
+                    if stake.format == STAKE_FORMAT_PURE:
+                        proceeds += int(stake.origination_fee)
+                    net_for_player = proceeds - cost
+                else:  # borrower
+                    # Player put up match_amount + origination_fee;
+                    # received payout. Principal was the staker's chips,
+                    # not the borrower's — borrower's stack at the seat
+                    # was already cash they got from the deal, not
+                    # something they "spent."
+                    cost = int(stake.match_amount)
+                    if stake.format == STAKE_FORMAT_PURE:
+                        cost += int(stake.origination_fee)
+                    proceeds = int(payout)
+                    net_for_player = proceeds - cost
+            history.append({
+                "stake_id": stake.stake_id,
+                "role": role,
+                "status": stake.status,  # 'settled' | 'defaulted'
+                "counterparty_id": counterparty_id,
+                "counterparty_kind": counterparty_kind,
+                "counterparty_display_name": counterparty_display,
+                "principal": int(stake.principal),
+                "match_amount": int(stake.match_amount),
+                "stake_tier": stake.stake_tier,
+                "format": stake.format,
+                "cut": float(stake.cut),
+                # Chip flows captured at settle time. NULL on legacy
+                # pre-v106 rows; the UI hides the P&L line then.
+                "staker_payout": (
+                    int(stake.staker_payout)
+                    if stake.staker_payout is not None else None
+                ),
+                "borrower_payout": (
+                    int(stake.borrower_payout)
+                    if stake.borrower_payout is not None else None
+                ),
+                # Net for the player on this stake (positive = won
+                # money, negative = lost money). null when chip flows
+                # weren't captured (pre-v106 history).
+                "net_for_player": net_for_player,
+                "created_at": (
+                    stake.created_at.isoformat() if stake.created_at else None
+                ),
+                "settled_at": (
+                    stake.settled_at.isoformat() if stake.settled_at else None
+                ),
+            })
 
     net_worth = int(bankroll.chips) + receivables_sum - payables_sum
     available = max(0, int(carry_cap) - payables_sum)
@@ -3111,6 +3962,7 @@ def get_net_worth():
         "carry_cap": int(carry_cap),
         "payables": payables,
         "receivables": receivables,
+        "history": history,
         "net_worth": int(net_worth),
         "available": int(available),
     })

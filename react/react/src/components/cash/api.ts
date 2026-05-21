@@ -21,7 +21,10 @@ import type {
   SitRequiresSponsor,
   SponsorOffer,
   SponsorOffersResponse,
+  StakableAiResponse,
+  StakeFormat,
   StakeLabel,
+  StakeOfferResponse,
 } from './types';
 
 const BASE = `${config.API_URL}/api/cash`;
@@ -158,6 +161,44 @@ export async function requestForgiveness(
     throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
   }
   return { kind: 'decided', data: (await res.json()) as ForgivenessResponse };
+}
+
+// --- Phase 5: Player as staker ---
+
+/** Fetch the curated per-tier list of AIs the player can offer a
+ *  stake to right now. Server runs every gate (cash-eligible, willing,
+ *  met-before, relationship floor, +1 tier rule, cooldown, etc.) so
+ *  what comes back is what the player can act on. Empty `by_tier`
+ *  means "no one's ready right now." */
+export async function getStakableAi(): Promise<StakableAiResponse> {
+  return getJson('/stakable-ai');
+}
+
+/** Offer a stake to a specific AI. The route validates the structural
+ *  gates (bankroll, +1 tier, met-before, etc.) and then evaluates the
+ *  AI's willingness against the SPECIFIC offer terms (cut, format,
+ *  desperation). The `accepted` field distinguishes a successful
+ *  sit-down from a polite refusal — both are 200 (only client-error
+ *  rejections like an invalid stake_label produce non-2xx). */
+export async function offerStake(args: {
+  targetPid: string;
+  stakeLabel: StakeLabel;
+  principal: number;
+  cut: number;
+  format?: StakeFormat;
+  matchAmount?: number;
+  originationFee?: number;
+}): Promise<StakeOfferResponse> {
+  const body: Record<string, unknown> = {
+    target_pid: args.targetPid,
+    stake_label: args.stakeLabel,
+    principal: args.principal,
+    cut: args.cut,
+  };
+  if (args.format) body.format = args.format;
+  if (args.matchAmount !== undefined) body.match_amount = args.matchAmount;
+  if (args.originationFee !== undefined) body.origination_fee = args.originationFee;
+  return postJson('/stakes/offer', body);
 }
 
 /**

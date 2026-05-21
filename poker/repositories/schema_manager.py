@@ -144,7 +144,13 @@ logger = logging.getLogger(__name__)
 #       (back-compat) but writes the new key going forward; this
 #       migration normalises persisted data so the alias path becomes
 #       cold.
-SCHEMA_VERSION = 105
+# v106: Phase 5 refinement — add nullable `staker_payout` /
+#       `borrower_payout` columns to `stakes`. Populated by
+#       `settle_stake_on_leave` so the Net Worth history surface can
+#       compute per-stake P&L ("you got back $X" or "you lost $Y").
+#       NULL on legacy rows (settled pre-migration) means "unknown" —
+#       the route returns null and the UI hides the P&L line.
+SCHEMA_VERSION = 106
 
 
 
@@ -1303,6 +1309,7 @@ class SchemaManager:
             103: (self._migrate_v103_add_sandbox_id_to_chip_ledger, "Phase 2.5 Commit 6 — add nullable sandbox_id column to chip_ledger_entries for per-sandbox audit scoping"),
             104: (self._migrate_v104_add_forgiveness_last_asked, "Phase 3 Commit 3 — add nullable forgiveness_last_asked column to stakes for per-stake 24h rate-limit on forgiveness requests"),
             105: (self._migrate_v105_rename_bankroll_cap_to_starting_bankroll, "Rename bankroll_knobs.bankroll_cap → starting_bankroll in personality config_json and drop the vestigial personalities.bankroll_cap column"),
+            106: (self._migrate_v106_add_stake_payouts, "Phase 5 refinement — add nullable staker_payout / borrower_payout columns to stakes so history can show per-stake P&L"),
         }
 
         with self._get_connection() as conn:
@@ -4509,7 +4516,12 @@ class SchemaManager:
                 -- forgiveness_last_asked must be UTC naive (written via
                 -- datetime.utcnow().isoformat()) so the rate-limit's
                 -- (now - last_asked) subtraction is timezone-consistent.
-                forgiveness_last_asked TIMESTAMP
+                forgiveness_last_asked TIMESTAMP,
+                -- v106: settlement chip flows captured at settle time so
+                -- the Net Worth history can show per-stake P&L. NULL on
+                -- active rows and legacy settled-pre-v106 rows.
+                staker_payout INTEGER,
+                borrower_payout INTEGER
             )
         """)
         # Partial indexes on status='carry' so the per-borrower /
@@ -4846,5 +4858,43 @@ class SchemaManager:
             )
         logger.info(
             "Migration v104 complete: stakes.forgiveness_last_asked added"
+        )
+
+    def _migrate_v106_add_stake_payouts(self, conn: sqlite3.Connection) -> None:
+        """Migration v106: add `staker_payout` / `borrower_payout` to stakes.
+
+        Phase 5 refinement (2026-05-21). At settlement time,
+        `settle_stake_on_leave` computes how many chips flow to the
+        staker and to the borrower — but only the staker_id, borrower_id,
+        principal, match_amount, and post-settle `carry_amount` are
+        persisted. That makes the Net Worth history view structurally
+        unable to answer "did I make or lose money on this stake?".
+
+        These two columns capture the actual settlement chip flows so
+        the history surface can compute net P&L from the persisted
+        row alone:
+          - `staker_payout`: chips returned to the staker at settle time
+            (principal + cut × upside on clean; partial recovery on bust;
+            0 on full bust)
+          - `borrower_payout`: chips returned to the borrower at settle time
+            (match + (1-cut) × upside on clean; leftover after staker
+            recovery on partial bust; 0 on full bust)
+
+        NULL on existing rows (active or settled pre-migration) — the
+        route's history serializer returns null, and the UI hides the
+        P&L line for those rows. New settlements going forward populate
+        the values.
+
+        Idempotent: PRAGMA-guarded ADDs.
+        """
+        cursor = conn.execute("PRAGMA table_info(stakes)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'staker_payout' not in cols:
+            conn.execute("ALTER TABLE stakes ADD COLUMN staker_payout INTEGER")
+        if 'borrower_payout' not in cols:
+            conn.execute("ALTER TABLE stakes ADD COLUMN borrower_payout INTEGER")
+        logger.info(
+            "Migration v106 complete: stakes.staker_payout and "
+            "stakes.borrower_payout added"
         )
 

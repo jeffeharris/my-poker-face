@@ -228,6 +228,90 @@
 .net-worth-drawer__row-name {
   font-weight: 600;
   font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Receivable status badge — "in play" for active stakes, "owed" for
+ * carries. Small color-coded chip beside the borrower name so the
+ * player can scan the list at a glance. */
+.net-worth-drawer__status-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-style: normal;
+}
+.net-worth-drawer__status-badge--active {
+  background: rgba(185, 224, 245, 0.15);
+  color: #b9e0f5;
+}
+.net-worth-drawer__status-badge--carry {
+  background: rgba(220, 80, 80, 0.18);
+  color: #fca5a5;
+}
+.net-worth-drawer__status-badge--settled {
+  background: rgba(134, 239, 172, 0.15);
+  color: #86efac;
+}
+.net-worth-drawer__status-badge--defaulted {
+  background: rgba(180, 100, 100, 0.2);
+  color: #e88;
+}
+
+/* History list reads as a quieter ledger trail — slightly dimmer
+ * surface, no border tinting except for the defaulted variant which
+ * keeps a faint red edge as the "this hurt" cue. */
+.net-worth-drawer__list--history .net-worth-drawer__row {
+  background: rgba(255, 255, 255, 0.02);
+  opacity: 0.92;
+}
+.net-worth-drawer__row--defaulted {
+  border-color: rgba(180, 100, 100, 0.18);
+}
+.net-worth-drawer__row--settled {
+  border-color: rgba(134, 239, 172, 0.12);
+}
+
+/* Per-stake P&L pinned next to the status badge. Green for wins,
+ * red for losses, dim for break-even/zero. Tabular-nums so the
+ * column of amounts visually aligns when scanning history. */
+.net-worth-drawer__history-net {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary, #aaa);
+}
+.net-worth-drawer__history-net--win {
+  color: #86efac;
+}
+.net-worth-drawer__history-net--loss {
+  color: #fca5a5;
+}
+
+.net-worth-drawer__row-status-line--muted {
+  opacity: 0.65;
+  font-style: italic;
+}
+
+/* Active-stake rows get a soft cool-blue border to read as "in
+ * motion" vs the neutral carry rows. */
+.net-worth-drawer__row--active {
+  border-color: rgba(185, 224, 245, 0.2);
+}
+
+/* Tertiary status line for active stakes — explains what happens
+ * next without taking up a full row. */
+.net-worth-drawer__row-status-line {
+  font-size: 11px;
+  color: var(--text-secondary, #aaa);
+  font-style: italic;
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .net-worth-drawer__row-meta {
@@ -380,4 +464,15 @@
   border-radius: 50%;
   border: 1px solid rgba(0, 0, 0, 0.3);
   pointer-events: none;
+}
+
+/* The Phase 5 portrait-level "Stake this player" affordance was
+ * removed 2026-05-21 in favor of the IdleStakablePanel — seated AIs
+ * can't take new stakes, so surfacing the action on portraits was
+ * misleading. Player-as-staker entry now lives entirely in the
+ * dedicated panel below the table grid. */
+.lobby-table-card__offer-stake--removed {
+  /* placeholder selector preserves the unused-rules header above
+   * during code-folding; safe to delete in a future cleanup pass. */
+  display: none;
 }

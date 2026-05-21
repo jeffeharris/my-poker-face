@@ -198,6 +198,25 @@ def settle_stake_on_leave(
         # and stamp settled_at.
         stake_repo.update_status(stake_id, STAKE_STATUS_SETTLED, settled_at=now)
 
+    # v106 — capture the settlement chip flows so the Net Worth
+    # history surface can compute per-stake P&L. NULL-tolerant
+    # callers (repos predating v106 / non-stake_repo paths) still
+    # work; the route's history serializer hides the P&L line when
+    # these are null.
+    if hasattr(stake_repo, 'update_payouts'):
+        try:
+            stake_repo.update_payouts(
+                stake_id,
+                staker_payout=int(math.staker_total),
+                borrower_payout=int(math.borrower_total),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[STAKE] update_payouts failed stake_id=%r: %s "
+                "(P&L history will show as unknown for this row)",
+                stake_id, exc,
+            )
+
     return StakeSettlement(
         stake_id=stake.stake_id,
         session_id=stake.session_id,

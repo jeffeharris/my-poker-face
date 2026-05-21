@@ -3,6 +3,7 @@ purpose: Implementation handoff for the staking system — session-based stakes 
 type: guide
 created: 2026-05-19
 last_updated: 2026-05-21
+status_note: Phase 4.5 + Phase 5 shipped 2026-05-21. AI-initiated payoff / forgiveness / explicit-default behaviors, garnishment + tier-gate on AI take_stake, and the player-as-staker route + UI are live. 327 cash_mode tests passing.
 ---
 
 # Cash Mode — Backing System Handoff

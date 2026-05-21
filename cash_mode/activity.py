@@ -77,8 +77,25 @@ EVENT_AI_DEFAULT = "ai_default"
 """An AI-to-AI stake settled with a carry — borrower busted without
 repaying principal. Phase 4. The "default" framing is the player's
 perspective; technically the stake row's status flips to 'carry',
-not 'defaulted'. Surfaces alongside EVENT_AI_STAKE to make the AI
-economy's wins and losses both visible."""
+not 'defaulted' (Phase 4 natural-carry case) OR 'defaulted' (Phase
+4.5 Commit 5 explicit-default case). The two are distinguishable
+on the wire via the `message` verb ("carried" vs "burned"). Surfaces
+alongside EVENT_AI_STAKE to make the AI economy's wins and losses
+both visible."""
+
+EVENT_AI_PAYOFF = "ai_payoff"
+"""An AI cleared an outstanding carry to another AI by paying off
+from bankroll. Phase 4.5 Commit 3 — the "AI hits the gym, returns
+ready to clear his tab" beat. Threshold-gated the same as
+EVENT_AI_STAKE/EVENT_AI_DEFAULT so small-stake payoffs (at $2 / $10
+tables) stay invisible."""
+
+EVENT_AI_FORGIVEN = "ai_forgiven"
+"""An AI forgave another AI's outstanding carry on request. Phase
+4.5 Commit 4 — the "generous staker writes off the debt" beat.
+Threshold-gated. The refused-forgiveness path is intentionally
+silent on the ticker (the relationship axis hit is enough; not
+every refusal needs to surface)."""
 
 EVENT_BURST_SUMMARY = "burst_summary"
 """Compression event for catch-up bursts (Commit 5): when a single
@@ -248,6 +265,52 @@ def format_ai_default_message(
     return (
         f"{borrower_name} carried ${carry_amount:,} from {staker_name} at {stake_label}"
     )
+
+
+def format_ai_explicit_default_message(
+    borrower_name: str, staker_name: str, stake_label: str, carry_amount: int,
+) -> str:
+    """Phrasing for an AI explicitly walking away from a carry.
+
+    Phase 4.5 Commit 5. Distinct verb from the natural-carry message
+    so the ticker reads as a deliberate reputation-burning act, not
+    just "they busted owing." The relationship-axis hit is meaningfully
+    sharper (STAKE_DEFAULTED vs no-op for natural carry) and the
+    in-game story benefits from the harder framing."""
+    return (
+        f"{borrower_name} burned ${carry_amount:,} owed to {staker_name} at {stake_label}"
+    )
+
+
+def format_ai_payoff_message(
+    borrower_name: str, staker_name: str, stake_label: str, amount: int,
+) -> str:
+    """Phrasing for an AI voluntarily clearing a carry.
+
+    Phase 4.5 Commit 3. Reads as the AI doing the right thing —
+    bankroll → staker, status flips to settled, STAKE_REPAID fires."""
+    return (
+        f"{borrower_name} paid off ${amount:,} carry to {staker_name} at {stake_label}"
+    )
+
+
+def format_ai_forgiven_message(
+    staker_name: str, borrower_name: str, stake_label: str, amount: int,
+) -> str:
+    """Phrasing for an AI staker forgiving an AI borrower's carry.
+
+    Phase 4.5 Commit 4. The staker is the actor (they chose to
+    forgive), so they lead the phrasing."""
+    return (
+        f"{staker_name} forgave {borrower_name}'s ${amount:,} carry at {stake_label}"
+    )
+
+
+# Phase 4.5 ticker-throttle threshold for carry-resolution events
+# (EVENT_AI_PAYOFF / EVENT_AI_FORGIVEN / explicit EVENT_AI_DEFAULT).
+# Mirrors AI_STAKE_TICKER_THRESHOLD so the four Phase-4/4.5 AI-economy
+# events share one drama floor.
+AI_CARRY_TICKER_THRESHOLD = 2000
 
 
 # Phase 4 ticker-throttle threshold. AI stakes below this principal

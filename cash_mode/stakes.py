@@ -105,3 +105,12 @@ class Stake:
     created_at: datetime
     settled_at: Optional[datetime] = None
     forgiveness_last_asked: Optional[datetime] = None
+    # v106 — settlement chip-flow capture for the Net Worth history.
+    # `staker_payout`: chips returned to the staker at settle time
+    # (principal + cut × upside on a clean settle; partial recovery on
+    # a bust; 0 on a full bust). NULL on active rows (not yet settled)
+    # and on legacy rows that settled pre-v106 (where we couldn't go
+    # back and reconstruct the values). `borrower_payout` is the
+    # mirror — chips returned to the borrower.
+    staker_payout: Optional[int] = None
+    borrower_payout: Optional[int] = None

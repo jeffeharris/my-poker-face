@@ -519,6 +519,9 @@ class BankrollRepository(BaseRepository):
         defaults = BORROWER_PROFILE_DEFAULTS
         return BorrowerProfile(
             willing=sub.get("willing", defaults.willing),
+            willingness_threshold=float(
+                sub.get("willingness_threshold", defaults.willingness_threshold),
+            ),
         )
 
     def save_personality_knobs(

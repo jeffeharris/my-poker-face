@@ -74,6 +74,14 @@ REBUY_BASE_WEIGHTS = {"min": 40.0, "mid": 40.0, "max": 20.0}
 # extension on top of this is computed at leave time.
 MIN_COOLDOWN_SECONDS = 10
 
+# Phase 4.5 Commit 1 — per-staker garnishment on AI take_stake.
+# Mirrors `cash_mode.sponsor_offers.GARNISHMENT_RATE_CAP` so AI-side
+# and human-side garnishment surfaces stay calibrated together. The
+# absolute cap keeps stacked tier-bump + garnishment shifts from
+# producing degenerate 100%-cut deals on heavily-leveraged borrowers.
+GARNISHMENT_RATE_CAP = 0.20
+GARNISHMENT_ABSOLUTE_CAP = 0.55
+
 
 # Movement decision string literals. Strings rather than an enum because
 # they cross the pure-helper boundary and surface to logs / admin views
@@ -509,6 +517,31 @@ def find_ai_staker_for(
     return rng.choice(qualified)
 
 
+def garnished_stake_cut(
+    *,
+    rate_anchor: float,
+    outstanding_carry: int,
+    principal: int,
+) -> float:
+    """Garnishment-adjusted cut for an AI-borrower stake creation.
+
+    Phase 4.5 Commit 1 — mirrors the human-borrower garnishment in
+    `cash_mode.sponsor_offers.compute_personality_offers`. When the
+    candidate staker already holds an unpaid carry from this borrower,
+    bump the new stake's cut by `outstanding_carry / principal`, capped
+    at `GARNISHMENT_RATE_CAP` (+20pp), then clamp the final value to
+    `GARNISHMENT_ABSOLUTE_CAP` (0.55) so stacked bumps can't push past
+    the human-surface ceiling.
+
+    Returns `rate_anchor` unchanged when no carry exists (or principal
+    is zero) — the no-prior-history case.
+    """
+    if outstanding_carry <= 0 or principal <= 0:
+        return rate_anchor
+    garnish = min(outstanding_carry / principal, GARNISHMENT_RATE_CAP)
+    return min(rate_anchor + garnish, GARNISHMENT_ABSOLUTE_CAP)
+
+
 def _movement_decision_to_idle_reason(decision: MovementDecision) -> str:
     """Map a movement decision to the corresponding idle-pool reason.
 
@@ -553,6 +586,13 @@ def refresh_table_roster(
     # table-local behavior). Pass a broader list (idle + other-table
     # AIs filtered to adjacent stakes) for the wider pool.
     cross_table_staker_pids: Optional[List[str]] = None,
+    # Phase 4.5 Commit 1: when provided, returns the outstanding carry
+    # the borrower owes to a specific staker (across all open carry
+    # rows). Used to garnish the cut on a fresh take_stake — same model
+    # as the human-borrower garnishment in compute_personality_offers,
+    # just enforced at movement time for AI borrowers. None → no
+    # garnishment (pre-Phase-4.5 callers).
+    carry_lookup: Optional[Callable[[str, str], int]] = None,
 ) -> RosterRefreshResult:
     """Apply movement decisions to a table's AI seats, then live-fill opens.
 
@@ -714,13 +754,34 @@ def refresh_table_roster(
                     amount=seat_chips,
                 ))
             new_seats[i] = ai_slot(pid, table_min_buy_in)
+            # Phase 4.5 Commit 1: per-staker garnishment. When the
+            # picked staker already holds an unpaid carry from this
+            # borrower, bump the new stake's cut. Mirrors the human
+            # garnishment in compute_personality_offers. Defaults to
+            # rate_anchor when no carry_lookup is provided (pre-4.5
+            # callers / tests).
+            cut = staker_profile.rate_anchor
+            if carry_lookup is not None:
+                try:
+                    outstanding = int(carry_lookup(staker_id, pid))
+                except Exception as exc:
+                    logger.debug(
+                        "take_stake: carry_lookup failed staker=%r borrower=%r: %s",
+                        staker_id, pid, exc,
+                    )
+                    outstanding = 0
+                cut = garnished_stake_cut(
+                    rate_anchor=cut,
+                    outstanding_carry=outstanding,
+                    principal=table_min_buy_in,
+                )
             stake_creations.append(StakeCreationChange(
                 borrower_id=pid,
                 staker_id=staker_id,
                 seat_index=i,
                 principal=table_min_buy_in,
                 stake_label=stake_label,
-                cut=staker_profile.rate_anchor,
+                cut=cut,
             ))
             # `seated_globally` stays unchanged — pid still occupies
             # the seat, just freshly funded by the staker.
