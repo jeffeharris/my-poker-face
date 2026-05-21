@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, List, Optional
 
 from cash_mode.lender_profile import LenderProfile
@@ -262,6 +262,14 @@ class LenderRejection:
     detail: str
 
 
+# Phase 2 — 7-day cooldown gating re-stakes after a default. Locked
+# decision #1 from the backing-system handoff. Mirrors the player-
+# staker side cooldown in `player_staking.PLAYER_STAKE_DEFAULT_COOLDOWN_SECONDS`
+# (kept as a separate constant rather than imported to avoid a
+# cash_mode → cash_mode cross-dependency cycle).
+LENDER_DEFAULT_COOLDOWN_SECONDS = 7 * 24 * 60 * 60
+
+
 # Per-tier knobs for the cut bump applied on top of the relationship-
 # axis adjustments. Tunable; midpoints of the ranges given in the
 # Phase 2 spec ("standard cuts bumped 5-10%, restricted bumped 15-25%").
@@ -473,6 +481,34 @@ def compute_personality_offers(
             carries_by_staker.setdefault(c.staker_id, 0)
             carries_by_staker[c.staker_id] += int(c.carry_amount)
 
+    # Phase 2 — 7-day default cooldown. One bulk SQL to build the set
+    # of lenders the player defaulted on within the window; per-candidate
+    # check is then O(1) in the loop below. Mirrors the carries-by-staker
+    # lookup pattern. Skipped when `stake_repo` is None (legacy callers).
+    defaulted_staker_ids: set = set()
+    if stake_repo is not None:
+        cooldown_threshold = now - timedelta(
+            seconds=LENDER_DEFAULT_COOLDOWN_SECONDS,
+        )
+        with stake_repo._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT staker_id FROM stakes
+                WHERE borrower_id = ?
+                  AND borrower_kind = ?
+                  AND status = 'defaulted'
+                  AND settled_at IS NOT NULL
+                  AND settled_at >= ?
+                  AND staker_id IS NOT NULL
+                """,
+                (
+                    player_owner_id,
+                    borrower_kind,
+                    cooldown_threshold.isoformat(),
+                ),
+            ).fetchall()
+        defaulted_staker_ids = {row[0] for row in rows}
+
     tier_floors = TIER_RELATIONSHIP_FLOORS[tier]
     tier_rate_bump = TIER_RATE_BUMP[tier]
 
@@ -501,6 +537,24 @@ def compute_personality_offers(
             min_buy_in=min_buy_in, max_buy_in=max_buy_in,
         )
         if capacity < min_buy_in:
+            continue
+
+        # Phase 2 — 7-day default cooldown. If the player defaulted
+        # on a stake from THIS lender within the window, the lender
+        # refuses outright. Surfaces a specific "you defaulted on
+        # them recently" reason in the rejections side-output so the
+        # sponsor modal can render it without re-deriving the
+        # eligibility logic.
+        if pid in defaulted_staker_ids:
+            if rejections_out is not None:
+                rejections_out.append(LenderRejection(
+                    lender_id=pid, lender_name=name,
+                    reason="recent_default",
+                    detail=(
+                        f"{name} won't back you yet — you defaulted "
+                        "on them recently."
+                    ),
+                ))
             continue
 
         # Relationship state — lender's POV of the player. None → default neutral.

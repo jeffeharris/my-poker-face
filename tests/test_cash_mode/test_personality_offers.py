@@ -12,7 +12,7 @@ this commit covers only the pure logic.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import pytest
@@ -521,3 +521,231 @@ class TestOutputShape:
         )
         assert len(offers) == 1
         assert "Buddha" in offers[0].flavor
+
+
+# --- Phase 2: 7-day default cooldown (locked decision #1) -------------------
+
+
+class TestDefaultCooldown:
+    """Lender refuses to back the player for 7 wall-clock days after
+    the player defaulted on a stake from them. Uses a real
+    StakeRepository against a tempdb because the cooldown query goes
+    through SQL — fake repos can't simulate it."""
+
+    @pytest.fixture
+    def stake_repo(self, tmp_path):
+        from poker.repositories.schema_manager import SchemaManager
+        from poker.repositories.stake_repository import StakeRepository
+
+        db = str(tmp_path / "sponsor_cooldown.db")
+        SchemaManager(db).ensure_schema()
+        return StakeRepository(db)
+
+    def _seed_defaulted_stake(
+        self,
+        stake_repo,
+        *,
+        staker_id: str,
+        borrower_id: str,
+        settled_at: datetime,
+        stake_id: str = "prior_default",
+    ) -> None:
+        from cash_mode.stakes import (
+            BORROWER_KIND_HUMAN,
+            STAKE_FORMAT_PURE,
+            STAKE_STATUS_DEFAULTED,
+            STAKER_KIND_PERSONALITY,
+            Stake,
+        )
+        stake_repo.create_stake(Stake(
+            stake_id=stake_id,
+            session_id=f"sess_{stake_id}",
+            staker_id=staker_id,
+            staker_kind=STAKER_KIND_PERSONALITY,
+            borrower_id=borrower_id,
+            borrower_kind=BORROWER_KIND_HUMAN,
+            format=STAKE_FORMAT_PURE,
+            principal=2_000,
+            match_amount=0,
+            origination_fee=0,
+            cut=0.30,
+            status=STAKE_STATUS_DEFAULTED,
+            carry_amount=0,
+            stake_tier="$50",
+            created_at=settled_at,
+            settled_at=settled_at,
+        ))
+
+    def test_recent_default_filters_lender(self, stake_repo):
+        from cash_mode.sponsor_offers import LenderRejection
+
+        # Player defaulted on Napoleon 3 days ago — well inside the
+        # 7-day window. Napoleon won't surface as a sponsor offer.
+        now = datetime(2026, 5, 21, 12, 0)
+        self._seed_defaulted_stake(
+            stake_repo,
+            staker_id="napoleon",
+            borrower_id="player",
+            settled_at=now - timedelta(days=3),
+        )
+
+        profiles = {"napoleon": LenderProfile(
+            willing=True, max_loan_pct_of_bankroll=0.15,
+            floor_anchor=1.0, rate_anchor=0.15,
+            respect_floor=-0.7, heat_ceiling=0.85,
+        )}
+        bank = _FakeBankrollRepo(
+            profiles=profiles, bankrolls={"napoleon": 20_000},
+        )
+        rel = _FakeRelationshipRepo({
+            ("napoleon", "player"): _RelState(
+                respect=0.6, heat=0.0, likability=0.6,
+            ),
+        })
+        rejections: list = []
+        offers = compute_personality_offers(
+            player_owner_id="player",
+            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            candidate_personalities=[{
+                "personality_id": "napoleon", "name": "Napoleon",
+            }],
+            bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
+            stake_repo=stake_repo,
+            stake_label="$50",
+            rejections_out=rejections,
+            now=now,
+        )
+        assert offers == []
+        assert len(rejections) == 1
+        assert rejections[0].lender_id == "napoleon"
+        assert rejections[0].reason == "recent_default"
+        assert "defaulted" in rejections[0].detail.lower()
+
+    def test_default_outside_window_does_not_filter(self, stake_repo):
+        # Default settled 10 days ago — outside the 7-day window.
+        # Napoleon surfaces as a normal sponsor offer.
+        now = datetime(2026, 5, 21, 12, 0)
+        self._seed_defaulted_stake(
+            stake_repo,
+            staker_id="napoleon",
+            borrower_id="player",
+            settled_at=now - timedelta(days=10),
+        )
+
+        profiles = {"napoleon": LenderProfile(
+            willing=True, max_loan_pct_of_bankroll=0.15,
+            floor_anchor=1.0, rate_anchor=0.15,
+            respect_floor=-0.7, heat_ceiling=0.85,
+        )}
+        bank = _FakeBankrollRepo(
+            profiles=profiles, bankrolls={"napoleon": 20_000},
+        )
+        rel = _FakeRelationshipRepo({
+            ("napoleon", "player"): _RelState(
+                respect=0.6, heat=0.0, likability=0.6,
+            ),
+        })
+        offers = compute_personality_offers(
+            player_owner_id="player",
+            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            candidate_personalities=[{
+                "personality_id": "napoleon", "name": "Napoleon",
+            }],
+            bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
+            stake_repo=stake_repo,
+            stake_label="$50",
+            now=now,
+        )
+        assert len(offers) == 1
+        assert offers[0].lender_id == "napoleon"
+
+    def test_other_lenders_unaffected(self, stake_repo):
+        # Defaulted on Napoleon only — Buddha still offers normally.
+        now = datetime(2026, 5, 21, 12, 0)
+        self._seed_defaulted_stake(
+            stake_repo,
+            staker_id="napoleon",
+            borrower_id="player",
+            settled_at=now - timedelta(days=3),
+        )
+
+        profiles = {
+            "napoleon": LenderProfile(
+                willing=True, max_loan_pct_of_bankroll=0.15,
+                floor_anchor=1.0, rate_anchor=0.15,
+                respect_floor=-0.7, heat_ceiling=0.85,
+            ),
+            "buddha": LenderProfile(
+                willing=True, max_loan_pct_of_bankroll=0.15,
+                floor_anchor=1.0, rate_anchor=0.15,
+                respect_floor=-0.7, heat_ceiling=0.85,
+            ),
+        }
+        bank = _FakeBankrollRepo(
+            profiles=profiles,
+            bankrolls={"napoleon": 20_000, "buddha": 20_000},
+        )
+        rel = _FakeRelationshipRepo({
+            ("napoleon", "player"): _RelState(
+                respect=0.6, heat=0.0, likability=0.6,
+            ),
+            ("buddha", "player"): _RelState(
+                respect=0.6, heat=0.0, likability=0.6,
+            ),
+        })
+        offers = compute_personality_offers(
+            player_owner_id="player",
+            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            candidate_personalities=[
+                {"personality_id": "napoleon", "name": "Napoleon"},
+                {"personality_id": "buddha", "name": "Buddha"},
+            ],
+            bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
+            stake_repo=stake_repo,
+            stake_label="$50",
+            now=now,
+        )
+        assert len(offers) == 1
+        assert offers[0].lender_id == "buddha"
+
+    def test_no_stake_repo_disables_cooldown(self, stake_repo):
+        # Backward-compat: callers that don't pass stake_repo skip the
+        # cooldown entirely. Defaulted-on Napoleon STILL surfaces in
+        # this mode (the cooldown is opt-in via stake_repo).
+        now = datetime(2026, 5, 21, 12, 0)
+        self._seed_defaulted_stake(
+            stake_repo,
+            staker_id="napoleon",
+            borrower_id="player",
+            settled_at=now - timedelta(days=3),
+        )
+
+        profiles = {"napoleon": LenderProfile(
+            willing=True, max_loan_pct_of_bankroll=0.15,
+            floor_anchor=1.0, rate_anchor=0.15,
+            respect_floor=-0.7, heat_ceiling=0.85,
+        )}
+        bank = _FakeBankrollRepo(
+            profiles=profiles, bankrolls={"napoleon": 20_000},
+        )
+        rel = _FakeRelationshipRepo({
+            ("napoleon", "player"): _RelState(
+                respect=0.6, heat=0.0, likability=0.6,
+            ),
+        })
+        # NOTE: no stake_repo / stake_label passed → cooldown disabled.
+        offers = compute_personality_offers(
+            player_owner_id="player",
+            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            candidate_personalities=[{
+                "personality_id": "napoleon", "name": "Napoleon",
+            }],
+            bankroll_repo=bank, relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
+            now=now,
+        )
+        assert len(offers) == 1
+        assert offers[0].lender_id == "napoleon"
