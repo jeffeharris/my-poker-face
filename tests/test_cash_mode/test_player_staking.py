@@ -129,27 +129,27 @@ class TestWillingnessThresholdDerivation(unittest.TestCase):
     rather than as a silent behavior change in the staking flow."""
 
     def test_humble_ego_yields_low_threshold(self):
-        from cash_mode.lender_profile import compute_default_willingness_threshold
+        from cash_mode.staker_profile import compute_default_willingness_threshold
         # Lincoln-style humble: ego 0.36 → ~0.23
         self.assertAlmostEqual(
             compute_default_willingness_threshold(0.36), 0.23, places=2,
         )
 
     def test_baseline_ego_yields_default(self):
-        from cash_mode.lender_profile import compute_default_willingness_threshold
+        from cash_mode.staker_profile import compute_default_willingness_threshold
         self.assertAlmostEqual(
             compute_default_willingness_threshold(0.5), 0.30, places=2,
         )
 
     def test_proud_ego_yields_high_threshold(self):
-        from cash_mode.lender_profile import compute_default_willingness_threshold
+        from cash_mode.staker_profile import compute_default_willingness_threshold
         # Napoleon-style proud: ego 0.86 → ~0.48
         self.assertAlmostEqual(
             compute_default_willingness_threshold(0.86), 0.48, places=2,
         )
 
     def test_extreme_egos_clamped(self):
-        from cash_mode.lender_profile import (
+        from cash_mode.staker_profile import (
             WILLINGNESS_THRESHOLD_MAX,
             WILLINGNESS_THRESHOLD_MIN,
             compute_default_willingness_threshold,
@@ -253,7 +253,7 @@ class TestWillingnessThresholdDerivation(unittest.TestCase):
                 "starting_bankroll": 12000,
                 "bankroll_rate": 350,
             },
-            "lender_profile": {"willing": True, "rate_anchor": 0.25},
+            "staker_profile": {"willing": True, "rate_anchor": 0.25},
             "verbal_tics": ["test tic"],
         }
         with sqlite3.connect(db) as conn:
@@ -277,7 +277,7 @@ class TestWillingnessThresholdDerivation(unittest.TestCase):
         self.assertEqual(cfg["anchors"]["ego"], 0.5)
         self.assertEqual(cfg["anchors"]["poise"], 0.7)
         self.assertEqual(cfg["bankroll_knobs"]["starting_bankroll"], 12000)
-        self.assertEqual(cfg["lender_profile"]["rate_anchor"], 0.25)
+        self.assertEqual(cfg["staker_profile"]["rate_anchor"], 0.25)
         self.assertEqual(cfg["verbal_tics"], ["test tic"])
         self.assertEqual(cfg["borrower_profile"]["willing"], False)
         self.assertEqual(cfg["borrower_profile"]["willingness_threshold"], 0.40)

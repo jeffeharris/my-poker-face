@@ -31,7 +31,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "abraham_lincoln",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -74,7 +74,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "winston_churchill",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -114,7 +114,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "napoleon",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -155,7 +155,7 @@
         "stake_comfort_zone": "$1000"
       },
       "id": "louis_xiv",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -197,7 +197,7 @@
         "stake_comfort_zone": "$1000"
       },
       "id": "king_henry_viii",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -237,7 +237,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "shakespeare",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -277,7 +277,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "socrates",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -317,7 +317,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "sherlock_holmes",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -357,7 +357,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "jay_gatsby",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -399,7 +399,7 @@
         "stake_comfort_zone": "$2"
       },
       "id": "a_mime",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,
@@ -441,7 +441,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "a_guy_who_tells_too_many_dad_jokes",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -484,7 +484,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "someone_who_is_very_very_mean_to_people",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -524,7 +524,7 @@
         "stake_comfort_zone": "$2"
       },
       "id": "buddha",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -568,7 +568,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "bob_ross",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -609,7 +609,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "dr_seuss",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -649,7 +649,7 @@
         "stake_comfort_zone": "$2"
       },
       "id": "jesus_christ",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -691,7 +691,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "blackbeard",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -733,7 +733,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "sun_tzu",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -775,7 +775,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "benjamin_franklin",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -817,7 +817,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "mark_twain",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -859,7 +859,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "nikola_tesla",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -901,7 +901,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "houdini",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -943,7 +943,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "oscar_wilde",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -985,7 +985,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "edgar_allan_poe",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1027,7 +1027,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "machiavelli",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1069,7 +1069,7 @@
         "stake_comfort_zone": "$1000"
       },
       "id": "zeus",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.12,
         "floor_anchor": 1.15,
@@ -1111,7 +1111,7 @@
         "stake_comfort_zone": "$1000"
       },
       "id": "cleopatra",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.12,
         "floor_anchor": 1.15,
@@ -1153,7 +1153,7 @@
         "stake_comfort_zone": "$1000"
       },
       "id": "marie_antoinette",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.12,
         "floor_anchor": 1.15,
@@ -1195,7 +1195,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "calamity_jane",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1237,7 +1237,7 @@
         "stake_comfort_zone": "$1000"
       },
       "id": "queen_elizabeth_i",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1279,7 +1279,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "joan_of_arc",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1321,7 +1321,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "frida_kahlo",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -1366,7 +1366,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "lucille_ball",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -1408,7 +1408,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "annie_oakley",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1450,7 +1450,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "agatha_christie",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1492,7 +1492,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "lady_macbeth",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1534,7 +1534,7 @@
         "stake_comfort_zone": "$1000"
       },
       "id": "dracula",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1576,7 +1576,7 @@
         "stake_comfort_zone": "$2"
       },
       "id": "ebenezer_scrooge",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1618,7 +1618,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "robin_hood",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -1660,7 +1660,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "don_quixote",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -1703,7 +1703,7 @@
         "stake_comfort_zone": "$2"
       },
       "id": "alice",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -1746,7 +1746,7 @@
         "stake_comfort_zone": "$1000"
       },
       "id": "queen_of_hearts",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1789,7 +1789,7 @@
         "stake_comfort_zone": "$50"
       },
       "id": "cheshire_cat",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,
@@ -1832,7 +1832,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "wicked_witch",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1874,7 +1874,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "medusa",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1917,7 +1917,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "the_fortune_teller",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,
@@ -1960,7 +1960,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "the_librarian",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -2003,7 +2003,7 @@
         "stake_comfort_zone": "$200"
       },
       "id": "the_honey_badger",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -2046,7 +2046,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "the_grandmother",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -2089,7 +2089,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "the_kindergarten_teacher",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -2123,7 +2123,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "casebot",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,
@@ -2157,7 +2157,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "gto_lite",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,
@@ -2191,7 +2191,7 @@
         "stake_comfort_zone": "$10"
       },
       "id": "baselinesolver",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,

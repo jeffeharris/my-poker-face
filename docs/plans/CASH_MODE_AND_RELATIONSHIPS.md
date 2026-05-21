@@ -2,7 +2,7 @@
 purpose: Design for the relationship/affinity layer and a multi-table cash-game mode that consumes it
 type: design
 created: 2026-05-16
-last_updated: 2026-05-19
+last_updated: 2026-05-21
 ---
 
 # Cash Mode and Relationships
@@ -573,7 +573,7 @@ main menu
 - **Hard bust (player) — in-table:** between hands, when player's `Player.stack == 0`, the server emits a `cash_rebuy_needed` or `cash_bust` SocketIO event.
   - **`cash_rebuy_needed`** (bankroll ≥ this table's `min_buy_in` and no active loan): modal offers Rebuy / Rebuy max / Leave. Player chooses to keep playing here or stand up.
   - **`cash_bust`** (bankroll too low for this table's min, OR active loan): modal forces Leave — must return to `/cash` to pick a lower stake or take a sponsor at a higher one.
-- **Player sponsor loan (replaces auto fresh-grant):** when `bankroll < this tier's min_buy_in` AND `bankroll ≥ prev tier's min_buy_in`, the stake picker at `/cash` shows the tier as "Sponsor required." Tapping opens the **SponsorModal** with up to 3 mixed offers — Path B preferentially surfaces **AI-personality lenders** (each with their `lender_profile` knobs and relationship-aware terms), filling any remaining slots with anonymous house archetypes. The loan lands directly on the table stack — never in bankroll — closing the "pocket the spare loan" exploit.
+- **Player sponsor loan (replaces auto fresh-grant):** when `bankroll < this tier's min_buy_in` AND `bankroll ≥ prev tier's min_buy_in`, the stake picker at `/cash` shows the tier as "Sponsor required." Tapping opens the **SponsorModal** with up to 3 mixed offers — Path B preferentially surfaces **AI-personality lenders** (each with their `staker_profile` knobs and relationship-aware terms), filling any remaining slots with anonymous house archetypes. The loan lands directly on the table stack — never in bankroll — closing the "pocket the spare loan" exploit.
 - **AI-personality lender path:** when the player accepts a personality offer, `active_loan_lender_id` on `player_bankroll_state` is set to that AI's `personality_id`. The route emits `RelationshipEvent.SPONSORSHIP_OFFERED` (small respect + likability bump in both directions — the AI extended trust, the player accepted it). At leave-time, `settle_loan_on_leave` credits `sponsor_total` back to the AI lender's persistent bankroll (clamped to their cap, mirroring Path A's cash-out rule), and fires `LOAN_REPAID` or `LOAN_DEFAULTED` based on whether `chips_at_table` covered the floor. Defaulting is the sharpest negative event in the relationship calibration — `respect -0.30, heat +0.30, likability -0.20`.
 - **Leave-time loan settlement:** see `cash_mode/loan_settlement.py:settle_loan_on_leave`. Player's `chips_at_table` first pays the floor (`int(amount × repayment_floor)`); whatever's left has the sponsor's cut applied (`int(remaining × rate)`); the residue returns to bankroll. Edge cases: chips < floor → all to sponsor, balance forgiven (v1 — no reputation hit yet for full busts even on AI loans); chips_at_table = 0 → no event fires; no active loan → existing chips return to bankroll verbatim. Loan fields always reset on leave (session-scoped), including `active_loan_lender_id`.
 - **Tier-climbing rule:** sponsor-eligible iff `bankroll < this tier's min` AND (`tier is lowest` OR `bankroll ≥ prev tier's min`). Step-by-step; can't jump $2 → $1000 with one Whale Backer. Volatile (current bankroll only); no persistent unlock tracking in v1.

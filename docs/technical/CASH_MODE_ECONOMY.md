@@ -2,7 +2,7 @@
 purpose: Technical reference for the cash-mode chip economy as implemented — pools, flow paths, conservation invariant, audit, and tuning levers.
 type: reference
 created: 2026-05-19
-last_updated: 2026-05-19
+last_updated: 2026-05-21
 ---
 
 # Cash Mode Economy
@@ -276,7 +276,7 @@ Six archetypes parameterized by table buy-in window:
 
 ```jsonc
 {
-  "lender_profile": {
+  "staker_profile": {
     "willing": true,
     "max_loan_pct_of_bankroll": 0.05-0.15,
     "floor_anchor": 1.00-1.40,

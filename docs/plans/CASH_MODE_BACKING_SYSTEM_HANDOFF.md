@@ -397,7 +397,7 @@ activity ticker.
 
 **Commit 1: Generalize stake plumbing for AI borrowers**
 - The schema from Phase 1 already supports `borrower_kind='personality'` — wire it.
-- `cash_mode/lender_profile.py` gains `borrower_profile` (mirror of lender profile but for "do I accept stakes?"). Most AIs default to "yes if I bust"; stoic personalities (Lincoln, Buddha types) `willing=false`.
+- `cash_mode/staker_profile.py` gains `borrower_profile` (mirror of lender profile but for "do I accept stakes?"). Most AIs default to "yes if I bust"; stoic personalities (Lincoln, Buddha types) `willing=false`.
 
 **Commit 2: AI-borrow movement decision**
 - `cash_mode/movement.py:evaluate_ai_movement` gains a `take_stake` decision option, evaluated when the AI would otherwise `forced_leave` (chips ≤ 0.3 × buy_in).
@@ -446,7 +446,7 @@ stake model: when Napoleon stakes Buddha, Napoleon's bankroll
 loses the principal *at deal time*. Buddha's subsequent loss
 doesn't affect Napoleon's solvency; Napoleon just doesn't get
 repaid. The real concern is **slow bankroll deflation** across
-many bad-pick stakings — the existing `lender_profile.bankroll_floor`
+many bad-pick stakings — the existing `staker_profile.bankroll_floor`
 (2× ai_buy_in) prevents extreme cases. Watch audit telemetry
 for AI bankroll medians drifting downward; tune `bankroll_floor`
 or `max_outstanding_stakes_per_staker` upward if needed.
@@ -505,7 +505,7 @@ top of that base — each one can land independently and the system
 stays coherent at any stopping point.
 
 **Commit 1: Garnishment on AI take_stake**
-- `find_ai_staker_for` already filters candidates by lender_profile + relationship axes. Add a per-candidate post-filter step: if the candidate has an existing carry from this borrower (queried via `stake_repo.list_carries_for_staker(candidate_id)` filtered to `borrower_id == this borrower`), bump the cut returned by the function.
+- `find_ai_staker_for` already filters candidates by staker_profile + relationship axes. Add a per-candidate post-filter step: if the candidate has an existing carry from this borrower (queried via `stake_repo.list_carries_for_staker(candidate_id)` filtered to `borrower_id == this borrower`), bump the cut returned by the function.
 - Garnishment formula mirrors Phase 2.1: new cut = `min(rate_anchor + garnishment_rate × outstanding_carry / new_principal, MAX_CUT)`. Suggested `garnishment_rate = 0.5`, `MAX_CUT = rate_anchor + 0.20` (cap at +20pp to avoid degenerate 100% cut deals).
 - The plumbing already supports a custom cut at stake creation — `StakeCreationChange.cut` is just passed through to the Stake row at lobby application time. No new fields needed.
 - Tests: garnishment fires when same-staker carry exists; doesn't fire across different stakers; cut cap holds at extreme carry ratios.
@@ -669,7 +669,7 @@ to layer on top in subsequent phases.
 1. **This doc** — design above.
 2. **`docs/technical/CASH_MODE_ECONOMY.md`** — canonical chip-economy reference. Pools, flow paths, conservation invariant, ledger vocabulary, known issues. **Read this before touching any chip-moving code.**
 3. **`docs/technical/CASH_MODE_FULL_SIM.md`** — sim mechanics that Phase 4 hooks into.
-4. **`docs/plans/CASH_MODE_PATH_B_HANDOFF.md`** — what Path B built; defines the lender_profile shape and the relationship event wiring this handoff extends.
+4. **`docs/plans/CASH_MODE_PATH_B_HANDOFF.md`** — what Path B built; defines the staker_profile shape and the relationship event wiring this handoff extends.
 5. **`docs/plans/CASH_MODE_CHIP_LEDGER_HANDOFF.md`** — the ledger's reason vocabulary and audit model.
 6. **`poker/repositories/schema_manager.py`** — `SCHEMA_VERSION` is 97; Phase 1 lands v98.
 7. **`cash_mode/loan_settlement.py:settle_loan_on_leave`** — the function Phase 1.3 rewrites as `cash_mode/stake_settlement.py:settle_stake_on_leave`.

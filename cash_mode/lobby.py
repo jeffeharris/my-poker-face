@@ -526,7 +526,7 @@ def refresh_unseated_tables(
         profile = bankroll_repo.load_borrower_profile(pid)
         if not profile.willing:
             return profile
-        from cash_mode.lender_profile import BorrowerProfile
+        from cash_mode.staker_profile import BorrowerProfile
         # Burst-local guard: was this pid already given a stake earlier
         # in the current refresh? (DB check below sees stale state.)
         if pid in _burst_stake_creation_pids:
@@ -539,8 +539,8 @@ def refresh_unseated_tables(
                 return BorrowerProfile(willing=False)
         return profile
 
-    def _lender_profile_lookup(pid: str):
-        return bankroll_repo.load_lender_profile(pid)
+    def _staker_profile_lookup(pid: str):
+        return bankroll_repo.load_staker_profile(pid)
 
     def _relationship_lookup(observer_id: str, opponent_id: str):
         if relationship_repo is None:
@@ -682,7 +682,7 @@ def refresh_unseated_tables(
                 )
                 return profile
             if tier == TIER_HOUSE_ONLY:
-                from cash_mode.lender_profile import BorrowerProfile
+                from cash_mode.staker_profile import BorrowerProfile
                 return BorrowerProfile(willing=False)
             return profile
 
@@ -831,8 +831,8 @@ def refresh_unseated_tables(
                 borrower_profile_lookup=(
                     _borrower_lookup_for_table if _take_stake_enabled else None
                 ),
-                lender_profile_lookup=(
-                    _lender_profile_lookup if _take_stake_enabled else None
+                staker_profile_lookup=(
+                    _staker_profile_lookup if _take_stake_enabled else None
                 ),
                 relationship_lookup=(
                     _relationship_lookup if _take_stake_enabled else None
@@ -924,6 +924,7 @@ def refresh_unseated_tables(
         # own from_seat for the bust chips, which must still credit).
         settled_from_seat_indices: set = set()
         if stake_repo is not None:
+            from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
             from cash_mode.stake_chip_flow import (
                 DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
                 DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL,

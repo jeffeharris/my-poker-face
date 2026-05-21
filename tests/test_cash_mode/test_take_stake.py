@@ -24,11 +24,11 @@ from unittest.mock import MagicMock
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from cash_mode.lender_profile import (
+from cash_mode.staker_profile import (
     BORROWER_PROFILE_DEFAULTS,
     BorrowerProfile,
-    LENDER_PROFILE_DEFAULTS,
-    LenderProfile,
+    STAKER_PROFILE_DEFAULTS,
+    StakerProfile,
 )
 from cash_mode.movement import (
     StakeCreationChange,
@@ -42,10 +42,10 @@ from cash_mode.tables import CashTableState, ai_slot, open_slot
 ANCHOR = datetime(2026, 5, 20, 12, 0, 0)
 
 
-def _willing_lender(
+def _willing_staker(
     *, max_pct=0.5, respect_floor=-0.5, heat_ceiling=0.7,
-) -> LenderProfile:
-    return LenderProfile(
+) -> StakerProfile:
+    return StakerProfile(
         willing=True,
         max_loan_pct_of_bankroll=max_pct,
         floor_anchor=1.20,
@@ -60,7 +60,7 @@ class TestFindAIStakerFor(unittest.TestCase):
 
     def _profile_lookup(self, profiles):
         def _lookup(pid):
-            return profiles.get(pid, LENDER_PROFILE_DEFAULTS)
+            return profiles.get(pid, STAKER_PROFILE_DEFAULTS)
         return _lookup
 
     def _bankroll_lookup(self, bankrolls):
@@ -78,7 +78,7 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=[],
-            lender_profile_lookup=self._profile_lookup({}),
+            staker_profile_lookup=self._profile_lookup({}),
             bankroll_lookup=self._bankroll_lookup({}),
             relationship_lookup=self._rel_lookup({}),
             rng=random.Random(1),
@@ -86,7 +86,7 @@ class TestFindAIStakerFor(unittest.TestCase):
         self.assertIsNone(match)
 
     def test_returns_none_when_all_unwilling(self):
-        unwilling = LenderProfile(
+        unwilling = StakerProfile(
             willing=False, max_loan_pct_of_bankroll=0.5,
             floor_anchor=1.0, rate_anchor=0.3,
             respect_floor=-1.0, heat_ceiling=1.0,
@@ -95,7 +95,7 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["napoleon"],
-            lender_profile_lookup=self._profile_lookup({"napoleon": unwilling}),
+            staker_profile_lookup=self._profile_lookup({"napoleon": unwilling}),
             bankroll_lookup=self._bankroll_lookup({"napoleon": 5_000}),
             relationship_lookup=self._rel_lookup({}),
             rng=random.Random(1),
@@ -109,8 +109,8 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["napoleon"],
-            lender_profile_lookup=self._profile_lookup({
-                "napoleon": _willing_lender(),
+            staker_profile_lookup=self._profile_lookup({
+                "napoleon": _willing_staker(),
             }),
             bankroll_lookup=self._bankroll_lookup({"napoleon": 5_000}),
             relationship_lookup=self._rel_lookup({}),
@@ -127,8 +127,8 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=2_000,
             candidate_pids=["broke_ai"],
-            lender_profile_lookup=self._profile_lookup({
-                "broke_ai": _willing_lender(max_pct=0.05),
+            staker_profile_lookup=self._profile_lookup({
+                "broke_ai": _willing_staker(max_pct=0.05),
             }),
             # 1,000 × 0.05 = 50 < 2,000.
             bankroll_lookup=self._bankroll_lookup({"broke_ai": 1_000}),
@@ -143,8 +143,8 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["napoleon"],
-            lender_profile_lookup=self._profile_lookup({
-                "napoleon": _willing_lender(respect_floor=-0.5),
+            staker_profile_lookup=self._profile_lookup({
+                "napoleon": _willing_staker(respect_floor=-0.5),
             }),
             bankroll_lookup=self._bankroll_lookup({"napoleon": 5_000}),
             relationship_lookup=self._rel_lookup({
@@ -159,8 +159,8 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["napoleon"],
-            lender_profile_lookup=self._profile_lookup({
-                "napoleon": _willing_lender(heat_ceiling=0.6),
+            staker_profile_lookup=self._profile_lookup({
+                "napoleon": _willing_staker(heat_ceiling=0.6),
             }),
             bankroll_lookup=self._bankroll_lookup({"napoleon": 5_000}),
             relationship_lookup=self._rel_lookup({
@@ -176,8 +176,8 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["bust_ai"],
-            lender_profile_lookup=self._profile_lookup({
-                "bust_ai": _willing_lender(),
+            staker_profile_lookup=self._profile_lookup({
+                "bust_ai": _willing_staker(),
             }),
             bankroll_lookup=self._bankroll_lookup({"bust_ai": 5_000}),
             relationship_lookup=self._rel_lookup({}),
@@ -199,7 +199,7 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
 
     def _profile_lookup(self, profiles):
         def _lookup(pid):
-            return profiles.get(pid, LENDER_PROFILE_DEFAULTS)
+            return profiles.get(pid, STAKER_PROFILE_DEFAULTS)
         return _lookup
 
     def _bankroll_lookup(self, bankrolls):
@@ -229,9 +229,9 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["bezos", "napoleon"],
-            lender_profile_lookup=self._profile_lookup({
-                "bezos": _willing_lender(),
-                "napoleon": _willing_lender(),
+            staker_profile_lookup=self._profile_lookup({
+                "bezos": _willing_staker(),
+                "napoleon": _willing_staker(),
             }),
             bankroll_lookup=self._bankroll_lookup({
                 "bezos": 5_000, "napoleon": 5_000,
@@ -252,9 +252,9 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
                 borrower_id="bust_ai",
                 principal=80,
                 candidate_pids=["bezos", "napoleon"],
-                lender_profile_lookup=self._profile_lookup({
-                    "bezos": _willing_lender(),
-                    "napoleon": _willing_lender(),
+                staker_profile_lookup=self._profile_lookup({
+                    "bezos": _willing_staker(),
+                    "napoleon": _willing_staker(),
                 }),
                 bankroll_lookup=self._bankroll_lookup({
                     "bezos": 100_000, "napoleon": 10_000,
@@ -280,9 +280,9 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
                 borrower_id="bust_ai",
                 principal=80,
                 candidate_pids=["bezos", "napoleon"],
-                lender_profile_lookup=self._profile_lookup({
-                    "bezos": _willing_lender(),
-                    "napoleon": _willing_lender(),
+                staker_profile_lookup=self._profile_lookup({
+                    "bezos": _willing_staker(),
+                    "napoleon": _willing_staker(),
                 }),
                 bankroll_lookup=self._bankroll_lookup({
                     "bezos": 10_000, "napoleon": 10_000,
@@ -310,9 +310,9 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
                 borrower_id="bust_ai",
                 principal=80,
                 candidate_pids=["bezos", "napoleon"],
-                lender_profile_lookup=self._profile_lookup({
-                    "bezos": _willing_lender(),
-                    "napoleon": _willing_lender(),
+                staker_profile_lookup=self._profile_lookup({
+                    "bezos": _willing_staker(),
+                    "napoleon": _willing_staker(),
                 }),
                 bankroll_lookup=self._bankroll_lookup({
                     "bezos": 10_000, "napoleon": 10_000,
@@ -341,9 +341,9 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
                 borrower_id="bust_ai",
                 principal=80,
                 candidate_pids=["bezos", "napoleon"],
-                lender_profile_lookup=self._profile_lookup({
-                    "bezos": _willing_lender(),
-                    "napoleon": _willing_lender(),
+                staker_profile_lookup=self._profile_lookup({
+                    "bezos": _willing_staker(),
+                    "napoleon": _willing_staker(),
                 }),
                 bankroll_lookup=self._bankroll_lookup({
                     "bezos": 100_000, "napoleon": 5_000,
@@ -369,8 +369,8 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["napoleon"],
-            lender_profile_lookup=self._profile_lookup({
-                "napoleon": _willing_lender(),
+            staker_profile_lookup=self._profile_lookup({
+                "napoleon": _willing_staker(),
             }),
             bankroll_lookup=self._bankroll_lookup({"napoleon": 5_000}),
             relationship_lookup=self._rel_lookup({}),
@@ -432,7 +432,7 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
             table,
             **self._common_kwargs(
                 borrower_profile_lookup=lambda pid: unwilling,
-                lender_profile_lookup=lambda pid: _willing_lender(),
+                staker_profile_lookup=lambda pid: _willing_staker(),
                 relationship_lookup=lambda o, p: None,
                 stake_label="$2",
             ),
@@ -443,7 +443,7 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
     def test_with_no_willing_staker_falls_back_to_forced_leave(self):
         # Borrower willing; peer (napoleon) is unwilling.
         table = self._make_table()
-        unwilling_lender = LenderProfile(
+        unwilling_staker = StakerProfile(
             willing=False, max_loan_pct_of_bankroll=0.5,
             floor_anchor=1.0, rate_anchor=0.3,
             respect_floor=-1.0, heat_ceiling=1.0,
@@ -452,7 +452,7 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
             table,
             **self._common_kwargs(
                 borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
-                lender_profile_lookup=lambda pid: unwilling_lender,
+                staker_profile_lookup=lambda pid: unwilling_staker,
                 relationship_lookup=lambda o, p: None,
                 stake_label="$2",
             ),
@@ -466,7 +466,7 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
             table,
             **self._common_kwargs(
                 borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
-                lender_profile_lookup=lambda pid: _willing_lender(),
+                staker_profile_lookup=lambda pid: _willing_staker(),
                 relationship_lookup=lambda o, p: None,
                 stake_label="$2",
             ),
@@ -486,7 +486,7 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
             table,
             **self._common_kwargs(
                 borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
-                lender_profile_lookup=lambda pid: _willing_lender(),
+                staker_profile_lookup=lambda pid: _willing_staker(),
                 relationship_lookup=lambda o, p: None,
                 stake_label="$2",
             ),
@@ -507,7 +507,7 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
             table,
             **self._common_kwargs(
                 borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
-                lender_profile_lookup=lambda pid: _willing_lender(),
+                staker_profile_lookup=lambda pid: _willing_staker(),
                 relationship_lookup=lambda o, p: None,
                 stake_label="$2",
             ),
@@ -539,7 +539,7 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
             table,
             **self._common_kwargs(
                 borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
-                lender_profile_lookup=lambda pid: _willing_lender(),
+                staker_profile_lookup=lambda pid: _willing_staker(),
                 relationship_lookup=lambda o, p: None,
                 stake_label="$2",
                 # An AI from another table or the idle pool.
@@ -560,7 +560,7 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
             table,
             **self._common_kwargs(
                 borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
-                lender_profile_lookup=lambda pid: _willing_lender(),
+                staker_profile_lookup=lambda pid: _willing_staker(),
                 relationship_lookup=lambda o, p: None,
                 stake_label="$2",
                 cross_table_staker_pids=["napoleon"],  # already at table
@@ -580,7 +580,7 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
             table,
             **self._common_kwargs(
                 borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
-                lender_profile_lookup=lambda pid: _willing_lender(),
+                staker_profile_lookup=lambda pid: _willing_staker(),
                 relationship_lookup=lambda o, p: None,
                 stake_label="$2",
             ),
@@ -602,7 +602,7 @@ class TestBorrowerGuardClosure(unittest.TestCase):
     """
 
     def test_burst_local_guard_blocks_second_stake(self):
-        from cash_mode.lender_profile import BorrowerProfile
+        from cash_mode.staker_profile import BorrowerProfile
         burst_seen: set = set()
 
         def lookup(pid: str):

@@ -28,11 +28,11 @@ from cash_mode.bankroll import (
     PlayerBankrollState,
     project_bankroll,
 )
-from cash_mode.lender_profile import (
+from cash_mode.staker_profile import (
     BORROWER_PROFILE_DEFAULTS,
     BorrowerProfile,
-    LENDER_PROFILE_DEFAULTS,
-    LenderProfile,
+    STAKER_PROFILE_DEFAULTS,
+    StakerProfile,
 )
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.schema_manager import SchemaManager
@@ -47,15 +47,15 @@ def _insert_personality(
     *,
     name: str = None,
     bankroll_knobs: dict = None,
-    lender_profile: dict = None,
+    staker_profile: dict = None,
     borrower_profile: dict = None,
 ) -> None:
-    """Helper: insert a personality row with optional bankroll_knobs / lender_profile / borrower_profile in config_json."""
+    """Helper: insert a personality row with optional bankroll_knobs / staker_profile / borrower_profile in config_json."""
     config = {}
     if bankroll_knobs is not None:
         config["bankroll_knobs"] = bankroll_knobs
-    if lender_profile is not None:
-        config["lender_profile"] = lender_profile
+    if staker_profile is not None:
+        config["staker_profile"] = staker_profile
     if borrower_profile is not None:
         config["borrower_profile"] = borrower_profile
     with sqlite3.connect(db_path) as conn:
@@ -450,29 +450,29 @@ class TestAIBankrollCurrentReads:
         assert projected == 2_000
 
 
-# --- Lender profile loading (Path B) ---
+# --- Staker profile loading (Path B) ---
 
 
-class TestLenderProfile:
-    """`load_lender_profile` reads `config_json.lender_profile` with
-    per-field fallback to `LENDER_PROFILE_DEFAULTS`. Same shape as
+class TestStakerProfile:
+    """`load_staker_profile` reads `config_json.staker_profile` with
+    per-field fallback to `STAKER_PROFILE_DEFAULTS`. Same shape as
     `load_personality_knobs`."""
 
     def test_load_returns_defaults_when_row_missing(self, repo):
-        profile = repo.load_lender_profile("nonexistent_id")
-        assert profile == LENDER_PROFILE_DEFAULTS
+        profile = repo.load_staker_profile("nonexistent_id")
+        assert profile == STAKER_PROFILE_DEFAULTS
 
-    def test_load_returns_defaults_when_config_lacks_lender_profile(self, db_path, repo):
-        # Personality row exists but config_json has no lender_profile sub-dict.
+    def test_load_returns_defaults_when_config_lacks_staker_profile(self, db_path, repo):
+        # Personality row exists but config_json has no staker_profile sub-dict.
         _insert_personality(db_path, "no_profile_id")
-        profile = repo.load_lender_profile("no_profile_id")
-        assert profile == LENDER_PROFILE_DEFAULTS
+        profile = repo.load_staker_profile("no_profile_id")
+        assert profile == STAKER_PROFILE_DEFAULTS
 
     def test_load_returns_full_profile_when_present(self, db_path, repo):
         _insert_personality(
             db_path,
             "predatory_pete",
-            lender_profile={
+            staker_profile={
                 "willing": True,
                 "max_loan_pct_of_bankroll": 0.08,
                 "floor_anchor": 1.40,
@@ -481,7 +481,7 @@ class TestLenderProfile:
                 "heat_ceiling": 0.95,
             },
         )
-        profile = repo.load_lender_profile("predatory_pete")
+        profile = repo.load_staker_profile("predatory_pete")
         assert profile.willing is True
         assert profile.max_loan_pct_of_bankroll == 0.08
         assert profile.floor_anchor == 1.40
@@ -494,28 +494,28 @@ class TestLenderProfile:
         _insert_personality(
             db_path,
             "mime",
-            lender_profile={"willing": False},
+            staker_profile={"willing": False},
         )
-        profile = repo.load_lender_profile("mime")
+        profile = repo.load_staker_profile("mime")
         assert profile.willing is False
         # Missing fields fall back per-field.
-        assert profile.max_loan_pct_of_bankroll == LENDER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll
+        assert profile.max_loan_pct_of_bankroll == STAKER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll
 
     def test_partial_profile_falls_back_per_field(self, db_path, repo):
         # Only floor_anchor and rate_anchor set; other fields default.
         _insert_personality(
             db_path,
             "partial",
-            lender_profile={"floor_anchor": 1.05, "rate_anchor": 0.10},
+            staker_profile={"floor_anchor": 1.05, "rate_anchor": 0.10},
         )
-        profile = repo.load_lender_profile("partial")
+        profile = repo.load_staker_profile("partial")
         assert profile.floor_anchor == 1.05
         assert profile.rate_anchor == 0.10
         # The rest pulled from defaults.
-        assert profile.willing == LENDER_PROFILE_DEFAULTS.willing
-        assert profile.max_loan_pct_of_bankroll == LENDER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll
-        assert profile.respect_floor == LENDER_PROFILE_DEFAULTS.respect_floor
-        assert profile.heat_ceiling == LENDER_PROFILE_DEFAULTS.heat_ceiling
+        assert profile.willing == STAKER_PROFILE_DEFAULTS.willing
+        assert profile.max_loan_pct_of_bankroll == STAKER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll
+        assert profile.respect_floor == STAKER_PROFILE_DEFAULTS.respect_floor
+        assert profile.heat_ceiling == STAKER_PROFILE_DEFAULTS.heat_ceiling
 
     def test_load_handles_malformed_json(self, db_path, repo):
         # Malformed config_json → defaults (logged warning).
@@ -526,20 +526,20 @@ class TestLenderProfile:
                 ("Bad JSON", "{not valid", "bad_json"),
             )
             conn.commit()
-        profile = repo.load_lender_profile("bad_json")
-        assert profile == LENDER_PROFILE_DEFAULTS
+        profile = repo.load_staker_profile("bad_json")
+        assert profile == STAKER_PROFILE_DEFAULTS
 
-    def test_load_handles_non_dict_lender_profile(self, db_path, repo):
-        # lender_profile sub-key isn't a dict → defaults.
+    def test_load_handles_non_dict_staker_profile(self, db_path, repo):
+        # staker_profile sub-key isn't a dict → defaults.
         with sqlite3.connect(db_path) as conn:
             conn.execute(
                 "INSERT INTO personalities (name, config_json, personality_id) "
                 "VALUES (?, ?, ?)",
-                ("Wrong Type", json.dumps({"lender_profile": "oops"}), "wrong_type_lp"),
+                ("Wrong Type", json.dumps({"staker_profile": "oops"}), "wrong_type_lp"),
             )
             conn.commit()
-        profile = repo.load_lender_profile("wrong_type_lp")
-        assert profile == LENDER_PROFILE_DEFAULTS
+        profile = repo.load_staker_profile("wrong_type_lp")
+        assert profile == STAKER_PROFILE_DEFAULTS
 
 
 # --- Borrower profile loading (Phase 4 of the backing system) ---
@@ -548,7 +548,7 @@ class TestLenderProfile:
 class TestBorrowerProfile:
     """`load_borrower_profile` reads `config_json.borrower_profile` with
     per-field fallback to `BORROWER_PROFILE_DEFAULTS`. Mirror of
-    `load_lender_profile` for "does this AI accept stakes when bust?"."""
+    `load_staker_profile` for "does this AI accept stakes when bust?"."""
 
     def test_load_returns_defaults_when_row_missing(self, repo):
         profile = repo.load_borrower_profile("nonexistent_id")
@@ -607,10 +607,10 @@ class TestBorrowerProfile:
         # (Lincoln-like: principled about giving help but not asking).
         _insert_personality(
             db_path, "principled_lincoln",
-            lender_profile={"willing": True, "max_loan_pct_of_bankroll": 0.15},
+            staker_profile={"willing": True, "max_loan_pct_of_bankroll": 0.15},
             borrower_profile={"willing": False},
         )
-        lender = repo.load_lender_profile("principled_lincoln")
+        lender = repo.load_staker_profile("principled_lincoln")
         borrower = repo.load_borrower_profile("principled_lincoln")
         assert lender.willing is True
         assert borrower.willing is False

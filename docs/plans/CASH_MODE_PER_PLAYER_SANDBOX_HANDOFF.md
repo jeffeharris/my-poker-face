@@ -2,7 +2,7 @@
 purpose: Phase 2.5 — introduce sandboxes as a first-class scoping unit for cash mode's runtime AI state (bankrolls, lobby tables, idle pool, activity history). Per-player in v1 via a 1:1 default sandbox; the model admits multiple-sandboxes-per-user, shared sandboxes, sandbox lifecycle (reset / export / archive), and admin-provided templates without further migration.
 type: guide
 created: 2026-05-20
-last_updated: 2026-05-20
+last_updated: 2026-05-21
 ---
 
 # Cash Mode — Sandbox Handoff (Phase 2.5)
@@ -503,7 +503,7 @@ Net add: ~85 test changes + ~25-30 new tests.
    confirmation.
 
 4. **Personality template updates.** Today, editing Napoleon's
-   `lender_profile` in `personalities.json` affects all sessions.
+   `staker_profile` in `personalities.json` affects all sessions.
    That stays the same under sandbox scoping — definitions are
    shared, only runtime state is scoped. If you want truly
    independent Napoleons (each sandbox can tune their copy's

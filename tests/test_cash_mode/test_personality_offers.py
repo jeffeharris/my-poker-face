@@ -17,7 +17,7 @@ from typing import Optional
 
 import pytest
 
-from cash_mode.lender_profile import LENDER_PROFILE_DEFAULTS, LenderProfile
+from cash_mode.staker_profile import STAKER_PROFILE_DEFAULTS, StakerProfile
 from cash_mode.sponsor_offers import (
     PersonalitySponsorOffer,
     _adjusted_terms,
@@ -39,7 +39,7 @@ class _RelState:
 class _FakeBankrollRepo:
     """Fake BankrollRepository for pure-function tests.
 
-    `profiles` maps personality_id → LenderProfile (or omitted to
+    `profiles` maps personality_id → StakerProfile (or omitted to
     default). `bankrolls` maps personality_id → projected chips int
     (or omitted to simulate no bankroll row, returning None).
     """
@@ -48,8 +48,8 @@ class _FakeBankrollRepo:
         self.profiles = profiles or {}
         self.bankrolls = bankrolls or {}
 
-    def load_lender_profile(self, personality_id):
-        return self.profiles.get(personality_id, LENDER_PROFILE_DEFAULTS)
+    def load_staker_profile(self, personality_id):
+        return self.profiles.get(personality_id, STAKER_PROFILE_DEFAULTS)
 
     def load_ai_bankroll_current(self, personality_id, *, sandbox_id, now=None):
         return self.bankrolls.get(personality_id)  # None when missing
@@ -79,7 +79,7 @@ MAX_BUY_IN = 1000
 
 class TestCapacityForLender:
     def test_pct_under_min_returns_raw(self):
-        profile = LenderProfile(
+        profile = StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.05,
             floor_anchor=1.0, rate_anchor=0.2,
             respect_floor=-0.5, heat_ceiling=0.7,
@@ -90,7 +90,7 @@ class TestCapacityForLender:
         assert cap == 250
 
     def test_pct_above_max_clamps_down(self):
-        profile = LenderProfile(
+        profile = StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.50,
             floor_anchor=1.0, rate_anchor=0.2,
             respect_floor=-0.5, heat_ceiling=0.7,
@@ -100,7 +100,7 @@ class TestCapacityForLender:
         assert cap == 1_000
 
     def test_pct_in_window_returns_pct(self):
-        profile = LenderProfile(
+        profile = StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.10,
             floor_anchor=1.0, rate_anchor=0.2,
             respect_floor=-0.5, heat_ceiling=0.7,
@@ -115,7 +115,7 @@ class TestCapacityForLender:
 
 class TestAdjustedTerms:
     def _profile(self):
-        return LenderProfile(
+        return StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.10,
             floor_anchor=1.20, rate_anchor=0.30,
             respect_floor=-0.5, heat_ceiling=0.7,
@@ -154,7 +154,7 @@ class TestAdjustedTerms:
 
     def test_floor_clamped_to_min(self):
         # Anchors near 1.00 plus likability+respect trims could go below 1.00.
-        profile = LenderProfile(
+        profile = StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.10,
             floor_anchor=1.02, rate_anchor=0.10,
             respect_floor=-0.5, heat_ceiling=0.7,
@@ -166,7 +166,7 @@ class TestAdjustedTerms:
         assert floor == 1.00
 
     def test_rate_clamped_to_zero(self):
-        profile = LenderProfile(
+        profile = StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.10,
             floor_anchor=1.20, rate_anchor=0.02,
             respect_floor=-0.5, heat_ceiling=0.7,
@@ -178,7 +178,7 @@ class TestAdjustedTerms:
         assert rate == 0.00
 
     def test_floor_clamped_to_max(self):
-        profile = LenderProfile(
+        profile = StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.10,
             floor_anchor=1.45, rate_anchor=0.30,
             respect_floor=-0.5, heat_ceiling=1.0,
@@ -190,7 +190,7 @@ class TestAdjustedTerms:
         assert floor == 1.50
 
     def test_rate_clamped_to_max(self):
-        profile = LenderProfile(
+        profile = StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.10,
             floor_anchor=1.20, rate_anchor=0.50,
             respect_floor=-0.5, heat_ceiling=1.0,
@@ -237,7 +237,7 @@ class TestRelationshipHint:
 class TestEligibility:
     def test_unwilling_lender_excluded(self):
         profiles = {
-            "mime": LenderProfile(
+            "mime": StakerProfile(
                 willing=False, max_loan_pct_of_bankroll=0.10,
                 floor_anchor=1.2, rate_anchor=0.3,
                 respect_floor=-0.5, heat_ceiling=0.7,
@@ -259,7 +259,7 @@ class TestEligibility:
     def test_no_bankroll_row_excluded(self):
         # AI never sat down → no bankroll row → load_ai_bankroll_current
         # returns None → skipped.
-        profiles = {"newbie": LenderProfile(
+        profiles = {"newbie": StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.10,
             floor_anchor=1.2, rate_anchor=0.3,
             respect_floor=-0.5, heat_ceiling=0.7,
@@ -277,7 +277,7 @@ class TestEligibility:
 
     def test_capacity_below_min_excluded(self):
         # 5% of 3000 = 150 < min 400 → excluded.
-        profiles = {"poor": LenderProfile(
+        profiles = {"poor": StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.05,
             floor_anchor=1.2, rate_anchor=0.3,
             respect_floor=-0.5, heat_ceiling=0.7,
@@ -294,7 +294,7 @@ class TestEligibility:
         assert offers == []
 
     def test_respect_below_floor_excluded(self):
-        profiles = {"strict": LenderProfile(
+        profiles = {"strict": StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.10,
             floor_anchor=1.2, rate_anchor=0.3,
             respect_floor=0.3, heat_ceiling=0.9,
@@ -313,7 +313,7 @@ class TestEligibility:
         assert offers == []
 
     def test_heat_above_ceiling_excluded(self):
-        profiles = {"chilly": LenderProfile(
+        profiles = {"chilly": StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.10,
             floor_anchor=1.2, rate_anchor=0.3,
             respect_floor=-0.5, heat_ceiling=0.4,
@@ -334,7 +334,7 @@ class TestEligibility:
     def test_no_relationship_row_treated_as_neutral(self):
         # No relationship state → neutral defaults → all gates pass for
         # this lender → qualifies.
-        profiles = {"fresh": LenderProfile(
+        profiles = {"fresh": StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.10,
             floor_anchor=1.2, rate_anchor=0.3,
             respect_floor=-0.5, heat_ceiling=0.7,
@@ -360,17 +360,17 @@ class TestEligibility:
 class TestSortAndCount:
     def test_offers_sorted_by_capacity_desc(self):
         profiles = {
-            "small": LenderProfile(
+            "small": StakerProfile(
                 willing=True, max_loan_pct_of_bankroll=0.10,
                 floor_anchor=1.2, rate_anchor=0.3,
                 respect_floor=-0.5, heat_ceiling=0.7,
             ),
-            "big": LenderProfile(
+            "big": StakerProfile(
                 willing=True, max_loan_pct_of_bankroll=0.10,
                 floor_anchor=1.2, rate_anchor=0.3,
                 respect_floor=-0.5, heat_ceiling=0.7,
             ),
-            "mid": LenderProfile(
+            "mid": StakerProfile(
                 willing=True, max_loan_pct_of_bankroll=0.10,
                 floor_anchor=1.2, rate_anchor=0.3,
                 respect_floor=-0.5, heat_ceiling=0.7,
@@ -398,7 +398,7 @@ class TestSortAndCount:
 
     def test_count_truncates_results(self):
         profiles = {
-            f"l{i}": LenderProfile(
+            f"l{i}": StakerProfile(
                 willing=True, max_loan_pct_of_bankroll=0.10,
                 floor_anchor=1.2, rate_anchor=0.3,
                 respect_floor=-0.5, heat_ceiling=0.7,
@@ -434,17 +434,17 @@ class TestSortAndCount:
 
     def test_mixed_eligible_and_ineligible(self):
         profiles = {
-            "willing": LenderProfile(
+            "willing": StakerProfile(
                 willing=True, max_loan_pct_of_bankroll=0.10,
                 floor_anchor=1.2, rate_anchor=0.3,
                 respect_floor=-0.5, heat_ceiling=0.7,
             ),
-            "unwilling": LenderProfile(
+            "unwilling": StakerProfile(
                 willing=False, max_loan_pct_of_bankroll=0.10,
                 floor_anchor=1.2, rate_anchor=0.3,
                 respect_floor=-0.5, heat_ceiling=0.7,
             ),
-            "too_poor": LenderProfile(
+            "too_poor": StakerProfile(
                 willing=True, max_loan_pct_of_bankroll=0.03,
                 floor_anchor=1.2, rate_anchor=0.3,
                 respect_floor=-0.5, heat_ceiling=0.7,
@@ -476,7 +476,7 @@ class TestSortAndCount:
 
 class TestOutputShape:
     def test_offer_carries_lender_id_name_and_relationship_hint(self):
-        profiles = {"napoleon": LenderProfile(
+        profiles = {"napoleon": StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.08,
             floor_anchor=1.4, rate_anchor=0.45,
             respect_floor=-0.9, heat_ceiling=0.95,
@@ -505,7 +505,7 @@ class TestOutputShape:
         assert offer.capacity == 1_000
 
     def test_offer_flavor_includes_name(self):
-        profiles = {"buddha": LenderProfile(
+        profiles = {"buddha": StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.15,
             floor_anchor=1.0, rate_anchor=0.15,
             respect_floor=-0.7, heat_ceiling=0.85,
@@ -589,7 +589,7 @@ class TestDefaultCooldown:
             settled_at=now - timedelta(days=3),
         )
 
-        profiles = {"napoleon": LenderProfile(
+        profiles = {"napoleon": StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.15,
             floor_anchor=1.0, rate_anchor=0.15,
             respect_floor=-0.7, heat_ceiling=0.85,
@@ -633,7 +633,7 @@ class TestDefaultCooldown:
             settled_at=now - timedelta(days=10),
         )
 
-        profiles = {"napoleon": LenderProfile(
+        profiles = {"napoleon": StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.15,
             floor_anchor=1.0, rate_anchor=0.15,
             respect_floor=-0.7, heat_ceiling=0.85,
@@ -672,12 +672,12 @@ class TestDefaultCooldown:
         )
 
         profiles = {
-            "napoleon": LenderProfile(
+            "napoleon": StakerProfile(
                 willing=True, max_loan_pct_of_bankroll=0.15,
                 floor_anchor=1.0, rate_anchor=0.15,
                 respect_floor=-0.7, heat_ceiling=0.85,
             ),
-            "buddha": LenderProfile(
+            "buddha": StakerProfile(
                 willing=True, max_loan_pct_of_bankroll=0.15,
                 floor_anchor=1.0, rate_anchor=0.15,
                 respect_floor=-0.7, heat_ceiling=0.85,
@@ -723,7 +723,7 @@ class TestDefaultCooldown:
             settled_at=now - timedelta(days=3),
         )
 
-        profiles = {"napoleon": LenderProfile(
+        profiles = {"napoleon": StakerProfile(
             willing=True, max_loan_pct_of_bankroll=0.15,
             floor_anchor=1.0, rate_anchor=0.15,
             respect_floor=-0.7, heat_ceiling=0.85,

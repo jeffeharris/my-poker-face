@@ -36,11 +36,11 @@ from cash_mode.bankroll import (
     PlayerBankrollState,
     project_bankroll,
 )
-from cash_mode.lender_profile import (
+from cash_mode.staker_profile import (
     BORROWER_PROFILE_DEFAULTS,
     BorrowerProfile,
-    LENDER_PROFILE_DEFAULTS,
-    LenderProfile,
+    STAKER_PROFILE_DEFAULTS,
+    StakerProfile,
     compute_default_willingness_threshold,
 )
 from poker.repositories.base_repository import BaseRepository
@@ -425,16 +425,21 @@ class BankrollRepository(BaseRepository):
             stake_comfort_zone=sub.get("stake_comfort_zone", defaults.stake_comfort_zone),
         )
 
-    def load_lender_profile(self, personality_id: str) -> LenderProfile:
-        """Read the lender profile from `config_json.lender_profile`.
+    def load_staker_profile(self, personality_id: str) -> StakerProfile:
+        """Read the staker profile from `config_json.staker_profile`.
 
         Mirrors `load_personality_knobs`: same nesting convention, same
-        per-field fallback to `LENDER_PROFILE_DEFAULTS`. Three fallback
+        per-field fallback to `STAKER_PROFILE_DEFAULTS`. Three fallback
         cases all return the default profile:
           - personality_id not in the table (unknown personality)
-          - config_json has no `lender_profile` sub-dict (untuned)
+          - config_json has no `staker_profile` sub-dict (untuned)
           - sub-dict is partial (only some keys set; missing keys fall
             back per-field)
+
+        Accepts the legacy `lender_profile` key as a fallback when
+        `staker_profile` is absent — same vocabulary-rename alias
+        pattern as the existing `bankroll_cap`/`starting_bankroll`
+        alias above.
 
         Defaults are conservative (`max_loan_pct=0.05`, `floor=1.20`,
         `rate=0.30`, `respect_floor=-0.5`, `heat_ceiling=0.7`) so a
@@ -447,27 +452,27 @@ class BankrollRepository(BaseRepository):
                 (personality_id,),
             ).fetchone()
         if not row:
-            return LENDER_PROFILE_DEFAULTS
+            return STAKER_PROFILE_DEFAULTS
 
         try:
             config = json.loads(row["config_json"])
         except (TypeError, ValueError):
             logger.warning(
-                "Personality %r has malformed config_json; using lender profile defaults",
+                "Personality %r has malformed config_json; using staker profile defaults",
                 personality_id,
             )
-            return LENDER_PROFILE_DEFAULTS
+            return STAKER_PROFILE_DEFAULTS
 
-        sub = config.get("lender_profile") or {}
+        sub = config.get("staker_profile") or config.get("lender_profile") or {}
         if not isinstance(sub, dict):
             logger.warning(
-                "Personality %r has non-dict lender_profile; using defaults",
+                "Personality %r has non-dict staker_profile; using defaults",
                 personality_id,
             )
-            return LENDER_PROFILE_DEFAULTS
+            return STAKER_PROFILE_DEFAULTS
 
-        defaults = LENDER_PROFILE_DEFAULTS
-        return LenderProfile(
+        defaults = STAKER_PROFILE_DEFAULTS
+        return StakerProfile(
             willing=sub.get("willing", defaults.willing),
             max_loan_pct_of_bankroll=sub.get(
                 "max_loan_pct_of_bankroll", defaults.max_loan_pct_of_bankroll,
@@ -478,11 +483,15 @@ class BankrollRepository(BaseRepository):
             heat_ceiling=sub.get("heat_ceiling", defaults.heat_ceiling),
         )
 
+    def load_lender_profile(self, personality_id: str) -> StakerProfile:
+        """Deprecated alias for `load_staker_profile`."""
+        return self.load_staker_profile(personality_id)
+
     def load_borrower_profile(self, personality_id: str) -> BorrowerProfile:
         """Read the borrower profile from `config_json.borrower_profile`.
 
         Phase 4 + Phase 5 of the backing system. Mirrors
-        `load_lender_profile`'s per-field fallback to
+        `load_staker_profile`'s per-field fallback to
         `BORROWER_PROFILE_DEFAULTS` with one nuance: when the sub-dict
         is missing `willingness_threshold`, the value is **derived
         from `config.anchors.ego`** (already curated per personality)
@@ -575,7 +584,7 @@ class BankrollRepository(BaseRepository):
             value; the loader returns it verbatim
 
         Reads the full config, mutates only `borrower_profile`,
-        writes back — every other key (anchors, lender_profile,
+        writes back — every other key (anchors, staker_profile,
         bankroll_knobs, verbal_tics, etc.) is preserved.
 
         Returns True if a row was updated, False if no row matches.
@@ -608,6 +617,67 @@ class BankrollRepository(BaseRepository):
             else:
                 bp["willingness_threshold"] = float(willingness_threshold)
             config["borrower_profile"] = bp
+            cursor = conn.execute(
+                """
+                UPDATE personalities
+                SET config_json = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE personality_id = ?
+                """,
+                (json.dumps(config), personality_id),
+            )
+            return cursor.rowcount > 0
+
+    def save_staker_profile(
+        self,
+        personality_id: str,
+        profile: StakerProfile,
+    ) -> bool:
+        """Merge staker-profile values into `config_json.staker_profile`.
+
+        Admin surface for the staker side of the backing system (the
+        AI's behavior when OTHER players ask them for a stake-up loan).
+        Mirrors `save_borrower_profile`'s read-modify-write shape:
+        reads the full config, mutates only `staker_profile`, writes
+        back — every other key (anchors, borrower_profile,
+        bankroll_knobs, etc.) is preserved.
+
+        Stores all six fields verbatim. The loader's per-field default
+        fallback (`load_staker_profile`) still applies if a future
+        partial write drops a key, so callers can safely write a full
+        StakerProfile here without worrying about schema drift.
+
+        Returns True if a row was updated, False if no row matches.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                (personality_id,),
+            ).fetchone()
+            if not row:
+                return False
+            try:
+                config = json.loads(row["config_json"])
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Personality %r config_json is malformed; refusing "
+                    "to merge staker_profile",
+                    personality_id,
+                )
+                return False
+            config["staker_profile"] = {
+                "willing": bool(profile.willing),
+                "max_loan_pct_of_bankroll": float(profile.max_loan_pct_of_bankroll),
+                "floor_anchor": float(profile.floor_anchor),
+                "rate_anchor": float(profile.rate_anchor),
+                "respect_floor": float(profile.respect_floor),
+                "heat_ceiling": float(profile.heat_ceiling),
+            }
+            # Drop the legacy `lender_profile` key on edit — once a
+            # personality has been edited through the admin surface,
+            # the new key is canonical and the old one is just dead
+            # weight. (Reads still fall back to `lender_profile` for
+            # untouched rows during the migration window.)
+            config.pop("lender_profile", None)
             cursor = conn.execute(
                 """
                 UPDATE personalities

@@ -16,7 +16,7 @@ from typing import List, Optional
 
 import pytest
 
-from cash_mode.lender_profile import LenderProfile
+from cash_mode.staker_profile import StakerProfile
 from cash_mode.sponsor_offers import (
     GARNISHMENT_RATE_CAP,
     LenderRejection,
@@ -58,7 +58,7 @@ class _FakeBankrollRepo:
         self.profiles = profiles or {}
         self.bankrolls = bankrolls or {}
 
-    def load_lender_profile(self, personality_id):
+    def load_staker_profile(self, personality_id):
         return self.profiles.get(personality_id) or _default_profile()
 
     def load_ai_bankroll_current(self, personality_id, *, sandbox_id, now=None):
@@ -73,8 +73,8 @@ class _FakeRelationshipRepo:
         return self.states.get((observer_id, opponent_id))
 
 
-def _default_profile() -> LenderProfile:
-    return LenderProfile(
+def _default_profile() -> StakerProfile:
+    return StakerProfile(
         willing=True,
         max_loan_pct_of_bankroll=0.20,
         floor_anchor=1.20,

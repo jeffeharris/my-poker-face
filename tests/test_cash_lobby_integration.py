@@ -65,7 +65,7 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
                         'buy_in_multiplier': 1.0,
                         'stake_comfort_zone': '$10',
                     },
-                    'lender_profile': {
+                    'staker_profile': {
                         'willing': True,
                         'max_loan_pct_of_bankroll': 0.20,
                         'floor_anchor': 1.10,
@@ -190,7 +190,7 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
         unwilling_pid = self.personality_repo.save_personality(
             'Unwilling',
             {
-                'lender_profile': {
+                'staker_profile': {
                     'willing': False,
                     'max_loan_pct_of_bankroll': 0.20,
                     'floor_anchor': 1.10,

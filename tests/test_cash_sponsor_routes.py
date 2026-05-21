@@ -112,8 +112,8 @@ class _CashSponsorRouteBase(unittest.TestCase):
         )
         self._auth_patcher.start()
 
-        # Seed lender personalities. lender_profile in config_json is the
-        # surface load_lender_profile reads.
+        # Seed lender personalities. staker_profile in config_json is the
+        # surface load_staker_profile reads.
         self.napoleon_id = self.personality_repo.save_personality(
             'Napoleon',
             {
@@ -123,7 +123,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
-                'lender_profile': {
+                'staker_profile': {
                     'willing': True,
                     'max_loan_pct_of_bankroll': 0.08,
                     'floor_anchor': 1.4,
@@ -143,7 +143,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
-                'lender_profile': {
+                'staker_profile': {
                     'willing': True,
                     'max_loan_pct_of_bankroll': 0.15,
                     'floor_anchor': 1.0,
@@ -158,7 +158,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
             'A Mime',
             {
                 'play_style': 'silent',
-                'lender_profile': {'willing': False},
+                'staker_profile': {'willing': False},
             },
             source='test_seed',
         )

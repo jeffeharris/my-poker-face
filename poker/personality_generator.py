@@ -22,7 +22,7 @@ class PersonalityGenerator:
 You are creating a personality profile for an AI poker player named "{name}".
 {description}
 
-Generate a unique personality configuration with TWO sections:
+Generate a unique personality configuration with THREE sections:
 
 SECTION 1 — BEHAVIORAL TRAITS:
 1. play_style: Brief poker playing style (e.g., "aggressive and unpredictable")
@@ -61,6 +61,52 @@ SECTION 2 — VISUAL IDENTITY (for avatar image generation):
      Include: outfit style, key colors, distinctive accessories.
      Example: "black tactical suit with armored chest plate, utility belt, dark cape"
 
+SECTION 3 — CASH MODE KNOBS (bankroll, lending, borrowing):
+Pick values that fit the character's wealth, temperament, and relationship to money. The
+five stake comfort tiers are "$2", "$10", "$50", "$200", "$1000". Match starting_bankroll
+to the tier (rough peer values shown below).
+
+10. bankroll_knobs: How they handle their own cash-game roll:
+    - starting_bankroll: Total chips they sit with at world-start. Anchor to their tier:
+        * $2 tier:    4,000–8,000  (poor / minimalist / ascetic)
+        * $10 tier:   5,000–25,000 (everyday folk, hobbyist players)
+        * $50 tier:   12,000–40,000 (comfortable middle, serious amateurs)
+        * $200 tier:  30,000–100,000 (wealthy, big personalities, pros)
+        * $1000 tier: 90,000–250,000 (royalty, gods, ultra-rich)
+    - bankroll_rate: Chips/day "income" regen toward starting_bankroll. 100–3500.
+        Higher = bounces back fast (productive, gigging, royalty). Lower = slow recovery
+        (retired, ascetic, has no day-job).
+    - buy_in_multiplier: How much they overbuy relative to the table's min buy-in.
+        1.0 = exactly min buy-in (tight/scared money). 1.5 = +50% (comfortable).
+        2.0–2.5 = "I want everyone covered" (loose/aggro/ego). Tie this to aggression
+        and ego — not just wealth.
+    - stake_comfort_zone: The label they prefer when affordable ("$2"/"$10"/"$50"/"$200"/"$1000").
+
+11. staker_profile: When other AIs ask THEM for a stake-up loan:
+    - willing: false ONLY for principled / ascetic / outright cruel characters
+      (Buddha-types refuse on principle, mob bosses refuse as a power move). Default true.
+    - max_loan_pct_of_bankroll: 0.03–0.20. Fraction of their roll they'll lend at once.
+        Generous/wealthy = 0.10–0.20. Cautious = 0.03–0.07.
+    - floor_anchor: 1.0–1.5. Their floor multiple on repayment (1.0 = par, 1.2 = +20%, etc.).
+        Saintly/generous = 1.0–1.1. Sharks/loan-sharks = 1.3–1.5.
+    - rate_anchor: 0.10–0.50. Interest they expect on top of the floor. Mirror character:
+        gentle souls 0.10–0.20, ruthless types 0.35–0.50.
+    - respect_floor: -1.0 to 0.0. Minimum relationship-respect they need before lending
+        (more negative = lends to almost anyone; near 0 = only respected peers).
+    - heat_ceiling: 0.4–1.0. Max active-conflict (heat) they tolerate while lending.
+
+12. borrower_profile: When THEY are bust and someone offers them a stake:
+    - willing: DEFAULT TRUE for almost everyone — most personalities accept stakes when
+      busted. Set false ONLY when there is a clear in-character reason to refuse on
+      principle (NOT just pride). Examples that DO warrant false: monks/ascetics
+      (Buddha), characters with an explicit anti-money ideology (Tyler Durden),
+      famously stoic figures (Lincoln), Jedi-style non-attachment (Yoda). Pride,
+      wealth, or ego alone are NOT sufficient reasons — encode those via a high
+      willingness_threshold instead.
+    - willingness_threshold: 0.15–0.50. The relationship score they need from a HUMAN
+      staker before accepting. Humble/easygoing = 0.20–0.30. Proud or ego-driven = 0.40–0.50.
+      Omit this field if `willing` is false.
+
 Consider {name}'s cultural/fictional associations. Make it authentic, visually distinctive, and interesting.
 
 Respond with ONLY a JSON object in this exact format:
@@ -90,6 +136,24 @@ Respond with ONLY a JSON object in this exact format:
         "identity": "Name, brief description of who they are",
         "appearance": "physical features in 10-15 words",
         "apparel": "clothing and accessories in 8-12 words"
+    }},
+    "bankroll_knobs": {{
+        "starting_bankroll": 20000,
+        "bankroll_rate": 700,
+        "buy_in_multiplier": 1.5,
+        "stake_comfort_zone": "$50"
+    }},
+    "staker_profile": {{
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.25,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+    }},
+    "borrower_profile": {{
+        "willing": true,
+        "willingness_threshold": 0.30
     }}
 }}
 """
@@ -228,6 +292,29 @@ Respond with ONLY a JSON object in this exact format:
                     'apparel': vi.get('apparel'),
                 }
 
+            # Backfill cash-mode knobs with conservative defaults if the model
+            # omitted them. Cash-mode reads tolerate missing sub-dicts (per-field
+            # fallback to BANKROLL_KNOB_DEFAULTS / STAKER_PROFILE_DEFAULTS), but
+            # persisting explicit defaults keeps the DB row introspectable.
+            result.setdefault('bankroll_knobs', {
+                'starting_bankroll': 10000,
+                'bankroll_rate': 500,
+                'buy_in_multiplier': 1.0,
+                'stake_comfort_zone': '$10',
+            })
+            result.setdefault('staker_profile', {
+                'willing': True,
+                'max_loan_pct_of_bankroll': 0.05,
+                'floor_anchor': 1.20,
+                'rate_anchor': 0.30,
+                'respect_floor': -0.5,
+                'heat_ceiling': 0.7,
+            })
+            result.setdefault('borrower_profile', {
+                'willing': True,
+                'willingness_threshold': 0.30,
+            })
+
             return result
 
         except Exception as e:
@@ -259,7 +346,25 @@ Respond with ONLY a JSON object in this exact format:
             "physical_tics": [
                 "*taps table thoughtfully*",
                 "*adjusts position*"
-            ]
+            ],
+            "bankroll_knobs": {
+                "starting_bankroll": 10000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+            "staker_profile": {
+                "willing": True,
+                "max_loan_pct_of_bankroll": 0.05,
+                "floor_anchor": 1.20,
+                "rate_anchor": 0.30,
+                "respect_floor": -0.5,
+                "heat_ceiling": 0.7,
+            },
+            "borrower_profile": {
+                "willing": True,
+                "willingness_threshold": 0.30,
+            },
         }
     
     def bulk_generate(self, names: list[str], save: bool = True) -> Dict[str, Dict[str, Any]]:

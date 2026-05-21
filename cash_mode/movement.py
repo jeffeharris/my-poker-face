@@ -32,7 +32,7 @@ from datetime import datetime
 import threading
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from cash_mode.lender_profile import LenderProfile
+from cash_mode.staker_profile import StakerProfile
 from cash_mode.staker_history import StakerHistoryStats, candidate_weight
 from cash_mode.stakes_ladder import STAKES_ORDER
 from cash_mode.tables import (
@@ -389,7 +389,7 @@ class StakeCreationChange:
     with capacity. The caller must:
       - Debit the staker's bankroll by `principal`.
       - Create a `Stake` row (`status=active`, both kinds `personality`,
-        `format=pure`, `cut` from the staker's `lender_profile.rate_anchor`).
+        `format=pure`, `cut` from the staker's `staker_profile.rate_anchor`).
       - The seat is already updated in `new_table` to `principal` chips.
 
     The borrower's pre-bust chips (`chips_at_bust`) returned to their
@@ -448,7 +448,7 @@ def find_ai_staker_for(
     borrower_id: str,
     principal: int,
     candidate_pids: List[str],
-    lender_profile_lookup: Callable[[str], LenderProfile],
+    staker_profile_lookup: Callable[[str], StakerProfile],
     bankroll_lookup: Callable[[str], Optional[int]],
     relationship_lookup: Callable[
         [str, str], Optional[Tuple[float, float, float]]
@@ -458,11 +458,11 @@ def find_ai_staker_for(
         Callable[[str], Dict[str, StakerHistoryStats]]
     ] = None,
     starting_bankroll_lookup: Optional[Callable[[str], Optional[int]]] = None,
-) -> Optional[Tuple[str, LenderProfile]]:
+) -> Optional[Tuple[str, StakerProfile]]:
     """Pick an AI staker willing and able to fund `principal` for borrower.
 
     Phase 4 Commit 2. Walks `candidate_pids` (table-local in v1;
-    Commit 4 broadens to the global pool), filters by lender_profile
+    Commit 4 broadens to the global pool), filters by staker_profile
     willingness, bankroll capacity, and relationship gates. When
     multiple candidates qualify, selection is either uniform random
     (legacy behavior, when `history_lookup` is None) or weighted by
@@ -490,7 +490,7 @@ def find_ai_staker_for(
       - Composite weight = base + excess_pressure + skill_belief +
         relationship_warmth, floored at MIN_WEIGHT.
 
-    Returns (staker_id, lender_profile) on success, None when no
+    Returns (staker_id, staker_profile) on success, None when no
     candidate clears every gate. Caller treats None as "fall back to
     `forced_leave`".
     """
@@ -498,16 +498,16 @@ def find_ai_staker_for(
     # weighted-selection pass below can reuse them without re-querying
     # the lookup callbacks.
     qualified: List[
-        Tuple[str, LenderProfile, int, Optional[Tuple[float, float, float]]]
+        Tuple[str, StakerProfile, int, Optional[Tuple[float, float, float]]]
     ] = []
     for cand_id in candidate_pids:
         if cand_id == borrower_id:
             continue
         try:
-            profile = lender_profile_lookup(cand_id)
+            profile = staker_profile_lookup(cand_id)
         except Exception as exc:
             logger.debug(
-                "find_ai_staker_for: lender_profile lookup failed for %r: %s",
+                "find_ai_staker_for: staker_profile lookup failed for %r: %s",
                 cand_id, exc,
             )
             continue
@@ -632,7 +632,7 @@ def refresh_table_roster(
     # stake the busting borrower. Omit (default None) → never tries
     # to convert, preserving pre-Phase-4 behavior.
     borrower_profile_lookup: Optional[Callable[[str], Any]] = None,
-    lender_profile_lookup: Optional[Callable[[str], LenderProfile]] = None,
+    staker_profile_lookup: Optional[Callable[[str], StakerProfile]] = None,
     relationship_lookup: Optional[
         Callable[[str, str], Optional[Tuple[float, float, float]]]
     ] = None,
@@ -758,11 +758,11 @@ def refresh_table_roster(
         # when ALL the required callbacks are wired (lobby supplies
         # them post-Phase-4; pre-Phase-4 callers omit them and behavior
         # is unchanged).
-        pending_stake: Optional[Tuple[str, LenderProfile]] = None
+        pending_stake: Optional[Tuple[str, StakerProfile]] = None
         if (
             decision == "forced_leave"
             and borrower_profile_lookup is not None
-            and lender_profile_lookup is not None
+            and staker_profile_lookup is not None
             and relationship_lookup is not None
             and stake_label is not None
         ):
@@ -794,7 +794,7 @@ def refresh_table_roster(
                     borrower_id=pid,
                     principal=table_min_buy_in,
                     candidate_pids=local_candidates,
-                    lender_profile_lookup=lender_profile_lookup,
+                    staker_profile_lookup=staker_profile_lookup,
                     bankroll_lookup=lambda c: bankroll_lookup(c),
                     relationship_lookup=relationship_lookup,
                     rng=rng,

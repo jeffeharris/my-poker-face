@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable, List, Optional
 
-from cash_mode.lender_profile import LenderProfile
+from cash_mode.staker_profile import StakerProfile
 from cash_mode.stakes import BORROWER_KIND_HUMAN
 from cash_mode.staking_tier import (
     TIER_HOUSE_ONLY,
@@ -297,7 +297,7 @@ GARNISHMENT_RATE_CAP = 0.20
 
 
 def _adjusted_terms(
-    profile: LenderProfile,
+    profile: StakerProfile,
     *,
     likability: float,
     heat: float,
@@ -362,7 +362,7 @@ def _relationship_hint(
 
 
 def _capacity_for_lender(
-    profile: LenderProfile,
+    profile: StakerProfile,
     projected_bankroll: int,
     *,
     min_buy_in: int,
@@ -520,7 +520,7 @@ def compute_personality_offers(
         if not pid:
             continue
 
-        profile = bankroll_repo.load_lender_profile(pid)
+        profile = bankroll_repo.load_staker_profile(pid)
         if not profile.willing:
             continue
 
