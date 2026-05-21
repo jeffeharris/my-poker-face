@@ -23,6 +23,24 @@
   color: var(--text-secondary, #999);
 }
 
+.chip-ledger-sandbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #999);
+}
+
+.chip-ledger-sandbox-select {
+  padding: 0.2rem 0.5rem;
+  background: var(--surface-2, #2a2a2a);
+  color: inherit;
+  border: 1px solid var(--border, #444);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .chip-ledger-refresh {
   margin-left: auto;
   padding: 0.25rem 0.75rem;

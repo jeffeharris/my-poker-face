@@ -39,11 +39,19 @@ interface LedgerEntry {
   context?: Record<string, unknown> | null;
 }
 
+interface SandboxRow {
+  sandbox_id: string;
+  owner_id: string;
+  name: string;
+  created_at: string;
+}
+
 interface ChipLedgerPanelProps {
   embedded?: boolean;
 }
 
 const REFRESH_MS = 30_000;
+const ALL_SANDBOXES = '';  // sentinel for the cross-sandbox admin view
 
 function fmt(n: number | undefined | null): string {
   if (n === undefined || n === null || Number.isNaN(n)) return '—';
@@ -58,15 +66,21 @@ function signed(n: number | undefined | null): string {
 export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
   const [audit, setAudit] = useState<AuditResponse | null>(null);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [sandboxes, setSandboxes] = useState<SandboxRow[]>([]);
+  const [sandboxId, setSandboxId] = useState<string>(ALL_SANDBOXES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setError(null);
+    const scope = sandboxId ? `?sandbox_id=${encodeURIComponent(sandboxId)}` : '';
+    const recentScope = sandboxId
+      ? `&sandbox_id=${encodeURIComponent(sandboxId)}`
+      : '';
     try {
       const [auditResp, recentResp] = await Promise.all([
-        adminAPI.fetch('/api/admin/chip-ledger/audit'),
-        adminAPI.fetch('/api/admin/chip-ledger/recent?limit=20'),
+        adminAPI.fetch(`/api/admin/chip-ledger/audit${scope}`),
+        adminAPI.fetch(`/api/admin/chip-ledger/recent?limit=20${recentScope}`),
       ]);
       if (!auditResp.ok) {
         throw new Error(`Audit returned ${auditResp.status}`);
@@ -82,6 +96,25 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
     } finally {
       setLoading(false);
     }
+  }, [sandboxId]);
+
+  // Sandbox list is loaded once on mount — the set rarely changes
+  // mid-session and refetching it on every audit refresh would be
+  // wasted requests. The refresh button rerenders the audit only.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await adminAPI.fetch('/api/admin/sandboxes');
+        if (!resp.ok || cancelled) return;
+        const data = await resp.json();
+        setSandboxes(data.sandboxes || []);
+      } catch {
+        // Sandbox listing is best-effort; the panel still works
+        // without it (dropdown just shows "All sandboxes").
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -127,6 +160,21 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
     <div className={`chip-ledger-panel ${embedded ? 'embedded' : ''}`}>
       <div className="chip-ledger-header">
         <h2>Chip economy</h2>
+        <label className="chip-ledger-sandbox-label">
+          Sandbox
+          <select
+            className="chip-ledger-sandbox-select"
+            value={sandboxId}
+            onChange={(e) => setSandboxId(e.target.value)}
+          >
+            <option value={ALL_SANDBOXES}>All sandboxes (admin view)</option>
+            {sandboxes.map(s => (
+              <option key={s.sandbox_id} value={s.sandbox_id}>
+                {s.name} — {s.sandbox_id.slice(0, 8)}
+              </option>
+            ))}
+          </select>
+        </label>
         <span className="chip-ledger-asof">as of {new Date(audit.as_of).toLocaleString()}</span>
         <button className="chip-ledger-refresh" onClick={fetchAll}>Refresh</button>
       </div>
