@@ -82,6 +82,9 @@ class _CashSitRouteBase(unittest.TestCase):
         cls.personality_repo = repos['personality_repo']
         cls.cash_table_repo = repos['cash_table_repo']
 
+        from tests._sandbox_test_helper import pin_sandbox_for
+        pin_sandbox_for(PLAYER_OWNER_ID, repos['sandbox_repo'])
+
         cls.napoleon_id = cls.personality_repo.save_personality(
             'Napoleon',
             {
@@ -123,7 +126,7 @@ class _CashSitRouteBase(unittest.TestCase):
                 'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
                 'tournament_repo', 'coach_repo', 'relationship_repo',
                 'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
-                'stake_repo',
+                'stake_repo', 'sandbox_repo',
             ):
                 if key in repos:
                     setattr(ext, key, repos[key])
@@ -151,6 +154,14 @@ class _CashSitRouteBase(unittest.TestCase):
                 setattr(_gr, key, repos[key])
             elif key == 'persistence_db_path':
                 setattr(_gr, key, repos['db_path'])
+
+        from cash_mode.lobby import ensure_lobby_seeded
+        ensure_lobby_seeded(
+            cash_table_repo=cls.cash_table_repo,
+            personality_repo=cls.personality_repo,
+            bankroll_repo=cls.bankroll_repo,
+            sandbox_id="test-sandbox-1",
+        )
 
     @classmethod
     def tearDownClass(cls):

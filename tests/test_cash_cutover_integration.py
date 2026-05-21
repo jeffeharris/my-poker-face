@@ -59,6 +59,9 @@ class _CutoverBase(unittest.TestCase):
         self.personality_repo = repos['personality_repo']
         self.chip_ledger_repo = repos['chip_ledger_repo']
 
+        from tests._sandbox_test_helper import pin_sandbox_for
+        pin_sandbox_for(PLAYER_OWNER_ID, repos['sandbox_repo'])
+
         def mock_init_persistence():
             import flask_app.extensions as ext
             for key, value in repos.items():
@@ -77,7 +80,7 @@ class _CutoverBase(unittest.TestCase):
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
-                'lender_profile': {
+                'staker_profile': {
                     'willing': True,
                     'max_loan_pct_of_bankroll': 0.10,
                     'floor_anchor': 1.20,
