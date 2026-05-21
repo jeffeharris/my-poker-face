@@ -33,6 +33,7 @@ import threading
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from cash_mode.lender_profile import LenderProfile
+from cash_mode.staker_history import StakerHistoryStats, candidate_weight
 from cash_mode.stakes_ladder import STAKES_ORDER
 from cash_mode.tables import (
     CashTableState,
@@ -453,15 +454,20 @@ def find_ai_staker_for(
         [str, str], Optional[Tuple[float, float, float]]
     ],
     rng: random.Random,
+    history_lookup: Optional[
+        Callable[[str], Dict[str, StakerHistoryStats]]
+    ] = None,
+    starting_bankroll_lookup: Optional[Callable[[str], Optional[int]]] = None,
 ) -> Optional[Tuple[str, LenderProfile]]:
     """Pick an AI staker willing and able to fund `principal` for borrower.
 
     Phase 4 Commit 2. Walks `candidate_pids` (table-local in v1;
     Commit 4 broadens to the global pool), filters by lender_profile
     willingness, bankroll capacity, and relationship gates. When
-    multiple candidates qualify, picks one at random for variety —
-    deterministic "best" picks (richest, most-respected) made the
-    cast feel mechanical in playtest of the analogous sponsor pool.
+    multiple candidates qualify, selection is either uniform random
+    (legacy behavior, when `history_lookup` is None) or weighted by
+    each candidate's staking incentives (when `history_lookup` is
+    provided — see `cash_mode/staker_history.py`).
 
     Filters:
       - `profile.willing` must be True (stoic lenders refuse outright).
@@ -475,11 +481,25 @@ def find_ai_staker_for(
     Borrower's own id is excluded defensively even though `refresh_table_roster`
     shouldn't pass it in `candidate_pids`.
 
+    Weighted selection (opt-in via `history_lookup`):
+      - `history_lookup(staker_id)` returns per-borrower outcome stats
+        the lobby caches once per refresh.
+      - `starting_bankroll_lookup(staker_id)` powers the
+        wealth-overflow score; if omitted, that contribution is
+        skipped and only belief + warmth shape the weights.
+      - Composite weight = base + excess_pressure + skill_belief +
+        relationship_warmth, floored at MIN_WEIGHT.
+
     Returns (staker_id, lender_profile) on success, None when no
     candidate clears every gate. Caller treats None as "fall back to
     `forced_leave`".
     """
-    qualified: List[Tuple[str, LenderProfile]] = []
+    # Capture rel + bankroll alongside each qualified candidate so the
+    # weighted-selection pass below can reuse them without re-querying
+    # the lookup callbacks.
+    qualified: List[
+        Tuple[str, LenderProfile, int, Optional[Tuple[float, float, float]]]
+    ] = []
     for cand_id in candidate_pids:
         if cand_id == borrower_id:
             continue
@@ -510,11 +530,47 @@ def find_ai_staker_for(
             continue
         if heat > profile.heat_ceiling:
             continue
-        qualified.append((cand_id, profile))
+        qualified.append((cand_id, profile, bankroll, rel))
 
     if not qualified:
         return None
-    return rng.choice(qualified)
+
+    if history_lookup is None:
+        # Legacy uniform-random path — preserved for callers that
+        # haven't wired the incentive scoring (and as a fallback when
+        # the lobby is invoked without stake_repo).
+        cand_id, profile, _, _ = rng.choice(qualified)
+        return cand_id, profile
+
+    weights: List[float] = []
+    for cand_id, _profile, bankroll, rel in qualified:
+        try:
+            history = history_lookup(cand_id)
+        except Exception as exc:
+            logger.debug(
+                "find_ai_staker_for: history lookup failed for %r: %s",
+                cand_id, exc,
+            )
+            history = {}
+        stats = history.get(borrower_id) if history else None
+        starting = None
+        if starting_bankroll_lookup is not None:
+            try:
+                starting = starting_bankroll_lookup(cand_id)
+            except Exception as exc:
+                logger.debug(
+                    "find_ai_staker_for: starting_bankroll lookup failed for %r: %s",
+                    cand_id, exc,
+                )
+                starting = None
+        weights.append(candidate_weight(
+            bankroll=bankroll,
+            starting_bankroll=starting,
+            history_stats=stats,
+            relationship_axes=rel,
+        ))
+    cand_id, profile, _, _ = rng.choices(qualified, weights=weights, k=1)[0]
+    return cand_id, profile
 
 
 def garnished_stake_cut(
@@ -593,6 +649,14 @@ def refresh_table_roster(
     # just enforced at movement time for AI borrowers. None → no
     # garnishment (pre-Phase-4.5 callers).
     carry_lookup: Optional[Callable[[str, str], int]] = None,
+    # Staker-incentives plan: per-refresh history + starting-bankroll
+    # caches the lobby plumbs through so the matcher can do weighted
+    # selection. Either being None → uniform-random fallback inside
+    # find_ai_staker_for. See cash_mode/staker_history.py.
+    history_lookup: Optional[
+        Callable[[str], Dict[str, StakerHistoryStats]]
+    ] = None,
+    starting_bankroll_lookup: Optional[Callable[[str], Optional[int]]] = None,
 ) -> RosterRefreshResult:
     """Apply movement decisions to a table's AI seats, then live-fill opens.
 
@@ -734,6 +798,8 @@ def refresh_table_roster(
                     bankroll_lookup=lambda c: bankroll_lookup(c),
                     relationship_lookup=relationship_lookup,
                     rng=rng,
+                    history_lookup=history_lookup,
+                    starting_bankroll_lookup=starting_bankroll_lookup,
                 )
                 if pending_stake is not None:
                     decision = "take_stake"

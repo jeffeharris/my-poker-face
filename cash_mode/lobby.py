@@ -44,6 +44,7 @@ from cash_mode.movement import (
     RosterRefreshResult,
     refresh_table_roster,
 )
+from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.stakes import BORROWER_KIND_PERSONALITY
 from cash_mode.stakes_ladder import (
     STAKES_LADDER,
@@ -551,6 +552,43 @@ def refresh_unseated_tables(
             return None
         return (rel.likability, rel.respect, rel.heat)
 
+    # Staker-incentives plan: per-refresh history cache so the
+    # weighted-selection path in find_ai_staker_for does at most one
+    # `aggregate_history_for_staker` query per candidate per refresh,
+    # regardless of how many busts/burst-hands surface that candidate.
+    # Lifetime is one refresh — disposed when this function returns.
+    _history_cache: Dict[str, Dict[str, StakerHistoryStats]] = {}
+
+    def _history_for(staker_id: str):
+        if stake_repo is None:
+            return {}
+        if staker_id not in _history_cache:
+            try:
+                _history_cache[staker_id] = (
+                    stake_repo.aggregate_history_for_staker(staker_id)
+                )
+            except Exception as exc:
+                logger.debug(
+                    "[CASH][LOBBY] history aggregation failed staker=%r: %s",
+                    staker_id, exc,
+                )
+                _history_cache[staker_id] = {}
+        return _history_cache[staker_id]
+
+    # Parallel cache for starting_bankroll values used by the excess-
+    # pressure score. Static for the refresh duration since knobs come
+    # from `personalities.config_json` which doesn't mutate mid-refresh.
+    _starting_bankroll_cache: Dict[str, Optional[int]] = {}
+
+    def _starting_bankroll_for(pid: str) -> Optional[int]:
+        if pid not in _starting_bankroll_cache:
+            try:
+                knobs = bankroll_repo.load_personality_knobs(pid)
+                _starting_bankroll_cache[pid] = knobs.starting_bankroll
+            except Exception:
+                _starting_bankroll_cache[pid] = None
+        return _starting_bankroll_cache[pid]
+
     def _carry_lookup(staker_id: str, borrower_id: str) -> int:
         """Phase 4.5 Commit 1 — total outstanding carry borrower → staker.
 
@@ -816,6 +854,16 @@ def refresh_unseated_tables(
                 # rate_anchor as before).
                 carry_lookup=(
                     _carry_lookup if _take_stake_enabled else None
+                ),
+                # Staker-incentives plan: weighted candidate selection
+                # in find_ai_staker_for. Wired only when stake_repo is
+                # available; otherwise the matcher falls back to its
+                # legacy uniform-random pick.
+                history_lookup=(
+                    _history_for if _take_stake_enabled else None
+                ),
+                starting_bankroll_lookup=(
+                    _starting_bankroll_for if _take_stake_enabled else None
                 ),
             )
             # Carry the post-hand table forward to the next iteration.

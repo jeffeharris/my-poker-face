@@ -35,6 +35,7 @@ from cash_mode.movement import (
     find_ai_staker_for,
     refresh_table_roster,
 )
+from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.tables import CashTableState, ai_slot, open_slot
 
 
@@ -183,6 +184,203 @@ class TestFindAIStakerFor(unittest.TestCase):
             rng=random.Random(1),
         )
         self.assertIsNone(match)
+
+
+class TestFindAIStakerForWeightedSelection(unittest.TestCase):
+    """Staker-incentives plan: weighted candidate selection.
+
+    When `history_lookup` is provided, `find_ai_staker_for` uses
+    incentive-driven weighted random selection instead of uniform
+    random. Tests use extreme weight differences (rich + good
+    history vs broke + bad history) so a seeded rng deterministically
+    picks the heavy candidate — sidesteps statistical flakiness in
+    the test surface.
+    """
+
+    def _profile_lookup(self, profiles):
+        def _lookup(pid):
+            return profiles.get(pid, LENDER_PROFILE_DEFAULTS)
+        return _lookup
+
+    def _bankroll_lookup(self, bankrolls):
+        def _lookup(pid):
+            return bankrolls.get(pid)
+        return _lookup
+
+    def _rel_lookup(self, rels):
+        def _lookup(observer, opponent):
+            return rels.get((observer, opponent))
+        return _lookup
+
+    def _history_lookup(self, histories):
+        def _lookup(staker_id):
+            return histories.get(staker_id, {})
+        return _lookup
+
+    def _starting_lookup(self, startings):
+        def _lookup(pid):
+            return startings.get(pid)
+        return _lookup
+
+    def test_history_lookup_none_uses_legacy_random(self):
+        # Backward compat: omitting history_lookup means uniform random.
+        # Both candidates are equivalent → either is a valid pick.
+        match = find_ai_staker_for(
+            borrower_id="bust_ai",
+            principal=80,
+            candidate_pids=["bezos", "napoleon"],
+            lender_profile_lookup=self._profile_lookup({
+                "bezos": _willing_lender(),
+                "napoleon": _willing_lender(),
+            }),
+            bankroll_lookup=self._bankroll_lookup({
+                "bezos": 5_000, "napoleon": 5_000,
+            }),
+            relationship_lookup=self._rel_lookup({}),
+            rng=random.Random(1),
+        )
+        self.assertIsNotNone(match)
+        self.assertIn(match[0], {"bezos", "napoleon"})
+
+    def test_wealthy_candidate_dominates_poor_candidate(self):
+        # Bezos: 10× starting bankroll → excess_pressure ≈ MAX (2.0).
+        # Napoleon: at starting bankroll → excess_pressure = 0.
+        # Total weights: ~3.3 vs ~1.3. With seed=1 the heavier wins.
+        wins = {"bezos": 0, "napoleon": 0}
+        for trial in range(50):
+            match = find_ai_staker_for(
+                borrower_id="bust_ai",
+                principal=80,
+                candidate_pids=["bezos", "napoleon"],
+                lender_profile_lookup=self._profile_lookup({
+                    "bezos": _willing_lender(),
+                    "napoleon": _willing_lender(),
+                }),
+                bankroll_lookup=self._bankroll_lookup({
+                    "bezos": 100_000, "napoleon": 10_000,
+                }),
+                relationship_lookup=self._rel_lookup({}),
+                rng=random.Random(trial),
+                history_lookup=self._history_lookup({}),
+                starting_bankroll_lookup=self._starting_lookup({
+                    "bezos": 10_000, "napoleon": 10_000,
+                }),
+            )
+            wins[match[0]] += 1
+        # Heavier weight should win the majority — not deterministic,
+        # but strongly biased. Tolerant assertion for trial seed variance.
+        self.assertGreater(wins["bezos"], wins["napoleon"])
+
+    def test_settled_history_beats_no_history(self):
+        # Bezos has 5 settled stakes with bust_ai → strong belief bonus.
+        # Napoleon has no history → neutral. Same bankroll otherwise.
+        wins = {"bezos": 0, "napoleon": 0}
+        for trial in range(50):
+            match = find_ai_staker_for(
+                borrower_id="bust_ai",
+                principal=80,
+                candidate_pids=["bezos", "napoleon"],
+                lender_profile_lookup=self._profile_lookup({
+                    "bezos": _willing_lender(),
+                    "napoleon": _willing_lender(),
+                }),
+                bankroll_lookup=self._bankroll_lookup({
+                    "bezos": 10_000, "napoleon": 10_000,
+                }),
+                relationship_lookup=self._rel_lookup({}),
+                rng=random.Random(trial),
+                history_lookup=self._history_lookup({
+                    "bezos": {"bust_ai": StakerHistoryStats(
+                        settled_count=5, carry_count=0, defaulted_count=0,
+                    )},
+                }),
+                starting_bankroll_lookup=self._starting_lookup({
+                    "bezos": 10_000, "napoleon": 10_000,
+                }),
+            )
+            wins[match[0]] += 1
+        self.assertGreater(wins["bezos"], wins["napoleon"])
+
+    def test_defaulted_history_loses_to_no_history(self):
+        # Bezos has 3 defaults from bust_ai → strong belief penalty.
+        # Napoleon has no history. Expect Napoleon to win majority.
+        wins = {"bezos": 0, "napoleon": 0}
+        for trial in range(50):
+            match = find_ai_staker_for(
+                borrower_id="bust_ai",
+                principal=80,
+                candidate_pids=["bezos", "napoleon"],
+                lender_profile_lookup=self._profile_lookup({
+                    "bezos": _willing_lender(),
+                    "napoleon": _willing_lender(),
+                }),
+                bankroll_lookup=self._bankroll_lookup({
+                    "bezos": 10_000, "napoleon": 10_000,
+                }),
+                relationship_lookup=self._rel_lookup({}),
+                rng=random.Random(trial),
+                history_lookup=self._history_lookup({
+                    "bezos": {"bust_ai": StakerHistoryStats(
+                        settled_count=0, carry_count=0, defaulted_count=3,
+                    )},
+                }),
+                starting_bankroll_lookup=self._starting_lookup({
+                    "bezos": 10_000, "napoleon": 10_000,
+                }),
+            )
+            wins[match[0]] += 1
+        self.assertGreater(wins["napoleon"], wins["bezos"])
+
+    def test_history_lookup_applies_even_without_starting_bankroll(self):
+        # Partial wiring: history_lookup provided but starting_bankroll_lookup
+        # not. Excess contribution is skipped; belief + warmth still
+        # drive selection. Settled-history candidate should still win.
+        wins = {"bezos": 0, "napoleon": 0}
+        for trial in range(50):
+            match = find_ai_staker_for(
+                borrower_id="bust_ai",
+                principal=80,
+                candidate_pids=["bezos", "napoleon"],
+                lender_profile_lookup=self._profile_lookup({
+                    "bezos": _willing_lender(),
+                    "napoleon": _willing_lender(),
+                }),
+                bankroll_lookup=self._bankroll_lookup({
+                    "bezos": 100_000, "napoleon": 5_000,
+                }),
+                relationship_lookup=self._rel_lookup({}),
+                rng=random.Random(trial),
+                history_lookup=self._history_lookup({
+                    "bezos": {"bust_ai": StakerHistoryStats(
+                        settled_count=5, carry_count=0, defaulted_count=0,
+                    )},
+                }),
+                # No starting_bankroll_lookup — excess part = 0 for both.
+            )
+            wins[match[0]] += 1
+        self.assertGreater(wins["bezos"], wins["napoleon"])
+
+    def test_history_lookup_failure_falls_back_to_neutral(self):
+        # If history_lookup raises, treat as empty history and proceed.
+        def failing_history(staker_id):
+            raise RuntimeError("simulated DB blip")
+
+        match = find_ai_staker_for(
+            borrower_id="bust_ai",
+            principal=80,
+            candidate_pids=["napoleon"],
+            lender_profile_lookup=self._profile_lookup({
+                "napoleon": _willing_lender(),
+            }),
+            bankroll_lookup=self._bankroll_lookup({"napoleon": 5_000}),
+            relationship_lookup=self._rel_lookup({}),
+            rng=random.Random(1),
+            history_lookup=failing_history,
+            starting_bankroll_lookup=self._starting_lookup({"napoleon": 10_000}),
+        )
+        # Despite the failure, the matcher still returns a result.
+        self.assertIsNotNone(match)
+        self.assertEqual(match[0], "napoleon")
 
 
 class TestTakeStakeInRefreshRoster(unittest.TestCase):
