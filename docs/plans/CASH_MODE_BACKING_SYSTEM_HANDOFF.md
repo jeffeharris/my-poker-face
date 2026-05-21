@@ -2,7 +2,7 @@
 purpose: Implementation handoff for the staking system — session-based stakes with light carry, reputation-driven offer quality, AI and human as borrowers and stakers. Replaces Path B's session-scoped sponsorship model.
 type: guide
 created: 2026-05-19
-last_updated: 2026-05-19
+last_updated: 2026-05-21
 ---
 
 # Cash Mode — Backing System Handoff
@@ -470,6 +470,109 @@ After Phase 4: the AI economy mirrors the player economy. AIs
 stake each other, default on each other, build histories. The
 player's interactions are one node in a larger graph.
 
+## Phase 4.5: AI carry resolution
+
+### Goal
+
+Close the carry-accumulation gap that Phase 4 leaves behind. Phase 4
+gives AIs a way to *take* stakes when they bust, but no active
+behavior to *resolve* the resulting carries. The three player-side
+carry-clearing paths from Phase 3 (voluntary payoff, forgiveness
+request, explicit default) plus Phase 2's per-staker garnishment
+all have AI-side equivalents that this phase wires.
+
+Without Phase 4.5, AI carries pile up indefinitely as IOUs on the
+books. The dossier "they owe" totals grow monotonically and the
+system stops feeling like a credit market — it's a one-way
+accumulator.
+
+> **What Phase 4.5 is NOT:** new economic mechanisms. Every behavior
+> here mirrors a player-side path that already exists (Phase 2's
+> garnishment, Phase 3's payoff/forgiveness/default). The only new
+> surface is the *triggers* that decide when an AI initiates each
+> path — relationship axes, bankroll thresholds, hand-tick rolls.
+> The settlement math and stake-row mutations reuse the existing
+> repo + chip-flow primitives unchanged.
+
+### Phase 4.5 commit breakdown (~5 commits, modular)
+
+**The first two commits (garnishment + tier gate) are the minimum
+viable set.** Together they close the runaway-loop ("an
+over-leveraged AI keeps accepting peer stakes") and tie new-stake
+terms to repayment history. Commits 3-5 add narrative variety on
+top of that base — each one can land independently and the system
+stays coherent at any stopping point.
+
+**Commit 1: Garnishment on AI take_stake**
+- `find_ai_staker_for` already filters candidates by lender_profile + relationship axes. Add a per-candidate post-filter step: if the candidate has an existing carry from this borrower (queried via `stake_repo.list_carries_for_staker(candidate_id)` filtered to `borrower_id == this borrower`), bump the cut returned by the function.
+- Garnishment formula mirrors Phase 2.1: new cut = `min(rate_anchor + garnishment_rate × outstanding_carry / new_principal, MAX_CUT)`. Suggested `garnishment_rate = 0.5`, `MAX_CUT = rate_anchor + 0.20` (cap at +20pp to avoid degenerate 100% cut deals).
+- The plumbing already supports a custom cut at stake creation — `StakeCreationChange.cut` is just passed through to the Stake row at lobby application time. No new fields needed.
+- Tests: garnishment fires when same-staker carry exists; doesn't fire across different stakers; cut cap holds at extreme carry ratios.
+
+**Commit 2: Tier-gated AI take_stake**
+- New gate in `refresh_table_roster`'s take_stake branch: query the borrower's tier via `resolve_tier(borrower_id, borrower_kind=PERSONALITY, current_stake_label=table.stake_label, stake_repo=stake_repo)`. If the result is `'house_only'`, refuse the interception — fall back to `forced_leave`.
+- Without this gate, an over-leveraged AI can keep qualifying for peer stakes purely because the lender's relationship-axis filter doesn't read the borrower's tier. The runaway-debt failure mode.
+- The lobby already plumbs `stake_repo` through to refresh_table_roster's callbacks; the tier read is one more line in `_borrower_profile_lookup` or a new sibling callback `_borrower_tier_blocked(pid, stake_label) -> bool`.
+- House stake fallback is NOT implemented here — house-staker selection is sponsor-flow logic, not movement-time logic. Over-tier AIs simply leave (forced_leave) and re-enter normally next cycle, hoping to bust at a lower-stake table where their tier is house_only's denominator changes the math.
+- Tests: AI at premium tier qualifies as before; AI at house_only doesn't intercept take_stake; tier read uses the *target* table's stake label, not the borrower's session stake (matters for cross-table candidates).
+
+**Commit 3: AI-initiated voluntary payoff**
+- New `cash_mode/ai_carry_resolution.py:try_voluntary_payoff(personality_id, *, bankroll_repo, stake_repo, relationship_repo, rng, now) → Optional[StakeRepaymentChange]`.
+- Trigger: each lobby refresh, for AIs in the idle pool, roll a chance based on `bankroll_factor = bankroll / total_carries`. Floor: `bankroll_factor >= 5` → some chance to pay off the oldest carry. Below 5× total → very low chance. Below 1× → never.
+- The repayment chip flow is the same as `POST /api/cash/stakes/<id>/payoff` from Phase 3 commit 1: debit borrower bankroll, credit staker via `credit_ai_cash_out` (same cap-clamp semantics). Fire `STAKE_REPAID`.
+- The carry to pay off is picked oldest-first (sorted by `created_at`) — gives the AI economy a "clearing the deck" feel rather than randomly snapping off whichever debt happens to be picked.
+- Surface in the lobby ticker as a new `EVENT_AI_PAYOFF` ("Bezos paid off $400 carry to Napoleon"), threshold-gated same as Phase 4.5.
+- Tests: bankroll-factor threshold respected; oldest carry picked; staker credited; STAKE_REPAID fires; ticker event emitted above threshold only.
+
+**Commit 4: AI-initiated forgiveness ask**
+- Mirror of `POST /api/cash/stakes/<id>/request-forgiveness` (Phase 3 commit 3) but borrower-initiated by an AI. Each lobby refresh, for AIs with carries AND no recent ask (`forgiveness_last_asked` is null or > 7 days ago — tighter than the player route's 24h rate-limit because AI asks are auto-rolled, not user-initiated), roll a chance to ask one of their stakers.
+- Trigger probability: scales inversely with the AI's `bankroll_factor` from commit 3 (poor AIs ask more often; flush AIs would rather pay off than ask). Suggested: `ask_prob = 0.05 / max(1, bankroll_factor)` per refresh.
+- Decision math is identical to the route: `score = likability × 0.5 + respect × 0.4 − heat × 0.3 > 0.55`. Grant clears the carry + fires `STAKE_FORGIVEN`; refuse fires `STAKE_FORGIVENESS_REFUSED` (both events already calibrated in Phase 3 commit 3's dispatch table).
+- Stamp `forgiveness_last_asked` either way so spam clicks (in the human path) and tick-frequency rolls (this path) both respect the same rate-limit.
+- Ticker events: `EVENT_AI_FORGIVEN` ("Napoleon forgave Bezos's $400 carry") on grant. Refusal is silent on the ticker — the relationship-axis hit is enough; not every refusal needs to surface.
+- Tests: trigger probability respects bankroll_factor; rate-limit respected at the 7-day window; threshold math identical to route; granted path clears carry and stake row.
+
+**Commit 5: AI-initiated explicit default**
+- The narrative-strongest action. An AI under sustained pressure (low energy + high carry load + low/zero respect for the lender) cuts the cord — explicitly defaults on one specific carry, accepting the sharp `STAKE_DEFAULTED` reputation hit in exchange for clearing the debt.
+- Trigger: per-carry per-refresh roll. Pressure score:
+  - +0.4 if `bankroll_factor < 0.5` (drowning in debt)
+  - +0.3 if AI's energy < 0.3 (tired/tilted — desperate, willing to burn relationships)
+  - +0.2 if staker's `respect_for_borrower < -0.2` (already on bad terms — less to lose)
+  - +0.1 if carry is the AI's oldest (long-standing debt easier to walk away from)
+- Threshold: `pressure >= 0.6` → some chance to default. Tunable.
+- Reuses `POST /api/cash/stakes/<id>/default` settlement shape internally: zero `carry_amount`, flip `status='defaulted'`, fire `STAKE_DEFAULTED` (the sharpest negative event in the dispatch). No chip movement (the default IS the cost).
+- Ticker event: `EVENT_AI_DEFAULT` already exists (Phase 4 commit 5). Wire the explicit-default path to emit it too, distinguished from the natural-carry event by a `reason='explicit'` field on the LobbyEvent.
+- Tests: pressure threshold respected; correct stake_id zeroed; STAKE_DEFAULTED event fires with sharp negative shifts; ticker reflects the explicit-default reason.
+
+### Phase 4.5 implementation notes
+
+**Where the resolution behaviors run.** All four AI-initiated paths (commits 3, 4, 5 + the implicit garnishment of commit 1) fire from `cash_mode/lobby.py:refresh_unseated_tables`, not from in-session movement. The lobby refresh already iterates every AI in the universe each tick (idle pool + table seats); adding the carry-resolution roll per AI is one more cheap pass per refresh. Seated-session AIs are unaffected — their session's stake settles at leave time via the existing Phase 4 commit 3 path.
+
+**Order matters per AI within a refresh.** When the same AI has multiple carries, the resolution roll picks one carry at a time:
+  - Voluntary payoff: oldest-first (clears history)
+  - Forgiveness ask: highest-likability staker first (best chance of grant)
+  - Explicit default: highest-heat staker first (worst-relationship debts cleared first)
+
+These selection orders give each behavior a distinct "personality" without requiring per-AI configuration — the same Bezos with the same carry portfolio chooses different stakers depending on which mechanism fires.
+
+**No new schema.** Every column needed already exists. `forgiveness_last_asked` (schema v104) covers the forgiveness rate-limit. `stakes.status` already has `'defaulted'` as a value (Phase 1). Garnishment writes to `stakes.cut` at create time (existing column).
+
+**Stopping point matrix.**
+
+| After commit | Coherent state |
+|---|---|
+| 1 only | Garnishment fires; over-tier AIs still take stakes (gap). Some new-stake terms reflect prior debts. |
+| 1 + 2 | **Minimum viable.** Garnishment + tier gate. AI economy can't run away; carries are tied to terms. No active resolution yet — but the system stops drifting toward "everyone owes everyone." |
+| 1 + 2 + 3 | Voluntary payoffs reduce the carry book over time. Flush AIs clear their debts naturally. |
+| 1 + 2 + 3 + 4 | Forgiveness adds relationship-driven debt clearance. Generous lenders feel different from grudge-holders. |
+| All 5 | Explicit defaults add narrative rupture moments. The credit market has high and low points; debts get resolved AND get burned. |
+
+**Relationship axes already encode every gate this phase needs.** No new axes, no new event types beyond what Phase 3 commit 1 + Phase 4 commit 5 already calibrated. The work is entirely in the *triggers* — when each existing path fires for AIs.
+
+**The dossier UI from Phase 4 surfaces all of this for free.** "Owed to them" and "They owe" rows update as carries clear via any of these paths. The ticker events make moment-of-resolution visible. No additional frontend work in Phase 4.5.
+
+After Phase 4.5: the AI credit market is **self-clearing**. Carries get created (Phase 4), get pressured by garnishment + tier (commits 1-2), and get resolved through play (commit 3), goodwill (commit 4), or rupture (commit 5). The cast accumulates financial history rather than accumulating only debt.
+
 ## Phase 5: Humans as stakers
 
 ### Goal
@@ -579,18 +682,25 @@ to layer on top in subsequent phases.
 
 ## Suggested ship order
 
-**Phase 1 → Phase 3 → Phase 2 → Phase 4 → Phase 5.**
+**Phase 1 → Phase 3 → Phase 2 → Phase 4 → Phase 4.5 → Phase 5.**
 
 Reasoning:
 - **Phase 1** is load-bearing (everything else assumes the new table). Ship first.
 - **Phase 3** (Net Worth view) goes second — gives the player visibility into their carries *before* you add consequences. Avoids "I have a carry I didn't know about and now Napoleon won't talk to me."
 - **Phase 2** (enforcement) third — adds teeth after the player can see what they owe.
 - **Phase 4** (AI borrowers) fourth — biggest behavior change; needs prior pieces stable.
+- **Phase 4.5** (AI carry resolution) immediately after Phase 4 — closes the carry-accumulation gap. Phase 4 ships a one-way accumulator (AIs can borrow but never repay); 4.5 wires the resolution behaviors that make the AI economy self-clearing. Order 4 → 4.5 → 5 keeps the AI side coherent before adding the human-as-staker layer on top.
 - **Phase 5** (Human as staker) last — closes the staking loop; unlocks the endgame chip-sink work.
 
 A reasonable v2.5 stopping point is after Phase 3: persistent
 carries + Net Worth view + voluntary pay-off is a coherent
-shipped product. Phases 2, 4, and 5 are real expansions.
+shipped product. Phases 2, 4, 4.5, and 5 are real expansions.
+
+A second viable stopping point is **after Phase 4.5 commits 1+2**
+(garnishment + tier gate) — the AI economy doesn't *clear* itself
+yet, but it stops *runaway accumulation*, which is the failure
+mode that breaks playtest pacing. The narrative-variety commits
+(4.5 commits 3-5) can land later as polish.
 
 ## Why this matters
 
