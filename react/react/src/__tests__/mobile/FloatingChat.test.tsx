@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, act } from '@testing-library/react';
+import { render, act } from '@testing-library/react';
 import { FloatingChat } from '../../components/mobile/FloatingChat';
 import type { ChatMessage } from '../../types';
 
@@ -7,11 +7,39 @@ import type { ChatMessage } from '../../types';
 vi.mock('framer-motion', () => ({
   motion: {
     div: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
-      const { initial: _initial, animate: _animate, exit: _exit, transition: _transition, layout: _layout, ...htmlProps } = props;
-      return <div {...htmlProps}>{children}</div>;
+      const {
+        initial: _initial,
+        animate: _animate,
+        exit: _exit,
+        transition: _transition,
+        layout: _layout,
+        // Drag-related props are stripped so the resulting <div> is
+        // valid HTML. Swipe-to-dismiss isn't exercised here — that
+        // path belongs in an E2E test with a real motion runtime.
+        drag: _drag,
+        dragMomentum: _dragMomentum,
+        onDragEnd: _onDragEnd,
+        ...htmlProps
+      } = props;
+      // `style` may contain MotionValues — drop non-serialisable
+      // entries so React can apply the rest.
+      const safeStyle = typeof htmlProps.style === 'object' && htmlProps.style !== null
+        ? Object.fromEntries(
+            Object.entries(htmlProps.style as Record<string, unknown>).filter(
+              ([, v]) => typeof v !== 'object' || v === null,
+            ),
+          )
+        : htmlProps.style;
+      return <div {...htmlProps} style={safeStyle as React.CSSProperties}>{children}</div>;
     },
   },
   AnimatePresence: ({ children }: React.PropsWithChildren<Record<string, unknown>>) => <>{children}</>,
+  // Minimal stubs for the swipe-tracking hooks. Tests don't exercise
+  // the drag flow itself — the stubs just need to satisfy React's
+  // hook-call contract and return MotionValue-shaped objects.
+  useMotionValue: (initial: number) => ({ get: () => initial, set: () => {}, on: () => () => {} }),
+  useTransform: () => ({ get: () => 1, set: () => {}, on: () => () => {} }),
+  animate: () => ({ stop: () => {} }),
 }));
 
 function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
@@ -117,7 +145,13 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
   });
 
   describe('Dismiss behavior', () => {
-    it('dismiss button removes the message', () => {
+    // The X dismiss button was removed in favour of swipe-to-dismiss
+    // and the existing auto-dismiss timer. Swipe gestures aren't
+    // exercised here — the framer-motion mock strips drag handlers,
+    // so that path belongs in an end-to-end test with a real motion
+    // runtime. The TTL-based dismiss is covered by the
+    // "Auto-dismiss via TTL" suite below.
+    it('does not render an X dismiss button', () => {
       const onDismiss = vi.fn();
       render(
         <FloatingChat
@@ -127,16 +161,8 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
         />,
       );
 
-      // Bubble should exist
       expect(document.querySelector('.floating-chat')).toBeTruthy();
-
-      // Click dismiss button
-      const dismissBtn = document.querySelector('.floating-chat-dismiss');
-      expect(dismissBtn).toBeTruthy();
-      fireEvent.click(dismissBtn!);
-
-      // After dismissing the only message, stack should be gone (returns null)
-      expect(document.querySelector('.floating-chat')).toBeNull();
+      expect(document.querySelector('.floating-chat-dismiss')).toBeNull();
     });
   });
 
