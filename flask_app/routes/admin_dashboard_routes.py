@@ -1352,6 +1352,12 @@ def api_reset_settings():
 def api_active_games():
     """Get list of games (active in memory + recent saved games).
 
+    Query params:
+        limit: max number of saved games to include (default 20). In-memory
+            games are always returned in full — only the saved-game tail is
+            capped. Callers like Hand Replay request a larger window to
+            browse historical games.
+
     Returns:
         List of games with game_id, owner_name, player names, phase, etc.
         Active games are marked with is_active=True
@@ -1359,6 +1365,7 @@ def api_active_games():
     import json as json_module
 
     try:
+        saved_limit = max(1, min(request.args.get('limit', 20, type=int), 500))
         all_games = []
         seen_game_ids = set()
 
@@ -1402,7 +1409,7 @@ def api_active_games():
 
         # Then, add recent saved games from database (not already in memory)
         try:
-            saved_games = game_repo.list_games(limit=20)
+            saved_games = game_repo.list_games(limit=saved_limit)
             for saved_game in saved_games:
                 if saved_game.game_id in seen_game_ids:
                     continue  # Already added from memory
