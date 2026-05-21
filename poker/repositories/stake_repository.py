@@ -21,9 +21,16 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from cash_mode.stakes import Stake, STAKE_STATUS_ACTIVE, STAKE_STATUS_CARRY
+from cash_mode.stakes import (
+    Stake,
+    STAKE_STATUS_ACTIVE,
+    STAKE_STATUS_CARRY,
+    STAKE_STATUS_DEFAULTED,
+    STAKE_STATUS_SETTLED,
+)
+from cash_mode.staker_history import StakerHistoryStats
 from poker.repositories.base_repository import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -461,6 +468,51 @@ class StakeRepository(BaseRepository):
                 """
             ).fetchall()
             return [row[0] for row in rows if row[0]]
+
+    def aggregate_history_for_staker(
+        self, staker_id: str,
+    ) -> Dict[str, StakerHistoryStats]:
+        """Return per-borrower outcome counts for every borrower this
+        staker has interacted with.
+
+        Used by the lobby's weighted AI-staker selection (the matching
+        weight reflects each candidate's lived history with the busting
+        borrower — see `cash_mode/staker_history.py`). Single SQL
+        aggregate so the cost is one query per staker regardless of
+        history depth.
+
+        Only `settled`, `carry`, and `defaulted` rows count — `active`
+        stakes don't yet have an outcome to score. House stakes
+        (`staker_id IS NULL`) are excluded naturally by the equality
+        comparison.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT borrower_id, status, COUNT(*) AS n
+                FROM stakes
+                WHERE staker_id = ?
+                  AND status IN (?, ?, ?)
+                GROUP BY borrower_id, status
+                """,
+                (
+                    staker_id,
+                    STAKE_STATUS_SETTLED,
+                    STAKE_STATUS_CARRY,
+                    STAKE_STATUS_DEFAULTED,
+                ),
+            ).fetchall()
+        by_borrower: Dict[str, Dict[str, int]] = {}
+        for row in rows:
+            by_borrower.setdefault(row["borrower_id"], {})[row["status"]] = int(row["n"])
+        return {
+            bid: StakerHistoryStats(
+                settled_count=counts.get(STAKE_STATUS_SETTLED, 0),
+                carry_count=counts.get(STAKE_STATUS_CARRY, 0),
+                defaulted_count=counts.get(STAKE_STATUS_DEFAULTED, 0),
+            )
+            for bid, counts in by_borrower.items()
+        }
 
     def mark_forgiveness_asked(
         self, stake_id: str, asked_at: datetime,
