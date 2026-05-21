@@ -122,6 +122,199 @@ class TestRelationshipScore(unittest.TestCase):
         self.assertGreater(warm, hot)
 
 
+class TestWillingnessThresholdDerivation(unittest.TestCase):
+    """The borrower profile loader derives willingness_threshold from
+    the personality's `ego` anchor when not explicitly set. This pins
+    the calibration so a future tweak (slope, clamps) surfaces here
+    rather than as a silent behavior change in the staking flow."""
+
+    def test_humble_ego_yields_low_threshold(self):
+        from cash_mode.lender_profile import compute_default_willingness_threshold
+        # Lincoln-style humble: ego 0.36 → ~0.23
+        self.assertAlmostEqual(
+            compute_default_willingness_threshold(0.36), 0.23, places=2,
+        )
+
+    def test_baseline_ego_yields_default(self):
+        from cash_mode.lender_profile import compute_default_willingness_threshold
+        self.assertAlmostEqual(
+            compute_default_willingness_threshold(0.5), 0.30, places=2,
+        )
+
+    def test_proud_ego_yields_high_threshold(self):
+        from cash_mode.lender_profile import compute_default_willingness_threshold
+        # Napoleon-style proud: ego 0.86 → ~0.48
+        self.assertAlmostEqual(
+            compute_default_willingness_threshold(0.86), 0.48, places=2,
+        )
+
+    def test_extreme_egos_clamped(self):
+        from cash_mode.lender_profile import (
+            WILLINGNESS_THRESHOLD_MAX,
+            WILLINGNESS_THRESHOLD_MIN,
+            compute_default_willingness_threshold,
+        )
+        # Below clamp.
+        self.assertEqual(
+            compute_default_willingness_threshold(0.0),
+            WILLINGNESS_THRESHOLD_MIN,
+        )
+        # Above clamp.
+        self.assertEqual(
+            compute_default_willingness_threshold(1.0),
+            WILLINGNESS_THRESHOLD_MAX,
+        )
+
+    def test_loader_uses_ego_when_threshold_not_set(self, db_repos=None):
+        """End-to-end: a personality with ego=0.86 and no explicit
+        willingness_threshold loads with the derived value."""
+        import json
+        import sqlite3
+        import tempfile
+        from poker.repositories.schema_manager import SchemaManager
+        from poker.repositories.bankroll_repository import BankrollRepository
+
+        db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+        SchemaManager(db).ensure_schema()
+        config = {
+            "anchors": {"ego": 0.86, "poise": 0.5},
+            "borrower_profile": {"willing": True},  # no willingness_threshold
+        }
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "INSERT INTO personalities "
+                "(name, personality_id, config_json, visibility) "
+                "VALUES (?, ?, ?, 'public')",
+                ("Proud", "proud_pid", json.dumps(config)),
+            )
+        repo = BankrollRepository(db)
+        profile = repo.load_borrower_profile("proud_pid")
+        self.assertTrue(profile.willing)
+        self.assertAlmostEqual(profile.willingness_threshold, 0.48, places=2)
+        import os
+        os.unlink(db)
+
+    def test_save_borrower_profile_persists_override(self):
+        """Save an explicit override; loader reads it back."""
+        import json
+        import sqlite3
+        import tempfile
+        import os
+        from poker.repositories.schema_manager import SchemaManager
+        from poker.repositories.bankroll_repository import BankrollRepository
+
+        db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+        SchemaManager(db).ensure_schema()
+        config = {
+            "anchors": {"ego": 0.86},  # would derive ~0.48
+            "borrower_profile": {"willing": True},
+        }
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "INSERT INTO personalities "
+                "(name, personality_id, config_json, visibility) "
+                "VALUES (?, ?, ?, 'public')",
+                ("Test", "test_pid", json.dumps(config)),
+            )
+        repo = BankrollRepository(db)
+        # Pre-save: derived from ego.
+        before = repo.load_borrower_profile("test_pid")
+        self.assertAlmostEqual(before.willingness_threshold, 0.48, places=2)
+        # Save an explicit override.
+        ok = repo.save_borrower_profile(
+            "test_pid", willing=True, willingness_threshold=0.20,
+        )
+        self.assertTrue(ok)
+        after = repo.load_borrower_profile("test_pid")
+        self.assertEqual(after.willingness_threshold, 0.20)
+        # Clear the override → should fall back to ego-derived again.
+        ok = repo.save_borrower_profile(
+            "test_pid", willing=True, willingness_threshold=None,
+        )
+        self.assertTrue(ok)
+        reverted = repo.load_borrower_profile("test_pid")
+        self.assertAlmostEqual(reverted.willingness_threshold, 0.48, places=2)
+        os.unlink(db)
+
+    def test_save_borrower_profile_preserves_other_config(self):
+        """Saving borrower_profile must NOT touch sibling keys."""
+        import json
+        import sqlite3
+        import tempfile
+        import os
+        from poker.repositories.schema_manager import SchemaManager
+        from poker.repositories.bankroll_repository import BankrollRepository
+
+        db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+        SchemaManager(db).ensure_schema()
+        config = {
+            "anchors": {"ego": 0.5, "poise": 0.7},
+            "bankroll_knobs": {
+                "starting_bankroll": 12000,
+                "bankroll_rate": 350,
+            },
+            "lender_profile": {"willing": True, "rate_anchor": 0.25},
+            "verbal_tics": ["test tic"],
+        }
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "INSERT INTO personalities "
+                "(name, personality_id, config_json, visibility) "
+                "VALUES (?, ?, ?, 'public')",
+                ("Test", "test_pid", json.dumps(config)),
+            )
+        repo = BankrollRepository(db)
+        repo.save_borrower_profile(
+            "test_pid", willing=False, willingness_threshold=0.40,
+        )
+        # Re-load full config and confirm every sibling key survives.
+        with sqlite3.connect(db) as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                ("test_pid",),
+            ).fetchone()
+        cfg = json.loads(row[0])
+        self.assertEqual(cfg["anchors"]["ego"], 0.5)
+        self.assertEqual(cfg["anchors"]["poise"], 0.7)
+        self.assertEqual(cfg["bankroll_knobs"]["starting_bankroll"], 12000)
+        self.assertEqual(cfg["lender_profile"]["rate_anchor"], 0.25)
+        self.assertEqual(cfg["verbal_tics"], ["test tic"])
+        self.assertEqual(cfg["borrower_profile"]["willing"], False)
+        self.assertEqual(cfg["borrower_profile"]["willingness_threshold"], 0.40)
+        os.unlink(db)
+
+    def test_loader_explicit_override_wins(self):
+        """When the sub-dict sets willingness_threshold explicitly, it
+        overrides the ego derivation."""
+        import json
+        import sqlite3
+        import tempfile
+        from poker.repositories.schema_manager import SchemaManager
+        from poker.repositories.bankroll_repository import BankrollRepository
+
+        db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+        SchemaManager(db).ensure_schema()
+        config = {
+            "anchors": {"ego": 0.86},  # would derive ~0.48
+            "borrower_profile": {
+                "willing": True,
+                "willingness_threshold": 0.20,  # explicit override
+            },
+        }
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "INSERT INTO personalities "
+                "(name, personality_id, config_json, visibility) "
+                "VALUES (?, ?, ?, 'public')",
+                ("Override", "override_pid", json.dumps(config)),
+            )
+        repo = BankrollRepository(db)
+        profile = repo.load_borrower_profile("override_pid")
+        self.assertEqual(profile.willingness_threshold, 0.20)
+        import os
+        os.unlink(db)
+
+
 class TestCutPenaltyCalibration(unittest.TestCase):
     def test_below_fair_no_penalty(self):
         penalty = max(0.0, 0.20 - FAIR_CUT_REFERENCE) * CUT_PENALTY_SLOPE

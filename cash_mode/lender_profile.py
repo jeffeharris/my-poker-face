@@ -108,3 +108,51 @@ BORROWER_PROFILE_DEFAULTS = BorrowerProfile(
     willing=True,
     willingness_threshold=0.30,
 )
+
+
+# Ego-derived willingness-threshold calibration. Personalities don't
+# all need hand-tuned willingness_thresholds; deriving from the
+# already-curated `ego` anchor gives every character a defensible
+# default that respects their identity.
+#
+# Slope and clamps tuned to match the relationship-axes range:
+#   - Max plausible score (likability=1, respect=1, heat=0) ≈ 0.90,
+#     so the upper clamp (0.50) leaves room for "friendship gets
+#     through" even at the proudest tier.
+#   - Lower clamp (0.15) keeps even the humblest AI from accepting
+#     literally anything (they still need a non-hostile vibe).
+WILLINGNESS_THRESHOLD_BASE = 0.30
+WILLINGNESS_THRESHOLD_SLOPE = 0.50
+WILLINGNESS_THRESHOLD_MIN = 0.15
+WILLINGNESS_THRESHOLD_MAX = 0.50
+
+
+def compute_default_willingness_threshold(ego: float) -> float:
+    """Derive a borrower's willingness_threshold from their `ego` anchor.
+
+    Higher ego → harder to convince (proud AIs don't take handouts
+    from strangers). Lower ego → easier (humble AIs more comfortable
+    accepting help). Clamped to a sensible band so the math always
+    leaves room for both "anyone clears this with effort" and "even
+    maxed-goodwill from a friend gets through."
+
+    The pattern: every personality already has a curated `ego` anchor
+    (0..1) in their `config.anchors` sub-dict. Threading that into
+    willingness here lets us populate the field for the whole roster
+    without per-personality JSON edits, while still allowing explicit
+    `borrower_profile.willingness_threshold` overrides to win when
+    present (handled at the loader layer).
+
+    Sample calibrations:
+      - ego 0.36 (Lincoln-style humble) → ~0.23
+      - ego 0.50 (baseline)             → 0.30
+      - ego 0.86 (Napoleon-style proud) → ~0.48
+    """
+    raw = (
+        WILLINGNESS_THRESHOLD_BASE
+        + WILLINGNESS_THRESHOLD_SLOPE * (float(ego) - 0.5)
+    )
+    return max(
+        WILLINGNESS_THRESHOLD_MIN,
+        min(WILLINGNESS_THRESHOLD_MAX, raw),
+    )

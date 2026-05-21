@@ -41,6 +41,7 @@ from cash_mode.lender_profile import (
     BorrowerProfile,
     LENDER_PROFILE_DEFAULTS,
     LenderProfile,
+    compute_default_willingness_threshold,
 )
 from poker.repositories.base_repository import BaseRepository
 
@@ -480,16 +481,27 @@ class BankrollRepository(BaseRepository):
     def load_borrower_profile(self, personality_id: str) -> BorrowerProfile:
         """Read the borrower profile from `config_json.borrower_profile`.
 
-        Phase 4 of the backing system. Mirrors `load_lender_profile`'s
-        per-field fallback to `BORROWER_PROFILE_DEFAULTS`. Three
-        fallback cases all return the default profile:
+        Phase 4 + Phase 5 of the backing system. Mirrors
+        `load_lender_profile`'s per-field fallback to
+        `BORROWER_PROFILE_DEFAULTS` with one nuance: when the sub-dict
+        is missing `willingness_threshold`, the value is **derived
+        from `config.anchors.ego`** (already curated per personality)
+        rather than falling back to the flat default. This populates
+        every character's stake-acceptance threshold without per-
+        personality JSON edits — proud AIs get harder thresholds,
+        humble AIs easier ones, all from one canonical anchor.
+
+        Hard-fallback cases (return BORROWER_PROFILE_DEFAULTS verbatim,
+        no derivation attempted):
           - personality_id not in the table
-          - config_json has no `borrower_profile` sub-dict
-          - sub-dict is partial / malformed
+          - config_json malformed (JSON parse error)
+          - sub-dict is non-dict shape
 
         Default `willing=True` so unannotated personalities accept
         stakes when bust. Stoic personalities override `willing=False`
-        via their config sub-dict.
+        via their config sub-dict. Explicit
+        `borrower_profile.willingness_threshold` in config_json
+        always wins over the ego-derived value.
         """
         with self._get_connection() as conn:
             row = conn.execute(
@@ -517,12 +529,94 @@ class BankrollRepository(BaseRepository):
             return BORROWER_PROFILE_DEFAULTS
 
         defaults = BORROWER_PROFILE_DEFAULTS
+
+        # Willingness threshold derivation: explicit override in the
+        # borrower_profile sub-dict wins; otherwise derive from the
+        # personality's `anchors.ego` (already curated per character).
+        # This lets every personality get a defensible threshold
+        # without per-personality JSON edits while leaving the
+        # explicit-override escape hatch intact for characters that
+        # need hand-tuning (e.g. a humble-but-paranoid stoic that
+        # wants a higher floor than ego alone would predict).
+        if "willingness_threshold" in sub:
+            willingness_threshold = float(sub["willingness_threshold"])
+        else:
+            anchors = config.get("anchors") if isinstance(config, dict) else None
+            if isinstance(anchors, dict) and "ego" in anchors:
+                try:
+                    ego = float(anchors["ego"])
+                    willingness_threshold = compute_default_willingness_threshold(ego)
+                except (TypeError, ValueError):
+                    willingness_threshold = defaults.willingness_threshold
+            else:
+                willingness_threshold = defaults.willingness_threshold
+
         return BorrowerProfile(
             willing=sub.get("willing", defaults.willing),
-            willingness_threshold=float(
-                sub.get("willingness_threshold", defaults.willingness_threshold),
-            ),
+            willingness_threshold=willingness_threshold,
         )
+
+    def save_borrower_profile(
+        self,
+        personality_id: str,
+        *,
+        willing: bool,
+        willingness_threshold: Optional[float],
+    ) -> bool:
+        """Merge borrower-profile values into `config_json.borrower_profile`.
+
+        Phase 5 admin surface. Mirrors `save_personality_knobs` but
+        carries the "explicit override vs derived" semantic the
+        loader relies on:
+
+          - `willingness_threshold = None` → drop the key entirely
+            so the loader falls through to the ego-derived default
+          - `willingness_threshold = float` → store the override
+            value; the loader returns it verbatim
+
+        Reads the full config, mutates only `borrower_profile`,
+        writes back — every other key (anchors, lender_profile,
+        bankroll_knobs, verbal_tics, etc.) is preserved.
+
+        Returns True if a row was updated, False if no row matches.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                (personality_id,),
+            ).fetchone()
+            if not row:
+                return False
+            try:
+                config = json.loads(row["config_json"])
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Personality %r config_json is malformed; refusing "
+                    "to merge borrower_profile",
+                    personality_id,
+                )
+                return False
+            bp = config.get("borrower_profile")
+            if not isinstance(bp, dict):
+                bp = {}
+            bp["willing"] = bool(willing)
+            if willingness_threshold is None:
+                # Clear the override so the loader falls back to the
+                # ego-derived default. Dropping the key (vs writing
+                # null) keeps the JSON clean.
+                bp.pop("willingness_threshold", None)
+            else:
+                bp["willingness_threshold"] = float(willingness_threshold)
+            config["borrower_profile"] = bp
+            cursor = conn.execute(
+                """
+                UPDATE personalities
+                SET config_json = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE personality_id = ?
+                """,
+                (json.dumps(config), personality_id),
+            )
+            return cursor.rowcount > 0
 
     def save_personality_knobs(
         self,
