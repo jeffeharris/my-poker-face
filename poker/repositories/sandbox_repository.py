@@ -162,6 +162,38 @@ class SandboxRepository(BaseRepository):
                 ).fetchall()
             return [_row_to_state(r) for r in rows]
 
+    def list_all(
+        self,
+        *,
+        include_archived: bool = False,
+    ) -> List[SandboxState]:
+        """Every sandbox in the database, oldest first.
+
+        For the admin chip-ledger view's sandbox dropdown — owner
+        scoping doesn't apply there. `include_archived=False` keeps
+        the dropdown clean; admins who need a historical row can
+        flip to True.
+        """
+        with self._get_connection() as conn:
+            if include_archived:
+                rows = conn.execute(
+                    """
+                    SELECT sandbox_id, owner_id, name, created_at, archived_at
+                    FROM sandboxes
+                    ORDER BY created_at ASC
+                    """
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT sandbox_id, owner_id, name, created_at, archived_at
+                    FROM sandboxes
+                    WHERE archived_at IS NULL
+                    ORDER BY created_at ASC
+                    """
+                ).fetchall()
+            return [_row_to_state(r) for r in rows]
+
     def archive(self, sandbox_id: str, *, now: Optional[datetime] = None) -> bool:
         """Soft-delete: stamp `archived_at`. Returns True if updated.
 

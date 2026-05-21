@@ -131,6 +131,33 @@ class TestListForOwner:
         assert listed[0].archived_at is not None
 
 
+class TestListAll:
+    def test_empty_when_no_sandboxes(self, repo):
+        assert repo.list_all() == []
+
+    def test_returns_every_owner_in_creation_order(self, repo):
+        a = repo.create("owner_alice", name="First")
+        import time
+        time.sleep(0.01)
+        b = repo.create("owner_bob", name="Second")
+        listed = repo.list_all()
+        assert [s.sandbox_id for s in listed] == [a.sandbox_id, b.sandbox_id]
+
+    def test_excludes_archived_by_default(self, repo):
+        a = repo.create("owner_alice")
+        b = repo.create("owner_bob")
+        repo.archive(a.sandbox_id)
+        listed = repo.list_all()
+        assert [s.sandbox_id for s in listed] == [b.sandbox_id]
+
+    def test_include_archived_returns_all(self, repo):
+        a = repo.create("owner_alice")
+        repo.archive(a.sandbox_id)
+        listed = repo.list_all(include_archived=True)
+        assert len(listed) == 1
+        assert listed[0].archived_at is not None
+
+
 class TestArchive:
     def test_returns_true_when_row_updated(self, repo):
         state = repo.create("owner_alice")

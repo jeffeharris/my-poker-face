@@ -129,24 +129,46 @@ class ChipLedgerRepository(BaseRepository):
             ).fetchall()
         return {row['reason']: int(row['total'] or 0) for row in rows}
 
-    def recent_entries(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def recent_entries(
+        self,
+        limit: int = 100,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Return the most recent ledger entries, newest first.
 
         Returns plain dicts (not row objects) so the audit endpoint
         can serialise them straight to JSON. `context_json` is
         parsed back into a dict; malformed JSON is returned as the
         raw string under `context_raw` for forensics.
+
+        `sandbox_id=None` (default) returns rows across every sandbox
+        — the admin / cross-sandbox view. Passing an explicit id
+        scopes to that one save-file; the pre-v103 NULL-sandbox
+        bucket is naturally excluded by the WHERE filter.
         """
         with self._get_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT entry_id, created_at, source, sink, amount, reason, context_json
-                FROM chip_ledger_entries
-                ORDER BY created_at DESC, entry_id DESC
-                LIMIT ?
-                """,
-                (int(limit),),
-            ).fetchall()
+            if sandbox_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT entry_id, created_at, source, sink, amount, reason, context_json
+                    FROM chip_ledger_entries
+                    ORDER BY created_at DESC, entry_id DESC
+                    LIMIT ?
+                    """,
+                    (int(limit),),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT entry_id, created_at, source, sink, amount, reason, context_json
+                    FROM chip_ledger_entries
+                    WHERE sandbox_id = ?
+                    ORDER BY created_at DESC, entry_id DESC
+                    LIMIT ?
+                    """,
+                    (sandbox_id, int(limit)),
+                ).fetchall()
 
         out: List[Dict[str, Any]] = []
         for row in rows:

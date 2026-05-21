@@ -86,6 +86,29 @@ class TestRepoRoundTrip:
         assert entries[0]['context'] is None
         assert entries[0]['context_raw'] == '{not json'
 
+    def test_recent_entries_scopes_by_sandbox(self, repo):
+        """recent_entries(sandbox_id=) returns only rows for that sandbox.
+
+        Pre-v103 NULL-sandbox rows are excluded from a scoped read; the
+        default (None) returns every row regardless of sandbox.
+        """
+        repo.record('central_bank', 'ai:zeus', 100, 'ai_seed', sandbox_id='sb1')
+        repo.record('central_bank', 'ai:hera', 200, 'ai_seed', sandbox_id='sb2')
+        # Legacy NULL-sandbox row (pre-v103 bucket).
+        repo.record('central_bank', 'ai:ares', 50, 'ai_seed')
+
+        all_entries = repo.recent_entries()
+        assert {e['amount'] for e in all_entries} == {100, 200, 50}
+
+        sb1 = repo.recent_entries(sandbox_id='sb1')
+        assert [e['amount'] for e in sb1] == [100]
+
+        sb2 = repo.recent_entries(sandbox_id='sb2')
+        assert [e['amount'] for e in sb2] == [200]
+
+        # Unknown sandbox returns empty, doesn't crash.
+        assert repo.recent_entries(sandbox_id='unknown') == []
+
 
 class TestLedgerModule:
     def test_record_writes_via_helpers(self, repo):
