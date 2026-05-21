@@ -60,11 +60,6 @@ STAKER_PROFILE_DEFAULTS = StakerProfile(
     heat_ceiling=0.7,
 )
 
-# Backward-compat aliases — callers still importing the old names work
-# until they migrate to StakerProfile / STAKER_PROFILE_DEFAULTS.
-LenderProfile = StakerProfile
-LENDER_PROFILE_DEFAULTS = STAKER_PROFILE_DEFAULTS
-
 
 # --- Borrower profile (Phase 4 of the backing system) ---------------------
 

@@ -436,11 +436,6 @@ class BankrollRepository(BaseRepository):
           - sub-dict is partial (only some keys set; missing keys fall
             back per-field)
 
-        Accepts the legacy `lender_profile` key as a fallback when
-        `staker_profile` is absent — same vocabulary-rename alias
-        pattern as the existing `bankroll_cap`/`starting_bankroll`
-        alias above.
-
         Defaults are conservative (`max_loan_pct=0.05`, `floor=1.20`,
         `rate=0.30`, `respect_floor=-0.5`, `heat_ceiling=0.7`) so a
         personality without an explicit profile lends like a cautious
@@ -463,7 +458,7 @@ class BankrollRepository(BaseRepository):
             )
             return STAKER_PROFILE_DEFAULTS
 
-        sub = config.get("staker_profile") or config.get("lender_profile") or {}
+        sub = config.get("staker_profile") or {}
         if not isinstance(sub, dict):
             logger.warning(
                 "Personality %r has non-dict staker_profile; using defaults",
@@ -482,10 +477,6 @@ class BankrollRepository(BaseRepository):
             respect_floor=sub.get("respect_floor", defaults.respect_floor),
             heat_ceiling=sub.get("heat_ceiling", defaults.heat_ceiling),
         )
-
-    def load_lender_profile(self, personality_id: str) -> StakerProfile:
-        """Deprecated alias for `load_staker_profile`."""
-        return self.load_staker_profile(personality_id)
 
     def load_borrower_profile(self, personality_id: str) -> BorrowerProfile:
         """Read the borrower profile from `config_json.borrower_profile`.
@@ -672,12 +663,6 @@ class BankrollRepository(BaseRepository):
                 "respect_floor": float(profile.respect_floor),
                 "heat_ceiling": float(profile.heat_ceiling),
             }
-            # Drop the legacy `lender_profile` key on edit — once a
-            # personality has been edited through the admin surface,
-            # the new key is canonical and the old one is just dead
-            # weight. (Reads still fall back to `lender_profile` for
-            # untouched rows during the migration window.)
-            config.pop("lender_profile", None)
             cursor = conn.execute(
                 """
                 UPDATE personalities

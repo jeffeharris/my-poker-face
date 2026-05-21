@@ -1127,15 +1127,12 @@ def get_staker_profile(name):
 
         profile = bankroll_repo.load_staker_profile(pid)
         config = _read_personality_config(pid)
-        # `explicit_sub`: the keys actually stored in config_json
-        # (under either `staker_profile` or the legacy `lender_profile`
-        # alias). Lets the UI render "(default)" badges next to fields
-        # the personality hasn't tuned yet.
+        # `explicit_sub`: the staker_profile sub-dict actually stored
+        # in config_json. Lets the UI render "(default)" badges next
+        # to fields the personality hasn't tuned yet.
         explicit_sub = None
         if isinstance(config, dict):
             sp = config.get('staker_profile')
-            if sp is None:
-                sp = config.get('lender_profile')
             if isinstance(sp, dict):
                 explicit_sub = sp
 
