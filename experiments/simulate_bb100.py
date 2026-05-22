@@ -1437,7 +1437,45 @@ def main():
              'poise + recovery_rate, e.g. Nit) drift very little; '
              'volatile ones (Maniac, LAG) drift visibly.',
     )
+    parser.add_argument(
+        '--clone-opponent', type=str, action='append', default=None,
+        metavar='PLAYER_NAME',
+        help='Derive a CloneProfile from opponent_models for the named '
+             'human/AI player and register it as an opponent archetype '
+             '"<PLAYER_NAME>_clone". Repeatable. Reference the clone via '
+             '--opponents (e.g. --clone-opponent Jeff --opponents '
+             '"Jeff_clone,CaseBot,CaseBot,CaseBot,CaseBot"). Requires the '
+             'player to have ≥20 hands_observed in opponent_models.',
+    )
     args = parser.parse_args()
+
+    # Register any clone opponents the user requested. Do this before
+    # ARCHETYPES is read by the matchup runners so the new entries are
+    # visible. Fails loud rather than silently swallowing — bad
+    # --clone-opponent name should stop the run, not produce a misleading
+    # "opponent not found" downstream.
+    if args.clone_opponent:
+        from poker.human_clone import derive_profile_from_db, register_clone_strategy
+        import os as _os
+        clone_db = args.db or (
+            '/app/data/poker_games.db'
+            if _os.path.exists('/app/data/poker_games.db')
+            else 'poker_games.db'
+        )
+        for player_name in args.clone_opponent:
+            profile = derive_profile_from_db(clone_db, player_name)
+            strategy_key = f"clone_{player_name.replace(' ', '_').lower()}"
+            register_clone_strategy(strategy_key, profile)
+            archetype_key = f"{player_name}_clone"
+            ARCHETYPES[archetype_key] = {
+                'kind': 'rule_bot',
+                'strategy': strategy_key,
+            }
+            print(
+                f"[CLONE] Registered {archetype_key!r} from {profile.hands_observed} "
+                f"observed hand(s) — vpip={profile.vpip:.2f} pfr={profile.pfr:.2f} "
+                f"af={profile.aggression_factor:.2f} ftc={profile.fold_to_cbet:.2f}"
+            )
 
     # Seed the global `random` module so any code path that calls
     # `random.random()` / `random.choice()` / `random.getrandbits()` etc.
