@@ -10,8 +10,7 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
-import { ShuffleLoading, type FoldoutFlavor } from '../shared/ShuffleLoading';
-import { computeFoldoutStats } from '../game/WinnerAnnouncement/foldout-flavor';
+import { ShuffleLoading } from '../shared/ShuffleLoading';
 import { pickQuote } from '../game/WinnerAnnouncement/quote-flavor';
 import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
@@ -319,7 +318,6 @@ export function MobilePokerTable({
   // Split into message (name + verb) and submessage (amount) for better layout.
   const [interhandMessage, setInterhandMessage] = useState<string | null>(null);
   const [interhandSubmessage, setInterhandSubmessage] = useState<string | undefined>(undefined);
-  const [interhandFlavor, setInterhandFlavor] = useState<FoldoutFlavor | undefined>(undefined);
 
   useEffect(() => {
     if (!winnerInfo || winnerInfo.showdown) return;
@@ -342,18 +340,13 @@ export function MobilePokerTable({
     setInterhandMessage(`${names} ${verb}`);
     setInterhandSubmessage(netProfit != null && netProfit > 0 ? `+$${netProfit}` : undefined);
 
-    setInterhandFlavor(
-      computeFoldoutStats(winnerInfo, storePlayers ?? [], bigBlind ?? 0),
-    );
-
     clearWinnerInfo();
-  }, [winnerInfo, clearWinnerInfo, storePlayers, bigBlind]);
+  }, [winnerInfo, clearWinnerInfo]);
 
   // Clear when the next hand starts
   useEffect(() => {
     setInterhandMessage(null);
     setInterhandSubmessage(undefined);
-    setInterhandFlavor(undefined);
   }, [handNumber]);
 
   // Coach hook
@@ -949,7 +942,6 @@ export function MobilePokerTable({
         message={interhandMessage || 'Shuffling'}
         submessage={interhandSubmessage}
         handNumber={handNumber}
-        foldoutFlavor={interhandFlavor}
         quote={interhandQuote}
         variant="interhand"
       />

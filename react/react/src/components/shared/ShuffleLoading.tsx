@@ -11,12 +11,6 @@ const SHUFFLE_CARDS = Array.from({ length: 8 }, (_, i) => ({
 
 const EXIT_MS = { fade: 400, slide: 500 };
 
-export interface FoldoutFlavor {
-  headline: string;
-  /** Key-value stat rows rendered as a small scoreboard. */
-  rows?: { label: string; value: string }[];
-}
-
 export interface ShuffleQuote {
   text: string;
   attribution: string;
@@ -27,9 +21,6 @@ interface ShuffleLoadingProps {
   message: string;
   submessage?: string;
   handNumber?: number;
-  /** When provided, replaces the "Next Hand #N" badge with a flavor block
-   *  (headline + stat chips + quip). Used for inter-hand fold-out displays. */
-  foldoutFlavor?: FoldoutFlavor;
   /** Optional quote rendered above the shuffling deck. Parent owns selection
    *  so the quote stays stable across re-renders. */
   quote?: ShuffleQuote;
@@ -52,7 +43,6 @@ export const ShuffleLoading = memo(function ShuffleLoading({
   message,
   submessage,
   handNumber,
-  foldoutFlavor,
   variant = 'overlay',
   exitStyle = 'fade',
   quote,
@@ -135,29 +125,12 @@ export const ShuffleLoading = memo(function ShuffleLoading({
         <p className="shuffle-loading-submessage">{submessage}</p>
       )}
 
-      {/* Fold-out flavor (headline + stat chips + quip) — replaces the
-       *   "Next Hand #N" badge when present. */}
-      {foldoutFlavor ? (
-        <div className="shuffle-loading-flavor">
-          <div className="shuffle-loading-flavor-headline">{foldoutFlavor.headline}</div>
-          {foldoutFlavor.rows && foldoutFlavor.rows.length > 0 && (
-            <div className="shuffle-loading-flavor-rows">
-              {foldoutFlavor.rows.map((row, i) => (
-                <div key={i} className="shuffle-loading-flavor-row">
-                  <span className="shuffle-loading-flavor-row-label">{row.label}</span>
-                  <span className="shuffle-loading-flavor-row-value">{row.value}</span>
-                </div>
-              ))}
-            </div>
-          )}
+      {/* Hand number badge */}
+      {handNumber != null && handNumber > 0 && (
+        <div className="shuffle-loading-badge">
+          <span className="shuffle-loading-badge-label">Next Hand</span>
+          <span className="shuffle-loading-badge-number">#{handNumber + 1}</span>
         </div>
-      ) : (
-        handNumber != null && handNumber > 0 && (
-          <div className="shuffle-loading-badge">
-            <span className="shuffle-loading-badge-label">Next Hand</span>
-            <span className="shuffle-loading-badge-number">#{handNumber + 1}</span>
-          </div>
-        )
       )}
     </div>
   );

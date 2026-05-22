@@ -401,68 +401,6 @@
 }
 
 /* ===========================================
-   FOLD-OUT FLAVOR
-   Replaces hand-number badge when fold-out flavor is provided
-   =========================================== */
-
-.shuffle-loading-flavor {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 24px;
-  max-width: 360px;
-  text-align: center;
-  animation: shuffleLoadingBadgeFadeIn 0.6s ease-out 0.3s both;
-}
-
-.shuffle-loading-flavor-headline {
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: var(--font-weight-bold);
-  color: var(--color-gold-light);
-  letter-spacing: 0.5px;
-  text-shadow: 0 0 20px rgba(212, 165, 116, 0.3);
-}
-
-.shuffle-loading-flavor-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 240px;
-}
-
-.shuffle-loading-flavor-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 16px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.4;
-  padding: 2px 0;
-  border-bottom: 1px dashed rgba(148, 163, 184, 0.12);
-}
-
-.shuffle-loading-flavor-row:last-child {
-  border-bottom: none;
-}
-
-.shuffle-loading-flavor-row-label {
-  text-transform: uppercase;
-  letter-spacing: var(--letter-spacing-wider);
-  font-size: 10px;
-  color: var(--color-text-tertiary);
-  font-weight: var(--font-weight-medium);
-}
-
-.shuffle-loading-flavor-row-value {
-  color: var(--color-emerald, #4ade80);
-  font-weight: var(--font-weight-semibold);
-  text-align: right;
-}
-
-/* ===========================================
    VIGNETTE OVERLAY
    Subtle edge darkening for depth (interhand only)
    =========================================== */
