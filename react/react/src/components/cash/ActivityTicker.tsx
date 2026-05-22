@@ -95,6 +95,12 @@ export function ActivityTicker({ events }: ActivityTickerProps) {
               <span className="lobby-ticker__dot" aria-hidden="true" />
             )}
             <span className="lobby-ticker__message">{event.message}</span>
+            {event.type === 'leave' && event.comment ? (
+              <span className="lobby-ticker__comment">
+                {' — '}
+                {event.comment}
+              </span>
+            ) : null}
             <span className="lobby-ticker__time">
               {formatRelativeTime(event.created_at)}
             </span>

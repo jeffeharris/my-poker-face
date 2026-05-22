@@ -135,6 +135,10 @@ class LobbyEvent:
     message: str
     created_at: str  # ISO-8601, UTC
     sandbox_id: Optional[str] = None
+    # Filled in by leave_narrative worker after the event lands. None
+    # for non-leave events and for leaves the worker hasn't finished
+    # yet — `serialize_event` joins the latest value at wire time.
+    comment: Optional[str] = None
 
 
 # Bounded ring; oldest events drop on overflow. 50 is enough to
@@ -343,7 +347,22 @@ def serialize_event(event: LobbyEvent) -> dict:
     `sandbox_id` is server-internal scoping (see `LobbyEvent` docs) —
     stripped from the wire payload so the frontend's event type
     surface stays unchanged across the Phase 4 prep refactor.
+
+    For leave events, looks up the LLM-generated comment from the
+    `leave_narrative` worker pool. Comments fill in asynchronously
+    after the event is emitted, so successive polls of the same event
+    may show no comment, then a comment as the worker finishes.
     """
     payload = asdict(event)
     payload.pop('sandbox_id', None)
+    if event.type == EVENT_LEAVE and not event.comment:
+        try:
+            from cash_mode.leave_narrative import get_leave_comment
+            late = get_leave_comment(
+                event.table_id, event.personality_id, event.created_at,
+            )
+        except Exception:
+            late = None
+        if late:
+            payload['comment'] = late
     return payload

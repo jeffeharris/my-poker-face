@@ -191,6 +191,30 @@ def evaluate_ai_movement(
     return "bored_move"
 
 
+def resolve_dominant_signal(
+    ctx: MovementContext,
+    decision: MovementDecision,
+) -> str:
+    """Recover the dominant pressure signal that drove `decision`.
+
+    Deterministic, rng-free — recomputes pressures and picks the max,
+    with `forced_leave` short-circuited to the synthetic `"bust"`
+    signal (the busted-stack path skips the pressure roll entirely).
+    Returns `""` for `stay` / `rebuy` callers who don't need it.
+
+    Used by leave-narrative generation to give the LLM a "why" hint
+    that matches the same signal the decision logic acted on.
+    """
+    if decision == "forced_leave":
+        return "bust"
+    if decision in ("stay", "rebuy"):
+        return ""
+    pressures = compute_leave_pressure(ctx)
+    if not pressures or sum(pressures.values()) <= 0:
+        return ""
+    return max(pressures, key=pressures.get)
+
+
 def decide_leave_or_rebuy(
     ctx: MovementContext,
     rng: random.Random,
@@ -429,6 +453,10 @@ class RosterRefreshResult:
     `decisions` is keyed by personality_id for the AIs that were on
     the table at the start of the refresh, with their MovementDecision.
     Useful for tests and logs.
+
+    `leave_signals` carries the dominant pressure signal per non-stay
+    AI so the lobby's activity emitter can build narrative hints
+    without re-running the pressure compute. `''` for stays.
     """
 
     new_table: CashTableState
@@ -437,6 +465,7 @@ class RosterRefreshResult:
     bankroll_changes: List[BankrollChange] = field(default_factory=list)
     decisions: Dict[str, MovementDecision] = field(default_factory=dict)
     rebuy_changes: List[RebuyChange] = field(default_factory=list)
+    leave_signals: Dict[str, str] = field(default_factory=dict)
     # Phase 4: AI-borrow stake creations. Each entry's seat in
     # `new_table` is already refilled to `principal`; the caller
     # persists the stake row + debits the staker's bankroll.
@@ -718,6 +747,7 @@ def refresh_table_roster(
     bankroll_changes: List[BankrollChange] = []
     rebuy_changes: List[RebuyChange] = []
     decisions: Dict[str, MovementDecision] = {}
+    leave_signals: Dict[str, str] = {}
     freshly_vacated: Set[int] = set()
     stake_creations: List[StakeCreationChange] = []
     # Snapshot the AIs currently at this table before any movement
@@ -753,6 +783,11 @@ def refresh_table_roster(
             emotional_intensity=float(psych.get("emotional_intensity", 0.0)),
         )
         decision = evaluate_ai_movement(ctx, rng)
+        # Stamp the dominant pressure signal so the lobby's activity
+        # emitter can build narrative hints for leave_narrative without
+        # rerunning the pressure compute (or worse, re-querying psych).
+        if decision != "stay":
+            leave_signals[pid] = resolve_dominant_signal(ctx, decision)
         # Phase 4: intercept `forced_leave` with `take_stake` when a
         # peer AI is willing to fund the busting borrower. Only fires
         # when ALL the required callbacks are wired (lobby supplies
@@ -1047,5 +1082,6 @@ def refresh_table_roster(
         bankroll_changes=bankroll_changes,
         decisions=decisions,
         rebuy_changes=rebuy_changes,
+        leave_signals=leave_signals,
         stake_creations=stake_creations,
     )
