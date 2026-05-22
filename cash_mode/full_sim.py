@@ -269,13 +269,20 @@ def _build_controller(
     from poker.tiered_bot_controller import TieredBotController
 
     strategy_table, hu_table = _get_strategy_tables()
-    return TieredBotController(
+    controller = TieredBotController(
         player_name=display_name,
         state_machine=state_machine,
         strategy_table=strategy_table,
         hu_strategy_table=hu_table,
         llm_config={},  # no LLM for sim
     )
+    # Skip the per-decision Monte Carlo equity calc (~200-500ms) in
+    # sim runs. The controller still builds the pipeline snapshot +
+    # intervention trace; only decision_analyzer's equity field is
+    # skipped. Shipped in the induce_override / equity-eval merge —
+    # see docs/plans/INDUCE_OVERRIDE_PHASE_A.md §"Plumbing fixes."
+    controller.skip_equity_in_analysis = True
+    return controller
 
 
 def _hydrate_psychology(
