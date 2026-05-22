@@ -270,6 +270,15 @@ class TieredBotController(AIPlayerController):
         # counterfactual per-decision evaluation.
         self.disable_rules: frozenset = frozenset()
 
+        # Sim-mode performance flag. When True, decision_analyzer
+        # skips Monte Carlo equity computation (~200-500ms per
+        # decision — dominant cost in long sim runs) but still
+        # persists trace + snapshot. Production / UI paths leave
+        # this False so coaching and decision-quality scoring keep
+        # their equity field. Set by the experiment runner; default
+        # off so non-sim callers see no behavior change.
+        self.skip_equity_in_analysis: bool = False
+
     def _snapshot_personality_inputs(self, anchors, emotional_state) -> None:
         """Phase 7.6 Step 6: record the inputs `modify_strategy` consumed
         so the replay function can re-invoke the personality layer.
@@ -851,6 +860,22 @@ class TieredBotController(AIPlayerController):
         )
         self._last_intervention_trace.extend(exploitation_traces)
 
+        # 6a.45 Phase A induce_override: smooth-call vs detected
+        # multi-street barrelers with nuts IP on dry boards. Sits
+        # IMMEDIATELY BEFORE value_override; when induce fires, value
+        # override defers via its `prior_layer_fired` check. The two
+        # rules' gates overlap on hyper_aggressive+nuts spots — induce
+        # has the narrower gate (IP, dry board, ≥40 BB, sample floor)
+        # and wins when both match.
+        modified_strategy, induce_override_trace = self._apply_induce_override(
+            modified_strategy, game_state, player_idx, valid_actions,
+            anchors, emotional_state,
+            node=node,
+            hand_strength=hand_strength,
+            active_opponent_count=active_count - 1,
+        )
+        self._last_intervention_trace.append(induce_override_trace)
+
         # 6a.5 Phase 6.5: strong-hand value override.
         # Replaces strategy when hero has a strong made hand vs a detected
         # hyper-aggressive opponent. Sits after exploitation so it takes
@@ -859,6 +884,7 @@ class TieredBotController(AIPlayerController):
             modified_strategy, game_state, player_idx, valid_actions,
             anchors, emotional_state,
             hand_strength=hand_strength,
+            prior_layer_fired=induce_override_trace.fired,
         )
         self._last_intervention_trace.append(value_override_trace)
 
@@ -897,7 +923,9 @@ class TieredBotController(AIPlayerController):
         # required_equity + facing_bet from DecisionContext.
         from .strategy.defense_floor import apply_defense_floor
         prior_layer_fired = (
-            value_override_trace.fired or bluff_catch_trace.fired
+            induce_override_trace.fired
+            or value_override_trace.fired
+            or bluff_catch_trace.fired
         )
         defense_floor_facing_bet = (
             outer_decision_context.bet_bucket is not None
@@ -1464,9 +1492,84 @@ class TieredBotController(AIPlayerController):
             bettor_archetype=archetype,
         )
 
+    def _apply_induce_override(
+        self, strategy, game_state, player_idx, valid_actions,
+        anchors, emotional_state, *,
+        node, hand_strength, active_opponent_count: int,
+    ) -> Tuple['StrategyProfile', InterventionTrace]:
+        """Phase A: induce override (smooth-call vs barrelers).
+
+        Sits immediately before `_apply_value_override` in the postflop
+        pipeline. When this rule fires, value_override defers via its
+        `prior_layer_fired` check. See poker/strategy/induce_override.py
+        for the full design + docs/plans/INDUCE_OVERRIDE_PHASE_A.md.
+
+        Mirrors `_apply_value_override`'s shape: ablation check first,
+        then manager + anchors gate, then spot-based stat selection,
+        then delegate to the rule module's apply function. The rule
+        module owns the actual gate logic; this method handles
+        controller-side plumbing.
+        """
+        from .strategy.induce_override import apply_induce_override
+        from .strategy.intervention_trace import (
+            is_rule_disabled, make_disabled_trace,
+        )
+
+        if is_rule_disabled(
+            getattr(self, "disable_rules", frozenset()),
+            'induce_override', 'default',
+        ):
+            return strategy, make_disabled_trace(
+                layer='induce_override', rule_id='default',
+                layer_order=layer_order_for('induce_override'),
+            )
+
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None or anchors is None:
+            return strategy, make_no_op_trace(
+                layer='induce_override', rule_id='default',
+                layer_order=layer_order_for('induce_override'),
+                reason_code='manager_unavailable',
+            )
+
+        tilt_factor = self._zone_to_tilt_factor(emotional_state)
+
+        # Reuse value_override's stat selection so both layers see the
+        # same aggressor when both gates evaluate the same decision.
+        spots = self._build_opponent_spots(game_state, manager)
+        stats, primary_spot, _ambiguous = (
+            self._select_exploitation_stats_from_spots(spots, game_state)
+        )
+
+        decision_context = self._build_decision_context(
+            game_state, player_idx,
+            primary_aggressor_spot=primary_spot,
+        )
+
+        effective_stack_bb = self._compute_effective_stack_bb(
+            game_state, player_idx,
+        )
+
+        return apply_induce_override(
+            strategy,
+            stats=stats,
+            hand_strength=hand_strength,
+            nut_status=node.nut_status,
+            street=node.street,
+            position=node.position,
+            danger_flag_count=len(node.danger_flags),
+            effective_stack_bb=effective_stack_bb,
+            active_opponent_count=active_opponent_count,
+            decision_context=decision_context,
+            adaptation_bias=anchors.adaptation_bias,
+            tilt_factor=tilt_factor,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
+        )
+
     def _apply_value_override(
         self, strategy, game_state, player_idx, valid_actions,
         anchors, emotional_state, hand_strength,
+        prior_layer_fired: bool = False,
     ) -> Tuple['StrategyProfile', InterventionTrace]:
         """Phase 6.5: strong-hand value override.
 
@@ -1491,6 +1594,17 @@ class TieredBotController(AIPlayerController):
         # Default for the Phase-8 tally — set unconditionally so the
         # postflop caller never reads a stale flag from a prior decision.
         self._last_value_override_fired = False
+
+        # Phase A induce_override: defer when induce already replaced
+        # the strategy this decision. Without this, value_override
+        # would overwrite induce's 100%-call distribution back to
+        # 50/50 call/raise and the trap mechanic is lost.
+        if prior_layer_fired:
+            return strategy, make_no_op_trace(
+                layer='strong_hand_override', rule_id='default',
+                layer_order=layer_order_for('strong_hand_override'),
+                reason_code='deferred_to_induce_override',
+            )
 
         # Phase 7.6 Step 5: ablation short-circuit.
         from .strategy.intervention_trace import is_rule_disabled, make_disabled_trace
@@ -2126,6 +2240,27 @@ class TieredBotController(AIPlayerController):
                             all_in_frequency=t.all_in_frequency,
                             fold_to_cbet=t.fold_to_cbet,
                             cbet_faced_count=t._cbet_faced_count,
+                            # Phase 8.1a c-bet attempt fields. getattr-with-
+                            # default keeps SimpleNamespace mocks happy.
+                            cbet_attempt_rate=getattr(
+                                t, 'cbet_attempt_rate', 0.5,
+                            ),
+                            postflop_seen_as_pfr_count=getattr(
+                                t, '_postflop_seen_as_pfr_count', 0,
+                            ),
+                            # Phase B Item 1 barrel fields.
+                            barrel_frequency=getattr(
+                                t, 'barrel_frequency', 0.5,
+                            ),
+                            barrel_opportunities=getattr(
+                                t, '_barrel_opportunity_count', 0,
+                            ),
+                            third_barrel_frequency=getattr(
+                                t, 'third_barrel_frequency', 0.5,
+                            ),
+                            third_barrel_opportunities=getattr(
+                                t, '_third_barrel_opportunity_count', 0,
+                            ),
                             # Phase 7.5 Step 0 fields — populated for
                             # diagnostic visibility. Item 2 consumes them
                             # for tier classification.
@@ -2691,13 +2826,40 @@ class TieredBotController(AIPlayerController):
     def _attach_expression(
         self, decision: Dict, game_state, player_idx: int, phase: str,
     ) -> None:
-        """Populate narration fields on a committed decision dict.
+        """Populate narration fields on a committed decision AND persist
+        the decision-analysis row.
 
-        No-op when no expression_generator is configured. All failures are
-        contained: the decision dict is unchanged and the game proceeds.
+        Two responsibilities — character expression (Layer 3, optional)
+        and analytics persistence (always wanted). Originally these were
+        coupled: persistence was gated on the LLM capture_id, which meant
+        a silent turn (or a sim with `expression: false`) silently
+        dropped the per-decision intervention_trace + snapshot. This
+        broke analytics for ablation matrices that rely on
+        trace counters.
+
+        Now: expression runs if configured and the gate passes;
+        persistence runs unconditionally with whatever capture_id the
+        expression layer produced (or None if it didn't fire).
+        """
+        capture_id = self._run_expression_layer(
+            decision, game_state, player_idx, phase,
+        )
+        self._persist_decision_analysis(
+            decision, game_state, player_idx, capture_id=capture_id,
+        )
+
+    def _run_expression_layer(
+        self, decision: Dict, game_state, player_idx: int, phase: str,
+    ) -> Optional[int]:
+        """Run the Layer 3 character expression (LLM narration).
+
+        Returns the prompt capture_id when the LLM fired, or None when
+        expression is disabled, fully silent, or errored. The capture_id
+        is passed through to the analytics persistence step so the
+        decision_analysis row can link to its narration capture.
         """
         if getattr(self, 'expression_generator', None) is None:
-            return
+            return None
 
         try:
             from .moment_analyzer import MomentAnalyzer
@@ -2748,7 +2910,7 @@ class TieredBotController(AIPlayerController):
             should_speak = gate.should_speak
             should_gesture = gate.should_gesture
             if gate.fully_silent:
-                return
+                return None
 
             # Phase 7.6 Step 5: build NarrationFacts from the per-decision
             # intervention trace. Best-effort — failure here logs WARN and
@@ -2854,30 +3016,46 @@ class TieredBotController(AIPlayerController):
                 f"[TIERED_BOT] {self.player_name}: "
                 f"expression failed safely: {e}"
             )
-            return
+            return None
 
-        # Link the decision-analysis row to the narration capture so the
-        # analyzer pipeline can join them (matches the hybrid path's behavior).
-        if capture_id_holder[0] is not None and getattr(
-            self, '_decision_analysis_repo', None
-        ) is not None:
-            try:
-                cost_to_call = getattr(game_state, 'call_amount', 0) or 0
-                player_obj = game_state.players[player_idx]
-                self._analyze_decision(
-                    decision,
-                    {'call_amount': cost_to_call},
-                    capture_id=capture_id_holder[0],
-                    player_bet=getattr(player_obj, 'bet', 0),
-                    all_players_bets=[
-                        (p.bet, p.is_folded) for p in game_state.players
-                    ],
-                )
-            except Exception as e:
-                logger.warning(
-                    f"[TIERED_BOT] {self.player_name}: "
-                    f"capture_id linkage failed: {e}"
-                )
+        return capture_id_holder[0]
+
+    def _persist_decision_analysis(
+        self, decision: Dict, game_state, player_idx: int,
+        *, capture_id: Optional[int] = None,
+    ) -> None:
+        """Persist the per-decision intervention_trace + pipeline snapshot.
+
+        Always called after `_attach_expression` regardless of whether
+        the LLM expression layer fired. When the LLM did fire,
+        `capture_id` links the analysis row to the narration capture.
+        When the LLM didn't (silent turn, expression disabled, sim
+        with `expression: false`), `capture_id` is None and the row is
+        saved without the narration linkage — analytics still get the
+        trace + snapshot, which is what they need.
+
+        No-op when no decision_analysis repo is attached (sim path or
+        test without the repo wired).
+        """
+        if getattr(self, '_decision_analysis_repo', None) is None:
+            return
+        try:
+            cost_to_call = getattr(game_state, 'call_amount', 0) or 0
+            player_obj = game_state.players[player_idx]
+            self._analyze_decision(
+                decision,
+                {'call_amount': cost_to_call},
+                capture_id=capture_id,
+                player_bet=getattr(player_obj, 'bet', 0),
+                all_players_bets=[
+                    (p.bet, p.is_folded) for p in game_state.players
+                ],
+            )
+        except Exception as e:
+            logger.warning(
+                f"[TIERED_BOT] {self.player_name}: "
+                f"decision_analysis persistence failed: {e}"
+            )
 
     def _select_opponent_observations(
         self, game_state, player,

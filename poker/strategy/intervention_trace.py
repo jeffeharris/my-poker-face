@@ -107,6 +107,7 @@ _LAYER_ORDER: Dict[str, int] = {
     'value_vs_station':      1,  # Phase 8: feeds exploitation
     'steal_pressure':        1,  # Phase 8: feeds exploitation
     'bluff_reduction':       1,  # Plan §5: air-vs-station mirror of value_vs_station
+    'induce_override':       2,  # Phase A: smooth-call vs barrelers (preempts strong_hand_override)
     'strong_hand_override':  2,
     'bluff_catch_override':  3,
     'defense_floor':         4,  # Plan §2: price-sensitive call floor

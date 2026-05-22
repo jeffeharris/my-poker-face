@@ -269,6 +269,7 @@ class DecisionAnalyzer:
         player_bet: int = 0,
         all_players_bets: Optional[List[Tuple[int, bool]]] = None,
         psychology_snapshot: Optional[dict] = None,
+        skip_equity: bool = False,
     ) -> DecisionAnalysis:
         """
         Analyze a decision and return analysis result.
@@ -375,8 +376,12 @@ class DecisionAnalyzer:
             except Exception as e:
                 logger.debug(f"Hand strength calculation failed: {e}")
 
-        # Calculate equity if we have cards and calculator
-        if player_hand and self.calculator and num_opponents > 0:
+        # Calculate equity if we have cards and calculator.
+        # `skip_equity` bypasses the Monte Carlo cost for sim runs where
+        # only the trace + snapshot persistence is needed, not equity.
+        # Equity-derived fields (analysis.equity, equity_vs_ranges,
+        # opponent_ranges_json, required_equity-vs-equity EV) stay None.
+        if not skip_equity and player_hand and self.calculator and num_opponents > 0:
             try:
                 # Calculate equity vs random opponent hands using Monte Carlo
                 analysis.equity = self.calculate_equity_vs_random(

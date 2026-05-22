@@ -2018,6 +2018,7 @@ class AIPlayerController:
                 player_bet=player_bet,
                 all_players_bets=all_players_bets,
                 psychology_snapshot=psychology_snapshot,
+                skip_equity=getattr(self, 'skip_equity_in_analysis', False),
             )
 
             # Menu compliance: score against bounded options if available

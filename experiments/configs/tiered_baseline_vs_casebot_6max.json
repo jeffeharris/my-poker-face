@@ -1,0 +1,34 @@
+{
+  "name": "tiered_baseline_vs_casebot_6max",
+  "description": "BaselineSolverBot (no personality distortion) vs 5x CaseBot in 6-max. Companion to HU experiment to isolate personality-distortion effect across table sizes. Same seed/sample as exp 67.",
+  "tags": ["tiered", "baseline", "casebot", "6max"],
+  "num_tournaments": 8,
+  "hands_per_tournament": 500,
+  "num_players": 6,
+  "starting_stack": 20000,
+  "big_blind": 100,
+  "random_seed": 2025,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Sun Tzu", "CaseBot", "CaseBot1", "CaseBot2", "CaseBot3", "CaseBot4"],
+  "player_types": {
+    "Sun Tzu": {
+      "type": "tiered",
+      "expression": false,
+      "skip_personality_distortion": true
+    },
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"},
+    "CaseBot1": {"type": "rule_bot", "strategy": "case_based"},
+    "CaseBot2": {"type": "rule_bot", "strategy": "case_based"},
+    "CaseBot3": {"type": "rule_bot", "strategy": "case_based"},
+    "CaseBot4": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "capture_prompts": false,
+  "control": {
+    "label": "Baseline vs 5x CaseBot 6max",
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  }
+}

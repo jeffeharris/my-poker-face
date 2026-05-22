@@ -1,0 +1,30 @@
+{
+  "name": "tiered_tag_vs_casebot_6max",
+  "description": "TieredBot (Sun Tzu = TAG anchors) vs 5x CaseBot in 6-max. Hero is one TAG seat, 5 CaseBot opponents. 8x500 hands = 4000 hands per arm (smaller per-tournament hand count because 6-handed reduces hand throughput).",
+  "tags": ["tiered", "tag", "casebot", "6max"],
+  "num_tournaments": 8,
+  "hands_per_tournament": 500,
+  "num_players": 6,
+  "starting_stack": 20000,
+  "big_blind": 100,
+  "random_seed": 2025,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Sun Tzu", "CaseBot", "CaseBot1", "CaseBot2", "CaseBot3", "CaseBot4"],
+  "player_types": {
+    "Sun Tzu": {"type": "tiered", "expression": false},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"},
+    "CaseBot1": {"type": "rule_bot", "strategy": "case_based"},
+    "CaseBot2": {"type": "rule_bot", "strategy": "case_based"},
+    "CaseBot3": {"type": "rule_bot", "strategy": "case_based"},
+    "CaseBot4": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "capture_prompts": false,
+  "control": {
+    "label": "Sun Tzu (TAG) vs 5x CaseBot 6max",
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  }
+}

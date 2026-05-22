@@ -289,6 +289,9 @@ class ExperimentConfig:
             # New fields for enhanced variant support
             'guidance_injection': self.control.get('guidance_injection'),
             'prompt_preset_id': self.control.get('prompt_preset_id'),
+            # player_types lets control specify default controller wiring
+            # (rule_bot strategy, tiered, disable_rules, etc.).
+            'player_types': self.control.get('player_types'),
         }
         control_label = self.control.get('label', 'Control')
         result.append((control_label, control_config))
@@ -315,6 +318,13 @@ class ExperimentConfig:
                 'prompt_preset_id': variant.get('prompt_preset_id') if 'prompt_preset_id' in variant else control_config.get('prompt_preset_id'),
                 # Guidance injection - use variant's or inherit from control
                 'guidance_injection': variant.get('guidance_injection') if 'guidance_injection' in variant else control_config.get('guidance_injection'),
+                # player_types lets variants swap controller types
+                # (rule_bot strategy, tiered disable_rules ablation, etc.)
+                # per arm. Falls back to control's player_types if the
+                # variant doesn't specify its own — that way an ablation
+                # matrix can share the baseline controller setup and only
+                # tweak disable_rules per variant.
+                'player_types': variant.get('player_types') if 'player_types' in variant else control_config.get('player_types'),
             }
             variant_label = variant.get('label', f'Variant {len(result)}')
             result.append((variant_label, variant_config))
@@ -949,6 +959,9 @@ class AITournamentRunner:
                     capture_label_repo=self.capture_label_repo,
                     decision_analysis_repo=self.decision_analysis_repo,
                     debug_logging=player_type_config.get('debug_logging', False),
+                    skip_personality_distortion=player_type_config.get(
+                        'skip_personality_distortion', False,
+                    ),
                 )
 
                 if player_type_config.get('expression', True):
@@ -990,6 +1003,29 @@ class AITournamentRunner:
             controllers[player.name] = controller
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
             controller.memory_manager = memory_manager
+
+            # Sim performance: skip Monte Carlo equity in decision
+            # analysis for tiered controllers in experiment runs.
+            # Trace + snapshot still persist; only the equity field
+            # (and equity-derived EV) goes None. Cuts ~200-500ms per
+            # decision, which dominates sim wall-clock at this scale.
+            # Production/UI controllers always have skip_equity_in_analysis
+            # = False (the attribute default).
+            if hasattr(controller, 'skip_equity_in_analysis'):
+                controller.skip_equity_in_analysis = True
+
+            # Ablation hook: let configs disable specific TieredBot rules
+            # by listing (layer, rule_id) pairs under player_type_config.
+            # Example config fragment:
+            #   "disable_rules": [["induce_override", "default"]]
+            # Used by the Phase A ablation matrix to run rule-OFF arms
+            # without re-instantiating with different code. Silently
+            # ignored for non-tiered controllers (no disable_rules attr).
+            disable_rules_cfg = player_type_config.get('disable_rules')
+            if disable_rules_cfg and hasattr(controller, 'disable_rules'):
+                controller.disable_rules = frozenset(
+                    tuple(pair) for pair in disable_rules_cfg
+                )
 
         return state_machine, controllers, memory_manager
 

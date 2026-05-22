@@ -39,6 +39,31 @@ class CbetDetector:
         self._pfr_attempt_recorded: bool = False
         self._flop_bet_made: bool = False
         self._pending_pfr_attempts: List[Tuple[str, bool]] = []
+        # Phase B Item 1: barrel tracking.
+        # The exploit induce_override targets is "PFR fires multiple
+        # streets after being called." Phase A used AF_pf×cbet_attempt
+        # as a proxy; Phase B tracks barrels directly.
+        #
+        # Barrel = PFR's first action on the next street when:
+        #   1. They c-bet the prior street (cbet on flop / barrel on turn)
+        #   2. At least one player called (not folded) that bet
+        #   3. The PFR has a "clean decision" — no one donked into them
+        #      first on the new street.
+        #
+        # bet/raise/all_in → barrel attempt = True
+        # check → barrel attempt = False
+        #
+        # Third barrel = same pattern for turn→river.
+        self._cbet_called: bool = False
+        self._barrel_attempt_recorded: bool = False
+        self._turn_bet_made: bool = False
+        self._turn_barrel_made: bool = False
+        self._turn_barrel_called: bool = False
+        self._players_facing_turn_barrel: Set[str] = set()
+        self._third_barrel_attempt_recorded: bool = False
+        self._river_bet_made: bool = False
+        self._pending_barrel_attempts: List[Tuple[str, bool]] = []
+        self._pending_third_barrel_attempts: List[Tuple[str, bool]] = []
 
     # ── Read-only views ────────────────────────────────────────────────
 
@@ -66,6 +91,16 @@ class CbetDetector:
         self._pfr_attempt_recorded = False
         self._flop_bet_made = False
         self._pending_pfr_attempts = []
+        self._cbet_called = False
+        self._barrel_attempt_recorded = False
+        self._turn_bet_made = False
+        self._turn_barrel_made = False
+        self._turn_barrel_called = False
+        self._players_facing_turn_barrel = set()
+        self._third_barrel_attempt_recorded = False
+        self._river_bet_made = False
+        self._pending_barrel_attempts = []
+        self._pending_third_barrel_attempts = []
 
     def record_preflop_aggression(self, player_name: str) -> None:
         """Manually set the preflop aggressor.
@@ -162,6 +197,70 @@ class CbetDetector:
             folded = (action == 'fold')
             responses.append((player_name, folded))
             self._players_facing_cbet.discard(player_name)
+            # Phase B Item 1: cbet_called gates barrel-opportunity. Any
+            # non-fold response (call / raise / all_in) means someone
+            # stayed in and the PFR has a turn-barrel decision coming.
+            if not folded:
+                self._cbet_called = True
+
+        # 5. Phase B Item 1 — PFR's first turn action. Mirrors step 2's
+        #    "clean opportunity" gate for c-bet: barrel attempt only
+        #    counts when the PFR isn't responding to someone else's
+        #    donk bet on the new street.
+        if (
+            phase == 'TURN'
+            and self._cbet_made
+            and self._cbet_called
+            and self._preflop_raiser is not None
+            and player_name == self._preflop_raiser
+            and not self._barrel_attempt_recorded
+            and not self._turn_bet_made
+        ):
+            if action in ('bet', 'raise', 'all_in'):
+                self._pending_barrel_attempts.append((player_name, True))
+                self._barrel_attempt_recorded = True
+                self._turn_barrel_made = True
+                if active_players:
+                    self._players_facing_turn_barrel = {
+                        p for p in active_players if p != player_name
+                    }
+            elif action == 'check':
+                self._pending_barrel_attempts.append((player_name, False))
+                self._barrel_attempt_recorded = True
+
+        # 5b. Track turn bets so the PFR's response to a donk doesn't
+        #     count as a barrel attempt (mirrors _flop_bet_made).
+        if phase == 'TURN' and action in ('bet', 'raise', 'all_in'):
+            self._turn_bet_made = True
+
+        # 5c. Did someone call the turn barrel? Gates third-barrel.
+        if (
+            self._turn_barrel_made
+            and player_name in self._players_facing_turn_barrel
+        ):
+            if action != 'fold':
+                self._turn_barrel_called = True
+            self._players_facing_turn_barrel.discard(player_name)
+
+        # 6. Phase B Item 1 — PFR's first river action (third barrel).
+        if (
+            phase == 'RIVER'
+            and self._turn_barrel_made
+            and self._turn_barrel_called
+            and self._preflop_raiser is not None
+            and player_name == self._preflop_raiser
+            and not self._third_barrel_attempt_recorded
+            and not self._river_bet_made
+        ):
+            if action in ('bet', 'raise', 'all_in'):
+                self._pending_third_barrel_attempts.append((player_name, True))
+                self._third_barrel_attempt_recorded = True
+            elif action == 'check':
+                self._pending_third_barrel_attempts.append((player_name, False))
+                self._third_barrel_attempt_recorded = True
+
+        if phase == 'RIVER' and action in ('bet', 'raise', 'all_in'):
+            self._river_bet_made = True
 
         return responses
 
@@ -177,4 +276,25 @@ class CbetDetector:
         """
         events = self._pending_pfr_attempts
         self._pending_pfr_attempts = []
+        return events
+
+    def consume_barrel_attempt_events(self) -> List[Tuple[str, bool]]:
+        """Drain Phase B Item 1 barrel-attempt events.
+
+        Returns `(name, attempted: bool)` tuples for the PFR's first
+        turn action when they cbet flop and got called. Caller
+        applies via `OpponentTendencies.update_barrel_attempt`.
+        """
+        events = self._pending_barrel_attempts
+        self._pending_barrel_attempts = []
+        return events
+
+    def consume_third_barrel_attempt_events(self) -> List[Tuple[str, bool]]:
+        """Drain Phase B Item 1 third-barrel-attempt events.
+
+        Returns `(name, attempted: bool)` tuples for the PFR's first
+        river action when they barreled turn and got called.
+        """
+        events = self._pending_third_barrel_attempts
+        self._pending_third_barrel_attempts = []
         return events

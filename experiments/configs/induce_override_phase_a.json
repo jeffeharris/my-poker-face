@@ -1,0 +1,173 @@
+{
+  "name": "induce_override_phase_a",
+  "description": "Phase A ablation matrix for the induce_override rule. TieredBot (hero) vs four rule_bot villains (ManiacBot, CaseBot, GTO-Lite, ABCBot/TAG). Two variants per villain: rule ON and rule OFF (ablated via TieredBotController.disable_rules). Tests whether smooth-calling instead of raising with nuts on flop/turn facing-bet IP improves bb/100 vs barrelers without leaking against non-barrelers.",
+  "hypothesis": "(H1) +5 bb/100 lift vs ManiacBot when rule is ON. (H2) <=-2 bb/100 leak vs each non-barreler. (H3) <1% fire rate vs ABCBot/TAG. All three must hold; any miss kills Phase A.",
+  "tags": ["tiered", "induce_override", "phase-a", "exploitation", "heads-up"],
+
+  "num_tournaments": 8,
+  "hands_per_tournament": 1000,
+  "num_players": 2,
+  "starting_stack": 20000,
+  "big_blind": 100,
+  "random_seed": 1001,
+  "reset_on_elimination": true,
+
+  "model": "gpt-5-nano",
+  "provider": "openai",
+
+  "personalities": ["TieredHero", "Villain"],
+  "capture_prompts": false,
+
+  "control": {
+    "label": "control_maniac_rule_OFF_extra",
+    "player_types": {
+      "TieredHero": {
+        "type": "tiered",
+        "expression": false,
+        "disable_rules": [["induce_override", "default"]]
+      },
+      "Villain": {
+        "type": "rule_bot",
+        "strategy": "maniac"
+      }
+    },
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  },
+
+  "variants": [
+    {
+      "label": "A1_maniac_rule_OFF",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false,
+          "disable_rules": [["induce_override", "default"]]
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "maniac"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "A2_maniac_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "maniac"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "B1_casebot_rule_OFF",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false,
+          "disable_rules": [["induce_override", "default"]]
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "case_based"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "B2_casebot_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "case_based"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "C1_gtolite_rule_OFF",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false,
+          "disable_rules": [["induce_override", "default"]]
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "pot_odds_robot"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "C2_gtolite_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "pot_odds_robot"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "D1_abcbot_rule_OFF",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false,
+          "disable_rules": [["induce_override", "default"]]
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "abc"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "D2_abcbot_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "abc"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    }
+  ]
+}
