@@ -26,7 +26,14 @@ from cash_mode.lobby import (
     ensure_lobby_seeded,
     kill_all_cash_sessions,
 )
+from cash_mode.lobby_config import LOBBY_TABLES
 from cash_mode.stakes_ladder import STAKES_ORDER
+
+# v111: total lobby table count across all tiers, derived from
+# `cash_mode/lobby_config.py`. Tests pin to this rather than
+# `len(STAKES_ORDER)` so adding/removing tables in lobby_config
+# doesn't require touching every assertion here.
+EXPECTED_LOBBY_TABLE_COUNT = sum(len(v) for v in LOBBY_TABLES.values())
 from cash_mode.tables import CashTableState
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.cash_table_repository import CashTableRepository
@@ -118,7 +125,7 @@ class TestEnsureLobbySeeded:
     def test_creates_one_table_per_stake(
         self, cash_table_repo, personality_repo, bankroll_repo, db_path,
     ):
-        _seed_personalities(db_path, count=30)
+        _seed_personalities(db_path, count=60)
         ensure_lobby_seeded(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
@@ -126,15 +133,16 @@ class TestEnsureLobbySeeded:
             sandbox_id="test-sandbox-1",
         )
         tables = cash_table_repo.list_all_tables()
-        assert len(tables) == len(STAKES_ORDER)
-        # One per stake.
+        # v111: lobby_config drives the count, not STAKES_ORDER. Every
+        # stake still appears, but with potentially multiple tables.
+        assert len(tables) == EXPECTED_LOBBY_TABLE_COUNT
         stake_labels = {t.stake_label for t in tables}
         assert stake_labels == set(STAKES_ORDER)
 
     def test_each_table_has_4_ai_2_open(
         self, cash_table_repo, personality_repo, bankroll_repo, db_path,
     ):
-        _seed_personalities(db_path, count=30)
+        _seed_personalities(db_path, count=60)
         ensure_lobby_seeded(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
@@ -150,7 +158,7 @@ class TestEnsureLobbySeeded:
     def test_idempotent(
         self, cash_table_repo, personality_repo, bankroll_repo, db_path,
     ):
-        _seed_personalities(db_path, count=30)
+        _seed_personalities(db_path, count=60)
         first = ensure_lobby_seeded(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
@@ -166,8 +174,8 @@ class TestEnsureLobbySeeded:
             bankroll_repo=bankroll_repo,
             sandbox_id="test-sandbox-1",
         )
-        # Still 5 tables.
-        assert len(cash_table_repo.list_all_tables()) == len(STAKES_ORDER)
+        # Still the same N tables as the first call.
+        assert len(cash_table_repo.list_all_tables()) == EXPECTED_LOBBY_TABLE_COUNT
         # Seats unchanged.
         for t in second:
             assert list(t.seats) == original_seats[t.table_id]
@@ -213,10 +221,10 @@ class TestEnsureLobbySeeded:
     def test_partial_lobby_extended(
         self, cash_table_repo, personality_repo, bankroll_repo, db_path,
     ):
-        """If a $2 table already exists, seeding leaves it untouched and
-        adds the missing stakes."""
-        _seed_personalities(db_path, count=30)
-        # Pre-seed only $2.
+        """If the canonical $2 table already exists, seeding leaves it
+        untouched and adds the rest of the lobby."""
+        _seed_personalities(db_path, count=60)
+        # Pre-seed only the canonical $2-001 table.
         existing = CashTableState(
             table_id="cash-table-2-001",
             stake_label="$2",
@@ -231,10 +239,10 @@ class TestEnsureLobbySeeded:
             sandbox_id="test-sandbox-1",
         )
         tables = cash_table_repo.list_all_tables()
-        assert len(tables) == len(STAKES_ORDER)
-        # $2 table preserved: all open.
-        two = next(t for t in tables if t.stake_label == "$2")
-        assert all(s["kind"] == "open" for s in two.seats)
+        assert len(tables) == EXPECTED_LOBBY_TABLE_COUNT
+        # Pre-existing -001 table preserved: still all open.
+        two_a = next(t for t in tables if t.table_id == "cash-table-2-001")
+        assert all(s["kind"] == "open" for s in two_a.seats)
 
     def test_personality_with_low_bankroll_skipped(
         self, cash_table_repo, personality_repo, bankroll_repo, db_path,

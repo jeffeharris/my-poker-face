@@ -986,6 +986,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         created_at=table.created_at,
         last_activity_at=table.last_activity_at,
         dealer_idx=table.dealer_idx,
+        # v111: preserve table identity through the live-sync rewrite
+        # so the subsequent save_table doesn't blank these fields.
+        name=table.name,
+        table_type=table.table_type,
     )
 
     # Pids in the persisted table after reconciliation, used below to

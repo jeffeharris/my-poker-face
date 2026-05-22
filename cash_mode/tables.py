@@ -86,6 +86,15 @@ class CashTableState:
     # matches the schema column's DEFAULT and the pre-v96 implicit
     # behavior (first seat held the button on every refresh).
     dealer_idx: int = 0
+    # v111: user-facing label ("The Lodge"). NULL → frontend falls back
+    # to the stake label. Lobby tables get a name from lobby_config at
+    # seed time; future private/casino tables set their own.
+    name: Optional[str] = None
+    # v111: discriminator for table flavor. 'lobby' = public lobby table
+    # seeded from lobby_config (current behavior). Reserved values
+    # 'private' (user-owned tables) and 'casino' (themed house tables)
+    # are schema slots only — no flow logic for them yet.
+    table_type: str = 'lobby'
 
     def __post_init__(self) -> None:
         if not self.seats:

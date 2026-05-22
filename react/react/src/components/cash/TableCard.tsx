@@ -74,7 +74,17 @@ export function TableCard({
       }
       aria-label={ariaLabel}
     >
-      <div className="cash-entry__stake-label">{table.stake_label} table</div>
+      <div className="cash-entry__stake-label">
+        {table.table_name ?? `${table.stake_label} table`}
+      </div>
+      <div className="cash-entry__stake-sublabel">
+        {table.stake_label}
+        {table.table_type && table.table_type !== 'lobby' && (
+          <span className={`cash-entry__stake-badge cash-entry__stake-badge--${table.table_type}`}>
+            {table.table_type}
+          </span>
+        )}
+      </div>
       <div className="cash-entry__stake-meta">
         BB ${table.big_blind} · min ${table.min_buy_in.toLocaleString()} · max ${table.max_buy_in.toLocaleString()}
       </div>

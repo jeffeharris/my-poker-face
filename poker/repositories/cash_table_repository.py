@@ -97,6 +97,8 @@ class CashTableRepository(BaseRepository):
         created_iso = state.created_at.isoformat() if state.created_at else None
         with self._get_connection() as conn:
             scoped = _has_column(conn, "cash_tables", "sandbox_id")
+            named = _has_column(conn, "cash_tables", "name")
+            typed = _has_column(conn, "cash_tables", "table_type")
             if scoped and not sandbox_id:
                 raise ValueError("sandbox_id is required for cash_tables writes")
             # Preserve created_at on upsert if a row exists; otherwise use
@@ -114,89 +116,117 @@ class CashTableRepository(BaseRepository):
                     "SELECT created_at FROM cash_tables WHERE table_id = ?",
                     (state.table_id,),
                 ).fetchone()
+            # Build column-list dynamically so this repo stays compatible
+            # with pre-v111 schemas (used by some legacy fixtures).
+            extra_set_cols = []
+            extra_set_vals: list = []
+            extra_ins_cols = []
+            extra_ins_vals: list = []
+            if named:
+                extra_set_cols.append("name = ?")
+                extra_set_vals.append(state.name)
+                extra_ins_cols.append("name")
+                extra_ins_vals.append(state.name)
+            if typed:
+                extra_set_cols.append("table_type = ?")
+                extra_set_vals.append(state.table_type)
+                extra_ins_cols.append("table_type")
+                extra_ins_vals.append(state.table_type)
+            extra_set_clause = (", " + ", ".join(extra_set_cols)) if extra_set_cols else ""
+            extra_ins_col_clause = (", " + ", ".join(extra_ins_cols)) if extra_ins_cols else ""
+            extra_ins_qmark_clause = (", " + ", ".join("?" * len(extra_ins_cols))) if extra_ins_cols else ""
+
             if existing:
                 if scoped:
                     conn.execute(
-                        """
+                        f"""
                         UPDATE cash_tables
                         SET stake_label = ?, seats_json = ?, dealer_idx = ?,
-                            last_activity_at = ?
+                            last_activity_at = ?{extra_set_clause}
                         WHERE table_id = ? AND sandbox_id = ?
                         """,
                         (
                             state.stake_label, seats_blob, int(state.dealer_idx),
-                            now.isoformat(), state.table_id, sandbox_id,
+                            now.isoformat(),
+                            *extra_set_vals,
+                            state.table_id, sandbox_id,
                         ),
                     )
                 else:
                     conn.execute(
-                        """
+                        f"""
                         UPDATE cash_tables
                         SET stake_label = ?, seats_json = ?, dealer_idx = ?,
-                            last_activity_at = ?
+                            last_activity_at = ?{extra_set_clause}
                         WHERE table_id = ?
                         """,
                         (
                             state.stake_label, seats_blob, int(state.dealer_idx),
-                            now.isoformat(), state.table_id,
+                            now.isoformat(),
+                            *extra_set_vals,
+                            state.table_id,
                         ),
                     )
             else:
                 if created_iso is None:
                     if scoped:
                         conn.execute(
-                            """
+                            f"""
                             INSERT INTO cash_tables
                                 (table_id, sandbox_id, stake_label, seats_json,
-                                 dealer_idx, last_activity_at)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                                 dealer_idx, last_activity_at{extra_ins_col_clause})
+                            VALUES (?, ?, ?, ?, ?, ?{extra_ins_qmark_clause})
                             """,
                             (
                                 state.table_id, sandbox_id, state.stake_label,
                                 seats_blob, int(state.dealer_idx),
                                 now.isoformat(),
+                                *extra_ins_vals,
                             ),
                         )
                     else:
                         conn.execute(
-                            """
+                            f"""
                             INSERT INTO cash_tables
                                 (table_id, stake_label, seats_json, dealer_idx,
-                                 last_activity_at)
-                            VALUES (?, ?, ?, ?, ?)
+                                 last_activity_at{extra_ins_col_clause})
+                            VALUES (?, ?, ?, ?, ?{extra_ins_qmark_clause})
                             """,
                             (
                                 state.table_id, state.stake_label, seats_blob,
                                 int(state.dealer_idx), now.isoformat(),
+                                *extra_ins_vals,
                             ),
                         )
                 else:
                     if scoped:
                         conn.execute(
-                            """
+                            f"""
                             INSERT INTO cash_tables
                                 (table_id, sandbox_id, stake_label, seats_json,
-                                 dealer_idx, created_at, last_activity_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                                 dealer_idx, created_at, last_activity_at{extra_ins_col_clause})
+                            VALUES (?, ?, ?, ?, ?, ?, ?{extra_ins_qmark_clause})
                             """,
                             (
                                 state.table_id, sandbox_id, state.stake_label,
                                 seats_blob, int(state.dealer_idx), created_iso,
                                 now.isoformat(),
+                                *extra_ins_vals,
                             ),
                         )
                     else:
                         conn.execute(
-                            """
+                            f"""
                             INSERT INTO cash_tables
                                 (table_id, stake_label, seats_json, dealer_idx,
-                                 created_at, last_activity_at)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                                 created_at, last_activity_at{extra_ins_col_clause})
+                            VALUES (?, ?, ?, ?, ?, ?{extra_ins_qmark_clause})
                             """,
                             (
                                 state.table_id, state.stake_label, seats_blob,
                                 int(state.dealer_idx), created_iso,
                                 now.isoformat(),
+                                *extra_ins_vals,
                             ),
                         )
 
@@ -213,8 +243,7 @@ class CashTableRepository(BaseRepository):
                     raise ValueError("sandbox_id is required for cash_tables reads")
                 row = conn.execute(
                     """
-                    SELECT table_id, stake_label, seats_json, dealer_idx,
-                           created_at, last_activity_at
+                    SELECT *
                     FROM cash_tables
                     WHERE table_id = ? AND sandbox_id = ?
                     """,
@@ -223,8 +252,7 @@ class CashTableRepository(BaseRepository):
             else:
                 row = conn.execute(
                     """
-                    SELECT table_id, stake_label, seats_json, dealer_idx,
-                           created_at, last_activity_at
+                    SELECT *
                     FROM cash_tables
                     WHERE table_id = ?
                     """,
@@ -259,16 +287,14 @@ class CashTableRepository(BaseRepository):
                 # Admin / audit cross-sandbox aggregation.
                 rows = conn.execute(
                     """
-                    SELECT table_id, stake_label, seats_json, dealer_idx,
-                           created_at, last_activity_at
+                    SELECT *
                     FROM cash_tables
                     """,
                 ).fetchall()
             else:
                 rows = conn.execute(
                     """
-                    SELECT table_id, stake_label, seats_json, dealer_idx,
-                           created_at, last_activity_at
+                    SELECT *
                     FROM cash_tables
                     WHERE sandbox_id = ?
                     """,
@@ -432,6 +458,16 @@ def _row_to_state(row) -> CashTableState:
         dealer_idx = int(row["dealer_idx"] or 0)
     except (KeyError, IndexError):
         dealer_idx = 0
+    # v111 columns. sqlite3.Row raises IndexError for missing columns
+    # under SELECT *; treat absence as the default value.
+    try:
+        name = row["name"]
+    except (KeyError, IndexError):
+        name = None
+    try:
+        table_type = row["table_type"] or 'lobby'
+    except (KeyError, IndexError):
+        table_type = 'lobby'
     return CashTableState(
         table_id=row["table_id"],
         stake_label=row["stake_label"],
@@ -439,6 +475,8 @@ def _row_to_state(row) -> CashTableState:
         created_at=_parse_timestamp(row["created_at"]),
         last_activity_at=_parse_timestamp(row["last_activity_at"]),
         dealer_idx=dealer_idx,
+        name=name,
+        table_type=table_type,
     )
 
 

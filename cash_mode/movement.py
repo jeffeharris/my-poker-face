@@ -1074,6 +1074,12 @@ def refresh_table_roster(
         # need to second-guess that here — passing the prior value
         # through is the right default.
         dealer_idx=table.dealer_idx,
+        # v111: carry forward the table's identity fields. Without these
+        # the subsequent `save_table` would write defaults (name=None,
+        # table_type='lobby') and clobber whatever the lobby config or
+        # private-table creator had set.
+        name=table.name,
+        table_type=table.table_type,
     )
     return RosterRefreshResult(
         new_table=new_table,

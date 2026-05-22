@@ -52,6 +52,84 @@
   gap: 0.75rem;
 }
 
+/* v111: tier sections — one per stake label, each containing N tables.
+ * The header is a button so the section can collapse on mobile by
+ * default; desktop renders all expanded. */
+.cash-entry__tier {
+  margin-bottom: 1rem;
+}
+
+.cash-entry__tier-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.cash-entry__tier-header:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.cash-entry__tier-label {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.cash-entry__tier-count {
+  font-size: 0.8125rem;
+  opacity: 0.7;
+}
+
+.cash-entry__tier-chevron {
+  margin-left: auto;
+  transition: transform 0.2s;
+}
+
+.cash-entry__tier--collapsed .cash-entry__tier-chevron {
+  transform: rotate(-90deg);
+}
+
+/* v111: per-card subtitle line under the name — shows the stake label
+ * and (optionally) a table-type badge. Keeps the friendly name as the
+ * primary identifier without losing the tier context. */
+.cash-entry__stake-sublabel {
+  font-size: 0.8125rem;
+  opacity: 0.65;
+  margin-top: 0.125rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.cash-entry__stake-badge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+}
+
+.cash-entry__stake-badge--private {
+  background: rgba(125, 211, 252, 0.18);
+  color: #7dd3fc;
+}
+
+.cash-entry__stake-badge--casino {
+  background: rgba(252, 211, 77, 0.18);
+  color: #fcd34d;
+}
+
 .cash-entry__stake-button {
   padding: 1rem;
   background: rgba(255, 255, 255, 0.06);
