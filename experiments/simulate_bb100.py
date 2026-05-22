@@ -906,6 +906,7 @@ def run_6max_matchup(
     verbose: bool = False,
     opponents: Optional[List[str]] = None,
     hero_adaptation_bias: Optional[float] = None,
+    disable_rules: Optional[frozenset] = None,
 ) -> List[float]:
     """Run n_hands of 6-max poker: 1 archetype + 5 opponents.
 
@@ -970,6 +971,7 @@ def run_6max_matchup(
             make_controller(
                 archetype_seat, config_arch, strategy_table, sm,
                 rng_seed=hand_seed,
+                disable_rules=disable_rules,  # hero only — ablation target
             )
         ]
         for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs)):
@@ -1055,6 +1057,7 @@ def run_all_6max_vs_rules(
     verbose: bool = False,
     opponents: Optional[List[str]] = None,
     hero_adaptation_bias: Optional[float] = None,
+    disable_rules: Optional[frozenset] = None,
 ):
     """Run each tiered archetype vs a fixed mix of 5 rule_bots at 6-max.
 
@@ -1067,6 +1070,9 @@ def run_all_6max_vs_rules(
     print(f"\nBB/100 Simulation: 6-MAX vs RULE BOTS, {n_hands} hands per archetype, seed={seed}")
     print(f"Opponents: {', '.join(opponents)}")
     print(f"Stack: {starting_stack}, BB: {big_blind}")
+    if disable_rules:
+        rules_str = ', '.join(f'{l}.{r}' for (l, r) in sorted(disable_rules))
+        print(f"Disabled (hero only): {rules_str}")
     print("=" * 67)
 
     # Test all tiered archetypes (not the rule_bots themselves)
@@ -1085,6 +1091,7 @@ def run_all_6max_vs_rules(
             base_seed=seed, verbose=verbose,
             opponents=opponents,
             hero_adaptation_bias=hero_adaptation_bias,
+            disable_rules=disable_rules,
         )
         results[name] = compute_stats(deltas, big_blind)
 
@@ -1501,6 +1508,7 @@ def main():
             args.stack, args.seed, verbose=args.verbose,
             opponents=custom_opp,
             hero_adaptation_bias=args.adaptation_bias,
+            disable_rules=disable_rules,
         )
     elif args.six_max:
         run_all_6max_vs_baseline(

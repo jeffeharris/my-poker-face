@@ -150,6 +150,7 @@ def _apply_danger_dampener(
     target: float,
     current: float,
     danger_flags: FrozenSet[str],
+    disable_rules=None,
 ) -> float:
     """Scale the gap between current and target by a danger-aware factor.
 
@@ -157,7 +158,13 @@ def _apply_danger_dampener(
     flag reduces the move toward target by 15%, never below 40% of the
     full move (so a multi-flag board still pulls call probability up
     somewhat — the plan calls for "dampener, not auto-fold").
+
+    Ablation: pass `('defense_floor', 'dampener')` in `disable_rules` to
+    bypass the scaling and return the un-dampened target. Lets sims
+    isolate the dampener's contribution from the matrix's contribution.
     """
+    if is_rule_disabled(disable_rules, 'defense_floor', 'dampener'):
+        return target
     danger_count = sum(1 for f in danger_flags if f in _BOARD_DANGER_FLAGS)
     if danger_count == 0:
         return target
@@ -360,7 +367,7 @@ def apply_defense_floor(
         )
 
     dampened_target = _apply_danger_dampener(
-        target, current_call, danger_flags,
+        target, current_call, danger_flags, disable_rules=disable_rules,
     )
 
     if current_call >= dampened_target:
