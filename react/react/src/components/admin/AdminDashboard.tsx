@@ -16,7 +16,7 @@ import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
 import { SIDEBAR_ITEMS } from './adminSidebarItems';
 import './AdminDashboard.css';
-import '../menus/GameMenu.css';
+import '../menus/TournamentMenu.css';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -131,7 +131,7 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
 
   // Mobile layout - show menu if no tab selected, otherwise show content
   if (isMobile) {
-    // No tab selected - show the menu using PageLayout (matches GameMenu style)
+    // No tab selected - show the menu using PageLayout (matches TournamentMenu style)
     if (!activeTab) {
       return (
         <>

@@ -1,7 +1,8 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { GameMenu, type QuickPlayConfig } from './components/menus/GameMenu'
+import { HomeMenu } from './components/menus/HomeMenu'
+import { TournamentMenu, type QuickPlayConfig } from './components/menus/TournamentMenu'
 import { LoginForm } from './components/auth/LoginForm'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { GamePage } from './components/game/GamePage'
@@ -38,12 +39,13 @@ const ROUTE_TITLES: Record<string, string> = {
   '/login': 'Login - My Poker Face',
   '/name-entry': 'Choose Your Name - My Poker Face',
   '/menu': 'Game Menu - My Poker Face',
+  '/menu/tournament': 'Tournaments - My Poker Face',
   '/games': 'Select Game - My Poker Face',
   '/game': 'Playing - My Poker Face',
   '/game/new/custom': 'Custom Game - My Poker Face',
   '/game/new/themed': 'Themed Game - My Poker Face',
   '/personalities': 'Manage Personalities - My Poker Face',
-  '/cash': 'Cash Game - My Poker Face',
+  '/cash': 'Career - My Poker Face',
   '/stats': 'My Stats - My Poker Face',
   '/admin': 'Admin Dashboard - My Poker Face',
   '/privacy': 'Privacy Policy - My Poker Face',
@@ -94,9 +96,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
     }
   }, [location.pathname]);
 
-  // Fetch saved games count when authenticated or navigating to menu
+  // Fetch saved games count when authenticated or navigating to a menu page
   useEffect(() => {
-    if (isAuthenticated && location.pathname === '/menu') {
+    if (isAuthenticated && (location.pathname === '/menu' || location.pathname === '/menu/tournament')) {
       fetchSavedGamesCount();
     }
   }, [isAuthenticated, location.pathname]);
@@ -336,15 +338,26 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         {/* Protected routes */}
         <Route path="/menu" element={
           <ProtectedRoute>
-            <GameMenu
+            <HomeMenu
+              playerName={playerName}
+              onCashMode={() => navigate('/cash')}
+              onTournament={() => navigate('/menu/tournament')}
+              onAdminDashboard={() => navigate('/admin')}
+            />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/menu/tournament" element={
+          <ProtectedRoute>
+            <TournamentMenu
               playerName={playerName}
               onQuickPlay={handleQuickPlay}
               onCustomGame={() => navigate('/game/new/custom')}
               onThemedGame={() => navigate('/game/new/themed')}
               onContinueGame={() => navigate('/games')}
-              onCashMode={() => navigate('/cash')}
               onViewStats={() => navigate('/stats')}
               onAdminDashboard={() => navigate('/admin')}
+              onBack={() => navigate('/menu')}
               savedGamesCount={savedGamesCount}
               isCreatingGame={isCreatingGame}
             />

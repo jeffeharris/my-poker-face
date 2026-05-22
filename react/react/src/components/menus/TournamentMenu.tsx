@@ -4,8 +4,7 @@ import { PageLayout, PageHeader, MenuBar, UpgradeBanner } from '../shared';
 import { useCareerStats } from '../../hooks/useCareerStats';
 import { useAuth } from '../../hooks/useAuth';
 import { useViewport } from '../../hooks/useViewport';
-import menuBanner from '../../assets/menu-banner.png';
-import './GameMenu.css';
+import './TournamentMenu.css';
 
 // ============================================
 // Stats Sidebar Component
@@ -202,31 +201,31 @@ export interface QuickPlayConfig {
   maxBlind: number;
 }
 
-interface GameMenuProps {
+interface TournamentMenuProps {
   playerName: string;
   onQuickPlay: (config: QuickPlayConfig) => void;
   onCustomGame: () => void;
   onThemedGame: () => void;
   onContinueGame: () => void;
-  onCashMode?: () => void;
   onViewStats?: () => void;
   onAdminDashboard?: () => void;
+  onBack: () => void;
   savedGamesCount: number;
   isCreatingGame?: boolean;
 }
 
-export function GameMenu({
+export function TournamentMenu({
   playerName,
   onQuickPlay,
   onCustomGame,
   onThemedGame,
   onContinueGame,
-  onCashMode,
   onViewStats,
   onAdminDashboard,
+  onBack,
   savedGamesCount,
   isCreatingGame = false
-}: GameMenuProps) {
+}: TournamentMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
   const { isDesktop } = useViewport();
   const { user } = useAuth();
@@ -242,24 +241,20 @@ export function GameMenu({
 
   return (
     <>
-      <MenuBar showUserInfo onAdminTools={onAdminDashboard} />
+      <MenuBar onBack={onBack} title="Tournaments" showUserInfo onMainMenu={onBack} onAdminTools={onAdminDashboard} />
       <PageLayout variant="top" glowColor="gold" maxWidth={isDesktop ? undefined : 'md'} hasMenuBar>
-        {/* Banner */}
-        <div className="game-menu__banner">
-          <img src={menuBanner} alt="My Poker Face" className="game-menu__banner-image" />
-        </div>
         <PageHeader
-          title={`Welcome, ${playerName}!`}
-          subtitle="Choose how you'd like to play"
+          title="Pick a Format"
+          subtitle={`Ready, ${playerName}?`}
           titleVariant="primary"
         />
 
       <div className={`game-menu__layout ${isDesktop ? 'game-menu__layout--split' : ''}`}>
         {/* Main Menu Options */}
         <div className="game-menu__options">
-          {/* Quick Play Variants */}
+          {/* Quick Start Variants */}
           <div className="quick-play-section">
-            <h4 className="quick-play-section__title">Quick Play</h4>
+            <h4 className="quick-play-section__title">Quick Start</h4>
             <div className="quick-play-section__buttons">
               <button
                 className="quick-play-btn quick-play-btn--lightning"
@@ -338,23 +333,7 @@ export function GameMenu({
             {savedGamesCount > 0 && <ChevronRight className="option-arrow" size={20} />}
           </button>
 
-          {/* Cash Game */}
-          {onCashMode && (
-            <button
-              className="menu-option cash-game"
-              onClick={onCashMode}
-              {...getHoverHandlers('cash')}
-            >
-              <TrendingUp className="option-icon" size={24} />
-              <div className="option-content">
-                <h3>Cash Game</h3>
-                <p>Pick your stakes, sit at a table, play hands</p>
-              </div>
-              <ChevronRight className="option-arrow" size={20} />
-            </button>
-          )}
-
-          {/* My Stats */}
+          {/* Tournament Stats */}
           {onViewStats && (
             <button
               className="menu-option view-stats"
@@ -363,8 +342,8 @@ export function GameMenu({
             >
               <BarChart3 className="option-icon" size={24} />
               <div className="option-content">
-                <h3>My Stats</h3>
-                <p>View your career statistics and history</p>
+                <h3>Tournament Stats</h3>
+                <p>Your wins, eliminations, and history</p>
               </div>
               <ChevronRight className="option-arrow" size={20} />
             </button>
