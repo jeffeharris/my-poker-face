@@ -168,6 +168,15 @@ export interface LobbyTable {
    *  no occupied seats. Server-side state is in-memory only — purely
    *  cosmetic, expect it to reseed after a backend restart. */
   dealer_index?: number | null;
+  /** v111: user-facing label ("The Lodge"). `null` when no name has
+   *  been set — UI falls back to the stake label. Hard-coded in
+   *  `cash_mode/lobby_config.py` for lobby tables; private/casino
+   *  tables (future) will source their own. */
+  table_name?: string | null;
+  /** v111: table-type discriminator. Today only `'lobby'` is seeded;
+   *  `'private'` and `'casino'` are reserved schema slots for upcoming
+   *  features. Frontend can use this for badges and filtering. */
+  table_type?: 'lobby' | 'private' | 'casino';
 }
 
 /** One lobby movement event surfaced to the activity ticker.
@@ -214,6 +223,11 @@ export interface LobbyResponse {
   bankroll: number;
   tables: LobbyTable[];
   events: LobbyEvent[];
+  /** v110 — count of AI-borrower carries asking the player to forgive.
+   *  Drives the wallet badge in the Lobby header. The full request
+   *  list is fetched via GET /api/cash/forgiveness-requests when the
+   *  Net Worth Drawer opens. */
+  pending_forgiveness_count?: number;
 }
 
 /** Successful response from POST /api/cash/sit. */
@@ -338,6 +352,37 @@ export interface NetWorthResponse {
   /** max(0, carry_cap − Σpayables) — remaining carry headroom before
    *  tier degrades. */
   available: number;
+  /** v110 — count of AI-borrower carries asking the player to forgive.
+   *  Drives the wallet badge in the Lobby header; the actual request
+   *  list is fetched via GET /api/cash/forgiveness-requests on demand. */
+  pending_forgiveness_count: number;
+}
+
+// --- v110: AI-to-player forgiveness consent flow ---
+
+export interface ForgivenessRequest {
+  stake_id: string;
+  borrower_id: string;
+  borrower_display_name: string;
+  carry_amount: number;
+  stake_tier: StakeLabel;
+  /** ISO timestamp of when the AI surfaced the ask. */
+  pending_since: string | null;
+  /** ISO timestamp of when the original stake was opened. */
+  created_at: string | null;
+}
+
+export interface ForgivenessRequestsResponse {
+  requests: ForgivenessRequest[];
+}
+
+export interface StakerForgiveResponse {
+  stake_id: string;
+  granted: boolean;
+  /** 'settled' on grant, 'carry' on refuse. */
+  status: 'settled' | 'carry';
+  borrower_id: string;
+  borrower_display_name: string;
 }
 
 // --- Phase 5: Player as staker ---

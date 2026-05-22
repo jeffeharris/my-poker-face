@@ -13,6 +13,7 @@ import type {
   CashApiResponse,
   CashStateResponse,
   ForgivenessRateLimited,
+  ForgivenessRequestsResponse,
   ForgivenessResponse,
   LobbyResponse,
   NetWorthResponse,
@@ -25,6 +26,7 @@ import type {
   StakeFormat,
   StakeLabel,
   StakeOfferResponse,
+  StakerForgiveResponse,
 } from './types';
 
 const BASE = `${config.API_URL}/api/cash`;
@@ -109,10 +111,17 @@ export async function sponsorAndSit(
   acceptor:
     | { archetype_id: string }
     | { lender_id: string },
+  // Lobby v1.5: when the sponsor flow originated from a specific seat
+  // tap, pass the table identity so the game is built against the AIs
+  // the lobby showed. Omitting both falls back to the legacy fresh-
+  // sample path (sponsor flow opened from a stake card with no seat
+  // context).
+  origin?: { table_id: string; seat_index: number },
 ): Promise<{ game_id: string; offer: SponsorOffer }> {
   return postJson('/sponsor-and-sit', {
     stake_label: stakeLabel,
     ...acceptor,
+    ...(origin ?? {}),
   });
 }
 
@@ -161,6 +170,31 @@ export async function requestForgiveness(
     throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
   }
   return { kind: 'decided', data: (await res.json()) as ForgivenessResponse };
+}
+
+// --- v110: AI-to-player forgiveness consent flow ---
+
+/** Fetch every AI-initiated forgiveness request waiting on this
+ *  player's decision. Drives the Forgiveness Requests section in
+ *  the Net Worth Drawer; the wallet badge count comes from
+ *  /net-worth's `pending_forgiveness_count` to avoid a second round
+ *  trip per refresh. */
+export async function getForgivenessRequests(): Promise<ForgivenessRequestsResponse> {
+  return getJson('/forgiveness-requests');
+}
+
+/** Grant or refuse a pending forgiveness ask. On grant the carry
+ *  clears and the AI's relationship axes register STAKE_FORGIVEN
+ *  (warmer); on refuse the ask clears and STAKE_FORGIVENESS_REFUSED
+ *  fires (cooler). Either way the badge clears for this stake. */
+export async function stakerForgive(
+  stakeId: string,
+  grant: boolean,
+): Promise<StakerForgiveResponse> {
+  return postJson(
+    `/stakes/${encodeURIComponent(stakeId)}/staker-forgive`,
+    { grant },
+  );
 }
 
 // --- Phase 5: Player as staker ---

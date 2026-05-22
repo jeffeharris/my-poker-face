@@ -647,6 +647,11 @@ def try_ai_voluntary_payoff(
 
     stake_repo.update_carry_amount(target.stake_id, 0)
     stake_repo.update_status(target.stake_id, STAKE_STATUS_SETTLED, settled_at=now)
+    # Clear any pending player-forgiveness ask — the carry no longer
+    # exists to forgive. A stale pending row would surface a phantom
+    # request in the Net Worth Drawer with nothing to act on.
+    if target.pending_forgiveness_ask is not None:
+        stake_repo.update_pending_forgiveness_ask(target.stake_id, None)
 
     # v106 payout accounting on AI voluntary payoff — mirrors the
     # human-route path so the Net Worth history's net P&L stays
@@ -736,15 +741,54 @@ def try_ai_forgiveness_ask(
     # Filter out rate-limited carries; for the rest, look up the
     # staker's likability and pick the highest. Ties broken by oldest
     # carry first (carries are already sorted ASC by created_at).
+    # Human-staker carries route through a CONSENT flow: the AI
+    # surfaces a pending forgiveness ask the player decides on. The
+    # auto-decision logic (axes-score → grant/refuse) only fires for
+    # AI-staker carries below. Pending asks honor the same 7-day
+    # rate-limit so a refused player isn't re-asked daily.
+    human_staker_pending: Optional[Stake] = None
+    for c in carries:
+        if c.staker_kind != STAKER_KIND_HUMAN or c.staker_id is None:
+            continue
+        if c.pending_forgiveness_ask is not None:
+            # An ask is already waiting on the player; don't stack a
+            # second one. The 7-day rate-limit also covers this but
+            # the explicit check keeps the surface clean.
+            continue
+        if _within_rate_limit(c, now, FORGIVENESS_RATE_LIMIT_SECONDS):
+            continue
+        human_staker_pending = c
+        break
+    if human_staker_pending is not None:
+        carry_amount = int(human_staker_pending.carry_amount)
+        stake_repo.update_pending_forgiveness_ask(
+            human_staker_pending.stake_id, now,
+        )
+        # Stamp the rate-limit so we don't re-surface the same ask
+        # next tick if the player takes a few days to decide.
+        stake_repo.mark_forgiveness_asked(human_staker_pending.stake_id, now)
+        logger.info(
+            "[STAKE][AI_FORGIVENESS_REQUEST] %r requests forgiveness from "
+            "human staker %r carry=%d stake_id=%r",
+            personality_id, human_staker_pending.staker_id, carry_amount,
+            human_staker_pending.stake_id,
+        )
+        return CarryResolutionResult(
+            kind='forgiveness_pending',
+            stake_id=human_staker_pending.stake_id,
+            staker_id=human_staker_pending.staker_id,
+            borrower_id=personality_id,
+            stake_tier=human_staker_pending.stake_tier,
+            amount=carry_amount,
+        )
+
     eligible: List[Tuple[Stake, float, float, float]] = []
     for c in carries:
         if c.staker_id is None:
             continue
         if c.staker_kind == STAKER_KIND_HUMAN:
-            # Human-staker carries route through a consent flow (the
-            # player decides whether to forgive — auto-grant would
-            # silently vanish their chips with no opportunity to refuse).
-            # See the staker-forgive route follow-up.
+            # Already handled by the consent branch above; never
+            # auto-decide a human-staker carry.
             continue
         if _within_rate_limit(c, now, FORGIVENESS_RATE_LIMIT_SECONDS):
             continue
@@ -922,6 +966,10 @@ def try_ai_explicit_default(
         stake_repo.update_status(
             target.stake_id, STAKE_STATUS_DEFAULTED, settled_at=now,
         )
+        # Clear any pending player-forgiveness ask — the AI walked
+        # away from the debt; the request is moot.
+        if target.pending_forgiveness_ask is not None:
+            stake_repo.update_pending_forgiveness_ask(target.stake_id, None)
 
         try:
             from poker.memory import OpponentModelManager
@@ -998,7 +1046,8 @@ def resolve_ai_carries(
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
-                       staker_payout, borrower_payout
+                       staker_payout, borrower_payout,
+                       pending_forgiveness_ask, table_id
                 FROM stakes
                 WHERE status = 'carry'
                   AND borrower_kind = ?

@@ -97,17 +97,20 @@ def get_dealer_index(table: CashTableState) -> Optional[int]:
     return _next_occupied_seat(seats, start_after=-1)
 
 
-def _table_id_for_stake(stake_label: str) -> str:
-    """Return the stable table_id for a stake's primary v1.5 lobby table.
+def _table_id_for_stake(stake_label: str, suffix: str = "001") -> str:
+    """Return the stable table_id for a lobby table at this stake.
 
     `cash-table-2-001` style — the dollar sign in stake_label isn't
-    URL-safe, so we slugify to the bare numeric.
+    URL-safe, so we slugify to the bare numeric. `suffix` defaults to
+    "001" (the canonical first table per stake) for back-compat with
+    pre-v111 callers; multi-table seeding passes the suffix from
+    `lobby_config.LOBBY_TABLES`.
     """
     if stake_label.startswith("$"):
         slug = stake_label[1:]
     else:
         slug = stake_label
-    return f"cash-table-{slug}-001"
+    return f"cash-table-{slug}-{suffix}"
 
 
 def ensure_ai_bankrolls_seeded(
@@ -277,96 +280,118 @@ def ensure_lobby_seeded(
     # boot pass; tests can override by patching random.Random.
     seed_rng = random.Random()
 
-    for stake_label in STAKES_ORDER:
-        table_id = _table_id_for_stake(stake_label)
-        existing = by_id.get(table_id)
-        if existing is not None:
-            # Already seeded; preserve.
-            out_tables.append(existing)
+    # v111: iterate the lobby_config dict (N tables per stake with
+    # named entries) instead of STAKES_ORDER (single table per stake).
+    # Existing tables (matched by full table_id) are preserved as-is;
+    # only missing entries from the config get seeded. The outer-loop
+    # ordering still respects the stake ladder because dict insertion
+    # order in LOBBY_TABLES mirrors STAKES_ORDER.
+    from cash_mode.lobby_config import LOBBY_TABLES
+
+    for stake_label, entries in LOBBY_TABLES.items():
+        if stake_label not in STAKES_ORDER:
+            # Defensive: a lobby_config entry referencing a stake not in
+            # the ladder would be a config typo. Skip with a warning
+            # rather than crashing boot.
+            logger.warning(
+                "[CASH][LOBBY] seed: skipping unknown stake %r in lobby_config",
+                stake_label,
+            )
             continue
-
-        # Pick which 4 positions hold AI seats (the remaining 2 stay
-        # open and become the player's choices). Distinct random sample
-        # so no duplicates.
-        ai_positions = sorted(
-            seed_rng.sample(range(TABLE_SEAT_COUNT), BASELINE_AI_SEATS)
-        )
-
-        # Shuffle the candidate pool per-stake so seeding doesn't always
-        # pick the alphabetically-first affordable personalities. The
-        # repo returns `eligible` sorted by personality_id for stable
-        # tests; we randomize a copy here so cash-mode rotation actually
-        # sees the full roster across reboots/sandboxes. `seated_globally`
-        # still enforces one-table-per-personality across stakes.
-        shuffled_eligible = list(eligible)
-        seed_rng.shuffle(shuffled_eligible)
-
-        # Build a fresh row. Fill the chosen positions with AI seats.
-        seats = [open_slot() for _ in range(TABLE_SEAT_COUNT)]
-        _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
-        position_iter = iter(ai_positions)
-        filled = 0
-        for cand in shuffled_eligible:
-            if filled >= BASELINE_AI_SEATS:
-                break
-            pid = cand.get("personality_id")
-            name = cand.get("name")
-            if not pid or pid in seated_globally:
+        for entry in entries:
+            suffix = entry['id_suffix']
+            display_name = entry['name']
+            table_id = _table_id_for_stake(stake_label, suffix)
+            existing = by_id.get(table_id)
+            if existing is not None:
+                # Already seeded; preserve. `name` backfill for legacy -001
+                # rows is handled by the v111 migration, not the live seed.
+                out_tables.append(existing)
                 continue
 
-            knobs = bankroll_repo.load_personality_knobs(pid)
-            ai_threshold = round(min_buy_in * knobs.buy_in_multiplier)
-            ai_buy_in = min(ai_threshold, max_buy_in)
+            # Pick which 4 positions hold AI seats (the remaining 2 stay
+            # open and become the player's choices). Distinct random sample
+            # so no duplicates.
+            ai_positions = sorted(
+                seed_rng.sample(range(TABLE_SEAT_COUNT), BASELINE_AI_SEATS)
+            )
 
-            stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
-            if stored is None:
-                # No bankroll row yet — use the personality's cap as a
-                # generous starting projection. Sit-down will write the
-                # row at debit time.
-                projected = knobs.starting_bankroll
-            else:
-                projected = project_bankroll(
-                    stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
+            # Shuffle the candidate pool per-table so seeding doesn't
+            # always pick the alphabetically-first affordable
+            # personalities. The repo returns `eligible` sorted by
+            # personality_id for stable tests; we randomize a copy here
+            # so cash-mode rotation actually sees the full roster across
+            # reboots/sandboxes. `seated_globally` still enforces
+            # one-table-per-personality across all lobby tables.
+            shuffled_eligible = list(eligible)
+            seed_rng.shuffle(shuffled_eligible)
+
+            # Build a fresh row. Fill the chosen positions with AI seats.
+            seats = [open_slot() for _ in range(TABLE_SEAT_COUNT)]
+            _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
+            position_iter = iter(ai_positions)
+            filled = 0
+            for cand in shuffled_eligible:
+                if filled >= BASELINE_AI_SEATS:
+                    break
+                pid = cand.get("personality_id")
+                if not pid or pid in seated_globally:
+                    continue
+
+                knobs = bankroll_repo.load_personality_knobs(pid)
+                ai_threshold = round(min_buy_in * knobs.buy_in_multiplier)
+                ai_buy_in = min(ai_threshold, max_buy_in)
+
+                stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+                if stored is None:
+                    # No bankroll row yet — use the personality's cap as a
+                    # generous starting projection. Sit-down will write the
+                    # row at debit time.
+                    projected = knobs.starting_bankroll
+                else:
+                    projected = project_bankroll(
+                        stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
+                    )
+                if projected < ai_threshold:
+                    continue
+
+                seat_position = next(position_iter)
+                seats[seat_position] = ai_slot(pid, ai_buy_in)
+                seated_globally.add(pid)
+                filled += 1
+                # Debit the AI's bankroll to fund their initial seat
+                # chips. Without this debit the chip-ledger audit
+                # double-counts (the comment above this loop explained the
+                # original placeholder semantics). Pure transfer, no
+                # ledger entry — `ai_bankrolls_stored` and
+                # `cash_table_seats_ai` move in opposite directions by
+                # `ai_buy_in`, preserving `actual_outstanding`.
+                from cash_mode.bankroll import debit_bankroll_for_seat
+                debit_bankroll_for_seat(
+                    bankroll_repo,
+                    pid,
+                    ai_buy_in,
+                    sandbox_id=sandbox_id,
                 )
-            if projected < ai_threshold:
-                continue
+                logger.info(
+                    "[CASH][LOBBY] seed %s/%s: seated %r at seat %d chips=%d",
+                    stake_label, table_id, pid, seat_position, ai_buy_in,
+                )
 
-            seat_position = next(position_iter)
-            seats[seat_position] = ai_slot(pid, ai_buy_in)
-            seated_globally.add(pid)
-            filled += 1
-            # Debit the AI's bankroll to fund their initial seat
-            # chips. Without this debit the chip-ledger audit
-            # double-counts (the comment above this loop explained the
-            # original placeholder semantics). Pure transfer, no
-            # ledger entry — `ai_bankrolls_stored` and
-            # `cash_table_seats_ai` move in opposite directions by
-            # `ai_buy_in`, preserving `actual_outstanding`.
-            from cash_mode.bankroll import debit_bankroll_for_seat
-            debit_bankroll_for_seat(
-                bankroll_repo,
-                pid,
-                ai_buy_in,
-                sandbox_id=sandbox_id,
+            new_state = CashTableState(
+                table_id=table_id,
+                stake_label=stake_label,
+                seats=seats,
+                created_at=now,
+                last_activity_at=now,
+                name=display_name,
             )
+            cash_table_repo.save_table(new_state, sandbox_id=sandbox_id, now=now)
+            out_tables.append(new_state)
             logger.info(
-                "[CASH][LOBBY] seed %s: seated %r at seat %d chips=%d",
-                stake_label, pid, seat_position, ai_buy_in,
+                "[CASH][LOBBY] seed %s: created table %r (%r) with %d AI seats",
+                stake_label, table_id, display_name, filled,
             )
-
-        new_state = CashTableState(
-            table_id=table_id,
-            stake_label=stake_label,
-            seats=seats,
-            created_at=now,
-            last_activity_at=now,
-        )
-        cash_table_repo.save_table(new_state, sandbox_id=sandbox_id, now=now)
-        out_tables.append(new_state)
-        logger.info(
-            "[CASH][LOBBY] seed %s: created table %r with %d AI seats",
-            stake_label, table_id, filled,
-        )
 
     return out_tables
 
@@ -1829,10 +1854,12 @@ def _emit_carry_resolution_events(
         EVENT_AI_DEFAULT,
         EVENT_AI_FORGIVEN,
         EVENT_AI_PAYOFF,
+        EVENT_AI_REQUESTS_FORGIVENESS,
         LobbyEvent,
         format_ai_explicit_default_message,
         format_ai_forgiven_message,
         format_ai_payoff_message,
+        format_ai_requests_forgiveness_message,
         record_event,
     )
 
@@ -1881,6 +1908,17 @@ def _emit_carry_resolution_events(
             )
             actor_pid = result.borrower_id
             counterparty_pid = result.staker_id
+            actor_name = borrower_name
+        elif result.kind == 'forgiveness_pending':
+            # v110 — AI is asking the human staker for forgiveness.
+            # Surfaces alongside the wallet badge so the player sees
+            # the ask landed even if they're not watching the drawer.
+            event_type = EVENT_AI_REQUESTS_FORGIVENESS
+            message = format_ai_requests_forgiveness_message(
+                borrower_name, result.stake_tier, result.amount,
+            )
+            actor_pid = result.borrower_id
+            counterparty_pid = result.staker_id  # the human owner_id
             actor_name = borrower_name
         else:
             # forgiveness_refused — silent on the ticker by design.

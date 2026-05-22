@@ -87,8 +87,8 @@ class StakeRepository(BaseRepository):
                      principal, match_amount, origination_fee, cut,
                      status, carry_amount, stake_tier,
                      created_at, settled_at,
-                     staker_payout, borrower_payout)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     staker_payout, borrower_payout, table_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     stake.stake_id,
@@ -109,6 +109,7 @@ class StakeRepository(BaseRepository):
                     stake.settled_at.isoformat() if stake.settled_at else None,
                     stake.staker_payout,
                     stake.borrower_payout,
+                    stake.table_id,
                 ),
             )
 
@@ -150,7 +151,8 @@ class StakeRepository(BaseRepository):
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
-                       staker_payout, borrower_payout
+                       staker_payout, borrower_payout,
+                       pending_forgiveness_ask, table_id
                 FROM stakes
                 WHERE stake_id = ?
                 """,
@@ -177,7 +179,8 @@ class StakeRepository(BaseRepository):
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
-                       staker_payout, borrower_payout
+                       staker_payout, borrower_payout,
+                       pending_forgiveness_ask, table_id
                 FROM stakes
                 WHERE session_id = ? AND status = 'active'
                 ORDER BY created_at DESC
@@ -213,7 +216,8 @@ class StakeRepository(BaseRepository):
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
-                       staker_payout, borrower_payout
+                       staker_payout, borrower_payout,
+                       pending_forgiveness_ask, table_id
                 FROM stakes
                 WHERE borrower_id = ? AND borrower_kind = ?
                   AND status = 'active'
@@ -241,7 +245,8 @@ class StakeRepository(BaseRepository):
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
-                       staker_payout, borrower_payout
+                       staker_payout, borrower_payout,
+                       pending_forgiveness_ask, table_id
                 FROM stakes
                 WHERE session_id = ?
                 ORDER BY created_at ASC
@@ -272,7 +277,8 @@ class StakeRepository(BaseRepository):
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
-                       staker_payout, borrower_payout
+                       staker_payout, borrower_payout,
+                       pending_forgiveness_ask, table_id
                 FROM stakes
                 WHERE borrower_id = ? AND borrower_kind = ?
                   AND status = ?
@@ -304,7 +310,8 @@ class StakeRepository(BaseRepository):
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
-                       staker_payout, borrower_payout
+                       staker_payout, borrower_payout,
+                       pending_forgiveness_ask, table_id
                 FROM stakes
                 WHERE staker_id = ? AND status = ?
                 ORDER BY created_at ASC
@@ -341,7 +348,8 @@ class StakeRepository(BaseRepository):
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
-                       staker_payout, borrower_payout
+                       staker_payout, borrower_payout,
+                       pending_forgiveness_ask, table_id
                 FROM stakes
                 WHERE (staker_id = ? OR borrower_id = ?)
                   AND status IN ('settled', 'defaulted')
@@ -375,7 +383,8 @@ class StakeRepository(BaseRepository):
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
-                       staker_payout, borrower_payout
+                       staker_payout, borrower_payout,
+                       pending_forgiveness_ask, table_id
                 FROM stakes
                 WHERE staker_id = ? AND status = ?
                 ORDER BY created_at ASC
@@ -535,6 +544,61 @@ class StakeRepository(BaseRepository):
             )
             return cursor.rowcount > 0
 
+    def update_pending_forgiveness_ask(
+        self, stake_id: str, asked_at: Optional[datetime],
+    ) -> bool:
+        """Set or clear the pending-forgiveness-ask timestamp.
+
+        Pass a datetime to stamp the ask (AI requesting forgiveness
+        from a human staker); pass None to clear it (user grants or
+        refuses, or carry transitions out of 'carry' status). The
+        column is the single source-of-truth for "AI is waiting on
+        the player" — the lobby badge counts rows where this is
+        non-NULL AND status='carry' AND staker_kind='human'.
+
+        Returns True if a row was updated, False if no such stake.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE stakes SET pending_forgiveness_ask = ? "
+                "WHERE stake_id = ?",
+                (asked_at.isoformat() if asked_at is not None else None, stake_id),
+            )
+            return cursor.rowcount > 0
+
+    def list_pending_forgiveness_for_staker(
+        self, staker_id: str,
+    ) -> List[Stake]:
+        """Return carry rows where this human staker has a pending ask.
+
+        Drives the wallet-badge count + the NetWorthDrawer's
+        Forgiveness Requests section. Filters to `staker_kind='human'`
+        explicitly so a future AI-staker pending-ask flow (if added)
+        wouldn't accidentally leak into player-facing surfaces.
+        Returns oldest-pending first so longstanding asks surface at
+        the top of the list.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT stake_id, session_id, staker_id, staker_kind,
+                       borrower_id, borrower_kind, format,
+                       principal, match_amount, origination_fee, cut,
+                       status, carry_amount, stake_tier,
+                       created_at, settled_at, forgiveness_last_asked,
+                       staker_payout, borrower_payout,
+                       pending_forgiveness_ask, table_id
+                FROM stakes
+                WHERE staker_id = ?
+                  AND staker_kind = 'human'
+                  AND status = ?
+                  AND pending_forgiveness_ask IS NOT NULL
+                ORDER BY pending_forgiveness_ask ASC
+                """,
+                (staker_id, STAKE_STATUS_CARRY),
+            ).fetchall()
+            return [_row_to_stake(r) for r in rows]
+
 
 def _row_to_stake(row) -> Stake:
     """Build a `Stake` from a `stakes` row."""
@@ -563,6 +627,7 @@ def _row_to_stake(row) -> Stake:
         created_at=created_at,
         settled_at=_parse_timestamp(row["settled_at"]),
         forgiveness_last_asked=_parse_timestamp(row["forgiveness_last_asked"]),
+        pending_forgiveness_ask=_parse_timestamp(row["pending_forgiveness_ask"]),
         staker_payout=(
             int(row["staker_payout"])
             if row["staker_payout"] is not None else None
@@ -571,4 +636,5 @@ def _row_to_stake(row) -> Stake:
             int(row["borrower_payout"])
             if row["borrower_payout"] is not None else None
         ),
+        table_id=row["table_id"],
     )

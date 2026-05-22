@@ -97,6 +97,16 @@ Threshold-gated. The refused-forgiveness path is intentionally
 silent on the ticker (the relationship axis hit is enough; not
 every refusal needs to surface)."""
 
+EVENT_AI_REQUESTS_FORGIVENESS = "ai_requests_forgiveness"
+"""An AI is asking the human staker to forgive a carry. v110 —
+when the AI auto-forgive path would have fired against a human-
+staker carry, instead we stamp `pending_forgiveness_ask` and emit
+this ticker beat so the player notices the ask landed. Resolution
+(grant/refuse) happens via POST /api/cash/stakes/<id>/staker-forgive
+and surfaces as STAKE_FORGIVEN / STAKE_FORGIVENESS_REFUSED in the
+relationship axes — no separate ticker line for the resolution,
+since the badge / Net Worth Drawer surface carries it."""
+
 EVENT_BURST_SUMMARY = "burst_summary"
 """Compression event for catch-up bursts (Commit 5): when a single
 lobby read fires many sim hands at one table (e.g. after the
@@ -303,6 +313,20 @@ def format_ai_forgiven_message(
     forgive), so they lead the phrasing."""
     return (
         f"{staker_name} forgave {borrower_name}'s ${amount:,} carry at {stake_label}"
+    )
+
+
+def format_ai_requests_forgiveness_message(
+    borrower_name: str, stake_label: str, amount: int,
+) -> str:
+    """Phrasing for an AI asking the human staker for forgiveness.
+
+    v110 — the player decides (grant/refuse via /staker-forgive).
+    Phrased as a direct ask so the player notices the request needs
+    their attention; the wallet badge + Forgiveness Requests section
+    in the Net Worth Drawer carry the actual decision UI."""
+    return (
+        f"{borrower_name} is asking you to forgive their ${amount:,} {stake_label} carry"
     )
 
 

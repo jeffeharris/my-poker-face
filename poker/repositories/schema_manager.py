@@ -157,7 +157,7 @@ logger = logging.getLogger(__name__)
 #       lifetime pair-PnL is rebuilt as sandboxes accumulate hands.
 #       Repo signatures gain `sandbox_id` as a required kwarg; the
 #       dossier endpoint still aggregates cross-sandbox by passing None.
-SCHEMA_VERSION = 109
+SCHEMA_VERSION = 111
 
 
 
@@ -1328,6 +1328,8 @@ class SchemaManager:
             107: (self._migrate_v107_add_aspiration_cooldown, "Aspiration-ask Commit 3 — add nullable aspiration_cooldown_until to ai_bankroll_state for per-AI rate limit on aspiration_ask triggers"),
             108: (self._migrate_v108_add_cash_sessions, "Add cash_sessions table — durable per-session record (buy-in, time-at-table, staking, final stats) so the leave-table summary survives Flask restart / TTL eviction and stays correct across top-ups, rebuys, and staked sessions"),
             109: (self._migrate_v109_scope_cash_pair_stats_to_sandbox, "Drop+recreate cash_pair_stats with sandbox_id in PK so admin Chip Economy Won/Lost/Net can scope per sandbox (matches v102 destructive precedent)"),
+            110: (self._migrate_v110_add_pending_forgiveness_ask, "Add nullable pending_forgiveness_ask column to stakes — AIs holding human-staker carries surface a forgiveness request the player decides on (replaces auto-grant which silently void chips)"),
+            111: (self._migrate_v111_add_multi_table_lobby_columns, "Add name + table_type columns to cash_tables and table_id column to stakes for multi-table-per-tier lobby (named tables + future private/casino types)"),
         }
 
         with self._get_connection() as conn:
@@ -5075,3 +5077,110 @@ class SchemaManager:
             "with sandbox_id in PK"
         )
 
+    def _migrate_v110_add_pending_forgiveness_ask(self, conn: sqlite3.Connection) -> None:
+        """Migration v110: add nullable `pending_forgiveness_ask` to `stakes`.
+
+        Replaces the auto-grant path for human-staker carries: when an
+        AI borrower would have rolled `try_ai_forgiveness_ask` against
+        a human staker, instead of silently zeroing the carry it now
+        stamps this column with the ask timestamp and surfaces an
+        EVENT_AI_REQUESTS_FORGIVENESS lobby event. The player accepts
+        or refuses via POST /api/cash/stakes/<id>/staker-forgive — that
+        route clears the column on either branch.
+
+        Non-destructive ALTER. Existing rows get NULL (no pending ask).
+        AI-to-AI carries never use this column; the auto-grant path
+        remains in place for those.
+
+        Idempotent: PRAGMA-guarded ADD COLUMN — re-running is a no-op
+        (mirrors the v104 pattern).
+        """
+        cursor = conn.execute("PRAGMA table_info(stakes)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'pending_forgiveness_ask' not in cols:
+            conn.execute(
+                "ALTER TABLE stakes ADD COLUMN pending_forgiveness_ask TIMESTAMP"
+            )
+        logger.info(
+            "Migration v110 complete: stakes.pending_forgiveness_ask added"
+        )
+
+    def _migrate_v111_add_multi_table_lobby_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v111: add name + table_type to cash_tables and
+        table_id to stakes for the multi-table-per-tier lobby.
+
+        Three non-destructive ALTERs:
+          - `cash_tables.name TEXT` — user-facing label ("The Lodge").
+            NULL on existing rows; frontend falls back to the stake
+            label. Backfill below sets the canonical -001 rows from
+            the lobby_config dict so existing tables get a name on
+            first boot after this migration runs.
+          - `cash_tables.table_type TEXT DEFAULT 'lobby'` — discriminator
+            for future private + casino table types. All current rows
+            and new lobby seeds use 'lobby'.
+          - `stakes.table_id TEXT` — captures which specific table
+            the stake was created against (for per-table analytics).
+            NULL on existing rows; sponsor_and_sit writes it on new
+            stakes. Settlement remains session-id-keyed, so NULL
+            doesn't break anything.
+
+        Idempotent: PRAGMA-guarded ADD COLUMN matches the v104/v107/v110
+        pattern.
+        """
+        cursor = conn.execute("PRAGMA table_info(cash_tables)")
+        cash_table_cols = {row[1] for row in cursor.fetchall()}
+        if 'name' not in cash_table_cols:
+            conn.execute("ALTER TABLE cash_tables ADD COLUMN name TEXT")
+        if 'table_type' not in cash_table_cols:
+            # SQLite ADD COLUMN can't take a non-constant default; use
+            # the literal 'lobby' so existing rows pick up the default
+            # via the schema, and new rows persist explicitly.
+            conn.execute(
+                "ALTER TABLE cash_tables ADD COLUMN table_type TEXT "
+                "NOT NULL DEFAULT 'lobby'"
+            )
+
+        cursor = conn.execute("PRAGMA table_info(stakes)")
+        stake_cols = {row[1] for row in cursor.fetchall()}
+        if 'table_id' not in stake_cols:
+            conn.execute("ALTER TABLE stakes ADD COLUMN table_id TEXT")
+
+        # Backfill canonical -001 table names from lobby_config so
+        # existing lobby tables get human-friendly labels without
+        # waiting for a re-seed (which is idempotent and never
+        # mutates existing rows). We import inside the function to
+        # avoid pulling cash_mode into the schema layer at import
+        # time; this also keeps the migration self-contained.
+        try:
+            from cash_mode.lobby_config import LOBBY_TABLES
+        except ImportError:
+            # cash_mode not on path (e.g., schema-only test) — skip
+            # the backfill. The columns are still added so subsequent
+            # boots can write names.
+            logger.info(
+                "Migration v111: cash_mode.lobby_config not importable; "
+                "skipping name backfill"
+            )
+            return
+
+        for stake_label, entries in LOBBY_TABLES.items():
+            for entry in entries:
+                suffix = entry['id_suffix']
+                name = entry['name']
+                if stake_label.startswith('$'):
+                    slug = stake_label[1:]
+                else:
+                    slug = stake_label
+                table_id = f"cash-table-{slug}-{suffix}"
+                # Only set name where it's currently NULL — preserves
+                # any future per-row overrides without clobber.
+                conn.execute(
+                    "UPDATE cash_tables SET name = ? "
+                    "WHERE table_id = ? AND name IS NULL",
+                    (name, table_id),
+                )
+
+        logger.info(
+            "Migration v111 complete: cash_tables.name + table_type added, "
+            "stakes.table_id added, lobby-config names backfilled"
+        )

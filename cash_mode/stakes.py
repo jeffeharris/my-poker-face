@@ -86,6 +86,12 @@ class Stake:
         `/request-forgiveness` ask against this stake. None when
         the borrower has never asked. Phase 3 rate-limits asks at
         one per stake per 24h.
+      - `pending_forgiveness_ask`: timestamp set when an AI borrower
+        has surfaced a forgiveness request against a human staker
+        and is waiting for the player's grant/refuse. None when no
+        pending ask (default; cleared on resolution). Only meaningful
+        for `staker_kind='human'` carries — AI-to-AI carries auto-
+        resolve via `try_ai_forgiveness_ask` directly.
     """
 
     stake_id: str
@@ -114,3 +120,12 @@ class Stake:
     # mirror — chips returned to the borrower.
     staker_payout: Optional[int] = None
     borrower_payout: Optional[int] = None
+    # v110 — pending forgiveness ask awaiting human-staker decision.
+    pending_forgiveness_ask: Optional[datetime] = None
+    # v111 — specific lobby table the stake was opened against. NULL on
+    # AI-to-AI stakes (no table identity for synthetic ai_session_*
+    # rows) and on legacy pre-v111 rows. Populated by sponsor_and_sit
+    # for human-takes-sponsor sit-downs so per-table analytics ("which
+    # $50 table generates the most carry?") become possible. Settlement
+    # remains keyed on session_id, so this column is purely additive.
+    table_id: Optional[str] = None

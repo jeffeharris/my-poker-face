@@ -383,6 +383,57 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
     return freed
 
 
+def _build_preselected_from_table(
+    *,
+    claimed_table,
+    seat_index: int,
+    personality_repo,
+) -> tuple[list, Dict[str, int], int]:
+    """Walk a claimed `cash_tables` roster to build the args
+    `_build_cash_game` expects for the lobby-v1.5 preselected path.
+
+    Returns `(preselected_ai, preselected_chips, dealer_player_idx)`.
+    Walks seats in rotation order starting after the human so AI
+    player indices match clockwise table position from the human's
+    POV. Maps the lobby's dealer seat to its player index so the
+    in-game dealer button matches the lobby.
+
+    Shared between `sit_at_table` (self-funded) and
+    `sponsor_and_sit` (sponsored) so both paths produce a game
+    populated with the AIs the lobby actually showed at the
+    clicked table — the alternative is the legacy fresh-sample
+    path, which silently swaps the lineup.
+    """
+    from cash_mode.tables import TABLE_SEAT_COUNT
+    preselected_ai: list = []
+    preselected_chips: Dict[str, int] = {}
+    seats = claimed_table.seats
+    lobby_dealer_seat = claimed_table.dealer_idx
+    dealer_player_idx = 0  # human (player 0) is the default fallback
+    next_player_idx = 1
+    for offset in range(TABLE_SEAT_COUNT):
+        seat_i = (seat_index + offset) % TABLE_SEAT_COUNT
+        slot = seats[seat_i]
+        if seat_i == lobby_dealer_seat:
+            if seat_i == seat_index:
+                dealer_player_idx = 0
+            elif slot["kind"] == "ai":
+                dealer_player_idx = next_player_idx
+        if slot["kind"] != "ai":
+            continue
+        pid = slot["personality_id"]
+        personality = None
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            personality = None
+        name = (personality or {}).get("name") if personality else pid
+        preselected_ai.append({"personality_id": pid, "name": name})
+        preselected_chips[pid] = int(slot.get("chips", 0))
+        next_player_idx += 1
+    return preselected_ai, preselected_chips, dealer_player_idx
+
+
 def _load_or_seed_player_bankroll(
     owner_id: str, *, sandbox_id: Optional[str] = None,
 ) -> PlayerBankrollState:
@@ -1073,51 +1124,37 @@ def sit_at_table():
     # Persist the seat claim immediately so a second device can't
     # double-sit. The roster-based _build_cash_game below reads this
     # updated table.
+    #
+    # Re-load the table here: `table` was the snapshot taken at the
+    # top of the route (line ~1005), but `_free_ghost_human_seats`
+    # above may have just rewritten the row to clear an orphan human
+    # slot. Using the stale snapshot would re-introduce the orphan
+    # when we `.with_seat()` + save below — last-write-wins on the
+    # `cash_tables` row. That's the regression that recreated a
+    # "ghost me" seat on session resume, which then survived the
+    # next leave and blocked AI live-fill on the abandoned chair.
     from cash_mode.tables import human_slot
+    table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+    if table is None:
+        return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
+    if table.seats[seat_index]["kind"] != "open":
+        return jsonify({
+            "error": "Seat is not open",
+            "seat_kind": table.seats[seat_index]["kind"],
+        }), 409
     claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
     cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
 
     # Build the cash game using the table's CURRENT AI roster + chip
-    # counts. Walk seats in rotation order starting after the human's
-    # seat so that AI player indices match clockwise table position
-    # from the human's POV. Track which player_idx the lobby's dealer
-    # lands on so the in-game dealer button matches the lobby.
+    # counts, sourced via the shared preselected-builder.
     from flask_app.extensions import personality_repo
-    from cash_mode.tables import TABLE_SEAT_COUNT
-    preselected_ai = []
-    preselected_chips = {}
-    seats = claimed_table.seats
-    lobby_dealer_seat = claimed_table.dealer_idx
-    dealer_player_idx = 0  # human (player 0) is the default fallback
-    # Player 0 is always the human; subsequent player indices follow
-    # the seat-rotation order starting at seat_index + 1.
-    next_player_idx = 1
-    for offset in range(TABLE_SEAT_COUNT):
-        seat_i = (seat_index + offset) % TABLE_SEAT_COUNT
-        slot = seats[seat_i]
-        if seat_i == lobby_dealer_seat:
-            # Map the lobby dealer seat to a player_idx. If the dealer
-            # seat happens to be open (rare — lobby._next_occupied_seat
-            # normally guards against this), fall through to player 0.
-            if seat_i == seat_index:
-                dealer_player_idx = 0
-            elif slot["kind"] == "ai":
-                dealer_player_idx = next_player_idx
-        if slot["kind"] != "ai":
-            continue
-        pid = slot["personality_id"]
-        # Look up display name from the personality repo. Falls back to
-        # personality_id if the row was deleted under us (shouldn't
-        # happen for seated AIs).
-        personality = None
-        try:
-            personality = personality_repo.load_personality_by_id(pid)
-        except Exception:
-            personality = None
-        name = (personality or {}).get("name") if personality else pid
-        preselected_ai.append({"personality_id": pid, "name": name})
-        preselected_chips[pid] = int(slot.get("chips", 0))
-        next_player_idx += 1
+    preselected_ai, preselected_chips, dealer_player_idx = (
+        _build_preselected_from_table(
+            claimed_table=claimed_table,
+            seat_index=seat_index,
+            personality_repo=personality_repo,
+        )
+    )
 
     game_id, err = _build_cash_game(
         owner_id=owner_id,
@@ -1464,6 +1501,12 @@ def sponsor_and_sit():
     archetype_id = payload.get("archetype_id")
     lender_id = payload.get("lender_id")
     opponent_count = int(payload.get("opponents", 5))
+    # Lobby v1.5: when the sponsor flow originated from a specific
+    # seat tap, the frontend passes the table_id + seat_index so the
+    # game is built against the AIs the lobby actually showed. Both
+    # required together (one without the other is ambiguous).
+    table_id = payload.get("table_id")
+    seat_index = payload.get("seat_index")
 
     if stake_label not in STAKES_LADDER:
         return jsonify({
@@ -1482,6 +1525,16 @@ def sponsor_and_sit():
         return jsonify({"error": "archetype_id must be a string"}), 400
     if lender_id is not None and not isinstance(lender_id, str):
         return jsonify({"error": "lender_id must be a string"}), 400
+    if (table_id is None) != (seat_index is None):
+        return jsonify({
+            "error": "table_id and seat_index must be sent together",
+        }), 400
+    if table_id is not None and not isinstance(table_id, str):
+        return jsonify({"error": "table_id must be a string"}), 400
+    if seat_index is not None and (
+        not isinstance(seat_index, int) or seat_index < 0
+    ):
+        return jsonify({"error": "seat_index must be a non-negative integer"}), 400
 
     existing = _find_active_cash_game_id(owner_id)
     if existing is not None:
@@ -1543,6 +1596,65 @@ def sponsor_and_sit():
         welcome_lender_label = house_offer.name
         offer_lender_id = None
 
+    # Lobby-v1.5 table-aware path: when the sponsor flow originated
+    # from a specific seat tap, claim that seat on `cash_tables` and
+    # build the game with the table's persisted AI roster. Without
+    # this branch the legacy fresh-sample path inside `_build_cash_game`
+    # silently swaps the lineup — the user clicks a table showing
+    # AIs X/Y/Z but gets seated against A/B/C, which they correctly
+    # flagged as a recurring bug.
+    from flask_app.extensions import cash_table_repo
+    from cash_mode.tables import human_slot
+    claimed_table = None
+    pre_claim_table = None  # snapshot for rollback on build failure
+    preselected_ai = None
+    preselected_chips = None
+    dealer_player_idx = 0
+    if table_id is not None:
+        table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+        if table is None:
+            return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
+        if table.stake_label != stake_label:
+            return jsonify({
+                "error": (
+                    f"Table {table_id!r} stake {table.stake_label!r} doesn't "
+                    f"match request stake {stake_label!r}"
+                ),
+            }), 400
+        if seat_index >= len(table.seats):
+            return jsonify({"error": "seat_index out of range"}), 400
+        if table.seats[seat_index]["kind"] != "open":
+            return jsonify({
+                "error": "Seat is not open",
+                "seat_kind": table.seats[seat_index]["kind"],
+            }), 409
+        # Sweep any orphan human seats for this owner BEFORE claiming
+        # the new one — same defense sit_at_table uses. Reload after
+        # the sweep because the sweep may have rewritten this table's
+        # row; building `with_seat` from a stale snapshot would
+        # resurrect the orphan (the regression we just fixed in sit).
+        _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
+        table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+        if table is None:
+            return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
+        if table.seats[seat_index]["kind"] != "open":
+            return jsonify({
+                "error": "Seat is not open",
+                "seat_kind": table.seats[seat_index]["kind"],
+            }), 409
+        pre_claim_table = table
+        claimed_table = table.with_seat(
+            seat_index, human_slot(owner_id, offer_amount),
+        )
+        cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
+        preselected_ai, preselected_chips, dealer_player_idx = (
+            _build_preselected_from_table(
+                claimed_table=claimed_table,
+                seat_index=seat_index,
+                personality_repo=personality_repo,
+            )
+        )
+
     # Build + register the game with loan.amount as the starting stack.
     game_id, err = _build_cash_game(
         owner_id=owner_id,
@@ -1554,9 +1666,25 @@ def sponsor_and_sit():
             f"({welcome_lender_label}: ${offer_amount}) ***"
         ),
         opponent_count=opponent_count,
+        preselected_ai=preselected_ai,
+        preselected_ai_chips=preselected_chips,
+        dealer_player_idx=dealer_player_idx,
     )
     if err is not None:
+        # Roll back the seat claim so the player can retry.
+        if pre_claim_table is not None:
+            cash_table_repo.save_table(pre_claim_table, sandbox_id=sandbox_id)
         return jsonify(err[0]), err[1]
+
+    # Stamp table_id + seat_index on game_data so leave_table can free
+    # the seat back to "open" at session end (mirror sit_at_table).
+    if table_id is not None:
+        from flask_app.services import game_state_service
+        game_data = game_state_service.get_game(game_id)
+        if game_data is not None:
+            game_data["cash_table_id"] = table_id
+            game_data["cash_seat_index"] = seat_index
+            game_state_service.set_game(game_id, game_data)
 
     # Persist the stake row that leave_table will settle. `stake_id`
     # is deterministic on `game_id` so a retry of sponsor_and_sit
@@ -1590,6 +1718,12 @@ def sponsor_and_sit():
         carry_amount=0,
         stake_tier=stake_label,
         created_at=datetime.utcnow(),
+        # v111: pin the stake to the specific lobby table the player
+        # sat at, so per-table analytics ("which $50 table has the
+        # highest carry rate?") become possible. `table_id` is set on
+        # the seat-targeted sponsor-and-sit path; the auto-sit fallback
+        # (no table_id in payload) leaves it NULL.
+        table_id=table_id,
     ))
 
     # The player put up no own chips — `sponsor_principal` carries the
@@ -2180,6 +2314,161 @@ def request_forgiveness(stake_id: str):
         "staker_display_name": display_name,
         "score": round(score, 3),
         "threshold": FORGIVENESS_THRESHOLD,
+    })
+
+
+# v110 — AI-initiated forgiveness asks against a human staker. The
+# inverse direction of /request-forgiveness above: there the human
+# borrower asks an AI staker; here an AI borrower asks the human
+# staker. The decision flows through the player (not the auto-grant
+# axes-score) because the human's chips are at stake — silently voiding
+# them on a generous likability would erase the player's bankroll
+# without their say.
+
+
+@cash_bp.route("/api/cash/forgiveness-requests", methods=["GET"])
+def list_forgiveness_requests():
+    """GET /api/cash/forgiveness-requests — pending asks for this owner.
+
+    Returns rows the player needs to decide on (grant/refuse). Each
+    row carries the AI borrower's display name, the carry amount,
+    the stake tier, and `pending_since` (ISO timestamp) so the UI
+    can show "Napoleon, asking 2 days ago — $400 at $10 stakes".
+    Oldest pending first so longstanding asks float to the top.
+
+    Response: `{"requests": [{stake_id, borrower_id, borrower_display_name,
+    carry_amount, stake_tier, pending_since, created_at}]}`.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    from flask_app.extensions import personality_repo, stake_repo
+
+    try:
+        pending = stake_repo.list_pending_forgiveness_for_staker(owner_id)
+    except Exception as exc:
+        logger.warning(
+            "[CASH] list pending forgiveness failed for %r: %s",
+            owner_id, exc,
+        )
+        return jsonify({"requests": []})
+
+    def _borrower_name(pid: str) -> str:
+        try:
+            p = personality_repo.load_personality_by_id(pid)
+            if p and p.get("name"):
+                return p["name"]
+        except Exception:
+            pass
+        return pid
+
+    requests = [
+        {
+            "stake_id": s.stake_id,
+            "borrower_id": s.borrower_id,
+            "borrower_display_name": _borrower_name(s.borrower_id),
+            "carry_amount": int(s.carry_amount),
+            "stake_tier": s.stake_tier,
+            "pending_since": (
+                s.pending_forgiveness_ask.isoformat()
+                if s.pending_forgiveness_ask else None
+            ),
+            "created_at": (
+                s.created_at.isoformat() if s.created_at else None
+            ),
+        }
+        for s in pending
+    ]
+    return jsonify({"requests": requests})
+
+
+@cash_bp.route(
+    "/api/cash/stakes/<stake_id>/staker-forgive", methods=["POST"],
+)
+def staker_forgive(stake_id: str):
+    """POST /api/cash/stakes/<id>/staker-forgive — grant or refuse.
+
+    Body: `{"grant": bool}`. The current owner must be the stake's
+    `staker_id` (404 leak-avoidance pattern from /payoff). The stake
+    must be a `carry` row with `staker_kind='human'` AND have a
+    pending ask (400 otherwise — keeps the route from being used to
+    side-step normal carry resolution).
+
+    On grant: clear carry_amount, status → settled, clear pending_ask,
+    fire `STAKE_FORGIVEN` (actor = player, target = AI borrower) so
+    the AI's relationship axes register the gratitude. On refuse:
+    clear pending_ask, fire `STAKE_FORGIVENESS_REFUSED` (actor = player,
+    target = AI). Either way the badge clears for this stake.
+
+    Response: `{stake_id, granted, status, borrower_id, borrower_display_name}`.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    body = request.get_json(silent=True) or {}
+    grant = bool(body.get("grant"))
+
+    from flask_app.extensions import personality_repo, stake_repo
+
+    stake = stake_repo.load_stake(stake_id)
+    if stake is None or stake.staker_id != owner_id:
+        # Leak-avoidance: don't reveal that the stake exists if the
+        # caller isn't the staker. Mirrors the /payoff pattern.
+        return jsonify({"error": "Stake not found"}), 404
+    if stake.staker_kind != STAKER_KIND_HUMAN:
+        return jsonify({
+            "error": "Only human-staker carries route through staker-forgive",
+        }), 400
+    if stake.status != STAKE_STATUS_CARRY:
+        return jsonify({
+            "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
+        }), 400
+    if stake.pending_forgiveness_ask is None:
+        return jsonify({
+            "error": "No pending forgiveness ask on this stake",
+        }), 400
+
+    now = datetime.utcnow()
+    if grant:
+        stake_repo.update_carry_amount(stake_id, 0)
+        stake_repo.update_status(stake_id, STAKE_STATUS_SETTLED, settled_at=now)
+        stake_repo.update_pending_forgiveness_ask(stake_id, None)
+        _record_relationship_event(
+            actor_id=owner_id,
+            target_id=stake.borrower_id,
+            event=RelationshipEvent.STAKE_FORGIVEN,
+        )
+    else:
+        stake_repo.update_pending_forgiveness_ask(stake_id, None)
+        _record_relationship_event(
+            actor_id=owner_id,
+            target_id=stake.borrower_id,
+            event=RelationshipEvent.STAKE_FORGIVENESS_REFUSED,
+        )
+
+    borrower_display_name = stake.borrower_id
+    try:
+        p = personality_repo.load_personality_by_id(stake.borrower_id)
+        if p and p.get("name"):
+            borrower_display_name = p["name"]
+    except Exception:
+        pass
+
+    logger.info(
+        "[STAKE] staker-forgive stake_id=%r owner=%r borrower=%r granted=%s",
+        stake_id, owner_id, stake.borrower_id, grant,
+    )
+
+    return jsonify({
+        "stake_id": stake_id,
+        "granted": grant,
+        "status": STAKE_STATUS_SETTLED if grant else STAKE_STATUS_CARRY,
+        "borrower_id": stake.borrower_id,
+        "borrower_display_name": borrower_display_name,
     })
 
 
@@ -2795,7 +3084,8 @@ def _load_recent_defaults(
                    principal, match_amount, origination_fee, cut,
                    status, carry_amount, stake_tier,
                    created_at, settled_at, forgiveness_last_asked,
-                   staker_payout, borrower_payout
+                   staker_payout, borrower_payout,
+                   pending_forgiveness_ask, table_id
             FROM stakes
             WHERE staker_id = ?
               AND borrower_id = ?
@@ -3263,8 +3553,13 @@ def _leave_table_locked(owner_id: str, game_id: str):
 
             new_seats = []
             for idx, slot in enumerate(table.seats):
-                if cash_seat_index is not None and idx == cash_seat_index and slot["kind"] == "human":
-                    # Free the human's seat back to "open".
+                # Free every human seat owned by this user — the current
+                # session's seat AND any orphan human seat surviving from
+                # an earlier session that didn't close cleanly. The
+                # narrow `idx == cash_seat_index` check used to leave such
+                # orphans behind: a player who left this table cleanly
+                # would still render as seated at the stale index.
+                if slot["kind"] == "human" and slot.get("personality_id") == owner_id:
                     new_seats.append(open_slot())
                 elif slot["kind"] == "ai":
                     pid = slot["personality_id"]
@@ -3287,12 +3582,24 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 created_at=table.created_at,
                 last_activity_at=table.last_activity_at,
                 dealer_idx=table.dealer_idx,
+                # v111: preserve identity so the leave-table write
+                # doesn't blank the name/type.
+                name=table.name,
+                table_type=table.table_type,
             )
             cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
             logger.info(
                 "[CASH][LOBBY] freed seat %r:%s and persisted final chip counts",
                 cash_table_id, cash_seat_index,
             )
+
+            # Cross-table sweep: catch human seats owned by this user
+            # that survived on OTHER tables (e.g. an earlier session
+            # ended without a clean leave — back-arrow, browser close,
+            # crashed Flask). Without this the lobby keeps rendering the
+            # player as seated at a ghost table even after a clean leave.
+            # Same helper the memory-miss path already uses.
+            _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
 
             # Final refresh pass: lets AI movement act on the post-leave
             # state (e.g., an AI who won big can now stake_up).
@@ -3773,6 +4080,10 @@ def get_lobby():
             "seats": serialized_seats,
             "dealer_index": get_dealer_index(table),
             "tier": table_tier,
+            # v111: surface name + table_type so the frontend can render
+            # tier-grouped sections with friendly labels.
+            "table_name": table.name,
+            "table_type": table.table_type,
         })
 
     # Top-level tier reflects "what tier am I currently playing at?".
@@ -3793,6 +4104,21 @@ def get_lobby():
         logger.warning("[CASH][LOBBY] current tier resolution failed: %s", e)
         current_tier = TIER_PREMIUM
 
+    # v110 — same pending forgiveness count the wallet badge reads.
+    # Bundled into the lobby response so the badge can update every
+    # poll tick without a second round trip; the actual request list
+    # is fetched on demand when the player opens the Net Worth Drawer.
+    pending_forgiveness_count = 0
+    if stake_repo is not None:
+        try:
+            pending_forgiveness_count = len(
+                stake_repo.list_pending_forgiveness_for_staker(owner_id)
+            )
+        except Exception as e:
+            logger.warning(
+                "[CASH][LOBBY] pending forgiveness count failed: %s", e,
+            )
+
     from cash_mode.activity import recent_events, serialize_event
     return jsonify({
         "bankroll": bankroll.chips,
@@ -3803,6 +4129,7 @@ def get_lobby():
             serialize_event(e)
             for e in recent_events(limit=5, sandbox_id=sandbox_id)
         ],
+        "pending_forgiveness_count": pending_forgiveness_count,
     })
 
 
@@ -4136,6 +4463,23 @@ def get_net_worth():
     net_worth = int(bankroll.chips) + receivables_sum - payables_sum
     available = max(0, int(carry_cap) - payables_sum)
 
+    # v110 — pending forgiveness asks waiting on this player's
+    # decision. Surfaced as a count here so the Lobby's wallet badge
+    # can light up without an extra round-trip; the actual request
+    # list is fetched on demand via GET /api/cash/forgiveness-requests
+    # when the player opens the Net Worth Drawer.
+    try:
+        pending_forgiveness = stake_repo.list_pending_forgiveness_for_staker(
+            owner_id,
+        )
+        pending_forgiveness_count = len(pending_forgiveness)
+    except Exception as exc:
+        logger.warning(
+            "[CASH] pending forgiveness count failed for %r: %s",
+            owner_id, exc,
+        )
+        pending_forgiveness_count = 0
+
     return jsonify({
         "bankroll": int(bankroll.chips),
         "tier_stake_label": tier_stake_label,
@@ -4146,6 +4490,7 @@ def get_net_worth():
         "history": history,
         "net_worth": int(net_worth),
         "available": int(available),
+        "pending_forgiveness_count": int(pending_forgiveness_count),
     })
 
 

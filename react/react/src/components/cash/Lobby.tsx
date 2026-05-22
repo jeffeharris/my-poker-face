@@ -22,9 +22,9 @@
  * `/api/cash/state` (separate endpoint, kept).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet } from 'lucide-react';
+import { ChevronDown, Wallet } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import { getLobby, getState, sitAtTable } from './api';
 import { SponsorModal } from './SponsorModal';
@@ -39,6 +39,7 @@ import type {
   StakableAiCandidate,
   StakeLabel,
 } from './types';
+import { STAKES } from './types';
 import { logger } from '../../utils/logger';
 import {
   CharacterDetailCard,
@@ -56,6 +57,29 @@ export interface AiSeatClick {
 
 const LOBBY_REFRESH_INTERVAL_MS = 8000;
 
+/** Mobile-first breakpoint. On widths at or below this, tier sections
+ *  collapse by default so the player only sees one tier at a time;
+ *  desktop renders all tiers expanded. The query runs once at mount —
+ *  we don't subscribe to resize since the lobby is a transient view.
+ */
+const MOBILE_BREAKPOINT_PX = 640;
+
+/** Group lobby tables by stake_label, preserving STAKES order. Tables
+ *  inside each tier sort by table_id for determinism (matches the
+ *  backend's per-tier sort in CashTableRepository.list_all_tables). */
+function groupTablesByStake(tables: LobbyTable[]): Map<StakeLabel, LobbyTable[]> {
+  const grouped = new Map<StakeLabel, LobbyTable[]>();
+  for (const stake of STAKES) grouped.set(stake, []);
+  for (const t of tables) {
+    const bucket = grouped.get(t.stake_label);
+    if (bucket) bucket.push(t);
+  }
+  for (const bucket of grouped.values()) {
+    bucket.sort((a, b) => a.table_id.localeCompare(b.table_id));
+  }
+  return grouped;
+}
+
 export function Lobby() {
   const navigate = useNavigate();
   const [bankroll, setBankroll] = useState<number | null>(null);
@@ -67,9 +91,11 @@ export function Lobby() {
   const [sponsorState, setSponsorState] = useState<{
     stakeLabel: StakeLabel;
     tableId: string;
+    seatIndex: number;
   } | null>(null);
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
+  const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** Tick incremented on every lobby reload so the IdleStakablePanel's
    *  useEffect re-fetches its own data in lockstep. The two endpoints
    *  return overlapping state (seated AIs disappear from stakable,
@@ -82,6 +108,29 @@ export function Lobby() {
     minBuyIn: number;
     maxBuyIn: number;
   } | null>(null);
+
+  /** Set of stake labels whose tier section is currently collapsed.
+   *  Initialized once per mount: mobile → all collapsed except the
+   *  cheapest tier (so the user sees at least one section on first
+   *  paint); desktop → none collapsed. After mount, the set tracks
+   *  user toggles only. */
+  const [collapsedTiers, setCollapsedTiers] = useState<Set<StakeLabel>>(() => {
+    if (typeof window === 'undefined') return new Set();
+    const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`).matches;
+    if (!isMobile) return new Set();
+    return new Set<StakeLabel>(STAKES.filter((s) => s !== STAKES[0]));
+  });
+
+  const toggleTier = useCallback((stake: StakeLabel) => {
+    setCollapsedTiers((prev) => {
+      const next = new Set(prev);
+      if (next.has(stake)) next.delete(stake);
+      else next.add(stake);
+      return next;
+    });
+  }, []);
+
+  const tablesByStake = useMemo(() => groupTablesByStake(tables), [tables]);
 
   // Mutable ref so the drawer's `onPayoff` callback can re-fetch the
   // lobby without re-rendering on every interval tick. The interval
@@ -108,6 +157,7 @@ export function Lobby() {
         setBankroll(lobby.bankroll);
         setTables(lobby.tables);
         setEvents(lobby.events ?? []);
+        setPendingForgivenessCount(lobby.pending_forgiveness_count ?? 0);
         setStakablePanelTick((t) => t + 1);
       } catch (e) {
         if (cancelled) return;
@@ -149,10 +199,14 @@ export function Lobby() {
       try {
         const result = await sitAtTable(table.table_id, seatIndex);
         if ('kind' in result && result.kind === 'requires_sponsor') {
-          // Open sponsor modal scoped to this table.
+          // Open sponsor modal scoped to this specific seat. Without
+          // seatIndex the backend would fall back to the legacy fresh-
+          // sample path and seat the player against a different AI
+          // lineup than the lobby card showed.
           setSponsorState({
             stakeLabel: result.data.stake_label,
             tableId: table.table_id,
+            seatIndex,
           });
           return;
         }
@@ -213,10 +267,26 @@ export function Lobby() {
               type="button"
               className="cash-entry__net-worth-trigger"
               onClick={() => setNetWorthOpen(true)}
-              aria-label="Open net worth"
-              title="View net worth"
+              aria-label={
+                pendingForgivenessCount > 0
+                  ? `Open net worth (${pendingForgivenessCount} forgiveness request${pendingForgivenessCount === 1 ? '' : 's'} pending)`
+                  : 'Open net worth'
+              }
+              title={
+                pendingForgivenessCount > 0
+                  ? `${pendingForgivenessCount} forgiveness request${pendingForgivenessCount === 1 ? '' : 's'} need${pendingForgivenessCount === 1 ? 's' : ''} your decision`
+                  : 'View net worth'
+              }
             >
               <Wallet size={16} aria-hidden="true" />
+              {pendingForgivenessCount > 0 && (
+                <span
+                  className="cash-entry__net-worth-badge"
+                  aria-hidden="true"
+                >
+                  {pendingForgivenessCount > 9 ? '9+' : pendingForgivenessCount}
+                </span>
+              )}
             </button>
           </div>
         )}
@@ -236,17 +306,47 @@ export function Lobby() {
 
         <section className="cash-entry__stakes">
           <h2>Tables</h2>
-          <div className="cash-entry__stake-grid">
-            {tables.map((t) => (
-              <TableCard
-                key={t.table_id}
-                table={t}
-                busy={busy}
-                onSeatTap={(seatIndex) => handleSeatTap(t, seatIndex)}
-                onAiSeatClick={setDossier}
-              />
-            ))}
-          </div>
+          {STAKES.map((stake) => {
+            const tierTables = tablesByStake.get(stake) ?? [];
+            if (tierTables.length === 0) return null;
+            const isCollapsed = collapsedTiers.has(stake);
+            return (
+              <div
+                key={stake}
+                className={`cash-entry__tier${isCollapsed ? ' cash-entry__tier--collapsed' : ''}`}
+              >
+                <button
+                  type="button"
+                  className="cash-entry__tier-header"
+                  onClick={() => toggleTier(stake)}
+                  aria-expanded={!isCollapsed}
+                >
+                  <span className="cash-entry__tier-label">{stake}</span>
+                  <span className="cash-entry__tier-count">
+                    {tierTables.length} {tierTables.length === 1 ? 'table' : 'tables'}
+                  </span>
+                  <ChevronDown
+                    size={18}
+                    className="cash-entry__tier-chevron"
+                    aria-hidden="true"
+                  />
+                </button>
+                {!isCollapsed && (
+                  <div className="cash-entry__stake-grid">
+                    {tierTables.map((t) => (
+                      <TableCard
+                        key={t.table_id}
+                        table={t}
+                        busy={busy}
+                        onSeatTap={(seatIndex) => handleSeatTap(t, seatIndex)}
+                        onAiSeatClick={setDossier}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </section>
 
         <IdleStakablePanel
@@ -257,6 +357,16 @@ export function Lobby() {
       <SponsorModal
         isOpen={sponsorState !== null}
         stakeLabel={sponsorState?.stakeLabel ?? null}
+        origin={
+          sponsorState
+            ? { tableId: sponsorState.tableId, seatIndex: sponsorState.seatIndex }
+            : null
+        }
+        tableName={
+          sponsorState
+            ? tables.find((t) => t.table_id === sponsorState.tableId)?.table_name ?? null
+            : null
+        }
         onClose={() => setSponsorState(null)}
       />
       <CharacterDetailCard

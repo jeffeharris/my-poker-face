@@ -19,8 +19,15 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { X, Wallet } from 'lucide-react';
-import { getNetWorth, payOffCarry, requestForgiveness } from './api';
+import {
+  getForgivenessRequests,
+  getNetWorth,
+  payOffCarry,
+  requestForgiveness,
+  stakerForgive,
+} from './api';
 import type {
+  ForgivenessRequest,
   NetWorthResponse,
   Payable,
   Receivable,
@@ -76,6 +83,7 @@ interface ForgivenessNotice {
 
 export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProps) {
   const [data, setData] = useState<NetWorthResponse | null>(null);
+  const [requests, setRequests] = useState<ForgivenessRequest[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [payoffError, setPayoffError] = useState<string | null>(null);
   const [busyStakeId, setBusyStakeId] = useState<string | null>(null);
@@ -83,8 +91,21 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
 
   const load = useCallback(async () => {
     try {
-      const response = await getNetWorth();
-      setData(response);
+      // Fetch in parallel — the two responses are independent. If the
+      // requests endpoint fails, fall back to an empty list so net
+      // worth still renders.
+      const [netWorth, reqs] = await Promise.all([
+        getNetWorth(),
+        getForgivenessRequests().catch((e) => {
+          logger.error(
+            'Failed to load forgiveness requests:',
+            e instanceof Error ? e.message : String(e),
+          );
+          return { requests: [] as ForgivenessRequest[] };
+        }),
+      ]);
+      setData(netWorth);
+      setRequests(reqs.requests);
       setLoadError(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -96,6 +117,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
   useEffect(() => {
     if (!isOpen) {
       setData(null);
+      setRequests([]);
       setLoadError(null);
       setPayoffError(null);
       setBusyStakeId(null);
@@ -167,6 +189,32 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
     [load, onPayoff],
   );
 
+  /** v110 — player's decision on an AI-initiated forgiveness ask.
+   *  Grant clears the carry + warms the AI's view of the player;
+   *  refuse keeps the carry and cools the relationship. Either way
+   *  the ask is consumed and the badge clears for this stake. */
+  const handleStakerForgive = useCallback(
+    async (req: ForgivenessRequest, grant: boolean) => {
+      setPayoffError(null);
+      setForgivenessNotice(null);
+      setBusyStakeId(req.stake_id);
+      try {
+        await stakerForgive(req.stake_id, grant);
+        await load();
+        // Refreshing /net-worth also bumps the carries list, so let
+        // the parent re-fetch lobby state for carry pin annotations.
+        onPayoff?.();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        logger.error('Staker-forgive failed:', msg);
+        setPayoffError(msg);
+      } finally {
+        setBusyStakeId(null);
+      }
+    },
+    [load, onPayoff],
+  );
+
   if (!isOpen) return null;
 
   return (
@@ -212,8 +260,10 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
           {data !== null && (
             <NetWorthBody
               data={data}
+              requests={requests}
               onPayoff={handlePayoff}
               onForgiveness={handleForgiveness}
+              onStakerForgive={handleStakerForgive}
               busyStakeId={busyStakeId}
               payoffError={payoffError}
               forgivenessNotice={forgivenessNotice}
@@ -227,8 +277,10 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
 
 interface NetWorthBodyProps {
   data: NetWorthResponse;
+  requests: ForgivenessRequest[];
   onPayoff: (stakeId: string) => void;
   onForgiveness: (payable: Payable) => void;
+  onStakerForgive: (req: ForgivenessRequest, grant: boolean) => void;
   busyStakeId: string | null;
   payoffError: string | null;
   forgivenessNotice: ForgivenessNotice | null;
@@ -236,8 +288,10 @@ interface NetWorthBodyProps {
 
 function NetWorthBody({
   data,
+  requests,
   onPayoff,
   onForgiveness,
+  onStakerForgive,
   busyStakeId,
   payoffError,
   forgivenessNotice,
@@ -283,6 +337,28 @@ function NetWorthBody({
         <div className="net-worth-drawer__error" role="alert">
           {payoffError}
         </div>
+      )}
+
+      {requests.length > 0 && (
+        <section className="net-worth-drawer__column net-worth-drawer__column--attention">
+          <h3 className="net-worth-drawer__column-title">
+            Forgiveness requests
+            <span className="net-worth-drawer__column-count net-worth-drawer__column-count--alert">
+              {requests.length}
+            </span>
+          </h3>
+          <ul className="net-worth-drawer__list">
+            {requests.map((req) => (
+              <ForgivenessRequestRow
+                key={req.stake_id}
+                request={req}
+                busy={busyStakeId === req.stake_id}
+                disabled={busyStakeId !== null && busyStakeId !== req.stake_id}
+                onDecide={onStakerForgive}
+              />
+            ))}
+          </ul>
+        </section>
       )}
 
       <section className="net-worth-drawer__column">
@@ -587,6 +663,86 @@ function ReceivableRow({ receivable }: ReceivableRowProps) {
             upside per your cut.
           </div>
         )}
+      </div>
+    </li>
+  );
+}
+
+interface ForgivenessRequestRowProps {
+  request: ForgivenessRequest;
+  busy: boolean;
+  disabled: boolean;
+  onDecide: (req: ForgivenessRequest, grant: boolean) => void;
+}
+
+/** v110 — one pending forgiveness ask the player needs to decide on.
+ *  Surfaces above payables since it's actionable AND time-sensitive.
+ *  Grant clears the carry + warms the AI's view of the player; refuse
+ *  keeps the carry on the books + cools the relationship. */
+function ForgivenessRequestRow({
+  request,
+  busy,
+  disabled,
+  onDecide,
+}: ForgivenessRequestRowProps) {
+  const handleGrant = useCallback(() => {
+    if (busy || disabled) return;
+    onDecide(request, true);
+  }, [busy, disabled, onDecide, request]);
+  const handleRefuse = useCallback(() => {
+    if (busy || disabled) return;
+    onDecide(request, false);
+  }, [busy, disabled, onDecide, request]);
+  return (
+    <li className="net-worth-drawer__row net-worth-drawer__row--request">
+      <div className="net-worth-drawer__row-main">
+        <div className="net-worth-drawer__row-name">
+          <span>{request.borrower_display_name}</span>
+          <span className="net-worth-drawer__status-badge net-worth-drawer__status-badge--alert">
+            asking
+          </span>
+        </div>
+        <div className="net-worth-drawer__row-meta">
+          <span>
+            wants you to forgive ${request.carry_amount.toLocaleString()}
+          </span>
+          <span className="net-worth-drawer__row-sep">·</span>
+          <span className="net-worth-drawer__hint">
+            {request.stake_tier} carry
+          </span>
+          {request.pending_since && (
+            <>
+              <span className="net-worth-drawer__row-sep">·</span>
+              <span className="net-worth-drawer__hint">
+                asked {formatAge(request.pending_since)}
+              </span>
+            </>
+          )}
+        </div>
+        <div className="net-worth-drawer__row-status-line">
+          Grant to clear the carry (warmer relationship). Refuse to
+          keep it on the books (cooler relationship).
+        </div>
+      </div>
+      <div className="net-worth-drawer__row-actions">
+        <button
+          type="button"
+          className="net-worth-drawer__action net-worth-drawer__action--secondary"
+          onClick={handleRefuse}
+          disabled={busy || disabled}
+          title="Refuse the ask — keep the carry, signal you expect payment."
+        >
+          {busy ? '…' : 'Refuse'}
+        </button>
+        <button
+          type="button"
+          className="net-worth-drawer__action"
+          onClick={handleGrant}
+          disabled={busy || disabled}
+          title="Forgive the carry — write off the debt as goodwill."
+        >
+          {busy ? '…' : 'Forgive'}
+        </button>
       </div>
     </li>
   );

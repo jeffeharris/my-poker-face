@@ -583,11 +583,13 @@ class TestHumanStakerPayoffRouting:
         assert after.status == STAKE_STATUS_CARRY
 
 
-class TestHumanStakerForgivenessSkipped:
-    """Safety patch: AI auto-forgiveness must not silently void a
-    human-staker carry. The consent flow lives outside this module."""
+class TestHumanStakerForgivenessConsent:
+    """v110 consent flow: AI surfaces a pending forgiveness ask to
+    the human staker (status stays carry, pending_forgiveness_ask is
+    stamped). Auto-grant must NEVER fire on human-staker carries —
+    silent void would erase the player's chips without their say."""
 
-    def test_human_staker_carry_excluded(self, db_setup):
+    def test_human_staker_carry_stamps_pending_ask(self, db_setup):
         stake = db_setup["stake"]
         stake.update_status("carry_1", STAKE_STATUS_SETTLED)
         stake.create_stake(Stake(
@@ -610,7 +612,9 @@ class TestHumanStakerForgivenessSkipped:
 
         from unittest.mock import MagicMock
         rel = MagicMock()
-        # Generous relationship — would normally grant in a heartbeat.
+        # Generous relationship — under the old auto-grant path this
+        # would have flipped status=settled instantly. Under v110 it
+        # stamps a pending ask instead.
         rel.load_relationship_state.return_value = MagicMock(
             likability=0.95, respect=0.95, heat=0.0,
         )
@@ -618,11 +622,6 @@ class TestHumanStakerForgivenessSkipped:
         carries = stake.list_carries_for_borrower(
             "borrower", BORROWER_KIND_PERSONALITY,
         )
-
-        class AlwaysLowRng:
-            def random(self):
-                return 0.0
-
         result = try_ai_forgiveness_ask(
             personality_id="borrower",
             carries=carries,
@@ -630,12 +629,69 @@ class TestHumanStakerForgivenessSkipped:
             stake_repo=stake,
             relationship_repo=rel,
             sandbox_id=SBX,
-            rng=AlwaysLowRng(),
+            rng=_AlwaysLowRng(),
             now=ANCHOR,
         )
-        assert result is None
+        # Returns a pending result so the dispatcher skips the
+        # explicit-default branch for this AI on the same tick.
+        assert result is not None
+        assert result.kind == 'forgiveness_pending'
+        assert result.amount == 400
+        # Carry still open; pending ask stamped; rate-limit stamped.
         after = stake.load_stake("human_carry_3")
         assert after.status == STAKE_STATUS_CARRY
+        assert after.carry_amount == 400
+        assert after.pending_forgiveness_ask is not None
+        assert after.forgiveness_last_asked is not None
+        # Listable via the staker-side helper.
+        pending = stake.list_pending_forgiveness_for_staker("human_owner_1")
+        assert len(pending) == 1
+        assert pending[0].stake_id == "human_carry_3"
+
+    def test_existing_pending_ask_skips_repeat(self, db_setup):
+        """Once an ask is pending, the AI doesn't stack a second one
+        even if the rate-limit window has passed."""
+        stake = db_setup["stake"]
+        stake.update_status("carry_1", STAKE_STATUS_SETTLED)
+        stake.create_stake(Stake(
+            stake_id="human_carry_4",
+            session_id="player_session_borrower_45",
+            staker_id="human_owner_1",
+            staker_kind=STAKER_KIND_HUMAN,
+            borrower_id="borrower",
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=STAKE_FORMAT_PURE,
+            principal=400,
+            match_amount=0,
+            origination_fee=0,
+            cut=0.30,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=400,
+            stake_tier="$10",
+            created_at=ANCHOR,
+        ))
+        # Pre-stamp a pending ask (e.g. from an earlier tick).
+        stake.update_pending_forgiveness_ask("human_carry_4", ANCHOR)
+
+        from unittest.mock import MagicMock
+        rel = MagicMock()
+        rel.load_relationship_state.return_value = MagicMock(
+            likability=0.95, respect=0.95, heat=0.0,
+        )
+        carries = stake.list_carries_for_borrower(
+            "borrower", BORROWER_KIND_PERSONALITY,
+        )
+        result = try_ai_forgiveness_ask(
+            personality_id="borrower",
+            carries=carries,
+            bankroll_repo=db_setup["bankroll"],
+            stake_repo=stake,
+            relationship_repo=rel,
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=ANCHOR + timedelta(days=30),  # past rate-limit window
+        )
+        assert result is None  # already pending; don't re-ask
 
 
 class TestForgivenessAsk:
