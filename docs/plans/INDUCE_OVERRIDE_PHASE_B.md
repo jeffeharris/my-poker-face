@@ -2,10 +2,25 @@
 purpose: Phase B — extend the induce_override rule with proper street-resolved barrel tracking, confidence-scaled mixing, broader hand classes, and OOP support
 type: design
 created: 2026-05-15
-last_updated: 2026-05-15
+last_updated: 2026-05-22
+status: Items 1–3 shipped on hybrid-ai; Items 4–6 pending. See "Shipped status" below and INDUCE_OVERRIDE_HANDOFF.md for pickup state.
 ---
 
 # Induce Override — Phase B
+
+## Shipped status (2026-05-22)
+
+| Item | Commit | Empirical verdict |
+|---|---|---|
+| 1 — `barrel_frequency` stat | `a4f19bb4` | Converges to 0.94 vs ManiacBot in ~500 hands. Plumbing-correct. |
+| 2 — barrel gate + scaled mixing | `cce12ca8` | Selectivity perfect (0 fires vs non-barrelers). Threshold tuned 10→5 to make sample_confidence ramp produce meaningful variation. Followup-barrel rate 80% on high-confidence fires; 25% on low-confidence — exactly the scaled-mix behavior the design intended. |
+| 3 — `strong_made` inclusion | `056e3160` | Gate correct per tests. Empirical fire rate ~0 added at 1000-hand scale — strong_made + actual_nuts/near_nuts + dry board is rare. |
+| 4 — open-spot IP induce | pending | Spec good. Requires `TrapBaitBot` + new `flop_check_then_barrel_rate` stat. ~8-12 hours including tests + sim verification. |
+| 5 — OOP check-raise induce | pending | Design-only. Defer until 4 and 6 ship; deserves own plan doc. |
+| 6 — personality-aware intensity | pending | Spec good, placeholder values. Only meaningful once Item 4 lifts fire rate enough for archetype differentials to be observable. |
+
+See [INDUCE_OVERRIDE_HANDOFF.md](INDUCE_OVERRIDE_HANDOFF.md) for the
+pickup state and validation infrastructure.
 
 ## Context
 
@@ -47,6 +62,14 @@ Each item has its own testable hypothesis. They are sequenced so
 earlier items reduce risk for later ones; do not parallel-ship.
 
 ## Item 1 — `barrel_frequency` stat
+
+**Shipped** (`a4f19bb4`). Validation: barrel_frequency converges to
+0.94 vs ManiacBot in ~500 hands (target was ≥0.80 with
+barrel_opportunities ≥30; observed: 0.94 with 34 opportunities).
+Third barrels also tracked cleanly (0.91, n=22). Plumbing complete:
+`CbetDetector` emits, `OpponentTendencies` accumulates,
+`AggregatedOpponentStats` surfaces, all 5 aggregator construction
+sites updated.
 
 ### Problem
 
@@ -113,6 +136,29 @@ counter-wiring update in the phase transition detector. Pattern is
 fully established by `cbet_attempt_rate` (Phase 8.1a).
 
 ## Item 2 — Confidence-scaled mixing
+
+**Shipped** (`cce12ca8`). Validation outcome:
+
+| | Phase A baseline | Phase B Item 2 (tuned) |
+|---|---|---|
+| Fires vs Maniac (8K hands) | 9 | 10 |
+| Selectivity vs non-barrelers | 0 fires | 0 fires |
+| Call probability | fixed 1.00 (validation override) | 0.78 → 0.90 range, mean 0.86 |
+| Followup-barrel @ high conf (≥0.85) | — | **4/5 = 80%** |
+| Followup-barrel @ low conf (<0.85) | — | 1/4 = 25% |
+
+The low-confidence followup-barrel rate (25%) looks worse than Phase
+A's 78% but reflects the scaled-mix design correctly: low call_prob =
+partial trap exposure, not full commitment. Real-world EV is the
+product of (call_prob × followup-barrel), which preserves Phase A
+quality on high-conf spots and adds gracefully-degrading exposure on
+low-conf spots.
+
+**Tuning note (in the shipped code):** `MIN_BARREL_OPPORTUNITIES`
+dropped from 10 → 5 after the initial run had only 5 fires per arm
+with both ramps saturated. Lowering to 5 cuts warmup roughly in
+half, and the sample-confidence ramp produces meaningful variation
+in call_prob (the design intent).
 
 ### Problem
 
@@ -194,6 +240,26 @@ mix.
 | (B2-H1) regresses | Either the new gate misses spots Phase A caught, or the lower-confidence soft-mix is leaking value. Diagnose via per-spot ablation. |
 
 ## Item 3 — `strong_made` inclusion
+
+**Shipped** (`056e3160`). Outcome:
+
+- Gate refactored from two-constant pattern (`ELIGIBLE_HAND_STRENGTH`
+  + `ELIGIBLE_NUT_STATUS`) to a per-class lookup table
+  (`HAND_CLASS_GATES`). Each class has its own `(nut_status_allowlist,
+  max_danger_flags)` tuple.
+- `nuts`: unchanged from Item 2 — `actual_nuts` only, danger ≤ 1.
+- `strong_made`: added — `actual_nuts` or `near_nuts`, danger == 0
+  (stricter texture to compensate for non-nut turn-card risk).
+- 38 tests passing (was 31). 7 new tests in `TestItem3StrongMade` plus
+  a `HAND_CLASS_GATES` table-shape invariant.
+
+**Empirical reality:** smoke (1 tournament × 1000 hands vs ManiacBot,
+seed=42) added 0 fires on the new `strong_made` path. The
+intersection of (strong_made hand) × (actual_nuts/near_nuts) ×
+(0 danger flags) × (IP) × (facing bet) × (flop/turn) × (≥40 BB) is
+rare in natural play. **Item 3 is correctness widening, not measurable
+EV widening at this sample size.** Listed as "low risk, low reward"
+in the per-finding ledger.
 
 ### Problem
 
