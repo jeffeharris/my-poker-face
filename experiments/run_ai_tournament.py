@@ -959,6 +959,9 @@ class AITournamentRunner:
                     capture_label_repo=self.capture_label_repo,
                     decision_analysis_repo=self.decision_analysis_repo,
                     debug_logging=player_type_config.get('debug_logging', False),
+                    skip_personality_distortion=player_type_config.get(
+                        'skip_personality_distortion', False,
+                    ),
                 )
 
                 if player_type_config.get('expression', True):

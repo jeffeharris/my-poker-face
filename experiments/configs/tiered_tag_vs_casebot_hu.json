@@ -1,0 +1,26 @@
+{
+  "name": "tiered_tag_vs_casebot_hu",
+  "description": "TieredBot (Sun Tzu = TAG anchors) vs CaseBot in heads-up. 8x1000 hands = 8000 hands per arm.",
+  "tags": ["tiered", "tag", "casebot", "heads-up"],
+  "num_tournaments": 8,
+  "hands_per_tournament": 1000,
+  "num_players": 2,
+  "starting_stack": 20000,
+  "big_blind": 100,
+  "random_seed": 2025,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Sun Tzu", "CaseBot"],
+  "player_types": {
+    "Sun Tzu": {"type": "tiered", "expression": false},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "capture_prompts": false,
+  "control": {
+    "label": "Sun Tzu (TAG) vs CaseBot HU",
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  }
+}

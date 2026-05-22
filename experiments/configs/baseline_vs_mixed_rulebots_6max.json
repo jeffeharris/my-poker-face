@@ -1,0 +1,30 @@
+{
+  "name": "baseline_vs_mixed_rulebots_6max",
+  "description": "Diagnostic: 1 BaselineSolverBot vs a mixed field of 5 different rule_bots at 6-max. Tests whether baseline's 6max weakness is CaseBot-specific or general to rule_bot opponents. Same sample/seed as the prior 6max baseline run for direct comparability.",
+  "tags": ["tiered", "baseline", "diagnostic", "6max", "mixed-villains"],
+  "num_tournaments": 8,
+  "hands_per_tournament": 500,
+  "num_players": 6,
+  "starting_stack": 20000,
+  "big_blind": 100,
+  "random_seed": 2025,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Sun Tzu", "CaseBot", "GTO-Lite", "ABCBot", "PositionBot", "ManiacBot"],
+  "player_types": {
+    "Sun Tzu": {"type": "tiered", "expression": false, "skip_personality_distortion": true},
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"},
+    "GTO-Lite": {"type": "rule_bot", "strategy": "pot_odds_robot"},
+    "ABCBot": {"type": "rule_bot", "strategy": "abc"},
+    "PositionBot": {"type": "rule_bot", "strategy": "position_aware"},
+    "ManiacBot": {"type": "rule_bot", "strategy": "maniac"}
+  },
+  "capture_prompts": false,
+  "control": {
+    "label": "Baseline vs mixed rule_bots 6max",
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "tiered_4baseline_2casebot",
+  "description": "6-max with 4x BaselineSolverBot vs 2x CaseBot. Tests whether baseline performance vs CaseBot improves when CaseBots are a minority of the field.",
+  "tags": ["tiered", "baseline", "casebot", "6max", "mixed-field"],
+  "num_tournaments": 8,
+  "hands_per_tournament": 500,
+  "num_players": 6,
+  "starting_stack": 20000,
+  "big_blind": 100,
+  "random_seed": 2025,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Baseline1", "Baseline2", "Baseline3", "Baseline4", "CaseBot1", "CaseBot2"],
+  "player_types": {
+    "Baseline1": {"type": "tiered", "expression": false, "skip_personality_distortion": true},
+    "Baseline2": {"type": "tiered", "expression": false, "skip_personality_distortion": true},
+    "Baseline3": {"type": "tiered", "expression": false, "skip_personality_distortion": true},
+    "Baseline4": {"type": "tiered", "expression": false, "skip_personality_distortion": true},
+    "CaseBot1": {"type": "rule_bot", "strategy": "case_based"},
+    "CaseBot2": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "capture_prompts": false,
+  "control": {
+    "label": "4 baselines vs 2 casebots",
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  }
+}

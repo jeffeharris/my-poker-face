@@ -1,0 +1,30 @@
+{
+  "name": "tiered_baseline_vs_casebot_hu",
+  "description": "BaselineSolverBot (solver table only, NO personality distortion) vs CaseBot HU. Isolates whether the personality distortion was hurting Sun Tzu (TAG) vs CaseBot in experiment 66. Same seed/sample as 66 for direct comparison.",
+  "tags": ["tiered", "baseline", "casebot", "heads-up"],
+  "num_tournaments": 8,
+  "hands_per_tournament": 1000,
+  "num_players": 2,
+  "starting_stack": 20000,
+  "big_blind": 100,
+  "random_seed": 2025,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "personalities": ["Sun Tzu", "CaseBot"],
+  "player_types": {
+    "Sun Tzu": {
+      "type": "tiered",
+      "expression": false,
+      "skip_personality_distortion": true
+    },
+    "CaseBot": {"type": "rule_bot", "strategy": "case_based"}
+  },
+  "capture_prompts": false,
+  "control": {
+    "label": "Baseline vs CaseBot HU",
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  }
+}
