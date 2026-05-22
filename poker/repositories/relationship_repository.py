@@ -304,6 +304,54 @@ class RelationshipRepository(BaseRepository):
                 (loser_id, winner_id, loser_pnl, loser_hands),
             )
 
+    def aggregate_cash_pnl_by_entity(self) -> dict:
+        """Per-entity lifetime cash PnL totals, summed across all opponents.
+
+        For each `observer_id` in `cash_pair_stats`, returns
+        `{chips_won, chips_lost, net_pnl, hands_played_cash}`:
+
+          * `chips_won` = sum of positive `cumulative_pnl` contributions
+            (chips taken from opponents the observer is up on).
+          * `chips_lost` = sum of `abs(cumulative_pnl)` for negative
+            contributions (chips given to opponents who are up on the
+            observer).
+          * `net_pnl` = chips_won − chips_lost.
+          * `hands_played_cash` = SUM of hand counts across all pairs.
+            **NOTE**: this overcounts — every hand involving N players
+            writes N×(N−1) pair rows, so a 6-handed hand contributes 5
+            to each seat's sum here. The number is useful for relative
+            comparison between entities but isn't a literal hand count.
+
+        Drives the admin Player Holdings table's "Won" / "Lost"
+        columns. The aggregate is NOT sandbox-scoped — `cash_pair_stats`
+        has no sandbox column, so the totals are lifetime across every
+        sandbox the entity has played in.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    observer_id,
+                    SUM(CASE WHEN cumulative_pnl > 0
+                        THEN cumulative_pnl ELSE 0 END) AS chips_won,
+                    SUM(CASE WHEN cumulative_pnl < 0
+                        THEN -cumulative_pnl ELSE 0 END) AS chips_lost,
+                    SUM(cumulative_pnl) AS net_pnl,
+                    SUM(hands_played_cash) AS hands_played_cash
+                FROM cash_pair_stats
+                GROUP BY observer_id
+                """
+            ).fetchall()
+        return {
+            row['observer_id']: {
+                'chips_won': int(row['chips_won'] or 0),
+                'chips_lost': int(row['chips_lost'] or 0),
+                'net_pnl': int(row['net_pnl'] or 0),
+                'hands_played_cash': int(row['hands_played_cash'] or 0),
+            }
+            for row in rows
+        }
+
     def load_cash_pair_stats(
         self,
         observer_id: str,

@@ -19,11 +19,18 @@ from ..extensions import (
     cash_table_repo,
     chip_ledger_repo,
     persistence_db_path,
+    personality_repo,
+    relationship_repo,
     sandbox_repo,
     stake_repo,
+    user_repo,
 )
 from ..services import game_state_service
 from ..services.chip_ledger_audit import compute_audit
+from ..services.holdings_view import (
+    compute_holdings_history,
+    compute_holdings_snapshot,
+)
 from poker.authorization import require_permission
 
 logger = logging.getLogger(__name__)
@@ -97,6 +104,63 @@ def chip_ledger_recent():
     except Exception as e:
         logger.error("chip-ledger recent failed: %s", e, exc_info=True)
         return jsonify({'error': 'Recent-entries lookup failed'}), 500
+
+
+@chip_ledger_bp.route('/api/admin/chip-ledger/holdings')
+@_admin_required
+def chip_ledger_holdings():
+    """Return the per-player holdings table for the admin "Holdings" section.
+
+    Lists every AI personality in scope and every human player with a
+    bankroll row, with both stored and projected chip counts. AI scope
+    honors `?sandbox_id=`; human rows come from the global
+    `player_bankroll_state` regardless of sandbox (humans aren't
+    sandbox-scoped in v1).
+    """
+    try:
+        data = compute_holdings_snapshot(
+            bankroll_repo=bankroll_repo,
+            personality_repo=personality_repo,
+            user_repo=user_repo,
+            relationship_repo=relationship_repo,
+            db_path=persistence_db_path,
+            sandbox_id=_sandbox_arg(),
+        )
+        return jsonify(data)
+    except Exception as e:
+        logger.error("chip-ledger holdings failed: %s", e, exc_info=True)
+        return jsonify({'error': 'Holdings snapshot failed'}), 500
+
+
+@chip_ledger_bp.route('/api/admin/chip-ledger/holdings/history')
+@_admin_required
+def chip_ledger_holdings_history():
+    """Return per-entity cumulative chip flow into/out of the central bank.
+
+    Drives the time-series chart in the Holdings section. The series
+    value is "net chips received from the central bank to date" — NOT
+    actual entity balance, since the ledger doesn't observe seat-to-
+    seat (intra-table) chip flows. `?days=N` clamps to [1, 365],
+    default 30.
+    """
+    try:
+        days = int(request.args.get('days', 30))
+    except (TypeError, ValueError):
+        days = 30
+    try:
+        data = compute_holdings_history(
+            ledger_repo=chip_ledger_repo,
+            bankroll_repo=bankroll_repo,
+            personality_repo=personality_repo,
+            user_repo=user_repo,
+            db_path=persistence_db_path,
+            days=days,
+            sandbox_id=_sandbox_arg(),
+        )
+        return jsonify(data)
+    except Exception as e:
+        logger.error("chip-ledger holdings history failed: %s", e, exc_info=True)
+        return jsonify({'error': 'Holdings history failed'}), 500
 
 
 @chip_ledger_bp.route('/api/admin/sandboxes')

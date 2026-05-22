@@ -129,6 +129,54 @@ class ChipLedgerRepository(BaseRepository):
             ).fetchall()
         return {row['reason']: int(row['total'] or 0) for row in rows}
 
+    def non_bank_entries_since(
+        self,
+        since_iso: str,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return entries since `since_iso` where one side is not the bank, oldest first.
+
+        Drives the admin "Player Holdings over time" graph: each ledger
+        row is a signed chip flow into or out of a non-bank entity
+        (`player:<id>` or `ai:<id>`), so the caller can compute running
+        cumulative balance per entity by walking the result in order.
+
+        Returns plain dicts with `entry_id`, `created_at`, `source`,
+        `sink`, `amount`, `reason`. Annotation rows (`amount == 0`)
+        are excluded — they don't change the curve.
+        """
+        params: List[Any] = [CENTRAL_BANK, CENTRAL_BANK, since_iso]
+        where = (
+            "amount > 0"
+            " AND (source = ? OR sink = ?)"
+            " AND created_at >= ?"
+        )
+        if sandbox_id is not None:
+            where += " AND sandbox_id = ?"
+            params.append(sandbox_id)
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT entry_id, created_at, source, sink, amount, reason
+                FROM chip_ledger_entries
+                WHERE {where}
+                ORDER BY created_at ASC, entry_id ASC
+                """,
+                params,
+            ).fetchall()
+        return [
+            {
+                'entry_id': row['entry_id'],
+                'created_at': row['created_at'],
+                'source': row['source'],
+                'sink': row['sink'],
+                'amount': int(row['amount']),
+                'reason': row['reason'],
+            }
+            for row in rows
+        ]
+
     def recent_entries(
         self,
         limit: int = 100,

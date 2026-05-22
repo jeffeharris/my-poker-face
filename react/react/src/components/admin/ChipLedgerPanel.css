@@ -180,6 +180,216 @@
   margin-top: 0.5rem;
 }
 
+/* --- Player Holdings section --- */
+
+.chip-ledger-holdings {
+  margin-bottom: 1rem;
+}
+
+.chip-ledger-holdings-header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.chip-ledger-holdings-header h3 {
+  margin: 0;
+}
+
+.chip-ledger-holdings-controls {
+  margin-left: auto;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.chip-ledger-holdings-range {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #999);
+}
+
+.chip-ledger-holdings-range select {
+  padding: 0.2rem 0.4rem;
+  background: var(--surface-2, #2a2a2a);
+  color: inherit;
+  border: 1px solid var(--border, #444);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.chip-ledger-holdings-chart {
+  background: var(--surface-1, #161616);
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.chip-ledger-holdings-chart svg {
+  width: 100%;
+  height: 240px;
+  display: block;
+}
+
+.chip-ledger-holdings-gridline line {
+  stroke: rgba(255, 255, 255, 0.06);
+  stroke-width: 1;
+}
+
+.chip-ledger-holdings-gridline text {
+  fill: var(--text-tertiary, #666);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.chip-ledger-holdings-axis {
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1;
+}
+
+.chip-ledger-holdings-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.5rem 0.25rem 0.25rem;
+  border-top: 1px solid var(--border, #333);
+  margin-top: 0.5rem;
+}
+
+.chip-ledger-holdings-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.5rem;
+  background: transparent;
+  color: var(--text-secondary, #aaa);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.chip-ledger-holdings-legend-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.chip-ledger-holdings-legend-item.active {
+  border-color: var(--border, #555);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary, #e0e0e0);
+}
+
+.chip-ledger-holdings-legend-item .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.chip-ledger-holdings-legend-item .label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-ledger-holdings-legend-item .value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--text-tertiary, #777);
+}
+
+.chip-ledger-holdings-legend-more {
+  align-self: center;
+  font-size: 0.75rem;
+  color: var(--text-tertiary, #666);
+  font-style: italic;
+}
+
+.chip-ledger-holdings-table-wrap {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+}
+
+.chip-ledger-holdings-table-wrap table {
+  width: 100%;
+}
+
+.chip-ledger-holdings-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2, #1d1d1d);
+  z-index: 1;
+}
+
+.chip-ledger-holdings-table-wrap th.amount-h {
+  text-align: right;
+}
+
+.chip-ledger-holdings-table-wrap th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.chip-ledger-holdings-table-wrap th.sortable:hover {
+  background: var(--surface-3, #262626);
+}
+
+.chip-ledger-holdings-table-wrap th.sortable.active {
+  color: var(--text-primary, #e0e0e0);
+}
+
+.chip-ledger-holdings-table-wrap th.sortable .arrow {
+  display: inline-block;
+  min-width: 0.7em;
+  margin-left: 0.3em;
+  font-size: 0.7em;
+  color: var(--color-gold, #d4a574);
+  opacity: 0.85;
+}
+
+.chip-ledger-holdings-table-wrap th.sortable.amount-h .arrow {
+  margin-left: 0.3em;
+}
+
+.chip-ledger-holdings-table-wrap tbody tr {
+  cursor: pointer;
+}
+
+.chip-ledger-holdings-table-wrap tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.chip-ledger-holdings-table-wrap tbody tr.highlighted {
+  background: rgba(212, 165, 116, 0.10);
+}
+
+.chip-ledger-holdings-table-wrap td.sandbox-cell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  color: var(--text-tertiary, #777);
+}
+
+.chip-ledger-holdings-caveat {
+  margin: 0.6rem 0 0 0;
+  font-size: 0.8rem;
+  color: var(--text-tertiary, #777);
+  font-style: italic;
+}
+
+.chip-ledger-holdings-caveat em {
+  font-style: normal;
+  color: var(--text-secondary, #aaa);
+}
+
 .chip-ledger-empty {
   color: var(--text-secondary, #888);
   font-style: italic;
