@@ -1,3 +1,10 @@
+---
+purpose: Project overview, quickstart, and entry-point doc links
+type: guide
+created: 2025-01-01
+last_updated: 2026-05-22
+---
+
 # My Poker Face
 
 A poker game with AI personalities — and an experimentation platform for testing LLM capabilities at scale.
@@ -6,7 +13,7 @@ A poker game with AI personalities — and an experimentation platform for testi
 
 Play Texas Hold'em against AI characters like Gordon Ramsay, Batman, and Eeyore. Each has unique speech patterns, playing styles, and dynamic behaviors that evolve during gameplay.
 
-**Play now**: [mypokerfacegame.com](https://mypokerfacegame.com)
+**Play now**: [mypokerfacegame.com](https://mypokerfacegame.com) — new? read the [Quick Guide for New Players](docs/user/QUICK_GUIDE.md)
 
 ## The Experiment Manager
 
@@ -28,7 +35,8 @@ Open [http://localhost:5173](http://localhost:5173)
 
 ## Documentation
 
-- [Quick Start Guide](docs/QUICK_START.md) — Setup options and first game
+- [Quick Guide for New Players](docs/user/QUICK_GUIDE.md) — How to play the game (for players)
+- [Quick Start Guide](docs/QUICK_START.md) — Setup options and first game (for developers)
 - [Game Vision](docs/vision/GAME_VISION.md) — Design philosophy
 - [DevOps Guide](docs/DEVOPS.md) — Production deployment
 - [Troubleshooting](docs/TROUBLESHOOTING.md) — Common issues
