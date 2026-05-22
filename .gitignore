@@ -190,8 +190,12 @@ poker_games.db
 
 # Temp artifacts
 game-screen.png
+live-game-chat.png
 progress.md
 react/progress.md
 react/react/output/
 react/react/test-results/
 *.json.tmp
+
+# Claude harness local state
+.claude/scheduled_tasks.lock
