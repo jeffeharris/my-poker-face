@@ -13,6 +13,13 @@ export interface SessionSummary {
   buy_in: number;
   cash_out: number;
   net_pnl: number;
+  // Staked-session fields. `is_staked=true` flips the headline P&L to
+  // mean "what you take home" (instead of "table profit"), since the
+  // chips on the table aren't fully yours when a sponsor funded the seat.
+  is_staked?: boolean;
+  sponsor_principal?: number;
+  sponsor_repaid?: number;
+  player_take_home?: number | null;
   hands_played: number;
   hands_won: number;
   biggest_pot_won: number;
@@ -64,6 +71,13 @@ export function CashOutSummary({
   const isLoss = summary.net_pnl < 0;
   const headline = isWin ? 'You Cashed Out Ahead' : isLoss ? 'Session Ended' : 'Broke Even';
   const outcomeClass = isWin ? 'is-win' : isLoss ? 'is-loss' : 'is-flat';
+  // For staked sessions, prefer fields from the durable summary over
+  // the legacy `sponsorRepaid` prop (which the live route still sends).
+  // The summary's view of the world has the sponsor split correct on
+  // every leave path — including the memory-miss / cold-load ones the
+  // top-level prop doesn't see.
+  const effectiveSponsorRepaid = summary.sponsor_repaid ?? sponsorRepaid;
+  const isStaked = summary.is_staked === true;
 
   return (
     <div className={`cashout-summary ${show ? 'show' : ''}`}>
@@ -78,19 +92,31 @@ export function CashOutSummary({
         </div>
 
         <div className={`cashout-pnl ${outcomeClass}`}>
-          <div className="cashout-pnl__label">Net P&amp;L</div>
+          <div className="cashout-pnl__label">
+            {isStaked ? 'Your Take-Home' : 'Net P&L'}
+          </div>
           <div className="cashout-pnl__value">
             {summary.net_pnl >= 0 ? '+' : ''}
             {formatChips(summary.net_pnl)}
           </div>
           <div className="cashout-pnl__breakdown">
-            <span>Buy-in {formatChips(summary.buy_in)}</span>
-            <span aria-hidden="true">→</span>
-            <span>Cashed out {formatChips(summary.cash_out)}</span>
+            {isStaked ? (
+              <>
+                <span>Sponsor put up {formatChips(summary.sponsor_principal ?? 0)}</span>
+                <span aria-hidden="true">→</span>
+                <span>Table ended at {formatChips(summary.cash_out)}</span>
+              </>
+            ) : (
+              <>
+                <span>Buy-in {formatChips(summary.buy_in)}</span>
+                <span aria-hidden="true">→</span>
+                <span>Cashed out {formatChips(summary.cash_out)}</span>
+              </>
+            )}
           </div>
-          {sponsorRepaid > 0 && (
+          {effectiveSponsorRepaid > 0 && (
             <div className="cashout-pnl__note">
-              Sponsor took {formatChips(sponsorRepaid)} off the top.
+              Sponsor took {formatChips(effectiveSponsorRepaid)} off the top.
             </div>
           )}
         </div>

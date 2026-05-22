@@ -70,6 +70,10 @@ def summarize_cash_session(
     started_at: Optional[datetime],
     now: datetime,
     fallback_hand_count: int = 0,
+    is_staked: bool = False,
+    sponsor_principal: int = 0,
+    sponsor_repaid: int = 0,
+    player_take_home: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Compute the cash-out summary payload.
 
@@ -77,7 +81,9 @@ def summarize_cash_session(
         hands: Hand-history rows for this game (oldest first, as
             returned by `load_hand_history`).
         human_name: The human player's seat name.
-        buy_in: Chips committed when sitting down.
+        buy_in: For self-funded sessions: chips the player put up
+            (initial + top-ups + rebuys = `total_buy_in`). For staked
+            sessions: 0 (the player put up nothing of their own).
         cash_out: Chips on the table at leave time.
         started_at: Session start timestamp (UTC). May be None for
             sessions created before the field was added — duration
@@ -85,12 +91,37 @@ def summarize_cash_session(
         now: Current UTC timestamp (passed in for testability).
         fallback_hand_count: Use this when no hand_history rows are
             present (e.g. session was started but no hand completed).
+        is_staked: True for sponsored sit-downs. Flips `net_pnl`
+            semantics from "table P&L vs total chips put in" to "what
+            the player actually takes home" — for staked sessions the
+            chips on the table belong to the sponsor first, then the
+            cut split, then the player.
+        sponsor_principal: Chips the sponsor put up. Surfaced in the
+            UI as "Sponsor put up $X"; with `is_staked=True` this
+            replaces the "Buy-in" line.
+        sponsor_repaid: Chips returned to the sponsor at leave-time
+            (after settle_stake_on_leave). Echoed back so the UI can
+            render the deduction line consistently with the in-game
+            leave breakdown.
+        player_take_home: Chips that actually credited the player's
+            bankroll at leave-time (the `borrower_credit` from
+            `build_stake_settlement_flows`). For staked sessions, this
+            is the player's true take-home and drives `net_pnl`. For
+            self-funded, pass None and `net_pnl` falls back to
+            `cash_out - buy_in`.
 
     Returns:
         Dict matching the `session_summary` shape consumed by the
         frontend.
     """
-    net_pnl = cash_out - buy_in
+    if is_staked:
+        # Staked sessions: the player put up nothing; the only money
+        # that lands back in their bankroll is `player_take_home`
+        # (whatever the sponsor settlement left them). Headline number
+        # is take-home vs zero so the modal doesn't lie about gains.
+        net_pnl = int(player_take_home or 0)
+    else:
+        net_pnl = int(cash_out) - int(buy_in)
 
     # Hands played = hands where the human was dealt in. We prefer the
     # hand_history count because state_machine.hand_count includes the
@@ -163,6 +194,12 @@ def summarize_cash_session(
         "buy_in": int(buy_in),
         "cash_out": int(cash_out),
         "net_pnl": int(net_pnl),
+        "is_staked": bool(is_staked),
+        "sponsor_principal": int(sponsor_principal),
+        "sponsor_repaid": int(sponsor_repaid),
+        "player_take_home": (
+            int(player_take_home) if player_take_home is not None else None
+        ),
         "hands_played": int(hands_dealt),
         "hands_won": int(hands_won),
         "biggest_pot_won": int(biggest_pot_won),

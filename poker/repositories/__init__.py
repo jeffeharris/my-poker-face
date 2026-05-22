@@ -30,6 +30,7 @@ from .cash_table_repository import CashTableRepository
 from .chip_ledger_repository import ChipLedgerRepository
 from .sandbox_repository import SandboxRepository, SandboxState
 from .stake_repository import StakeRepository
+from .cash_session_repository import CashSessionRepository
 
 
 def create_repos(db_path: str) -> dict:
@@ -66,6 +67,7 @@ def create_repos(db_path: str) -> dict:
         'cash_table_repo': CashTableRepository(db_path),
         'chip_ledger_repo': ChipLedgerRepository(db_path),
         'stake_repo': StakeRepository(db_path),
+        'cash_session_repo': CashSessionRepository(db_path),
         'sandbox_repo': SandboxRepository(db_path),
         'db_path': db_path,
     }
@@ -75,6 +77,7 @@ __all__ = [
     'BankrollRepository',
     'BaseRepository',
     'CaptureLabelRepository',
+    'CashSessionRepository',
     'CashTableRepository',
     'ChipLedgerRepository',
     'CoachRepository',

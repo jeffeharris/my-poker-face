@@ -150,7 +150,7 @@ logger = logging.getLogger(__name__)
 #       compute per-stake P&L ("you got back $X" or "you lost $Y").
 #       NULL on legacy rows (settled pre-migration) means "unknown" —
 #       the route returns null and the UI hides the P&L line.
-SCHEMA_VERSION = 107
+SCHEMA_VERSION = 108
 
 
 
@@ -1312,6 +1312,7 @@ class SchemaManager:
             105: (self._migrate_v105_rename_bankroll_cap_to_starting_bankroll, "Rename bankroll_knobs.bankroll_cap → starting_bankroll in personality config_json and drop the vestigial personalities.bankroll_cap column"),
             106: (self._migrate_v106_add_stake_payouts, "Phase 5 refinement — add nullable staker_payout / borrower_payout columns to stakes so history can show per-stake P&L"),
             107: (self._migrate_v107_add_aspiration_cooldown, "Aspiration-ask Commit 3 — add nullable aspiration_cooldown_until to ai_bankroll_state for per-AI rate limit on aspiration_ask triggers"),
+            108: (self._migrate_v108_add_cash_sessions, "Add cash_sessions table — durable per-session record (buy-in, time-at-table, staking, final stats) so the leave-table summary survives Flask restart / TTL eviction and stays correct across top-ups, rebuys, and staked sessions"),
         }
 
         with self._get_connection() as conn:
@@ -4928,4 +4929,98 @@ class SchemaManager:
         logger.info(
             "Migration v107 complete: ai_bankroll_state.aspiration_cooldown_until added"
         )
+
+    def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
+        """Migration v108: create the `cash_sessions` table.
+
+        Durable per-session record. Replaces the in-memory-only
+        `game_data["cash_buy_in"]` / `cash_started_at` / `cash_table_id`
+        / `cash_seat_index` fields as the source of truth for the
+        leave-table summary, the cold-load restore path, and the
+        eventual session-history surface.
+
+        Before this migration, the leave-table summary read those four
+        fields off `game_state_service.games[game_id]` — a dict with a
+        2h TTL that is also blown away by Flask restart. Symptoms:
+          - Restart mid-session → summary returns `null`.
+          - Cold-loaded session leaves → buy_in=0, duration_seconds=0.
+          - Top-ups / rebuys never adjusted buy_in → P&L over-reported.
+          - Staked sessions surfaced `cash_out - principal` as net P&L
+            even though the player's actual take-home was much smaller
+            after the sponsor's cut.
+
+        Schema rationale:
+          - `initial_buy_in`: chips the player put up at sit-down.
+            0 for staked sessions (sponsor funded the principal).
+          - `total_buy_in`: `initial_buy_in + Σ top-ups + Σ rebuys`.
+            This is the denominator for P&L; without it, mid-session
+            chip additions get silently counted as profit.
+          - `sponsor_principal`: chips the sponsor put up. 0 for
+            self-funded sessions. The split is explicit so the UI can
+            label staked sessions correctly ("Sponsor put up $X" vs
+            "Buy-in $X").
+          - `stake_id`: FK-style link to the `stakes` row when staked.
+            Nullable; not enforced as a FOREIGN KEY because SQLite's
+            FK enforcement is off in this DB and the relationship is
+            informational (leave-table re-loads via
+            `stake_repo.load_active_for_session` for the actual math).
+          - `started_at` / `ended_at`: the durable session timestamps.
+            `duration_seconds` could be derived but is materialized
+            so the history view doesn't need to subtract on read.
+          - `final_chips_at_table`, `sponsor_repaid`, `player_take_home`:
+            captured at leave-table so the row tells the complete P&L
+            story without joining against the stake or hand history.
+          - `hands_played` / `hands_won` / `biggest_pot_won`: derived
+            from `hand_history` at leave but materialized here so the
+            history view doesn't need to re-aggregate.
+          - `closed_status`: 'left' (normal leave), 'ghost_cleanup'
+            (memory-miss leave that hit the bankroll-loss fallback),
+            or NULL while active.
+
+        Indexes:
+          - `(owner_id, started_at DESC)` for the history view (most
+            recent sessions per player).
+          - `(session_id)` is the PK so no separate index.
+          - Filtered index on `ended_at IS NULL` for the (rare)
+            "find my active session" lookup, which is otherwise
+            served by `_find_active_cash_game_id` against the games
+            table.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS + INDEXes IF NOT EXISTS.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_sessions (
+                session_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                sandbox_id TEXT,
+                stake_label TEXT NOT NULL,
+                is_staked INTEGER NOT NULL DEFAULT 0,
+                stake_id TEXT,
+                initial_buy_in INTEGER NOT NULL,
+                total_buy_in INTEGER NOT NULL,
+                sponsor_principal INTEGER NOT NULL DEFAULT 0,
+                cash_table_id TEXT,
+                cash_seat_index INTEGER,
+                started_at TIMESTAMP NOT NULL,
+                ended_at TIMESTAMP,
+                final_chips_at_table INTEGER,
+                sponsor_repaid INTEGER NOT NULL DEFAULT 0,
+                player_take_home INTEGER,
+                hands_played INTEGER,
+                hands_won INTEGER,
+                biggest_pot_won INTEGER,
+                duration_seconds INTEGER,
+                closed_status TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_sessions_owner_started
+                ON cash_sessions(owner_id, started_at DESC)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_sessions_active
+                ON cash_sessions(owner_id)
+                WHERE ended_at IS NULL
+        """)
+        logger.info("Migration v108 complete: cash_sessions table created")
 

@@ -291,7 +291,7 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
     purged after v94 ships. Pre-existing bug; resolves at next
     instrumentation pass for the orphan-cleanup path.
     """
-    from flask_app.extensions import game_repo
+    from flask_app.extensions import cash_session_repo, game_repo
     try:
         rows = game_repo.list_games(owner_id=owner_id, limit=50, offset=0)
     except Exception as e:
@@ -310,6 +310,19 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
             logger.warning(
                 "[CASH] purge: delete_game(%r) failed: %s", row.game_id, e,
             )
+            continue
+        # Also drop the orphaned cash_sessions row. Without this,
+        # `load_active_for_owner` keeps surfacing the row (ended_at
+        # IS NULL) and a subsequent sit-down for the same owner sees
+        # two open sessions. Best-effort — a missing row is fine.
+        if cash_session_repo is not None:
+            try:
+                cash_session_repo.delete(row.game_id)
+            except Exception as e:
+                logger.warning(
+                    "[CASH] purge: cash_sessions delete(%r) failed: %s",
+                    row.game_id, e,
+                )
     if purged:
         logger.info(
             "[CASH] purged %d prior cash row(s) for owner=%r: %s",
@@ -421,6 +434,23 @@ def _load_or_seed_player_bankroll(
     logger.info("[CASH] Seeded fresh bankroll for %r at %d chips (sandbox=%r)",
                 owner_id, DEFAULT_PLAYER_STARTING_BANKROLL, sandbox_id)
     return bankroll
+
+
+def _record_cash_session_start(**kwargs) -> None:
+    """Thin wrapper over `cash_mode.cash_session_persistence.record_cash_session_start`
+    that pulls the repo singleton off `flask_app.extensions`. See the
+    underlying function for argument semantics.
+    """
+    from cash_mode.cash_session_persistence import record_cash_session_start
+    from flask_app.extensions import cash_session_repo
+    record_cash_session_start(cash_session_repo=cash_session_repo, **kwargs)
+
+
+def _increment_cash_session_buy_in(game_id: str, amount: int) -> None:
+    """Thin wrapper — see `cash_mode.cash_session_persistence.increment_cash_session_buy_in`."""
+    from cash_mode.cash_session_persistence import increment_cash_session_buy_in
+    from flask_app.extensions import cash_session_repo
+    increment_cash_session_buy_in(cash_session_repo, game_id, amount)
 
 
 def _load_human_stake_or_404(stake_id: str, owner_id: str):
@@ -917,6 +947,14 @@ def start_cash_session():
         starting_bankroll=player_bankroll.starting_bankroll,
     ))
 
+    _record_cash_session_start(
+        game_id=game_id,
+        owner_id=owner_id,
+        sandbox_id=sandbox_id,
+        stake_label=stake_label,
+        initial_buy_in=buy_in,
+    )
+
     return jsonify({"game_id": game_id})
 
 
@@ -1112,6 +1150,16 @@ def sit_at_table():
         game_data["cash_table_id"] = table_id
         game_data["cash_seat_index"] = seat_index
         game_state_service.set_game(game_id, game_data)
+
+    _record_cash_session_start(
+        game_id=game_id,
+        owner_id=owner_id,
+        sandbox_id=sandbox_id,
+        stake_label=stake_label,
+        initial_buy_in=buy_in,
+        cash_table_id=table_id,
+        cash_seat_index=seat_index,
+    )
 
     return jsonify({
         "game_id": game_id,
@@ -1523,8 +1571,9 @@ def sponsor_and_sit():
     # pre-cutover behavior — pre-launch, that's the design intent.
     stake_kind = STAKER_KIND_HOUSE if offer_lender_id is None else STAKER_KIND_PERSONALITY
     stake_format = STAKE_FORMAT_HOUSE if offer_lender_id is None else STAKE_FORMAT_PURE
+    stake_id = f"sponsor_{game_id}"
     stake_repo.create_stake(Stake(
-        stake_id=f"sponsor_{game_id}",
+        stake_id=stake_id,
         session_id=game_id,
         staker_id=offer_lender_id,
         staker_kind=stake_kind,
@@ -1540,6 +1589,21 @@ def sponsor_and_sit():
         stake_tier=stake_label,
         created_at=datetime.utcnow(),
     ))
+
+    # The player put up no own chips — `sponsor_principal` carries the
+    # full table stack, `initial_buy_in` stays 0. The leave-time summary
+    # uses this split to label the modal correctly ("Sponsor put up $X"
+    # instead of a misleading "Buy-in $X").
+    _record_cash_session_start(
+        game_id=game_id,
+        owner_id=owner_id,
+        sandbox_id=sandbox_id,
+        stake_label=stake_label,
+        initial_buy_in=0,
+        sponsor_principal=offer_amount,
+        is_staked=True,
+        stake_id=stake_id,
+    )
 
     # House-archetype loans create chips out of central_bank. Personality
     # loans are pure transfers (AI lender's bankroll → player's table
@@ -1697,6 +1761,10 @@ def rebuy():
         chips=bankroll.chips - amount,
         starting_bankroll=bankroll.starting_bankroll,
     ))
+
+    # Rebuy is another bankroll → table transfer, just like top-up;
+    # leave-time P&L needs it counted as money put in (not won).
+    _increment_cash_session_buy_in(game_id, amount)
 
     from flask_app.handlers.game_handler import progress_game, update_and_emit_game_state
     update_and_emit_game_state(game_id)
@@ -2798,29 +2866,56 @@ def leave_table():
 
 def _build_session_summary(
     *,
-    game_data: dict,
-    human_name: str,
     game_id: str,
+    human_name: str,
     cash_out: int,
-    state_machine,
+    state_machine=None,
+    cash_session=None,
+    sponsor_repaid: int = 0,
+    player_take_home: Optional[int] = None,
+    now: Optional[datetime] = None,
 ) -> dict:
     """Compute the post-session summary payload for the leave response.
 
-    Pulls hand_history rows for this game and delegates to the pure
-    `summarize_cash_session` helper. Tolerates a missing repo (early
-    test paths) by falling back to the state_machine's hand_count.
+    Reads buy-in / start-time / staking flags from the durable
+    `cash_sessions` row (loaded lazily if not passed in). Pulls
+    hand_history rows for this game and delegates to the pure
+    `summarize_cash_session` helper.
+
+    `cash_session` is optional so callers that already loaded it can
+    skip the second read. The function tolerates `None` — leftover
+    sessions from before the cash_sessions table existed fall back to
+    a zeroed buy-in summary rather than raising.
     """
     from cash_mode.session_summary import summarize_cash_session
-    from flask_app.extensions import hand_history_repo
+    from flask_app.extensions import cash_session_repo, hand_history_repo
 
-    buy_in = int(game_data.get("cash_buy_in") or 0)
-    started_at_raw = game_data.get("cash_started_at")
-    started_at = None
-    if started_at_raw:
+    if now is None:
+        now = datetime.utcnow()
+
+    if cash_session is None and cash_session_repo is not None:
         try:
-            started_at = datetime.fromisoformat(started_at_raw)
-        except (TypeError, ValueError):
-            started_at = None
+            cash_session = cash_session_repo.load(game_id)
+        except Exception as e:
+            logger.warning(
+                "[CASH] cash_sessions load failed for summary %r: %s",
+                game_id, e,
+            )
+            cash_session = None
+
+    if cash_session is not None:
+        buy_in = cash_session.total_buy_in
+        started_at = cash_session.started_at
+        is_staked = cash_session.is_staked
+        sponsor_principal = cash_session.sponsor_principal
+    else:
+        # No durable row — this is a legacy session predating v108 or
+        # one where the row create failed at sit-down. Fall back to
+        # zeros so the summary at least renders something coherent.
+        buy_in = 0
+        started_at = None
+        is_staked = False
+        sponsor_principal = 0
 
     hands: List[Dict[str, Any]] = []
     if hand_history_repo is not None:
@@ -2833,12 +2928,13 @@ def _build_session_summary(
             )
 
     fallback_hand_count = 0
-    try:
-        fallback_hand_count = int(
-            getattr(state_machine, "_state", None).stats.hand_count
-        )
-    except Exception:
-        fallback_hand_count = 0
+    if state_machine is not None:
+        try:
+            fallback_hand_count = int(
+                getattr(state_machine, "_state", None).stats.hand_count
+            )
+        except Exception:
+            fallback_hand_count = 0
 
     return summarize_cash_session(
         hands=hands,
@@ -2846,9 +2942,20 @@ def _build_session_summary(
         buy_in=buy_in,
         cash_out=cash_out,
         started_at=started_at,
-        now=datetime.utcnow(),
+        now=now,
         fallback_hand_count=fallback_hand_count,
+        is_staked=is_staked,
+        sponsor_principal=sponsor_principal,
+        sponsor_repaid=sponsor_repaid,
+        player_take_home=player_take_home,
     )
+
+
+def _finalise_cash_session(**kwargs) -> None:
+    """Thin wrapper — see `cash_mode.cash_session_persistence.finalise_cash_session`."""
+    from cash_mode.cash_session_persistence import finalise_cash_session
+    from flask_app.extensions import cash_session_repo
+    finalise_cash_session(cash_session_repo=cash_session_repo, **kwargs)
 
 
 def _leave_table_locked(owner_id: str, game_id: str):
@@ -2858,7 +2965,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
     without indenting the existing block — see the `with lock:` in
     `leave_table` for the rationale.
     """
-    from flask_app.extensions import bankroll_repo, cash_table_repo, game_repo, personality_repo
+    from flask_app.extensions import bankroll_repo, cash_session_repo, cash_table_repo, game_repo, personality_repo
     from flask_app.services import game_state_service
 
     game_data = game_state_service.get_game(game_id)
@@ -2869,8 +2976,26 @@ def _leave_table_locked(owner_id: str, game_id: str):
     # is missing the field (e.g. memory-miss or a session that pre-
     # dated the stamping).
     sandbox_id = (game_data or {}).get("sandbox_id") if game_data else None
+    # The durable cash_sessions row carries sandbox_id even when the
+    # in-memory game_data is gone — use it as a second-best source so
+    # the memory-miss path doesn't fall back to a re-resolved default
+    # sandbox that may differ from the one the session was created on.
+    persisted_cash_session = None
+    if cash_session_repo is not None:
+        try:
+            persisted_cash_session = cash_session_repo.load(game_id)
+        except Exception as e:
+            logger.warning(
+                "[CASH] cash_sessions load failed for leave %r: %s",
+                game_id, e,
+            )
+    if not sandbox_id and persisted_cash_session is not None:
+        sandbox_id = persisted_cash_session.sandbox_id
     if not sandbox_id:
         sandbox_id = _resolve_sandbox_id(owner_id)
+
+    now = datetime.utcnow()
+
     if game_data is None:
         # Memory-only miss is fine when the game is still in the DB
         # (e.g. server restarted mid-session). Best-effort cleanup of
@@ -2890,9 +3015,36 @@ def _leave_table_locked(owner_id: str, game_id: str):
         # bankroll already reflects the actual loss from buy-in, so we
         # don't refund here.
         _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
+        # Build a real summary from the durable cash_sessions row even
+        # though we have no live state machine. The user spent time at
+        # the table (buy-in, hands played) — surface what we know
+        # rather than returning `null` and stranding them on the lobby
+        # without acknowledgement of the session that vanished.
+        bankroll_now = _load_or_seed_player_bankroll(owner_id).chips
+        ghost_summary = None
+        if persisted_cash_session is not None:
+            ghost_summary = _build_session_summary(
+                game_id=game_id,
+                human_name="",
+                cash_out=0,  # chips lost when game_data evaporated
+                cash_session=persisted_cash_session,
+                sponsor_repaid=0,
+                player_take_home=0,
+                now=now,
+            )
+            _finalise_cash_session(
+                game_id=game_id,
+                now=now,
+                final_chips_at_table=0,
+                sponsor_repaid=0,
+                player_take_home=0,
+                summary=ghost_summary,
+                closed_status="ghost_cleanup",
+            )
         logger.info(
-            "[CASH] Left game_id=%r owner=%r (memory-miss path, ghost-seat cleanup ran)",
-            game_id, owner_id,
+            "[CASH] Left game_id=%r owner=%r (memory-miss path, "
+            "ghost-seat cleanup ran, summary=%s)",
+            game_id, owner_id, "from-db" if ghost_summary else "null",
         )
         return jsonify({
             "session_ended": True,
@@ -2900,8 +3052,8 @@ def _leave_table_locked(owner_id: str, game_id: str):
             "had_active_loan": False,
             "sponsor_repaid": 0,
             "returned_chips": 0,
-            "bankroll": _load_or_seed_player_bankroll(owner_id).chips,
-            "session_summary": None,
+            "bankroll": bankroll_now,
+            "session_summary": ghost_summary,
         })
     state_machine = game_data["state_machine"]
     human_player = next(
@@ -2909,20 +3061,8 @@ def _leave_table_locked(owner_id: str, game_id: str):
     )
     chips_at_table = human_player.stack if human_player else 0
 
-    # Build the cash-out session summary BEFORE any teardown — we read
-    # hand_history rows for VPIP/aggression and need the buy-in/start
-    # timestamp from game_data, which is purged a few lines down.
-    session_summary = _build_session_summary(
-        game_data=game_data,
-        human_name=human_player.name if human_player else "",
-        game_id=game_id,
-        cash_out=chips_at_table,
-        state_machine=state_machine,
-    )
-
     bankroll = _load_or_seed_player_bankroll(owner_id)
     from flask_app.extensions import chip_ledger_repo, stake_repo
-    now = datetime.utcnow()
 
     # Stake-table settlement. Sessions with an active stake row settle
     # via the stake_chip_flow plumbing; sessions without (no stake was
@@ -3031,6 +3171,32 @@ def _leave_table_locked(owner_id: str, game_id: str):
             starting_bankroll=bankroll.starting_bankroll,
         ))
 
+    # Now that settlement is done we know `sponsor_repaid` (chips the
+    # staker pulled off the top) and `returned_chips` (what actually
+    # credited the player's bankroll). Both are passed into the summary
+    # so the staked-session headline P&L reflects player take-home,
+    # not gross table P&L. Persisted on the cash_sessions row so a
+    # history view can render the same numbers later.
+    session_summary = _build_session_summary(
+        game_id=game_id,
+        human_name=human_player.name if human_player else "",
+        cash_out=chips_at_table,
+        state_machine=state_machine,
+        cash_session=persisted_cash_session,
+        sponsor_repaid=sponsor_repaid,
+        player_take_home=returned_chips,
+        now=now,
+    )
+    _finalise_cash_session(
+        game_id=game_id,
+        now=now,
+        final_chips_at_table=chips_at_table,
+        sponsor_repaid=sponsor_repaid,
+        player_take_home=returned_chips,
+        summary=session_summary,
+        closed_status="left",
+    )
+
     # Credit every seated AI's current Player.stack back to their
     # persistent bankroll. Without this loop, AI table winnings
     # evaporate at session end and AI bankrolls drift monotonically
@@ -3069,6 +3235,14 @@ def _leave_table_locked(owner_id: str, game_id: str):
     # claim the now-open intent slot.
     cash_table_id = game_data.get("cash_table_id")
     cash_seat_index = game_data.get("cash_seat_index")
+    # Cold-loaded sessions don't have these on game_data (cold-load
+    # only restores cash_mode / cash_stake_label / cash_personality_ids).
+    # Fall back to the durable cash_sessions row so cold-load leaves
+    # still free the lobby seat instead of stranding a ghost.
+    if cash_table_id is None and persisted_cash_session is not None:
+        cash_table_id = persisted_cash_session.cash_table_id
+        if cash_seat_index is None:
+            cash_seat_index = persisted_cash_session.cash_seat_index
     if cash_table_id is not None:
         from cash_mode.tables import ai_slot, open_slot
         from flask_app.extensions import cash_table_repo
@@ -3268,6 +3442,11 @@ def top_up():
         # Loan fields are 0 by virtue of the guard above; no need to copy.
     )
     bankroll_repo.save_player_bankroll(new_bankroll)
+
+    # Bump the durable session's total_buy_in so leave-time P&L counts
+    # this top-up as money put in (not won). Skipped silently if the
+    # session row doesn't exist (legacy game predating cash_sessions).
+    _increment_cash_session_buy_in(game_id, amount)
 
     from flask_app.handlers.game_handler import update_and_emit_game_state
     update_and_emit_game_state(game_id)

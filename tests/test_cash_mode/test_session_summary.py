@@ -223,6 +223,74 @@ def test_play_style_tight_passive():
     assert result["play_style"] == "Tight-Passive"
 
 
+def test_staked_session_net_pnl_uses_player_take_home():
+    """Staked sessions: net_pnl is player take-home, NOT gross table P&L.
+
+    A staked player walks in with $0 of their own money. The sponsor
+    funded the principal. At leave-time, the sponsor pulls their cut
+    off the top and the player keeps what's left. The headline number
+    has to reflect what the player actually gains in their bankroll,
+    not the misleading `cash_out - principal` gross P&L.
+    """
+    result = summarize_cash_session(
+        hands=[],
+        human_name=HUMAN,
+        buy_in=0,
+        cash_out=1200,  # ended with $1,200 on the table
+        started_at=None,
+        now=datetime.utcnow(),
+        fallback_hand_count=3,
+        is_staked=True,
+        sponsor_principal=500,  # sponsor put up $500
+        sponsor_repaid=850,     # sponsor pulled $850 off the top
+        player_take_home=350,   # player walks away with $350
+    )
+    # Headline reflects player take-home, NOT cash_out - principal
+    # (which would say +$700, double-counting the sponsor's recovery).
+    assert result["net_pnl"] == 350
+    assert result["is_staked"] is True
+    assert result["sponsor_principal"] == 500
+    assert result["sponsor_repaid"] == 850
+    assert result["player_take_home"] == 350
+
+
+def test_staked_session_full_bust_take_home_zero():
+    """Staked player who busts: take-home is 0, not negative principal."""
+    result = summarize_cash_session(
+        hands=[],
+        human_name=HUMAN,
+        buy_in=0,
+        cash_out=0,
+        started_at=None,
+        now=datetime.utcnow(),
+        is_staked=True,
+        sponsor_principal=500,
+        sponsor_repaid=0,
+        player_take_home=0,
+    )
+    assert result["net_pnl"] == 0  # not -500; the player didn't lose own money
+    assert result["sponsor_repaid"] == 0
+    assert result["player_take_home"] == 0
+
+
+def test_self_funded_summary_unchanged_by_new_fields():
+    """The legacy self-funded path still uses cash_out - buy_in."""
+    result = summarize_cash_session(
+        hands=[],
+        human_name=HUMAN,
+        buy_in=500,
+        cash_out=750,
+        started_at=None,
+        now=datetime.utcnow(),
+        # is_staked omitted → False; all sponsor_* default to 0/None
+    )
+    assert result["net_pnl"] == 250
+    assert result["is_staked"] is False
+    assert result["sponsor_principal"] == 0
+    assert result["sponsor_repaid"] == 0
+    assert result["player_take_home"] is None
+
+
 def test_hand_not_counted_when_player_not_dealt_in():
     """Hands where the human isn't seated should not contribute to hands_played."""
     hands = [

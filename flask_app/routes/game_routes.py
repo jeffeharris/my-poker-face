@@ -673,6 +673,30 @@ def api_game_state(game_id):
                             current_game_data['cash_mode'] = True
                             current_game_data['cash_stake_label'] = stake_label
                             current_game_data['cash_personality_ids'] = cash_personality_ids
+                            # Restore the four buy-in / start-time / seat
+                            # fields the cold-load path used to leave at
+                            # None. Without this, a leave after a Flask
+                            # restart got buy_in=0, duration=0, and
+                            # cash_tables seat never freed (ghost seat).
+                            # The durable cash_sessions row (v108) is
+                            # the source of truth — populated at sit-
+                            # down by cash_routes._record_cash_session_start.
+                            try:
+                                from flask_app.extensions import cash_session_repo
+                                if cash_session_repo is not None:
+                                    cs = cash_session_repo.load(game_id)
+                                    if cs is not None:
+                                        current_game_data['cash_buy_in'] = cs.total_buy_in
+                                        current_game_data['cash_started_at'] = (
+                                            cs.started_at.isoformat() if cs.started_at else None
+                                        )
+                                        current_game_data['cash_table_id'] = cs.cash_table_id
+                                        current_game_data['cash_seat_index'] = cs.cash_seat_index
+                            except Exception as e:
+                                logger.warning(
+                                    "[LOAD] cash_sessions cold-load restore failed for %r: %s",
+                                    game_id, e,
+                                )
                         # Recover from games persisted mid-all-in-runout (server
                         # crash while run_it_out=True). Without this, the player
                         # sees a stuck state with no action buttons (the UI
