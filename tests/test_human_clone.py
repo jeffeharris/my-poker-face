@@ -6,6 +6,8 @@ Doesn't test the sim CLI wiring — that's covered indirectly by the
 register-into-BUILT_IN_STRATEGIES round trip.
 """
 
+import json
+import os
 import random
 import sqlite3
 import tempfile
@@ -14,6 +16,7 @@ import pytest
 
 from poker.human_clone import (
     CloneProfile,
+    _mine_hand_history,
     _tier_for_frequency,
     build_clone_strategy,
     derive_profile_from_db,
@@ -239,6 +242,173 @@ class TestStickyCallerVsCaseBot:
 
 
 # ── BUILT_IN_STRATEGIES registration ──────────────────────────────────
+
+
+class TestMineHandHistory:
+    """V2: stats mined from hand_history.actions_json."""
+
+    def _make_db_with_actions(self, hand_actions_list):
+        """Create a temp DB with hand_history rows from a list of action lists.
+
+        Each entry in `hand_actions_list` is the actions_json for one hand.
+        players_json is generated as a constant Jeff-included string.
+        """
+        fd, path = tempfile.mkstemp(suffix='.db')
+        conn = sqlite3.connect(path)
+        conn.execute("""
+            CREATE TABLE hand_history (
+                id INTEGER PRIMARY KEY,
+                game_id TEXT, hand_number INTEGER,
+                players_json TEXT, actions_json TEXT
+            )
+        """)
+        players_json = '[{"name": "Jeff"}, {"name": "Other"}]'
+        for i, actions in enumerate(hand_actions_list):
+            conn.execute(
+                "INSERT INTO hand_history (game_id, hand_number, players_json, actions_json) "
+                "VALUES (?, ?, ?, ?)",
+                (f'game{i}', i, players_json, json.dumps(actions)),
+            )
+        conn.commit()
+        conn.close()
+        return path
+
+    def _action(self, player, action, phase='PRE_FLOP', amount=0):
+        return {'player_name': player, 'action': action, 'phase': phase, 'amount': amount}
+
+    def test_returns_none_when_insufficient_data(self):
+        # Single hand → all stats below the 5-sample minimum
+        path = self._make_db_with_actions([
+            [self._action('Jeff', 'fold')],
+        ])
+        try:
+            result = _mine_hand_history(path, 'Jeff')
+            assert result['wtsd'] is None
+            assert result['threebet_rate'] is None
+            assert result['flop_af'] is None
+        finally:
+            os.unlink(path)
+
+    def test_wtsd_high_for_sticky_caller(self):
+        # 5 hands: Jeff sees flop in all 5, reaches river in 4
+        hands = []
+        for i in range(5):
+            actions = [
+                self._action('Jeff', 'call', 'PRE_FLOP'),
+                self._action('Jeff', 'call', 'FLOP'),
+            ]
+            if i < 4:  # 4 of 5 reach river without folding
+                actions.append(self._action('Jeff', 'call', 'TURN'))
+                actions.append(self._action('Jeff', 'call', 'RIVER'))
+            else:  # 1 of 5 folds turn
+                actions.append(self._action('Jeff', 'fold', 'TURN'))
+            hands.append(actions)
+        path = self._make_db_with_actions(hands)
+        try:
+            result = _mine_hand_history(path, 'Jeff')
+            assert result['wtsd'] == pytest.approx(0.80)
+        finally:
+            os.unlink(path)
+
+    def test_threebet_rate_counts_facing_raise_opportunities(self):
+        # 5 hands: someone raises preflop, then Jeff acts
+        # Jeff 3-bets in 2 of 5
+        hands = []
+        for i in range(5):
+            actions = [
+                self._action('Other', 'raise', 'PRE_FLOP'),
+                self._action('Jeff', 'raise' if i < 2 else 'call', 'PRE_FLOP'),
+            ]
+            hands.append(actions)
+        path = self._make_db_with_actions(hands)
+        try:
+            result = _mine_hand_history(path, 'Jeff')
+            assert result['threebet_rate'] == pytest.approx(0.40)
+        finally:
+            os.unlink(path)
+
+    def test_street_af_per_phase(self):
+        # 5 hands where Jeff sees the flop with mixed aggression
+        hands = []
+        for i in range(5):
+            actions = [
+                self._action('Jeff', 'call', 'PRE_FLOP'),
+                # Flop: 3 raises, 2 calls → AF = 3/2 = 1.5
+                self._action('Jeff', 'raise' if i < 3 else 'call', 'FLOP'),
+                # Turn: 1 raise, 4 checks → AF = 1/4 = 0.25
+                self._action('Jeff', 'raise' if i == 0 else 'check', 'TURN'),
+            ]
+            hands.append(actions)
+        path = self._make_db_with_actions(hands)
+        try:
+            result = _mine_hand_history(path, 'Jeff')
+            assert result['flop_af'] == pytest.approx(1.5)
+            assert result['turn_af'] == pytest.approx(0.25)
+            # No river actions → None
+            assert result['river_af'] is None
+        finally:
+            os.unlink(path)
+
+
+class TestV2StrategyUsesPerStreetAF:
+    """V2: per-street AF and WtSD modulate the postflop policy."""
+
+    def _make(self, **kw):
+        defaults = dict(
+            source_player='X', hands_observed=200, vpip=0.30, pfr=0.15,
+            aggression_factor=1.0, fold_to_cbet=0.50,
+        )
+        defaults.update(kw)
+        return build_clone_strategy(CloneProfile(**defaults))
+
+    def test_river_passivity_overrides_global_af(self):
+        # Profile has global AF=2.0 (aggressive) but river_af=0.1 (very passive)
+        # On the river free-to-act with strong equity, river_raise_rate
+        # should win out → mostly check, not raise.
+        strat = self._make(aggression_factor=2.0, river_af=0.1)
+        random.seed(99)
+        raise_count = sum(
+            1 for _ in range(100)
+            if strat(_ctx(phase='RIVER', cost_to_call=0, equity=0.75,
+                          valid_actions=['check', 'raise']))['action'] == 'raise'
+        )
+        # river_af=0.1 → rate = 0.1/1.1 ≈ 9%. Allow wide bounds for sampling.
+        assert raise_count < 25  # would be ~67% without override (AF=2.0)
+
+    def test_wtsd_high_keeps_river_call_sticky(self):
+        # Sticky caller: low fold_to_cbet AND high WtSD
+        # Should call marginal river bets where a non-sticky bot folds
+        strat = self._make(fold_to_cbet=0.30, wtsd=0.55)
+        # cost=50 into pot=200 → required=0.20; multiplier = 0.65 * wtsd_adjust
+        # wtsd_adjust = 1.0 - (0.55-0.40)*0.5 = 0.925
+        # effective = 0.20 * 0.65 * 0.925 = 0.12
+        result = strat(_ctx(
+            phase='RIVER', cost_to_call=50, pot_total=200, equity=0.15,
+        ))
+        # equity 0.15 > 0.12 → call
+        assert result['action'] == 'call'
+
+    def test_wtsd_low_folds_marginal_river(self):
+        # Fit-or-fold type: rarely reaches showdown
+        strat = self._make(fold_to_cbet=0.50, wtsd=0.15)
+        # wtsd_adjust = 1.0 - (0.15-0.40)*0.5 = 1.125
+        # multiplier = 0.75 * 1.125 = 0.84
+        # required=0.20; effective = 0.20 * 0.84 = 0.169
+        result = strat(_ctx(
+            phase='RIVER', cost_to_call=50, pot_total=200, equity=0.15,
+        ))
+        # equity 0.15 < 0.169 → fold
+        assert result['action'] == 'fold'
+
+    def test_v2_fields_optional_falls_back_to_v1(self):
+        # No V2 fields → behavior matches V1 (uses global AF, no wtsd adjust)
+        strat = self._make()  # all V2 fields default to None
+        result = strat(_ctx(
+            phase='RIVER', cost_to_call=50, pot_total=200, equity=0.18,
+        ))
+        # Should fold since equity (0.18) < required (0.20) * fold_mult (0.75) = 0.15
+        # 0.18 > 0.15 → call. Verify V1 behavior unchanged.
+        assert result['action'] == 'call'
 
 
 class TestRegisterCloneStrategy:

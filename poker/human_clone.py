@@ -31,6 +31,7 @@ Limitations (V1):
 
 from __future__ import annotations
 
+import json
 import random
 import sqlite3
 from dataclasses import dataclass
@@ -52,11 +53,13 @@ from .hand_tiers import (
 
 @dataclass(frozen=True)
 class CloneProfile:
-    """Stat-derived behavioral profile suitable for V1 cloning.
+    """Stat-derived behavioral profile.
 
-    Sourced from the `opponent_models` table — values are the
-    hands-observed-weighted average across every row where the named
-    player appears as `opponent_name`.
+    Core stats sourced from the `opponent_models` table (weighted across
+    observers). V2 fields are mined from `hand_history.actions_json` when
+    available — they capture nuance the single-stat AF can't (e.g. a
+    calling station who never barrels turn, a sticky caller who goes to
+    showdown 50%+ of hands seen).
     """
     source_player: str
     hands_observed: int
@@ -67,12 +70,114 @@ class CloneProfile:
     bluff_frequency: float = 0.30   # 0.0–1.0; declared bluff rate
     showdown_win_rate: float = 0.50
 
+    # ── V2 (hand_history mining; None when not enough data) ──
+    wtsd: Optional[float] = None         # went-to-showdown rate (saw river / saw flop)
+    threebet_rate: Optional[float] = None  # preflop 3bets per facing-raise opportunity
+    flop_af: Optional[float] = None      # flop-only aggression factor
+    turn_af: Optional[float] = None      # turn-only aggression factor
+    river_af: Optional[float] = None     # river-only aggression factor
+
     @property
     def display_name(self) -> str:
         return f"{self.source_player}_clone"
 
 
 # ── DB derivation ─────────────────────────────────────────────────────────
+
+
+def _mine_hand_history(db_path: str, player_name: str) -> Dict[str, Optional[float]]:
+    """Mine V2 stats from hand_history.actions_json for one player.
+
+    Returns a dict with `wtsd`, `threebet_rate`, `flop_af`, `turn_af`,
+    `river_af` — each is None if there's not enough data to compute it
+    (typically < 5 qualifying observations for that specific stat).
+
+    Definitions:
+    - wtsd:          P(saw river without folding | saw flop). Sticky stations
+                     hit 0.50+; fit-or-fold types stay under 0.25.
+    - threebet_rate: P(player raises preflop | player faces a prior preflop
+                     raise and hasn't acted yet on this street).
+    - <street>_af:   raises_on_street / (calls_on_street + checks_on_street).
+                     Mirrors the global AF formula but restricted to one
+                     street. Captures "barrels turn but checks river" style
+                     differences the single-stat AF averages away.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.execute(
+            "SELECT actions_json FROM hand_history "
+            "WHERE players_json LIKE ?",
+            (f'%"{player_name}"%',),
+        )
+        all_actions = [json.loads(r[0]) for r in cur if r[0]]
+    finally:
+        conn.close()
+
+    saw_flop = 0
+    saw_river = 0
+    threebet_opps = 0
+    threebet_takes = 0
+    street_raises: Dict[str, int] = {'FLOP': 0, 'TURN': 0, 'RIVER': 0}
+    street_passive: Dict[str, int] = {'FLOP': 0, 'TURN': 0, 'RIVER': 0}
+
+    for actions in all_actions:
+        player_actions = [a for a in actions if a.get('player_name') == player_name]
+        if not player_actions:
+            continue
+
+        phases_seen = {a['phase'] for a in player_actions}
+        folded = any(a['action'] == 'fold' for a in player_actions)
+
+        # WtSD: saw flop (any FLOP action) → did they reach river without folding?
+        if 'FLOP' in phases_seen:
+            saw_flop += 1
+            if 'RIVER' in phases_seen and not folded:
+                saw_river += 1
+
+        # 3-bet rate: walk preflop actions; whenever the player faces a
+        # prior PRE_FLOP raise (action='raise' from someone else), count
+        # an opportunity and check whether the player's next preflop
+        # action is a raise.
+        preflop_seen_raise_before_us = False
+        for a in actions:
+            if a['phase'] != 'PRE_FLOP':
+                break
+            if a['player_name'] == player_name:
+                if preflop_seen_raise_before_us:
+                    threebet_opps += 1
+                    if a['action'] == 'raise':
+                        threebet_takes += 1
+                    break  # only count first chance per hand
+            elif a['action'] == 'raise':
+                preflop_seen_raise_before_us = True
+
+        # Street-specific AF counters
+        for a in player_actions:
+            phase = a['phase']
+            if phase not in street_raises:
+                continue
+            if a['action'] == 'raise':
+                street_raises[phase] += 1
+            elif a['action'] in ('call', 'check'):
+                street_passive[phase] += 1
+
+    def _af(street: str) -> Optional[float]:
+        raises = street_raises[street]
+        passive = street_passive[street]
+        if raises + passive < 5:  # too few samples to trust the ratio
+            return None
+        # AF = raises / passive (matches global AF formula)
+        if passive == 0:
+            return float(raises)  # all aggression, no passive — cap at the count
+        return raises / passive
+
+    return {
+        'wtsd': (saw_river / saw_flop) if saw_flop >= 5 else None,
+        'threebet_rate': (threebet_takes / threebet_opps) if threebet_opps >= 5 else None,
+        'flop_af': _af('FLOP'),
+        'turn_af': _af('TURN'),
+        'river_af': _af('RIVER'),
+    }
 
 
 def derive_profile_from_db(
@@ -119,7 +224,8 @@ def derive_profile_from_db(
         weighted = sum(r[0] * (r[idx] if r[idx] is not None else fallback) for r in rows)
         return weighted / total_hands
 
-    return CloneProfile(
+    # V1 fields from opponent_models
+    base = dict(
         source_player=player_name,
         hands_observed=total_hands,
         vpip=w_avg(1, 0.50),
@@ -129,6 +235,13 @@ def derive_profile_from_db(
         bluff_frequency=w_avg(5, 0.30),
         showdown_win_rate=w_avg(6, 0.50),
     )
+    # V2: best-effort hand_history mining. Missing fields stay None and
+    # the strategy falls back to the V1 single-stat behavior for them.
+    try:
+        mined = _mine_hand_history(db_path, player_name)
+    except Exception:
+        mined = {}
+    return CloneProfile(**base, **mined)
 
 
 # ── VPIP / PFR → hand-tier mapping ────────────────────────────────────────
@@ -173,6 +286,14 @@ def build_clone_strategy(profile: CloneProfile):
     `RuleBasedController` with the standard `(context: Dict) -> Dict`
     contract. Uses the global `random` module — `simulate_bb100.py` seeds
     that per-hand, so sim runs are reproducible.
+
+    V2 enhancements (when the profile carries them):
+    - Per-street AF replaces the single global AF for postflop bet/raise
+      decisions, capturing "barrels turn, checks river" patterns.
+    - wtsd shifts the turn/river fold threshold up (sticky callers reach
+      showdown more often) or down (fit-or-fold types fold earlier).
+    - threebet_rate widens or shrinks the gap between vpip_tier and
+      pfr_tier when facing a prior preflop raiser.
     """
     vpip_tier = _tier_for_frequency(profile.vpip)
     pfr_tier = _tier_for_frequency(profile.pfr)
@@ -181,11 +302,36 @@ def build_clone_strategy(profile: CloneProfile):
     # AF=2 → raise 67% of betting opportunities; AF=0.5 → raise 33%; AF=1 → raise 50%.
     af_raise_rate = profile.aggression_factor / (profile.aggression_factor + 1.0)
 
+    # Street-specific raise rates fall back to the global af_raise_rate
+    # when the mined value is None (too few samples).
+    def _street_raise_rate(street_af: Optional[float]) -> float:
+        if street_af is None:
+            return af_raise_rate
+        return street_af / (street_af + 1.0)
+
+    flop_raise_rate = _street_raise_rate(profile.flop_af)
+    turn_raise_rate = _street_raise_rate(profile.turn_af)
+    river_raise_rate = _street_raise_rate(profile.river_af)
+
     # Required-equity multiplier scaled by sticky-caller tendency.
     # fold_to_cbet=1.0 → fold at the textbook required equity (multiplier 1.0)
     # fold_to_cbet=0.0 → call way wider (multiplier 0.5)
     # fold_to_cbet=0.5 (default) → multiplier 0.75
     fold_multiplier = 0.5 + (profile.fold_to_cbet * 0.5)
+
+    # wtsd adjusts turn/river fold thresholds. A sticky caller (wtsd=0.50+)
+    # gets a more permissive (lower) multiplier on those streets; a fit-or-
+    # fold type (wtsd < 0.20) gets a stricter (higher) multiplier. Bounded
+    # so a player who saw 100% showdowns doesn't auto-call everything.
+    wtsd_adjust = 1.0
+    if profile.wtsd is not None:
+        # 0.40 is a "neutral" WtSD. Above that → stickier; below → folder.
+        wtsd_adjust = 1.0 - (profile.wtsd - 0.40) * 0.5  # ±0.25 swing across 0.0..1.0
+        wtsd_adjust = max(0.5, min(1.3, wtsd_adjust))
+
+    # threebet_rate gates whether to widen or tighten when facing a preflop raise.
+    # Default of 0.05 is "rarely 3-bets"; humans typically 5-12%.
+    threebet_rate = profile.threebet_rate if profile.threebet_rate is not None else 0.05
 
     def strategy(context: Dict) -> Dict:
         valid = context.get('valid_actions', [])
@@ -224,21 +370,31 @@ def build_clone_strategy(profile: CloneProfile):
             return _fold()
 
         # ── POSTFLOP ──────────────────────────────────────────────────
+        # Per-street raise rate replaces single AF when V2 fields present.
+        street_rate = {
+            'FLOP': flop_raise_rate, 'TURN': turn_raise_rate, 'RIVER': river_raise_rate,
+        }.get(phase, af_raise_rate)
+
         # Free to act: aggression-driven betting on equity.
         if cost_to_call == 0:
-            if equity >= 0.55 and 'raise' in valid and random.random() < af_raise_rate:
+            if equity >= 0.55 and 'raise' in valid and random.random() < street_rate:
                 return _raise()
             if 'check' in valid:
                 return _check()
             return _fold()
 
         # Facing a bet: compute required equity, apply sticky multiplier.
+        # On turn/river, WtSD adjustment modulates fold tightness: sticky
+        # callers (high WtSD) call wider; fit-or-fold types fold tighter.
         required = cost_to_call / (pot + cost_to_call) if (pot + cost_to_call) > 0 else 0.5
-        effective_required = required * fold_multiplier
+        street_fold_multiplier = fold_multiplier
+        if phase in ('TURN', 'RIVER'):
+            street_fold_multiplier = fold_multiplier * wtsd_adjust
+        effective_required = required * street_fold_multiplier
         if equity < effective_required:
             return _fold()
-        # Value-raise on strong hands at AF rate.
-        if equity >= 0.70 and 'raise' in valid and random.random() < af_raise_rate:
+        # Value-raise on strong hands at street-specific rate.
+        if equity >= 0.70 and 'raise' in valid and random.random() < street_rate:
             return _raise()
         if 'call' in valid:
             return _call()
