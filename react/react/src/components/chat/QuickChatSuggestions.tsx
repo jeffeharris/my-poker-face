@@ -1,11 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { MessageCircle, Flame, Crosshair, CircleDot, Zap, Sparkles, Handshake, Users, type LucideIcon } from 'lucide-react';
+import { MessageCircle, Flame, Crosshair, CircleDot, Zap, Sparkles, Handshake, type LucideIcon } from 'lucide-react';
 import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
-import { config } from '../../config';
-import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
+import { ChatTargetSelector } from './ChatTargetSelector';
 import './QuickChatSuggestions.css';
 
 // Cooldown between suggestion fetches to prevent API spam
@@ -73,7 +72,6 @@ export function QuickChatSuggestions({
 }: QuickChatSuggestionsProps) {
   const [selectedTarget, setSelectedTarget] = useState<string | null>(initialTarget);
   const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
-  const displayNickname = useDisplayNickname();
   const [suggestions, setSuggestions] = useState<TargetedSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const lastFetchTimeRef = useRef(0);
@@ -266,44 +264,11 @@ export function QuickChatSuggestions({
       )}
 
       {/* Target selector */}
-      <div className="target-selector">
-        <div className="selector-label">Who?</div>
-        <div className="target-options">
-          <button
-            className={`target-btn target-btn-table ${selectedTarget === 'table' ? 'selected' : ''}`}
-            onClick={() => handleTargetSelect('table')}
-            title="Talk to the table"
-          >
-            <Users size={22} style={{ opacity: 0.85 }} />
-            <span className="target-name">Table</span>
-          </button>
-          {aiPlayers.map((player) => {
-            // The backend already URL-encodes the personality segment of
-            // `avatar_url` (see character_images.get_full_avatar_url), so
-            // pass it through unchanged. Only the fallback path — built
-            // from the raw `player.name` here — needs encoding.
-            const path = (typeof player.avatar_url === 'string' && player.avatar_url.length > 0)
-              ? player.avatar_url
-              : `/api/avatar/${encodeURIComponent(player.name)}/confident/full`;
-            const avatarUrl = `${config.API_URL}${path}`;
-            const isFolded = !!player.is_folded;
-            return (
-              <button
-                key={player.name}
-                className={`target-btn target-btn-player ${selectedTarget === player.name ? 'selected' : ''} ${isFolded ? 'folded' : ''} has-bg-image`}
-                onClick={() => handleTargetSelect(player.name)}
-                title={isFolded ? `Talk to ${displayNickname(player)} (folded)` : `Talk to ${displayNickname(player)}`}
-                style={{ backgroundImage: `url(${avatarUrl})` }}
-              >
-                <span className="target-name">
-                  {displayNickname(player)}
-                </span>
-                {isFolded && <span className="target-folded-badge" aria-hidden="true">folded</span>}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <ChatTargetSelector
+        aiPlayers={aiPlayers}
+        selectedTarget={selectedTarget}
+        onTargetSelect={handleTargetSelect}
+      />
 
       {/* Tone selector */}
       <div className="tone-selector">

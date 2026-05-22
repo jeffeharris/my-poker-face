@@ -3,6 +3,7 @@ import { X, Keyboard, Zap, Send } from 'lucide-react';
 import type { ChatMessage, WinResult } from '../../types';
 import type { Player } from '../../types/player';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
+import { ChatTargetSelector } from '../chat/ChatTargetSelector';
 import { parseMessageBlock } from '../../utils/messages';
 import './MobileChatSheet.css';
 
@@ -126,6 +127,11 @@ export function MobileChatSheet({
 }: MobileChatSheetProps) {
   const [activeTab, setActiveTab] = useState<InputTab>(isGuest ? 'keyboard' : 'quick');
   const [inputValue, setInputValue] = useState('');
+  // Target for free-text messages on the keyboard tab. 'table' (the default)
+  // sends a broadcast — addressing is omitted so existing behavior is
+  // preserved. Picking an AI attaches `[name]` as addressing so the backend
+  // can route the message as a direct callout, same as Quick Chat.
+  const [textTarget, setTextTarget] = useState<string>('table');
   const [isClosing, setIsClosing] = useState(false);
   const [quickChatKey, setQuickChatKey] = useState(0);
   // Track which initialTarget value applies to the *current* QuickChat
@@ -140,6 +146,11 @@ export function MobileChatSheet({
       lastInitialTargetRef.current = initialTarget;
       setAppliedTarget(initialTarget);
       setQuickChatKey(k => k + 1);
+      // Seed the text-tab target too so a dossier-opened sheet carries
+      // the preselected opponent into either compose mode.
+      if (initialTarget) {
+        setTextTarget(initialTarget);
+      }
     }
   }, [initialTarget]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -254,12 +265,16 @@ export function MobileChatSheet({
 
   const handleSend = () => {
     const trimmed = inputValue.trim();
-    if (trimmed) {
-      // Keyboard-typed messages don't have a UI target selector yet;
-      // they go to the table (no addressing).
+    if (!trimmed) return;
+    // Only attach addressing when a specific opponent is targeted; 'table'
+    // is broadcast and should leave addressing undefined so the call matches
+    // the unaddressed-broadcast contract.
+    if (textTarget && textTarget !== 'table') {
+      onSendMessage(trimmed, [textTarget]);
+    } else {
       onSendMessage(trimmed);
-      setInputValue('');
     }
+    setInputValue('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -412,33 +427,49 @@ export function MobileChatSheet({
                 />
               </div>
             ) : (
-              <form
-                className="mcs-keyboard-input"
-                onSubmit={e => {
-                  e.preventDefault();
-                  handleSend();
-                }}
-              >
-                <input
-                  ref={inputRef}
-                  type="text"
-                  className="mcs-text-input"
-                  placeholder={guestChatDisabled ? 'Chat available next turn' : 'Say something...'}
-                  value={inputValue}
-                  onChange={e => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  maxLength={200}
-                  disabled={guestChatDisabled}
+              // The wrapper class is shared with Quick Chat so the
+              // mobile-tuned `.target-btn` sizing in MobileChatSheet.css
+              // applies here too.
+              <div className="mcs-quick-chat-wrapper mcs-text-tab">
+                <ChatTargetSelector
+                  aiPlayers={players.filter(p => !p.is_human)}
+                  selectedTarget={textTarget}
+                  onTargetSelect={setTextTarget}
                 />
-                <button
-                  type="submit"
-                  className={`mcs-send-btn ${inputValue.trim() ? 'mcs-send-active' : ''}`}
-                  disabled={!inputValue.trim() || guestChatDisabled}
-                  aria-label="Send message"
+                <form
+                  className="mcs-keyboard-input"
+                  onSubmit={e => {
+                    e.preventDefault();
+                    handleSend();
+                  }}
                 >
-                  <Send size={22} aria-hidden="true" />
-                </button>
-              </form>
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    className="mcs-text-input"
+                    placeholder={
+                      guestChatDisabled
+                        ? 'Chat available next turn'
+                        : textTarget && textTarget !== 'table'
+                          ? `Message ${textTarget}...`
+                          : 'Say something...'
+                    }
+                    value={inputValue}
+                    onChange={e => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    maxLength={200}
+                    disabled={guestChatDisabled}
+                  />
+                  <button
+                    type="submit"
+                    className={`mcs-send-btn ${inputValue.trim() ? 'mcs-send-active' : ''}`}
+                    disabled={!inputValue.trim() || guestChatDisabled}
+                    aria-label="Send message"
+                  >
+                    <Send size={22} aria-hidden="true" />
+                  </button>
+                </form>
+              </div>
             )}
           </div>
         </div>

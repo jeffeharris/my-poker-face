@@ -567,6 +567,23 @@
   gap: 4px;
 }
 
+/* Type tab: target selector + free-text input. Mirrors the padding the
+ * Quick Chat wrapper gets from `.quick-chat-suggestions` so spacing
+ * matches when toggling between tabs. */
+.mcs-text-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 14px 0;
+}
+
+/* Inside the text tab the form already sits inside the 14px wrapper, so
+ * drop its horizontal padding to avoid doubling up. */
+.mcs-text-tab .mcs-keyboard-input {
+  padding-left: 0;
+  padding-right: 0;
+}
+
 /* Keyboard input */
 .mcs-keyboard-input {
   display: flex;
