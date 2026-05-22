@@ -15,7 +15,7 @@ from poker.strategy.exploitation import (
 from poker.strategy.induce_override import (
     CALL_PROB_MAX,
     CALL_PROB_MIN,
-    ELIGIBLE_NUT_STATUS,
+    HAND_CLASS_GATES,
     MIN_BARREL_FREQUENCY,
     MIN_BARREL_OPPORTUNITIES,
     MIN_EFFECTIVE_STACK_BB,
@@ -27,6 +27,10 @@ from poker.strategy.induce_override import (
     compute_induce_override_strategy,
     should_apply_induce_override,
 )
+
+# Phase B Item 2 baseline: nuts + actual_nuts. Used in fixtures where
+# the test predates Item 3's strong_made extension.
+ELIGIBLE_NUT_STATUS = 'actual_nuts'
 from poker.strategy.intervention_trace import (
     InterventionOperation,
     layer_order_for,
@@ -160,15 +164,18 @@ class TestGateBlocks:
         assert not should_fire
         assert reason == 'below_stack_floor'
 
-    def test_strong_made_not_eligible_phase_b(self):
-        # Phase B Item 3 adds strong_made; Item 2 is still nuts-only.
+    def test_medium_made_not_eligible(self):
+        # Phase B Item 3 extends to strong_made; weaker classes still blocked.
         should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(hand_strength='strong_made')
+            **_baseline_kwargs(hand_strength='medium_made')
         )
         assert not should_fire
-        assert reason == 'hand_class_strong_made'
+        assert reason == 'hand_class_medium_made'
 
-    def test_near_nuts_status_blocks(self):
+    def test_near_nuts_blocks_for_nuts_class(self):
+        # nuts class requires actual_nuts (the only nut_status in its
+        # allowlist). near_nuts → block. (Item 3 lets strong_made accept
+        # near_nuts; the nuts class itself stays strict.)
         should_fire, reason = should_apply_induce_override(
             **_baseline_kwargs(nut_status='near_nuts')
         )
@@ -244,6 +251,98 @@ class TestGateBlocks:
         )
         assert not should_fire
         assert reason == 'opponent_is_hyper_passive'
+
+
+# ── Phase B Item 3: strong_made inclusion ──────────────────────────
+
+class TestItem3StrongMade:
+    """strong_made class is eligible with stricter texture + nut_status
+    requirements vs the original nuts class."""
+
+    def test_strong_made_actual_nuts_dry_board_fires(self):
+        should_fire, reason = should_apply_induce_override(
+            **_baseline_kwargs(
+                hand_strength='strong_made',
+                nut_status='actual_nuts',
+                danger_flag_count=0,
+            )
+        )
+        assert should_fire
+        assert reason == 'gate_pass'
+
+    def test_strong_made_near_nuts_dry_board_fires(self):
+        # Item 3 explicitly extends nut_status to near_nuts for strong_made.
+        should_fire, reason = should_apply_induce_override(
+            **_baseline_kwargs(
+                hand_strength='strong_made',
+                nut_status='near_nuts',
+                danger_flag_count=0,
+            )
+        )
+        assert should_fire
+        assert reason == 'gate_pass'
+
+    def test_strong_made_non_nut_strong_blocked(self):
+        # non_nut_strong is excluded from strong_made's allowlist.
+        # E.g. top pair good kicker on a board with possible higher made
+        # hands — too risky to trap.
+        should_fire, reason = should_apply_induce_override(
+            **_baseline_kwargs(
+                hand_strength='strong_made',
+                nut_status='non_nut_strong',
+                danger_flag_count=0,
+            )
+        )
+        assert not should_fire
+        assert reason == 'nut_status_non_nut_strong'
+
+    def test_strong_made_bluff_catcher_blocked(self):
+        should_fire, reason = should_apply_induce_override(
+            **_baseline_kwargs(
+                hand_strength='strong_made',
+                nut_status='bluff_catcher',
+                danger_flag_count=0,
+            )
+        )
+        assert not should_fire
+        assert reason == 'nut_status_bluff_catcher'
+
+    def test_strong_made_one_danger_flag_blocked(self):
+        # Stricter texture gate for strong_made: 0 danger flags only.
+        # (Nuts class still tolerates 1 — see HAND_CLASS_GATES.)
+        should_fire, reason = should_apply_induce_override(
+            **_baseline_kwargs(
+                hand_strength='strong_made',
+                nut_status='actual_nuts',
+                danger_flag_count=1,
+            )
+        )
+        assert not should_fire
+        assert reason == 'board_too_dangerous'
+
+    def test_nuts_class_still_tolerates_one_danger_flag(self):
+        # Nuts class is unchanged from Phase B Item 2: 1 danger flag OK.
+        should_fire, reason = should_apply_induce_override(
+            **_baseline_kwargs(
+                hand_strength='nuts',
+                nut_status='actual_nuts',
+                danger_flag_count=1,
+            )
+        )
+        assert should_fire
+        assert reason == 'gate_pass'
+
+    def test_hand_class_gates_table_shape(self):
+        # Sanity-check the gating table shape so future edits don't
+        # silently drop a class or relax a constraint.
+        assert 'nuts' in HAND_CLASS_GATES
+        assert 'strong_made' in HAND_CLASS_GATES
+        nuts_statuses, nuts_max_danger = HAND_CLASS_GATES['nuts']
+        sm_statuses, sm_max_danger = HAND_CLASS_GATES['strong_made']
+        # Sanity: strong_made is STRICTER on danger flags
+        assert sm_max_danger < nuts_max_danger
+        # Sanity: strong_made's nut_status allowlist includes nuts'
+        assert nuts_statuses <= sm_statuses
 
 
 # ── Confidence-scaled call probability ─────────────────────────────

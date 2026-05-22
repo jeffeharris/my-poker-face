@@ -111,14 +111,24 @@ CALL_PROB_MAX = 0.90   # maximum trap intensity (preserves unexploitability)
 # too low to extract meaningful turn/river barrels.
 MIN_EFFECTIVE_STACK_BB = 40.0
 
-# Maximum board-danger flags (paired_board, four_flush_board, etc.)
-# allowed for the rule to fire. 0 = strict dry; 1 = one mild flag.
-MAX_DANGER_FLAGS = 1
-
-# Hand-strength + nut-status gate. Phase B still nuts-only (Item 3
-# extends to strong_made with stricter texture gates).
-ELIGIBLE_HAND_STRENGTH = 'nuts'
-ELIGIBLE_NUT_STATUS = 'actual_nuts'
+# Phase B Item 3: hand-class gating. Each eligible hand class has its
+# own (allowed nut_status set, max danger flag count) tuple. The
+# stricter texture/nut requirements for strong_made compensate for
+# the increased turn-card risk vs nuts:
+#   - nuts        : tolerates ≤1 danger flag, requires actual_nuts
+#   - strong_made : requires fully dry board (0 danger flags) AND a
+#                    near-nut or actual-nut classification (excludes
+#                    `non_nut_strong` and `bluff_catcher`).
+#
+# Hand classes not in this map block the gate with reason_code
+# 'hand_class_<class>'. nut_status not in the allowed set blocks with
+# 'nut_status_<status>'. Danger flag overage blocks with
+# 'board_too_dangerous'.
+HAND_CLASS_GATES: dict = {
+    'nuts':        (frozenset({'actual_nuts'}),                    1),
+    'strong_made': (frozenset({'actual_nuts', 'near_nuts'}),       0),
+}
+ELIGIBLE_HAND_STRENGTHS = frozenset(HAND_CLASS_GATES.keys())
 
 # Streets where induce can fire. River is excluded — no streets left
 # to extract on.
@@ -213,11 +223,18 @@ def should_apply_induce_override(
         return False, 'multiway_not_supported_phase_a'
     if effective_stack_bb < MIN_EFFECTIVE_STACK_BB:
         return False, 'below_stack_floor'
-    if hand_strength != ELIGIBLE_HAND_STRENGTH:
+
+    # Phase B Item 3: per-hand-class gating. Each eligible class has
+    # its own nut_status whitelist and danger-flag cap (see
+    # HAND_CLASS_GATES). strong_made trades wider hand-class coverage
+    # for stricter texture + nut-status requirements.
+    class_gate = HAND_CLASS_GATES.get(hand_strength)
+    if class_gate is None:
         return False, f'hand_class_{hand_strength}'
-    if nut_status != ELIGIBLE_NUT_STATUS:
+    allowed_nut_statuses, max_danger_flags = class_gate
+    if nut_status not in allowed_nut_statuses:
         return False, f'nut_status_{nut_status}'
-    if danger_flag_count > MAX_DANGER_FLAGS:
+    if danger_flag_count > max_danger_flags:
         return False, 'board_too_dangerous'
 
     # Psychology gate (same shape as value_override / exploitation).
