@@ -15,6 +15,27 @@ from .repositories import PersonalityRepository
 logger = logging.getLogger(__name__)
 
 
+def _default_anchors() -> Dict[str, float]:
+    """Balanced fallback anchors when the LLM omits the block.
+
+    Values match PersonalityAnchors.from_dict() defaults so a personality
+    loaded with these anchors behaves identically to one with the field
+    missing entirely. Centralized here so the prompt's "default-TAG"
+    bias (looseness=0.30, aggression=0.50) stays in one place.
+    """
+    return {
+        'baseline_aggression': 0.50,
+        'baseline_looseness': 0.30,
+        'ego': 0.50,
+        'poise': 0.70,
+        'expressiveness': 0.50,
+        'risk_identity': 0.50,
+        'adaptation_bias': 0.50,
+        'baseline_energy': 0.50,
+        'recovery_rate': 0.15,
+    }
+
+
 class PersonalityGenerator:
     """Generates unique poker player personalities using AI."""
     
@@ -107,6 +128,85 @@ to the tier (rough peer values shown below).
       staker before accepting. Humble/easygoing = 0.20–0.30. Proud or ego-driven = 0.40–0.50.
       Omit this field if `willing` is false.
 
+SECTION 4 — STRATEGIC ANCHORS:
+Anchors are the identity-layer values that drive the tiered solver's archetype
+classification and per-decision policy. They sit BELOW personality_traits — traits
+shape table talk and tells; anchors shape what hands the character plays and how
+they bet them. Both must be coherent with each other and with play_style. All
+values 0.0–1.0.
+
+13. anchors:
+    - baseline_aggression: Default bet/raise frequency. 0=pure check-call, 1=jam
+        everything. Tight-passive (Rock) ≈ 0.30; balanced ≈ 0.50; tight-aggressive
+        (TAG) ≈ 0.55; loose-aggressive (LAG) ≈ 0.75; maniac ≥ 0.85. Should
+        track personality_traits.aggression closely — divergence is allowed only
+        when the character TALKS aggressive but PLAYS passive (or vice versa).
+    - baseline_looseness: Default hand-range width. 0=plays only premiums, 1=plays
+        every hand. Nit ≤ 0.20; Rock ≈ 0.25; TAG ≈ 0.35; balanced ≈ 0.50; LAG ≈
+        0.70; calling-station ≈ 0.75; maniac ≥ 0.85. The single biggest driver
+        of strategy table behavior — get it right for the character.
+    - ego: Confidence sensitivity to outplay events. 0=unflappable, 1=brittle.
+        Self-assured swagger (Hulk Hogan, Trump) ≈ 0.75; quiet pros (Lincoln,
+        Buddha) ≈ 0.30.
+    - poise: Composure resistance to bad outcomes. 0=tilts easily, 1=stone.
+        Yoda/Buddha ≈ 0.90; volatile/emotional characters ≈ 0.25.
+    - expressiveness: Emotional transparency. 0=poker face, 1=open book.
+        Mime/Buddha ≈ 0.10; theatrical characters ≈ 0.80. Should correlate
+        roughly with personality_traits.chattiness.
+    - risk_identity: Variance tolerance. 0=risk-averse, 1=risk-seeking. Maps to
+        whether the character would prefer high-variance gambles or steady value.
+        Maniac/gambler types ≈ 0.85; cautious types ≈ 0.25.
+    - adaptation_bias: Opponent-adjustment rate. 0=plays own game regardless,
+        1=heavily exploits. Sharp pros ≈ 0.70; rigid rule-followers ≈ 0.30.
+    - baseline_energy: Animation level. 0=reserved, 1=high-energy. Eeyore ≈ 0.20;
+        Maniac/Hulk ≈ 0.85.
+    - recovery_rate: How fast emotional axes decay back to baseline after a swing.
+        0=slow (lingering tilt), 1=fast (resets per hand). 0.10–0.20 typical;
+        ≤ 0.10 for grudge-holders, ≥ 0.25 for goldfish-memory types.
+
+Coherence rules: aggression and looseness together determine archetype — make
+sure your values produce the archetype your play_style describes. ("aggressive,
+high-bluff" should yield baseline_aggression ≥ 0.55 AND baseline_looseness ≥ 0.50,
+i.e. LAG.) If play_style says "tight and selective", looseness must be ≤ 0.35.
+
+EXAMPLES BY ARCHETYPE (use these as reference points; pick the archetype that
+fits the CHARACTER, then write a play_style that matches AND set anchors that
+land in that archetype's zone):
+
+- Nit            — Buddha, Bob Ross.
+                   play_style: "patient and deeply selective; folds anything not premium"
+                   personality_traits.aggression ≈ 0.15-0.25, bluff_tendency ≈ 0.05-0.15
+                   anchors: baseline_looseness ≈ 0.18, baseline_aggression ≈ 0.15
+- Rock           — Abraham Lincoln, Ebenezer Scrooge.
+                   play_style: "calibrated, methodical, slow to commit chips"
+                   personality_traits.aggression ≈ 0.35-0.45
+                   anchors: baseline_looseness ≈ 0.22, baseline_aggression ≈ 0.40
+- TAG            — Sherlock Holmes, Sun Tzu, CaseBot.
+                   play_style: "calculated value-focused aggression on strong hands"
+                   personality_traits.aggression ≈ 0.50-0.65
+                   anchors: baseline_looseness ≈ 0.40, baseline_aggression ≈ 0.55
+- Balanced       — Mark Twain, Benjamin Franklin.
+                   play_style: "flexible and situational; reads the room"
+                   anchors: baseline_looseness ≈ 0.50, baseline_aggression ≈ 0.50
+- LAG            — Cleopatra, Tyler Durden, Hulk Hogan.
+                   play_style: "bold and unpredictable; applies pressure constantly"
+                   personality_traits.aggression ≈ 0.70-0.80
+                   anchors: baseline_looseness ≈ 0.72, baseline_aggression ≈ 0.75
+- CallingStation — Alice, Cheshire Cat, The Kindergarten Teacher.
+                   play_style: "curious caller, rarely raises, hard to bluff off a hand"
+                   personality_traits.aggression ≈ 0.20-0.30, bluff_tendency ≈ 0.10-0.25
+                   anchors: baseline_looseness ≈ 0.78, baseline_aggression ≈ 0.25
+- Maniac         — Don Quixote, The Honey Badger, Queen of Hearts.
+                   play_style: "wild, maximum-pressure, all-in energy"
+                   personality_traits.aggression ≈ 0.85-0.95
+                   anchors: baseline_looseness ≈ 0.88, baseline_aggression ≈ 0.90
+
+How to use the list: read {name}, decide which real-world archetype they best
+fit (curious passive observer? calm monk? wild gambler?), THEN write play_style
++ anchors landing in that zone. Don't default to "aggressive and unpredictable"
+— that produces a uniformly-LAG pool. Quiet, careful, passive, or extreme-tight
+characters are just as valid; the pool needs them too.
+
 Consider {name}'s cultural/fictional associations. Make it authentic, visually distinctive, and interesting.
 
 Respond with ONLY a JSON object in this exact format:
@@ -154,6 +254,17 @@ Respond with ONLY a JSON object in this exact format:
     "borrower_profile": {{
         "willing": true,
         "willingness_threshold": 0.30
+    }},
+    "anchors": {{
+        "baseline_aggression": 0.50,
+        "baseline_looseness": 0.35,
+        "ego": 0.50,
+        "poise": 0.70,
+        "expressiveness": 0.50,
+        "risk_identity": 0.50,
+        "adaptation_bias": 0.50,
+        "baseline_energy": 0.55,
+        "recovery_rate": 0.15
     }}
 }}
 """
@@ -314,6 +425,17 @@ Respond with ONLY a JSON object in this exact format:
                 'willing': True,
                 'willingness_threshold': 0.30,
             })
+            # Anchors drive tiered-bot archetype classification. Without
+            # them, every personality collapses to default-TAG. The schema
+            # documents the field in SECTION 4; this setdefault is the
+            # safety net when the LLM omits the block or returns garbage.
+            existing_anchors = result.get('anchors')
+            if not isinstance(existing_anchors, dict) or not existing_anchors:
+                logger.warning(
+                    f"[PERSONALITY] {name}: LLM omitted anchors; falling back "
+                    f"to balanced defaults. Re-run generation to fix."
+                )
+                result['anchors'] = _default_anchors()
 
             return result
 
@@ -365,8 +487,9 @@ Respond with ONLY a JSON object in this exact format:
                 "willing": True,
                 "willingness_threshold": 0.30,
             },
+            "anchors": _default_anchors(),
         }
-    
+
     def bulk_generate(self, names: list[str], save: bool = True) -> Dict[str, Dict[str, Any]]:
         """Generate personalities for multiple characters at once.
 
