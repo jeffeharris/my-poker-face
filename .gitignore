@@ -200,8 +200,11 @@ cookies.txt
 sandbox-*.png
 main-*.png
 
-# Claude Code runtime
-.claude/
+# Claude Code runtime — ignore contents but allow whitelisted subdirs
+.claude/*
 
-# Claude harness local state
+# Claude harness local state stays ignored
 .claude/scheduled_tasks.lock
+
+# Project-shared skills under .claude/skills/ are version-controlled
+!.claude/skills/
