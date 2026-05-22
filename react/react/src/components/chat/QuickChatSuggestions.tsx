@@ -278,12 +278,14 @@ export function QuickChatSuggestions({
             <span className="target-name">Table</span>
           </button>
           {aiPlayers.map((player) => {
-            // Encode avatar URL path segments to handle spaces in player names
-            const rawPath = (typeof player.avatar_url === 'string' && player.avatar_url.length > 0)
+            // The backend already URL-encodes the personality segment of
+            // `avatar_url` (see character_images.get_full_avatar_url), so
+            // pass it through unchanged. Only the fallback path — built
+            // from the raw `player.name` here — needs encoding.
+            const path = (typeof player.avatar_url === 'string' && player.avatar_url.length > 0)
               ? player.avatar_url
-              : `/api/avatar/${player.name}/confident/full`;
-            const encodedPath = rawPath.split('/').map(seg => encodeURIComponent(seg)).join('/');
-            const avatarUrl = `${config.API_URL}${encodedPath}`;
+              : `/api/avatar/${encodeURIComponent(player.name)}/confident/full`;
+            const avatarUrl = `${config.API_URL}${path}`;
             const isFolded = !!player.is_folded;
             return (
               <button
