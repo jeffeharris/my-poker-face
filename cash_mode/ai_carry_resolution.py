@@ -45,6 +45,7 @@ from cash_mode.stakes import (
     BORROWER_KIND_PERSONALITY,
     STAKE_STATUS_DEFAULTED,
     STAKE_STATUS_SETTLED,
+    STAKER_KIND_HUMAN,
     STAKER_KIND_PERSONALITY,
     Stake,
 )
@@ -337,6 +338,24 @@ def try_ai_voluntary_payoff(
         # forgives them). Defensive skip.
         return None
 
+    # Human-staker pre-flight: the credit must land on
+    # `player_bankroll_state`, not an AI bankroll row. Confirm the row
+    # exists before we debit the AI — otherwise we'd vaporize chips
+    # from the universe on a missing-staker corner case.
+    human_staker_bankroll = None
+    if target.staker_kind == STAKER_KIND_HUMAN:
+        from cash_mode.bankroll import PlayerBankrollState  # noqa: F401
+        human_staker_bankroll = bankroll_repo.load_player_bankroll(
+            target.staker_id,
+        )
+        if human_staker_bankroll is None:
+            logger.warning(
+                "[CASH][AI_PAYOFF] human staker bankroll missing — skipping "
+                "payoff staker=%r stake=%r",
+                target.staker_id, target.stake_id,
+            )
+            return None
+
     # Commit the projected-and-debited chip count with a fresh
     # last_regen_tick. The `projected - stored` delta is regen that
     # just entered the universe via this write — fire `ai_regen` so
@@ -366,16 +385,29 @@ def try_ai_voluntary_payoff(
             sandbox_id=sandbox_id,
         )
 
-    credit_ai_cash_out(
-        bankroll_repo, target.staker_id, carry_amount,
-        sandbox_id=sandbox_id,
-        now=now,
-        chip_ledger_repo=chip_ledger_repo,
-        ledger_context={
-            'stake_id': target.stake_id,
-            'site': 'ai_voluntary_payoff',
-        },
-    )
+    if target.staker_kind == STAKER_KIND_HUMAN:
+        # Route the credit to player_bankroll_state. credit_ai_cash_out
+        # would write into a phantom AI bankroll keyed by the human's
+        # owner_id (the bug this branch fixes).
+        from cash_mode.bankroll import PlayerBankrollState
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=human_staker_bankroll.player_id,
+                chips=human_staker_bankroll.chips + carry_amount,
+                starting_bankroll=human_staker_bankroll.starting_bankroll,
+            ),
+        )
+    else:
+        credit_ai_cash_out(
+            bankroll_repo, target.staker_id, carry_amount,
+            sandbox_id=sandbox_id,
+            now=now,
+            chip_ledger_repo=chip_ledger_repo,
+            ledger_context={
+                'stake_id': target.stake_id,
+                'site': 'ai_voluntary_payoff',
+            },
+        )
 
     stake_repo.update_carry_amount(target.stake_id, 0)
     stake_repo.update_status(target.stake_id, STAKE_STATUS_SETTLED, settled_at=now)
@@ -471,6 +503,12 @@ def try_ai_forgiveness_ask(
     eligible: List[Tuple[Stake, float, float, float]] = []
     for c in carries:
         if c.staker_id is None:
+            continue
+        if c.staker_kind == STAKER_KIND_HUMAN:
+            # Human-staker carries route through a consent flow (the
+            # player decides whether to forgive — auto-grant would
+            # silently vanish their chips with no opportunity to refuse).
+            # See the staker-forgive route follow-up.
             continue
         if _within_rate_limit(c, now, FORGIVENESS_RATE_LIMIT_SECONDS):
             continue

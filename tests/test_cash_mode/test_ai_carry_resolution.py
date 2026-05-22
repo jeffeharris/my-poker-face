@@ -38,6 +38,7 @@ from cash_mode.ai_carry_resolution import (
     try_ai_voluntary_payoff,
 )
 from cash_mode.bankroll import AIBankrollState
+from cash_mode.bankroll import PlayerBankrollState
 from cash_mode.stakes import (
     BORROWER_KIND_PERSONALITY,
     STAKE_FORMAT_PURE,
@@ -45,6 +46,7 @@ from cash_mode.stakes import (
     STAKE_STATUS_CARRY,
     STAKE_STATUS_DEFAULTED,
     STAKE_STATUS_SETTLED,
+    STAKER_KIND_HUMAN,
     STAKER_KIND_PERSONALITY,
     Stake,
 )
@@ -244,6 +246,192 @@ class TestVoluntaryPayoff:
         # since starting_bankroll defaults to 0 in this test, regen is
         # 0, so staker's chips simply +=400.
         assert staker_state.chips == 5_000 + 400
+
+
+class TestHumanStakerPayoffRouting:
+    """Regression: human-staker carries credit player_bankroll_state, not
+    a phantom AI bankroll row keyed by the human's owner_id."""
+
+    def test_payoff_credits_player_bankroll(self, db_setup):
+        bankroll = db_setup["bankroll"]
+        stake = db_setup["stake"]
+
+        # Seed a human player bankroll the credit should land on.
+        bankroll.save_player_bankroll(PlayerBankrollState(
+            player_id="human_owner_1",
+            chips=2_000,
+            starting_bankroll=5_000,
+        ))
+
+        # Replace the AI-staker carry with a human-staker one for the
+        # same borrower (carry_1 was created in db_setup).
+        stake.update_status("carry_1", STAKE_STATUS_SETTLED)  # retire it
+        stake.create_stake(Stake(
+            stake_id="human_carry_1",
+            session_id="player_session_borrower_42",
+            staker_id="human_owner_1",
+            staker_kind=STAKER_KIND_HUMAN,
+            borrower_id="borrower",
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=STAKE_FORMAT_PURE,
+            principal=400,
+            match_amount=0,
+            origination_fee=0,
+            cut=0.30,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=400,
+            stake_tier="$10",
+            created_at=ANCHOR,
+        ))
+
+        carries = stake.list_carries_for_borrower(
+            "borrower", BORROWER_KIND_PERSONALITY,
+        )
+
+        class AlwaysLowRng:
+            def random(self):
+                return 0.0
+
+        result = try_ai_voluntary_payoff(
+            personality_id="borrower",
+            carries=carries,
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=None,
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=AlwaysLowRng(),
+            now=ANCHOR,
+        )
+        assert result is not None
+        assert result.kind == 'payoff'
+        assert result.amount == 400
+
+        # Stake settled.
+        after = stake.load_stake("human_carry_1")
+        assert after.status == STAKE_STATUS_SETTLED
+        assert after.carry_amount == 0
+
+        # Human bankroll credited (the bug was that this didn't happen).
+        human = bankroll.load_player_bankroll("human_owner_1")
+        assert human is not None
+        assert human.chips == 2_000 + 400
+
+        # And no phantom AI bankroll row got created keyed by the human's id.
+        phantom = bankroll.load_ai_bankroll("human_owner_1", sandbox_id=SBX)
+        assert phantom is None
+
+    def test_payoff_skipped_when_player_bankroll_missing(self, db_setup):
+        """Pre-flight refuses to debit the AI when the human row is absent —
+        without it we'd vaporize chips from the universe."""
+        bankroll = db_setup["bankroll"]
+        stake = db_setup["stake"]
+
+        stake.update_status("carry_1", STAKE_STATUS_SETTLED)
+        stake.create_stake(Stake(
+            stake_id="human_carry_2",
+            session_id="player_session_borrower_43",
+            staker_id="missing_human",  # no player_bankroll_state row
+            staker_kind=STAKER_KIND_HUMAN,
+            borrower_id="borrower",
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=STAKE_FORMAT_PURE,
+            principal=400,
+            match_amount=0,
+            origination_fee=0,
+            cut=0.30,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=400,
+            stake_tier="$10",
+            created_at=ANCHOR,
+        ))
+
+        carries = stake.list_carries_for_borrower(
+            "borrower", BORROWER_KIND_PERSONALITY,
+        )
+        borrower_before = bankroll.load_ai_bankroll(
+            "borrower", sandbox_id=SBX,
+        ).chips
+
+        class AlwaysLowRng:
+            def random(self):
+                return 0.0
+
+        result = try_ai_voluntary_payoff(
+            personality_id="borrower",
+            carries=carries,
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=None,
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=AlwaysLowRng(),
+            now=ANCHOR,
+        )
+        assert result is None
+        # Borrower bankroll untouched — no debit happened.
+        borrower_after = bankroll.load_ai_bankroll(
+            "borrower", sandbox_id=SBX,
+        ).chips
+        assert borrower_after == borrower_before
+        # Stake still a carry.
+        after = stake.load_stake("human_carry_2")
+        assert after.status == STAKE_STATUS_CARRY
+
+
+class TestHumanStakerForgivenessSkipped:
+    """Safety patch: AI auto-forgiveness must not silently void a
+    human-staker carry. The consent flow lives outside this module."""
+
+    def test_human_staker_carry_excluded(self, db_setup):
+        stake = db_setup["stake"]
+        stake.update_status("carry_1", STAKE_STATUS_SETTLED)
+        stake.create_stake(Stake(
+            stake_id="human_carry_3",
+            session_id="player_session_borrower_44",
+            staker_id="human_owner_1",
+            staker_kind=STAKER_KIND_HUMAN,
+            borrower_id="borrower",
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=STAKE_FORMAT_PURE,
+            principal=400,
+            match_amount=0,
+            origination_fee=0,
+            cut=0.30,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=400,
+            stake_tier="$10",
+            created_at=ANCHOR,
+        ))
+
+        from unittest.mock import MagicMock
+        rel = MagicMock()
+        # Generous relationship — would normally grant in a heartbeat.
+        rel.load_relationship_state.return_value = MagicMock(
+            likability=0.95, respect=0.95, heat=0.0,
+        )
+
+        carries = stake.list_carries_for_borrower(
+            "borrower", BORROWER_KIND_PERSONALITY,
+        )
+
+        class AlwaysLowRng:
+            def random(self):
+                return 0.0
+
+        result = try_ai_forgiveness_ask(
+            personality_id="borrower",
+            carries=carries,
+            bankroll_repo=db_setup["bankroll"],
+            stake_repo=stake,
+            relationship_repo=rel,
+            sandbox_id=SBX,
+            rng=AlwaysLowRng(),
+            now=ANCHOR,
+        )
+        assert result is None
+        after = stake.load_stake("human_carry_3")
+        assert after.status == STAKE_STATUS_CARRY
 
 
 class TestForgivenessAsk:
