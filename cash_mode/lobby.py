@@ -292,12 +292,21 @@ def ensure_lobby_seeded(
             seed_rng.sample(range(TABLE_SEAT_COUNT), BASELINE_AI_SEATS)
         )
 
+        # Shuffle the candidate pool per-stake so seeding doesn't always
+        # pick the alphabetically-first affordable personalities. The
+        # repo returns `eligible` sorted by personality_id for stable
+        # tests; we randomize a copy here so cash-mode rotation actually
+        # sees the full roster across reboots/sandboxes. `seated_globally`
+        # still enforces one-table-per-personality across stakes.
+        shuffled_eligible = list(eligible)
+        seed_rng.shuffle(shuffled_eligible)
+
         # Build a fresh row. Fill the chosen positions with AI seats.
         seats = [open_slot() for _ in range(TABLE_SEAT_COUNT)]
         _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
         position_iter = iter(ai_positions)
         filled = 0
-        for cand in eligible:
+        for cand in shuffled_eligible:
             if filled >= BASELINE_AI_SEATS:
                 break
             pid = cand.get("personality_id")
@@ -2174,6 +2183,81 @@ def _process_aspiration_asks(
                 "[CASH][LOBBY] aspiration: cooldown write failed pid=%r: %s",
                 asker_pid, exc,
             )
+
+        # Carry-reckoning trigger: about to climb? Settle the books
+        # first. Loads this AI's outstanding carries; if any exist,
+        # call try_ai_voluntary_payoff at event base_rate so the
+        # personality's payoff_eagerness drives the decision against
+        # the wealth/aspiration pull. Conscientious AIs will pay (and
+        # skip the climb this tick — they spent their chips); gamblers
+        # will skip the payoff (score collapses to 0) and proceed to
+        # the climb attempt with carries unresolved (which the matcher
+        # penalty will discount).
+        try:
+            outstanding = stake_repo.list_carries_for_borrower(
+                asker_pid, BORROWER_KIND_PERSONALITY,
+            )
+        except Exception as exc:
+            logger.debug(
+                "[CASH][LOBBY] aspiration: carry lookup failed pid=%r: %s",
+                asker_pid, exc,
+            )
+            outstanding = []
+        if outstanding:
+            from cash_mode.ai_carry_resolution import (
+                PAYOFF_EVENT_BASE_RATE,
+                try_ai_voluntary_payoff,
+            )
+            try:
+                payoff_result = try_ai_voluntary_payoff(
+                    personality_id=asker_pid,
+                    carries=outstanding,
+                    bankroll_repo=bankroll_repo,
+                    stake_repo=stake_repo,
+                    relationship_repo=relationship_repo,
+                    chip_ledger_repo=None,  # AI-AI carry → pure transfer
+                    sandbox_id=sandbox_id,
+                    rng=rng,
+                    now=now,
+                    base_rate=PAYOFF_EVENT_BASE_RATE,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] aspiration: pre-climb payoff failed "
+                    "pid=%r: %s", asker_pid, exc,
+                )
+                payoff_result = None
+            if payoff_result is not None:
+                # Settled at least one carry; the AI used their chips
+                # on debt rather than climbing. Skip the climb this
+                # tick — next tick re-evaluates from the post-payoff
+                # bankroll state.
+                logger.info(
+                    "[CASH][LOBBY] aspiration: pre-climb payoff fired "
+                    "pid=%r stake=%r amount=%d — skipping climb",
+                    asker_pid, payoff_result.stake_id, payoff_result.amount,
+                )
+                continue
+
+        # Matcher penalty: borrowers with outstanding carries are
+        # harder to back. The `0.5^N` gate (N = outstanding carry
+        # count) closes the strategic loop — gamblers who skip the
+        # pre-climb payoff above still face a steep matcher hit, so
+        # repeated unpaid carries effectively block new stakes until
+        # something resolves (payoff via per-tick fallback, default,
+        # or — for AI-AI carries — auto-forgiveness).
+        if outstanding:
+            from cash_mode.ai_carry_resolution import (
+                carry_penalty_probability,
+            )
+            penalty_prob = carry_penalty_probability(len(outstanding))
+            if rng.random() >= penalty_prob:
+                logger.info(
+                    "[CASH][LOBBY] aspiration: matcher carry-penalty blocked "
+                    "pid=%r carries=%d penalty_prob=%.3f",
+                    asker_pid, len(outstanding), penalty_prob,
+                )
+                continue
 
         principal = target_min_buy_in
         # Aspiration asks accept backers from ANYWHERE in the lobby,

@@ -96,6 +96,15 @@ class BorrowerProfile:
         stakes outright is incompatible with asking for one
         (character consistency). Default 0.5. Spec:
         `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md`.
+      - `payoff_eagerness`: how strongly this personality wants to
+        clear outstanding carry debts when they have the chips to
+        do so. 0.0 = gambler (would rather risk the chips on a
+        bigger climb than settle a debt); 1.0 = conscientious
+        (clears debts the moment they can afford it). Acts as the
+        weighting between `pay_pull` (carry age + staker heat) and
+        `hold_pull` (aspiration × wealth_gap) inside the
+        score-driven payoff trigger. Default 0.5 — read by
+        `cash_mode/ai_carry_resolution.py`.
 
     Frozen because the profile is read-only at decision time —
     relationship-aware adjustments happen on the staker side, not here.
@@ -108,6 +117,7 @@ class BorrowerProfile:
     willing: bool
     willingness_threshold: float = 0.30
     aspiration_bias: float = 0.5
+    payoff_eagerness: float = 0.5
 
 
 # Default — most personalities accept stakes when busting. Stoic
@@ -116,6 +126,7 @@ BORROWER_PROFILE_DEFAULTS = BorrowerProfile(
     willing=True,
     willingness_threshold=0.30,
     aspiration_bias=0.5,
+    payoff_eagerness=0.5,
 )
 
 
@@ -203,5 +214,48 @@ def compute_default_aspiration_bias(
     raw = (
         ASPIRATION_EGO_WEIGHT * float(ego)
         + ASPIRATION_RISK_WEIGHT * float(risk_identity)
+    )
+    return max(0.0, min(1.0, raw))
+
+
+# Anchor-derived payoff_eagerness calibration. Same pattern as
+# aspiration_bias. Two anchors compose the conscientiousness signal:
+#   - `risk_identity` (inverted) — gamblers don't care about debts;
+#     low-risk careful AIs clear them.
+#   - `poise` — composed AIs handle obligations cleanly; chaotic
+#     ones let things slide.
+# Weighted 0.6/0.4 toward risk because risk_identity directly
+# captures the "would I rather hoard chips to gamble" axis the
+# decision actually trades against (hold_pull in the score formula).
+PAYOFF_EAGERNESS_DEFAULT = 0.5
+PAYOFF_EAGERNESS_RISK_WEIGHT = 0.6
+PAYOFF_EAGERNESS_POISE_WEIGHT = 0.4
+
+
+def compute_default_payoff_eagerness(
+    risk_identity: float, poise: float,
+) -> float:
+    """Derive payoff_eagerness from `risk_identity` (inverse) + `poise`.
+
+    Both inputs expected in [0, 1]. The composite captures
+    conscientiousness about debts — the willingness to spend chips
+    settling a carry rather than hoarding them for the next climb.
+
+    `(1 − risk_identity)` is the gambler-vs-cautious axis. `poise`
+    adds the "I handle my obligations cleanly" component. Weighted
+    0.6 / 0.4 because risk_identity is the direct counter-pull
+    against `hold_pull` in the payoff score (gamblers hold, cautious
+    AIs pay).
+
+    Sample calibrations against real anchor data:
+      - Lincoln (risk 0.38, poise 0.84) → 0.6×0.62 + 0.4×0.84 = 0.71
+        (conscientious — clears debts readily)
+      - Baseline (risk 0.50, poise 0.50) → 0.6×0.50 + 0.4×0.50 = 0.50
+      - Napoleon-class (risk 0.90, poise 0.40) → 0.6×0.10 + 0.4×0.40
+        = 0.22 (gambler — would rather climb than settle)
+    """
+    raw = (
+        PAYOFF_EAGERNESS_RISK_WEIGHT * (1.0 - float(risk_identity))
+        + PAYOFF_EAGERNESS_POISE_WEIGHT * float(poise)
     )
     return max(0.0, min(1.0, raw))

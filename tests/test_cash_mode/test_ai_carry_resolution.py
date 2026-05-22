@@ -28,10 +28,17 @@ from cash_mode.ai_carry_resolution import (
     DEFAULT_PRESSURE_THRESHOLD,
     FORGIVENESS_RATE_LIMIT_SECONDS,
     PAYOFF_BANKROLL_FACTOR_FLOOR,
+    PAYOFF_EVENT_BASE_RATE,
+    _affordability_gate,
+    _carry_age_factor,
     _default_pressure,
     _forgiveness_ask_probability,
     _forgiveness_score,
+    _hold_pull,
+    _pay_pull,
     _payoff_probability,
+    _payoff_score,
+    _wealth_gap_factor,
     resolve_ai_carries,
     try_ai_explicit_default,
     try_ai_forgiveness_ask,
@@ -61,6 +68,129 @@ SBX = "test-sandbox-1"
 
 
 # --- Pure-math tests ---------------------------------------------------------
+
+
+class TestCarryAgeFactor(unittest.TestCase):
+    """Linear ramp from 0 at fresh to 1.0 at PAYOFF_AGE_RAMP_DAYS."""
+
+    def _make_stake(self, created_at):
+        return Stake(
+            stake_id="x", session_id="s", staker_id="a",
+            staker_kind=STAKER_KIND_PERSONALITY,
+            borrower_id="b", borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=STAKE_FORMAT_PURE, principal=100,
+            match_amount=0, origination_fee=0, cut=0.3,
+            status=STAKE_STATUS_CARRY, carry_amount=100,
+            stake_tier="$10", created_at=created_at,
+        )
+
+    def test_zero_at_fresh(self):
+        s = self._make_stake(ANCHOR)
+        self.assertAlmostEqual(_carry_age_factor(s, ANCHOR), 0.0)
+
+    def test_half_at_seven_days(self):
+        s = self._make_stake(ANCHOR)
+        self.assertAlmostEqual(
+            _carry_age_factor(s, ANCHOR + timedelta(days=7)), 0.5, places=2,
+        )
+
+    def test_saturates_at_ramp(self):
+        s = self._make_stake(ANCHOR)
+        self.assertAlmostEqual(
+            _carry_age_factor(s, ANCHOR + timedelta(days=14)), 1.0,
+        )
+        self.assertAlmostEqual(
+            _carry_age_factor(s, ANCHOR + timedelta(days=365)), 1.0,
+        )
+
+
+class TestWealthGapFactor(unittest.TestCase):
+    def test_zero_below_target(self):
+        self.assertEqual(_wealth_gap_factor(100, 200), 0.0)
+
+    def test_zero_at_exactly_target(self):
+        self.assertEqual(_wealth_gap_factor(200, 200), 0.0)
+
+    def test_saturates_at_five_times_target(self):
+        self.assertAlmostEqual(_wealth_gap_factor(1000, 200), 1.0)
+        self.assertAlmostEqual(_wealth_gap_factor(10_000, 200), 1.0)
+
+    def test_zero_when_target_unknown(self):
+        self.assertEqual(_wealth_gap_factor(1000, 0), 0.0)
+
+
+class TestPayoffScore(unittest.TestCase):
+    """Composite score under archetype scenarios."""
+
+    def test_conscientious_with_urgent_debt_pays(self):
+        score = _payoff_score(
+            payoff_eagerness=0.9,
+            pay_pull=0.9,   # old high-heat carry
+            hold_pull=0.5,  # mid aspiration + flush wealth
+        )
+        self.assertGreater(score, 0.6)
+
+    def test_gambler_with_urgent_debt_holds(self):
+        score = _payoff_score(
+            payoff_eagerness=0.1,
+            pay_pull=0.9,
+            hold_pull=0.5,
+        )
+        # eagerness × pay_pull = 0.09; (1−eagerness) × hold_pull = 0.45
+        # → score collapses to 0 (clamped from -0.36).
+        self.assertEqual(score, 0.0)
+
+    def test_baseline_balanced_pulls_zero(self):
+        score = _payoff_score(
+            payoff_eagerness=0.5,
+            pay_pull=0.5,
+            hold_pull=0.5,
+        )
+        # 0.5×0.5 − 0.5×0.5 = 0
+        self.assertEqual(score, 0.0)
+
+    def test_no_hold_pull_pure_eagerness(self):
+        # When there's no climb attraction (no surplus or no aspiration),
+        # score is just eagerness × pay_pull.
+        score = _payoff_score(
+            payoff_eagerness=0.4,
+            pay_pull=0.6,
+            hold_pull=0.0,
+        )
+        self.assertAlmostEqual(score, 0.24)
+
+
+class TestAffordabilityGate(unittest.TestCase):
+    def test_blocks_when_payoff_would_strand_below_floor(self):
+        # The gate uses the cheapest tier's min buy-in as the floor.
+        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        floor = _min_tier_buy_in_buffer()
+        # bankroll - carry < floor → blocked.
+        self.assertFalse(_affordability_gate(floor + 50, 100))
+
+    def test_allows_when_payoff_keeps_floor(self):
+        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        floor = _min_tier_buy_in_buffer()
+        self.assertTrue(_affordability_gate(floor + 100, 100))
+        self.assertTrue(_affordability_gate(floor + 1000, 100))
+
+    def test_blocks_when_carry_is_zero(self):
+        # Defensive: a zero carry can't fire payoff.
+        self.assertFalse(_affordability_gate(10_000, 0))
+
+
+class TestCarryPenaltyProbability(unittest.TestCase):
+    def test_no_carries_no_penalty(self):
+        from cash_mode.ai_carry_resolution import carry_penalty_probability
+        self.assertEqual(carry_penalty_probability(0), 1.0)
+
+    def test_one_carry_halves(self):
+        from cash_mode.ai_carry_resolution import carry_penalty_probability
+        self.assertEqual(carry_penalty_probability(1), 0.5)
+
+    def test_four_carries_steeply_blocks(self):
+        from cash_mode.ai_carry_resolution import carry_penalty_probability
+        self.assertAlmostEqual(carry_penalty_probability(4), 0.0625)
 
 
 class TestPayoffProbability(unittest.TestCase):
@@ -191,42 +321,62 @@ def db_setup(tmp_path):
     return {"bankroll": bankroll, "stake": stake, "ledger": ledger}
 
 
+class _RelHeat:
+    """Minimal relationship_repo stub returning a configurable heat."""
+
+    def __init__(self, heat: float = 0.0):
+        self.heat = heat
+
+    def load_relationship_state(self, *, observer_id, opponent_id, now):
+        from unittest.mock import MagicMock
+        return MagicMock(likability=0.5, respect=0.5, heat=self.heat)
+
+
+class _AlwaysLowRng:
+    def random(self):
+        return 0.0
+
+
 class TestVoluntaryPayoff:
     def test_payoff_clears_carry_and_transfers_chips(self, db_setup):
+        from cash_mode.bankroll import AIBankrollState
         bankroll = db_setup["bankroll"]
         stake = db_setup["stake"]
+        # Score-driven model: a fresh, zero-heat carry against default
+        # eagerness/aspiration has pay_pull = 0 and hold_pull > 0, so
+        # the score is 0 and no payoff fires regardless of the rng.
+        # An aging high-heat carry crosses the threshold; that's what
+        # this test exercises.
         carries = stake.list_carries_for_borrower(
             "borrower", BORROWER_KIND_PERSONALITY,
         )
-        # rng that always rolls 0 → probability check guaranteed to pass.
+        old_carry_now = ANCHOR + timedelta(days=20)  # past PAYOFF_AGE_RAMP_DAYS
+
+        # Pin both bankroll rows' last_regen_tick to old_carry_now so
+        # regen doesn't fire during projection — keeps the post-payoff
+        # chip arithmetic regen-independent.
+        bankroll.save_ai_bankroll(AIBankrollState(
+            personality_id="borrower",
+            chips=10_000,
+            last_regen_tick=old_carry_now,
+        ), sandbox_id=SBX)
+        bankroll.save_ai_bankroll(AIBankrollState(
+            personality_id="staker",
+            chips=5_000,
+            last_regen_tick=old_carry_now,
+        ), sandbox_id=SBX)
+
         result = try_ai_voluntary_payoff(
             personality_id="borrower",
             carries=carries,
             bankroll_repo=bankroll,
             stake_repo=stake,
-            relationship_repo=None,  # event-fire path is best-effort
+            relationship_repo=_RelHeat(heat=0.9),  # angry staker
             chip_ledger_repo=db_setup["ledger"],
             sandbox_id=SBX,
-            rng=random.Random(0),  # deterministic; first roll is 0.844
-            now=ANCHOR,
-        )
-        # bankroll/total_carries = 10000/400 = 25 (well above floor 5),
-        # so prob = PAYOFF_BASE_PROB = 0.05. rng.random()=0.844 ≥ 0.05
-        # → no fire on this seed. Try a fixed-low rng instead.
-        # Replay with an rng that always returns ~0.0
-        class AlwaysLowRng:
-            def random(self):
-                return 0.0
-        result = try_ai_voluntary_payoff(
-            personality_id="borrower",
-            carries=carries,
-            bankroll_repo=bankroll,
-            stake_repo=stake,
-            relationship_repo=None,
-            chip_ledger_repo=db_setup["ledger"],
-            sandbox_id=SBX,
-            rng=AlwaysLowRng(),
-            now=ANCHOR,
+            rng=_AlwaysLowRng(),
+            now=old_carry_now,
+            base_rate=PAYOFF_EVENT_BASE_RATE,  # event-gated trigger
         )
         assert result is not None
         assert result.kind == 'payoff'
@@ -242,10 +392,70 @@ class TestVoluntaryPayoff:
         borrower_state = bankroll.load_ai_bankroll("borrower", sandbox_id=SBX)
         staker_state = bankroll.load_ai_bankroll("staker", sandbox_id=SBX)
         assert borrower_state.chips == 10_000 - 400
-        # Staker side goes through credit_ai_cash_out (projection + add)
-        # since starting_bankroll defaults to 0 in this test, regen is
-        # 0, so staker's chips simply +=400.
+        # Staker chips += 400 (no regen — last_regen_tick was pinned).
         assert staker_state.chips == 5_000 + 400
+
+    def test_fresh_low_heat_carry_does_not_fire(self, db_setup):
+        """Baseline AI with a fresh, low-heat carry shouldn't pay off
+        even at event base_rate — score collapses to 0."""
+        bankroll = db_setup["bankroll"]
+        stake = db_setup["stake"]
+        carries = stake.list_carries_for_borrower(
+            "borrower", BORROWER_KIND_PERSONALITY,
+        )
+        result = try_ai_voluntary_payoff(
+            personality_id="borrower",
+            carries=carries,
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=_RelHeat(heat=0.0),
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=ANCHOR,
+            base_rate=PAYOFF_EVENT_BASE_RATE,
+        )
+        assert result is None
+        after = stake.load_stake("carry_1")
+        assert after.status == STAKE_STATUS_CARRY  # still owes
+
+    def test_affordability_gate_blocks_payoff(self, db_setup):
+        """Paying off must not strand the AI below the cheapest tier's
+        min buy-in — the gate refuses even when score is high."""
+        from cash_mode.bankroll import AIBankrollState
+        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        bankroll = db_setup["bankroll"]
+        stake = db_setup["stake"]
+        old_now = ANCHOR + timedelta(days=20)
+
+        # Drain borrower chips so paying 400 would drop them below
+        # the min-tier floor. Pin last_regen_tick to old_now so regen
+        # doesn't refill them during projection.
+        floor = _min_tier_buy_in_buffer()
+        bankroll.save_ai_bankroll(AIBankrollState(
+            personality_id="borrower",
+            chips=floor + 200,  # 200 above the floor; carry=400 would breach
+            last_regen_tick=old_now,
+        ), sandbox_id=SBX)
+
+        carries = stake.list_carries_for_borrower(
+            "borrower", BORROWER_KIND_PERSONALITY,
+        )
+        result = try_ai_voluntary_payoff(
+            personality_id="borrower",
+            carries=carries,
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=_RelHeat(heat=0.9),
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=old_now,
+            base_rate=PAYOFF_EVENT_BASE_RATE,
+        )
+        assert result is None
+        after = stake.load_stake("carry_1")
+        assert after.status == STAKE_STATUS_CARRY
 
 
 class TestHumanStakerPayoffRouting:
@@ -288,20 +498,17 @@ class TestHumanStakerPayoffRouting:
             "borrower", BORROWER_KIND_PERSONALITY,
         )
 
-        class AlwaysLowRng:
-            def random(self):
-                return 0.0
-
         result = try_ai_voluntary_payoff(
             personality_id="borrower",
             carries=carries,
             bankroll_repo=bankroll,
             stake_repo=stake,
-            relationship_repo=None,
+            relationship_repo=_RelHeat(heat=0.9),
             chip_ledger_repo=db_setup["ledger"],
             sandbox_id=SBX,
-            rng=AlwaysLowRng(),
-            now=ANCHOR,
+            rng=_AlwaysLowRng(),
+            now=ANCHOR + timedelta(days=20),
+            base_rate=PAYOFF_EVENT_BASE_RATE,
         )
         assert result is not None
         assert result.kind == 'payoff'
@@ -353,20 +560,17 @@ class TestHumanStakerPayoffRouting:
             "borrower", sandbox_id=SBX,
         ).chips
 
-        class AlwaysLowRng:
-            def random(self):
-                return 0.0
-
         result = try_ai_voluntary_payoff(
             personality_id="borrower",
             carries=carries,
             bankroll_repo=bankroll,
             stake_repo=stake,
-            relationship_repo=None,
+            relationship_repo=_RelHeat(heat=0.9),
             chip_ledger_repo=db_setup["ledger"],
             sandbox_id=SBX,
-            rng=AlwaysLowRng(),
-            now=ANCHOR,
+            rng=_AlwaysLowRng(),
+            now=ANCHOR + timedelta(days=20),
+            base_rate=PAYOFF_EVENT_BASE_RATE,
         )
         assert result is None
         # Borrower bankroll untouched — no debit happened.
@@ -540,7 +744,9 @@ class TestExplicitDefault:
 class TestDispatcher:
     def test_bulk_carry_fetch_groups_by_borrower(self, db_setup):
         """The dispatcher's bulk SQL query must group carries by borrower
-        and skip house-staker carries (NULL staker_id)."""
+        and skip house-staker carries (NULL staker_id). The score model
+        needs aged carries + heat for payoff to clear the per-tick base
+        rate (0.005); we set both up so the test is deterministic."""
         # Add a second carry for the same borrower to verify oldest-first.
         db_setup["stake"].create_stake(Stake(
             stake_id="carry_2",
@@ -557,22 +763,18 @@ class TestDispatcher:
             status=STAKE_STATUS_CARRY,
             carry_amount=200,
             stake_tier="$10",
-            created_at=ANCHOR + timedelta(hours=2),  # newer
+            created_at=ANCHOR + timedelta(days=1),  # newer
         ))
-
-        class AlwaysLowRng:
-            def random(self):
-                return 0.0
 
         batch = resolve_ai_carries(
             bankroll_repo=db_setup["bankroll"],
             stake_repo=db_setup["stake"],
-            relationship_repo=None,
+            relationship_repo=_RelHeat(heat=0.9),
             chip_ledger_repo=db_setup["ledger"],
             sandbox_id=SBX,
             energy_lookup=lambda pid: 0.5,
-            rng=AlwaysLowRng(),
-            now=ANCHOR + timedelta(hours=3),
+            rng=_AlwaysLowRng(),
+            now=ANCHOR + timedelta(days=30),
         )
         # First resolved carry must be the oldest (carry_1).
         assert len(batch.results) == 1  # at most one resolution per AI per refresh

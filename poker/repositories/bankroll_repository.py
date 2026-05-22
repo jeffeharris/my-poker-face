@@ -42,6 +42,7 @@ from cash_mode.staker_profile import (
     STAKER_PROFILE_DEFAULTS,
     StakerProfile,
     compute_default_aspiration_bias,
+    compute_default_payoff_eagerness,
     compute_default_willingness_threshold,
 )
 from poker.repositories.base_repository import BaseRepository
@@ -644,10 +645,40 @@ class BankrollRepository(BaseRepository):
         else:
             aspiration_bias = defaults.aspiration_bias
 
+        # Payoff eagerness derivation: same explicit-override-then-anchor
+        # pattern. Composed from `risk_identity` (inverse) + `poise`
+        # — captures conscientiousness about clearing debts. Unlike
+        # aspiration_bias, this is NOT gated on `willing` — a stoic
+        # who refuses stakes still has opinions about settling
+        # obligations they already incurred, so we honor the
+        # derivation regardless.
+        if "payoff_eagerness" in sub:
+            try:
+                payoff_eagerness = max(
+                    0.0, min(1.0, float(sub["payoff_eagerness"])),
+                )
+            except (TypeError, ValueError):
+                payoff_eagerness = defaults.payoff_eagerness
+        elif (
+            anchors is not None
+            and "risk_identity" in anchors
+            and "poise" in anchors
+        ):
+            try:
+                payoff_eagerness = compute_default_payoff_eagerness(
+                    float(anchors["risk_identity"]),
+                    float(anchors["poise"]),
+                )
+            except (TypeError, ValueError):
+                payoff_eagerness = defaults.payoff_eagerness
+        else:
+            payoff_eagerness = defaults.payoff_eagerness
+
         return BorrowerProfile(
             willing=willing,
             willingness_threshold=willingness_threshold,
             aspiration_bias=aspiration_bias,
+            payoff_eagerness=payoff_eagerness,
         )
 
     def save_borrower_profile(
@@ -657,6 +688,7 @@ class BankrollRepository(BaseRepository):
         willing: bool,
         willingness_threshold: Optional[float],
         aspiration_bias: Optional[float] = None,
+        payoff_eagerness: Optional[float] = None,
     ) -> bool:
         """Merge borrower-profile values into `config_json.borrower_profile`.
 
@@ -708,6 +740,12 @@ class BankrollRepository(BaseRepository):
             else:
                 bp["aspiration_bias"] = max(
                     0.0, min(1.0, float(aspiration_bias)),
+                )
+            if payoff_eagerness is None:
+                bp.pop("payoff_eagerness", None)
+            else:
+                bp["payoff_eagerness"] = max(
+                    0.0, min(1.0, float(payoff_eagerness)),
                 )
             config["borrower_profile"] = bp
             cursor = conn.execute(

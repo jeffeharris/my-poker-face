@@ -55,18 +55,40 @@ logger = logging.getLogger(__name__)
 
 # --- Constants (tunable; defaults per the handoff) ---
 
-# Voluntary payoff (Commit 3).
+# Voluntary payoff (Commit 3, redesigned).
 PAYOFF_BANKROLL_FACTOR_FLOOR = 5.0
-"""bankroll_factor = bankroll / total_carries. At ≥5× a flush AI
-gets a non-trivial chance to pay off; below 1× they never do. Tuned
-to feel like "AIs clear their books when they're comfortable"
-rather than "AIs constantly liquidate every spare chip"."""
+"""bankroll_factor = bankroll / total_carries. Retained for the
+legacy `_payoff_probability(factor)` helper used by per-tick fallback
+rolls; the new score-driven decision (see `_payoff_score`) doesn't
+consume this constant directly."""
 
 PAYOFF_BASE_PROB = 0.05
-"""Per-refresh base probability to attempt a voluntary payoff when
-the AI clears the floor. Combined with the bankroll_factor signal:
-chance = base × min(1, (factor - 1) / (FLOOR - 1)) so the curve
-ramps from 0 at factor=1 to base at factor>=FLOOR."""
+"""Legacy per-refresh base probability — preserved for the slow
+per-tick fallback. The score-driven decision uses its own
+`base_rate` parameter (1.0 for event-gated triggers,
+`PAYOFF_TICK_BASE_RATE` for the long-tail catch-all)."""
+
+PAYOFF_TICK_BASE_RATE = 0.005
+"""Per-tick fallback rate for the long-tail catch-all when no event
+trigger has fired. ~10× slower than the old PAYOFF_BASE_PROB so
+ancient debts eventually clear without per-tick rolling dominating
+the resolution mix."""
+
+PAYOFF_EVENT_BASE_RATE = 1.0
+"""Multiplier for event-gated triggers (aspiration-ask, leave-with-
+profit). At 1.0 the score IS the probability — high-score AIs act
+decisively at meaningful moments rather than waiting on luck."""
+
+PAYOFF_AGE_RAMP_DAYS = 14.0
+"""Carry age (in days) at which `_carry_age_factor` saturates to 1.0.
+Linear ramp from 0 days → 0 to 14 days → 1. Captures "old debt
+nags more than yesterday's"."""
+
+PAYOFF_WEALTH_GAP_RAMP = 4.0
+"""Bankroll multiples above target_min_buy_in at which
+`_wealth_gap_factor` saturates to 1.0. 1× → 0, 5× → 1. Mirrors the
+"comfortably flush enough to climb" curve aspiration uses, so the
+two pulls are commensurate."""
 
 # Forgiveness ask (Commit 4).
 FORGIVENESS_ASK_BASE_PROB = 0.05
@@ -265,6 +287,151 @@ def _within_rate_limit(stake: Stake, now: datetime, window_seconds: int) -> bool
     return elapsed < window_seconds
 
 
+# --- Score-driven payoff decision helpers --------------------------------
+
+
+def _carry_age_factor(stake: Stake, now: datetime) -> float:
+    """0 at fresh, ramps linearly to 1.0 at PAYOFF_AGE_RAMP_DAYS.
+
+    The "old debts nag more" intuition. Saturates flat at 1.0 past
+    the ramp so a year-old carry isn't worth more pressure than a
+    two-week-old one — eventually default does that work.
+    """
+    age = _carry_age_days(stake, now)
+    if PAYOFF_AGE_RAMP_DAYS <= 0:
+        return 1.0
+    return max(0.0, min(1.0, age / PAYOFF_AGE_RAMP_DAYS))
+
+
+def _wealth_gap_factor(bankroll_chips: int, target_min_buy_in: int) -> float:
+    """0 if bankroll can't reach the target tier; ramps to 1.0 at 5×.
+
+    Mirrors the shape of the aspiration_ask wealth signal so the two
+    pulls live on the same scale. An AI with 1× their next tier's
+    buy-in has a wealth_gap of 0 (no surplus to climb); at 5× they
+    have ample chips to either climb or pay debts.
+    """
+    if target_min_buy_in <= 0:
+        return 0.0
+    ratio = float(bankroll_chips) / float(target_min_buy_in)
+    if ratio < 1.0:
+        return 0.0
+    if PAYOFF_WEALTH_GAP_RAMP <= 0:
+        return 1.0
+    return min(1.0, (ratio - 1.0) / PAYOFF_WEALTH_GAP_RAMP)
+
+
+def _pay_pull(*, age_factor: float, heat: float) -> float:
+    """How much the AI "should" pay this debt — debt urgency.
+
+    Pure mean of carry-age pressure and staker-relationship heat.
+    Heat clamped at 0 from below (mild affection doesn't push you to
+    pay faster — only friction does). Both terms live in [0, 1] so
+    the average does too.
+    """
+    return (max(0.0, min(1.0, age_factor)) + max(0.0, min(1.0, heat))) / 2.0
+
+
+def _hold_pull(*, aspiration_bias: float, wealth_gap: float) -> float:
+    """How much the AI wants to keep chips for climbing instead.
+
+    Product of personality "want to climb" knob and "can afford to
+    climb" signal — both have to be present for hold_pull to be
+    meaningful. A poverty-bound aspirer with no surplus doesn't
+    really have chips to hoard; a flush content-AI doesn't care.
+    """
+    a = max(0.0, min(1.0, aspiration_bias))
+    w = max(0.0, min(1.0, wealth_gap))
+    return a * w
+
+
+def _payoff_score(
+    *,
+    payoff_eagerness: float,
+    pay_pull: float,
+    hold_pull: float,
+) -> float:
+    """Composite score — the AI's appetite to pay this carry.
+
+    `eagerness × pay_pull − (1 − eagerness) × hold_pull` clamped
+    to [0, 1]. Captures the two competing forces weighted by the
+    personality's conscientiousness:
+      - Conscientious AI (eagerness ≈ 1): full pay_pull, no
+        hold_pull → conscientious AIs always pay when there's any
+        urgency.
+      - Gambler (eagerness ≈ 0): zero pay_pull, full hold_pull →
+        even old debts lose to a climb opportunity.
+      - Baseline (eagerness 0.5): pulls cancel symmetrically; the
+        winning side wins by half the differential.
+    """
+    e = max(0.0, min(1.0, payoff_eagerness))
+    raw = e * max(0.0, pay_pull) - (1.0 - e) * max(0.0, hold_pull)
+    return max(0.0, min(1.0, raw))
+
+
+def _min_tier_buy_in_buffer() -> int:
+    """Cheapest tier's min buy-in — the affordability floor.
+
+    Affordability gate: after paying off, the AI must still have at
+    least this many chips, so they can still sit at SOME table.
+    Cheaper floor than "current tier" by design — paying off should
+    be allowed even when it means dropping a tier, just not when it
+    means losing seat access entirely.
+
+    Lazy-imported to avoid a hard ladder dependency at module import
+    time.
+    """
+    from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
+    if not STAKES_ORDER:
+        return 0
+    _, min_buy_in, _ = table_buy_in_window(STAKES_ORDER[0])
+    return int(min_buy_in)
+
+
+def _affordability_gate(bankroll_chips: int, carry_amount: int) -> bool:
+    """Hard gate: can they pay AND keep enough for a min-tier seat?
+
+    Without this, an AI could pay off a debt that drops them below
+    every table's buy-in — leaving them with no playable seat. The
+    gate uses the CHEAPEST tier's min buy-in as the floor so we
+    don't over-block (paying off + dropping to micro stakes is fine;
+    paying off + leaving the lobby entirely is not).
+    """
+    if carry_amount <= 0:
+        return False
+    floor = _min_tier_buy_in_buffer()
+    return (bankroll_chips - carry_amount) >= floor
+
+
+# --- Matcher penalty for borrowers carrying debt -------------------------
+
+CARRY_MATCHER_PENALTY_BASE = 0.5
+"""Per-carry multiplicative penalty on matcher success probability.
+0 carries → 1.0 (no penalty), 1 carry → 0.5, 2 carries → 0.25, etc.
+Tunes the "future stake access" loop: borrowers with debt have a
+harder time getting backed for new stakes (climb or bailout), which
+makes the AI's "should I pay first?" decision a real strategic
+choice rather than a vibe — gamblers who skip payoff keep failing
+matcher rolls until they default."""
+
+
+def carry_penalty_probability(active_carry_count: int) -> float:
+    """Probability the matcher should *succeed* given this carry count.
+
+    `CARRY_MATCHER_PENALTY_BASE ** N`. Callers use this as a gate:
+    roll RNG, succeed if `rng.random() < carry_penalty_probability(N)`.
+
+    Zero carries returns 1.0 (no penalty, clean borrower). Each
+    outstanding carry halves the success probability. The decay is
+    exponential — a borrower with 4+ carries is effectively blocked
+    from new stakes until they clear some, which is the intended
+    pressure to settle debts before reaching for more.
+    """
+    if active_carry_count <= 0:
+        return 1.0
+    return CARRY_MATCHER_PENALTY_BASE ** int(active_carry_count)
+
+
 # --- Public entry points (one per commit) ---
 
 
@@ -279,23 +446,32 @@ def try_ai_voluntary_payoff(
     sandbox_id: Optional[str],
     rng: random.Random,
     now: datetime,
+    base_rate: float = PAYOFF_TICK_BASE_RATE,
 ) -> Optional[CarryResolutionResult]:
     """Roll for a voluntary payoff against this AI's oldest carry.
 
-    Phase 4.5 Commit 3.
+    Score-driven model: the AI weighs *paying* (carry age + staker
+    heat) against *holding* (aspiration × wealth surplus), weighted
+    by their personality's `payoff_eagerness` knob. The product of
+    `_payoff_score()` and `base_rate` is the fire probability.
 
-    Picks the oldest outstanding carry (`carries[0]` — repo returns
-    oldest-first), checks bankroll_factor against the floor, rolls
-    `_payoff_probability(factor)`. On a hit:
-      - Debit borrower bankroll by carry_amount.
-      - Credit staker bankroll via `credit_ai_cash_out` (mirrors the
-        human-route /payoff path — same regen + cap-clamp semantics).
-      - Mark stake settled; fire STAKE_REPAID.
-      - Return a CarryResolutionResult so the dispatcher can emit
-        the ticker event.
+    `base_rate` lets callers tune intensity per trigger event:
+      - Per-tick dispatcher → `PAYOFF_TICK_BASE_RATE` (slow long-tail).
+      - Aspiration-ask gate → `PAYOFF_EVENT_BASE_RATE` (= 1.0;
+        score IS the probability, so a conscientious AI with a real
+        debt commits immediately when about to climb).
 
-    Returns None when no payoff fired (no carries, insufficient
-    bankroll, probability roll failed).
+    Hard gates (applied before the roll):
+      - At least one carry exists.
+      - Borrower bankroll row exists; projected chips ≥ carry_amount.
+      - Staker id is non-null (house carries don't reach this path).
+      - For human-staker carries: `player_bankroll_state` row exists
+        (otherwise the credit would vaporize chips).
+      - **Affordability**: bankroll minus carry_amount must leave at
+        least the cheapest tier's min buy-in. Without this, the AI
+        could pay off into a state with no playable seat.
+
+    Returns None when no payoff fired.
     """
     if not carries:
         return None
@@ -318,12 +494,6 @@ def try_ai_voluntary_payoff(
         stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
     )
 
-    total_carries = _carries_sum(carries)
-    factor = _bankroll_factor(projected, total_carries)
-    prob = _payoff_probability(factor)
-    if prob <= 0 or rng.random() >= prob:
-        return None
-
     target = carries[0]  # oldest first — repo returns ASC by created_at
     carry_amount = int(target.carry_amount)
     if carry_amount <= 0:
@@ -336,6 +506,72 @@ def try_ai_voluntary_payoff(
     if target.staker_id is None:
         # House carries shouldn't exist (settle_stake_on_leave
         # forgives them). Defensive skip.
+        return None
+
+    # Affordability gate — paying off must leave enough for a
+    # min-tier seat. Cheaper than the old bankroll_factor floor
+    # (which required 1× total carries comfortably) because the
+    # score model handles "comfort" via wealth_gap; the gate just
+    # guards against losing all lobby access.
+    if not _affordability_gate(projected, carry_amount):
+        return None
+
+    # Score the decision. Load borrower profile (eagerness +
+    # aspiration_bias) and staker→borrower relationship (heat).
+    # Both reads are local — the per-AI carry list is already
+    # bounded by `resolve_ai_carries`'s outer loop, so we don't
+    # batch these.
+    try:
+        profile = bankroll_repo.load_borrower_profile(personality_id)
+    except Exception as exc:
+        logger.warning(
+            "[CASH][AI_PAYOFF] borrower profile load failed pid=%r: %s",
+            personality_id, exc,
+        )
+        return None
+
+    heat = 0.0
+    if relationship_repo is not None:
+        try:
+            rel = relationship_repo.load_relationship_state(
+                observer_id=target.staker_id,
+                opponent_id=personality_id,
+                now=now,
+            )
+            if rel is not None:
+                heat = float(getattr(rel, 'heat', 0.0))
+        except Exception as exc:
+            logger.debug(
+                "[CASH][AI_PAYOFF] relationship load failed staker=%r "
+                "borrower=%r: %s",
+                target.staker_id, personality_id, exc,
+            )
+
+    # Target tier for the hold_pull wealth calc — what tier they're
+    # implicitly competing against. The carry's own stake_tier is
+    # the right reference: it's the level they busted from / aspire
+    # back to. If the tier isn't on the ladder anymore (unlikely
+    # but defensive), wealth_gap reads 0 → hold_pull is 0 → score
+    # collapses to pure pay_pull weighted by eagerness.
+    try:
+        from cash_mode.stakes_ladder import table_buy_in_window
+        _, target_min_buy_in, _ = table_buy_in_window(target.stake_tier)
+    except (KeyError, Exception):
+        target_min_buy_in = 0
+
+    age_factor = _carry_age_factor(target, now)
+    wealth_gap = _wealth_gap_factor(projected, target_min_buy_in)
+    pay = _pay_pull(age_factor=age_factor, heat=heat)
+    hold = _hold_pull(
+        aspiration_bias=profile.aspiration_bias, wealth_gap=wealth_gap,
+    )
+    score = _payoff_score(
+        payoff_eagerness=profile.payoff_eagerness,
+        pay_pull=pay,
+        hold_pull=hold,
+    )
+    prob = max(0.0, min(1.0, score * float(base_rate)))
+    if prob <= 0 or rng.random() >= prob:
         return None
 
     # Human-staker pre-flight: the credit must land on
