@@ -41,6 +41,7 @@ from cash_mode.staker_profile import (
     BorrowerProfile,
     STAKER_PROFILE_DEFAULTS,
     StakerProfile,
+    compute_default_aspiration_bias,
     compute_default_willingness_threshold,
 )
 from poker.repositories.base_repository import BaseRepository
@@ -236,6 +237,69 @@ class BankrollRepository(BaseRepository):
         for row in rows:
             result[row["personality_id"]] = row["emotional_state_json"]
         return result
+
+    def load_aspiration_cooldown_until(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
+    ) -> Optional[datetime]:
+        """Return the AI's aspiration cooldown expiry, or None if clear.
+
+        v107 column on `ai_bankroll_state`. NULL means "no cooldown
+        active" (the common case). The trigger inside
+        `refresh_table_roster` compares this against the current
+        `now` and skips the aspiration roll if the AI is still
+        cooling off.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT aspiration_cooldown_until
+                FROM ai_bankroll_state
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (personality_id, sandbox_id),
+            ).fetchone()
+        if not row or row["aspiration_cooldown_until"] is None:
+            return None
+        try:
+            return datetime.fromisoformat(row["aspiration_cooldown_until"])
+        except (TypeError, ValueError):
+            # Malformed timestamp — treat as cleared rather than crash.
+            logger.warning(
+                "Personality %r in sandbox %r has malformed "
+                "aspiration_cooldown_until %r; treating as cleared",
+                personality_id, sandbox_id, row["aspiration_cooldown_until"],
+            )
+            return None
+
+    def save_aspiration_cooldown_until(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
+        until: Optional[datetime],
+    ) -> bool:
+        """Stamp or clear the AI's aspiration cooldown.
+
+        `until=None` clears the column (back to "no cooldown active").
+        Targets an existing `ai_bankroll_state` row — returns False
+        when no row matches. Callers driving this from the lobby
+        refresh path can assume the row exists (the bankroll-seed
+        helper creates it on first sit-down).
+        """
+        value = until.isoformat() if until is not None else None
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE ai_bankroll_state
+                SET aspiration_cooldown_until = ?
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (value, personality_id, sandbox_id),
+            )
+            return cursor.rowcount > 0
 
     def sum_ai_bankroll_chips_stored(
         self,
@@ -529,6 +593,8 @@ class BankrollRepository(BaseRepository):
             return BORROWER_PROFILE_DEFAULTS
 
         defaults = BORROWER_PROFILE_DEFAULTS
+        anchors = config.get("anchors") if isinstance(config, dict) else None
+        anchors = anchors if isinstance(anchors, dict) else None
 
         # Willingness threshold derivation: explicit override in the
         # borrower_profile sub-dict wins; otherwise derive from the
@@ -540,20 +606,48 @@ class BankrollRepository(BaseRepository):
         # wants a higher floor than ego alone would predict).
         if "willingness_threshold" in sub:
             willingness_threshold = float(sub["willingness_threshold"])
-        else:
-            anchors = config.get("anchors") if isinstance(config, dict) else None
-            if isinstance(anchors, dict) and "ego" in anchors:
-                try:
-                    ego = float(anchors["ego"])
-                    willingness_threshold = compute_default_willingness_threshold(ego)
-                except (TypeError, ValueError):
-                    willingness_threshold = defaults.willingness_threshold
-            else:
+        elif anchors is not None and "ego" in anchors:
+            try:
+                ego = float(anchors["ego"])
+                willingness_threshold = compute_default_willingness_threshold(ego)
+            except (TypeError, ValueError):
                 willingness_threshold = defaults.willingness_threshold
+        else:
+            willingness_threshold = defaults.willingness_threshold
+
+        # Aspiration bias derivation: same pattern. Explicit override
+        # wins; otherwise compose from `ego` + `risk_identity` anchors.
+        # When `willing=False` the field is forced to 0 regardless —
+        # refusing stakes outright is incompatible with asking for one
+        # (character consistency, locked decision in the aspiration
+        # spec).
+        willing = sub.get("willing", defaults.willing)
+        if not willing:
+            aspiration_bias = 0.0
+        elif "aspiration_bias" in sub:
+            try:
+                aspiration_bias = max(0.0, min(1.0, float(sub["aspiration_bias"])))
+            except (TypeError, ValueError):
+                aspiration_bias = defaults.aspiration_bias
+        elif (
+            anchors is not None
+            and "ego" in anchors
+            and "risk_identity" in anchors
+        ):
+            try:
+                aspiration_bias = compute_default_aspiration_bias(
+                    float(anchors["ego"]),
+                    float(anchors["risk_identity"]),
+                )
+            except (TypeError, ValueError):
+                aspiration_bias = defaults.aspiration_bias
+        else:
+            aspiration_bias = defaults.aspiration_bias
 
         return BorrowerProfile(
-            willing=sub.get("willing", defaults.willing),
+            willing=willing,
             willingness_threshold=willingness_threshold,
+            aspiration_bias=aspiration_bias,
         )
 
     def save_borrower_profile(
@@ -562,17 +656,19 @@ class BankrollRepository(BaseRepository):
         *,
         willing: bool,
         willingness_threshold: Optional[float],
+        aspiration_bias: Optional[float] = None,
     ) -> bool:
         """Merge borrower-profile values into `config_json.borrower_profile`.
 
         Phase 5 admin surface. Mirrors `save_personality_knobs` but
         carries the "explicit override vs derived" semantic the
-        loader relies on:
+        loader relies on for both `willingness_threshold` and
+        `aspiration_bias`:
 
-          - `willingness_threshold = None` → drop the key entirely
-            so the loader falls through to the ego-derived default
-          - `willingness_threshold = float` → store the override
-            value; the loader returns it verbatim
+          - `<field> = None` → drop the key entirely so the loader
+            falls through to the anchor-derived default
+          - `<field> = float` → store the override value; the loader
+            returns it verbatim (clamped to [0, 1] for aspiration_bias)
 
         Reads the full config, mutates only `borrower_profile`,
         writes back — every other key (anchors, staker_profile,
@@ -607,6 +703,12 @@ class BankrollRepository(BaseRepository):
                 bp.pop("willingness_threshold", None)
             else:
                 bp["willingness_threshold"] = float(willingness_threshold)
+            if aspiration_bias is None:
+                bp.pop("aspiration_bias", None)
+            else:
+                bp["aspiration_bias"] = max(
+                    0.0, min(1.0, float(aspiration_bias)),
+                )
             config["borrower_profile"] = bp
             cursor = conn.execute(
                 """

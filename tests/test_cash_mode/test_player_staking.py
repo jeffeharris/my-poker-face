@@ -165,6 +165,57 @@ class TestWillingnessThresholdDerivation(unittest.TestCase):
             WILLINGNESS_THRESHOLD_MAX,
         )
 
+
+class TestAspirationBiasDerivation(unittest.TestCase):
+    """Pure-function tests for `compute_default_aspiration_bias`. Pins
+    the calibration so future tweaks (weights, clamp behavior) surface
+    here rather than as silent shifts in trigger probabilities.
+
+    Spec: docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md Commit 1.
+    """
+
+    def test_baseline_yields_midpoint(self):
+        from cash_mode.staker_profile import compute_default_aspiration_bias
+        # 0.6 × 0.5 + 0.4 × 0.5 = 0.5
+        self.assertAlmostEqual(
+            compute_default_aspiration_bias(0.5, 0.5), 0.5, places=4,
+        )
+
+    def test_lincoln_class_grinder(self):
+        from cash_mode.staker_profile import compute_default_aspiration_bias
+        # Lincoln (ego 0.36, risk 0.38) → 0.6×0.36 + 0.4×0.38 = 0.368
+        self.assertAlmostEqual(
+            compute_default_aspiration_bias(0.36, 0.38), 0.368, places=4,
+        )
+
+    def test_napoleon_class_climber(self):
+        from cash_mode.staker_profile import compute_default_aspiration_bias
+        # Napoleon (ego 0.86, risk 0.90) → 0.6×0.86 + 0.4×0.90 = 0.876
+        self.assertAlmostEqual(
+            compute_default_aspiration_bias(0.86, 0.90), 0.876, places=4,
+        )
+
+    def test_clamps_at_zero(self):
+        from cash_mode.staker_profile import compute_default_aspiration_bias
+        # Below clamp (defensive — out-of-range anchor values).
+        self.assertEqual(compute_default_aspiration_bias(-1.0, -1.0), 0.0)
+
+    def test_clamps_at_one(self):
+        from cash_mode.staker_profile import compute_default_aspiration_bias
+        # Above clamp.
+        self.assertEqual(compute_default_aspiration_bias(2.0, 2.0), 1.0)
+
+    def test_ego_weighted_more_than_risk(self):
+        """Ego dominates the composite — high ego with low risk still
+        produces a climber-ish value, while low ego with high risk
+        stays below 0.5. This pins the relative weighting decision."""
+        from cash_mode.staker_profile import compute_default_aspiration_bias
+        high_ego_low_risk = compute_default_aspiration_bias(1.0, 0.0)
+        low_ego_high_risk = compute_default_aspiration_bias(0.0, 1.0)
+        self.assertGreater(high_ego_low_risk, low_ego_high_risk)
+        self.assertAlmostEqual(high_ego_low_risk, 0.6, places=4)
+        self.assertAlmostEqual(low_ego_high_risk, 0.4, places=4)
+
     def test_loader_uses_ego_when_threshold_not_set(self, db_repos=None):
         """End-to-end: a personality with ego=0.86 and no explicit
         willingness_threshold loads with the derived value."""

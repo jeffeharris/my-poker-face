@@ -150,7 +150,7 @@ logger = logging.getLogger(__name__)
 #       compute per-stake P&L ("you got back $X" or "you lost $Y").
 #       NULL on legacy rows (settled pre-migration) means "unknown" —
 #       the route returns null and the UI hides the P&L line.
-SCHEMA_VERSION = 106
+SCHEMA_VERSION = 107
 
 
 
@@ -482,6 +482,7 @@ class SchemaManager:
                     chips INTEGER NOT NULL DEFAULT 0,
                     last_regen_tick TIMESTAMP,
                     emotional_state_json TEXT,
+                    aspiration_cooldown_until TEXT,
                     PRIMARY KEY (personality_id, sandbox_id)
                 )
             """)
@@ -1310,6 +1311,7 @@ class SchemaManager:
             104: (self._migrate_v104_add_forgiveness_last_asked, "Phase 3 Commit 3 — add nullable forgiveness_last_asked column to stakes for per-stake 24h rate-limit on forgiveness requests"),
             105: (self._migrate_v105_rename_bankroll_cap_to_starting_bankroll, "Rename bankroll_knobs.bankroll_cap → starting_bankroll in personality config_json and drop the vestigial personalities.bankroll_cap column"),
             106: (self._migrate_v106_add_stake_payouts, "Phase 5 refinement — add nullable staker_payout / borrower_payout columns to stakes so history can show per-stake P&L"),
+            107: (self._migrate_v107_add_aspiration_cooldown, "Aspiration-ask Commit 3 — add nullable aspiration_cooldown_until to ai_bankroll_state for per-AI rate limit on aspiration_ask triggers"),
         }
 
         with self._get_connection() as conn:
@@ -4896,5 +4898,34 @@ class SchemaManager:
         logger.info(
             "Migration v106 complete: stakes.staker_payout and "
             "stakes.borrower_payout added"
+        )
+
+    def _migrate_v107_add_aspiration_cooldown(self, conn: sqlite3.Connection) -> None:
+        """Migration v107: add `aspiration_cooldown_until` to ai_bankroll_state.
+
+        Aspiration-ask Commit 3. Per-AI cooldown after a triggered
+        aspiration_ask (success or fail) — prevents ladder-climb spam
+        from a single AI hammering the lobby every tick.
+
+        Column is a nullable ISO-8601 UTC timestamp. NULL means "no
+        cooldown active" (the common case). The trigger inside
+        `refresh_table_roster` reads this column and skips AIs whose
+        cooldown hasn't expired vs the current `now`. The cooldown
+        lives on `ai_bankroll_state` (not a separate table) because
+        the (sandbox_id, personality_id) row is already the canonical
+        per-AI runtime state row — no separate table buys anything.
+
+        NULL on existing rows — the column is purely additive.
+        Idempotent: PRAGMA-guarded ADD.
+        """
+        cursor = conn.execute("PRAGMA table_info(ai_bankroll_state)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'aspiration_cooldown_until' not in cols:
+            conn.execute(
+                "ALTER TABLE ai_bankroll_state "
+                "ADD COLUMN aspiration_cooldown_until TEXT"
+            )
+        logger.info(
+            "Migration v107 complete: ai_bankroll_state.aspiration_cooldown_until added"
         )
 

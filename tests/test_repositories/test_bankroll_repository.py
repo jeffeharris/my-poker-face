@@ -49,8 +49,9 @@ def _insert_personality(
     bankroll_knobs: dict = None,
     staker_profile: dict = None,
     borrower_profile: dict = None,
+    anchors: dict = None,
 ) -> None:
-    """Helper: insert a personality row with optional bankroll_knobs / staker_profile / borrower_profile in config_json."""
+    """Helper: insert a personality row with optional bankroll_knobs / staker_profile / borrower_profile / anchors in config_json."""
     config = {}
     if bankroll_knobs is not None:
         config["bankroll_knobs"] = bankroll_knobs
@@ -58,6 +59,8 @@ def _insert_personality(
         config["staker_profile"] = staker_profile
     if borrower_profile is not None:
         config["borrower_profile"] = borrower_profile
+    if anchors is not None:
+        config["anchors"] = anchors
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "INSERT INTO personalities (name, config_json, personality_id) "
@@ -614,3 +617,203 @@ class TestBorrowerProfile:
         borrower = repo.load_borrower_profile("principled_lincoln")
         assert lender.willing is True
         assert borrower.willing is False
+
+
+class TestAspirationCooldown:
+    """`load_aspiration_cooldown_until` / `save_aspiration_cooldown_until`
+    on the `ai_bankroll_state` v107 column. Per-AI rate limiting for
+    aspiration_ask triggers. Spec:
+    `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md` Commit 3.
+    """
+
+    def test_default_is_none(self, repo):
+        # No row → no cooldown.
+        assert repo.load_aspiration_cooldown_until(
+            "missing", sandbox_id="sb",
+        ) is None
+
+    def test_round_trips_timestamp(self, repo):
+        # Seed a bankroll row, stamp cooldown, read it back.
+        from cash_mode.bankroll import AIBankrollState
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="zeus",
+                chips=10_000,
+                last_regen_tick=datetime(2026, 5, 22, 10, 0, 0),
+            ),
+            sandbox_id="sb1",
+        )
+        target = datetime(2026, 5, 22, 12, 30, 45)
+        ok = repo.save_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb1", until=target,
+        )
+        assert ok is True
+        loaded = repo.load_aspiration_cooldown_until("zeus", sandbox_id="sb1")
+        assert loaded == target
+
+    def test_save_none_clears_cooldown(self, repo):
+        from cash_mode.bankroll import AIBankrollState
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="zeus",
+                chips=10_000,
+                last_regen_tick=datetime(2026, 5, 22, 10, 0, 0),
+            ),
+            sandbox_id="sb1",
+        )
+        repo.save_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb1", until=datetime(2026, 5, 22, 11, 0, 0),
+        )
+        ok = repo.save_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb1", until=None,
+        )
+        assert ok is True
+        assert repo.load_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb1",
+        ) is None
+
+    def test_save_returns_false_without_row(self, repo):
+        # No bankroll row → cannot stamp cooldown.
+        assert repo.save_aspiration_cooldown_until(
+            "ghost", sandbox_id="sb1", until=datetime(2026, 5, 22),
+        ) is False
+
+    def test_sandbox_scoped(self, repo):
+        # Same pid in two sandboxes has independent cooldowns.
+        from cash_mode.bankroll import AIBankrollState
+        for sandbox_id in ("sb_a", "sb_b"):
+            repo.save_ai_bankroll(
+                AIBankrollState(
+                    personality_id="zeus",
+                    chips=10_000,
+                    last_regen_tick=datetime(2026, 5, 22, 10, 0, 0),
+                ),
+                sandbox_id=sandbox_id,
+            )
+        repo.save_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb_a", until=datetime(2026, 5, 22, 12, 0, 0),
+        )
+        assert repo.load_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb_a",
+        ) == datetime(2026, 5, 22, 12, 0, 0)
+        assert repo.load_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb_b",
+        ) is None
+
+
+class TestBorrowerProfileAspirationBias:
+    """`load_borrower_profile.aspiration_bias` — anchor-derived with
+    explicit-override and willing=False suppression. Spec:
+    `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md` Commit 1.
+    """
+
+    def test_defaults_when_no_anchors_or_override(self, db_path, repo):
+        _insert_personality(db_path, "plain")
+        profile = repo.load_borrower_profile("plain")
+        assert profile.aspiration_bias == 0.5
+
+    def test_derived_from_ego_and_risk_identity(self, db_path, repo):
+        # 0.6 × 0.86 + 0.4 × 0.90 = 0.876 — Napoleon-class climber.
+        _insert_personality(
+            db_path, "napoleon",
+            anchors={"ego": 0.86, "risk_identity": 0.90},
+        )
+        profile = repo.load_borrower_profile("napoleon")
+        assert profile.aspiration_bias == pytest.approx(0.876)
+
+    def test_derived_low_for_humble_and_cautious(self, db_path, repo):
+        # 0.6 × 0.36 + 0.4 × 0.38 = 0.368 — Lincoln-class grinder.
+        _insert_personality(
+            db_path, "lincoln",
+            anchors={"ego": 0.36, "risk_identity": 0.38},
+        )
+        profile = repo.load_borrower_profile("lincoln")
+        assert profile.aspiration_bias == pytest.approx(0.368)
+
+    def test_explicit_override_wins(self, db_path, repo):
+        # Explicit JSON override beats the anchor-derived value.
+        _insert_personality(
+            db_path, "fixed_climber",
+            anchors={"ego": 0.20, "risk_identity": 0.20},  # would derive low
+            borrower_profile={"aspiration_bias": 0.95},
+        )
+        profile = repo.load_borrower_profile("fixed_climber")
+        assert profile.aspiration_bias == 0.95
+
+    def test_override_clamped_to_unit_interval(self, db_path, repo):
+        # Out-of-range overrides clamp rather than crash.
+        _insert_personality(
+            db_path, "loud_one",
+            borrower_profile={"aspiration_bias": 1.5},
+        )
+        assert repo.load_borrower_profile("loud_one").aspiration_bias == 1.0
+        _insert_personality(
+            db_path, "quiet_one",
+            borrower_profile={"aspiration_bias": -0.4},
+        )
+        assert repo.load_borrower_profile("quiet_one").aspiration_bias == 0.0
+
+    def test_willing_false_forces_zero(self, db_path, repo):
+        # Locked decision: refusing stakes ⟹ never aspires.
+        # The anchor values would otherwise derive a high bias.
+        _insert_personality(
+            db_path, "buddha",
+            anchors={"ego": 0.90, "risk_identity": 0.90},
+            borrower_profile={"willing": False, "aspiration_bias": 0.95},
+        )
+        profile = repo.load_borrower_profile("buddha")
+        assert profile.willing is False
+        assert profile.aspiration_bias == 0.0
+
+    def test_partial_anchors_fall_back_to_default(self, db_path, repo):
+        # Anchors dict present but missing risk_identity → default.
+        _insert_personality(
+            db_path, "ego_only",
+            anchors={"ego": 0.86},
+        )
+        profile = repo.load_borrower_profile("ego_only")
+        assert profile.aspiration_bias == 0.5
+
+    def test_non_numeric_override_falls_back_to_default(self, db_path, repo):
+        _insert_personality(
+            db_path, "bad_override",
+            borrower_profile={"aspiration_bias": "high"},
+        )
+        profile = repo.load_borrower_profile("bad_override")
+        assert profile.aspiration_bias == 0.5
+
+    def test_save_round_trips_explicit_value(self, db_path, repo):
+        _insert_personality(db_path, "saveme")
+        ok = repo.save_borrower_profile(
+            "saveme",
+            willing=True,
+            willingness_threshold=None,
+            aspiration_bias=0.77,
+        )
+        assert ok is True
+        assert repo.load_borrower_profile("saveme").aspiration_bias == 0.77
+
+    def test_save_none_clears_override(self, db_path, repo):
+        # Storing an explicit value then clearing it returns to default.
+        _insert_personality(
+            db_path, "togglable",
+            borrower_profile={"aspiration_bias": 0.9},
+        )
+        repo.save_borrower_profile(
+            "togglable",
+            willing=True,
+            willingness_threshold=None,
+            aspiration_bias=None,
+        )
+        # No anchors → falls through to default.
+        assert repo.load_borrower_profile("togglable").aspiration_bias == 0.5
+
+    def test_save_clamps_out_of_range(self, db_path, repo):
+        _insert_personality(db_path, "extreme")
+        repo.save_borrower_profile(
+            "extreme",
+            willing=True,
+            willingness_threshold=None,
+            aspiration_bias=2.0,
+        )
+        assert repo.load_borrower_profile("extreme").aspiration_bias == 1.0

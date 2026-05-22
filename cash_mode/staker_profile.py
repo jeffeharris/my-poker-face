@@ -87,16 +87,27 @@ class BorrowerProfile:
         0.30 — broadly accepting; a player with even mild goodwill
         clears it. Stoic AIs can raise their threshold to ~0.50+ to
         require meaningful goodwill before accepting.
+      - `aspiration_bias`: how strongly this personality seeks out
+        upward-mobility stakes — asking to be backed at a higher
+        tier without busting first. 0.0 = never asks; 1.0 = eager
+        climber. Read by the aspiration trigger inside
+        `refresh_table_roster`. Personalities with `willing=False`
+        always read 0 here regardless of stored value — refusing
+        stakes outright is incompatible with asking for one
+        (character consistency). Default 0.5. Spec:
+        `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md`.
 
     Frozen because the profile is read-only at decision time —
     relationship-aware adjustments happen on the staker side, not here.
 
     Spec: `docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md` Phase 4
-    Commit 1 + Phase 5 Commit 1.
+    Commit 1 + Phase 5 Commit 1 +
+    `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md` Commit 1.
     """
 
     willing: bool
     willingness_threshold: float = 0.30
+    aspiration_bias: float = 0.5
 
 
 # Default — most personalities accept stakes when busting. Stoic
@@ -104,6 +115,7 @@ class BorrowerProfile:
 BORROWER_PROFILE_DEFAULTS = BorrowerProfile(
     willing=True,
     willingness_threshold=0.30,
+    aspiration_bias=0.5,
 )
 
 
@@ -153,3 +165,43 @@ def compute_default_willingness_threshold(ego: float) -> float:
         WILLINGNESS_THRESHOLD_MIN,
         min(WILLINGNESS_THRESHOLD_MAX, raw),
     )
+
+
+# Anchor-derived aspiration_bias calibration. Same pattern as
+# willingness_threshold: every personality with curated anchors gets
+# a defensible default without per-personality JSON edits. The two
+# anchors we combine — `ego` and `risk_identity` — are present on
+# every personality that has the `anchors` sub-dict at all
+# (53/83 in current production data; the rest fall back to the
+# flat default 0.5).
+ASPIRATION_BIAS_DEFAULT = 0.5
+ASPIRATION_EGO_WEIGHT = 0.6
+ASPIRATION_RISK_WEIGHT = 0.4
+
+
+def compute_default_aspiration_bias(
+    ego: float, risk_identity: float,
+) -> float:
+    """Derive aspiration_bias from `ego` and `risk_identity` anchors.
+
+    Both inputs expected in [0, 1]. The composite captures the
+    "wants to play bigger" intuition:
+
+      - `ego` (proud personalities want the big stage)
+      - `risk_identity` (risk-tolerant personalities are more willing
+        to take leverage)
+
+    Result clamped to [0, 1]. Aggressive personalities still need
+    other trigger factors (winning_momentum, wealth_gap) to actually
+    fire an ask — this knob just sets their baseline propensity.
+
+    Sample calibrations against real anchor data:
+      - Lincoln (ego 0.36, risk 0.38) → ~0.37 (rarely aspires)
+      - Baseline (ego 0.50, risk 0.50) → 0.50
+      - Napoleon-class (ego 0.86, risk 0.90) → ~0.88
+    """
+    raw = (
+        ASPIRATION_EGO_WEIGHT * float(ego)
+        + ASPIRATION_RISK_WEIGHT * float(risk_identity)
+    )
+    return max(0.0, min(1.0, raw))
