@@ -927,10 +927,34 @@ def refresh_table_roster(
     # globally seated and whose `target_stake` allows this table, and
     # who aren't on per-table leave cooldown ("just left, no immediate
     # rejoin at this table").
+    #
+    # Target-stake stickiness: an idle entry with `target_stake=$X`
+    # normally only accepts seats at $X. But if the AI's bankroll has
+    # since dropped below the min buy-in at $X (e.g. they lost chips
+    # before their target seat opened up), they'd sit stranded in idle
+    # forever. Relax the gate in that case — let any affordable table
+    # pick them up. The per-seat bankroll check below still enforces
+    # affordability at THIS table.
+    from cash_mode.stakes_ladder import table_buy_in_window as _bi_window
+
+    def _can_still_afford_target(entry: IdlePoolEntry) -> bool:
+        if entry.target_stake is None:
+            return True
+        try:
+            _, target_min, _ = _bi_window(entry.target_stake)
+        except Exception:
+            return True  # Unknown tier — don't gate.
+        projected = bankroll_lookup(entry.personality_id) or 0
+        return projected >= target_min
+
     def _idle_candidate_filter(entry: IdlePoolEntry) -> bool:
         if entry.personality_id in seated_globally:
             return False
-        if entry.target_stake is not None and entry.target_stake != table.stake_label:
+        if (
+            entry.target_stake is not None
+            and entry.target_stake != table.stake_label
+            and _can_still_afford_target(entry)
+        ):
             return False
         if is_in_cooldown(table.table_id, entry.personality_id, now):
             return False

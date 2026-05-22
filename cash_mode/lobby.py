@@ -23,7 +23,7 @@ and §"Locked decisions" (3 — kill_all_cash_sessions).
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set
 
 import random
@@ -898,6 +898,36 @@ def refresh_unseated_tables(
             rebuy_changes=agg_rebuy_changes,
             stake_creations=agg_stake_creations,
         )
+
+        # Aspiration-ask: AIs seated at this table after the burst may
+        # decide they want to climb a tier without busting. Mutates
+        # `result` in place — vacates seats, appends bankroll changes,
+        # appends idle-pool changes, creates stake rows via
+        # `stake_repo`. The downstream persistence code (save_table,
+        # idle_changes loop, from_seat credits) consumes these changes
+        # exactly like the bust-stake flow's outputs.
+        #
+        # Gated on the take_stake plumbing being wired (we need
+        # stake_repo + the find_ai_staker_for callbacks). Spec:
+        # `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md` Commit 4.
+        if _take_stake_enabled and stake_repo is not None:
+            _process_aspiration_asks(
+                result=result,
+                bankroll_repo=bankroll_repo,
+                stake_repo=stake_repo,
+                relationship_repo=relationship_repo,
+                personality_repo=personality_repo,
+                sandbox_id=sandbox_id,
+                now=now,
+                rng=rng,
+                staker_profile_lookup=_staker_profile_lookup,
+                bankroll_lookup=_bankroll_lookup,
+                relationship_lookup=_relationship_lookup,
+                history_lookup=_history_for,
+                starting_bankroll_lookup=_starting_bankroll_for,
+                all_tables=tables,
+                idle_pool=idle_pool,
+            )
 
         # Persist the table (always — last_activity_at bumps) and idle
         # pool changes. The dealer button was advanced in real engine-
@@ -1979,3 +2009,332 @@ def kill_all_cash_sessions(
             dropped,
         )
     return dropped
+
+
+# --- Aspiration-ask integration --------------------------------------------
+
+
+# Per-AI cooldown applied to every triggered aspiration roll (success or
+# failure). 60 simulated seconds — at the production lobby cadence
+# (~8s/tick) that's ~7-8 ticks between successive attempts per AI.
+ASPIRATION_COOLDOWN_SECONDS = 60
+
+
+def _process_aspiration_asks(
+    *,
+    result: RosterRefreshResult,
+    bankroll_repo,
+    stake_repo,
+    relationship_repo,
+    personality_repo,
+    sandbox_id: Optional[str],
+    now: datetime,
+    rng: random.Random,
+    staker_profile_lookup,
+    bankroll_lookup,
+    relationship_lookup,
+    history_lookup,
+    starting_bankroll_lookup,
+    all_tables,
+    idle_pool,
+) -> None:
+    """Mutate `result` in place with aspiration-ask outcomes.
+
+    For each AI seated at `result.new_table` after the burst:
+
+      1. Skip if cooldown is still active.
+      2. Skip if AI already has an active stake (one-active-stake).
+      3. Roll aspiration probability against the AI's
+         `borrower_profile.aspiration_bias` × `wealth_gap_factor`.
+      4. If the roll succeeds, attempt `find_ai_staker_for` over the
+         cross-table candidate pool at the *target* tier.
+      5. If a staker is found, commit: create stake row, vacate
+         current seat, issue bankroll changes (asker's seat → asker's
+         bankroll PLUS principal, staker's bankroll − principal), and
+         add an idle-pool entry with `target_stake = target_tier`.
+      6. Stamp the cooldown regardless of success — failed asks still
+         consume the rate limit so no single AI spams.
+
+    All chip movements flow through the same `BankrollChange` /
+    `IdlePoolChange` / `stake_repo.create_stake` surfaces the
+    bust-stake path uses, so the chip-ledger audit invariant is
+    preserved unchanged.
+
+    Spec: `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md` Commit 4.
+    """
+    from cash_mode.aspiration import compute_aspiration_probability
+    from cash_mode.stakes import (
+        BORROWER_KIND_PERSONALITY,
+        STAKE_FORMAT_PURE,
+        STAKE_STATUS_ACTIVE,
+        STAKER_KIND_PERSONALITY,
+        Stake,
+    )
+    from cash_mode.tables import open_slot
+    from cash_mode.stakes_ladder import (
+        STAKES_ORDER,
+        table_buy_in_window,
+    )
+    from poker.memory import OpponentModelManager
+    from poker.memory.relationship_events import RelationshipEvent
+    from cash_mode.movement import (
+        BankrollChange,
+        IdlePoolChange,
+        IdlePoolEntry,
+        find_ai_staker_for,
+    )
+
+    table = result.new_table
+    current_tier = table.stake_label
+    if current_tier not in STAKES_ORDER:
+        return  # Defensive — unknown tier label can't have a "next".
+    current_idx = STAKES_ORDER.index(current_tier)
+    if current_idx + 1 >= len(STAKES_ORDER):
+        return  # Top-tier seats have nowhere to climb to.
+    target_tier = STAKES_ORDER[current_idx + 1]
+    try:
+        _, target_min_buy_in, _ = table_buy_in_window(target_tier)
+    except Exception:
+        return
+    if target_min_buy_in <= 0:
+        return
+
+    cooldown_until_new = now + timedelta(seconds=ASPIRATION_COOLDOWN_SECONDS)
+    # Snapshot the seats list so we iterate by index — the loop body
+    # may vacate seats, but we want to evaluate every AI that was
+    # seated when we started, not race against our own mutations.
+    seats_snapshot = list(enumerate(table.seats))
+
+    for seat_idx, slot in seats_snapshot:
+        if slot.get("kind") != "ai":
+            continue
+        asker_pid = slot.get("personality_id")
+        if not asker_pid:
+            continue
+        # One-active-stake invariant: an AI already a borrower can't
+        # take a second stake on top.
+        try:
+            existing = stake_repo.load_active_for_borrower(
+                asker_pid, BORROWER_KIND_PERSONALITY,
+            )
+        except Exception as exc:
+            logger.debug(
+                "[CASH][LOBBY] aspiration: stake lookup failed pid=%r: %s",
+                asker_pid, exc,
+            )
+            existing = None
+        if existing is not None:
+            continue
+
+        # Per-AI cooldown gate.
+        try:
+            cooldown_until = bankroll_repo.load_aspiration_cooldown_until(
+                asker_pid, sandbox_id=sandbox_id,
+            )
+        except Exception as exc:
+            logger.debug(
+                "[CASH][LOBBY] aspiration: cooldown read failed pid=%r: %s",
+                asker_pid, exc,
+            )
+            cooldown_until = None
+        if cooldown_until is not None and cooldown_until > now:
+            continue
+
+        try:
+            profile = bankroll_repo.load_borrower_profile(asker_pid)
+        except Exception:
+            continue
+        if not profile.willing or profile.aspiration_bias <= 0:
+            continue
+
+        bankroll = bankroll_lookup(asker_pid) or 0
+        if bankroll <= 0:
+            continue
+
+        prob = compute_aspiration_probability(
+            aspiration_bias=profile.aspiration_bias,
+            bankroll=bankroll,
+            target_min_buy_in=target_min_buy_in,
+        )
+        if prob <= 0 or rng.random() >= prob:
+            continue
+
+        # Probability roll succeeded. Stamp cooldown up front so even
+        # a failed staker-find doesn't immediately re-roll on the
+        # next tick.
+        try:
+            bankroll_repo.save_aspiration_cooldown_until(
+                asker_pid, sandbox_id=sandbox_id, until=cooldown_until_new,
+            )
+        except Exception as exc:
+            logger.debug(
+                "[CASH][LOBBY] aspiration: cooldown write failed pid=%r: %s",
+                asker_pid, exc,
+            )
+
+        principal = target_min_buy_in
+        # Aspiration asks accept backers from ANYWHERE in the lobby,
+        # not just adjacent tiers. The bust-stake adjacency
+        # constraint (`_cross_table_pool_for`) was designed for
+        # peer-bailout where the borrower needs a staker who
+        # "knows" their tier. Aspiration is the opposite — a wealthy
+        # patron from $1000 backing a $10 climber is perfectly
+        # plausible and we want to allow it. `find_ai_staker_for`'s
+        # capacity gate naturally filters out under-capitalized
+        # candidates; relationship gates handle the rest. Pool =
+        # every AI on another table + every AI in the idle pool,
+        # deduped.
+        seen_in_pool: set = set()
+        candidate_pool: List[str] = []
+        for other_table in all_tables:
+            if other_table.table_id == table.table_id:
+                continue
+            for other_slot in other_table.seats:
+                if other_slot.get("kind") != "ai":
+                    continue
+                other_pid = other_slot.get("personality_id")
+                if not other_pid or other_pid == asker_pid:
+                    continue
+                if other_pid in seen_in_pool:
+                    continue
+                seen_in_pool.add(other_pid)
+                candidate_pool.append(other_pid)
+        for idle_entry in idle_pool:
+            other_pid = idle_entry.personality_id
+            if not other_pid or other_pid == asker_pid:
+                continue
+            if other_pid in seen_in_pool:
+                continue
+            seen_in_pool.add(other_pid)
+            candidate_pool.append(other_pid)
+        if not candidate_pool:
+            continue
+
+        try:
+            picked = find_ai_staker_for(
+                borrower_id=asker_pid,
+                principal=principal,
+                candidate_pids=candidate_pool,
+                staker_profile_lookup=staker_profile_lookup,
+                bankroll_lookup=bankroll_lookup,
+                relationship_lookup=relationship_lookup,
+                rng=rng,
+                history_lookup=history_lookup,
+                starting_bankroll_lookup=starting_bankroll_lookup,
+            )
+        except Exception as exc:
+            logger.debug(
+                "[CASH][LOBBY] aspiration: find_ai_staker_for raised "
+                "pid=%r: %s", asker_pid, exc,
+            )
+            continue
+        if picked is None:
+            continue
+        staker_id, staker_profile = picked
+
+        # Commit. Vacate the seat, return seat chips to bankroll, add
+        # the stake principal to the asker's bankroll, debit the
+        # staker, create the Stake row, place asker in the idle pool
+        # targeting the new tier.
+        seat_chips = int(slot.get("chips", 0) or 0)
+        table.seats[seat_idx] = open_slot()
+
+        # Single BankrollChange combining the seat-chip return and the
+        # stake-principal credit. The post-burst code applies
+        # from_seat changes via credit_ai_cash_out, which writes one
+        # row + handles regen — combining the two amounts is a
+        # single write, cleaner than two separate calls.
+        result.bankroll_changes.append(BankrollChange(
+            direction="from_seat",
+            personality_id=asker_pid,
+            amount=seat_chips + principal,
+        ))
+
+        # Debit the staker inline (matches Phase 4's stake_creations
+        # post-loop debit pattern).
+        try:
+            from cash_mode.bankroll import debit_bankroll_for_seat
+            debit_bankroll_for_seat(
+                bankroll_repo, staker_id, principal, sandbox_id=sandbox_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] aspiration: staker debit failed "
+                "staker=%r pid=%r principal=%d: %s",
+                staker_id, asker_pid, principal, exc,
+            )
+            continue
+
+        # Create the stake row.
+        import uuid
+        stake = Stake(
+            stake_id=f"ai_stake_aspire_{uuid.uuid4().hex[:12]}",
+            session_id=f"ai_aspire_{asker_pid}_{int(now.timestamp())}",
+            staker_id=staker_id,
+            staker_kind=STAKER_KIND_PERSONALITY,
+            borrower_id=asker_pid,
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=STAKE_FORMAT_PURE,
+            principal=principal,
+            match_amount=0,
+            origination_fee=0,
+            cut=staker_profile.rate_anchor,
+            status=STAKE_STATUS_ACTIVE,
+            carry_amount=0,
+            stake_tier=target_tier,
+            created_at=now,
+        )
+        try:
+            stake_repo.create_stake(stake)
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] aspiration: create_stake failed "
+                "asker=%r staker=%r: %s",
+                asker_pid, staker_id, exc,
+            )
+            continue
+
+        # Relationship event — same shape as bust-stake.
+        if relationship_repo is not None:
+            try:
+                OpponentModelManager(
+                    relationship_repo=relationship_repo,
+                ).record_event(
+                    actor_id=staker_id,
+                    target_id=asker_pid,
+                    event=RelationshipEvent.STAKE_OFFERED,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "[CASH][LOBBY] aspiration: STAKE_OFFERED event "
+                    "failed staker=%r asker=%r: %s",
+                    staker_id, asker_pid, exc,
+                )
+
+        # Idle pool: target_stake = next tier so live-fill picks up
+        # this AI at the new table. Reuse `stake_up_queued` — the
+        # idle-pool consumer doesn't care whether the queue came from
+        # overflow `stake_up` movement or from this aspiration_ask
+        # path; both want the same "wait for a seat at this label"
+        # semantics.
+        idle_entry = IdlePoolEntry(
+            personality_id=asker_pid,
+            left_at=now,
+            reason="stake_up_queued",
+            target_stake=target_tier,
+        )
+        result.idle_changes.append(IdlePoolChange(
+            kind="add", personality_id=asker_pid, entry=idle_entry,
+        ))
+
+        # Decision tag for sim observability (replaces any prior
+        # value the burst loop wrote — aspiration_ask overrides the
+        # final movement decision for this AI in this refresh).
+        result.decisions[asker_pid] = "aspiration_climb"
+
+        logger.info(
+            "[CASH][LOBBY] aspiration_climb: %r ($%s) → %r at %s, "
+            "principal=%d cut=%.2f",
+            asker_pid, current_tier, staker_id, target_tier,
+            principal, staker_profile.rate_anchor,
+        )
