@@ -79,6 +79,20 @@ class _BankrollKnobsRouteBase(unittest.TestCase):
         self.app.testing = True
         self.client = self.app.test_client()
 
+        # Snapshot pre-test values of the module-level personality_repo
+        # bindings so tearDown can restore them. create_app() must run
+        # first — routes import limiter from extensions, which is only
+        # initialized inside init_extensions. mock_init_persistence
+        # leaves extensions.personality_repo pointing at our tempdb;
+        # the snapshot lets us undo that for subsequent tests in the
+        # same xdist worker.
+        import flask_app.extensions as _ext_mod
+        import flask_app.routes.personality_routes as _routes_mod
+        self._ext_mod = _ext_mod
+        self._routes_mod = _routes_mod
+        self._original_ext_personality_repo = getattr(_ext_mod, 'personality_repo', None)
+        self._original_route_personality_repo = getattr(_routes_mod, 'personality_repo', None)
+
         user = {'id': 'test-user', 'name': 'Tester'}
         self._authz_patcher = patch(
             'poker.authorization.authorization_service',
@@ -96,6 +110,13 @@ class _BankrollKnobsRouteBase(unittest.TestCase):
             auth_mock,
         )
         self._auth_patcher.start()
+
+        # `personality_routes.py` imports `personality_repo` at module
+        # load time, so mock_init_persistence (which only touches
+        # `extensions.personality_repo`) doesn't reach the route's own
+        # bound reference. Pin it directly. The pre-test snapshot above
+        # plus the tearDown restore makes this safe under xdist.
+        self._routes_mod.personality_repo = self.personality_repo
 
         # Also patch the personality_routes' bound bankroll_repo lookup so
         # the route's late-binding `from ..extensions import bankroll_repo`
@@ -127,6 +148,11 @@ class _BankrollKnobsRouteBase(unittest.TestCase):
     def tearDown(self):
         self._auth_patcher.stop()
         self._authz_patcher.stop()
+        # Restore the module-level bindings that mock_init_persistence
+        # clobbered. Without this, the next test in the same worker
+        # sees our (now-unlinked) tempdb as the bound personality_repo.
+        self._ext_mod.personality_repo = self._original_ext_personality_repo
+        self._routes_mod.personality_repo = self._original_route_personality_repo
         os.unlink(self.test_db.name)
 
 
@@ -148,8 +174,8 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
         self.assertEqual(data['knobs']['stake_comfort_zone'], '$10')
         # Defaults block surfaced for the UI's hint text.
         self.assertIn('starting_bankroll', data['defaults'])
-        # No bankroll row yet → None.
-        self.assertIsNone(data['current_bankroll'])
+        # No bankroll row yet → 0 (cross-sandbox SUM coalesces to 0).
+        self.assertEqual(data['current_bankroll'], 0)
 
     def test_get_returns_defaults_for_unseeded_personality(self):
         response = self.client.get('/api/personality/Rookie/bankroll-knobs')

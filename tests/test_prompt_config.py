@@ -29,7 +29,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 28)  # 24 bool + 1 Optional[bool] + 1 int + 2 str
+        self.assertEqual(len(d), 29)  # 25 bool + 1 Optional[bool] + 1 int + 2 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('dramatic_sequence', d)
@@ -174,6 +174,7 @@ class TestPromptConfig(unittest.TestCase):
             option_order='shuffle',
             preflop_range_gate=True,
             hu_equity_offset=True,
+            relationship_context=True,
         )
         self.assertIn('all enabled', repr(config))
 

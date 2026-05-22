@@ -106,8 +106,21 @@ class TestCreatePersonalityRoute:
         module."""
         from flask_app.ui_web import create_app
         from flask_app.routes import personality_routes as route_mod
+        from flask_app import extensions as ext
 
         app = create_app()
+
+        # Re-sync the route module's bound `personality_repo` from
+        # extensions. Other tests in the same xdist worker may use
+        # mock_init_persistence to point the route at a tempdb that's
+        # been unlinked by the time this fixture runs. create_app()
+        # above invokes init_persistence(), which refreshes
+        # extensions.personality_repo to the real prod-DB repo —
+        # rebinding the route's reference picks that up. (The route
+        # module captures `personality_repo` by name at module load,
+        # so a fresh init_persistence doesn't reach into already-bound
+        # names.)
+        route_mod.personality_repo = ext.personality_repo
 
         # Stub auth: route's auth_manager.get_current_user returns a
         # fake user dict instead of consulting Flask session.

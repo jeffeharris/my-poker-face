@@ -2,6 +2,7 @@
 """Route tests for owner-or-admin enforcement on game REST endpoints."""
 
 import os
+import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -11,7 +12,15 @@ from flask_app.game_adapter import StateMachineAdapter
 from flask_app.services import game_state_service
 from poker.poker_game import initialize_game_state
 from poker.poker_state_machine import PokerStateMachine
+import poker.repositories
+import poker.repositories.sqlite_repositories  # noqa: F401  (load into sys.modules)
 from poker.repositories import create_repos
+
+# A circular import inside poker.repositories.__init__.py prevents Python
+# from binding `sqlite_repositories` as an attribute on the parent package,
+# even though the submodule is in sys.modules. Force the binding so
+# mock.patch's dotted lookup can resolve the target.
+poker.repositories.sqlite_repositories = sys.modules['poker.repositories.sqlite_repositories']
 
 
 class _AIControllerStub:
