@@ -1,7 +1,7 @@
 import { Coins, Trophy, ChevronRight } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
-import menuBanner from '../../assets/menu-banner.png';
+import menuBanner from '../../assets/menu-banner.webp';
 import './HomeMenu.css';
 
 interface HomeMenuProps {
@@ -24,7 +24,15 @@ export function HomeMenu({
       <MenuBar showUserInfo onAdminTools={onAdminDashboard} />
       <PageLayout variant="top" glowColor="gold" maxWidth={isDesktop ? 'md' : 'md'} hasMenuBar>
         <div className="home-menu__banner">
-          <img src={menuBanner} alt="My Poker Face" className="home-menu__banner-image" />
+          <img
+            src={menuBanner}
+            alt="My Poker Face"
+            className="home-menu__banner-image"
+            width={760}
+            height={313}
+            decoding="async"
+            fetchPriority="high"
+          />
         </div>
 
         <PageHeader
