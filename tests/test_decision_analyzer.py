@@ -1,5 +1,7 @@
 """Tests for decision analyzer, focusing on stack-aware EV calculations."""
 
+import pytest
+
 from poker.decision_analyzer import (
     DecisionAnalyzer,
     DecisionAnalysis,
@@ -588,6 +590,70 @@ class TestQualityScore:
         analyzer._evaluate_quality(analysis)
         assert analysis.decision_quality == 'unknown'
         assert analysis.quality_score is None
+
+
+class TestEffectiveEquity:
+    """Tests for v2: range-based equity preferred over random-hand equity.
+
+    Random-hand equity (analysis.equity) systematically overestimates hero's
+    chances against typical opponent ranges. Quality scoring should prefer
+    equity_vs_ranges when present and fall back to equity when not.
+    """
+
+    def _make_analyzer(self):
+        return DecisionAnalyzer(iterations=10)
+
+    def _make_analysis(self, **kwargs):
+        defaults = dict(game_id="test", player_name="Hero", pot_total=100,
+                        cost_to_call=50, player_stack=500, num_opponents=1)
+        defaults.update(kwargs)
+        return DecisionAnalysis(**defaults)
+
+    def test_prefers_range_equity_when_both_set(self):
+        """When both equity fields are populated, range-based wins."""
+        analysis = self._make_analysis(equity=0.60, equity_vs_ranges=0.25)
+        assert DecisionAnalyzer._effective_equity(analysis) == 0.25
+
+    def test_falls_back_to_random_equity(self):
+        """Without range-based equity, fall back to vs-random."""
+        analysis = self._make_analysis(equity=0.40, equity_vs_ranges=None)
+        assert DecisionAnalyzer._effective_equity(analysis) == 0.40
+
+    def test_returns_none_when_both_missing(self):
+        analysis = self._make_analysis(equity=None, equity_vs_ranges=None)
+        assert DecisionAnalyzer._effective_equity(analysis) is None
+
+    def test_quality_flips_to_fold_when_range_equity_is_low(self):
+        # Random-hand equity makes this look +EV (called -EV would be marginal),
+        # but vs actual ranges the call is a clear -EV mistake.
+        analyzer = self._make_analyzer()
+        analysis = self._make_analysis(
+            equity=0.55,
+            equity_vs_ranges=0.20,
+            ev_call=-15.0,  # negative because computed from range equity upstream
+            required_equity=0.33,
+            action_taken='call',
+            phase='FLOP',
+        )
+        analyzer._evaluate_quality(analysis)
+        assert analysis.optimal_action == 'fold'
+        assert analysis.decision_quality == 'mistake'
+        assert analysis.ev_lost == 15.0
+
+    def test_fold_when_can_check_uses_range_equity_for_ev_lost(self):
+        # Folding for free should burn `eq_range * pot`, not `eq_random * pot`.
+        analyzer = self._make_analyzer()
+        analysis = self._make_analysis(
+            cost_to_call=0,
+            equity=0.60,
+            equity_vs_ranges=0.30,
+            ev_call=0,
+            action_taken='fold',
+            phase='FLOP',
+        )
+        analyzer._evaluate_quality(analysis)
+        assert analysis.decision_quality == 'mistake'
+        assert analysis.ev_lost == pytest.approx(0.30 * 100)
 
 
 class TestMenuCompliance:
