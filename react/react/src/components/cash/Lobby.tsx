@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PageLayout, PageHeader } from '../shared';
+import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { getLobby, getState, sitAtTable } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
@@ -122,12 +122,20 @@ export function Lobby() {
   );
 
   return (
-    <PageLayout>
-      <PageHeader
-        title="Cash Game"
+    <>
+      <MenuBar
         onBack={() => navigate('/menu')}
-        subtitle="Pick a table, tap an open seat, play hands."
+        title="Career"
+        showUserInfo
+        onMainMenu={() => navigate('/menu')}
+        onAdminTools={() => navigate('/admin')}
       />
+      <PageLayout variant="top" glowColor="gold" hasMenuBar>
+        <PageHeader
+          title="Pick a Table"
+          subtitle="Tap an open seat to sit down"
+          titleVariant="primary"
+        />
       <div className="cash-entry">
         {bankroll !== null && (
           <div className="cash-entry__bankroll">
@@ -165,11 +173,12 @@ export function Lobby() {
           </div>
         </section>
       </div>
-      <SponsorModal
-        isOpen={sponsorState !== null}
-        stakeLabel={sponsorState?.stakeLabel ?? null}
-        onClose={() => setSponsorState(null)}
-      />
-    </PageLayout>
+        <SponsorModal
+          isOpen={sponsorState !== null}
+          stakeLabel={sponsorState?.stakeLabel ?? null}
+          onClose={() => setSponsorState(null)}
+        />
+      </PageLayout>
+    </>
   );
 }

@@ -368,7 +368,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           <ProtectedRoute>
             <GameSelector
               onSelectGame={handleSelectGame}
-              onBack={() => navigate('/menu')}
+              onBack={() => navigate('/menu/tournament')}
               onGamesChanged={handleGamesChanged}
             />
           </ProtectedRoute>
@@ -378,7 +378,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           <ProtectedRoute>
             <CustomGameConfig
               onStartGame={handleStartCustomGame}
-              onBack={() => navigate('/menu')}
+              onBack={() => navigate('/menu/tournament')}
               isCreatingGame={isCreatingGame}
             />
           </ProtectedRoute>
@@ -388,7 +388,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           <ProtectedRoute>
             <ThemedGameSelector
               onSelectTheme={handleSelectTheme}
-              onBack={() => navigate('/menu')}
+              onBack={() => navigate('/menu/tournament')}
               isCreatingGame={isCreatingGame}
             />
           </ProtectedRoute>
@@ -404,7 +404,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
         <Route path="/stats" element={
           <ProtectedRoute>
-            <CareerStats onBack={() => navigate('/menu')} />
+            <CareerStats onBack={() => navigate('/menu/tournament')} />
           </ProtectedRoute>
         } />
 
