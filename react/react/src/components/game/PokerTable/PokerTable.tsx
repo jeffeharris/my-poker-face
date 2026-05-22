@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Bot } from 'lucide-react';
 import { CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
 import { CharacterDetailCard } from '../../character';
@@ -15,6 +15,7 @@ import { BustModal } from '../../cash/BustModal';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
 import { ShuffleLoading } from '../../shared/ShuffleLoading';
+import { pickQuote } from '../WinnerAnnouncement/quote-flavor';
 import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { logger } from '../../../utils/logger';
 import { gameAPI } from '../../../utils/api';
@@ -88,6 +89,14 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
     gameState?.awaiting_action,
     handleSendMessage,
   );
+
+  // Pick a flavor quote for shuffle screens. Stable per hand so it doesn't
+  // flicker on re-renders during a single shuffle.
+  const handNumberForQuote = gameState?.hand_number;
+  const shuffleQuote = useMemo(() => {
+    const q = pickQuote('between_hands');
+    return q ? { text: q.text, attribution: q.attribution } : undefined;
+  }, [handNumberForQuote]);
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {
@@ -217,7 +226,12 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
   if (loading) {
     return (
       <div className="poker-table">
-        <ShuffleLoading isVisible={true} message="Setting up the table" submessage="Shuffling cards and gathering players" />
+        <ShuffleLoading
+          isVisible={true}
+          message="Setting up the table"
+          submessage="Shuffling cards and gathering players"
+          quote={shuffleQuote}
+        />
       </div>
     );
   }

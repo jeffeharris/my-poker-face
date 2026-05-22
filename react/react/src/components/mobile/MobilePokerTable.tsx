@@ -10,7 +10,9 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
-import { ShuffleLoading } from '../shared/ShuffleLoading';
+import { ShuffleLoading, type FoldoutFlavor } from '../shared/ShuffleLoading';
+import { computeFoldoutStats } from '../game/WinnerAnnouncement/foldout-flavor';
+import { pickQuote } from '../game/WinnerAnnouncement/quote-flavor';
 import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
@@ -207,6 +209,14 @@ export function MobilePokerTable({
   const isShowdown = phase?.toLowerCase() === 'showdown';
   const isInterhandPhase = phase === 'EVALUATING_HAND' || phase === 'HAND_OVER';
 
+  // Pick a flavor quote for the interhand shuffle. Memoized by handNumber so
+  // it stays stable across re-renders during a single shuffle and changes
+  // each hand.
+  const interhandQuote = useMemo(() => {
+    const q = pickQuote('between_hands');
+    return q ? { text: q.text, attribution: q.attribution } : undefined;
+  }, [handNumber]);
+
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
   const shouldHighlightActivePlayer = isBettingPhase(phase, runItOut);
 
@@ -309,6 +319,7 @@ export function MobilePokerTable({
   // Split into message (name + verb) and submessage (amount) for better layout.
   const [interhandMessage, setInterhandMessage] = useState<string | null>(null);
   const [interhandSubmessage, setInterhandSubmessage] = useState<string | undefined>(undefined);
+  const [interhandFlavor, setInterhandFlavor] = useState<FoldoutFlavor | undefined>(undefined);
 
   useEffect(() => {
     if (!winnerInfo || winnerInfo.showdown) return;
@@ -330,13 +341,19 @@ export function MobilePokerTable({
     const verb = winnerInfo.winners.length > 1 ? 'split' : 'won';
     setInterhandMessage(`${names} ${verb}`);
     setInterhandSubmessage(netProfit != null && netProfit > 0 ? `+$${netProfit}` : undefined);
+
+    setInterhandFlavor(
+      computeFoldoutStats(winnerInfo, storePlayers ?? [], bigBlind ?? 0),
+    );
+
     clearWinnerInfo();
-  }, [winnerInfo, clearWinnerInfo]);
+  }, [winnerInfo, clearWinnerInfo, storePlayers, bigBlind]);
 
   // Clear when the next hand starts
   useEffect(() => {
     setInterhandMessage(null);
     setInterhandSubmessage(undefined);
+    setInterhandFlavor(undefined);
   }, [handNumber]);
 
   // Coach hook
@@ -443,7 +460,12 @@ export function MobilePokerTable({
   return (
     <div className="mobile-poker-table" data-testid="mobile-poker-table" data-connected={isConnected ? 'true' : 'false'}>
       {/* Initial loading overlay - slides off screen when game data arrives */}
-      <ShuffleLoading isVisible={isInitialLoading} message="Setting up the table" exitStyle="slide" />
+      <ShuffleLoading
+        isVisible={isInitialLoading}
+        message="Setting up the table"
+        exitStyle="slide"
+        quote={interhandQuote}
+      />
 
       {/* Reconnecting overlay - shows when socket is disconnected but we have game state */}
       {showReconnecting && (
@@ -927,6 +949,8 @@ export function MobilePokerTable({
         message={interhandMessage || 'Shuffling'}
         submessage={interhandSubmessage}
         handNumber={handNumber}
+        foldoutFlavor={interhandFlavor}
+        quote={interhandQuote}
         variant="interhand"
       />
 

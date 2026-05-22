@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { GameMenu, type QuickPlayConfig } from './components/menus/GameMenu'
@@ -11,6 +11,7 @@ import { useUsageStats } from './hooks/useUsageStats'
 import { useNicknameOverridesStore } from './stores/nicknameOverridesStore'
 import { fetchNicknameOverrides } from './components/character/api'
 import { ShuffleLoading, GuestLimitModal } from './components/shared'
+import { pickQuote } from './components/game/WinnerAnnouncement/quote-flavor'
 import { logger } from './utils/logger'
 import { config } from './config'
 import { type Theme } from './types/theme'
@@ -67,6 +68,13 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(null)
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [loadingSubmessage, setLoadingSubmessage] = useState('Preparing the table and seating your opponents')
+
+  // Fresh quote each time game creation kicks off.
+  const creatingGameQuote = useMemo(() => {
+    if (!isCreatingGame) return undefined;
+    const q = pickQuote('between_hands');
+    return q ? { text: q.text, attribution: q.attribution } : undefined;
+  }, [isCreatingGame])
 
   // Check if guest hand limit is already reached on load
   useEffect(() => {
@@ -458,6 +466,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         message="Setting up your game"
         submessage={loadingSubmessage}
         exitStyle="slide"
+        quote={creatingGameQuote}
       />
 
       {/* Max Games Error Modal */}

@@ -124,6 +124,56 @@
 }
 
 /* ===========================================
+   QUOTE BLOCK
+   Optional flavor text rendered above the deck
+   =========================================== */
+
+.shuffle-loading-quote {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: min(90vw, 420px);
+  text-align: center;
+  padding: 0 16px;
+  animation: shuffleLoadingBadgeFadeIn 0.6s ease-out 0.15s both;
+}
+
+.shuffle-loading-quote-text {
+  font-family: var(--font-display);
+  font-size: clamp(15px, 4.2vw, 18px);
+  font-style: italic;
+  line-height: 1.45;
+  color: var(--color-text-secondary, rgba(230, 230, 240, 0.9));
+  margin: 0;
+  letter-spacing: 0.2px;
+  text-wrap: balance;
+}
+
+.shuffle-loading-quote-text::before {
+  content: '\201C';
+  margin-right: 2px;
+  color: var(--color-gold, #d4a574);
+  opacity: 0.6;
+}
+
+.shuffle-loading-quote-text::after {
+  content: '\201D';
+  margin-left: 2px;
+  color: var(--color-gold, #d4a574);
+  opacity: 0.6;
+}
+
+.shuffle-loading-quote-attribution {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: var(--letter-spacing-wider);
+  color: var(--color-text-tertiary);
+  margin: 0;
+  text-transform: uppercase;
+}
+
+/* ===========================================
    SHUFFLE DECK ANIMATION
    Card backs riffle and settle
    =========================================== */
@@ -348,6 +398,68 @@
   font-weight: var(--font-weight-bold);
   color: var(--color-gold-light);
   text-shadow: 0 0 20px rgba(212, 165, 116, 0.3);
+}
+
+/* ===========================================
+   FOLD-OUT FLAVOR
+   Replaces hand-number badge when fold-out flavor is provided
+   =========================================== */
+
+.shuffle-loading-flavor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  max-width: 360px;
+  text-align: center;
+  animation: shuffleLoadingBadgeFadeIn 0.6s ease-out 0.3s both;
+}
+
+.shuffle-loading-flavor-headline {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gold-light);
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 20px rgba(212, 165, 116, 0.3);
+}
+
+.shuffle-loading-flavor-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 240px;
+}
+
+.shuffle-loading-flavor-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 2px 0;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.12);
+}
+
+.shuffle-loading-flavor-row:last-child {
+  border-bottom: none;
+}
+
+.shuffle-loading-flavor-row-label {
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-medium);
+}
+
+.shuffle-loading-flavor-row-value {
+  color: var(--color-emerald, #4ade80);
+  font-weight: var(--font-weight-semibold);
+  text-align: right;
 }
 
 /* ===========================================
