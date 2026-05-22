@@ -1,18 +1,21 @@
-"""LLM-generated exit narration for AI cash-mode leaves.
+"""LLM-generated narration for AI cash-mode movement events.
 
-When an AI leaves a table (busted, booking a win, bored, tired), the
-lobby ticker can carry a short in-character beat instead of just the
-default "X left the Y table" line. This module owns:
+When an AI leaves a table (busted, booking a win, bored, tired) OR
+sits down (live fill, idle return), the lobby ticker can carry a short
+in-character beat instead of just the default "X left the Y table" /
+"X sat down at Y" line. This module owns:
 
-  - `generate_leave_comment(ctx)` — synchronous LLM call that returns
-    a short rendered comment (joined `dramatic_sequence`). Tagged with
-    `CallType.COMMENTARY` and `prompt_template='leave_narrative'` so
-    the prompt viewer surfaces it alongside decision captures.
+  - `generate_leave_comment(ctx)` / `generate_join_comment(ctx)` —
+    synchronous LLM calls that return a short rendered comment
+    (joined `dramatic_sequence`). Tagged with `CallType.COMMENTARY`
+    and `prompt_template='leave_narrative'` / `'join_narrative'`
+    respectively so the prompt viewer can filter each kind separately.
 
-  - `queue_leave_comment(...)` / `get_leave_comment(...)` —
-    fire-and-forget worker pool. The lobby refresh emits the event
-    immediately with `comment=None`; the worker fills it in within a
-    second or two. Subsequent ticker reads pick it up.
+  - `queue_leave_comment(...)` / `queue_join_comment(...)` /
+    `get_comment(...)` — fire-and-forget worker pool. The lobby
+    refresh emits the event immediately with `comment=None`; the
+    worker fills it in within a second or two. Subsequent ticker
+    reads pick it up.
 
 Out of the hot path: lobby refresh never blocks on the LLM. If the
 worker is slow or fails, the event still shows up with the default
@@ -127,6 +130,121 @@ def _build_messages(ctx: LeaveNarrativeContext) -> list:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_msg},
     ]
+
+
+# --- Join narrative -----------------------------------------------------------
+
+# Single arrival hint for v1 — no signal differentiation. Future
+# enhancement: pull `idle_pool_entry.target_stake` to detect upward
+# moves and offer a separate "shopping up" tone. The personality's
+# own play_style and tics already carry plenty of color in the
+# generic case, so a single hint keeps the prompt-viewer rows uniform
+# until we have a reason to split them.
+_JOIN_HINT = {
+    "hint": (
+        "You're sitting down at a cash-game table. Settle in — buy in, "
+        "stack your chips, take stock of the table."
+    ),
+    "tone": "anticipatory — one or two beats, no theatrics.",
+}
+
+
+@dataclass(frozen=True)
+class JoinNarrativeContext:
+    """All inputs the LLM needs to write an in-character arrival beat.
+
+    No `dominant_signal` field — joins don't carry the pressure
+    decomposition that drives leave hints. The personality fields plus
+    stake_label provide the full color the model needs.
+    """
+
+    personality_name: str
+    play_style: str
+    default_attitude: str
+    verbal_tics: Tuple[str, ...] = field(default_factory=tuple)
+    physical_tics: Tuple[str, ...] = field(default_factory=tuple)
+    stake_label: str = ""
+    chips_at_sit: int = 0
+    min_buy_in: int = 0
+
+
+def _build_join_messages(ctx: JoinNarrativeContext) -> list:
+    """Build the chat messages for the join-narrative call.
+
+    Mirrors `_build_messages` for leaves so the prompt-viewer reads as
+    a uniform pair. Only the situation/tone change shape.
+    """
+    verbal = ", ".join(ctx.verbal_tics[:3]) if ctx.verbal_tics else "(none provided)"
+    physical = ", ".join(ctx.physical_tics[:3]) if ctx.physical_tics else "(none provided)"
+
+    system_prompt = (
+        f"You are {ctx.personality_name}, a poker player with this play style: "
+        f"{ctx.play_style}. Your default attitude is {ctx.default_attitude}. "
+        "You are sitting down at a cash-game table. Respond with a short "
+        "in-character dramatic_sequence describing your arrival — what you "
+        "say or do as you take your seat. Stay in character.\n\n"
+        f"{DRAMATIC_SEQUENCE_GUIDANCE}\n\n"
+        'Return ONLY JSON: {"dramatic_sequence": ["...", "..."]} with 1-2 beats.'
+    )
+
+    user_msg = (
+        f"Situation: {_JOIN_HINT['hint']}\n"
+        f"Tone: {_JOIN_HINT['tone']}\n"
+        f"Table: {ctx.stake_label}. You're sitting down with ${ctx.chips_at_sit:,} "
+        f"(table min buy-in ${ctx.min_buy_in:,}).\n"
+        f"Your verbal tics: {verbal}\n"
+        f"Your physical tics: {physical}\n\n"
+        'Produce your dramatic_sequence now.'
+    )
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_msg},
+    ]
+
+
+def generate_join_comment(
+    ctx: JoinNarrativeContext,
+    *,
+    llm_client: Optional[LLMClient] = None,
+    owner_id: Optional[str] = None,
+) -> Optional[str]:
+    """Synchronous LLM call. Returns the rendered arrival comment or None.
+
+    Tagged with `prompt_template='join_narrative'` so the prompt viewer
+    can filter arrivals separately from leaves. Same FAST tier as the
+    leave path.
+    """
+    client = llm_client or LLMClient(provider=FAST_PROVIDER, model=FAST_MODEL)
+    messages = _build_join_messages(ctx)
+    try:
+        response = client.complete(
+            messages=messages,
+            json_format=True,
+            max_tokens=800,
+            call_type=CallType.COMMENTARY,
+            prompt_template="join_narrative",
+            player_name=ctx.personality_name,
+            owner_id=owner_id,
+        )
+    except Exception as exc:
+        logger.debug("join_narrative: LLM call failed for %s: %s",
+                     ctx.personality_name, exc)
+        return None
+
+    content = (response.content or "").strip()
+    if not content:
+        return None
+
+    import json as _json
+    try:
+        payload = _json.loads(content)
+    except _json.JSONDecodeError:
+        logger.debug("join_narrative: non-JSON response for %s: %r",
+                     ctx.personality_name, content[:120])
+        return None
+
+    return _render_sequence(payload)
 
 
 def _render_sequence(payload: Any) -> Optional[str]:
@@ -248,6 +366,17 @@ def _worker(key: Tuple[str, str, str], ctx: LeaveNarrativeContext,
         _store_result(key, comment)
 
 
+def _join_worker(key: Tuple[str, str, str], ctx: JoinNarrativeContext,
+                 owner_id: Optional[str]) -> None:
+    try:
+        comment = generate_join_comment(ctx, owner_id=owner_id)
+    except Exception as exc:
+        logger.debug("join_narrative worker crashed: %s", exc)
+        return
+    if comment:
+        _store_result(key, comment)
+
+
 def is_disabled() -> bool:
     """True when the env disables leave-narrative LLM calls.
 
@@ -286,15 +415,48 @@ def queue_leave_comment(
         logger.debug("leave_narrative: queue rejected: %s", exc)
 
 
-def get_leave_comment(
+def queue_join_comment(
+    table_id: str,
+    personality_id: str,
+    created_at: str,
+    ctx: JoinNarrativeContext,
+    *,
+    owner_id: Optional[str] = None,
+) -> None:
+    """Fire-and-forget submit for an arrival comment. No-op when disabled.
+
+    Shares the executor + results dict with `queue_leave_comment`; the
+    `(table_id, personality_id, created_at)` key won't collide because
+    a leave and a join by the same pid can't share a tick (leaves
+    vacate, joins fill a different open seat with a different pid).
+    """
+    if is_disabled():
+        return
+    key = (table_id, personality_id, created_at)
+    try:
+        _get_executor().submit(_join_worker, key, ctx, owner_id)
+    except RuntimeError as exc:
+        logger.debug("join_narrative: queue rejected: %s", exc)
+
+
+def get_comment(
     table_id: str,
     personality_id: str,
     created_at: str,
 ) -> Optional[str]:
-    """Return the rendered comment if the worker has finished, else None."""
+    """Return the rendered comment if the worker has finished, else None.
+
+    Kind-agnostic — works for both leaves and joins since they share
+    the results dict.
+    """
     key = (table_id, personality_id, created_at)
     with _results_lock:
         return _results.get(key)
+
+
+# Back-compat alias — older callers reach for `get_leave_comment`.
+# `get_comment` is the canonical name now that joins share the dict.
+get_leave_comment = get_comment
 
 
 def clear_results() -> None:

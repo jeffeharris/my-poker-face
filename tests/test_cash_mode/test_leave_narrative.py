@@ -15,14 +15,20 @@ from unittest.mock import MagicMock
 import pytest
 
 from cash_mode.leave_narrative import (
+    JoinNarrativeContext,
     LeaveNarrativeContext,
+    _build_join_messages,
     _build_messages,
+    _JOIN_HINT,
     _render_sequence,
     _SIGNAL_HINTS,
     clear_results,
+    generate_join_comment,
     generate_leave_comment,
+    get_comment,
     get_leave_comment,
     is_disabled,
+    queue_join_comment,
     queue_leave_comment,
 )
 
@@ -158,3 +164,97 @@ class TestDisabledFlag:
         clear_results()
         queue_leave_comment("t1", "p1", "2026-01-01T00:00:00", _ctx())
         assert get_leave_comment("t1", "p1", "2026-01-01T00:00:00") is None
+
+
+# --- Join narrative ------------------------------------------------------------
+
+
+def _jctx(**overrides):
+    base = dict(
+        personality_name="Test Player",
+        play_style="balanced",
+        default_attitude="calm",
+        verbal_tics=("Cheers.",),
+        physical_tics=("*nods*",),
+        stake_label="$10",
+        chips_at_sit=200,
+        min_buy_in=200,
+    )
+    base.update(overrides)
+    return JoinNarrativeContext(**base)
+
+
+class TestBuildJoinMessages:
+    def test_uses_arrival_hint(self):
+        msgs = _build_join_messages(_jctx())
+        assert msgs[0]["role"] == "system"
+        assert msgs[1]["role"] == "user"
+        assert _JOIN_HINT["hint"] in msgs[1]["content"]
+        assert _JOIN_HINT["tone"] in msgs[1]["content"]
+        # Sanity: the system prompt frames this as arrival, not exit.
+        assert "sitting down" in msgs[0]["content"].lower()
+
+    def test_personality_traits_carried(self):
+        msgs = _build_join_messages(_jctx(
+            personality_name="Napoleon",
+            play_style="aggressive",
+            default_attitude="dominant",
+            verbal_tics=("Vive la France.",),
+            physical_tics=("*straightens uniform*",),
+        ))
+        sys_prompt = msgs[0]["content"]
+        user_msg = msgs[1]["content"]
+        assert "Napoleon" in sys_prompt
+        assert "aggressive" in sys_prompt
+        assert "Vive la France." in user_msg
+        assert "*straightens uniform*" in user_msg
+
+    def test_chips_and_stake_in_user_message(self):
+        msgs = _build_join_messages(_jctx(chips_at_sit=500, stake_label="$25"))
+        assert "$500" in msgs[1]["content"]
+        assert "$25" in msgs[1]["content"]
+
+
+class TestGenerateJoinComment:
+    def _mock_client(self, response_content: str):
+        client = MagicMock()
+        response = MagicMock()
+        response.content = response_content
+        response.status = "ok"
+        client.complete.return_value = response
+        return client
+
+    def test_happy_path_returns_string(self):
+        canned = json.dumps({
+            "dramatic_sequence": ["*pulls up a chair*", "Evening, folks."],
+        })
+        client = self._mock_client(canned)
+        out = generate_join_comment(_jctx(), llm_client=client)
+        assert out == "*pulls up a chair* Evening, folks."
+
+    def test_tags_join_template(self):
+        canned = json.dumps({"dramatic_sequence": ["hi"]})
+        client = self._mock_client(canned)
+        generate_join_comment(_jctx(), llm_client=client, owner_id="user-99")
+        call_kwargs = client.complete.call_args.kwargs
+        # Distinct template so the prompt viewer separates arrivals
+        # from exits — guard against accidental rename.
+        assert call_kwargs["prompt_template"] == "join_narrative"
+        assert call_kwargs["call_type"].value == "commentary"
+        assert call_kwargs["owner_id"] == "user-99"
+
+    def test_non_json_returns_none(self):
+        client = self._mock_client("not json")
+        assert generate_join_comment(_jctx(), llm_client=client) is None
+
+
+class TestQueueJoinNoopWhenDisabled:
+    def test_queue_join_is_noop_when_disabled(self):
+        clear_results()
+        queue_join_comment("t2", "p2", "2026-01-01T00:00:00", _jctx())
+        assert get_comment("t2", "p2", "2026-01-01T00:00:00") is None
+
+    def test_get_comment_alias(self):
+        # `get_leave_comment` is a back-compat alias — must resolve to
+        # the same function so existing callers stay correct.
+        assert get_leave_comment is get_comment

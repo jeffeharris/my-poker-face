@@ -1514,10 +1514,19 @@ def _emit_activity_events(
                 pid, exc,
             )
 
+    # Post-movement chips for each freshly-seated AI — they bought
+    # in this tick, so the chip count lives on the new (post-refresh)
+    # table snapshot, not the pre-movement one.
+    post_seat_chips: Dict[str, int] = {}
+    for s in table.seats:
+        if s.get("kind") == "ai" and s.get("personality_id"):
+            post_seat_chips[s["personality_id"]] = int(s.get("chips", 0))
+
     for pid in freshly_seated_personality_ids:
-        name = _name_for(pid)
-        if not name:
+        personality = _personality_for(pid)
+        if not personality:
             continue
+        name = personality.get("name") or pid
         try:
             record_event(LobbyEvent(
                 type=EVENT_JOIN,
@@ -1532,6 +1541,35 @@ def _emit_activity_events(
             ))
         except Exception:
             pass
+        # Queue an in-character arrival comment. Fire-and-forget;
+        # `serialize_event` joins the result on the next ticker poll.
+        try:
+            from cash_mode.leave_narrative import (
+                JoinNarrativeContext,
+                queue_join_comment,
+            )
+            jctx = JoinNarrativeContext(
+                personality_name=name,
+                play_style=str(personality.get("play_style") or ""),
+                default_attitude=str(personality.get("default_attitude") or ""),
+                verbal_tics=tuple(personality.get("verbal_tics") or ()),
+                physical_tics=tuple(personality.get("physical_tics") or ()),
+                stake_label=stake,
+                chips_at_sit=post_seat_chips.get(pid, 0),
+                min_buy_in=table_min_buy_in,
+            )
+            queue_join_comment(
+                table_id=table.table_id,
+                personality_id=pid,
+                created_at=ts,
+                ctx=jctx,
+                owner_id=owner_id,
+            )
+        except Exception as exc:
+            logger.debug(
+                "[CASH][LOBBY] join_narrative queue failed for %s: %s",
+                pid, exc,
+            )
 
 
 def _name_for_personality(personality_repo) -> Callable[[str], str]:

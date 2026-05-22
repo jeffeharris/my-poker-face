@@ -355,10 +355,10 @@ def serialize_event(event: LobbyEvent) -> dict:
     """
     payload = asdict(event)
     payload.pop('sandbox_id', None)
-    if event.type == EVENT_LEAVE and not event.comment:
+    if event.type in (EVENT_LEAVE, EVENT_JOIN) and not event.comment:
         try:
-            from cash_mode.leave_narrative import get_leave_comment
-            late = get_leave_comment(
+            from cash_mode.leave_narrative import get_comment
+            late = get_comment(
                 event.table_id, event.personality_id, event.created_at,
             )
         except Exception:
