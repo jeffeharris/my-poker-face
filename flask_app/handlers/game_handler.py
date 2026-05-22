@@ -1265,7 +1265,7 @@ def _emit_seated_movement_chat(
     result,
     pid_to_name: Dict[str, str],
 ) -> None:
-    """Push system chat messages for each movement event at the seated table.
+    """Push system + AI chat messages for each movement event at the seated table.
 
     Four event kinds, each with differentiated phrasing per user spec:
       - rebuy:     "{name} added ${amount} in chips"
@@ -1277,14 +1277,51 @@ def _emit_seated_movement_chat(
       - join:      "{name} sat down with ${amount}"   (live-fill)
 
     Sender is "Table". Message type is "system" so the React chat
-    renders it with the settings/system styling (matches lobby
-    join/leave ticker convention without being shouty).
+    renders it with the settings/system styling.
+
+    On top of the system line, leaves and joins also fire a
+    fire-and-forget LLM call (`cash_mode.leave_narrative`) that, when
+    it returns, sends an in-character AI chat message ("ai" type) so
+    the player at the table reads it as if the AI typed in chat as
+    they sat down or walked out. Skipped when the LLM call fails or
+    is disabled — the system line always lands first either way.
     """
-    from cash_mode.stakes_ladder import STAKES_ORDER
+    from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
+    from flask_app.extensions import personality_repo
 
     pre_seats = {
         i: dict(s) for i, s in enumerate(table_pre_refresh.seats)
     }
+
+    stake_label = table_pre_refresh.stake_label
+    try:
+        _, table_min_buy_in, _ = table_buy_in_window(stake_label)
+    except Exception:
+        table_min_buy_in = 0
+
+    leave_signals = getattr(result, "leave_signals", {}) or {}
+
+    def _personality_for(pid: str):
+        try:
+            return personality_repo.load_personality_by_id(pid)
+        except Exception:
+            return None
+
+    def _ai_chat_callback(game_id: str, sender: str):
+        """Return a `comment -> None` callback that emits an AI chat.
+
+        Bound per-leaver/joiner because the lobby refresh that fires
+        these workers may be racing the next hand — capturing game_id
+        + sender at queue time keeps each callback self-contained.
+        """
+        def _send(comment: str) -> None:
+            send_message(
+                game_id=game_id,
+                sender=sender,
+                content=comment,
+                message_type="ai",
+            )
+        return _send
 
     # Leaves: any pid whose seat went from 'ai' to 'open' in this
     # refresh, with reason from result.decisions.
@@ -1317,6 +1354,42 @@ def _emit_seated_movement_chat(
             content=text,
             message_type="system",
         )
+        # Queue the in-character farewell. Worker fires async; the
+        # AI's chat message lands a couple seconds after the system
+        # line, which reads naturally as the AI "typing in chat" as
+        # they walk out.
+        try:
+            from cash_mode.leave_narrative import (
+                LeaveNarrativeContext,
+                queue_leave_comment,
+            )
+            personality = _personality_for(pid)
+            if personality is None:
+                continue
+            ctx = LeaveNarrativeContext(
+                personality_name=name,
+                play_style=str(personality.get("play_style") or ""),
+                default_attitude=str(personality.get("default_attitude") or ""),
+                verbal_tics=tuple(personality.get("verbal_tics") or ()),
+                physical_tics=tuple(personality.get("physical_tics") or ()),
+                decision=reason,
+                dominant_signal=leave_signals.get(pid, ""),
+                stake_label=stake_label,
+                chips_at_exit=prev_chips,
+                min_buy_in=table_min_buy_in,
+            )
+            queue_leave_comment(
+                table_id=table_pre_refresh.table_id,
+                personality_id=pid,
+                created_at=datetime.now().isoformat(),
+                ctx=ctx,
+                on_complete=_ai_chat_callback(game_id, name),
+            )
+        except Exception as exc:
+            logger.debug(
+                "[CASH][SEATED] leave_narrative queue failed for %s: %s",
+                pid, exc,
+            )
 
     # Rebuys.
     for change in result.rebuy_changes:
@@ -1337,14 +1410,10 @@ def _emit_seated_movement_chat(
         if s["kind"] == "ai"
     }
     for pid in result.freshly_seated_personality_ids:
-        # _seat_freshly_filled_ais resolves the display name from
-        # personality_repo; we do the same lookup here. Fallback to
-        # pid keeps the message visible even if the repo lookup fails.
-        from flask_app.extensions import personality_repo
-        try:
-            personality = personality_repo.load_personality_by_id(pid)
-        except Exception:
-            personality = None
+        personality = _personality_for(pid)
+        # Fallback to pid keeps the message visible even if the repo
+        # lookup fails — but the LLM call is skipped (no traits to
+        # work with).
         display_name = (personality or {}).get("name") or pid
         chips = pid_to_chips_post.get(pid, 0)
         send_message(
@@ -1353,6 +1422,36 @@ def _emit_seated_movement_chat(
             content=f"{display_name} sat down with ${chips}",
             message_type="system",
         )
+        if personality is None:
+            continue
+        # Queue the in-character arrival.
+        try:
+            from cash_mode.leave_narrative import (
+                JoinNarrativeContext,
+                queue_join_comment,
+            )
+            jctx = JoinNarrativeContext(
+                personality_name=display_name,
+                play_style=str(personality.get("play_style") or ""),
+                default_attitude=str(personality.get("default_attitude") or ""),
+                verbal_tics=tuple(personality.get("verbal_tics") or ()),
+                physical_tics=tuple(personality.get("physical_tics") or ()),
+                stake_label=stake_label,
+                chips_at_sit=chips,
+                min_buy_in=table_min_buy_in,
+            )
+            queue_join_comment(
+                table_id=result.new_table.table_id,
+                personality_id=pid,
+                created_at=datetime.now().isoformat(),
+                ctx=jctx,
+                on_complete=_ai_chat_callback(game_id, display_name),
+            )
+        except Exception as exc:
+            logger.debug(
+                "[CASH][SEATED] join_narrative queue failed for %s: %s",
+                pid, exc,
+            )
 
 
 def _remove_departed_ais_from_game(

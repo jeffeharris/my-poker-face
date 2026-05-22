@@ -356,25 +356,43 @@ def _store_result(key: Tuple[str, str, str], comment: str) -> None:
 
 
 def _worker(key: Tuple[str, str, str], ctx: LeaveNarrativeContext,
-            owner_id: Optional[str]) -> None:
+            owner_id: Optional[str],
+            on_complete: Optional[Callable[[str], None]]) -> None:
     try:
         comment = generate_leave_comment(ctx, owner_id=owner_id)
     except Exception as exc:
         logger.debug("leave_narrative worker crashed: %s", exc)
         return
-    if comment:
-        _store_result(key, comment)
+    if not comment:
+        return
+    _store_result(key, comment)
+    if on_complete is not None:
+        # Callback runs on the worker thread. Callers that touch
+        # shared state (e.g. Flask game_data or socket.emit) must be
+        # safe under that constraint — the seated-path callback uses
+        # send_message which already handles cross-thread emission.
+        try:
+            on_complete(comment)
+        except Exception as exc:
+            logger.debug("leave_narrative on_complete crashed: %s", exc)
 
 
 def _join_worker(key: Tuple[str, str, str], ctx: JoinNarrativeContext,
-                 owner_id: Optional[str]) -> None:
+                 owner_id: Optional[str],
+                 on_complete: Optional[Callable[[str], None]]) -> None:
     try:
         comment = generate_join_comment(ctx, owner_id=owner_id)
     except Exception as exc:
         logger.debug("join_narrative worker crashed: %s", exc)
         return
-    if comment:
-        _store_result(key, comment)
+    if not comment:
+        return
+    _store_result(key, comment)
+    if on_complete is not None:
+        try:
+            on_complete(comment)
+        except Exception as exc:
+            logger.debug("join_narrative on_complete crashed: %s", exc)
 
 
 def is_disabled() -> bool:
@@ -397,18 +415,25 @@ def queue_leave_comment(
     ctx: LeaveNarrativeContext,
     *,
     owner_id: Optional[str] = None,
+    on_complete: Optional[Callable[[str], None]] = None,
 ) -> None:
     """Fire-and-forget submit. Caller never blocks.
 
     The matching `get_leave_comment(table_id, personality_id, created_at)`
     returns None until the worker finishes, then the rendered string.
     No-op when `is_disabled()` is true.
+
+    `on_complete(comment)` runs on the worker thread once the LLM
+    response is rendered. Used by the seated-table chat path to push
+    the AI's farewell message as an in-game chat event after the
+    system "X stepped away" line has already been sent. Skipped on
+    LLM failure / empty response — the system line still surfaces.
     """
     if is_disabled():
         return
     key = (table_id, personality_id, created_at)
     try:
-        _get_executor().submit(_worker, key, ctx, owner_id)
+        _get_executor().submit(_worker, key, ctx, owner_id, on_complete)
     except RuntimeError as exc:
         # Executor was shut down (test teardown / process exit). Skip
         # silently — leaves still surface without comments.
@@ -422,6 +447,7 @@ def queue_join_comment(
     ctx: JoinNarrativeContext,
     *,
     owner_id: Optional[str] = None,
+    on_complete: Optional[Callable[[str], None]] = None,
 ) -> None:
     """Fire-and-forget submit for an arrival comment. No-op when disabled.
 
@@ -429,12 +455,15 @@ def queue_join_comment(
     `(table_id, personality_id, created_at)` key won't collide because
     a leave and a join by the same pid can't share a tick (leaves
     vacate, joins fill a different open seat with a different pid).
+
+    `on_complete(comment)` runs on the worker thread once the LLM
+    response is rendered — same semantics as the leave variant.
     """
     if is_disabled():
         return
     key = (table_id, personality_id, created_at)
     try:
-        _get_executor().submit(_join_worker, key, ctx, owner_id)
+        _get_executor().submit(_join_worker, key, ctx, owner_id, on_complete)
     except RuntimeError as exc:
         logger.debug("join_narrative: queue rejected: %s", exc)
 

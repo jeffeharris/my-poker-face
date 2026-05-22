@@ -1292,8 +1292,6 @@ def refresh_unseated_tables(
             personality_repo=personality_repo,
             now=now,
             sandbox_id=sandbox_id,
-            leave_signals=result.leave_signals,
-            owner_id=user_id,
         )
 
         # Burst-aware event emission: pick at most one headline per
@@ -1394,8 +1392,6 @@ def _emit_activity_events(
     personality_repo,
     now: datetime,
     sandbox_id: Optional[str] = None,
-    leave_signals: Optional[Dict[str, str]] = None,
-    owner_id: Optional[str] = None,
 ) -> None:
     """Push lobby activity events to the in-memory ring buffer.
 
@@ -1404,13 +1400,6 @@ def _emit_activity_events(
     surface; if it fails for one event the lobby refresh shouldn't
     abort. Same defensive style as `try/except` around the relationship
     hint lookup in the lobby route.
-
-    `leave_signals` (from `RosterRefreshResult.leave_signals`) carries
-    the dominant pressure signal per non-stay AI. When supplied, this
-    function queues an in-character exit comment via the
-    `leave_narrative` worker pool; subsequent ticker reads pick up the
-    comment via `serialize_event`. Skipped silently when omitted —
-    leaves still surface, just without LLM-generated color.
     """
     from cash_mode.activity import (
         EVENT_JOIN,
@@ -1421,23 +1410,6 @@ def _emit_activity_events(
         record_event,
     )
 
-    leave_signals = leave_signals or {}
-
-    # Pre-movement chip lookup so the narrative knows what the AI is
-    # walking away with. After refresh the seat is open, so we have to
-    # read the snapshot taken before the movement applied.
-    pre_seat_chips: Dict[str, int] = {}
-    if previous_table is not None:
-        for s in previous_table.seats:
-            if s.get("kind") == "ai" and s.get("personality_id"):
-                pre_seat_chips[s["personality_id"]] = int(s.get("chips", 0))
-
-    try:
-        from cash_mode.stakes_ladder import table_buy_in_window
-        _, table_min_buy_in, _ = table_buy_in_window(table.stake_label)
-    except Exception:
-        table_min_buy_in = 0
-
     def _name_for(pid: str) -> Optional[str]:
         try:
             personality = personality_repo.load_personality_by_id(pid)
@@ -1447,22 +1419,15 @@ def _emit_activity_events(
             return None
         return personality.get("name") or pid
 
-    def _personality_for(pid: str) -> Optional[Dict[str, Any]]:
-        try:
-            return personality_repo.load_personality_by_id(pid)
-        except Exception:
-            return None
-
     stake = table.stake_label
     ts = now.isoformat()
 
     for pid, decision in decisions.items():
         if decision == "stay":
             continue
-        personality = _personality_for(pid)
-        if not personality:
+        name = _name_for(pid)
+        if not name:
             continue
-        name = personality.get("name") or pid
         try:
             record_event(LobbyEvent(
                 type=EVENT_LEAVE,
@@ -1478,55 +1443,11 @@ def _emit_activity_events(
         except Exception:
             # Buffer is best-effort. Don't let it break the refresh.
             pass
-        # Queue an in-character LLM comment. Fire-and-forget; the
-        # worker fills the result dict, and `serialize_event` joins it
-        # at wire time. Skip for `take_stake` — the AI didn't actually
-        # leave, just got refunded by a peer staker.
-        if decision == "take_stake":
-            continue
-        try:
-            from cash_mode.leave_narrative import (
-                LeaveNarrativeContext,
-                queue_leave_comment,
-            )
-            ctx = LeaveNarrativeContext(
-                personality_name=name,
-                play_style=str(personality.get("play_style") or ""),
-                default_attitude=str(personality.get("default_attitude") or ""),
-                verbal_tics=tuple(personality.get("verbal_tics") or ()),
-                physical_tics=tuple(personality.get("physical_tics") or ()),
-                decision=decision,
-                dominant_signal=leave_signals.get(pid, ""),
-                stake_label=stake,
-                chips_at_exit=pre_seat_chips.get(pid, 0),
-                min_buy_in=table_min_buy_in,
-            )
-            queue_leave_comment(
-                table_id=table.table_id,
-                personality_id=pid,
-                created_at=ts,
-                ctx=ctx,
-                owner_id=owner_id,
-            )
-        except Exception as exc:
-            logger.debug(
-                "[CASH][LOBBY] leave_narrative queue failed for %s: %s",
-                pid, exc,
-            )
-
-    # Post-movement chips for each freshly-seated AI — they bought
-    # in this tick, so the chip count lives on the new (post-refresh)
-    # table snapshot, not the pre-movement one.
-    post_seat_chips: Dict[str, int] = {}
-    for s in table.seats:
-        if s.get("kind") == "ai" and s.get("personality_id"):
-            post_seat_chips[s["personality_id"]] = int(s.get("chips", 0))
 
     for pid in freshly_seated_personality_ids:
-        personality = _personality_for(pid)
-        if not personality:
+        name = _name_for(pid)
+        if not name:
             continue
-        name = personality.get("name") or pid
         try:
             record_event(LobbyEvent(
                 type=EVENT_JOIN,
@@ -1541,35 +1462,6 @@ def _emit_activity_events(
             ))
         except Exception:
             pass
-        # Queue an in-character arrival comment. Fire-and-forget;
-        # `serialize_event` joins the result on the next ticker poll.
-        try:
-            from cash_mode.leave_narrative import (
-                JoinNarrativeContext,
-                queue_join_comment,
-            )
-            jctx = JoinNarrativeContext(
-                personality_name=name,
-                play_style=str(personality.get("play_style") or ""),
-                default_attitude=str(personality.get("default_attitude") or ""),
-                verbal_tics=tuple(personality.get("verbal_tics") or ()),
-                physical_tics=tuple(personality.get("physical_tics") or ()),
-                stake_label=stake,
-                chips_at_sit=post_seat_chips.get(pid, 0),
-                min_buy_in=table_min_buy_in,
-            )
-            queue_join_comment(
-                table_id=table.table_id,
-                personality_id=pid,
-                created_at=ts,
-                ctx=jctx,
-                owner_id=owner_id,
-            )
-        except Exception as exc:
-            logger.debug(
-                "[CASH][LOBBY] join_narrative queue failed for %s: %s",
-                pid, exc,
-            )
 
 
 def _name_for_personality(personality_repo) -> Callable[[str], str]:

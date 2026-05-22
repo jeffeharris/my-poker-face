@@ -22,7 +22,6 @@ whatever was there before the test, not whatever the test installed).
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, Optional
 
 import pytest
@@ -30,15 +29,9 @@ import pytest
 from poker.poker_player import AIPokerPlayer
 from tests.conftest import load_personality_from_json
 
-
-# Disable cash_mode/leave_narrative LLM calls during the cash-mode
-# test suite. The lobby's leave-event emission queues a fire-and-forget
-# LLM call to generate in-character exit commentary; in tests that
-# exercise the lobby refresh path, those calls would burn real tokens
-# (gpt-5-nano FAST tier) without contributing to test signal. Setting
-# this env var early — before any cash_mode import that snapshots it —
-# turns `queue_leave_comment` into a no-op.
-os.environ.setdefault("CASH_LEAVE_NARRATIVE_DISABLED", "1")
+# `CASH_LEAVE_NARRATIVE_DISABLED` is set in the top-level
+# `tests/conftest.py` so it applies to every cash-related test module,
+# not just this package. Don't duplicate it here.
 
 
 class _JSONOnlyPersonalityGenerator:

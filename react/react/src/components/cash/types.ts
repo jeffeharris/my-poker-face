@@ -208,12 +208,6 @@ export interface LobbyEvent {
   reason: string;
   message: string;
   created_at: string;
-  /** Optional in-character LLM-generated narration for leave events.
-   *  Populated asynchronously by `cash_mode/leave_narrative.py` worker
-   *  pool — null on the first poll after a leave, fills in once the
-   *  LLM call completes (typically 1-5 seconds later). Only set for
-   *  `type: 'leave'`. */
-  comment?: string | null;
 }
 
 export interface LobbyResponse {

@@ -258,3 +258,79 @@ class TestQueueJoinNoopWhenDisabled:
         # `get_leave_comment` is a back-compat alias — must resolve to
         # the same function so existing callers stay correct.
         assert get_leave_comment is get_comment
+
+
+class TestOnCompleteCallback:
+    """Worker invokes on_complete(comment) when LLM returns a comment.
+
+    The seated-table chat path relies on this so it can send the AI's
+    farewell as an in-game chat message after the LLM call settles.
+    """
+
+    def test_worker_invokes_callback(self):
+        # Drive the worker function directly so we don't need to
+        # toggle the disabled gate or wait on the thread pool.
+        from cash_mode.leave_narrative import _worker
+
+        captured: list = []
+
+        def _cb(comment: str) -> None:
+            captured.append(comment)
+
+        # Patch generate_leave_comment to return a deterministic
+        # rendered string so the worker has something to pass through.
+        from cash_mode import leave_narrative as ln
+        original = ln.generate_leave_comment
+        ln.generate_leave_comment = lambda ctx, owner_id=None: "*tips hat* GG."
+        try:
+            _worker(("t", "p", "ts"), _ctx(), None, _cb)
+        finally:
+            ln.generate_leave_comment = original
+
+        assert captured == ["*tips hat* GG."]
+
+    def test_join_worker_invokes_callback(self):
+        from cash_mode.leave_narrative import _join_worker
+        from cash_mode import leave_narrative as ln
+
+        captured: list = []
+        original = ln.generate_join_comment
+        ln.generate_join_comment = lambda ctx, owner_id=None: "*sits down* Evening."
+        try:
+            _join_worker(("t", "p", "ts"), _jctx(), None, captured.append)
+        finally:
+            ln.generate_join_comment = original
+
+        assert captured == ["*sits down* Evening."]
+
+    def test_callback_skipped_on_empty_llm_response(self):
+        from cash_mode.leave_narrative import _worker
+        from cash_mode import leave_narrative as ln
+
+        captured: list = []
+        original = ln.generate_leave_comment
+        ln.generate_leave_comment = lambda ctx, owner_id=None: None
+        try:
+            _worker(("t", "p", "ts"), _ctx(), None, captured.append)
+        finally:
+            ln.generate_leave_comment = original
+
+        assert captured == []
+
+    def test_callback_exception_swallowed(self):
+        # A buggy on_complete must NOT take down the worker thread —
+        # the system message is already in chat and a crashed callback
+        # would just lose the AI follow-up.
+        from cash_mode.leave_narrative import _worker
+        from cash_mode import leave_narrative as ln
+
+        def _boom(comment: str) -> None:
+            raise RuntimeError("oops")
+
+        original = ln.generate_leave_comment
+        ln.generate_leave_comment = lambda ctx, owner_id=None: "comment"
+        try:
+            # Should not raise.
+            _worker(("t", "p", "ts"), _ctx(), None, _boom)
+        finally:
+            ln.generate_leave_comment = original
