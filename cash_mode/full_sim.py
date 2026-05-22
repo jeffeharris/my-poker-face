@@ -40,6 +40,56 @@ from cash_mode.fake_sim import (
     DEFAULT_MAX_POT_BB,
 )
 
+# Per-sandbox `AIMemoryManager` cache. Wires the opponent-model /
+# memory pipeline into the sim path so exploitation rules
+# (hyper_aggressive, induce_override, etc.) get fed real opponent
+# stats — without this, every gate sees cold-start and never fires.
+# Mirrors `experiments/run_ai_tournament.py:765` which creates a
+# memory_manager per tournament. Module-level cache because
+# play_one_hand is called per-table per-tick; constructing the
+# manager every call would lose all accumulated stats.
+_session_memory_managers: Dict[str, Any] = {}
+_session_hand_counters: Dict[str, int] = {}
+_session_memory_lock = threading.Lock()
+
+
+def _get_session_memory_manager(sandbox_id: Optional[str], db_path: Optional[str]):
+    """Return the AIMemoryManager for this sandbox, creating if first call.
+
+    `sandbox_id` is required (the manager keys on it). `db_path` may be
+    None — manager will still work in-memory; persistence-driven features
+    (hand_history, relationships) just degrade gracefully.
+    """
+    if not sandbox_id:
+        return None
+    with _session_memory_lock:
+        mm = _session_memory_managers.get(sandbox_id)
+        if mm is not None:
+            return mm
+        try:
+            from poker.memory.memory_manager import AIMemoryManager
+            mm = AIMemoryManager(
+                game_id=f"sim_{sandbox_id}",
+                db_path=db_path,
+                owner_id=None,
+                commentary_enabled=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[FULL_SIM] AIMemoryManager construction failed: %s", exc,
+            )
+            return None
+        _session_memory_managers[sandbox_id] = mm
+        _session_hand_counters[sandbox_id] = 0
+        return mm
+
+
+def _next_hand_number(sandbox_id: str) -> int:
+    with _session_memory_lock:
+        n = _session_hand_counters.get(sandbox_id, 0)
+        _session_hand_counters[sandbox_id] = n + 1
+        return n
+
 # Per-table probability gate (per lobby read). Same numerical default
 # as the predecessor fake-sim gate so the swap is behavior-neutral on
 # the rate at which hands fire. Renamed because "fake" no longer
@@ -661,12 +711,54 @@ def _play_one_hand_inner(
     for pid, ctrl in cache_misses:
         _hydrate_psychology(ctrl, pid, bankroll_repo, sandbox_id)
 
+    # Wire the per-sandbox AIMemoryManager into every controller so
+    # opponent-aware rules (exploitation, induce_override, value
+    # override, bluff_catch_override) have real stats to gate on.
+    # Without this, every gate sees cold-start data and never fires
+    # — see scripts/sim_experiments/analyze_interventions.py. The
+    # tournament runner does this same wiring at
+    # experiments/run_ai_tournament.py:765+.
+    db_path_for_memory = (
+        bankroll_repo._db_path
+        if bankroll_repo is not None and hasattr(bankroll_repo, '_db_path')
+        else None
+    )
+    memory_manager = _get_session_memory_manager(sandbox_id, db_path_for_memory)
+    if memory_manager is not None:
+        opponent_manager = memory_manager.get_opponent_model_manager()
+        for player in players:
+            ctrl = controllers[player.name]
+            ctrl.opponent_model_manager = opponent_manager
+            ctrl.memory_manager = memory_manager
+            try:
+                memory_manager.initialize_for_player(
+                    player.name,
+                    personality_id=seat_pid_by_name.get(player.name),
+                )
+            except Exception as exc:
+                logger.debug(
+                    "[FULL_SIM] initialize_for_player(%r) failed: %s",
+                    player.name, exc,
+                )
+
     # Snapshot starting chips per pid so we can compute deltas.
     starting_chips: Dict[str, int] = {
         seat_pid_by_name[p.name]: p.stack for p in players
     }
 
-    _run_hand(sm, controllers)
+    # Notify memory_manager of hand start. Safe no-op when memory is
+    # disabled / unavailable.
+    if memory_manager is not None:
+        try:
+            memory_manager.on_hand_start(
+                sm.game_state,
+                hand_number=_next_hand_number(sandbox_id) if sandbox_id else 0,
+                deck_seed=None,
+            )
+        except Exception as exc:
+            logger.debug("[FULL_SIM] on_hand_start failed: %s", exc)
+
+    _run_hand(sm, controllers, memory_manager=memory_manager)
 
     # Periodic psychology flush. Increment the per-controller hand
     # counter; every PSYCHOLOGY_FLUSH_EVERY_HANDS hands we serialize
@@ -856,6 +948,8 @@ def _headline_pair(
 def _run_hand(
     sm: PokerStateMachine,
     controllers: Dict[str, object],
+    *,
+    memory_manager: Optional[Any] = None,
 ) -> None:
     """Drive the state machine from PRE_FLOP to pot award.
 
@@ -864,6 +958,10 @@ def _run_hand(
     exceptions silently fold (matches production tournament behavior;
     the math_floor 'jam' fix from Phase 0 means these should be near-
     zero, but the safety net stays as a last line of defense).
+
+    `memory_manager` is the per-sandbox AIMemoryManager when wired —
+    feeds opponent-stat tracking via `on_action` after each play_turn.
+    None for legacy callers / tests not wiring memory.
     """
     actions = 0
     while actions < _MAX_ACTIONS_PER_HAND:
@@ -887,9 +985,11 @@ def _run_hand(
             break
 
         cp = gs.current_player
-        ctrl = controllers.get(cp.name) if cp is not None else None
+        actor_name = cp.name if cp is not None else None
+        ctrl = controllers.get(actor_name) if actor_name else None
         if ctrl is None:
             gs = play_turn(gs, "fold", 0)
+            action, amount = "fold", 0
         else:
             try:
                 resp = ctrl.decide_action()
@@ -902,6 +1002,37 @@ def _run_hand(
                 )
                 action, amount = "fold", 0
             gs = play_turn(gs, action, amount)
+
+        # Feed action into the memory manager so opponent_model
+        # accumulates stats. The `phase` mapping mirrors what
+        # MemoryManager expects (PRE_FLOP / FLOP / TURN / RIVER).
+        if memory_manager is not None and actor_name is not None:
+            try:
+                phase_obj = sm.current_phase
+                phase_name = (
+                    phase_obj.name if phase_obj is not None else "PRE_FLOP"
+                )
+                # MemoryManager only cares about the four betting
+                # streets; DEALING_CARDS/EVALUATING_HAND/SHOWDOWN don't
+                # carry actions through this codepath, but guard anyway.
+                if phase_name in ("PRE_FLOP", "FLOP", "TURN", "RIVER"):
+                    active = [
+                        p.name for p in gs.players
+                        if not getattr(p, "is_folded", False)
+                    ]
+                    memory_manager.on_action(
+                        player_name=actor_name,
+                        action=action,
+                        amount=amount,
+                        phase=phase_name,
+                        pot_total=getattr(gs, "pot", 0) or 0,
+                        active_players=active,
+                    )
+            except Exception as exc:
+                logger.debug(
+                    "[FULL_SIM] on_action(%r, %r) failed: %s",
+                    actor_name, action, exc,
+                )
 
         adv = advance_to_next_active_player(gs)
         if adv is not None:
