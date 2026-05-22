@@ -63,6 +63,12 @@ class AIMemoryManager:
         )
         self._relationship_repo = None
         self._cash_mode: bool = False
+        # v109: sandbox_id is required for every cash_pair_stats write so
+        # the admin Chip Economy panel can scope Won/Lost/Net per sandbox.
+        # `set_relationship_repo(cash_mode=True, sandbox_id=...)` populates
+        # this; tournaments leave it None (cash_mode=False bypasses the
+        # cash-PnL path entirely).
+        self._sandbox_id: Optional[str] = None
         # Dedup for cash_pair_stats writes — a replay of the same
         # hand_number through `_process_relationship_events` (e.g.,
         # tests, recovery flows) must not double-apply PnL. Event-axis
@@ -166,12 +172,17 @@ class AIMemoryManager:
                 # falls back to the name itself when no id is registered.
                 id_resolver=self.hand_outcome_detector._resolve_id,
                 hand_id=recorded_hand.hand_number,
+                sandbox_id=self._sandbox_id,
             )
         except Exception as e:
             logger.warning(f"HandOutcomeDetector dispatch failed: {e}")
 
     def set_relationship_repo(
-        self, relationship_repo, *, cash_mode: bool = False,
+        self,
+        relationship_repo,
+        *,
+        cash_mode: bool = False,
+        sandbox_id: Optional[str] = None,
     ) -> None:
         """Wire the relationship repository into the manager + detector.
 
@@ -189,6 +200,10 @@ class AIMemoryManager:
                 `cash_pair_stats` (cumulative_pnl + hands_played_cash).
                 Tournament games keep this False — chips reset, PnL
                 is meaningless.
+            sandbox_id: v109 scoping field. Required when
+                `cash_mode=True` so each pair's PnL accumulates per
+                sandbox (the admin Chip Economy panel filters on it).
+                Tournament callers leave it None.
         """
         self._relationship_repo = relationship_repo
         # OpponentModelManager.record_event requires this attribute.
@@ -196,6 +211,13 @@ class AIMemoryManager:
         # an optional construction param and there's no setter yet.
         self.opponent_model_manager._relationship_repo = relationship_repo
         self._cash_mode = cash_mode
+        if cash_mode and sandbox_id is None:
+            logger.warning(
+                "set_relationship_repo(cash_mode=True) called without "
+                "sandbox_id — cash_pair_stats writes will be skipped "
+                "this session"
+            )
+        self._sandbox_id = sandbox_id
 
     @property
     def last_preflop_aggressor(self) -> Optional[str]:

@@ -5,7 +5,7 @@ import json
 import logging
 import secrets
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional
 
 from flask import Blueprint, jsonify, request, redirect, send_from_directory
 from flask_socketio import join_room, emit
@@ -541,13 +541,38 @@ def api_game_state(game_id):
                         # from the game_id prefix + current_ante.)
                         is_cash_game = game_id.startswith("cash-")
 
+                        # v109: cash_pair_stats writes need a sandbox_id so the
+                        # admin Chip Economy panel can scope Won/Lost/Net. For
+                        # cold-loaded cash games the owner's default sandbox is
+                        # the right answer — owners are single-sandbox in v1,
+                        # and the same resolver feeds /api/cash/start.
+                        cold_load_sandbox_id: Optional[str] = None
+                        if is_cash_game and owner_id is not None:
+                            try:
+                                from flask_app.extensions import sandbox_repo as _sandbox_repo
+                                from flask_app.services.sandbox_resolver import (
+                                    resolve_default_sandbox_for,
+                                )
+                                cold_load_sandbox_id = resolve_default_sandbox_for(
+                                    owner_id, sandbox_repo=_sandbox_repo,
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    "[LOAD] sandbox resolve failed for cash "
+                                    "game %s owner %s: %s — cash_pair_stats "
+                                    "writes will be skipped this session",
+                                    game_id, owner_id, e,
+                                )
+
                         memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
                         memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
                         # Phase 3: relationship state populates from hand
                         # outcomes. Cash sessions write cash_pair_stats;
                         # tournament sessions skip it.
                         memory_manager.set_relationship_repo(
-                            relationship_repo, cash_mode=is_cash_game,
+                            relationship_repo,
+                            cash_mode=is_cash_game,
+                            sandbox_id=cold_load_sandbox_id,
                         )
 
                         # Restore hand count from database

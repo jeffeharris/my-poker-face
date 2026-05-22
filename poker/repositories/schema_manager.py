@@ -150,7 +150,14 @@ logger = logging.getLogger(__name__)
 #       compute per-stake P&L ("you got back $X" or "you lost $Y").
 #       NULL on legacy rows (settled pre-migration) means "unknown" —
 #       the route returns null and the UI hides the P&L line.
-SCHEMA_VERSION = 108
+# v109: Drop+recreate `cash_pair_stats` with `sandbox_id` as part of the
+#       primary key, so the admin Chip Economy panel can scope the
+#       Won/Lost/Net columns by sandbox. Matches the v102 destructive
+#       precedent for cash-mode tables: no production data to preserve,
+#       lifetime pair-PnL is rebuilt as sandboxes accumulate hands.
+#       Repo signatures gain `sandbox_id` as a required kwarg; the
+#       dossier endpoint still aggregates cross-sandbox by passing None.
+SCHEMA_VERSION = 109
 
 
 
@@ -453,19 +460,26 @@ class SchemaManager:
                 )
             """)
 
-            # 10c. Cash pair stats (v87) — cumulative cash-mode PnL between two
-            #      personalities. Distinct from relationship_states because PnL
-            #      is cash-mode-specific (resets in tournaments). Observer-POV
-            #      cumulative_pnl; the mirror pair gets the negation in a single
-            #      write transaction so views can't drift.
+            # 10c. Cash pair stats (v87, v109) — cumulative cash-mode PnL
+            #      between two personalities. Distinct from relationship_states
+            #      because PnL is cash-mode-specific (resets in tournaments).
+            #      Observer-POV cumulative_pnl; the mirror pair gets the
+            #      negation in a single write transaction so views can't drift.
+            #      v109 added sandbox_id to the PK so the admin Chip Economy
+            #      panel can scope Won/Lost/Net by sandbox.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS cash_pair_stats (
+                    sandbox_id TEXT NOT NULL,
                     observer_id TEXT NOT NULL,
                     opponent_id TEXT NOT NULL,
                     cumulative_pnl INTEGER NOT NULL DEFAULT 0,
                     hands_played_cash INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY (observer_id, opponent_id)
+                    PRIMARY KEY (sandbox_id, observer_id, opponent_id)
                 )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_cash_pair_stats_observer
+                    ON cash_pair_stats(observer_id)
             """)
 
             # 10d. AI bankroll state (v88) — per-personality persistent bankroll.
@@ -1313,6 +1327,7 @@ class SchemaManager:
             106: (self._migrate_v106_add_stake_payouts, "Phase 5 refinement — add nullable staker_payout / borrower_payout columns to stakes so history can show per-stake P&L"),
             107: (self._migrate_v107_add_aspiration_cooldown, "Aspiration-ask Commit 3 — add nullable aspiration_cooldown_until to ai_bankroll_state for per-AI rate limit on aspiration_ask triggers"),
             108: (self._migrate_v108_add_cash_sessions, "Add cash_sessions table — durable per-session record (buy-in, time-at-table, staking, final stats) so the leave-table summary survives Flask restart / TTL eviction and stays correct across top-ups, rebuys, and staked sessions"),
+            109: (self._migrate_v109_scope_cash_pair_stats_to_sandbox, "Drop+recreate cash_pair_stats with sandbox_id in PK so admin Chip Economy Won/Lost/Net can scope per sandbox (matches v102 destructive precedent)"),
         }
 
         with self._get_connection() as conn:
@@ -5023,4 +5038,40 @@ class SchemaManager:
                 WHERE ended_at IS NULL
         """)
         logger.info("Migration v108 complete: cash_sessions table created")
+
+    def _migrate_v109_scope_cash_pair_stats_to_sandbox(self, conn: sqlite3.Connection) -> None:
+        """Migration v109: drop+recreate `cash_pair_stats` with `sandbox_id`
+        as part of the primary key.
+
+        Pre-launch destructive migration; existing rows are dropped.
+        Same precedent as v102 (`ai_bankroll_state` / `cash_tables` /
+        `cash_idle_pool`): per-sandbox scoping is the load-bearing
+        change, and there is no production lifetime PnL to preserve.
+
+        After this migration, every (observer_id, opponent_id) pair
+        accumulates a separate row per sandbox, so the admin Chip
+        Economy panel can filter Won/Lost/Net by the sandbox dropdown.
+        The cross-sandbox dossier view (CharacterDetailCard "Track
+        Record") aggregates by passing `sandbox_id=None` to
+        `aggregate_cash_pnl_by_entity`.
+        """
+        conn.execute("DROP TABLE IF EXISTS cash_pair_stats")
+        conn.execute("""
+            CREATE TABLE cash_pair_stats (
+                sandbox_id TEXT NOT NULL,
+                observer_id TEXT NOT NULL,
+                opponent_id TEXT NOT NULL,
+                cumulative_pnl INTEGER NOT NULL DEFAULT 0,
+                hands_played_cash INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (sandbox_id, observer_id, opponent_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_pair_stats_observer
+                ON cash_pair_stats(observer_id)
+        """)
+        logger.info(
+            "Migration v109 complete: cash_pair_stats dropped+recreated "
+            "with sandbox_id in PK"
+        )
 

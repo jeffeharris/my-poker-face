@@ -143,12 +143,12 @@ class TestCashModeGate:
         mgr = AIMemoryManager(game_id="g1", db_path=None)
         mgr.initialize_for_player("alice")
         mgr.initialize_for_player("bob")
-        mgr.set_relationship_repo(repo, cash_mode=True)
+        mgr.set_relationship_repo(repo, cash_mode=True, sandbox_id="sb-1")
 
         mgr._process_relationship_events(_big_heads_up_hand())
 
-        alice_stats = repo.load_cash_pair_stats("alice", "bob")
-        bob_stats = repo.load_cash_pair_stats("bob", "alice")
+        alice_stats = repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1")
+        bob_stats = repo.load_cash_pair_stats("bob", "alice", sandbox_id="sb-1")
         # alice net +400 from bob (her contribution 400, collected 800).
         assert alice_stats.cumulative_pnl == 400
         assert alice_stats.hands_played_cash == 1
@@ -169,24 +169,46 @@ class TestCashModeGate:
         assert repo.load_cash_pair_stats("alice", "bob") is None
         assert repo.load_cash_pair_stats("bob", "alice") is None
 
+    def test_cash_mode_without_sandbox_skips_pair_stats(self, repo):
+        # Defensive: cash_mode=True with no sandbox_id is a misconfiguration
+        # (admin Chip Economy panel wouldn't be able to scope), so the
+        # dispatch silently skips the cash_pair_stats writes rather than
+        # falling back to an empty-string bucket.
+        mgr = AIMemoryManager(game_id="g1", db_path=None)
+        mgr.initialize_for_player("alice")
+        mgr.initialize_for_player("bob")
+        mgr.set_relationship_repo(repo, cash_mode=True)  # sandbox_id omitted
+
+        mgr._process_relationship_events(_big_heads_up_hand())
+
+        # Relationship state writes still happen.
+        assert repo.load_raw_relationship_state("alice", "bob") is not None
+        # Cash pair stats stay empty (no sandbox to attribute to).
+        assert repo.load_cash_pair_stats("alice", "bob") is None
+        assert repo.load_cash_pair_stats("bob", "alice") is None
+
 
 class TestDedupAtIntegration:
     def test_replaying_same_hand_doesnt_double_apply(self, repo):
         mgr = AIMemoryManager(game_id="g1", db_path=None)
         mgr.initialize_for_player("alice")
         mgr.initialize_for_player("bob")
-        mgr.set_relationship_repo(repo, cash_mode=True)
+        mgr.set_relationship_repo(repo, cash_mode=True, sandbox_id="sb-1")
 
         hand = _big_heads_up_hand()
         mgr._process_relationship_events(hand)
         # Snapshot after first pass.
-        first_pnl = repo.load_cash_pair_stats("alice", "bob").cumulative_pnl
+        first_pnl = repo.load_cash_pair_stats(
+            "alice", "bob", sandbox_id="sb-1",
+        ).cumulative_pnl
         first_heat = repo.load_raw_relationship_state("alice", "bob").heat
 
         # Replay the same hand.
         mgr._process_relationship_events(hand)
 
-        second_pnl = repo.load_cash_pair_stats("alice", "bob").cumulative_pnl
+        second_pnl = repo.load_cash_pair_stats(
+            "alice", "bob", sandbox_id="sb-1",
+        ).cumulative_pnl
         second_heat = repo.load_raw_relationship_state("alice", "bob").heat
         assert second_pnl == first_pnl
         assert second_heat == first_heat

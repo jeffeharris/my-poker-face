@@ -26,9 +26,12 @@ Sequencing: `docs/plans/RELATIONSHIP_PHASE_3_HANDOFF.md`.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from .chip_flow import ChipFlow, PotShare, allocate_chip_flow
 from .hand_history import RecordedHand
@@ -1009,6 +1012,7 @@ def dispatch_events(
     id_resolver: Optional[Callable[[str], Optional[str]]] = None,
     hand_id: Optional[int] = None,
     now: Optional[datetime] = None,
+    sandbox_id: Optional[str] = None,
 ) -> None:
     """Apply detected events to the relationship + cash layers.
 
@@ -1057,6 +1061,19 @@ def dispatch_events(
     if cash_pair_repo is None:
         return
 
+    # v109 invariant: every cash_pair_stats write needs a sandbox_id
+    # so the admin Chip Economy panel can scope Won/Lost/Net by the
+    # sandbox dropdown. Callers that wire `cash_pair_repo` must also
+    # supply the sandbox they're playing in; refuse to write rather
+    # than fall back to an empty-string bucket that would silently
+    # mix sandboxes back together.
+    if sandbox_id is None:
+        logger.warning(
+            "dispatch_events: cash_pair_repo wired without sandbox_id; "
+            "skipping cash_pair_stats writes (PnL won't accumulate this hand)"
+        )
+        return
+
     if chip_flows is not None:
         # New path: every chip flow tallies into cash_pair_stats,
         # regardless of pot size. This is the canonical surface for
@@ -1073,6 +1090,7 @@ def dispatch_events(
                 winner_id=winner_id,
                 loser_id=loser_id,
                 chips=flow.chips,
+                sandbox_id=sandbox_id,
             )
         return
 
@@ -1086,4 +1104,5 @@ def dispatch_events(
             winner_id=event.actor_id,
             loser_id=event.target_id,
             chips=event.chips_won,
+            sandbox_id=sandbox_id,
         )

@@ -42,10 +42,12 @@ def compute_holdings_snapshot(
     live cash-mode read would return. Human rows expose `chips`
     verbatim — no regen, no projection.
 
-    Each row also carries lifetime cash-mode `chips_won` / `chips_lost`
-    from `cash_pair_stats`. Those totals are NOT sandbox-scoped —
-    `cash_pair_stats` is lifetime across every sandbox. The UI labels
-    the columns accordingly.
+    Each row also carries cash-mode `chips_won` / `chips_lost`
+    from `cash_pair_stats`. When `sandbox_id` is set, the aggregate
+    is scoped to that sandbox (matches what the dropdown shows);
+    when `None` (admin "All sandboxes" view), it's the lifetime
+    cross-sandbox total. v109 added the sandbox_id column so the
+    per-sandbox filter actually narrows the data.
 
     Rows are sorted by `projected_chips` descending so the largest
     holders appear first.
@@ -53,13 +55,17 @@ def compute_holdings_snapshot(
     if now is None:
         now = datetime.utcnow()
 
-    # Lifetime cash PnL is keyed on the observer_id that the relationship
-    # detector wrote — historically that was sometimes the personality
-    # slug, sometimes the display name. Look up each row's PnL by
-    # trying every plausible key.
+    # Cash PnL aggregate. Scoped when a sandbox is selected so the
+    # Won/Lost/Net columns match the dropdown; unscoped (lifetime
+    # cross-sandbox) in the admin "All sandboxes" view. Keyed on
+    # the observer_id that the relationship detector wrote — historically
+    # sometimes the personality slug, sometimes the display name. Look
+    # up each row's PnL by trying every plausible key.
     if relationship_repo is not None:
         try:
-            cash_pnl_by_observer = relationship_repo.aggregate_cash_pnl_by_entity()
+            cash_pnl_by_observer = relationship_repo.aggregate_cash_pnl_by_entity(
+                sandbox_id=sandbox_id,
+            )
         except Exception as e:
             logger.warning("holdings: aggregate_cash_pnl_by_entity failed: %s", e)
             cash_pnl_by_observer = {}

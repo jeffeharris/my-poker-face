@@ -353,9 +353,11 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           plotted here — for true balance-over-time, a snapshot table would
           need to be added.
           <br />
-          <em>Won / Lost / Net</em> columns are{' '}
-          <strong>lifetime cash-mode totals</strong> across all sandboxes
-          (from <code>cash_pair_stats</code>), not scoped by the dropdown above.
+          <em>Won / Lost / Net</em> columns aggregate cash-mode pair PnL
+          {' '}(from <code>cash_pair_stats</code>) — scoped to the selected
+          sandbox, or lifetime cross-sandbox in the "All sandboxes" view.
+          Pre-v109 rows aren't migrated, so totals reflect activity from
+          the v109 schema upgrade onward.
         </p>
       </section>
 
@@ -486,12 +488,16 @@ function HoldingsTable({ rows, highlightedEntity, onSelectEntity }: HoldingsTabl
         </thead>
         <tbody>
           {(() => {
-            // Lifetime Won/Lost/Net come from cash_pair_stats, which
-            // isn't sandbox-scoped. The same personality appears once
-            // per (personality, sandbox) pair, so showing the same
-            // PnL number on every row would visually triple-count it.
-            // Render PnL only on the first row encountered for each
-            // entity_id; the rest get an em-dash with a hover hint.
+            // Won/Lost/Net come from cash_pair_stats aggregated per
+            // observer_id. The holdings table can hold multiple rows
+            // per personality (one per sandbox) in the cross-sandbox
+            // admin view, but the aggregate has only one entry per
+            // observer_id — so showing the same PnL number on every
+            // row would visually multi-count it. Render PnL only on
+            // the first row encountered for each entity_id; the rest
+            // get an em-dash with a hover hint. When the sandbox
+            // dropdown is set to a specific sandbox each personality
+            // already appears once, so this is a no-op there.
             const pnlShown = new Set<string>();
             return sortedRows.map(row => {
               const isHighlighted = highlightedEntity === row.entity_id;

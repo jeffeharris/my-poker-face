@@ -63,6 +63,7 @@ class TestSchemaMigrationV87:
     def test_cash_pair_stats_table_exists(self, db_path):
         with sqlite3.connect(db_path) as conn:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(cash_pair_stats)")}
+            assert "sandbox_id" in cols  # v109 scoping field
             assert "observer_id" in cols
             assert "opponent_id" in cols
             assert "cumulative_pnl" in cols
@@ -262,8 +263,8 @@ class TestCashPairStatsRoundTrip:
             cumulative_pnl=15000,
             hands_played_cash=437,
         )
-        repo.save_cash_pair_stats("alice", "bob", stats)
-        loaded = repo.load_cash_pair_stats("alice", "bob")
+        repo.save_cash_pair_stats("alice", "bob", stats, sandbox_id="sb-1")
+        loaded = repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1")
         assert loaded is not None
         assert loaded.cumulative_pnl == 15000
         assert loaded.hands_played_cash == 437
@@ -272,17 +273,20 @@ class TestCashPairStatsRoundTrip:
 
     def test_load_returns_none_for_unknown_pair(self, repo):
         assert repo.load_cash_pair_stats("nobody", "stranger") is None
+        assert repo.load_cash_pair_stats("nobody", "stranger", sandbox_id="sb-1") is None
 
     def test_save_is_upsert(self, repo):
         repo.save_cash_pair_stats(
             "alice", "bob",
             CashPairStats("alice", "bob", cumulative_pnl=1000, hands_played_cash=10),
+            sandbox_id="sb-1",
         )
         repo.save_cash_pair_stats(
             "alice", "bob",
             CashPairStats("alice", "bob", cumulative_pnl=-500, hands_played_cash=22),
+            sandbox_id="sb-1",
         )
-        loaded = repo.load_cash_pair_stats("alice", "bob")
+        loaded = repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1")
         assert loaded.cumulative_pnl == -500  # negative — observer lost net
         assert loaded.hands_played_cash == 22
 
@@ -292,9 +296,61 @@ class TestCashPairStatsRoundTrip:
         repo.save_cash_pair_stats(
             "alice", "bob",
             CashPairStats("alice", "bob", cumulative_pnl=-7500, hands_played_cash=100),
+            sandbox_id="sb-1",
         )
-        loaded = repo.load_cash_pair_stats("alice", "bob")
+        loaded = repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1")
         assert loaded.cumulative_pnl == -7500
+
+    def test_load_unscoped_sums_across_sandboxes(self, repo):
+        # When sandbox_id is omitted, load_cash_pair_stats aggregates
+        # across every sandbox so the dossier "Track Record" surface
+        # keeps showing lifetime totals after v109.
+        repo.save_cash_pair_stats(
+            "alice", "bob",
+            CashPairStats("alice", "bob", cumulative_pnl=1000, hands_played_cash=10),
+            sandbox_id="sb-1",
+        )
+        repo.save_cash_pair_stats(
+            "alice", "bob",
+            CashPairStats("alice", "bob", cumulative_pnl=2500, hands_played_cash=25),
+            sandbox_id="sb-2",
+        )
+        loaded = repo.load_cash_pair_stats("alice", "bob")  # cross-sandbox
+        assert loaded is not None
+        assert loaded.cumulative_pnl == 3500
+        assert loaded.hands_played_cash == 35
+        # Scoped reads still return per-sandbox values.
+        assert repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1").cumulative_pnl == 1000
+        assert repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-2").cumulative_pnl == 2500
+
+    def test_aggregate_filters_by_sandbox(self, repo):
+        # The admin Chip Economy panel calls aggregate_cash_pnl_by_entity
+        # with the selected sandbox so Won/Lost/Net reflects the dropdown.
+        repo.save_cash_pair_stats(
+            "alice", "bob",
+            CashPairStats("alice", "bob", cumulative_pnl=500, hands_played_cash=5),
+            sandbox_id="sb-1",
+        )
+        repo.save_cash_pair_stats(
+            "alice", "bob",
+            CashPairStats("alice", "bob", cumulative_pnl=-200, hands_played_cash=3),
+            sandbox_id="sb-2",
+        )
+        # Cross-sandbox: net +300, won 500, lost 200
+        all_sandboxes = repo.aggregate_cash_pnl_by_entity()
+        assert all_sandboxes["alice"]["chips_won"] == 500
+        assert all_sandboxes["alice"]["chips_lost"] == 200
+        assert all_sandboxes["alice"]["net_pnl"] == 300
+        # sb-1 only: won 500, lost 0
+        sb1 = repo.aggregate_cash_pnl_by_entity(sandbox_id="sb-1")
+        assert sb1["alice"]["chips_won"] == 500
+        assert sb1["alice"]["chips_lost"] == 0
+        assert sb1["alice"]["net_pnl"] == 500
+        # sb-2 only: won 0, lost 200
+        sb2 = repo.aggregate_cash_pnl_by_entity(sandbox_id="sb-2")
+        assert sb2["alice"]["chips_won"] == 0
+        assert sb2["alice"]["chips_lost"] == 200
+        assert sb2["alice"]["net_pnl"] == -200
 
 
 # --- nickname_override (v101) ---

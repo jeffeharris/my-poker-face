@@ -209,23 +209,34 @@ class RelationshipRepository(BaseRepository):
         observer_id: str,
         opponent_id: str,
         stats: CashPairStats,
+        *,
+        sandbox_id: str,
     ) -> None:
-        """Upsert the (observer_id, opponent_id) cumulative stats row.
+        """Upsert the (sandbox_id, observer_id, opponent_id) cumulative row.
 
         Callers writing pair updates at hand resolution must write
         BOTH the (winner, loser) row AND the mirror (loser, winner)
         row with negated PnL in a single transaction, so the two
         views can't drift. This method writes one row; transaction
         management is the caller's responsibility.
+
+        `sandbox_id` is the v109 scoping field — every row is keyed
+        per sandbox so the admin Chip Economy view can filter. There
+        is no NULL bucket; callers that genuinely lack a sandbox
+        context (legacy tests, tournament adapters) should pass a
+        sentinel like `''` and accept that the aggregate's
+        per-sandbox filter won't surface those rows.
         """
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO cash_pair_stats
-                    (observer_id, opponent_id, cumulative_pnl, hands_played_cash)
-                VALUES (?, ?, ?, ?)
+                    (sandbox_id, observer_id, opponent_id,
+                     cumulative_pnl, hands_played_cash)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
+                    sandbox_id,
                     observer_id,
                     opponent_id,
                     stats.cumulative_pnl,
@@ -239,6 +250,7 @@ class RelationshipRepository(BaseRepository):
         loser_id: str,
         chips: int,
         *,
+        sandbox_id: str,
         hand_delta: int = 1,
     ) -> None:
         """Bilateral cash_pair_stats update for one chip-flow tuple.
@@ -254,6 +266,10 @@ class RelationshipRepository(BaseRepository):
         called from the chip-flow allocator's `ChipFlow.chips`); the
         method handles sign-flipping for the mirror row internally.
 
+        `sandbox_id` (v109) scopes the row — pair PnL accumulates
+        independently per sandbox so the admin Chip Economy panel can
+        filter Won/Lost/Net by the sandbox dropdown.
+
         Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 1
         §"Cash pair stats" — "Write transactions update both rows so
         the views can't drift."
@@ -265,17 +281,17 @@ class RelationshipRepository(BaseRepository):
                 """
                 SELECT cumulative_pnl, hands_played_cash
                 FROM cash_pair_stats
-                WHERE observer_id = ? AND opponent_id = ?
+                WHERE sandbox_id = ? AND observer_id = ? AND opponent_id = ?
                 """,
-                (winner_id, loser_id),
+                (sandbox_id, winner_id, loser_id),
             ).fetchone()
             loser_row = conn.execute(
                 """
                 SELECT cumulative_pnl, hands_played_cash
                 FROM cash_pair_stats
-                WHERE observer_id = ? AND opponent_id = ?
+                WHERE sandbox_id = ? AND observer_id = ? AND opponent_id = ?
                 """,
-                (loser_id, winner_id),
+                (sandbox_id, loser_id, winner_id),
             ).fetchone()
 
             winner_pnl = (winner_row['cumulative_pnl'] if winner_row else 0) + chips
@@ -290,22 +306,28 @@ class RelationshipRepository(BaseRepository):
             conn.execute(
                 """
                 INSERT OR REPLACE INTO cash_pair_stats
-                    (observer_id, opponent_id, cumulative_pnl, hands_played_cash)
-                VALUES (?, ?, ?, ?)
+                    (sandbox_id, observer_id, opponent_id,
+                     cumulative_pnl, hands_played_cash)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (winner_id, loser_id, winner_pnl, winner_hands),
+                (sandbox_id, winner_id, loser_id, winner_pnl, winner_hands),
             )
             conn.execute(
                 """
                 INSERT OR REPLACE INTO cash_pair_stats
-                    (observer_id, opponent_id, cumulative_pnl, hands_played_cash)
-                VALUES (?, ?, ?, ?)
+                    (sandbox_id, observer_id, opponent_id,
+                     cumulative_pnl, hands_played_cash)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (loser_id, winner_id, loser_pnl, loser_hands),
+                (sandbox_id, loser_id, winner_id, loser_pnl, loser_hands),
             )
 
-    def aggregate_cash_pnl_by_entity(self) -> dict:
-        """Per-entity lifetime cash PnL totals, summed across all opponents.
+    def aggregate_cash_pnl_by_entity(
+        self,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> dict:
+        """Per-entity cash PnL totals, summed across all opponents.
 
         For each `observer_id` in `cash_pair_stats`, returns
         `{chips_won, chips_lost, net_pnl, hands_played_cash}`:
@@ -322,14 +344,20 @@ class RelationshipRepository(BaseRepository):
             to each seat's sum here. The number is useful for relative
             comparison between entities but isn't a literal hand count.
 
-        Drives the admin Player Holdings table's "Won" / "Lost"
-        columns. The aggregate is NOT sandbox-scoped — `cash_pair_stats`
-        has no sandbox column, so the totals are lifetime across every
-        sandbox the entity has played in.
+        `sandbox_id=None` (default) aggregates lifetime PnL across
+        every sandbox — the cross-sandbox view that drives the
+        CharacterDetailCard "Track Record" section. Passing an explicit
+        `sandbox_id` filters to one sandbox, which is what the admin
+        Chip Economy panel uses when scoped by its dropdown.
         """
+        params: list = []
+        where = ""
+        if sandbox_id is not None:
+            where = "WHERE sandbox_id = ?"
+            params.append(sandbox_id)
         with self._get_connection() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT
                     observer_id,
                     SUM(CASE WHEN cumulative_pnl > 0
@@ -339,8 +367,10 @@ class RelationshipRepository(BaseRepository):
                     SUM(cumulative_pnl) AS net_pnl,
                     SUM(hands_played_cash) AS hands_played_cash
                 FROM cash_pair_stats
+                {where}
                 GROUP BY observer_id
-                """
+                """,
+                params,
             ).fetchall()
         return {
             row['observer_id']: {
@@ -356,29 +386,51 @@ class RelationshipRepository(BaseRepository):
         self,
         observer_id: str,
         opponent_id: str,
+        *,
+        sandbox_id: Optional[str] = None,
     ) -> Optional[CashPairStats]:
         """Load the cumulative cash-mode stats for a pair.
 
         Returns None when no row exists (pair has never played in
         cash mode). Callers should treat None as "PnL = 0, hands = 0"
         — equivalent to a default-constructed CashPairStats.
+
+        `sandbox_id=None` (default) sums across every sandbox the pair
+        has played in — the cross-sandbox lifetime view used by the
+        CharacterDetailCard dossier. Passing an explicit `sandbox_id`
+        returns just that sandbox's row.
         """
         with self._get_connection() as conn:
-            row = conn.execute(
-                """
-                SELECT cumulative_pnl, hands_played_cash
-                FROM cash_pair_stats
-                WHERE observer_id = ? AND opponent_id = ?
-                """,
-                (observer_id, opponent_id),
-            ).fetchone()
-            if not row:
-                return None
+            if sandbox_id is None:
+                row = conn.execute(
+                    """
+                    SELECT
+                        SUM(cumulative_pnl) AS cumulative_pnl,
+                        SUM(hands_played_cash) AS hands_played_cash
+                    FROM cash_pair_stats
+                    WHERE observer_id = ? AND opponent_id = ?
+                    """,
+                    (observer_id, opponent_id),
+                ).fetchone()
+                if not row or row['cumulative_pnl'] is None:
+                    return None
+            else:
+                row = conn.execute(
+                    """
+                    SELECT cumulative_pnl, hands_played_cash
+                    FROM cash_pair_stats
+                    WHERE sandbox_id = ?
+                      AND observer_id = ? AND opponent_id = ?
+                    """,
+                    (sandbox_id, observer_id, opponent_id),
+                ).fetchone()
+                if not row:
+                    return None
             return CashPairStats(
                 observer_id=observer_id,
                 opponent_id=opponent_id,
-                cumulative_pnl=row['cumulative_pnl'],
-                hands_played_cash=row['hands_played_cash'],
+                cumulative_pnl=int(row['cumulative_pnl']),
+                hands_played_cash=int(row['hands_played_cash'] or 0),
             )
 
     # --- notes (v95) ---
