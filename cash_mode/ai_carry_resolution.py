@@ -389,18 +389,77 @@ def _min_tier_buy_in_buffer() -> int:
 
 
 def _affordability_gate(bankroll_chips: int, carry_amount: int) -> bool:
-    """Hard gate: can they pay AND keep enough for a min-tier seat?
+    """Hard gate: do they have ANY headroom above the min-tier seat?
 
-    Without this, an AI could pay off a debt that drops them below
-    every table's buy-in — leaving them with no playable seat. The
-    gate uses the CHEAPEST tier's min buy-in as the floor so we
-    don't over-block (paying off + dropping to micro stakes is fine;
-    paying off + leaving the lobby entirely is not).
+    Returns True iff they can pay at least one chip toward the carry
+    while keeping the cheapest tier's min buy-in. Doesn't require
+    them to clear the full carry — `_payoff_payment_amount` handles
+    the partial path when full would breach the seat floor. Still
+    rejects a 0-or-negative carry defensively.
     """
     if carry_amount <= 0:
         return False
     floor = _min_tier_buy_in_buffer()
-    return (bankroll_chips - carry_amount) >= floor
+    return (bankroll_chips - floor) >= PAYOFF_MIN_PAYMENT
+
+
+PAYOFF_MIN_PAYMENT = 50
+"""Smallest payment we'll fire. Prevents $1 noise payments when the
+AI is barely above the seat floor — under this, we skip entirely
+and let the carry sit until they're flush enough for a meaningful
+chunk. The 7-day forgiveness rate-limit keeps the user from getting
+spammed with tiny progress events."""
+
+PAYOFF_MIN_EAGERNESS_FRACTION = 0.40
+"""Gambler floor — even a 0.0-eagerness AI commits 40% of their
+spare chips when the score forces them to act. The score gate
+already filtered for "wanted to pay at all"; once they're paying,
+they're not going to put a token $1 down. Conscientious AIs
+(eagerness 1.0) commit 100% of spare up to the carry amount."""
+
+
+def _payoff_payment_amount(
+    *,
+    bankroll_chips: int,
+    carry_amount: int,
+    payoff_eagerness: float,
+) -> int:
+    """How much to pay against the carry this fire.
+
+    Decides between a full clear and a partial chip-away based on:
+      - **max_affordable**: chips above the min-tier seat floor.
+      - **eagerness fraction**: lerps `[PAYOFF_MIN_EAGERNESS_FRACTION,
+        1.0]` with the personality knob. Gamblers commit ~40% of
+        their spare; conscientious AIs commit 100%.
+      - **carry_amount**: caps payment at the outstanding debt (no
+        over-payment).
+
+    Returns the chip count to debit / credit. 0 means "skip" — either
+    can't afford the minimum payment, or eagerness landed below the
+    minimum threshold against this carry size.
+
+    The carry-clear path (payment == carry_amount) and partial-pay
+    path (payment < carry_amount) share this return — the caller
+    inspects the result vs `carry_amount` to decide which side-effects
+    to apply (status flip + STAKE_REPAID event only on full clear).
+    """
+    if carry_amount <= 0:
+        return 0
+    floor = _min_tier_buy_in_buffer()
+    max_affordable = max(0, bankroll_chips - floor)
+    if max_affordable < PAYOFF_MIN_PAYMENT:
+        return 0
+    e = max(0.0, min(1.0, payoff_eagerness))
+    fraction = PAYOFF_MIN_EAGERNESS_FRACTION + e * (
+        1.0 - PAYOFF_MIN_EAGERNESS_FRACTION
+    )
+    desired = int(max_affordable * fraction)
+    payment = min(carry_amount, desired)
+    # Round payment down to the minimum so we don't accidentally
+    # under-shoot the floor on float drift; also enforce the minimum.
+    if payment < PAYOFF_MIN_PAYMENT:
+        return 0
+    return payment
 
 
 # --- Matcher penalty for borrowers carrying debt -------------------------
@@ -498,21 +557,15 @@ def try_ai_voluntary_payoff(
     carry_amount = int(target.carry_amount)
     if carry_amount <= 0:
         return None
-    if projected < carry_amount:
-        # Can't afford the oldest carry — could pick a smaller one,
-        # but that'd be cherry-picking. Skip this refresh; next time
-        # the floor check will reflect any chip changes.
-        return None
     if target.staker_id is None:
         # House carries shouldn't exist (settle_stake_on_leave
         # forgives them). Defensive skip.
         return None
 
-    # Affordability gate — paying off must leave enough for a
-    # min-tier seat. Cheaper than the old bankroll_factor floor
-    # (which required 1× total carries comfortably) because the
-    # score model handles "comfort" via wealth_gap; the gate just
-    # guards against losing all lobby access.
+    # Affordability gate — they need at least the minimum payment
+    # ($50) of headroom above the cheapest tier's min buy-in. If
+    # they can't pay even the floor, skip; partial payment below
+    # the floor would be noise.
     if not _affordability_gate(projected, carry_amount):
         return None
 
@@ -574,6 +627,18 @@ def try_ai_voluntary_payoff(
     if prob <= 0 or rng.random() >= prob:
         return None
 
+    # Decide payment amount. Gamblers pay ~40% of their spare,
+    # conscientious AIs pay 100% up to the full carry. Returns 0
+    # if even the minimum payment is unaffordable — caller skips.
+    payment = _payoff_payment_amount(
+        bankroll_chips=projected,
+        carry_amount=carry_amount,
+        payoff_eagerness=profile.payoff_eagerness,
+    )
+    if payment <= 0:
+        return None
+    clears_carry = payment >= carry_amount
+
     # Human-staker pre-flight: the credit must land on
     # `player_bankroll_state`, not an AI bankroll row. Confirm the row
     # exists before we debit the AI — otherwise we'd vaporize chips
@@ -601,7 +666,7 @@ def try_ai_voluntary_payoff(
     bankroll_repo.save_ai_bankroll(
         AIBankrollState(
             personality_id=personality_id,
-            chips=max(0, projected - carry_amount),
+            chips=max(0, projected - payment),
             last_regen_tick=now,
         ),
         sandbox_id=sandbox_id,
@@ -624,69 +689,84 @@ def try_ai_voluntary_payoff(
     if target.staker_kind == STAKER_KIND_HUMAN:
         # Route the credit to player_bankroll_state. credit_ai_cash_out
         # would write into a phantom AI bankroll keyed by the human's
-        # owner_id (the bug this branch fixes).
+        # owner_id (the bug the v110 routing fix addresses).
         from cash_mode.bankroll import PlayerBankrollState
         bankroll_repo.save_player_bankroll(
             PlayerBankrollState(
                 player_id=human_staker_bankroll.player_id,
-                chips=human_staker_bankroll.chips + carry_amount,
+                chips=human_staker_bankroll.chips + payment,
                 starting_bankroll=human_staker_bankroll.starting_bankroll,
             ),
         )
     else:
         credit_ai_cash_out(
-            bankroll_repo, target.staker_id, carry_amount,
+            bankroll_repo, target.staker_id, payment,
             sandbox_id=sandbox_id,
             now=now,
             chip_ledger_repo=chip_ledger_repo,
             ledger_context={
                 'stake_id': target.stake_id,
                 'site': 'ai_voluntary_payoff',
+                'partial': not clears_carry,
             },
         )
 
-    stake_repo.update_carry_amount(target.stake_id, 0)
-    stake_repo.update_status(target.stake_id, STAKE_STATUS_SETTLED, settled_at=now)
-    # Clear any pending player-forgiveness ask — the carry no longer
-    # exists to forgive. A stale pending row would surface a phantom
-    # request in the Net Worth Drawer with nothing to act on.
-    if target.pending_forgiveness_ask is not None:
-        stake_repo.update_pending_forgiveness_ask(target.stake_id, None)
+    # Settlement transitions on full clear; partial just decrements
+    # carry_amount and leaves status='carry'. Status-flip side effects
+    # (clearing pending_forgiveness_ask, firing STAKE_REPAID) only
+    # fire on the full-clear branch — a partial payment is progress,
+    # not closure, and the AI may still come back for forgiveness
+    # later if they can't finish on their own.
+    if clears_carry:
+        stake_repo.update_carry_amount(target.stake_id, 0)
+        stake_repo.update_status(
+            target.stake_id, STAKE_STATUS_SETTLED, settled_at=now,
+        )
+        if target.pending_forgiveness_ask is not None:
+            stake_repo.update_pending_forgiveness_ask(target.stake_id, None)
+    else:
+        stake_repo.update_carry_amount(
+            target.stake_id, carry_amount - payment,
+        )
 
-    # v106 payout accounting on AI voluntary payoff — mirrors the
-    # human-route path so the Net Worth history's net P&L stays
-    # accurate when a carry is later cleared via chip flow rather
-    # than write-off (forgive/default). See the human payoff route's
-    # comment for the rationale.
+    # v106 payout accounting — partial payments accumulate too so
+    # the Net Worth history's net P&L stays accurate across multiple
+    # chip-aways. update_payouts is called regardless of clears_carry.
     prior_staker_payout = target.staker_payout or 0
     prior_borrower_payout = target.borrower_payout or 0
     stake_repo.update_payouts(
         target.stake_id,
-        staker_payout=prior_staker_payout + carry_amount,
-        borrower_payout=prior_borrower_payout - carry_amount,
+        staker_payout=prior_staker_payout + payment,
+        borrower_payout=prior_borrower_payout - payment,
     )
 
-    # STAKE_REPAID event: actor=staker, target=borrower. Same dispatch
-    # the human-payoff route fires. Best-effort — log on failure.
-    try:
-        from poker.memory import OpponentModelManager
-        from poker.memory.relationship_events import RelationshipEvent
-        if relationship_repo is not None:
-            mgr = OpponentModelManager(relationship_repo=relationship_repo)
-            mgr.record_event(
-                actor_id=target.staker_id,
-                target_id=personality_id,
-                event=RelationshipEvent.STAKE_REPAID,
+    # STAKE_REPAID event only fires on full clear — partial payments
+    # are progress, not closure, and shouldn't bump the relationship
+    # axes the same way a "made whole" moment does. The chip move
+    # itself + the eventual full settle (whenever it lands) carry
+    # the relationship beat.
+    if clears_carry:
+        try:
+            from poker.memory import OpponentModelManager
+            from poker.memory.relationship_events import RelationshipEvent
+            if relationship_repo is not None:
+                mgr = OpponentModelManager(relationship_repo=relationship_repo)
+                mgr.record_event(
+                    actor_id=target.staker_id,
+                    target_id=personality_id,
+                    event=RelationshipEvent.STAKE_REPAID,
+                )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][AI_PAYOFF] STAKE_REPAID failed stake=%r: %s",
+                target.stake_id, exc,
             )
-    except Exception as exc:
-        logger.warning(
-            "[CASH][AI_PAYOFF] STAKE_REPAID failed stake=%r: %s",
-            target.stake_id, exc,
-        )
 
     logger.info(
-        "[STAKE][AI_PAYOFF] %r paid %d to %r stake_id=%r",
-        personality_id, carry_amount, target.staker_id, target.stake_id,
+        "[STAKE][AI_PAYOFF] %r paid %d to %r stake_id=%r (%s)",
+        personality_id, payment, target.staker_id, target.stake_id,
+        'cleared' if clears_carry else
+        f'partial; ${carry_amount - payment} remaining',
     )
 
     return CarryResolutionResult(
@@ -695,7 +775,7 @@ def try_ai_voluntary_payoff(
         staker_id=target.staker_id,
         borrower_id=personality_id,
         stake_tier=target.stake_tier,
-        amount=carry_amount,
+        amount=payment,
     )
 
 
