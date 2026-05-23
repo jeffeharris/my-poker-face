@@ -157,7 +157,13 @@ logger = logging.getLogger(__name__)
 #       lifetime pair-PnL is rebuilt as sandboxes accumulate hands.
 #       Repo signatures gain `sandbox_id` as a required kwarg; the
 #       dossier endpoint still aggregates cross-sandbox by passing None.
-SCHEMA_VERSION = 111
+# v112: Create `ai_vice_state` for the AI vice spending mechanic. AIs on
+#       a vice are off-grid for a bounded duration (15min - 4hr per the
+#       LLM-chosen bucket). One row per active vice keyed
+#       `(personality_id, sandbox_id)`. Expired rows are deleted by the
+#       lobby refresh's expiry pass. See
+#       `docs/plans/CASH_MODE_AI_VICE_SPENDING.md`.
+SCHEMA_VERSION = 112
 
 
 
@@ -527,6 +533,26 @@ class SchemaManager:
                     chips INTEGER NOT NULL DEFAULT 0,
                     starting_bankroll INTEGER NOT NULL DEFAULT 0
                 )
+            """)
+
+            # 10f. AI vice state (v112) — per-sandbox vice status. One row
+            #      while an AI is on a vice. Deleted at expiry by the
+            #      lobby refresh's `tick_vice_expirations` pass.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS ai_vice_state (
+                    personality_id TEXT NOT NULL,
+                    sandbox_id TEXT NOT NULL,
+                    started_at TIMESTAMP NOT NULL,
+                    ends_at TIMESTAMP NOT NULL,
+                    amount INTEGER NOT NULL,
+                    duration_bucket TEXT NOT NULL,
+                    narration TEXT NOT NULL,
+                    PRIMARY KEY (personality_id, sandbox_id)
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ai_vice_ends_at
+                    ON ai_vice_state(sandbox_id, ends_at)
             """)
 
             # 11. Hand commentary (v41)
@@ -1339,6 +1365,7 @@ class SchemaManager:
             109: (self._migrate_v109_scope_cash_pair_stats_to_sandbox, "Drop+recreate cash_pair_stats with sandbox_id in PK so admin Chip Economy Won/Lost/Net can scope per sandbox (matches v102 destructive precedent)"),
             110: (self._migrate_v110_add_pending_forgiveness_ask, "Add nullable pending_forgiveness_ask column to stakes — AIs holding human-staker carries surface a forgiveness request the player decides on (replaces auto-grant which silently void chips)"),
             111: (self._migrate_v111_add_multi_table_lobby_columns, "Add name + table_type columns to cash_tables and table_id column to stakes for multi-table-per-tier lobby (named tables + future private/casino types)"),
+            112: (self._migrate_v112_create_ai_vice_state, "Create ai_vice_state table for AI vice spending (per-sandbox vice status with bounded duration)"),
         }
 
         with self._get_connection() as conn:
@@ -5193,3 +5220,32 @@ class SchemaManager:
             "Migration v111 complete: cash_tables.name + table_type added, "
             "stakes.table_id added, lobby-config names backfilled"
         )
+
+    def _migrate_v112_create_ai_vice_state(self, conn: sqlite3.Connection) -> None:
+        """Migration v112: create `ai_vice_state` for AI vice spending.
+
+        One row per active vice, keyed `(personality_id, sandbox_id)`.
+        Deleted when the vice expires. The index supports the per-
+        refresh expiry scan (`SELECT ... WHERE sandbox_id = ? AND
+        ends_at <= ?`).
+
+        Non-destructive. Idempotent (CREATE TABLE IF NOT EXISTS +
+        CREATE INDEX IF NOT EXISTS).
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_vice_state (
+                personality_id TEXT NOT NULL,
+                sandbox_id TEXT NOT NULL,
+                started_at TIMESTAMP NOT NULL,
+                ends_at TIMESTAMP NOT NULL,
+                amount INTEGER NOT NULL,
+                duration_bucket TEXT NOT NULL,
+                narration TEXT NOT NULL,
+                PRIMARY KEY (personality_id, sandbox_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ai_vice_ends_at
+                ON ai_vice_state(sandbox_id, ends_at)
+        """)
+        logger.info("Migration v112 complete: ai_vice_state table created")

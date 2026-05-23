@@ -196,7 +196,10 @@ export interface LobbyEvent {
     | 'ai_default'
     // Phase 4.5 — AI-initiated carry resolution.
     | 'ai_payoff'
-    | 'ai_forgiven';
+    | 'ai_forgiven'
+    // Vice spending — AI goes off-grid for a duration.
+    | 'vice_start'
+    | 'vice_end';
   table_id: string;
   stake_label: string;
   personality_id: string;
@@ -219,6 +222,23 @@ export interface LobbyEvent {
   created_at: string;
 }
 
+/** An AI currently on a vice — off-grid for a bounded duration. */
+export interface ActiveVice {
+  personality_id: string;
+  /** Display name from the personality config. */
+  name: string;
+  /** The LLM-generated (or templated fallback) flavor line. */
+  narration: string;
+  /** 'short' | 'medium' | 'long'. */
+  duration_bucket: string;
+  /** ISO-8601 UTC. */
+  started_at: string;
+  /** ISO-8601 UTC — when the AI re-enters the eligibility pool. */
+  ends_at: string;
+  /** Chips spent on this vice. */
+  amount: number;
+}
+
 export interface LobbyResponse {
   bankroll: number;
   tables: LobbyTable[];
@@ -228,6 +248,12 @@ export interface LobbyResponse {
    *  list is fetched via GET /api/cash/forgiveness-requests when the
    *  Net Worth Drawer opens. */
   pending_forgiveness_count?: number;
+  /** AIs currently off-grid on a vice. Per-sandbox. Frontend renders
+   *  these in a separate "Away" group (or simply suppresses the
+   *  personality from lobby cards while the vice is active). The
+   *  narration shows on the personality dossier + the vice_start
+   *  ticker event. */
+  active_vices?: ActiveVice[];
 }
 
 /** Successful response from POST /api/cash/sit. */

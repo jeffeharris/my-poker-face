@@ -425,6 +425,10 @@ def refresh_unseated_tables(
     # them — tests for take_stake plumbing pass both).
     relationship_repo=None,
     stake_repo=None,
+    # Vice spending repo. When None, the vice mechanic is disabled —
+    # no expiry pass, no start pass. Optional so existing test callers
+    # that don't care about vice can pass nothing and keep working.
+    vice_repo=None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -449,6 +453,49 @@ def refresh_unseated_tables(
     idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
     seated_globally = _global_seated_set(tables)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
+
+    # Vice expiry pass — runs BEFORE the table loop so AIs whose vice
+    # ended this refresh become immediately eligible for seating /
+    # staking. Returns a list of ViceEndResults; Commit 2 will emit
+    # ticker rows from them.
+    vice_ends: list = []
+    on_vice: Set[str] = set()
+    if vice_repo is not None and sandbox_id is not None:
+        try:
+            from cash_mode.ai_vice_spending import tick_vice_expirations
+            vice_ends = tick_vice_expirations(
+                vice_repo=vice_repo,
+                bankroll_repo=bankroll_repo,
+                personality_repo=personality_repo,
+                sandbox_id=sandbox_id,
+                now=now,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] vice expiry pass failed: %s", exc,
+            )
+        try:
+            on_vice = vice_repo.active_pids(sandbox_id=sandbox_id, now=now)
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] vice active_pids failed: %s", exc,
+            )
+            on_vice = set()
+
+    # Filter the idle pool and eligible-personality lists to exclude
+    # AIs currently on vice. Every downstream gate (live-fill,
+    # staking-candidate selection, cross-table pool) reads these
+    # variables, so a single filter at the top covers all the seating
+    # / staking eligibility surfaces without per-call-site changes.
+    if on_vice:
+        idle_pool = [
+            entry for entry in idle_pool
+            if entry.personality_id not in on_vice
+        ]
+        eligible = [
+            cand for cand in eligible
+            if cand.get("personality_id") not in on_vice
+        ]
 
     # Closed-economy: fish-archetype personalities only seat at the
     # casino tier ($2). Build the set once per refresh; the per-table
@@ -1432,6 +1479,73 @@ def refresh_unseated_tables(
                 "[CASH][LOBBY] AI carry resolution failed: %s", exc,
             )
 
+    # AI vice spending — start pass. Runs after carry resolution so a
+    # carry-settling AI in the same refresh isn't immediately whisked
+    # off-grid. Candidate set is idle-pool AIs minus already-vicing
+    # AIs (the filter above already removed them from idle_pool).
+    # Each fire is a sync narration call + ledger entry + state row.
+    # Runs BEFORE closed-economy resolution so real-vice deposits land
+    # in the bank pool on the same tick they're available for tourist
+    # injection / casino seeding (vice_spending is in
+    # BANK_POOL_DEPOSIT_REASONS).
+    vice_starts: list = []
+    if vice_repo is not None and sandbox_id is not None and chip_ledger_repo is not None:
+        try:
+            from cash_mode.ai_vice_spending import resolve_ai_vice_spending
+            from cash_mode.vice_narration import narrate_vice
+            # Idle-only candidates per the design's "sim-seated AIs
+            # are deferred" decision (see CASH_MODE_AI_VICE_SPENDING.md).
+            # idle_pool was already filtered to exclude on_vice AIs at
+            # the top of this function. Refresh from the current idle
+            # snapshot so any AIs who entered idle during the table
+            # loop are eligible too.
+            current_idle = cash_table_repo.list_idle(sandbox_id=sandbox_id)
+            candidates = {
+                e.personality_id for e in current_idle
+                if e.personality_id not in on_vice
+            }
+
+            def _vice_narrate(pid, amount, snapshot):
+                # Bind the personality_repo so the LLM prompt can
+                # include style + anchors + verbal tics. Fail-soft
+                # internal to narrate_vice — never raises.
+                return narrate_vice(
+                    pid, amount, snapshot,
+                    personality_repo=personality_repo,
+                )
+
+            vice_starts = resolve_ai_vice_spending(
+                candidates=candidates,
+                vice_repo=vice_repo,
+                bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                rng=rng,
+                now=now,
+                narrate_fn=_vice_narrate,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] AI vice spending failed: %s", exc,
+            )
+
+    # Emit vice ticker events for both starts (this refresh) and ends
+    # (from the expiry pass at the top). Best-effort — already wrapped
+    # in try/except inside the helper.
+    if vice_starts or vice_ends:
+        try:
+            _emit_vice_spending_events(
+                starts=vice_starts,
+                ends=vice_ends,
+                personality_repo=personality_repo,
+                now=now,
+                sandbox_id=sandbox_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] vice event emission failed: %s", exc,
+            )
+
     # Closed-economy testbed: fake-vice deposits + tourist injections.
     # Gated on `chip_ledger_repo` because both flows write ledger
     # entries — without the repo, there's no pool to compute against
@@ -2001,6 +2115,93 @@ def _emit_carry_resolution_events(
             logger.warning(
                 "[CASH][LOBBY] carry resolution event emit failed (%s): %s",
                 result.kind, exc,
+            )
+
+
+def _emit_vice_spending_events(
+    *,
+    starts,
+    ends,
+    personality_repo,
+    now: datetime,
+    sandbox_id: Optional[str] = None,
+) -> None:
+    """Translate vice-start / vice-end results into LobbyEvents.
+
+    Vice events don't pivot on a table — vice is a between-tables
+    activity — so `table_id` and `stake_label` are empty. The
+    narration is the message for `vice_start`; `vice_end` uses a
+    short return phrase. `reason` carries the duration bucket
+    ('short' / 'medium' / 'long') so the frontend can render
+    bucket-specific accents if it wants.
+
+    Per the design's `VICE_STARTS_PER_REFRESH` cap, `starts` is
+    already bounded at the dispatcher layer — we emit every entry
+    in it. Ends are unbounded but cheap (no LLM); we emit them all.
+
+    Best-effort: ring-buffer failures don't propagate.
+    """
+    if not starts and not ends:
+        return
+
+    from cash_mode.activity import (
+        EVENT_VICE_END,
+        EVENT_VICE_START,
+        LobbyEvent,
+        format_vice_end_message,
+        format_vice_start_message,
+        record_event,
+    )
+
+    def _name_for(pid: str) -> str:
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            personality = None
+        if personality and personality.get("name"):
+            return personality["name"]
+        return pid
+
+    ts = now.isoformat()
+
+    for s in starts:
+        name = _name_for(s.personality_id)
+        try:
+            record_event(LobbyEvent(
+                type=EVENT_VICE_START,
+                table_id="",
+                stake_label="",
+                personality_id=s.personality_id,
+                name=name,
+                reason=s.duration_bucket,
+                message=format_vice_start_message(name, s.narration),
+                created_at=ts,
+                sandbox_id=sandbox_id,
+            ))
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] vice start event emit failed pid=%r: %s",
+                s.personality_id, exc,
+            )
+
+    for e in ends:
+        name = _name_for(e.personality_id)
+        try:
+            record_event(LobbyEvent(
+                type=EVENT_VICE_END,
+                table_id="",
+                stake_label="",
+                personality_id=e.personality_id,
+                name=name,
+                reason=e.duration_bucket,
+                message=format_vice_end_message(name),
+                created_at=ts,
+                sandbox_id=sandbox_id,
+            ))
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] vice end event emit failed pid=%r: %s",
+                e.personality_id, exc,
             )
 
 

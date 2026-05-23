@@ -29,6 +29,8 @@ from cash_mode.ai_carry_resolution import (
     FORGIVENESS_RATE_LIMIT_SECONDS,
     PAYOFF_BANKROLL_FACTOR_FLOOR,
     PAYOFF_EVENT_BASE_RATE,
+    PAYOFF_MIN_EAGERNESS_FRACTION,
+    PAYOFF_MIN_PAYMENT,
     _affordability_gate,
     _carry_age_factor,
     _default_pressure,
@@ -36,6 +38,7 @@ from cash_mode.ai_carry_resolution import (
     _forgiveness_score,
     _hold_pull,
     _pay_pull,
+    _payoff_payment_amount,
     _payoff_probability,
     _payoff_score,
     _wealth_gap_factor,
@@ -161,18 +164,29 @@ class TestPayoffScore(unittest.TestCase):
 
 
 class TestAffordabilityGate(unittest.TestCase):
-    def test_blocks_when_payoff_would_strand_below_floor(self):
-        # The gate uses the cheapest tier's min buy-in as the floor.
-        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+    def test_blocks_when_headroom_below_min_payment(self):
+        # The gate now allows partial payments: it blocks only when
+        # bankroll−floor is below PAYOFF_MIN_PAYMENT ($50). Tiny
+        # headroom (under $50) would just produce noise payments.
+        from cash_mode.ai_carry_resolution import (
+            PAYOFF_MIN_PAYMENT,
+            _min_tier_buy_in_buffer,
+        )
         floor = _min_tier_buy_in_buffer()
-        # bankroll - carry < floor → blocked.
-        self.assertFalse(_affordability_gate(floor + 50, 100))
+        self.assertFalse(
+            _affordability_gate(floor + PAYOFF_MIN_PAYMENT - 1, 1000)
+        )
 
-    def test_allows_when_payoff_keeps_floor(self):
-        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+    def test_allows_when_headroom_at_or_above_min_payment(self):
+        from cash_mode.ai_carry_resolution import (
+            PAYOFF_MIN_PAYMENT,
+            _min_tier_buy_in_buffer,
+        )
         floor = _min_tier_buy_in_buffer()
-        self.assertTrue(_affordability_gate(floor + 100, 100))
-        self.assertTrue(_affordability_gate(floor + 1000, 100))
+        # Exactly at the minimum — gate allows; partial payment of
+        # $50 will fire.
+        self.assertTrue(_affordability_gate(floor + PAYOFF_MIN_PAYMENT, 1000))
+        self.assertTrue(_affordability_gate(floor + 10_000, 1000))
 
     def test_blocks_when_carry_is_zero(self):
         # Defensive: a zero carry can't fire payoff.
@@ -420,21 +434,24 @@ class TestVoluntaryPayoff:
         assert after.status == STAKE_STATUS_CARRY  # still owes
 
     def test_affordability_gate_blocks_payoff(self, db_setup):
-        """Paying off must not strand the AI below the cheapest tier's
-        min buy-in — the gate refuses even when score is high."""
+        """Affordability gate refuses payoff when even the minimum
+        partial payment ($50) would breach the cheapest tier's seat
+        floor. Higher-headroom AIs would partial-pay instead — see
+        TestPartialPayoff for that path."""
         from cash_mode.bankroll import AIBankrollState
-        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        from cash_mode.ai_carry_resolution import (
+            PAYOFF_MIN_PAYMENT,
+            _min_tier_buy_in_buffer,
+        )
         bankroll = db_setup["bankroll"]
         stake = db_setup["stake"]
         old_now = ANCHOR + timedelta(days=20)
 
-        # Drain borrower chips so paying 400 would drop them below
-        # the min-tier floor. Pin last_regen_tick to old_now so regen
-        # doesn't refill them during projection.
+        # Headroom below PAYOFF_MIN_PAYMENT — gate blocks entirely.
         floor = _min_tier_buy_in_buffer()
         bankroll.save_ai_bankroll(AIBankrollState(
             personality_id="borrower",
-            chips=floor + 200,  # 200 above the floor; carry=400 would breach
+            chips=floor + PAYOFF_MIN_PAYMENT - 1,
             last_regen_tick=old_now,
         ), sandbox_id=SBX)
 
@@ -456,6 +473,226 @@ class TestVoluntaryPayoff:
         assert result is None
         after = stake.load_stake("carry_1")
         assert after.status == STAKE_STATUS_CARRY
+        assert after.carry_amount == 400  # untouched
+
+
+class TestPayoffPaymentAmount(unittest.TestCase):
+    """Pure-math coverage of `_payoff_payment_amount` across archetypes
+    + edge cases. The fraction lerps PAYOFF_MIN_EAGERNESS_FRACTION→1.0
+    with payoff_eagerness, then caps at the outstanding carry."""
+
+    def test_conscientious_pays_full_when_affordable(self):
+        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        floor = _min_tier_buy_in_buffer()
+        # 1.0 eagerness × max_affordable, capped at carry_amount.
+        payment = _payoff_payment_amount(
+            bankroll_chips=floor + 10_000,
+            carry_amount=500,
+            payoff_eagerness=1.0,
+        )
+        self.assertEqual(payment, 500)
+
+    def test_gambler_pays_partial(self):
+        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        floor = _min_tier_buy_in_buffer()
+        # 0.0 eagerness commits PAYOFF_MIN_EAGERNESS_FRACTION (0.4)
+        # of max_affordable = 1000. 0.4 × 1000 = 400.
+        payment = _payoff_payment_amount(
+            bankroll_chips=floor + 1000,
+            carry_amount=2000,
+            payoff_eagerness=0.0,
+        )
+        self.assertEqual(payment, 400)
+
+    def test_baseline_lerps_midpoint(self):
+        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        floor = _min_tier_buy_in_buffer()
+        # 0.5 eagerness → 0.4 + 0.5×0.6 = 0.7 of max_affordable.
+        # max=1000 → desired=700; carry=2000 → payment=700.
+        payment = _payoff_payment_amount(
+            bankroll_chips=floor + 1000,
+            carry_amount=2000,
+            payoff_eagerness=0.5,
+        )
+        self.assertEqual(payment, 700)
+
+    def test_caps_at_carry_amount(self):
+        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        floor = _min_tier_buy_in_buffer()
+        # Desired = 0.7 × 5000 = 3500, but carry only $200 — payment
+        # caps at the carry so we don't over-pay.
+        payment = _payoff_payment_amount(
+            bankroll_chips=floor + 5000,
+            carry_amount=200,
+            payoff_eagerness=0.5,
+        )
+        self.assertEqual(payment, 200)
+
+    def test_zero_when_below_minimum_payment(self):
+        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        floor = _min_tier_buy_in_buffer()
+        # Headroom = $30 < PAYOFF_MIN_PAYMENT ($50) → 0.
+        payment = _payoff_payment_amount(
+            bankroll_chips=floor + 30,
+            carry_amount=1000,
+            payoff_eagerness=1.0,
+        )
+        self.assertEqual(payment, 0)
+
+
+class TestPartialPayoff:
+    """Integration: partial payments leave the carry open + don't fire
+    STAKE_REPAID. Subsequent full clears do both."""
+
+    def test_partial_payment_keeps_status_carry(self, db_setup):
+        """Carry > what the AI will pay → status stays carry,
+        carry_amount decremented by payment, no STAKE_REPAID event."""
+        from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
+        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        import json
+        bankroll = db_setup["bankroll"]
+        stake = db_setup["stake"]
+        old_now = ANCHOR + timedelta(days=20)
+
+        # Retire the existing carry_1 ($400) and create a bigger
+        # human-staker carry so the partial path is exercised. Use a
+        # human staker so we can also verify the player_bankroll
+        # routing handles partial payment correctly.
+        stake.update_status("carry_1", STAKE_STATUS_SETTLED)
+        bankroll.save_player_bankroll(PlayerBankrollState(
+            player_id="human_partial_1", chips=2_000, starting_bankroll=5_000,
+        ))
+        stake.create_stake(Stake(
+            stake_id="big_carry",
+            session_id="player_session_borrower_partial",
+            staker_id="human_partial_1",
+            staker_kind=STAKER_KIND_HUMAN,
+            borrower_id="borrower",
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=STAKE_FORMAT_PURE,
+            principal=2000,
+            match_amount=0,
+            origination_fee=0,
+            cut=0.30,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=2000,
+            stake_tier="$10",
+            created_at=ANCHOR,
+        ))
+
+        # Mid-range eagerness so the score gate passes AND the
+        # payment fraction is partial (not 100%).
+        with bankroll._get_connection() as conn:
+            conn.execute(
+                "INSERT INTO personalities (personality_id, name, config_json) "
+                "VALUES (?, ?, ?)",
+                ("borrower", "Borrower", json.dumps({
+                    "borrower_profile": {
+                        "willing": True,
+                        "aspiration_bias": 0.5,
+                        "payoff_eagerness": 0.5,
+                    },
+                })),
+            )
+
+        floor = _min_tier_buy_in_buffer()
+        bankroll.save_ai_bankroll(AIBankrollState(
+            personality_id="borrower",
+            chips=floor + 1000,  # max_affordable = 1000
+            last_regen_tick=old_now,
+        ), sandbox_id=SBX)
+
+        carries = stake.list_carries_for_borrower(
+            "borrower", BORROWER_KIND_PERSONALITY,
+        )
+        result = try_ai_voluntary_payoff(
+            personality_id="borrower",
+            carries=carries,
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=_RelHeat(heat=0.9),
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=old_now,
+            base_rate=PAYOFF_EVENT_BASE_RATE,
+        )
+        # eagerness 0.5 → fraction 0.7 → payment = 0.7 × 1000 = 700;
+        # carry is $2000 so payment caps at 700 (partial).
+        assert result is not None
+        assert result.amount == 700
+
+        after = stake.load_stake("big_carry")
+        assert after.status == STAKE_STATUS_CARRY  # still owes
+        assert after.carry_amount == 2000 - 700  # 1300 remaining
+
+        # Human staker credited with the partial.
+        human = bankroll.load_player_bankroll("human_partial_1")
+        assert human.chips == 2_000 + 700
+
+        # update_payouts captured the partial too — running total of
+        # what the staker has been paid (none yet → 700) and the
+        # mirror on the borrower side (−700).
+        assert after.staker_payout == 700
+        assert after.borrower_payout == -700
+
+    def test_full_clear_fires_settled_status(self, db_setup):
+        """When the AI is conscientious-enough that the payment caps
+        at the full carry, status flips to settled and the carry
+        clears in one shot."""
+        from cash_mode.bankroll import AIBankrollState
+        from cash_mode.ai_carry_resolution import _min_tier_buy_in_buffer
+        import json
+        bankroll = db_setup["bankroll"]
+        stake = db_setup["stake"]
+        old_now = ANCHOR + timedelta(days=20)
+
+        # Conscientious AI; ample bankroll well above carry.
+        with bankroll._get_connection() as conn:
+            conn.execute(
+                "INSERT INTO personalities (personality_id, name, config_json) "
+                "VALUES (?, ?, ?)",
+                ("borrower", "Borrower", json.dumps({
+                    "borrower_profile": {
+                        "willing": True,
+                        "aspiration_bias": 0.3,  # low pull-to-climb
+                        "payoff_eagerness": 1.0,  # full conscientious
+                    },
+                })),
+            )
+
+        floor = _min_tier_buy_in_buffer()
+        bankroll.save_ai_bankroll(AIBankrollState(
+            personality_id="borrower",
+            chips=floor + 5000,
+            last_regen_tick=old_now,
+        ), sandbox_id=SBX)
+        bankroll.save_ai_bankroll(AIBankrollState(
+            personality_id="staker",  # carry_1 is to AI-staker "staker"
+            chips=5_000,
+            last_regen_tick=old_now,
+        ), sandbox_id=SBX)
+
+        carries = stake.list_carries_for_borrower(
+            "borrower", BORROWER_KIND_PERSONALITY,
+        )
+        result = try_ai_voluntary_payoff(
+            personality_id="borrower",
+            carries=carries,
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=_RelHeat(heat=0.9),
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=old_now,
+            base_rate=PAYOFF_EVENT_BASE_RATE,
+        )
+        assert result is not None
+        assert result.amount == 400  # the full $400 carry
+        after = stake.load_stake("carry_1")
+        assert after.status == STAKE_STATUS_SETTLED
+        assert after.carry_amount == 0
 
 
 class TestHumanStakerPayoffRouting:

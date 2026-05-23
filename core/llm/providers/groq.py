@@ -64,7 +64,7 @@ class GroqProvider(LLMProvider):
             base_url="https://api.groq.com/openai/v1",
             http_client=shared_http_client,
         )
-        logger.info(f"Groq provider initialized with service_tier={self._service_tier}")
+        logger.debug(f"Groq provider initialized with service_tier={self._service_tier}")
 
     @property
     def provider_name(self) -> str:

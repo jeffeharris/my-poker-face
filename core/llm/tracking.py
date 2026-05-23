@@ -74,6 +74,7 @@ class CallType(str, Enum):
     IMAGE_DESCRIPTION = "image_description"
     CATEGORIZATION = "categorization"
     NARRATION_CLEANUP = "narration_cleanup"
+    VICE_NARRATION = "vice_narration"
     DEBUG_REPLAY = "debug_replay"
     DEBUG_INTERROGATE = "debug_interrogate"
     EXPERIMENT_DESIGN = "experiment_design"

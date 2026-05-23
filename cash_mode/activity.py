@@ -115,6 +115,20 @@ big_win + one bust + one all_in per table per refresh, plus this
 summary event noting "N more hands at $X — Napoleon +$220 net."
 Keeps the ticker readable without losing the aggregate signal."""
 
+EVENT_VICE_START = "vice_start"
+"""An AI fired a vice and went off-grid. Carries the narration
+("Napoleon commissioned an oversized bronze bust...") as `message`
+and the duration bucket as `reason`. `stake_label` is empty — vice
+is a between-tables activity. Frontend renders a dimmed "Away"
+state for the personality card."""
+
+EVENT_VICE_END = "vice_end"
+"""An AI's vice expired; they're back in the eligibility pool. The
+psych-recovery side effect has already run. `message` is a short
+return phrase ("{name} is back"); the original narration isn't
+re-rendered (the player saw it on the start event). `reason` is
+the duration_bucket that just finished."""
+
 
 @dataclass(frozen=True)
 class LobbyEvent:
@@ -343,6 +357,36 @@ AI_CARRY_TICKER_THRESHOLD = 2000
 # buy-ins are 80 and 400, both well below 2000) and $50+ stakes
 # show up. Matches the spec's "drama threshold" guidance.
 AI_STAKE_TICKER_THRESHOLD = 2000
+
+
+def format_vice_start_message(name: str, narration: str) -> str:
+    """The narration leads the start message; we ensure the name is in it.
+
+    The LLM is prompted to lead with the character's name ("Napoleon
+    commissioned..."), but models occasionally drop it ("Pre-ordered a
+    private jet..."). That leaves the ticker reading like an
+    unattributed quote, which is what the user reported. As a defensive
+    fallback, prepend `{name} — ` when the narration doesn't already
+    lead with the personality name. Case-insensitive match so
+    "napoleon" or "Napoleon's" both count as name-led.
+    """
+    narration = narration.strip()
+    if not narration:
+        # Degenerate fallback — at least say WHO went off-grid.
+        return f"{name} stepped out"
+    if narration.lower().startswith(name.lower()):
+        return narration
+    return f"{name} — {narration}"
+
+
+def format_vice_end_message(name: str) -> str:
+    """Short return phrase. The full narration already showed at start.
+
+    Kept deliberately terse so a player who's been away doesn't read
+    a wall of vice-end events after a long session. The drama was at
+    the start; the end is just a status flip.
+    """
+    return f"{name} is back"
 
 
 def format_burst_summary_message(

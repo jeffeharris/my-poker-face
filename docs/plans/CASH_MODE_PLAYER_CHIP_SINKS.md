@@ -2,7 +2,7 @@
 purpose: Single source of truth for the endgame chip-sink design space — collects every player-side sink referenced across the cash-mode docs so the prioritization conversation has one place to live.
 type: design
 created: 2026-05-23
-last_updated: 2026-05-23
+last_updated: 2026-05-24
 ---
 
 # Cash Mode — Player Chip Sinks
@@ -127,42 +127,60 @@ A chip sink that drains AI bankrolls rather than player bankrolls — wealth + p
 
 ---
 
-## Cross-cutting design questions
+## Cross-cutting design decisions
 
-**Q1. Which sinks are the priority?**
+**Q1. Priority order — separate player-experience priority from dev-effort priority.**
 
-The current implicit priority is **staking (#1)** because it's already in flight under the backing system. After that, the queue is unclear. Considerations:
+Two different lenses:
 
-- **#2/#6 (private/hosting tables)** are likely the biggest UI/infrastructure lift but also the most "feel-like-a-game" sink.
-- **#3 (character unlocks)** is probably the simplest to ship — a flag + a chip price + a check at lobby spawn time.
-- **#5 (clone yourself)** has the most narrative pop but depends on staking infrastructure being mature.
-- **#4 (player-created personalities)** is locked to post-Phase-5; not on the near-term path.
+- **Player-experience priority** (which sink unlocks the most engagement value):
+  1. Staking AI players — already in flight, deepest narrative payoff
+  2. Clone yourself — strongest identity hook for high-bankroll players
+  3. Private home games / hosting tables — durable territory ownership
+  4. Character unlocks — content-pacing lever
+  5. Player-created personalities — relational + creative
+  6. Appearance fees — flavor
 
-**Q2. Should sinks destroy chips or transfer them?**
+- **Dev-effort priority** (cheapest-first staging):
+  1. Character unlocks — flag + chip price + lobby check
+  2. Appearance fees — per-session line item on top of lobby
+  3. Staking infra — substantial but already underway
+  4. Private home games — UI + table-ownership state
+  5. Clone yourself — needs live opponent registration + earnings accounting
+  6. Player-created personalities — locked to post-Phase-5
 
-The cash mode uses a credit-debit ledger (`chip_ledger_entries`). Some sinks naturally destroy chips (unlock fees → chips just gone). Others transfer between roles (staking is intra-game between roles; appearance fees are intra-game between player and AI).
+These don't agree on what's next. Reconciling them is the conversation to have when a sink design pass starts.
 
-Implication: per-sink decision in the design pass. Pure destruction is cleanest economically but feels less rich than seeing chips move into someone else's bankroll. Mixed-mode probably right.
+**Q2. Chip destination: sinks route to the bank, recycled to lower tiers.** Locked design.
 
-**Q3. How do sinks interact with the soft stake cap?**
+Sinks **don't destroy** chips — they pull chips out of high-bankroll play and route them to `central_bank.reserves` (the ledger concept defined in `CASH_MODE_CHIP_LEDGER_HANDOFF.md`). The bank later **re-injects** those chips at the lower tiers — seeding new player onboarding, replenishing busted AIs, supporting low-stake table liquidity.
 
-`CASH_MODE_AND_RELATIONSHIPS.md:692` proposes capping the stakes ladder at $1000 — past that, money is *only* for sinks. If sinks under-deliver (don't pull enough chips), the cap forces a feel of pointlessness for high-bankroll players. If sinks over-deliver (drain too fast), top-of-ladder play stops being aspirational.
+This makes sinks a **redistribution** mechanism rather than a deflation mechanism. The chip universe stays bounded (conservation invariant in `CASH_MODE_ECONOMY.md` still holds) but the *distribution* shifts from top-heavy to broadly accessible. Wealthy players' chips become someone else's onboarding bankroll.
 
-Needs calibration once 2+ sinks are live and there's enough player-side hand history to model "what fraction of incoming chips do sinks pull in steady state."
+Implication for sink design: every sink emits `central_bank +X` on the destruction side of the ledger — the same audit shape as `STAKE_DEFAULTED` already does. No new accounting machinery; just consistent routing.
 
-**Q4. Are sinks tied to relationships?**
+**Q3. Relationship-as-gate for sink access** (the question previously phrased as "are sinks tied to relationships").
 
-Several proposed sinks (staking, custom personalities, clone-of-self) are inherently relational — they create or deepen bonds with AI personalities. Others (unlocks, hosting) are more mechanical. The doc note in `CASH_MODE_AND_RELATIONSHIPS.md:670-671` calls the endgame economy "its own product slice, not an extension of the relationship system" — but in practice, the most narratively-rich sinks ride on relationship machinery.
+The richer framing: **relationship state could gate access to a sink**, not just emit events from it. Specifically, a new respect-style relationship trait could control:
 
-Worth being explicit: which sinks are **relational** (lean on `RelationshipState`, emit `RelationshipEvent`s) vs **transactional** (pure chip flow). This determines reuse vs new infrastructure.
+- Who you can invite to your private table (need respect ≥ X with that AI)
+- Which AIs accept appearance-fee gigs from you
+- Which custom personalities you can stake without rejection
+- Which AIs let your clone sit at "their" table (if territorial AI seat-claiming becomes a thing)
 
-**Q5. Sink unlock gating model?**
+This is distinct from the relational sinks already noted (staking emits `TRUST_EXTENDED` / `BETRAYAL`). Those are *outputs*; respect-as-gate is an *input* — sink access conditioned on relationship state. Decision deferred; likely needs a new relationship-state field or repurposed use of existing ones.
 
-Two basic shapes:
-- **Cash gate**: bankroll ≥ X → sink available
-- **Achievement gate**: completed-condition → sink available (e.g., "defeat all $1000-tier celebrities" unlocks hosting)
+**Q4. Sink unlock gating model: cash gates by default, achievement gates selectively.**
 
-The achievement shape adds a non-chip-progression layer that doubles as content — `CASH_MODE_AND_RELATIONSHIPS.md:684-690` already sketches affinity completion / heads-up gauntlet / hand-of-fame as progression candidates. Could pair achievement-based gating with each sink to give the unlock its own moment.
+The default for v1+ is **cash gate** — bankroll ≥ X → sink available. Cleanest, no new state to track, matches the "money equals progression" framing for cash mode.
+
+Some sinks will get **achievement gates** layered on top — when the achievement adds enough narrative weight that "you just hit $X bankroll" doesn't capture the moment. Candidates per `CASH_MODE_AND_RELATIONSHIPS.md:684-690`:
+
+- Hosting tables → "defeat-every-$1000-celebrity" heads-up gauntlet unlock
+- Player-created personalities → completed-affinity-loop with N existing personalities
+- Clone yourself → minimum hand count threshold (so the clone has enough data to be faithful)
+
+Mix-and-match per sink in its design pass.
 
 ---
 

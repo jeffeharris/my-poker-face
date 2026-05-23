@@ -58,21 +58,31 @@ LEDGER_REASONS = frozenset({
                            # audit can still query historical entries.
     'house_stake_settle',  # leave-time settlement of a house-archetype stake
     'table_rake',          # per-hand pot rake destroyed at award time
-    'bank_pool_deposit',   # rich AI/player → bank pool (fake-vice + future
-                           # real vice; recyclable subset of central_bank chips
-                           # that fund `tourist_injection`)
+    'bank_pool_deposit',   # stub vice (and other operator-driven deposits)
+                           # → bank pool; the recyclable subset of central_bank
+                           # chips that fund `tourist_injection` /
+                           # `casino_seat_seed`.
+    'vice_spending',       # AI voluntary spend-down (real vice mechanic).
+                           # Fires from the lobby refresh when a flush AI
+                           # rolls a vice. Per CASH_MODE_CLOSED_ECONOMY.md
+                           # this also feeds the bank pool — see
+                           # BANK_POOL_DEPOSIT_REASONS below.
 
     # Annotation (amount=0, audit reconciliation only)
     'forgive_balance',     # borrower left short of principal on a house stake
 })
 
-# Pool of reasons that fund tourist injections — chips destroyed under
-# any of these reasons are considered "recyclable" and may be drawn
-# down by `tourist_injection` / `casino_seat_seed`. Closed-economy
-# bank-pool depth is `Σ(deposit_reasons) − Σ(draw_reasons)`. When real
-# vice ships, add its reason(s) to BANK_POOL_DEPOSIT_REASONS.
+# Pool of reasons that fund tourist injections / casino seat seeds —
+# chips destroyed under any of these reasons are considered "recyclable"
+# and may be drawn down by `BANK_POOL_DRAW_REASONS`. Closed-economy
+# bank-pool depth is `Σ(deposit_reasons) − Σ(draw_reasons)`.
+#
+# `vice_spending` (real AI vice) and `bank_pool_deposit` (stub vice + sim
+# seed) both deposit here, so the closed-economy loop is agnostic to
+# which vice implementation is live.
 BANK_POOL_DEPOSIT_REASONS = frozenset({
     'bank_pool_deposit',
+    'vice_spending',
 })
 
 # Pool draws — creations that pull from the recyclable pool. Adding a
@@ -454,11 +464,14 @@ def record_bank_pool_deposit(
     """source → central_bank for chips deposited into the closed-economy pool.
 
     `source` is the canonical entity string the chips came from —
-    `ai(personality_id)` for fake-vice (or future real AI vice) and
+    `ai(personality_id)` for stub vice (sim testbed) and
     `player(owner_id)` for future player vice. The deposit lands in
     the recyclable subset of central_bank reserves that funds
-    `tourist_injection`. Bank pool depth (per sandbox) is
-    `Σ(BANK_POOL_DEPOSIT_REASONS) − Σ(tourist_injection)`.
+    `tourist_injection` / `casino_seat_seed`. Bank pool depth (per
+    sandbox) is `Σ(BANK_POOL_DEPOSIT_REASONS) − Σ(BANK_POOL_DRAW_REASONS)`.
+
+    Real AI vice writes via `record_vice_spending`; both feed the
+    same pool (both reasons are in `BANK_POOL_DEPOSIT_REASONS`).
 
     No-op when `repo` is None or `amount <= 0`.
     """
@@ -470,6 +483,41 @@ def record_bank_pool_deposit(
         sink=bank(),
         amount=int(amount),
         reason='bank_pool_deposit',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_vice_spending(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """ai → central_bank for a vice spend (real AI vice mechanic).
+
+    Fired by `resolve_ai_vice_spending` when a flush AI rolls a vice.
+    The chips move from the AI's bankroll to the central bank as part
+    of the standard destruction pattern; the AI then sits off-grid for
+    the vice duration before returning. No-op when `amount <= 0`.
+
+    Per `CASH_MODE_CLOSED_ECONOMY.md` the destination is the recyclable
+    bank pool (not pure destruction) — `vice_spending` is in
+    `BANK_POOL_DEPOSIT_REASONS` so the pool depth accounting picks
+    these up the same way it picks up `bank_pool_deposit`.
+
+    Mirrors `record_cap_clamp`'s shape (single-personality destruction).
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=ai(personality_id),
+        sink=bank(),
+        amount=int(amount),
+        reason='vice_spending',
         context=context,
         sandbox_id=sandbox_id,
     )
@@ -529,7 +577,6 @@ def record_bank_pool_sim_seed_pair(
     if repo is None or amount <= 0:
         return None
     donor = ai('bank_pool_sim_donor')
-    # Creation: central_bank → synthetic donor
     record(
         repo,
         source=bank(),
@@ -539,7 +586,6 @@ def record_bank_pool_sim_seed_pair(
         context=context,
         sandbox_id=sandbox_id,
     )
-    # Destruction: synthetic donor → bank pool
     return record(
         repo,
         source=donor,
