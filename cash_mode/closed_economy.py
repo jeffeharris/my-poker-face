@@ -1,0 +1,458 @@
+"""Closed-economy testbed: fake-vice deposits + tourist injection.
+
+This is the SIM testbed for the closed-loop economy thesis in
+`docs/plans/CASH_MODE_CLOSED_ECONOMY.md`. Two resolution passes
+that ship together:
+
+  1. `resolve_fake_vice_deposits` — stub for real AI vice. Drains
+     chips from rich AIs into the central bank's recyclable pool.
+     Same probability/amount shape as `CASH_MODE_AI_VICE_SPENDING.md`
+     but without the psych-pressure modifier (testbed doesn't depend
+     on cached controller state). Real vice replaces this drop-in.
+
+  2. `resolve_tourist_injection` — draws from the bank pool to refill
+     fish-archetype bankrolls. Fish are the casino tier's chip donors;
+     when their bankroll dips below `TOURIST_INJECTION_THRESHOLD` of
+     `starting_bankroll`, they get topped back up so they can re-enter
+     the seating pool.
+
+Bank pool depth is `Σ(BANK_POOL_DEPOSIT_REASONS) − Σ(tourist_injection)`,
+computed on demand from `chip_ledger_entries`. No new state table; the
+pool is virtual.
+
+The conservation invariant from `CASH_MODE_ECONOMY.md` holds:
+every chip movement here writes a ledger row, so `drift == 0` stays
+correct as long as the bankroll writes pair with their ledger entries.
+"""
+
+from __future__ import annotations
+
+import logging
+import random
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import List, Optional, Set
+
+from core.economy import ledger as chip_ledger
+from core.economy.ledger import (
+    BANK_POOL_DEPOSIT_REASONS,
+    BANK_POOL_DRAW_REASONS,
+    ai,
+    record_bank_pool_deposit,
+    record_bank_pool_sim_seed_pair,
+    record_tourist_injection,
+)
+from cash_mode.bankroll import AIBankrollState, project_bankroll
+
+logger = logging.getLogger(__name__)
+
+
+# --- Tuning constants -------------------------------------------------
+# Mirror `CASH_MODE_AI_VICE_SPENDING.md` shape so real vice can drop in.
+
+# Fish seating — fish-archetype personalities only seat at these stake
+# labels. Mirrors the diagram's casino tier (the place tourists arrive).
+# Defined here so the filter point in `cash_mode/lobby.py` and the
+# eligibility tests can share one source of truth.
+CASINO_TIER_STAKE_LABELS = frozenset({'$2'})
+
+# Fake-vice trigger / amount
+FAKE_VICE_COMFORT_FLOOR = 1.2
+FAKE_VICE_EXCESS_WEIGHT = 0.04
+FAKE_VICE_MAX_PROB = 0.25
+FAKE_VICE_BASE_FRACTION = 0.02
+FAKE_VICE_EXCESS_FRACTION_WEIGHT = 0.03
+FAKE_VICE_MAX_FRACTION = 0.15
+FAKE_VICE_FLOOR_PROTECTION = 0.5
+MIN_VICE_AMOUNT = 50
+FAKE_VICE_DEPOSITS_PER_REFRESH = 3
+
+# Tourist injection
+TOURIST_INJECTION_THRESHOLD = 0.4
+MAX_TOURIST_INJECTIONS_PER_REFRESH = 5
+MIN_TOURIST_INJECTION = 100
+
+
+# --- Dataclasses ------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FakeViceDeposit:
+    """One stub-vice event: chips drained from a rich AI into the bank pool."""
+
+    personality_id: str
+    amount: int
+    excess_ratio: float
+    vice_prob: float
+
+
+@dataclass(frozen=True)
+class TouristInjection:
+    """One refill event: chips drawn from the bank pool to a fish bankroll."""
+
+    personality_id: str
+    amount: int
+
+
+@dataclass(frozen=True)
+class ClosedEconomyBatch:
+    """Result of one closed-economy resolution tick."""
+
+    deposits: List[FakeViceDeposit] = field(default_factory=list)
+    injections: List[TouristInjection] = field(default_factory=list)
+    bank_pool_before: int = 0
+    bank_pool_after: int = 0
+
+
+# --- Pure formulas ----------------------------------------------------
+
+
+def compute_excess_ratio(bankroll: int, starting_bankroll: int) -> float:
+    """Wealth above the comfort floor, expressed as multiples of starting.
+
+    `excess_ratio = max(0, (bankroll − starting × COMFORT_FLOOR) / starting)`.
+    Returns 0.0 for broke / floor-protected AIs.
+    """
+    if starting_bankroll <= 0:
+        return 0.0
+    floor = starting_bankroll * FAKE_VICE_COMFORT_FLOOR
+    return max(0.0, (bankroll - floor) / starting_bankroll)
+
+
+def compute_vice_probability(excess_ratio: float) -> float:
+    """Probability of a vice event firing for this AI on this refresh.
+
+    Capped at `FAKE_VICE_MAX_PROB`. Returns 0 for non-excess AIs.
+    Production AI vice will multiply this by a pressure factor; the
+    testbed omits pressure to keep the model dependency-free.
+    """
+    if excess_ratio <= 0:
+        return 0.0
+    return min(FAKE_VICE_MAX_PROB, excess_ratio * FAKE_VICE_EXCESS_WEIGHT)
+
+
+def compute_vice_amount(
+    bankroll: int, excess_ratio: float, rng: random.Random,
+) -> int:
+    """Amount drained on a fire. Scales with excess; random multiplier
+    spreads events across visually distinct sizes.
+
+    Capped at `bankroll × FAKE_VICE_MAX_FRACTION` per event.
+    """
+    if bankroll <= 0 or excess_ratio <= 0:
+        return 0
+    fraction = FAKE_VICE_BASE_FRACTION + excess_ratio * FAKE_VICE_EXCESS_FRACTION_WEIGHT
+    raw = bankroll * fraction * rng.uniform(0.5, 1.5)
+    max_per_event = bankroll * FAKE_VICE_MAX_FRACTION
+    return int(min(raw, max_per_event))
+
+
+# --- Bank pool query --------------------------------------------------
+
+
+def seed_bank_pool(
+    chip_ledger_repo,
+    *,
+    sandbox_id: str,
+    amount: int,
+) -> int:
+    """Inflate the bank pool by `amount` at sandbox / sim start.
+
+    Thin wrapper around `record_bank_pool_sim_seed_pair` — exposed
+    here so closed-economy callers don't have to reach into the
+    ledger module. Returns the amount actually seeded (matches input
+    on success, 0 when the repo / amount is invalid).
+
+    Use at the start of a sim run to overcome the cold-start
+    chicken-and-egg (without a seed, no tourist injection can fire
+    until rich AIs vice first). Operator-controlled inflation —
+    drift stays at 0 via the paired creation/destruction.
+    """
+    if chip_ledger_repo is None or amount <= 0:
+        return 0
+    record_bank_pool_sim_seed_pair(
+        chip_ledger_repo,
+        amount=amount,
+        sandbox_id=sandbox_id,
+    )
+    return int(amount)
+
+
+def compute_bank_pool_reserves(
+    chip_ledger_repo,
+    *,
+    sandbox_id: Optional[str] = None,
+) -> int:
+    """Bank pool depth = Σ(deposit_reasons) − Σ(draw_reasons).
+
+    Pool is virtual — no row stores it. Reads ledger sums directly via
+    the same helpers the audit endpoint uses. Per-sandbox by default.
+
+    Deposit reasons include `bank_pool_deposit` (fake-vice + future real
+    vice). Draw reasons include `tourist_injection` (bankroll refill)
+    and `casino_seat_seed` (atomic casino spawn). Adding another
+    deposit or draw is a one-line frozenset update.
+
+    Returns 0 when `chip_ledger_repo` is None (test paths that don't
+    care about ledger state) or when the ledger has no relevant rows.
+    """
+    if chip_ledger_repo is None:
+        return 0
+    destructions = chip_ledger_repo.sum_destructions_by_reason(sandbox_id=sandbox_id)
+    creations = chip_ledger_repo.sum_creations_by_reason(sandbox_id=sandbox_id)
+    deposits = sum(destructions.get(r, 0) for r in BANK_POOL_DEPOSIT_REASONS)
+    draws = sum(creations.get(r, 0) for r in BANK_POOL_DRAW_REASONS)
+    return int(deposits - draws)
+
+
+# --- Fish discovery ---------------------------------------------------
+
+
+def load_fish_ids(bankroll_repo, *, sandbox_id: Optional[str] = None) -> Set[str]:
+    """Personality_ids tagged `archetype: "fish"` in `config_json`.
+
+    Walks `iter_personality_ids_with_bankrolls(sandbox_id=...)`, calls
+    `load_archetype` on each, filters to fish. Fish not yet seeded
+    into this sandbox's `ai_bankroll_state` won't appear — they only
+    enter the eligibility loop once they've been seated at least once.
+    Once seeded, they're permanent fixtures of the recycle loop.
+    """
+    if bankroll_repo is None:
+        return set()
+    pids = bankroll_repo.iter_personality_ids_with_bankrolls(sandbox_id=sandbox_id)
+    return {pid for pid in pids if bankroll_repo.load_archetype(pid) == 'fish'}
+
+
+# --- Resolvers --------------------------------------------------------
+
+
+def resolve_fake_vice_deposits(
+    *,
+    bankroll_repo,
+    chip_ledger_repo,
+    sandbox_id: str,
+    rng: random.Random,
+    now: datetime,
+    fish_ids: Set[str],
+) -> List[FakeViceDeposit]:
+    """Drain chips from rich non-fish AIs into the bank pool.
+
+    Iterates every AI with a bankroll in the sandbox, rolls the vice
+    formula, commits the chip move + ledger entry on a fire. Fish are
+    excluded — they receive injections, they don't contribute.
+
+    Cap is `FAKE_VICE_DEPOSITS_PER_REFRESH`; if more candidates roll
+    positive, the largest amounts win. The rest re-roll next refresh.
+    """
+    if bankroll_repo is None or chip_ledger_repo is None:
+        return []
+
+    candidates = bankroll_repo.iter_personality_ids_with_bankrolls(
+        sandbox_id=sandbox_id,
+    )
+
+    rolls: List[tuple] = []  # (pid, state, knobs, projected, amount, excess, prob)
+    for pid in candidates:
+        if pid in fish_ids:
+            continue
+        state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+        if state is None:
+            continue
+        knobs = bankroll_repo.load_personality_knobs(pid)
+        starting = knobs.starting_bankroll
+        if starting <= 0:
+            continue
+        projected = project_bankroll(state, starting, knobs.bankroll_rate, now)
+        excess = compute_excess_ratio(projected, starting)
+        if excess <= 0:
+            continue
+        prob = compute_vice_probability(excess)
+        if rng.random() >= prob:
+            continue
+        amount = compute_vice_amount(projected, excess, rng)
+        if amount < MIN_VICE_AMOUNT:
+            continue
+        # Floor protection — never drop below 50% of starting in one event.
+        floor = int(starting * FAKE_VICE_FLOOR_PROTECTION)
+        if projected - amount < floor:
+            amount = max(0, projected - floor)
+            if amount < MIN_VICE_AMOUNT:
+                continue
+        rolls.append((pid, state, knobs, projected, amount, excess, prob))
+
+    # Cap per refresh — largest deposits first.
+    rolls.sort(key=lambda r: r[4], reverse=True)
+    rolls = rolls[:FAKE_VICE_DEPOSITS_PER_REFRESH]
+
+    deposits: List[FakeViceDeposit] = []
+    for pid, state, knobs, projected, amount, excess, prob in rolls:
+        # Commit any uncommitted regen first (matches the `try_ai_voluntary_payoff`
+        # pattern in ai_carry_resolution — the bankroll write captures the
+        # projected value, so the regen delta needs a ledger row.)
+        if projected > state.chips:
+            chip_ledger.record_ai_regen(
+                chip_ledger_repo,
+                personality_id=pid,
+                stored_chips=state.chips,
+                projected_chips=projected,
+                context={'site': 'fake_vice_regen_commit'},
+                sandbox_id=sandbox_id,
+            )
+        new_chips = max(0, projected - amount)
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=pid,
+                chips=new_chips,
+                last_regen_tick=now,
+            ),
+            sandbox_id=sandbox_id,
+        )
+        record_bank_pool_deposit(
+            chip_ledger_repo,
+            source=ai(pid),
+            amount=amount,
+            context={
+                'site': 'fake_vice_deposit',
+                'excess_ratio': round(excess, 3),
+                'vice_prob': round(prob, 3),
+            },
+            sandbox_id=sandbox_id,
+        )
+        deposits.append(FakeViceDeposit(
+            personality_id=pid,
+            amount=amount,
+            excess_ratio=round(excess, 3),
+            vice_prob=round(prob, 3),
+        ))
+    return deposits
+
+
+def resolve_tourist_injection(
+    *,
+    bankroll_repo,
+    chip_ledger_repo,
+    sandbox_id: str,
+    now: datetime,
+    fish_ids: Set[str],
+) -> List[TouristInjection]:
+    """Refill low-bankroll fish from the bank pool.
+
+    For each fish in the sandbox, check current chips. Eligible
+    targets have `chips < starting × TOURIST_INJECTION_THRESHOLD`.
+    Refill targets `starting_bankroll`, bounded by remaining pool
+    reserves and the per-refresh cap.
+
+    Idempotent in the trivial case (empty pool → no injections).
+    Pool is decremented logically as we go so multiple injections in
+    one refresh don't oversubscribe the available reserves.
+    """
+    if bankroll_repo is None or chip_ledger_repo is None or not fish_ids:
+        return []
+
+    pool = compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id)
+    if pool <= 0:
+        return []
+
+    candidates: List[tuple] = []  # (pid, current_chips, starting, deficit)
+    for pid in fish_ids:
+        state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+        knobs = bankroll_repo.load_personality_knobs(pid)
+        starting = knobs.starting_bankroll
+        if starting <= 0:
+            continue
+        current = state.chips if state else 0
+        if current >= starting * TOURIST_INJECTION_THRESHOLD:
+            continue
+        deficit = max(0, starting - current)
+        if deficit < MIN_TOURIST_INJECTION:
+            continue
+        candidates.append((pid, current, starting, deficit))
+
+    candidates.sort(key=lambda c: c[3], reverse=True)
+    candidates = candidates[:MAX_TOURIST_INJECTIONS_PER_REFRESH]
+
+    injections: List[TouristInjection] = []
+    for pid, current, starting, deficit in candidates:
+        if pool <= 0:
+            break
+        amount = min(deficit, pool)
+        if amount < MIN_TOURIST_INJECTION:
+            continue
+        new_chips = current + amount
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=pid,
+                chips=new_chips,
+                last_regen_tick=now,
+            ),
+            sandbox_id=sandbox_id,
+        )
+        record_tourist_injection(
+            chip_ledger_repo,
+            personality_id=pid,
+            amount=amount,
+            context={'site': 'tourist_injection', 'fish_starting': starting},
+            sandbox_id=sandbox_id,
+        )
+        injections.append(TouristInjection(personality_id=pid, amount=amount))
+        pool -= amount
+    return injections
+
+
+def resolve_closed_economy(
+    *,
+    bankroll_repo,
+    chip_ledger_repo,
+    sandbox_id: str,
+    rng: random.Random,
+    now: datetime,
+) -> ClosedEconomyBatch:
+    """One closed-economy resolution tick.
+
+    Runs fake-vice deposits then tourist injections, captures the
+    bank pool delta. Each phase wrapped in try/except so a failure
+    in one doesn't tank the other — mirrors the carry-resolution
+    best-effort pattern (`cash_mode/lobby.py:1412`).
+    """
+    pool_before = compute_bank_pool_reserves(
+        chip_ledger_repo, sandbox_id=sandbox_id,
+    )
+    fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
+    deposits: List[FakeViceDeposit] = []
+    injections: List[TouristInjection] = []
+    try:
+        deposits = resolve_fake_vice_deposits(
+            bankroll_repo=bankroll_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            sandbox_id=sandbox_id,
+            rng=rng,
+            now=now,
+            fish_ids=fish_ids,
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort resolution
+        logger.warning(
+            "[CLOSED_ECONOMY] fake-vice deposit failed for sandbox %s: %s",
+            sandbox_id, exc,
+        )
+    try:
+        injections = resolve_tourist_injection(
+            bankroll_repo=bankroll_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            sandbox_id=sandbox_id,
+            now=now,
+            fish_ids=fish_ids,
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort resolution
+        logger.warning(
+            "[CLOSED_ECONOMY] tourist injection failed for sandbox %s: %s",
+            sandbox_id, exc,
+        )
+    pool_after = compute_bank_pool_reserves(
+        chip_ledger_repo, sandbox_id=sandbox_id,
+    )
+    return ClosedEconomyBatch(
+        deposits=deposits,
+        injections=injections,
+        bank_pool_before=pool_before,
+        bank_pool_after=pool_after,
+    )

@@ -513,6 +513,54 @@ class BankrollRepository(BaseRepository):
             stake_comfort_zone=sub.get("stake_comfort_zone", defaults.stake_comfort_zone),
         )
 
+    def load_archetype(self, personality_id: str) -> Optional[str]:
+        """Read the top-level `archetype` field from `config_json`.
+
+        Returns None when:
+          - personality_id is unknown
+          - config_json is missing / malformed
+          - the `archetype` key is absent
+
+        Used by closed-economy targeting (e.g. fish are eligible for
+        `tourist_injection` refills) and controller dispatch (e.g.
+        fish personalities use the rule-based fish strategy rather than
+        the LLM-driven path).
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                (personality_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            config = json.loads(row["config_json"])
+        except (TypeError, ValueError):
+            return None
+        archetype = config.get("archetype")
+        return archetype if isinstance(archetype, str) else None
+
+    def load_rule_strategy(self, personality_id: str) -> Optional[str]:
+        """Read the top-level `rule_strategy` field from `config_json`.
+
+        Names a strategy in `poker.rule_strategies.BUILT_IN_STRATEGIES`
+        (e.g. "fish", "abc", "foldy"). Returns None when absent — caller
+        treats that as "use the default controller path."
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                (personality_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            config = json.loads(row["config_json"])
+        except (TypeError, ValueError):
+            return None
+        strategy = config.get("rule_strategy")
+        return strategy if isinstance(strategy, str) else None
+
     def load_staker_profile(self, personality_id: str) -> StakerProfile:
         """Read the staker profile from `config_json.staker_profile`.
 

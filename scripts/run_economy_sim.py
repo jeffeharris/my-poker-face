@@ -102,6 +102,10 @@ def main() -> int:
                         help='Probability of live-fill per open seat (default: %(default)s)')
     parser.add_argument('--progress-every', type=int, default=100,
                         help='Log progress every N ticks (0 disables, default: %(default)s)')
+    parser.add_argument('--initial-bank-pool-seed', type=int, default=0,
+                        help='Closed-economy: seed the bank pool at sim start '
+                             'so tourist injection / casino spawn can fire '
+                             'before vice deposits land (default: %(default)s)')
     parser.add_argument('--out', required=True,
                         help='Output path prefix (writes <prefix>.csv, '
                              '<prefix>.pids.jsonl, <prefix>.summary.json)')
@@ -126,6 +130,7 @@ def main() -> int:
         hand_sim_prob=args.hand_sim_prob,
         live_fill_prob=args.live_fill_prob,
         progress_every=args.progress_every,
+        initial_bank_pool_seed=args.initial_bank_pool_seed,
     )
 
     logger.info(

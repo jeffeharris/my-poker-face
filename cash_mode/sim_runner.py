@@ -79,6 +79,11 @@ class SimConfig:
     hand_sim_prob: float = DEFAULT_HAND_SIM_PROB
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB
     progress_every: int = 100  # 0 disables progress logging
+    # Closed-economy testbed: pre-seed the bank pool at sim start to
+    # overcome the cold-start chicken-and-egg (no vice → no pool → no
+    # tourist injection). 0 disables. Drift-safe via the paired ledger
+    # rows in `record_bank_pool_sim_seed_pair`.
+    initial_bank_pool_seed: int = 0
 
 
 @dataclass(frozen=True)
@@ -124,6 +129,17 @@ class TickMetrics:
     # Per-personality bankroll trajectory. Wide data — written to a
     # JSONL sidecar rather than the CSV (one row per (tick, pid)).
     per_pid_chips: Dict[str, int]
+
+    # Closed-economy state (see docs/plans/CASH_MODE_CLOSED_ECONOMY.md).
+    # `bank_pool_chips`: virtual pool depth, computed from ledger.
+    # `fish_bankroll_total`: chips held by fish-archetype AIs (the
+    #   recipients of tourist injections — net the casino tier's
+    #   inventory of fish chips at this instant).
+    # `fish_count`: number of fish personalities with a bankroll row
+    #   in this sandbox (sized population for the recycle loop).
+    bank_pool_chips: int = 0
+    fish_bankroll_total: int = 0
+    fish_count: int = 0
 
     # Audit drift — only populated on audit ticks; None otherwise so
     # downstream tooling can distinguish "drift was zero" from "we
@@ -179,8 +195,24 @@ def run_sim(
     metrics: List[TickMetrics] = []
     wall_start = time.monotonic()
 
+    # Closed-economy: optional bank-pool seed so the first tourist
+    # injection can fire before any vice deposit lands. Drift-safe.
+    if config.initial_bank_pool_seed > 0:
+        from cash_mode.closed_economy import seed_bank_pool
+        seed_bank_pool(
+            chip_ledger_repo,
+            sandbox_id=config.sandbox_id,
+            amount=config.initial_bank_pool_seed,
+        )
+        logger.info(
+            "[sim] seeded bank pool with %d chips for sandbox %s",
+            config.initial_bank_pool_seed, config.sandbox_id,
+        )
+
     # Cumulative ledger snapshots — diffed each tick to produce
     # `ledger_delta`. Reads are sandbox-scoped via the repo API.
+    # Captured AFTER the seed write so the seed itself shows up in
+    # `bank_pool_chips` (tick 0) rather than as a tick-0 delta blip.
     prev_creations = chip_ledger_repo.sum_creations_by_reason(sandbox_id=config.sandbox_id)
     prev_destructions = chip_ledger_repo.sum_destructions_by_reason(
         sandbox_id=config.sandbox_id,
@@ -315,6 +347,17 @@ def _capture_tick_metrics(
         if result.stake_creations:
             decisions['stake_created'] += len(result.stake_creations)
 
+    # Closed-economy snapshot — bank pool depth + fish inventory.
+    # Pool depth is virtual (computed from ledger sums), so reading
+    # it every tick is one indexed GROUP BY query (already paid for
+    # by `sum_*_by_reason` above — same query shape).
+    from cash_mode.closed_economy import compute_bank_pool_reserves, load_fish_ids
+    bank_pool_chips = compute_bank_pool_reserves(
+        chip_ledger_repo, sandbox_id=sandbox_id,
+    )
+    fish_ids_set = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
+    fish_bankroll_total = sum(per_pid_chips.get(pid, 0) for pid in fish_ids_set)
+
     metrics = TickMetrics(
         tick=tick,
         now=now.isoformat(),
@@ -337,6 +380,9 @@ def _capture_tick_metrics(
         ledger_delta=ledger_delta,
         decisions=dict(decisions),
         per_pid_chips=per_pid_chips,
+        bank_pool_chips=bank_pool_chips,
+        fish_bankroll_total=fish_bankroll_total,
+        fish_count=len(fish_ids_set),
         audit_drift=None,
     )
     return metrics, new_creations, new_destructions
@@ -582,6 +628,9 @@ def flatten_for_csv(metrics: List[TickMetrics]) -> List[Dict[str, object]]:
             'carry_total': m.carry_total,
             'settled_count_cumulative': m.settled_count_cumulative,
             'defaulted_count_cumulative': m.defaulted_count_cumulative,
+            'bank_pool_chips': m.bank_pool_chips,
+            'fish_bankroll_total': m.fish_bankroll_total,
+            'fish_count': m.fish_count,
             'audit_drift': m.audit_drift if m.audit_drift is not None else '',
         }
         for key in sorted(reason_keys):

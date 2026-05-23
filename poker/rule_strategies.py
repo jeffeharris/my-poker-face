@@ -524,6 +524,64 @@ def _strategy_case_based(context: Dict) -> Dict:
     return check()
 
 
+def _strategy_fish(context: Dict) -> Dict:
+    """Classic loose-passive 'calling station' — the casino tourist.
+
+    The fish is here to lose chips, not to make decisions. Behavior:
+      - Free to act → check. (Almost never raises blind.)
+      - Facing a small bet (≤ 3 BB) → always calls. Tourist doesn't
+        understand pot odds; sees a bet, pays the bet.
+      - Facing a medium bet (3-8 BB) → calls with any pair, draw, or
+        broadway. Folds total air.
+      - Facing a large bet (> 8 BB) → calls only with a real hand
+        (top-20 or equity >= 0.55). Folds otherwise.
+      - Raises ONLY with monsters (TOP_10 + equity ≥ 0.70), small size
+        (min raise). No bluffs, no value-thin raises.
+
+    Net play profile: very high VPIP (~0.70-0.85), near-zero PFR,
+    near-zero fold_to_cbet (calls flop wide), high WTSD. The classic
+    chip donor pattern that grinders feast on.
+
+    No psychology, no position adjustments, no opponent modeling. The
+    tourist is too drunk / distracted / inexperienced for any of that.
+    """
+    canonical = context.get('canonical_hand', '')
+    equity = context.get('equity', 0.5)
+    cost_to_call = context['cost_to_call']
+    big_blind = context.get('big_blind', 2)
+    cost_in_bb = cost_to_call / big_blind if big_blind > 0 else cost_to_call
+
+    if cost_to_call == 0:
+        if (
+            canonical in TOP_10_HANDS
+            and equity >= 0.70
+            and 'raise' in context['valid_actions']
+        ):
+            return {'action': 'raise', 'raise_to': context['min_raise']}
+        return {'action': 'check', 'raise_to': 0}
+
+    if cost_in_bb <= 3:
+        if 'call' in context['valid_actions']:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'fold', 'raise_to': 0}
+
+    if cost_in_bb <= 8:
+        is_pair = context.get('is_pair', False)
+        is_suited_or_broadway = (
+            canonical in TOP_35_HANDS
+            or context.get('is_suited', False)
+        )
+        if is_pair or is_suited_or_broadway or equity >= 0.40:
+            if 'call' in context['valid_actions']:
+                return {'action': 'call', 'raise_to': 0}
+        return {'action': 'fold', 'raise_to': 0}
+
+    if canonical in TOP_20_HANDS or equity >= 0.55:
+        if 'call' in context['valid_actions']:
+            return {'action': 'call', 'raise_to': 0}
+    return {'action': 'fold', 'raise_to': 0}
+
+
 BUILT_IN_STRATEGIES = {
     'always_fold': _strategy_always_fold,
     'always_call': _strategy_always_call,
@@ -536,6 +594,7 @@ BUILT_IN_STRATEGIES = {
     'maniac': _strategy_maniac,
     'bluffbot': _strategy_bluffbot,
     'case_based': _strategy_case_based,
+    'fish': _strategy_fish,
 }
 
 
