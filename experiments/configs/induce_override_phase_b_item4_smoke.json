@@ -1,0 +1,57 @@
+{
+  "name": "induce_override_phase_b_item4_smoke",
+  "description": "Smoke test for Phase B Item 4 (open-spot IP induce). TieredBot (hero) vs TrapBaitBot (checks flop OOP 70%, barrels turn/river). Two arms: rule OFF (ablated) and rule ON. Validates (a) TrapBaitBot behavior, (b) flop_check_then_barrel_rate convergence on the hero side, (c) the open-spot induce branch fires at least a handful of times.",
+  "hypothesis": "TrapBaitBot's flop_check_then_barrel_rate converges above 0.55 within ~50 hands. The open-spot induce branch fires on at least a handful of hands per 500. EV impact at this sample size is not statistically meaningful — see INDUCE_OVERRIDE_HANDOFF.md 'Finding 3'.",
+  "tags": ["tiered", "induce_override", "phase-b", "item-4", "smoke", "heads-up"],
+
+  "num_tournaments": 1,
+  "hands_per_tournament": 500,
+  "num_players": 2,
+  "starting_stack": 20000,
+  "big_blind": 100,
+  "random_seed": 42,
+  "reset_on_elimination": true,
+
+  "model": "gpt-5-nano",
+  "provider": "openai",
+
+  "personalities": ["TieredHero", "Villain"],
+  "capture_prompts": false,
+
+  "control": {
+    "label": "item4_rule_OFF",
+    "player_types": {
+      "TieredHero": {
+        "type": "tiered",
+        "expression": false,
+        "disable_rules": [["induce_override", "default"]]
+      },
+      "Villain": {
+        "type": "rule_bot",
+        "strategy": "trap_bait"
+      }
+    },
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  },
+
+  "variants": [
+    {
+      "label": "item4_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "trap_bait"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    }
+  ]
+}

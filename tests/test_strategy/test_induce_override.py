@@ -19,13 +19,18 @@ from poker.strategy.induce_override import (
     MIN_BARREL_FREQUENCY,
     MIN_BARREL_OPPORTUNITIES,
     MIN_EFFECTIVE_STACK_BB,
+    MIN_FLOP_CHECK_THEN_BARREL_FREQUENCY,
+    MIN_FLOP_CHECK_THEN_BARREL_OPPORTUNITIES,
     MIN_HANDS_OBSERVED,
+    OPEN_SPOT_CHECK_PROBABILITY,
     OPPS_RAMP_MAX,
     RATE_RAMP_MAX,
     apply_induce_override,
     compute_call_probability,
     compute_induce_override_strategy,
+    compute_open_spot_induce_strategy,
     should_apply_induce_override,
+    should_apply_open_spot_induce,
 )
 
 # Phase B Item 2 baseline: nuts + actual_nuts. Used in fixtures where
@@ -503,3 +508,225 @@ class TestTraceShape:
         _, trace = apply_induce_override(strategy, **kwargs)
         assert not trace.fired
         assert 'river' in trace.reason_code
+
+
+# ── Phase B Item 4: open-spot IP induce ───────────────────────────
+
+def _trap_bait_stats(**overrides) -> AggregatedOpponentStats:
+    """TrapBaitBot-like opponent that passes the Phase B Item 4 gate."""
+    base = dict(
+        hands_observed=30,
+        vpip=0.80, pfr=0.70,
+        aggression_factor=4.0,
+        all_in_frequency=0.0,
+        aggression_factor_postflop=3.0,
+        cbet_attempt_rate=0.30,
+        postflop_seen_as_pfr_count=15,
+        cbet_faced_count=0,
+        all_in_per_facing_bet=0.0,
+        facing_bet_opportunities=0,
+        postflop_jam_open_rate=0.0,
+        postflop_open_opportunities=15,
+        # Facing-bet barrel stats stay neutral — Item 4 reads the
+        # flop-check-then-barrel rate instead.
+        barrel_frequency=0.5,
+        barrel_opportunities=0,
+        flop_check_then_barrel_rate=0.80,
+        flop_check_barrel_opportunities=20,
+    )
+    base.update(overrides)
+    return AggregatedOpponentStats(**base)
+
+
+def _open_spot_strategy() -> StrategyProfile:
+    """Hero free to act, default strategy mixes check/bet (no fold)."""
+    return StrategyProfile(action_probabilities={
+        'check': 0.30,
+        'raise_50': 0.30,
+        'raise_75': 0.40,
+    })
+
+
+def _open_spot_context() -> DecisionContext:
+    return DecisionContext(facing_all_in=False, bet_size_pot_ratio=0.0)
+
+
+def _open_spot_kwargs(**overrides):
+    base = dict(
+        stats=_trap_bait_stats(),
+        hand_strength='nuts',
+        nut_status='actual_nuts',
+        street='flop',
+        position='IP',
+        danger_flag_count=0,
+        effective_stack_bb=100.0,
+        active_opponent_count=1,
+        decision_context=_open_spot_context(),
+        has_check=True,
+        has_fold=False,
+        adaptation_bias=0.8,
+        tilt_factor=1.0,
+    )
+    base.update(overrides)
+    return base
+
+
+class TestOpenSpotGateBaseline:
+    def test_baseline_open_spot_fires(self):
+        should_fire, reason = should_apply_open_spot_induce(**_open_spot_kwargs())
+        assert should_fire
+        assert reason == 'gate_pass'
+
+
+class TestOpenSpotGateBlocks:
+    def test_no_check_blocks(self):
+        should_fire, reason = should_apply_open_spot_induce(
+            **_open_spot_kwargs(has_check=False)
+        )
+        assert not should_fire
+        assert reason == 'no_check_action'
+
+    def test_facing_bet_blocks_open_spot(self):
+        # Open-spot branch defers to facing-bet branch when fold is offered.
+        should_fire, reason = should_apply_open_spot_induce(
+            **_open_spot_kwargs(has_fold=True)
+        )
+        assert not should_fire
+        assert reason == 'facing_bet_use_facing_branch'
+
+    def test_oop_blocks_open_spot(self):
+        should_fire, reason = should_apply_open_spot_induce(
+            **_open_spot_kwargs(position='OOP')
+        )
+        assert not should_fire
+        assert reason == 'oop_not_supported_open_spot'
+
+    def test_river_blocks(self):
+        should_fire, reason = should_apply_open_spot_induce(
+            **_open_spot_kwargs(street='river')
+        )
+        assert not should_fire
+        assert 'river' in reason
+
+    def test_cold_start_fcb_sample_blocks(self):
+        cold_stats = _trap_bait_stats(
+            flop_check_barrel_opportunities=MIN_FLOP_CHECK_THEN_BARREL_OPPORTUNITIES - 1,
+        )
+        should_fire, reason = should_apply_open_spot_induce(
+            **_open_spot_kwargs(stats=cold_stats)
+        )
+        assert not should_fire
+        assert reason == 'cold_start_flop_check_barrel_sample'
+
+    def test_low_fcb_rate_blocks(self):
+        low_stats = _trap_bait_stats(
+            flop_check_then_barrel_rate=MIN_FLOP_CHECK_THEN_BARREL_FREQUENCY - 0.01,
+        )
+        should_fire, reason = should_apply_open_spot_induce(
+            **_open_spot_kwargs(stats=low_stats)
+        )
+        assert not should_fire
+        assert reason == 'flop_check_barrel_rate_below_threshold'
+
+    def test_strong_made_dry_board_fires(self):
+        should_fire, reason = should_apply_open_spot_induce(
+            **_open_spot_kwargs(
+                hand_strength='strong_made',
+                nut_status='near_nuts',
+                danger_flag_count=0,
+            )
+        )
+        assert should_fire
+        assert reason == 'gate_pass'
+
+    def test_strong_made_wet_board_blocks(self):
+        should_fire, reason = should_apply_open_spot_induce(
+            **_open_spot_kwargs(
+                hand_strength='strong_made',
+                nut_status='actual_nuts',
+                danger_flag_count=1,
+            )
+        )
+        assert not should_fire
+        assert reason == 'board_too_dangerous'
+
+
+class TestOpenSpotRedistribution:
+    def test_check_plus_raise(self):
+        before = _open_spot_strategy()
+        after = compute_open_spot_induce_strategy(before)
+        assert after.action_probabilities['check'] == pytest.approx(
+            OPEN_SPOT_CHECK_PROBABILITY
+        )
+        # 0.30 split across raise_50 and raise_75 = 0.15 each
+        assert after.action_probabilities['raise_50'] == pytest.approx(0.15)
+        assert after.action_probabilities['raise_75'] == pytest.approx(0.15)
+
+    def test_no_raise_falls_back_to_100_check(self):
+        before = StrategyProfile(action_probabilities={'check': 1.0})
+        after = compute_open_spot_induce_strategy(before)
+        assert after.action_probabilities == {'check': 1.0}
+
+
+class TestOpenSpotApply:
+    def test_open_spot_fire_via_dispatch(self):
+        """Dispatch in apply_induce_override should route open-spot
+        strategies (has_check, no has_fold) to the open-spot branch."""
+        strategy = _open_spot_strategy()
+        kwargs = _open_spot_kwargs()
+        kwargs.pop('has_check')
+        kwargs.pop('has_fold')
+        new_strategy, trace = apply_induce_override(strategy, **kwargs)
+        assert trace.fired
+        assert trace.effect == 'check_back'
+        assert trace.reason_code == 'induced_flop_open_spot'
+        assert new_strategy.action_probabilities['check'] == pytest.approx(
+            OPEN_SPOT_CHECK_PROBABILITY
+        )
+
+    def test_open_spot_trace_inputs_capture_fcb_signal(self):
+        strategy = _open_spot_strategy()
+        kwargs = _open_spot_kwargs()
+        kwargs.pop('has_check')
+        kwargs.pop('has_fold')
+        _, trace = apply_induce_override(strategy, **kwargs)
+        inputs = trace.inputs
+        assert inputs['flop_check_then_barrel_rate'] == 0.8
+        assert inputs['flop_check_barrel_opportunities'] == 20
+        assert inputs['check_probability'] == OPEN_SPOT_CHECK_PROBABILITY
+        assert 'barrel_frequency' not in inputs  # not relevant for open-spot
+
+    def test_dispatch_neither_branch_returns_no_op(self):
+        """If neither has_fold nor has_check (impossible in normal play,
+        but defensive), no branch fires."""
+        strategy = StrategyProfile(action_probabilities={'call': 1.0})
+        kwargs = _open_spot_kwargs()
+        kwargs.pop('has_check')
+        kwargs.pop('has_fold')
+        new_strategy, trace = apply_induce_override(strategy, **kwargs)
+        assert not trace.fired
+        assert trace.reason_code == 'no_actionable_spot'
+
+    def test_dispatch_facing_bet_still_works(self):
+        """Sanity: facing-bet dispatch (has_fold=True) still hits the
+        Item 2 branch with smooth_call effect, not check_back."""
+        strategy = _facing_bet_strategy()
+        kwargs = _baseline_kwargs()
+        kwargs.pop('has_call')
+        kwargs.pop('has_fold')
+        _, trace = apply_induce_override(strategy, **kwargs)
+        assert trace.fired
+        assert trace.effect == 'smooth_call'
+        assert 'facing_bet' in trace.reason_code
+
+    def test_open_spot_ablation_short_circuits(self):
+        strategy = _open_spot_strategy()
+        kwargs = _open_spot_kwargs()
+        kwargs.pop('has_check')
+        kwargs.pop('has_fold')
+        disable_rules = frozenset({('induce_override', 'default')})
+        new_strategy, trace = apply_induce_override(
+            strategy, disable_rules=disable_rules, **kwargs,
+        )
+        assert not trace.fired
+        assert new_strategy is strategy

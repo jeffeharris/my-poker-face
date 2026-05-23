@@ -60,7 +60,7 @@ class TestBuiltInStrategiesSmoke(unittest.TestCase):
         expected = {
             'always_fold', 'always_call', 'always_raise', 'always_all_in',
             'abc', 'foldy', 'position_aware', 'pot_odds_robot',
-            'maniac', 'bluffbot', 'case_based',
+            'maniac', 'trap_bait', 'bluffbot', 'case_based',
         }
         self.assertTrue(
             expected.issubset(set(BUILT_IN_STRATEGIES.keys())),

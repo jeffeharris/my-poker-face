@@ -2,7 +2,7 @@
 purpose: Pickup-state handoff for the induce_override Phase B work — what's shipped, what's next, key findings that aren't in commit messages or per-item plans, and how to validate further changes.
 type: guide
 created: 2026-05-22
-last_updated: 2026-05-22
+last_updated: 2026-05-23
 ---
 
 # Induce Override — Handoff
@@ -24,6 +24,7 @@ Items 4–6 without reconstructing session memory. Companion docs:
 | Phase B Item 1 (`barrel_frequency` stat) | shipped | `a4f19bb4` | converges to 0.94 vs Maniac |
 | Phase B Item 2 (barrel gate + scaled mixing) | shipped | `cce12ca8` | scaled mix produces [0.78, 0.90] call probs; followup-barrel 80% on high-conf fires |
 | Phase B Item 3 (`strong_made` inclusion) | shipped | `056e3160` | gate correct per tests; empirical fire rate ~0 at 1000-hand scale |
+| Phase B Item 4 (open-spot IP induce) | shipped | this session (exp 75) | TrapBaitBot + new stat + branch landed together. 144 tests passing. Full matrix (88 tournaments × 1000 hands): vs TrapBaitBot lift +1.43 bb/100 (+0.32σ, H1 missed); leak floor breached vs gtolite (−4.64) and abcbot (−5.65) but within noise (σ < 2); CaseBot saw unexpected +5.53 bb/100 lift (worth a second matrix run if you can spare the API budget). Open-spot branch fired 0× across all 88 tournaments — correctness widening only. |
 | `phase-1` merge (relationship + cash + polarization) | shipped | `d29ddf37` | see "Known issues" |
 
 ## Active question (no decision yet)
@@ -41,29 +42,57 @@ as the low-risk path. The other two are still on the table:
 If a fresh agent picks up the alternative directions, see the
 relevant sections below for context.
 
-## Phase B Item 4 — Open-spot IP induce (pickup state)
+## Phase B Item 4 — Open-spot IP induce (SHIPPED)
 
-**Spec quality: good.** The Phase B plan §"Item 4" has:
-- Design sketch (parallel branch in `apply_induce_override`)
-- Sample `_strategy_trap_bait` code in `poker/rule_strategies.py`
-- Testable hypothesis (≥ +5 bb/100 vs TrapBaitBot, ≤ −2 bb/100 leak
-  on others)
-- Dependency clearly identified
+**Status: shipped this session.** Three pieces landed together:
 
-**Open detail.** The plan calls for a new `flop_check_then_barrel_rate`
-stat ("Item 1 plumbing extended") — this should follow the same
-pattern as `barrel_frequency` (see `poker/memory/cbet_detector.py:
-consume_barrel_attempt_events` + `OpponentTendencies.update_barrel_attempt`).
-A new event type "PFR checked flop OOP, then bet turn after being
-checked back" needs to be detected and queued. ~80 lines plus tests,
-matches Phase B Item 1's shape.
+1. `_strategy_trap_bait` in `poker/rule_strategies.py` + registry
+   entries in `BUILT_IN_STRATEGIES` (`'trap_bait'`) and `CHAOS_BOTS`
+   (`TrapBaitBot`).
+2. `flop_check_then_barrel_rate` stat plumbing across `cbet_detector.py`,
+   `opponent_model.py`, `exploitation.py`, and `memory_manager.py` —
+   mirrors the `barrel_frequency` pattern (commit `a4f19bb4`).
+3. Open-spot branch in `apply_induce_override` (and helper
+   `should_apply_open_spot_induce`) with dispatch at the top based on
+   `has_check and not has_fold`. Flat 0.70/0.30 check/raise
+   redistribution; reads the new stat; trace uses `effect='check_back'`
+   and `reason_code='induced_{street}_open_spot'`.
 
-**Two-stage approach if pulling Item 4 in.** Build TrapBaitBot FIRST
-(small, ~30 lines in `rule_strategies.py` + entry in
-`PRESET_RULE_CONFIGS`), verify it behaves as designed in a smoke run
-(checks flop 70% OOP, barrels turn ~80%), then build the open-spot
-induce branch + new stat. Validates the rule against a known target
-before wiring the actual code.
+**Validation outcomes:**
+
+*Smoke* (`induce_override_phase_b_item4_smoke.json`, 1 tournament × 500 hands):
+- 144 tests passing (16 new induce_override + 14 new flop-check-barrel
+  + 11 trap-bait + existing suite still green)
+- TrapBaitBot first-to-act flop: 62% check, 38% raise (target ~70/30,
+  within noise for n=29)
+- TrapBaitBot turn after check-through: 67% bet/raise, 33% check
+- New stat detector fires 15× in 500 hands HU
+
+*Full ablation matrix* (`induce_override_phase_b_item4_full.json`,
+experiment 75 — 88 tournaments × 1000 hands × 5 villains × 2 arms):
+
+| Villain | OFF | ON | Lift | σ | Hypothesis |
+|---|---|---|---|---|---|
+| TrapBaitBot | +3.41 | +4.84 | +1.43 | +0.32 | H1 MISS (target +5) |
+| ManiacBot | +0.41 | −1.47 | −1.88 | −0.35 | H2 within |
+| CaseBot | −12.15 | −6.61 | **+5.53** | +1.44 | H2 — unexpected lift |
+| GTO-Lite | +4.23 | −0.41 | −4.64 | −0.81 | H2 MISS (within noise) |
+| ABCBot | +7.45 | +1.81 | −5.65 | −1.25 | H2 MISS (within noise) |
+
+- Open-spot branch fired 0× across all 88 tournaments / 88K hands
+- Facing-bet branch fired 9× vs TrapBait, 14× vs Maniac in 8K hands
+  per arm
+- Verdict: correctness widening only. Per handoff Finding 3 — Phase B
+  items don't move bb/100 above the noise floor at this matrix scale.
+
+Analysis script: `scripts/analyze_item4_matrix.py <experiment_id>`.
+
+**Tunables shipped:** `MIN_FLOP_CHECK_BARREL_FREQUENCY=0.55`,
+`MIN_FLOP_CHECK_BARREL_OPPORTUNITIES=5`,
+`OPEN_SPOT_CHECK_PROBABILITY=0.70`. The 0.55 frequency threshold is
+lower than the facing-bet branch's 0.60 because TrapBaitBot-class
+opponents barrel 65-80% after check-through and the trap-bait pattern
+is more readily detectable than the facing-bet barrel pattern.
 
 ## Phase B Item 5 — OOP induce (check-raise tech) (pickup state)
 
@@ -72,37 +101,80 @@ before wiring the actual code.
 ... but the engineering surface is large enough that it deserves its
 own design pass."
 
-**What's missing for a fresh agent.**
-- Check-raise mechanic requires a two-decision sequence (check then
-  conditional raise). Current induce only handles single-decision
-  redistribution.
-- The "check" leg needs state so the subsequent raise decision knows
-  it's the trap completion vs a normal raise.
-- Balance protection (mixing in check-fold / check-call from weak /
-  marginal hands) is OOP strategy work that goes beyond induce.
+**Design-doc checklist** (what a fresh agent needs to resolve before
+writing code):
+
+1. **Two-decision state.** All current induce variants are
+   single-decision; check-raise is two (flop check → turn check-raise,
+   or flop check-call depending on villain's response). Pick a state
+   model:
+   - Per-hand controller state (new field on `TieredBotController`)
+   - Trace-driven lookup (recover prior intent from
+     `_last_intervention_trace`)
+   - Pure-functional re-derivation (same gate inputs → same intent
+     each decision)
+2. **Stat reuse vs new.** The exploit lever is "villain cbets often
+   after we check OOP." `cbet_attempt_rate` (Phase 8.1a) already
+   measures this directionally. Decide whether to reuse it or build a
+   more specific `cbet_after_oop_check_rate` (parallel to Item 4's
+   `flop_check_then_barrel_rate`).
+3. **Bluff/value protection.** Pure check-raise from nuts is too
+   obvious. Need mixing in check-fold (weak) and check-call (marginal).
+   Decide: is balance protection inside the induce layer or a separate
+   OOP strategy module that induce calls into?
+4. **Redistribution mechanics.** What does "check-raise mass" look
+   like as a probability distribution? Two candidates:
+   - `check=0.90, raise_50=0.10` on flop + turn override to favor
+     raises
+   - `check=1.00` flop + override turn distribution after the fact
+5. **Gate scope.** Same per-class hand gates as Items 2/3/4 (nuts +
+   strong_made, dry boards), or broader for OOP because OOP play needs
+   more disguise? Also: river check-raise vs value bet is a different
+   exploit — include or exclude?
+6. **Testable hypothesis.** Item 5 needs a target opponent (a
+   CbetSpammerBot or similar — fires cbet whenever it's PFR regardless
+   of board) and concrete success criteria (≥ +X bb/100 lift,
+   ≤ −Y leak elsewhere).
+
+**Effort estimate.** 1-2 hours to think through the two-decision state
+mechanism, another 1-2 hours on the bluff/value protection scope.
+Implementation effort after the design doc is roughly comparable to
+Item 4 (~8-12 hours).
 
 **Recommendation.** Don't pull Item 5 in this handoff cycle. Write a
-fresh design doc when Items 4 and 6 are settled. The plan
-already acknowledges this.
+fresh design doc using the checklist above when ready.
 
-## Phase B Item 6 — Personality-aware intensity (pickup state)
+## Phase B Item 6 — Personality-aware intensity (DEFERRED 2026-05-23)
 
-**Spec quality: good shape, placeholder values.** Plan has the
+**Status: deferred.** Item 4's full ablation matrix (88 tournaments ×
+1000 hands, experiment 75) confirmed the fire rate is insufficient for
+archetype-specific tuning:
+
+- 9 facing-bet fires per 8000 hands vs TrapBaitBot
+- 14 facing-bet fires per 8000 hands vs Maniac
+- 0 facing-bet fires vs CaseBot, GTO-Lite, ABCBot
+- 0 open-spot fires across all 88 tournaments
+
+With ~5-23 fires per arm and 6 archetypes to compare, the per-archetype
+sample is far below what's needed to detect a differential larger than
+the ~5-10 bb/100 stderr noise floor.
+
+**Revisit conditions:**
+
+1. A contrived-state harness exists that forces the IP free-to-act
+   strong-hand spot synthetically (would require non-natural deals or
+   a "spot generator" running outside the normal game loop).
+2. A 10× sample bump on the matrix scale is feasible (~800 tournaments
+   × 1000 hands × 5 villains × 2 arms × 6 archetypes — currently
+   infeasible at ~$30/run for the smaller matrix).
+3. The induce gate is loosened to fire more often (would defeat the
+   selectivity Phase A and B fought for, but might be worth a "Item 6
+   prep" arm that intentionally widens the gate to generate samples).
+
+**Original spec preserved in `INDUCE_OVERRIDE_PHASE_B.md` §"Item 6"** —
 `ARCHETYPE_INDUCE_SCALE` dict skeleton with placeholder multipliers
-(nit/tag/rock/station=1.0, lag=0.6, maniac=0.4). The testable
-hypothesis is in place.
-
-**What's empirically validated for Item 6.** Nothing — those
-multipliers are intuition-driven. The empirical work IS Item 6: run
-each archetype vs ManiacBot with and without the multiplier, see
-which directions actually help.
-
-**Practical concern.** Item 6 only matters if Item 4 expands fire
-rate enough that archetype-specific calibration is observable.
-Currently induce fires ~5-15 times per 8000 hands — too small a
-sample to detect archetype-specific differentials. Item 4 should
-ship before Item 6 to make Item 6's experimental matrix actually
-informative.
+(nit/tag/rock/station=1.0, lag=0.6, maniac=0.4). Pick up from there
+when the sample-size problem is solved.
 
 ## Big findings (not in plan docs yet)
 
