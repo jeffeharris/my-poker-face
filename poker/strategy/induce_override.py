@@ -160,6 +160,36 @@ MIN_FLOP_CHECK_THEN_BARREL_FREQUENCY = 0.55
 MIN_FLOP_CHECK_THEN_BARREL_OPPORTUNITIES = 5
 OPEN_SPOT_CHECK_PROBABILITY = 0.70
 
+# ── OOP tunables (Phase B Item 5) ──────────────────────────────────
+#
+# Item 5 fills the OOP slots that Items 2 and 4 explicitly left out:
+#   - Facing-bet OOP with strong hand → check-raise (Decision B)
+#   - Open-spot OOP with strong hand → trap-check (Decision A)
+#
+# The two branches are independent gate evaluations — Decision B
+# implicitly requires hero to have checked the flop (because hero is
+# OOP and now facing a bet on the same street), so no cross-decision
+# state is needed.
+#
+# Both branches gate on `cbet_attempt_rate` — the PFR's tendency to
+# cbet flop when given a clean opportunity. Threshold 0.70 chosen
+# because the stat has dense samples (ticks every time the player is
+# PFR on flop) and 0.70 cleanly separates frequent cbetters (Maniac,
+# CaseBot in cbet-heavy spots) from selective ones (TAG ~0.45-0.50,
+# nit ~0.30). The check-raise branch additionally gates on
+# `barrel_frequency` to ensure villain will continue putting money in
+# on later streets if hero just calls — softer threshold (0.50) than
+# Item 2's 0.60 because the flop check-raise extracts directly.
+#
+# Redistribution is flat, matching Item 4. Item 2's confidence ramp
+# didn't show measurable EV benefit in the matrix, so we don't pay
+# its complexity cost here either.
+MIN_CBET_ATTEMPT_RATE = 0.70
+MIN_POSTFLOP_SEEN_AS_PFR = 5
+MIN_OOP_CHECK_RAISE_BARREL_FREQUENCY = 0.50
+OOP_TRAP_CHECK_PROBABILITY = 0.80
+OOP_CHECK_RAISE_PROBABILITY = 0.80
+
 
 def _check_hand_class_gate(
     hand_strength: str, nut_status: str, danger_flag_count: int,
@@ -392,6 +422,197 @@ def compute_open_spot_induce_strategy(
     return StrategyProfile(action_probabilities=new_probs)
 
 
+def should_apply_oop_trap_check(
+    *,
+    stats: AggregatedOpponentStats,
+    hand_strength: str,
+    nut_status: str,
+    street: str,
+    position: str,
+    danger_flag_count: int,
+    effective_stack_bb: float,
+    active_opponent_count: int,
+    decision_context: DecisionContext,
+    has_check: bool,
+    has_fold: bool,
+    adaptation_bias: float,
+    tilt_factor: float = 1.0,
+) -> Tuple[bool, str]:
+    """Evaluate the Phase B Item 5 OOP trap-check gate.
+
+    Decision A of the OOP check-raise tech: hero OOP, free to act on
+    flop, with strong hand, vs a frequent-cbetter. Force a check (suppress
+    bet-for-value) so villain has the chance to cbet and we can
+    check-raise. Returns `(should_fire, reason_code)`.
+    """
+    if not has_check:
+        return False, 'no_check_action'
+    if has_fold:
+        return False, 'facing_bet_use_facing_branch'
+    if decision_context.facing_all_in:
+        return False, 'facing_all_in'
+    if street not in ELIGIBLE_STREETS:
+        return False, f'wrong_street_{street}'
+    if position != 'OOP':
+        return False, 'ip_not_supported_oop_branch'
+    if active_opponent_count != 1:
+        return False, 'multiway_not_supported_oop_branch'
+    if effective_stack_bb < MIN_EFFECTIVE_STACK_BB:
+        return False, 'below_stack_floor'
+
+    passed, reason = _check_hand_class_gate(
+        hand_strength, nut_status, danger_flag_count,
+    )
+    if not passed:
+        return False, reason
+
+    if adaptation_bias * tilt_factor <= GATING_FLOOR:
+        return False, 'psychology_suppressed'
+
+    if stats.hands_observed < MIN_HANDS_OBSERVED:
+        return False, 'cold_start_hands'
+    if stats.postflop_seen_as_pfr_count < MIN_POSTFLOP_SEEN_AS_PFR:
+        return False, 'cold_start_cbet_sample'
+    if stats.cbet_attempt_rate < MIN_CBET_ATTEMPT_RATE:
+        return False, 'cbet_attempt_rate_below_threshold'
+
+    if _is_passive_with_jams(stats):
+        return False, 'opponent_is_jam_station'
+    if _is_hyper_passive(stats):
+        return False, 'opponent_is_hyper_passive'
+
+    return True, 'gate_pass'
+
+
+def compute_oop_trap_check_strategy(
+    strategy: StrategyProfile,
+) -> StrategyProfile:
+    """Redistribute toward check (trap) per Item 5 spec.
+
+    Flat split: `OOP_TRAP_CHECK_PROBABILITY` to `check`, remainder
+    evenly across raise-like action keys to keep the line unpolarized.
+    Other action keys (fold, call quanta, non-raise bets) get zero
+    mass — the trap-check branch picks between checking (trap) and
+    betting (balance).
+
+    If the strategy has no raise actions, the full mass goes to check.
+    """
+    available = list(strategy.action_probabilities.keys())
+    raises = _raise_actions(available)
+
+    if not raises:
+        return StrategyProfile(action_probabilities={'check': 1.0})
+
+    raise_share = (1.0 - OOP_TRAP_CHECK_PROBABILITY) / len(raises)
+    new_probs = {'check': OOP_TRAP_CHECK_PROBABILITY}
+    for action in raises:
+        new_probs[action] = raise_share
+    return StrategyProfile(action_probabilities=new_probs)
+
+
+def should_apply_oop_check_raise(
+    *,
+    stats: AggregatedOpponentStats,
+    hand_strength: str,
+    nut_status: str,
+    street: str,
+    position: str,
+    danger_flag_count: int,
+    effective_stack_bb: float,
+    active_opponent_count: int,
+    decision_context: DecisionContext,
+    has_call: bool,
+    has_fold: bool,
+    adaptation_bias: float,
+    tilt_factor: float = 1.0,
+) -> Tuple[bool, str]:
+    """Evaluate the Phase B Item 5 OOP check-raise gate.
+
+    Decision B of the OOP check-raise tech: hero OOP, facing cbet on
+    flop, with strong hand, vs a frequent-cbetter who also barrels.
+    Force a raise (the check-raise) instead of smooth-calling. Hero
+    being OOP and now facing a bet implies they checked first (HU
+    convention: OOP acts first, can only bet/check; donk-leads excluded
+    from scope), so no cross-decision state is needed.
+
+    Gated on both `cbet_attempt_rate` (villain cbets often → trap fires
+    often) and `barrel_frequency` (villain continues to put money in
+    if hero calls → smooth-call has lower EV than raise). Returns
+    `(should_fire, reason_code)`.
+    """
+    if not has_call:
+        return False, 'no_call_action'
+    if not has_fold:
+        return False, 'not_facing_bet'
+    if decision_context.facing_all_in:
+        return False, 'facing_all_in'
+    if street not in ELIGIBLE_STREETS:
+        return False, f'wrong_street_{street}'
+    if position != 'OOP':
+        return False, 'ip_not_supported_oop_branch'
+    if active_opponent_count != 1:
+        return False, 'multiway_not_supported_oop_branch'
+    if effective_stack_bb < MIN_EFFECTIVE_STACK_BB:
+        return False, 'below_stack_floor'
+
+    passed, reason = _check_hand_class_gate(
+        hand_strength, nut_status, danger_flag_count,
+    )
+    if not passed:
+        return False, reason
+
+    if adaptation_bias * tilt_factor <= GATING_FLOOR:
+        return False, 'psychology_suppressed'
+
+    if stats.hands_observed < MIN_HANDS_OBSERVED:
+        return False, 'cold_start_hands'
+    if stats.postflop_seen_as_pfr_count < MIN_POSTFLOP_SEEN_AS_PFR:
+        return False, 'cold_start_cbet_sample'
+    if stats.cbet_attempt_rate < MIN_CBET_ATTEMPT_RATE:
+        return False, 'cbet_attempt_rate_below_threshold'
+    # The barrel_frequency stat surfaces neutral prior 0.5 when no
+    # samples — combined with the postflop_seen_as_pfr_count gate above,
+    # at MIN_POSTFLOP_SEEN_AS_PFR samples we expect some barrel sample
+    # too, but if the barrel-frequency comes in below MIN we still want
+    # to skip (villain cbets but doesn't continue — call has better EV
+    # than raise).
+    if stats.barrel_frequency < MIN_OOP_CHECK_RAISE_BARREL_FREQUENCY:
+        return False, 'barrel_frequency_below_threshold'
+
+    if _is_passive_with_jams(stats):
+        return False, 'opponent_is_jam_station'
+    if _is_hyper_passive(stats):
+        return False, 'opponent_is_hyper_passive'
+
+    return True, 'gate_pass'
+
+
+def compute_oop_check_raise_strategy(
+    strategy: StrategyProfile,
+) -> StrategyProfile:
+    """Redistribute toward raise (check-raise) per Item 5 spec.
+
+    Flat split: `OOP_CHECK_RAISE_PROBABILITY` to raises, remainder to
+    call. Fold gets zero mass — we hold a strong hand. Other action
+    keys (check, non-raise bets) get zero mass — we're facing a bet
+    and the choice is between raise (trap) and call (balance).
+
+    If the strategy has no raise actions (pathological for a facing-bet
+    spot), the full mass goes to call.
+    """
+    available = list(strategy.action_probabilities.keys())
+    raises = _raise_actions(available)
+
+    if not raises:
+        return StrategyProfile(action_probabilities={'call': 1.0})
+
+    raise_share = OOP_CHECK_RAISE_PROBABILITY / len(raises)
+    new_probs = {'call': 1.0 - OOP_CHECK_RAISE_PROBABILITY}
+    for action in raises:
+        new_probs[action] = raise_share
+    return StrategyProfile(action_probabilities=new_probs)
+
+
 def compute_induce_override_strategy(
     strategy: StrategyProfile,
     call_probability: float,
@@ -455,47 +676,73 @@ def apply_induce_override(
     has_fold = 'fold' in available
     has_check = 'check' in available
 
-    # Dispatch: facing-bet (Phase B Item 2) vs open-spot (Phase B Item 4).
-    # has_fold = facing a bet (fold is offered). has_check + not has_fold
-    # = open spot (free to act). The two paths are mutually exclusive on
-    # the action-set surface.
+    # 2x2 dispatch on (spot type) × (position):
+    #
+    #                   IP                              OOP
+    #               ┌─────────────────────────────┬─────────────────────────────┐
+    #   facing-bet  │ Item 2: smooth call         │ Item 5b: check-raise        │
+    #               ├─────────────────────────────┼─────────────────────────────┤
+    #   open-spot   │ Item 4: check back          │ Item 5a: trap check         │
+    #               └─────────────────────────────┴─────────────────────────────┘
+    #
+    # has_fold = facing a bet (fold offered). has_check + not has_fold =
+    # open spot (free to act). The two action-set conditions are mutually
+    # exclusive in standard poker. Within each row, position decides
+    # which branch handles the case.
     if has_fold:
-        return _apply_facing_bet_induce(
-            strategy,
-            stats=stats,
-            hand_strength=hand_strength,
-            nut_status=nut_status,
-            street=street,
-            position=position,
-            danger_flag_count=danger_flag_count,
-            effective_stack_bb=effective_stack_bb,
-            active_opponent_count=active_opponent_count,
-            decision_context=decision_context,
-            has_call=has_call,
-            has_fold=has_fold,
-            adaptation_bias=adaptation_bias,
-            tilt_factor=tilt_factor,
-        )
+        if position == 'IP':
+            return _apply_facing_bet_induce(
+                strategy,
+                stats=stats, hand_strength=hand_strength, nut_status=nut_status,
+                street=street, position=position,
+                danger_flag_count=danger_flag_count,
+                effective_stack_bb=effective_stack_bb,
+                active_opponent_count=active_opponent_count,
+                decision_context=decision_context,
+                has_call=has_call, has_fold=has_fold,
+                adaptation_bias=adaptation_bias, tilt_factor=tilt_factor,
+            )
+        if position == 'OOP':
+            return _apply_oop_check_raise(
+                strategy,
+                stats=stats, hand_strength=hand_strength, nut_status=nut_status,
+                street=street, position=position,
+                danger_flag_count=danger_flag_count,
+                effective_stack_bb=effective_stack_bb,
+                active_opponent_count=active_opponent_count,
+                decision_context=decision_context,
+                has_call=has_call, has_fold=has_fold,
+                adaptation_bias=adaptation_bias, tilt_factor=tilt_factor,
+            )
 
     if has_check:
-        return _apply_open_spot_induce(
-            strategy,
-            stats=stats,
-            hand_strength=hand_strength,
-            nut_status=nut_status,
-            street=street,
-            position=position,
-            danger_flag_count=danger_flag_count,
-            effective_stack_bb=effective_stack_bb,
-            active_opponent_count=active_opponent_count,
-            decision_context=decision_context,
-            has_check=has_check,
-            has_fold=has_fold,
-            adaptation_bias=adaptation_bias,
-            tilt_factor=tilt_factor,
-        )
+        if position == 'IP':
+            return _apply_open_spot_induce(
+                strategy,
+                stats=stats, hand_strength=hand_strength, nut_status=nut_status,
+                street=street, position=position,
+                danger_flag_count=danger_flag_count,
+                effective_stack_bb=effective_stack_bb,
+                active_opponent_count=active_opponent_count,
+                decision_context=decision_context,
+                has_check=has_check, has_fold=has_fold,
+                adaptation_bias=adaptation_bias, tilt_factor=tilt_factor,
+            )
+        if position == 'OOP':
+            return _apply_oop_trap_check(
+                strategy,
+                stats=stats, hand_strength=hand_strength, nut_status=nut_status,
+                street=street, position=position,
+                danger_flag_count=danger_flag_count,
+                effective_stack_bb=effective_stack_bb,
+                active_opponent_count=active_opponent_count,
+                decision_context=decision_context,
+                has_check=has_check, has_fold=has_fold,
+                adaptation_bias=adaptation_bias, tilt_factor=tilt_factor,
+            )
 
-    # Neither facing-bet nor open-spot — no decision to redistribute.
+    # Neither facing-bet nor open-spot, OR position not in {IP, OOP} —
+    # no decision to redistribute.
     return strategy, make_no_op_trace(
         layer='induce_override', rule_id='default',
         layer_order=layer_order_for('induce_override'),
@@ -682,6 +929,199 @@ def _apply_open_spot_induce(
             'flop_check_barrel_opportunities':
                 stats.flop_check_barrel_opportunities,
             'check_probability': OPEN_SPOT_CHECK_PROBABILITY,
+            'hands_observed': stats.hands_observed,
+        },
+        input_strategy_summary=summary_before,
+        output_strategy_summary=summary_after,
+    )
+
+    return new_strategy, trace
+
+
+def _apply_oop_trap_check(
+    strategy: StrategyProfile,
+    *,
+    stats: AggregatedOpponentStats,
+    hand_strength: str,
+    nut_status: str,
+    street: str,
+    position: str,
+    danger_flag_count: int,
+    effective_stack_bb: float,
+    active_opponent_count: int,
+    decision_context: DecisionContext,
+    has_check: bool,
+    has_fold: bool,
+    adaptation_bias: float,
+    tilt_factor: float,
+) -> Tuple[StrategyProfile, InterventionTrace]:
+    """Phase B Item 5 OOP trap-check branch.
+
+    Decision A of the OOP check-raise tech: with a strong hand OOP free
+    to act on the flop vs a frequent cbetter, force a check to set up
+    the check-raise.
+    """
+    should_fire, reason_code = should_apply_oop_trap_check(
+        stats=stats,
+        hand_strength=hand_strength,
+        nut_status=nut_status,
+        street=street,
+        position=position,
+        danger_flag_count=danger_flag_count,
+        effective_stack_bb=effective_stack_bb,
+        active_opponent_count=active_opponent_count,
+        decision_context=decision_context,
+        has_check=has_check,
+        has_fold=has_fold,
+        adaptation_bias=adaptation_bias,
+        tilt_factor=tilt_factor,
+    )
+
+    if not should_fire:
+        return strategy, make_no_op_trace(
+            layer='induce_override', rule_id='default',
+            layer_order=layer_order_for('induce_override'),
+            reason_code=reason_code,
+        )
+
+    new_strategy = compute_oop_trap_check_strategy(strategy)
+
+    summary_before = summarize_strategy(strategy.action_probabilities)
+    summary_after = summarize_strategy(new_strategy.action_probabilities)
+    primary_before = primary_action(strategy.action_probabilities)
+    primary_after = primary_action(new_strategy.action_probabilities)
+    effect_size = l1_distance(
+        strategy.action_probabilities,
+        new_strategy.action_probabilities,
+    )
+
+    trace = InterventionTrace(
+        layer='induce_override',
+        rule_id='default',
+        layer_order=layer_order_for('induce_override'),
+        fired=True,
+        operation=InterventionOperation.OVERRIDE.value,
+        effect='trap_check',
+        effect_size=effect_size,
+        action_changed=(primary_before != primary_after),
+        primary_action_before=primary_before,
+        primary_action_after=primary_after,
+        reason_code=f'induced_{street}_oop_trap_check',
+        rationale=(
+            f'induce override: {hand_strength} OOP on {street} open spot, '
+            f'cbet_attempt_rate={stats.cbet_attempt_rate:.2f}, '
+            f'pfr_seen={stats.postflop_seen_as_pfr_count}, '
+            f'stack={effective_stack_bb:.1f} BB → check to set check-raise trap'
+        ),
+        inputs={
+            'hand_strength': hand_strength,
+            'nut_status': nut_status,
+            'street': street,
+            'position': position,
+            'danger_flag_count': danger_flag_count,
+            'effective_stack_bb': round(effective_stack_bb, 2),
+            'active_opponent_count': active_opponent_count,
+            'cbet_attempt_rate': round(stats.cbet_attempt_rate, 4),
+            'postflop_seen_as_pfr_count': stats.postflop_seen_as_pfr_count,
+            'check_probability': OOP_TRAP_CHECK_PROBABILITY,
+            'hands_observed': stats.hands_observed,
+        },
+        input_strategy_summary=summary_before,
+        output_strategy_summary=summary_after,
+    )
+
+    return new_strategy, trace
+
+
+def _apply_oop_check_raise(
+    strategy: StrategyProfile,
+    *,
+    stats: AggregatedOpponentStats,
+    hand_strength: str,
+    nut_status: str,
+    street: str,
+    position: str,
+    danger_flag_count: int,
+    effective_stack_bb: float,
+    active_opponent_count: int,
+    decision_context: DecisionContext,
+    has_call: bool,
+    has_fold: bool,
+    adaptation_bias: float,
+    tilt_factor: float,
+) -> Tuple[StrategyProfile, InterventionTrace]:
+    """Phase B Item 5 OOP check-raise branch.
+
+    Decision B of the OOP check-raise tech: with a strong hand OOP
+    facing villain's cbet on the flop, force a raise (the check-raise)
+    instead of smooth-calling.
+    """
+    should_fire, reason_code = should_apply_oop_check_raise(
+        stats=stats,
+        hand_strength=hand_strength,
+        nut_status=nut_status,
+        street=street,
+        position=position,
+        danger_flag_count=danger_flag_count,
+        effective_stack_bb=effective_stack_bb,
+        active_opponent_count=active_opponent_count,
+        decision_context=decision_context,
+        has_call=has_call,
+        has_fold=has_fold,
+        adaptation_bias=adaptation_bias,
+        tilt_factor=tilt_factor,
+    )
+
+    if not should_fire:
+        return strategy, make_no_op_trace(
+            layer='induce_override', rule_id='default',
+            layer_order=layer_order_for('induce_override'),
+            reason_code=reason_code,
+        )
+
+    new_strategy = compute_oop_check_raise_strategy(strategy)
+
+    summary_before = summarize_strategy(strategy.action_probabilities)
+    summary_after = summarize_strategy(new_strategy.action_probabilities)
+    primary_before = primary_action(strategy.action_probabilities)
+    primary_after = primary_action(new_strategy.action_probabilities)
+    effect_size = l1_distance(
+        strategy.action_probabilities,
+        new_strategy.action_probabilities,
+    )
+
+    trace = InterventionTrace(
+        layer='induce_override',
+        rule_id='default',
+        layer_order=layer_order_for('induce_override'),
+        fired=True,
+        operation=InterventionOperation.OVERRIDE.value,
+        effect='check_raise',
+        effect_size=effect_size,
+        action_changed=(primary_before != primary_after),
+        primary_action_before=primary_before,
+        primary_action_after=primary_after,
+        reason_code=f'induced_{street}_oop_check_raise',
+        rationale=(
+            f'induce override: {hand_strength} OOP on {street} facing cbet, '
+            f'cbet_attempt_rate={stats.cbet_attempt_rate:.2f}, '
+            f'barrel_freq={stats.barrel_frequency:.2f}, '
+            f'pfr_seen={stats.postflop_seen_as_pfr_count}, '
+            f'stack={effective_stack_bb:.1f} BB → check-raise to complete trap'
+        ),
+        inputs={
+            'hand_strength': hand_strength,
+            'nut_status': nut_status,
+            'street': street,
+            'position': position,
+            'danger_flag_count': danger_flag_count,
+            'effective_stack_bb': round(effective_stack_bb, 2),
+            'active_opponent_count': active_opponent_count,
+            'cbet_attempt_rate': round(stats.cbet_attempt_rate, 4),
+            'postflop_seen_as_pfr_count': stats.postflop_seen_as_pfr_count,
+            'barrel_frequency': round(stats.barrel_frequency, 4),
+            'barrel_opportunities': stats.barrel_opportunities,
+            'raise_probability': OOP_CHECK_RAISE_PROBABILITY,
             'hands_observed': stats.hands_observed,
         },
         input_strategy_summary=summary_before,

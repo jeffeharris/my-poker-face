@@ -18,18 +18,27 @@ from poker.strategy.induce_override import (
     HAND_CLASS_GATES,
     MIN_BARREL_FREQUENCY,
     MIN_BARREL_OPPORTUNITIES,
+    MIN_CBET_ATTEMPT_RATE,
     MIN_EFFECTIVE_STACK_BB,
     MIN_FLOP_CHECK_THEN_BARREL_FREQUENCY,
     MIN_FLOP_CHECK_THEN_BARREL_OPPORTUNITIES,
     MIN_HANDS_OBSERVED,
+    MIN_OOP_CHECK_RAISE_BARREL_FREQUENCY,
+    MIN_POSTFLOP_SEEN_AS_PFR,
+    OOP_CHECK_RAISE_PROBABILITY,
+    OOP_TRAP_CHECK_PROBABILITY,
     OPEN_SPOT_CHECK_PROBABILITY,
     OPPS_RAMP_MAX,
     RATE_RAMP_MAX,
     apply_induce_override,
     compute_call_probability,
     compute_induce_override_strategy,
+    compute_oop_check_raise_strategy,
+    compute_oop_trap_check_strategy,
     compute_open_spot_induce_strategy,
     should_apply_induce_override,
+    should_apply_oop_check_raise,
+    should_apply_oop_trap_check,
     should_apply_open_spot_induce,
 )
 
@@ -723,6 +732,327 @@ class TestOpenSpotApply:
         strategy = _open_spot_strategy()
         kwargs = _open_spot_kwargs()
         kwargs.pop('has_check')
+        kwargs.pop('has_fold')
+        disable_rules = frozenset({('induce_override', 'default')})
+        new_strategy, trace = apply_induce_override(
+            strategy, disable_rules=disable_rules, **kwargs,
+        )
+        assert not trace.fired
+        assert new_strategy is strategy
+
+
+# ── Phase B Item 5: OOP induce (trap-check + check-raise) ─────────
+
+def _cbet_spammer_stats(**overrides) -> AggregatedOpponentStats:
+    """Maniac-like opponent that cbets often AND barrels — passes both
+    Item 5 OOP gates."""
+    base = dict(
+        hands_observed=30,
+        vpip=0.80, pfr=0.80,
+        aggression_factor=5.0,
+        all_in_frequency=0.0,
+        aggression_factor_postflop=4.0,
+        cbet_attempt_rate=0.90,
+        postflop_seen_as_pfr_count=15,
+        cbet_faced_count=0,
+        all_in_per_facing_bet=0.0,
+        facing_bet_opportunities=0,
+        postflop_jam_open_rate=0.0,
+        postflop_open_opportunities=15,
+        barrel_frequency=0.80,
+        barrel_opportunities=10,
+        # Item 4 stats neutral
+        flop_check_then_barrel_rate=0.5,
+        flop_check_barrel_opportunities=0,
+    )
+    base.update(overrides)
+    return AggregatedOpponentStats(**base)
+
+
+def _oop_open_spot_strategy() -> StrategyProfile:
+    """Hero OOP free to act with strong hand — default has mixed check/bet."""
+    return StrategyProfile(action_probabilities={
+        'check': 0.30,
+        'raise_50': 0.30,
+        'raise_75': 0.40,
+    })
+
+
+def _oop_facing_bet_strategy() -> StrategyProfile:
+    """Hero OOP facing cbet with strong hand — default has mostly call."""
+    return StrategyProfile(action_probabilities={
+        'fold': 0.10,
+        'call': 0.60,
+        'raise_75': 0.30,
+    })
+
+
+def _oop_open_spot_kwargs(**overrides):
+    base = dict(
+        stats=_cbet_spammer_stats(),
+        hand_strength='nuts',
+        nut_status='actual_nuts',
+        street='flop',
+        position='OOP',
+        danger_flag_count=0,
+        effective_stack_bb=100.0,
+        active_opponent_count=1,
+        decision_context=DecisionContext(facing_all_in=False, bet_size_pot_ratio=0.0),
+        has_check=True,
+        has_fold=False,
+        adaptation_bias=0.8,
+        tilt_factor=1.0,
+    )
+    base.update(overrides)
+    return base
+
+
+def _oop_facing_bet_kwargs(**overrides):
+    base = dict(
+        stats=_cbet_spammer_stats(),
+        hand_strength='nuts',
+        nut_status='actual_nuts',
+        street='flop',
+        position='OOP',
+        danger_flag_count=0,
+        effective_stack_bb=100.0,
+        active_opponent_count=1,
+        decision_context=_facing_bet_context(),
+        has_call=True,
+        has_fold=True,
+        adaptation_bias=0.8,
+        tilt_factor=1.0,
+    )
+    base.update(overrides)
+    return base
+
+
+class TestOOPTrapCheckGate:
+    def test_baseline_oop_open_spot_fires(self):
+        should_fire, reason = should_apply_oop_trap_check(
+            **_oop_open_spot_kwargs()
+        )
+        assert should_fire
+        assert reason == 'gate_pass'
+
+    def test_no_check_blocks(self):
+        should_fire, reason = should_apply_oop_trap_check(
+            **_oop_open_spot_kwargs(has_check=False)
+        )
+        assert not should_fire
+        assert reason == 'no_check_action'
+
+    def test_facing_bet_blocks_oop_trap_check(self):
+        should_fire, reason = should_apply_oop_trap_check(
+            **_oop_open_spot_kwargs(has_fold=True)
+        )
+        assert not should_fire
+        assert reason == 'facing_bet_use_facing_branch'
+
+    def test_ip_blocks_oop_trap_check(self):
+        should_fire, reason = should_apply_oop_trap_check(
+            **_oop_open_spot_kwargs(position='IP')
+        )
+        assert not should_fire
+        assert reason == 'ip_not_supported_oop_branch'
+
+    def test_cold_start_cbet_sample_blocks(self):
+        cold = _cbet_spammer_stats(
+            postflop_seen_as_pfr_count=MIN_POSTFLOP_SEEN_AS_PFR - 1,
+        )
+        should_fire, reason = should_apply_oop_trap_check(
+            **_oop_open_spot_kwargs(stats=cold)
+        )
+        assert not should_fire
+        assert reason == 'cold_start_cbet_sample'
+
+    def test_low_cbet_attempt_rate_blocks(self):
+        low = _cbet_spammer_stats(
+            cbet_attempt_rate=MIN_CBET_ATTEMPT_RATE - 0.01,
+        )
+        should_fire, reason = should_apply_oop_trap_check(
+            **_oop_open_spot_kwargs(stats=low)
+        )
+        assert not should_fire
+        assert reason == 'cbet_attempt_rate_below_threshold'
+
+    def test_river_blocks(self):
+        should_fire, reason = should_apply_oop_trap_check(
+            **_oop_open_spot_kwargs(street='river')
+        )
+        assert not should_fire
+        assert 'river' in reason
+
+
+class TestOOPTrapCheckRedistribution:
+    def test_check_plus_raise_split(self):
+        before = _oop_open_spot_strategy()
+        after = compute_oop_trap_check_strategy(before)
+        assert after.action_probabilities['check'] == pytest.approx(
+            OOP_TRAP_CHECK_PROBABILITY
+        )
+        # 0.20 split across raise_50 and raise_75 = 0.10 each
+        assert after.action_probabilities['raise_50'] == pytest.approx(0.10)
+        assert after.action_probabilities['raise_75'] == pytest.approx(0.10)
+
+    def test_no_raise_falls_back_to_100_check(self):
+        before = StrategyProfile(action_probabilities={'check': 1.0})
+        after = compute_oop_trap_check_strategy(before)
+        assert after.action_probabilities == {'check': 1.0}
+
+
+class TestOOPCheckRaiseGate:
+    def test_baseline_oop_facing_bet_fires(self):
+        should_fire, reason = should_apply_oop_check_raise(
+            **_oop_facing_bet_kwargs()
+        )
+        assert should_fire
+        assert reason == 'gate_pass'
+
+    def test_no_call_blocks(self):
+        should_fire, reason = should_apply_oop_check_raise(
+            **_oop_facing_bet_kwargs(has_call=False)
+        )
+        assert not should_fire
+        assert reason == 'no_call_action'
+
+    def test_no_fold_blocks(self):
+        # not facing a bet
+        should_fire, reason = should_apply_oop_check_raise(
+            **_oop_facing_bet_kwargs(has_fold=False)
+        )
+        assert not should_fire
+        assert reason == 'not_facing_bet'
+
+    def test_ip_blocks_check_raise(self):
+        should_fire, reason = should_apply_oop_check_raise(
+            **_oop_facing_bet_kwargs(position='IP')
+        )
+        assert not should_fire
+        assert reason == 'ip_not_supported_oop_branch'
+
+    def test_low_barrel_frequency_blocks(self):
+        low = _cbet_spammer_stats(
+            barrel_frequency=MIN_OOP_CHECK_RAISE_BARREL_FREQUENCY - 0.01,
+        )
+        should_fire, reason = should_apply_oop_check_raise(
+            **_oop_facing_bet_kwargs(stats=low)
+        )
+        assert not should_fire
+        assert reason == 'barrel_frequency_below_threshold'
+
+    def test_low_cbet_attempt_rate_blocks(self):
+        low = _cbet_spammer_stats(
+            cbet_attempt_rate=MIN_CBET_ATTEMPT_RATE - 0.01,
+        )
+        should_fire, reason = should_apply_oop_check_raise(
+            **_oop_facing_bet_kwargs(stats=low)
+        )
+        assert not should_fire
+        assert reason == 'cbet_attempt_rate_below_threshold'
+
+
+class TestOOPCheckRaiseRedistribution:
+    def test_raise_plus_call_split(self):
+        before = _oop_facing_bet_strategy()
+        after = compute_oop_check_raise_strategy(before)
+        # 0.80 to the single raise action
+        assert after.action_probabilities['raise_75'] == pytest.approx(
+            OOP_CHECK_RAISE_PROBABILITY
+        )
+        # 0.20 to call
+        assert after.action_probabilities['call'] == pytest.approx(0.20)
+        # fold dropped (we have a strong hand)
+        assert 'fold' not in after.action_probabilities
+
+    def test_multiple_raises_split_evenly(self):
+        before = StrategyProfile(action_probabilities={
+            'fold': 0.10, 'call': 0.50,
+            'raise_50': 0.20, 'raise_75': 0.15, 'jam': 0.05,
+        })
+        after = compute_oop_check_raise_strategy(before)
+        # 0.80 split across 3 raise actions ≈ 0.267 each
+        for action in ('raise_50', 'raise_75', 'jam'):
+            assert after.action_probabilities[action] == pytest.approx(
+                OOP_CHECK_RAISE_PROBABILITY / 3
+            )
+        assert after.action_probabilities['call'] == pytest.approx(0.20)
+
+    def test_no_raise_falls_back_to_call(self):
+        before = StrategyProfile(action_probabilities={'fold': 0.5, 'call': 0.5})
+        after = compute_oop_check_raise_strategy(before)
+        assert after.action_probabilities == {'call': 1.0}
+
+
+class TestApplyOOPDispatch:
+    """Test the 2×2 dispatch in apply_induce_override correctly routes
+    by both action-set (facing-bet vs open-spot) and position."""
+
+    def test_oop_open_spot_routes_to_trap_check(self):
+        strategy = _oop_open_spot_strategy()
+        kwargs = _oop_open_spot_kwargs()
+        kwargs.pop('has_check')
+        kwargs.pop('has_fold')
+        new_strategy, trace = apply_induce_override(strategy, **kwargs)
+        assert trace.fired
+        assert trace.effect == 'trap_check'
+        assert trace.reason_code == 'induced_flop_oop_trap_check'
+
+    def test_oop_facing_bet_routes_to_check_raise(self):
+        strategy = _oop_facing_bet_strategy()
+        kwargs = _oop_facing_bet_kwargs()
+        kwargs.pop('has_call')
+        kwargs.pop('has_fold')
+        new_strategy, trace = apply_induce_override(strategy, **kwargs)
+        assert trace.fired
+        assert trace.effect == 'check_raise'
+        assert trace.reason_code == 'induced_flop_oop_check_raise'
+
+    def test_ip_facing_bet_still_routes_to_smooth_call(self):
+        """Item 2 path: IP + facing bet → smooth-call (effect smooth_call)."""
+        strategy = _facing_bet_strategy()
+        kwargs = _baseline_kwargs()
+        kwargs.pop('has_call')
+        kwargs.pop('has_fold')
+        new_strategy, trace = apply_induce_override(strategy, **kwargs)
+        assert trace.fired
+        assert trace.effect == 'smooth_call'
+
+    def test_ip_open_spot_still_routes_to_check_back(self):
+        """Item 4 path: IP + open spot → check back (effect check_back)."""
+        strategy = _open_spot_strategy()
+        kwargs = _open_spot_kwargs()
+        kwargs.pop('has_check')
+        kwargs.pop('has_fold')
+        new_strategy, trace = apply_induce_override(strategy, **kwargs)
+        assert trace.fired
+        assert trace.effect == 'check_back'
+
+    def test_oop_check_raise_trace_inputs(self):
+        strategy = _oop_facing_bet_strategy()
+        kwargs = _oop_facing_bet_kwargs()
+        kwargs.pop('has_call')
+        kwargs.pop('has_fold')
+        _, trace = apply_induce_override(strategy, **kwargs)
+        inputs = trace.inputs
+        assert inputs['cbet_attempt_rate'] == 0.9
+        assert inputs['barrel_frequency'] == 0.8
+        assert inputs['raise_probability'] == OOP_CHECK_RAISE_PROBABILITY
+
+    def test_oop_trap_check_trace_inputs(self):
+        strategy = _oop_open_spot_strategy()
+        kwargs = _oop_open_spot_kwargs()
+        kwargs.pop('has_check')
+        kwargs.pop('has_fold')
+        _, trace = apply_induce_override(strategy, **kwargs)
+        inputs = trace.inputs
+        assert inputs['cbet_attempt_rate'] == 0.9
+        assert inputs['check_probability'] == OOP_TRAP_CHECK_PROBABILITY
+
+    def test_oop_ablation_short_circuits(self):
+        strategy = _oop_facing_bet_strategy()
+        kwargs = _oop_facing_bet_kwargs()
+        kwargs.pop('has_call')
         kwargs.pop('has_fold')
         disable_rules = frozenset({('induce_override', 'default')})
         new_strategy, trace = apply_induce_override(

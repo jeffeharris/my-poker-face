@@ -1,0 +1,57 @@
+{
+  "name": "induce_override_phase_b_item5_smoke",
+  "description": "Smoke test for Phase B Item 5 (OOP induce — trap-check + check-raise). TieredBot (hero) vs ManiacBot (high cbet_attempt_rate, high barrel_frequency — should trigger both OOP branches). One arm with rule OFF (control) and one ON (variant). Validates the new branches are evaluated and route correctly.",
+  "hypothesis": "Branch dispatch correctly routes OOP open-spot decisions to trap_check and OOP facing-bet decisions to check_raise. At smoke scale (1 tournament × 500 hands) we expect 0-3 fires of each branch — the IP-vs-OOP coin flip combined with strong-hand rarity puts fire counts in similar territory to Item 4's smoke.",
+  "tags": ["tiered", "induce_override", "phase-b", "item-5", "smoke", "heads-up"],
+
+  "num_tournaments": 1,
+  "hands_per_tournament": 500,
+  "num_players": 2,
+  "starting_stack": 20000,
+  "big_blind": 100,
+  "random_seed": 42,
+  "reset_on_elimination": true,
+
+  "model": "gpt-5-nano",
+  "provider": "openai",
+
+  "personalities": ["TieredHero", "Villain"],
+  "capture_prompts": false,
+
+  "control": {
+    "label": "item5_rule_OFF",
+    "player_types": {
+      "TieredHero": {
+        "type": "tiered",
+        "expression": false,
+        "disable_rules": [["induce_override", "default"]]
+      },
+      "Villain": {
+        "type": "rule_bot",
+        "strategy": "maniac"
+      }
+    },
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  },
+
+  "variants": [
+    {
+      "label": "item5_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "maniac"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    }
+  ]
+}

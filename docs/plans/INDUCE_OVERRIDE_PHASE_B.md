@@ -3,7 +3,7 @@ purpose: Phase B — extend the induce_override rule with proper street-resolved
 type: design
 created: 2026-05-15
 last_updated: 2026-05-23
-status: Items 1–4 shipped on hybrid-ai; Item 5 needs own design doc; Item 6 deferred (empirically un-tunable at current fire rate). See "Shipped status" below and INDUCE_OVERRIDE_HANDOFF.md for pickup state.
+status: Items 1–5 shipped on hybrid-ai; Item 6 deferred (empirically un-tunable at current fire rate). See "Shipped status" below and INDUCE_OVERRIDE_HANDOFF.md + INDUCE_OVERRIDE_OOP_CHECK_RAISE.md for details.
 ---
 
 # Induce Override — Phase B
@@ -16,8 +16,8 @@ status: Items 1–4 shipped on hybrid-ai; Item 5 needs own design doc; Item 6 de
 | 2 — barrel gate + scaled mixing | `cce12ca8` | Selectivity perfect (0 fires vs non-barrelers). Threshold tuned 10→5 to make sample_confidence ramp produce meaningful variation. Followup-barrel rate 80% on high-confidence fires; 25% on low-confidence — exactly the scaled-mix behavior the design intended. |
 | 3 — `strong_made` inclusion | `056e3160` | Gate correct per tests. Empirical fire rate ~0 added at 1000-hand scale — strong_made + actual_nuts/near_nuts + dry board is rare. |
 | 4 — open-spot IP induce | this session | Three pieces shipped together: `TrapBaitBot` rule strategy + `flop_check_then_barrel_rate` stat plumbing + open-spot branch dispatch in `apply_induce_override`. **Full ablation matrix (exp 75, 8 tournaments × 1000 hands × 5 villains × 2 arms = 88 tournaments):** vs TrapBaitBot lift +1.43 bb/100 (+0.32σ) — H1 (≥ +5 bb/100) MISS, well below noise floor. Leak floors: maniac −1.88 (within), casebot +5.53 (lift!), gtolite −4.64, abcbot −5.65 — H2 (≤ −2 leak) MISS on gtolite/abcbot but both within noise (σ < 2). **Open-spot branch fired 0× across all 88 tournaments** — H3 MISS. Facing-bet branch fired 9× vs TrapBaitBot, 14× vs Maniac (8000 hands each). Verdict: correctness widening only. The IP-free-to-act-strong-hand spot is genuinely too rare for natural HU play, even at 8000-hand scale. |
-| 5 — OOP check-raise induce | pending | Design-only. Needs own plan doc — see INDUCE_OVERRIDE_HANDOFF.md §"Item 5" for the design-doc checklist (two-decision state, stat reuse vs new, bluff/value protection scope, redistribution mechanics, gate scope, testable hypothesis). |
-| 6 — personality-aware intensity | **deferred (2026-05-23)** | Empirically un-tunable at the current fire rate. Item 4's full matrix produced 9 facing-bet fires per 8K hands vs TrapBaitBot, 14 vs Maniac, 0 fires on other villains and 0 open-spot fires anywhere — insufficient sample for archetype-specific differential measurement. Revisit when (a) a contrived-state harness exists to force fires synthetically, or (b) a 10× sample matrix is feasible. |
+| 5 — OOP induce (trap-check + check-raise) | shipped 2026-05-23 (exp 77) | Two OOP branches (trap-check + check-raise) + 2×2 dispatcher (action-set × position). 50 fires per 8K hands vs Maniac (6-10× the rate of Items 2/4) — sample-size problem solved. H1 MISS with negative direction: lift = −2.39 bb/100 (σ=−0.37, within noise but first negative direction). Selectivity correct (0 fires vs GTO-Lite/ABCBot). Possible mechanism: maniacs don't fold to raises so smooth-call may have higher EV than check-raise. Design doc: INDUCE_OVERRIDE_OOP_CHECK_RAISE.md. |
+| 6 — personality-aware intensity | **deferred (2026-05-23)** | Now potentially feasible after Item 5's 50-fires-per-arm baseline. Original concern (un-tunable at low fire rate) is partially resolved — Item 5's check_raise + trap_check fires give per-archetype sample large enough that a 2-3× matrix sample (n=16-24 tournaments) might detect archetype differentials. Still deferred for prioritization, but revisit conditions are looser now. |
 
 See [INDUCE_OVERRIDE_HANDOFF.md](INDUCE_OVERRIDE_HANDOFF.md) for the
 pickup state and validation infrastructure.

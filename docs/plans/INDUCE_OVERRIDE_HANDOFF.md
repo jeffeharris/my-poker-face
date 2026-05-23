@@ -24,7 +24,8 @@ Items 4–6 without reconstructing session memory. Companion docs:
 | Phase B Item 1 (`barrel_frequency` stat) | shipped | `a4f19bb4` | converges to 0.94 vs Maniac |
 | Phase B Item 2 (barrel gate + scaled mixing) | shipped | `cce12ca8` | scaled mix produces [0.78, 0.90] call probs; followup-barrel 80% on high-conf fires |
 | Phase B Item 3 (`strong_made` inclusion) | shipped | `056e3160` | gate correct per tests; empirical fire rate ~0 at 1000-hand scale |
-| Phase B Item 4 (open-spot IP induce) | shipped | this session (exp 75) | TrapBaitBot + new stat + branch landed together. 144 tests passing. Full matrix (88 tournaments × 1000 hands): vs TrapBaitBot lift +1.43 bb/100 (+0.32σ, H1 missed); leak floor breached vs gtolite (−4.64) and abcbot (−5.65) but within noise (σ < 2); CaseBot saw unexpected +5.53 bb/100 lift (worth a second matrix run if you can spare the API budget). Open-spot branch fired 0× across all 88 tournaments — correctness widening only. |
+| Phase B Item 4 (open-spot IP induce) | shipped | exp 75 | TrapBaitBot + new stat + branch landed together. 144 tests passing. Full matrix (88 tournaments × 1000 hands): vs TrapBaitBot lift +1.43 bb/100 (+0.32σ, H1 missed); leak floor breached vs gtolite (−4.64) and abcbot (−5.65) but within noise (σ < 2); CaseBot saw unexpected +5.53 bb/100 lift (worth a second matrix run if you can spare the API budget). Open-spot branch fired 0× across all 88 tournaments — correctness widening only. |
+| Phase B Item 5 (OOP induce — trap-check + check-raise) | shipped 2026-05-23 (exp 77) | Two OOP branches + 2×2 dispatcher. 169 tests passing. Full matrix (88 tournaments × 1000 hands): 50 fires per 8K hands vs Maniac (6-10× Items 2/4's rate — sample-size problem SOLVED). **H1 MISS with negative direction**: lift vs Maniac = −2.39 bb/100 (σ=−0.37, within noise but first negative direction in Phase B). Selectivity correct: 0 fires vs GTO-Lite/ABCBot, 2 vs CaseBot. Design doc: INDUCE_OVERRIDE_OOP_CHECK_RAISE.md. Potential cause: maniacs don't fold to raises → smooth-call may have higher EV than check-raise. Tuning candidate: lower OOP_CHECK_RAISE_PROBABILITY from 0.80 to 0.60. |
 | `phase-1` merge (relationship + cash + polarization) | shipped | `d29ddf37` | see "Known issues" |
 
 ## Active question (no decision yet)
@@ -94,55 +95,66 @@ lower than the facing-bet branch's 0.60 because TrapBaitBot-class
 opponents barrel 65-80% after check-through and the trap-bait pattern
 is more readily detectable than the facing-bet barrel pattern.
 
-## Phase B Item 5 — OOP induce (check-raise tech) (pickup state)
+## Phase B Item 5 — OOP induce (SHIPPED 2026-05-23)
 
-**Spec quality: intentionally light.** The plan flags this as
-"defer until Items 1–4 are validated. The poker premise is correct
-... but the engineering surface is large enough that it deserves its
-own design pass."
+**Status: shipped this session (experiment 77).** Design doc:
+[INDUCE_OVERRIDE_OOP_CHECK_RAISE.md](INDUCE_OVERRIDE_OOP_CHECK_RAISE.md).
 
-**Design-doc checklist** (what a fresh agent needs to resolve before
-writing code):
+The design resolved the original "two-decision state" question as a
+non-issue — see the design doc §"Re-framing". Decision B (check-raise)
+inherently requires hero to have checked the flop (OOP acts first in
+HU; facing a bet ⇒ checked), so the two branches are independent gates.
 
-1. **Two-decision state.** All current induce variants are
-   single-decision; check-raise is two (flop check → turn check-raise,
-   or flop check-call depending on villain's response). Pick a state
-   model:
-   - Per-hand controller state (new field on `TieredBotController`)
-   - Trace-driven lookup (recover prior intent from
-     `_last_intervention_trace`)
-   - Pure-functional re-derivation (same gate inputs → same intent
-     each decision)
-2. **Stat reuse vs new.** The exploit lever is "villain cbets often
-   after we check OOP." `cbet_attempt_rate` (Phase 8.1a) already
-   measures this directionally. Decide whether to reuse it or build a
-   more specific `cbet_after_oop_check_rate` (parallel to Item 4's
-   `flop_check_then_barrel_rate`).
-3. **Bluff/value protection.** Pure check-raise from nuts is too
-   obvious. Need mixing in check-fold (weak) and check-call (marginal).
-   Decide: is balance protection inside the induce layer or a separate
-   OOP strategy module that induce calls into?
-4. **Redistribution mechanics.** What does "check-raise mass" look
-   like as a probability distribution? Two candidates:
-   - `check=0.90, raise_50=0.10` on flop + turn override to favor
-     raises
-   - `check=1.00` flop + override turn distribution after the fact
-5. **Gate scope.** Same per-class hand gates as Items 2/3/4 (nuts +
-   strong_made, dry boards), or broader for OOP because OOP play needs
-   more disguise? Also: river check-raise vs value bet is a different
-   exploit — include or exclude?
-6. **Testable hypothesis.** Item 5 needs a target opponent (a
-   CbetSpammerBot or similar — fires cbet whenever it's PFR regardless
-   of board) and concrete success criteria (≥ +X bb/100 lift,
-   ≤ −Y leak elsewhere).
+**What shipped:**
 
-**Effort estimate.** 1-2 hours to think through the two-decision state
-mechanism, another 1-2 hours on the bluff/value protection scope.
-Implementation effort after the design doc is roughly comparable to
-Item 4 (~8-12 hours).
+1. Two new gate helpers (`should_apply_oop_trap_check`,
+   `should_apply_oop_check_raise`)
+2. Two new redistribution helpers (`compute_oop_trap_check_strategy`,
+   `compute_oop_check_raise_strategy`)
+3. Two new apply helpers (`_apply_oop_trap_check`,
+   `_apply_oop_check_raise`)
+4. 2×2 dispatcher in `apply_induce_override` routing by
+   `(has_fold/has_check)` × `(IP/OOP)`
+5. New constants: `MIN_CBET_ATTEMPT_RATE=0.70`,
+   `MIN_POSTFLOP_SEEN_AS_PFR=5`,
+   `MIN_OOP_CHECK_RAISE_BARREL_FREQUENCY=0.50`,
+   `OOP_TRAP_CHECK_PROBABILITY=0.80`,
+   `OOP_CHECK_RAISE_PROBABILITY=0.80`
+6. 25 new tests (169 total in related suite)
+7. Smoke + full matrix configs
+8. `scripts/analyze_item5_matrix.py` (analog of Item 4's analyzer)
 
-**Recommendation.** Don't pull Item 5 in this handoff cycle. Write a
-fresh design doc using the checklist above when ready.
+**Empirical reality (full matrix, experiment 77):**
+
+| Villain | OFF | ON | Lift | σ |
+|---|---|---|---|---|
+| Maniac | +2.19 | −0.19 | **−2.39** | −0.37 |
+| CaseBot | −4.54 | −2.80 | +1.75 | +0.34 |
+| GTO-Lite | +4.28 | −0.77 | −5.05 | −0.91 |
+| ABCBot | +0.65 | −0.90 | −1.54 | −0.31 |
+| TrapBait | −3.22 | −4.16 | −0.94 | −0.20 |
+
+**Fire counts per 8K-hand arm (rule ON):**
+
+| Villain | smooth_call | trap_check | check_raise | total |
+|---|---|---|---|---|
+| Maniac | 10 | 26 | 24 | **60** |
+| CaseBot | 0 | 2 | 0 | 2 |
+| GTO-Lite | 0 | 0 | 0 | 0 |
+| ABCBot | 0 | 0 | 0 | 0 |
+| TrapBait | 5 | 19 | 21 | **45** |
+
+**Headline**: Item 5 fires 6-10× more than Items 2/4 — the sample-size
+problem that hampered prior empirical work is solved. Selectivity is
+correct (only fires against cbetters). But the lift direction vs Maniac
+is negative (−2.39 bb/100), the first negative-direction Phase B item.
+Within noise (σ = −0.37), so not a definitive verdict.
+
+**Possible mechanism for negative lift**: ManiacBot's strategy is
+"raise unless equity < 0.25" — they don't fold to the check-raise.
+Hero commits in spots where smooth-calling would have extracted more
+on later streets. Future tuning candidates documented in the design
+doc.
 
 ## Phase B Item 6 — Personality-aware intensity (DEFERRED 2026-05-23)
 
